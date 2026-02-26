@@ -1,0 +1,15 @@
+[package]
+name = "v4vmm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+toml  = "1.0"
+id3 = "1"
+
+# config parsing
+serde = { version = "1", features = ["derive"] }
+directories = "6" 
+
+# nice error handling
+anyhow = "1"

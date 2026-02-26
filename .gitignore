@@ -1,0 +1,49 @@
+# --- Rust ---------------------------------------------------------
+
+# All cargo build output
+**/target/
+
+# If you ever run `cargo install --path .` into ./bin or similar
+bin/
+
+# --- Go -----------------------------------------------------------
+
+# Common local Go build artifacts
+**/*.exe
+**/*.test
+**/*.out
+
+# If you build binaries into ./go/bin or at repo root
+go/bin/
+*.exe
+
+# --- Project-specific junk ----------------------------------------
+
+# Local test media files (don't accidentally commit full songs)
+test.mp3
+vision.md
+
+# If you ever stash random scratch audio here, uncomment:
+# *.mp3
+# *.wav
+# *.flac
+
+# --- Editor / OS cruft -------------------------------------------
+
+# Vim / Neovim
+*.swp
+*.swo
+
+# VS Code
+.vscode/
+
+# JetBrains
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# Generic backup files
+*~
+*.bak
