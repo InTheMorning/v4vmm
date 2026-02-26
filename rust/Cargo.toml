@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 toml  = "1.0"
 id3 = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 # config parsing
 serde = { version = "1", features = ["derive"] }
