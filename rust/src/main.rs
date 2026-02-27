@@ -271,9 +271,8 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
         .with_context(|| format!("read body {feed_url}"))?;
 
     let feed = Channel::read_from(Cursor::new(&body[..])).context("parse RSS")?;
-    // feed title
-    let feed_title = feed.title().to_string(); // podcast:guid (best-effort)
-    let feed_guid: Option<String> = find_ext_text(feed.extensions(), "podcast", "podcast:guid");
+    let feed_title = feed.title().to_string();
+    let feed_guid: Option<String> = find_ext_text(feed.extensions(), "podcast", "guid");
 
     // 1) upsert feed row
     conn.execute(
@@ -317,7 +316,7 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
 
         // podcast:episode as track number (best-effort parse)
         let track_number: Option<i64> =
-            find_ext_text(item.extensions(), "podcast", "podcast:episode")
+            find_ext_text(item.extensions(), "podcast", "episode")
                 .and_then(|s| s.trim().parse::<i64>().ok());
 
         let changed = tx.execute(
