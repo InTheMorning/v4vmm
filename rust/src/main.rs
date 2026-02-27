@@ -1,39 +1,20 @@
-use anyhow::{anyhow, Context, Result};
-use directories::ProjectDirs;
+mod cli;
+mod config;
+mod db;
+
+use crate::config::Config;
+use anyhow::anyhow;
+use anyhow::{Context, Result};
 use id3::{Content, Tag, TagLike};
 use rss::{
     extension::{Extension, ExtensionMap},
     Channel,
 };
 use rusqlite::Connection;
-use serde::Deserialize;
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
-use std::env;
-use std::fs;
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
-
-#[derive(Debug, Deserialize)]
-
-struct Config {
-    /// Where v4vmm-managed audio files are stored.
-    /// Example: "/home/user/V4VMusic"
-    music_dir: PathBuf,
-
-    /// Where the sqlite DB lives.
-    /// Example: "/home/user/.local/share/v4vmm/v4vmm.sqlite"
-    db_path: PathBuf,
-}
-
-#[derive(Debug)]
-enum Command {
-    ShowConfig,
-    Id3Dump { path: PathBuf },
-    Subscribe { feed_url: String },
-    RssDump { feed_url: String },
-    Help,
-}
+use std::path::Path; // so functions below can still use `Config`
 
 fn main() {
     if let Err(e) = run() {
@@ -43,258 +24,26 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-    let cfg_path = config_path()?;
-    let cfg = load_config(&cfg_path)?;
-    ensure_dirs(&cfg)?;
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
+    config::ensure_dirs(&cfg)?;
+    let mut db = db::open_db(&cfg)?;
 
-    // Keep DB connection alive for the whole run
-    let mut db = open_db(&cfg)?;
-
-    let cmd = parse_args()?;
-
+    let cmd = cli::parse_args()?;
     match cmd {
-        Command::ShowConfig => cmd_show_config(&cfg, &cfg_path),
-        Command::Id3Dump { path } => cmd_id3_dump(&cfg, &path),
-        Command::Subscribe { feed_url } => cmd_subscribe(&cfg, &mut db, &feed_url),
-        Command::RssDump { feed_url } => cmd_rss_dump(&feed_url),
-        Command::Help => {
-            print_help();
+        cli::Command::ShowConfig => cli::cmd_show_config(&cfg, &cfg_path),
+
+        cli::Command::Id3Dump { path } => cmd_id3_dump(&cfg, &path),
+
+        cli::Command::Subscribe { feed_url } => cmd_subscribe(&cfg, &mut db, &feed_url),
+
+        cli::Command::RssDump { feed_url } => cmd_rss_dump(&feed_url),
+
+        cli::Command::Help => {
+            cli::print_help();
             Ok(())
         }
     }
-}
-
-fn print_help() {
-    println!(
-        r#"v4vmm (early prototype)
-
-Usage:
-  v4vmm show-config
-  v4vmm id3-dump <path-to-mp3>
-  v4vmm subscribe <feed-url>
-  v4vmm rss-dump <feed-url>
-
-Notes:
-  - Config file: ~/.config/v4vmm/config.toml
-"#
-    );
-}
-
-/// Determine the config path.
-/// For now, Linux-first: use XDG config dir via `directories` crate.
-/// Typically: ~/.config/v4vmm/config.toml
-fn config_path() -> Result<PathBuf> {
-    let proj = ProjectDirs::from("xyz", "HeyCitizen", "v4vmm")
-        .ok_or_else(|| anyhow!("could not determine user config directory"))?;
-
-    // Linux: ~/.config/v4vmm/config.toml (the crate handles the base)
-    let mut path = proj.config_dir().to_path_buf();
-    fs::create_dir_all(&path).with_context(|| format!("create config dir {}", path.display()))?;
-
-    path.push("config.toml");
-    Ok(path)
-}
-
-/// Load config from TOML.
-/// If missing, writes a default config and returns it.
-fn load_config(cfg_path: &Path) -> Result<Config> {
-    if !cfg_path.exists() {
-        let default = default_config_toml()?;
-        fs::write(cfg_path, default.as_bytes())
-            .with_context(|| format!("write default config {}", cfg_path.display()))?;
-
-        println!(
-            "Created default config at {}\nEdit it if needed, then re-run.",
-            cfg_path.display()
-        );
-    }
-
-    let raw = fs::read_to_string(cfg_path)
-        .with_context(|| format!("read config {}", cfg_path.display()))?;
-
-    let cfg: Config =
-        toml::from_str(&raw).with_context(|| format!("parse TOML {}", cfg_path.display()))?;
-
-    if cfg.music_dir.as_os_str().is_empty() {
-        return Err(anyhow!("config: music_dir is empty"));
-    }
-    if cfg.db_path.as_os_str().is_empty() {
-        return Err(anyhow!("config: db_path is empty"));
-    }
-
-    Ok(cfg)
-}
-
-/// Default config content (TOML).
-/// Uses your stated defaults.
-fn default_config_toml() -> Result<String> {
-    let proj = ProjectDirs::from("xyz", "HeyCitizen", "v4vmm")
-        .ok_or_else(|| anyhow!("could not determine user directories"))?;
-
-    // Default music dir: ~/V4VMusic
-    let home = std::env::var("HOME").map_err(|e| anyhow!("HOME not set: {e}"))?;
-    let music_dir = PathBuf::from(&home).join("V4VMusic");
-
-    // Default DB: ~/.local/share/v4vmm/v4vmm.sqlite
-    let db_path = proj.data_dir().join("v4vmm.sqlite");
-
-    Ok(format!(
-        r#"# v4vmm config
-
-# V4V-only library root
-music_dir = "{}"
-
-# SQLite database path (app data)
-db_path = "{}"
-"#,
-        music_dir.display(),
-        db_path.display(),
-    ))
-}
-
-/// Ensure the on-disk dirs exist:
-/// - music_dir
-/// - db_path parent dir
-fn ensure_dirs(cfg: &Config) -> Result<()> {
-    fs::create_dir_all(&cfg.music_dir)
-        .with_context(|| format!("create music_dir {}", cfg.music_dir.display()))?;
-
-    let parent = cfg
-        .db_path
-        .parent()
-        .ok_or_else(|| anyhow!("db_path has no parent: {}", cfg.db_path.display()))?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("create db parent dir {}", parent.display()))?;
-
-    Ok(())
-}
-
-fn open_db(cfg: &Config) -> Result<Connection> {
-    let db_path = &cfg.db_path;
-
-    let conn = Connection::open(db_path)
-        .with_context(|| format!("open/create db {}", db_path.display()))?;
-
-    // Basic sanity / good defaults
-    conn.pragma_update(None, "foreign_keys", "ON")
-        .context("enable foreign_keys pragma")?;
-
-    init_schema(&conn)?;
-    Ok(conn)
-}
-
-fn init_schema(conn: &Connection) -> Result<()> {
-    conn.execute_batch(
-        r#"
-CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS feeds (
-    id              INTEGER PRIMARY KEY,
-
-    -- identity
-    feed_url        TEXT NOT NULL UNIQUE,         -- where we fetch from
-    feed_guid       TEXT NULL,                    -- <podcast:guid> if present
-
-    -- basic metadata (mostly RSS-level)
-    title           TEXT NULL,                    -- channel title
-    link            TEXT NULL,                    -- channel <link>
-    language        TEXT NULL,
-    description     TEXT NULL,
-    podcast_medium  TEXT NULL,                    -- podcast:medium (e.g. "music")
-
-    -- images (feed-level)
-    album_image_href TEXT NULL,                   -- podcast:image / itunes:image URL
-    album_image_mime TEXT NULL,                   -- optional, if we know it
-
-    -- people at feed level (hosts, artists, etc.)
-    people_json     TEXT NULL,                    -- JSON array of podcast:person / itunes:author etc.
-
-    -- value block (feed-level)
-    podcast_value_json TEXT NULL,                 -- JSON of <podcast:value> tree
-
-    -- subscription / state
-    is_subscribed   INTEGER NOT NULL DEFAULT 0,   -- 0/1: should we refresh this feed?
-    last_fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
-
-    extra_json      TEXT NOT NULL DEFAULT '{}'    -- future stuff
-);
-
-CREATE INDEX IF NOT EXISTS idx_feeds_guid          ON feeds(feed_guid);
-CREATE INDEX IF NOT EXISTS idx_feeds_is_subscribed ON feeds(is_subscribed);
-
-CREATE TABLE IF NOT EXISTS tracks (
-    id              INTEGER PRIMARY KEY,
-
-    -- identity
-    feed_id         INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
-    item_guid       TEXT NOT NULL,                -- <guid> (stable ID)
-    enclosure_url   TEXT NULL,                    -- original audio URL
-    link            TEXT NULL,                    -- item <link>
-    pub_date        TEXT NULL,                    -- item pubDate (for "recent" views)
-
-    -- music library metadata (ID3-style, to be filled from tags later)
-    track_title         TEXT NULL,                -- TIT2
-    artist_name         TEXT NULL,                -- TPE1
-    album_title         TEXT NULL,                -- TALB
-    album_artist_name   TEXT NULL,                -- TPE2
-    disc_number         INTEGER NULL,             -- TPOS (normalized)
-    track_number        INTEGER NULL,             -- canonical ordering (podcast:episode / ID3)
-
-    -- duration / explicit
-    duration_seconds    INTEGER NULL,             -- normalized duration (from audio or itunes:duration)
-    itunes_duration_raw TEXT NULL,                -- raw itunes:duration text
-    itunes_explicit     TEXT NULL,                -- "yes"/"no"/"clean" etc.
-
-    -- images (item-level artwork if present)
-    track_image_href    TEXT NULL,                -- item-specific image URL
-    track_image_mime    TEXT NULL,
-
-    -- people at item level (guests, performers, etc.)
-    people_json         TEXT NULL,                -- JSON array of podcast:person etc.
-
-    -- value block (item-level overrides)
-    item_value_json     TEXT NULL,                -- JSON of item-level <podcast:value>
-
-    -- user/library state
-    is_in_library       INTEGER NOT NULL DEFAULT 0, -- 0/1: user chose this for their library
-
-    extra_json          TEXT NOT NULL DEFAULT '{}',
-
-    UNIQUE(feed_id, item_guid)
-);
-
-CREATE INDEX IF NOT EXISTS idx_tracks_feed_id       ON tracks(feed_id);
-CREATE INDEX IF NOT EXISTS idx_tracks_track_number  ON tracks(feed_id, track_number);
-CREATE INDEX IF NOT EXISTS idx_tracks_is_in_library ON tracks(is_in_library);
-
-CREATE TABLE IF NOT EXISTS local_files (
-    id                  INTEGER PRIMARY KEY,
-
-    path                TEXT NOT NULL UNIQUE,     -- absolute or library-relative
-    track_id            INTEGER NULL REFERENCES tracks(id) ON DELETE SET NULL,
-
-    added_at            TEXT NOT NULL DEFAULT (datetime('now')),
-
-    file_size_bytes     INTEGER NULL,
-    audio_duration_sec  INTEGER NULL,             -- measured from file, if you ever want it
-    checksum            TEXT NULL,                -- optional: hash/etag/etc.
-
-    extra_json          TEXT NOT NULL DEFAULT '{}'
-);
-
-CREATE INDEX IF NOT EXISTS idx_local_files_track_id ON local_files(track_id);
-
-CREATE INDEX IF NOT EXISTS idx_tracks_feed_id ON tracks(feed_id);
-CREATE INDEX IF NOT EXISTS idx_tracks_track_number ON tracks(feed_id, track_number);
-CREATE INDEX IF NOT EXISTS idx_tracks_is_in_library ON tracks(is_in_library);
-CREATE INDEX IF NOT EXISTS idx_local_files_track_id ON local_files(track_id);
-"#,
-    )
-    .context("create tables")?;
-
-    Ok(())
 }
 
 fn find_ext<'a>(exts: &'a ExtensionMap, ns: &str, name: &str) -> Option<&'a Extension> {
@@ -368,44 +117,6 @@ fn parse_itunes_duration(raw: &str) -> Option<i64> {
     Some(secs)
 }
 
-fn parse_args() -> Result<Command> {
-    let mut args = env::args().skip(1); // skip program name
-
-    match args.next().as_deref() {
-        Some("show-config") => Ok(Command::ShowConfig),
-        Some("subscribe") => {
-            let u = args
-                .next()
-                .ok_or_else(|| anyhow!("subscribe requires a feed URL"))?;
-            Ok(Command::Subscribe { feed_url: u })
-        }
-        Some("id3-dump") => {
-            let p = args
-                .next()
-                .ok_or_else(|| anyhow!("id3-dump requires a path argument"))?;
-            Ok(Command::Id3Dump {
-                path: PathBuf::from(p),
-            })
-        }
-        Some("rss-dump") => {
-            let u = args
-                .next()
-                .ok_or_else(|| anyhow!("rss-dump requires a feed URL"))?;
-            Ok(Command::RssDump { feed_url: u })
-        }
-        Some("help") | Some("-h") | Some("--help") | None => Ok(Command::Help),
-
-        Some(other) => Err(anyhow!("unknown command: {other} (try: v4vmm help)")),
-    }
-}
-
-fn cmd_show_config(cfg: &Config, cfg_path: &Path) -> Result<()> {
-    println!("Config path : {}", cfg_path.display());
-    println!("music_dir   : {}", cfg.music_dir.display());
-    println!("db_path     : {}", cfg.db_path.display());
-    Ok(())
-}
-
 fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result<()> {
     println!("Fetching: {feed_url}");
 
@@ -427,22 +138,33 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
 
     let feed_link = {
         let l = feed.link().trim();
-        if l.is_empty() { None } else { Some(l.to_string()) }
+        if l.is_empty() {
+            None
+        } else {
+            Some(l.to_string())
+        }
     };
 
     let language = feed.language().map(|s| s.to_string());
 
     let desc = feed.description().trim();
-    let description = if desc.is_empty() { None } else { Some(desc.to_string()) };
+    let description = if desc.is_empty() {
+        None
+    } else {
+        Some(desc.to_string())
+    };
 
     // Podcasting 2.0 extensions: rss crate stores keys without prefix (guid, medium, value, ...)
     let feed_guid = find_ext_text(feed.extensions(), "podcast", "guid");
     let podcast_medium = find_ext_text(feed.extensions(), "podcast", "medium");
 
     // Album image (prefer podcast:image/@href; fall back to itunes channel image; then <image><url>)
-    let mut album_image_href =
-        find_ext_attr(feed.extensions(), "podcast", "image", "href")
-            .or_else(|| feed.itunes_ext().and_then(|it| it.image()).map(|s| s.to_string()));
+    let mut album_image_href = find_ext_attr(feed.extensions(), "podcast", "image", "href")
+        .or_else(|| {
+            feed.itunes_ext()
+                .and_then(|it| it.image())
+                .map(|s| s.to_string())
+        });
     if album_image_href.is_none() {
         if let Some(img) = feed.image() {
             album_image_href = Some(img.url().to_string());
@@ -536,9 +258,8 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
         let disc_number: Option<i64> = None;
 
         // Canonical ordering: podcast:episode
-        let track_number: Option<i64> =
-            find_ext_text(item.extensions(), "podcast", "episode")
-                .and_then(|s| s.trim().parse::<i64>().ok());
+        let track_number: Option<i64> = find_ext_text(item.extensions(), "podcast", "episode")
+            .and_then(|s| s.trim().parse::<i64>().ok());
 
         // iTunes item tags are NOT in extensions; rss crate exposes them via itunes_ext()
         let itunes = item.itunes_ext();
