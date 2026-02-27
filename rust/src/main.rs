@@ -1,11 +1,14 @@
 use anyhow::{anyhow, Context, Result};
 use directories::ProjectDirs;
 use id3::{Content, Tag, TagLike};
+use rss::Channel;
+use rusqlite::params;
 use rusqlite::Connection;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
@@ -23,6 +26,7 @@ struct Config {
 enum Command {
     ShowConfig,
     Id3Dump { path: PathBuf },
+    Subscribe { feed_url: String },
     Help,
 }
 
@@ -37,12 +41,20 @@ fn run() -> Result<()> {
     let cfg_path = config_path()?;
     let cfg = load_config(&cfg_path)?;
     ensure_dirs(&cfg)?;
-    let _db = open_db(&cfg)?;
+
+    // Keep DB connection alive for the whole run
+    let mut db = open_db(&cfg)?;
 
     let cmd = parse_args()?;
     match cmd {
         Command::ShowConfig => cmd_show_config(&cfg, &cfg_path),
+
+        // id3-dump doesn't need DB (yet)
         Command::Id3Dump { path } => cmd_id3_dump(&cfg, &path),
+
+        // New vertical slice commands will usually need DB:
+        Command::Subscribe { feed_url } => cmd_subscribe(&cfg, &mut db, &feed_url),
+
         Command::Help => {
             print_help();
             Ok(())
@@ -57,9 +69,10 @@ fn print_help() {
 Usage:
   v4vmm show-config
   v4vmm id3-dump <path-to-mp3>
+  v4vmm subscribe <feed-url> 
 
 Notes:
-  - Config file: ~/.config/v4vmm/config.toml (Linux-first)
+  - Config file: ~/.config/v4vmm/config.toml
 "#
     );
 }
@@ -172,6 +185,27 @@ fn init_schema(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS feeds (
+            id INTEGER PRIMARY KEY,
+            feed_url TEXT NOT NULL UNIQUE,
+            feed_guid TEXT NULL,              -- podcast:guid if present
+            title TEXT NULL,
+            last_fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+            extra_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_feeds_guid ON feeds(feed_guid);
+
+        CREATE TABLE IF NOT EXISTS tracks (
+            id INTEGER PRIMARY KEY,
+            feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+            item_guid TEXT NOT NULL,          -- RSS <guid>
+            title TEXT NULL,
+            enclosure_url TEXT NULL,          -- <enclosure url=...>
+            track_number INTEGER NULL,        -- podcast:episode (music-first ordering)
+            extra_json TEXT NOT NULL DEFAULT '{}',
+            UNIQUE(feed_id, item_guid)
+        );
 
         CREATE TABLE IF NOT EXISTS local_files (
             id INTEGER PRIMARY KEY,
@@ -179,8 +213,10 @@ fn init_schema(conn: &Connection) -> Result<()> {
             track_id INTEGER NULL,
             added_at TEXT NOT NULL DEFAULT (datetime('now')),
             extra_json TEXT NOT NULL DEFAULT '{}'
-        );
-
+            );
+            
+        CREATE INDEX IF NOT EXISTS idx_tracks_feed_id ON tracks(feed_id);
+        CREATE INDEX IF NOT EXISTS idx_tracks_track_number ON tracks(feed_id, track_number);
         CREATE INDEX IF NOT EXISTS idx_local_files_track_id ON local_files(track_id);
         "#,
     )
@@ -188,12 +224,18 @@ fn init_schema(conn: &Connection) -> Result<()> {
 
     Ok(())
 }
+
 fn parse_args() -> Result<Command> {
     let mut args = env::args().skip(1); // skip program name
 
     match args.next().as_deref() {
         Some("show-config") => Ok(Command::ShowConfig),
-
+        Some("subscribe") => {
+            let u = args
+                .next()
+                .ok_or_else(|| anyhow!("subscribe requires a feed URL"))?;
+            Ok(Command::Subscribe { feed_url: u })
+        }
         Some("id3-dump") => {
             let p = args
                 .next()
@@ -214,6 +256,105 @@ fn cmd_show_config(cfg: &Config, cfg_path: &Path) -> Result<()> {
     println!("music_dir   : {}", cfg.music_dir.display());
     println!("db_path     : {}", cfg.db_path.display());
     Ok(())
+}
+
+fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result<()> {
+    println!("Fetching: {feed_url}");
+
+    let body = reqwest::blocking::Client::new()
+        .get(feed_url)
+        .send()
+        .with_context(|| format!("GET {feed_url}"))?
+        .error_for_status()
+        .with_context(|| format!("HTTP error for {feed_url}"))?
+        .bytes()
+        .with_context(|| format!("read body {feed_url}"))?;
+
+    let feed = Channel::read_from(Cursor::new(&body[..])).context("parse RSS")?;
+    // feed title
+    let feed_title = feed.title().to_string(); // podcast:guid (best-effort)
+    let feed_guid: Option<String> = find_ext_text(feed.extensions(), "podcast", "podcast:guid");
+
+    // 1) upsert feed row
+    conn.execute(
+        r#"
+        INSERT INTO feeds (feed_url, feed_guid, title, last_fetched_at)
+        VALUES (?1, ?2, ?3, datetime('now'))
+        ON CONFLICT(feed_url) DO UPDATE SET
+            feed_guid = excluded.feed_guid,
+            title = excluded.title,
+            last_fetched_at = datetime('now')
+        "#,
+        params![feed_url, feed_guid, feed_title],
+    )
+    .context("upsert feed")?;
+
+    let feed_id: i64 = conn
+        .query_row(
+            "SELECT id FROM feeds WHERE feed_url = ?1",
+            params![feed_url],
+            |row| row.get(0),
+        )
+        .context("lookup feed_id")?;
+
+    // 2) upsert tracks
+    let tx = conn.transaction().context("begin transaction")?;
+
+    let mut inserted = 0usize;
+    let mut updated = 0usize;
+
+    for item in feed.items() {
+        // item guid: RSS <guid> is the stable identity you want
+        let item_guid = match item.guid() {
+            Some(g) => g.value().to_string(),
+            None => continue, // no stable identity, skip
+        };
+
+        let title: Option<String> = item.title().map(|s| s.to_string());
+
+        // enclosure url (RSS has a real enclosure object)
+        let enclosure_url: Option<String> = item.enclosure().map(|e| e.url().to_string());
+
+        // podcast:episode as track number (best-effort parse)
+        let track_number: Option<i64> =
+            find_ext_text(item.extensions(), "podcast", "podcast:episode")
+                .and_then(|s| s.trim().parse::<i64>().ok());
+
+        let changed = tx.execute(
+            r#"
+        INSERT INTO tracks (feed_id, item_guid, title, enclosure_url, track_number)
+        VALUES (?1, ?2, ?3, ?4, ?5)
+        ON CONFLICT(feed_id, item_guid) DO UPDATE SET
+            title = excluded.title,
+            enclosure_url = excluded.enclosure_url,
+            track_number = excluded.track_number
+        "#,
+            params![feed_id, item_guid, title, enclosure_url, track_number],
+        )?;
+
+        if changed > 0 {
+            updated += 1;
+        } else {
+            inserted += 1;
+        }
+    }
+
+    tx.commit().context("commit tracks")?;
+
+    println!(
+        "Subscribed/updated feed: {}{}",
+        feed_title.clone(),
+        feed_guid
+            .as_ref()
+            .map(|g| format!(" (podcast:guid={g})"))
+            .unwrap_or_default()
+    );
+    println!("Tracks upserted: {}", updated);
+    Ok(())
+}
+
+fn find_ext_text(exts: &rss::extension::ExtensionMap, ns: &str, name: &str) -> Option<String> {
+    exts.get(ns)?.get(name)?.first()?.value.clone()
 }
 
 fn cmd_id3_dump(_cfg: &Config, path: &Path) -> Result<()> {
