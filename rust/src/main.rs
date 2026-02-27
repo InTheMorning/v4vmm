@@ -1,10 +1,13 @@
 use anyhow::{anyhow, Context, Result};
 use directories::ProjectDirs;
 use id3::{Content, Tag, TagLike};
-use rss::Channel;
-use rusqlite::params;
+use rss::{
+    extension::{Extension, ExtensionMap},
+    Channel,
+};
 use rusqlite::Connection;
 use serde::Deserialize;
+use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -12,6 +15,7 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
+
 struct Config {
     /// Where v4vmm-managed audio files are stored.
     /// Example: "/home/user/V4VMusic"
@@ -148,6 +152,7 @@ db_path = "{}"
         db_path.display(),
     ))
 }
+
 /// Ensure the on-disk dirs exist:
 /// - music_dir
 /// - db_path parent dir
@@ -182,47 +187,186 @@ fn open_db(cfg: &Config) -> Result<Connection> {
 fn init_schema(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
-        CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS feeds (
-            id INTEGER PRIMARY KEY,
-            feed_url TEXT NOT NULL UNIQUE,
-            feed_guid TEXT NULL,              -- podcast:guid if present
-            title TEXT NULL,
-            last_fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
-            extra_json TEXT NOT NULL DEFAULT '{}'
-        );
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER NOT NULL
+);
 
-        CREATE INDEX IF NOT EXISTS idx_feeds_guid ON feeds(feed_guid);
+CREATE TABLE IF NOT EXISTS feeds (
+    id              INTEGER PRIMARY KEY,
 
-        CREATE TABLE IF NOT EXISTS tracks (
-            id INTEGER PRIMARY KEY,
-            feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
-            item_guid TEXT NOT NULL,          -- RSS <guid>
-            title TEXT NULL,
-            enclosure_url TEXT NULL,          -- <enclosure url=...>
-            track_number INTEGER NULL,        -- podcast:episode (music-first ordering)
-            extra_json TEXT NOT NULL DEFAULT '{}',
-            UNIQUE(feed_id, item_guid)
-        );
+    -- identity
+    feed_url        TEXT NOT NULL UNIQUE,         -- where we fetch from
+    feed_guid       TEXT NULL,                    -- <podcast:guid> if present
 
-        CREATE TABLE IF NOT EXISTS local_files (
-            id INTEGER PRIMARY KEY,
-            path TEXT NOT NULL UNIQUE,
-            track_id INTEGER NULL,
-            added_at TEXT NOT NULL DEFAULT (datetime('now')),
-            extra_json TEXT NOT NULL DEFAULT '{}'
-            );
-            
-        CREATE INDEX IF NOT EXISTS idx_tracks_feed_id ON tracks(feed_id);
-        CREATE INDEX IF NOT EXISTS idx_tracks_track_number ON tracks(feed_id, track_number);
-        CREATE INDEX IF NOT EXISTS idx_local_files_track_id ON local_files(track_id);
-        "#,
+    -- basic metadata (mostly RSS-level)
+    title           TEXT NULL,                    -- channel title
+    link            TEXT NULL,                    -- channel <link>
+    language        TEXT NULL,
+    description     TEXT NULL,
+    podcast_medium  TEXT NULL,                    -- podcast:medium (e.g. "music")
+
+    -- images (feed-level)
+    album_image_href TEXT NULL,                   -- podcast:image / itunes:image URL
+    album_image_mime TEXT NULL,                   -- optional, if we know it
+
+    -- people at feed level (hosts, artists, etc.)
+    people_json     TEXT NULL,                    -- JSON array of podcast:person / itunes:author etc.
+
+    -- value block (feed-level)
+    podcast_value_json TEXT NULL,                 -- JSON of <podcast:value> tree
+
+    -- subscription / state
+    is_subscribed   INTEGER NOT NULL DEFAULT 0,   -- 0/1: should we refresh this feed?
+    last_fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+
+    extra_json      TEXT NOT NULL DEFAULT '{}'    -- future stuff
+);
+
+CREATE INDEX IF NOT EXISTS idx_feeds_guid          ON feeds(feed_guid);
+CREATE INDEX IF NOT EXISTS idx_feeds_is_subscribed ON feeds(is_subscribed);
+
+CREATE TABLE IF NOT EXISTS tracks (
+    id              INTEGER PRIMARY KEY,
+
+    -- identity
+    feed_id         INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+    item_guid       TEXT NOT NULL,                -- <guid> (stable ID)
+    enclosure_url   TEXT NULL,                    -- original audio URL
+    link            TEXT NULL,                    -- item <link>
+    pub_date        TEXT NULL,                    -- item pubDate (for "recent" views)
+
+    -- music library metadata (ID3-style, to be filled from tags later)
+    track_title         TEXT NULL,                -- TIT2
+    artist_name         TEXT NULL,                -- TPE1
+    album_title         TEXT NULL,                -- TALB
+    album_artist_name   TEXT NULL,                -- TPE2
+    disc_number         INTEGER NULL,             -- TPOS (normalized)
+    track_number        INTEGER NULL,             -- canonical ordering (podcast:episode / ID3)
+
+    -- duration / explicit
+    duration_seconds    INTEGER NULL,             -- normalized duration (from audio or itunes:duration)
+    itunes_duration_raw TEXT NULL,                -- raw itunes:duration text
+    itunes_explicit     TEXT NULL,                -- "yes"/"no"/"clean" etc.
+
+    -- images (item-level artwork if present)
+    track_image_href    TEXT NULL,                -- item-specific image URL
+    track_image_mime    TEXT NULL,
+
+    -- people at item level (guests, performers, etc.)
+    people_json         TEXT NULL,                -- JSON array of podcast:person etc.
+
+    -- value block (item-level overrides)
+    item_value_json     TEXT NULL,                -- JSON of item-level <podcast:value>
+
+    -- user/library state
+    is_in_library       INTEGER NOT NULL DEFAULT 0, -- 0/1: user chose this for their library
+
+    extra_json          TEXT NOT NULL DEFAULT '{}',
+
+    UNIQUE(feed_id, item_guid)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracks_feed_id       ON tracks(feed_id);
+CREATE INDEX IF NOT EXISTS idx_tracks_track_number  ON tracks(feed_id, track_number);
+CREATE INDEX IF NOT EXISTS idx_tracks_is_in_library ON tracks(is_in_library);
+
+CREATE TABLE IF NOT EXISTS local_files (
+    id                  INTEGER PRIMARY KEY,
+
+    path                TEXT NOT NULL UNIQUE,     -- absolute or library-relative
+    track_id            INTEGER NULL REFERENCES tracks(id) ON DELETE SET NULL,
+
+    added_at            TEXT NOT NULL DEFAULT (datetime('now')),
+
+    file_size_bytes     INTEGER NULL,
+    audio_duration_sec  INTEGER NULL,             -- measured from file, if you ever want it
+    checksum            TEXT NULL,                -- optional: hash/etag/etc.
+
+    extra_json          TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_local_files_track_id ON local_files(track_id);
+
+CREATE INDEX IF NOT EXISTS idx_tracks_feed_id ON tracks(feed_id);
+CREATE INDEX IF NOT EXISTS idx_tracks_track_number ON tracks(feed_id, track_number);
+CREATE INDEX IF NOT EXISTS idx_tracks_is_in_library ON tracks(is_in_library);
+CREATE INDEX IF NOT EXISTS idx_local_files_track_id ON local_files(track_id);
+"#,
     )
     .context("create tables")?;
 
     Ok(())
+}
+
+fn find_ext<'a>(exts: &'a ExtensionMap, ns: &str, name: &str) -> Option<&'a Extension> {
+    exts.get(ns)?.get(name)?.first()
+}
+
+fn find_ext_text(exts: &ExtensionMap, ns: &str, name: &str) -> Option<String> {
+    find_ext(exts, ns, name)?.value.clone()
+}
+
+fn find_ext_attr(exts: &ExtensionMap, ns: &str, name: &str, attr: &str) -> Option<String> {
+    find_ext(exts, ns, name)?.attrs.get(attr).cloned()
+}
+
+// podcast:person -> JSON array [{ name, attrs }, ...]
+fn collect_people_json(exts: &ExtensionMap) -> Option<String> {
+    let persons = exts.get("podcast")?.get("person")?;
+    let arr: Vec<JsonValue> = persons
+        .iter()
+        .map(|p| {
+            json!({
+                "name": p.value,
+                "attrs": p.attrs,
+            })
+        })
+        .collect();
+    serde_json::to_string(&arr).ok()
+}
+
+fn ext_to_json(ext: &Extension) -> JsonValue {
+    let children = ext
+        .children
+        .iter()
+        .map(|(k, vec)| {
+            let arr: Vec<JsonValue> = vec.iter().map(ext_to_json).collect();
+            (k.clone(), JsonValue::Array(arr))
+        })
+        .collect::<serde_json::Map<String, JsonValue>>();
+
+    json!({
+        "value": ext.value,
+        "attrs": ext.attrs,
+        "children": children,
+    })
+}
+
+fn value_block_json(exts: &rss::extension::ExtensionMap, ns: &str, name: &str) -> Option<String> {
+    let ext = find_ext(exts, ns, name)?;
+    serde_json::to_string(&ext_to_json(ext)).ok()
+}
+
+// "123", "03:45", "1:02:03" -> seconds
+fn parse_itunes_duration(raw: &str) -> Option<i64> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let parts: Vec<&str> = raw.split(':').collect();
+    let nums: Vec<i64> = parts
+        .iter()
+        .map(|p| p.parse::<i64>().ok())
+        .collect::<Option<_>>()?;
+
+    let secs = match nums.len() {
+        1 => nums[0],
+        2 => nums[0] * 60 + nums[1],
+        3 => nums[0] * 3600 + nums[1] * 60 + nums[2],
+        _ => return None,
+    };
+    Some(secs)
 }
 
 fn parse_args() -> Result<Command> {
@@ -261,6 +405,7 @@ fn cmd_show_config(cfg: &Config, cfg_path: &Path) -> Result<()> {
 fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result<()> {
     println!("Fetching: {feed_url}");
 
+    // HTTP fetch
     let body = reqwest::blocking::Client::new()
         .get(feed_url)
         .send()
@@ -270,86 +415,224 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
         .bytes()
         .with_context(|| format!("read body {feed_url}"))?;
 
-    let feed = Channel::read_from(Cursor::new(&body[..])).context("parse RSS")?;
-    let feed_title = feed.title().to_string();
-    let feed_guid: Option<String> = find_ext_text(feed.extensions(), "podcast", "guid");
+    // Parse RSS
+    let feed = Channel::read_from(Cursor::new(body)).context("parse RSS")?;
 
-    // 1) upsert feed row
+    // ----- feed-level fields -----
+    let feed_title = feed.title().to_string();
+    let feed_link = {
+        let l = feed.link().trim();
+        if l.is_empty() {
+            None
+        } else {
+            Some(l.to_string())
+        }
+    };
+    let language = feed.language().map(|s| s.to_string());
+    let desc = feed.description().trim();
+    let description = if desc.is_empty() {
+        None
+    } else {
+        Some(desc.to_string())
+    };
+    // podcast:guid, podcast:medium
+    let feed_guid = find_ext_text(feed.extensions(), "podcast", "guid");
+    let podcast_medium = find_ext_text(feed.extensions(), "podcast", "medium");
+
+    // images: prefer podcast:image/@href, then itunes:image/@href, then <image> url
+    let mut album_image_href = find_ext_attr(feed.extensions(), "podcast", "image", "href")
+        .or_else(|| find_ext_attr(feed.extensions(), "itunes", "image", "href"));
+    if album_image_href.is_none() {
+        if let Some(img) = feed.image() {
+            album_image_href = Some(img.url().to_string());
+        }
+    }
+    let album_image_mime: Option<String> = None; // can be filled later if you care
+
+    // people at feed level
+    let feed_people_json = collect_people_json(feed.extensions());
+
+    // feed-level value block
+    let podcast_value_json = value_block_json(feed.extensions(), "podcast", "value");
+
+    // ----- UPSERT feed row -----
     conn.execute(
         r#"
-        INSERT INTO feeds (feed_url, feed_guid, title, last_fetched_at)
-        VALUES (?1, ?2, ?3, datetime('now'))
+        INSERT INTO feeds (
+            feed_url,
+            feed_guid,
+            title,
+            link,
+            language,
+            description,
+            podcast_medium,
+            album_image_href,
+            album_image_mime,
+            people_json,
+            podcast_value_json,
+            is_subscribed,
+            last_fetched_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, datetime('now'))
         ON CONFLICT(feed_url) DO UPDATE SET
-            feed_guid = excluded.feed_guid,
-            title = excluded.title,
-            last_fetched_at = datetime('now')
+            feed_guid         = excluded.feed_guid,
+            title             = excluded.title,
+            link              = excluded.link,
+            language          = excluded.language,
+            description       = excluded.description,
+            podcast_medium    = excluded.podcast_medium,
+            album_image_href  = excluded.album_image_href,
+            album_image_mime  = excluded.album_image_mime,
+            people_json       = excluded.people_json,
+            podcast_value_json= excluded.podcast_value_json,
+            is_subscribed     = 1,
+            last_fetched_at   = datetime('now')
         "#,
-        params![feed_url, feed_guid, feed_title],
+        rusqlite::params![
+            feed_url,
+            feed_guid,
+            feed_title,
+            feed_link,
+            language,
+            description,
+            podcast_medium,
+            album_image_href,
+            album_image_mime,
+            feed_people_json,
+            podcast_value_json,
+        ],
     )
     .context("upsert feed")?;
 
     let feed_id: i64 = conn
         .query_row(
             "SELECT id FROM feeds WHERE feed_url = ?1",
-            params![feed_url],
+            rusqlite::params![feed_url],
             |row| row.get(0),
         )
         .context("lookup feed_id")?;
 
-    // 2) upsert tracks
+    // ----- tracks -----
+    let mut upserted = 0usize;
     let tx = conn.transaction().context("begin transaction")?;
 
-    let mut updated = 0usize;
-
     for item in feed.items() {
-        // item guid: RSS <guid> is the stable identity you want
+        // identity
         let item_guid = match item.guid() {
             Some(g) => g.value().to_string(),
-            None => continue, // no stable identity, skip
+            None => continue, // skip items with no GUID
         };
 
-        let title: Option<String> = item.title().map(|s| s.to_string());
+        let enclosure_url = item.enclosure().map(|e| e.url().to_string());
+        let item_link = item.link().map(|s| s.to_string());
+        let pub_date = item.pub_date().map(|s| s.to_string());
 
-        // enclosure url (RSS has a real enclosure object)
-        let enclosure_url: Option<String> = item.enclosure().map(|e| e.url().to_string());
+        // provisional music metadata (can be overridden by ID3 later)
+        let track_title = item.title().map(|s| s.to_string());
+        let artist_name: Option<String> = None;
+        let album_title: Option<String> = None;
+        let album_artist_name: Option<String> = None;
+        let disc_number: Option<i64> = None;
 
-        // podcast:episode as track number (best-effort parse)
+        // track_number from podcast:episode
         let track_number: Option<i64> = find_ext_text(item.extensions(), "podcast", "episode")
             .and_then(|s| s.trim().parse::<i64>().ok());
 
-        let changed: usize = tx.execute(
+        // image / duration / explicit
+        let itunes_duration_raw = find_ext_text(item.extensions(), "itunes", "duration")
+            .or_else(|| find_ext_text(item.extensions(), "itunes", "itunes:duration"));
+        let duration_seconds: Option<i64> = itunes_duration_raw
+            .as_deref()
+            .and_then(parse_itunes_duration);
+        let itunes_explicit = find_ext_text(item.extensions(), "itunes", "explicit")
+            .or_else(|| find_ext_text(item.extensions(), "itunes", "itunes:explicit"));
+
+        let track_image_href = find_ext_attr(item.extensions(), "itunes", "image", "href")
+            .or_else(|| find_ext_attr(item.extensions(), "itunes", "itunes:image", "href"))
+            .or_else(|| find_ext_attr(item.extensions(), "podcast", "image", "href"))
+            .or_else(|| find_ext_attr(item.extensions(), "podcast", "podcast:image", "href"));
+        let track_image_mime: Option<String> = None;
+
+        // item-level people & value
+        let people_json = collect_people_json(item.extensions());
+        let item_value_json = value_block_json(item.extensions(), "podcast", "value");
+
+        let changed = tx.execute(
             r#"
-        INSERT INTO tracks (feed_id, item_guid, title, enclosure_url, track_number)
-        VALUES (?1, ?2, ?3, ?4, ?5)
-        ON CONFLICT(feed_id, item_guid) DO UPDATE SET
-            title = excluded.title,
-            enclosure_url = excluded.enclosure_url,
-            track_number = excluded.track_number
-        "#,
-            params![feed_id, item_guid, title, enclosure_url, track_number],
+            INSERT INTO tracks (
+                feed_id,
+                item_guid,
+                enclosure_url,
+                link,
+                pub_date,
+                track_title,
+                artist_name,
+                album_title,
+                album_artist_name,
+                disc_number,
+                track_number,
+                duration_seconds,
+                itunes_duration_raw,
+                itunes_explicit,
+                track_image_href,
+                track_image_mime,
+                people_json,
+                item_value_json
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            ON CONFLICT(feed_id, item_guid) DO UPDATE SET
+                enclosure_url       = excluded.enclosure_url,
+                link                = excluded.link,
+                pub_date            = excluded.pub_date,
+                track_title         = excluded.track_title,
+                artist_name         = excluded.artist_name,
+                album_title         = excluded.album_title,
+                album_artist_name   = excluded.album_artist_name,
+                disc_number         = excluded.disc_number,
+                track_number        = excluded.track_number,
+                duration_seconds    = excluded.duration_seconds,
+                itunes_duration_raw = excluded.itunes_duration_raw,
+                itunes_explicit     = excluded.itunes_explicit,
+                track_image_href    = excluded.track_image_href,
+                track_image_mime    = excluded.track_image_mime,
+                people_json         = excluded.people_json,
+                item_value_json     = excluded.item_value_json
+            "#,
+            rusqlite::params![
+                feed_id,
+                item_guid,
+                enclosure_url,
+                item_link,
+                pub_date,
+                track_title,
+                artist_name,
+                album_title,
+                album_artist_name,
+                disc_number,
+                track_number,
+                duration_seconds,
+                itunes_duration_raw,
+                itunes_explicit,
+                track_image_href,
+                track_image_mime,
+                people_json,
+                item_value_json,
+            ],
         )?;
 
         if changed > 0 {
-            updated += 1;
+            upserted += 1;
         }
     }
 
     tx.commit().context("commit tracks")?;
 
     println!(
-        "Subscribed/updated feed: {}{}",
-        feed_title.clone(),
-        feed_guid
-            .as_ref()
-            .map(|g| format!(" (podcast:guid={g})"))
-            .unwrap_or_default()
+        "Subscribed/updated feed: {} (tracks upserted: {})",
+        feed_title, upserted
     );
-    println!("Tracks upserted: {}", updated);
-    Ok(())
-}
 
-fn find_ext_text(exts: &rss::extension::ExtensionMap, ns: &str, name: &str) -> Option<String> {
-    exts.get(ns)?.get(name)?.first()?.value.clone()
+    Ok(())
 }
 
 fn cmd_id3_dump(_cfg: &Config, path: &Path) -> Result<()> {
