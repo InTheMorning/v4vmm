@@ -299,7 +299,6 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
     // 2) upsert tracks
     let tx = conn.transaction().context("begin transaction")?;
 
-    let mut inserted = 0usize;
     let mut updated = 0usize;
 
     for item in feed.items() {
@@ -315,11 +314,10 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
         let enclosure_url: Option<String> = item.enclosure().map(|e| e.url().to_string());
 
         // podcast:episode as track number (best-effort parse)
-        let track_number: Option<i64> =
-            find_ext_text(item.extensions(), "podcast", "episode")
-                .and_then(|s| s.trim().parse::<i64>().ok());
+        let track_number: Option<i64> = find_ext_text(item.extensions(), "podcast", "episode")
+            .and_then(|s| s.trim().parse::<i64>().ok());
 
-        let changed = tx.execute(
+        let changed: usize = tx.execute(
             r#"
         INSERT INTO tracks (feed_id, item_guid, title, enclosure_url, track_number)
         VALUES (?1, ?2, ?3, ?4, ?5)
@@ -333,8 +331,6 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
 
         if changed > 0 {
             updated += 1;
-        } else {
-            inserted += 1;
         }
     }
 
