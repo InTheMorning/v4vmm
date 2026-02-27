@@ -31,6 +31,7 @@ enum Command {
     ShowConfig,
     Id3Dump { path: PathBuf },
     Subscribe { feed_url: String },
+    RssDump { feed_url: String },
     Help,
 }
 
@@ -50,15 +51,12 @@ fn run() -> Result<()> {
     let mut db = open_db(&cfg)?;
 
     let cmd = parse_args()?;
+
     match cmd {
         Command::ShowConfig => cmd_show_config(&cfg, &cfg_path),
-
-        // id3-dump doesn't need DB (yet)
         Command::Id3Dump { path } => cmd_id3_dump(&cfg, &path),
-
-        // New vertical slice commands will usually need DB:
         Command::Subscribe { feed_url } => cmd_subscribe(&cfg, &mut db, &feed_url),
-
+        Command::RssDump { feed_url } => cmd_rss_dump(&feed_url),
         Command::Help => {
             print_help();
             Ok(())
@@ -73,7 +71,8 @@ fn print_help() {
 Usage:
   v4vmm show-config
   v4vmm id3-dump <path-to-mp3>
-  v4vmm subscribe <feed-url> 
+  v4vmm subscribe <feed-url>
+  v4vmm rss-dump <feed-url>
 
 Notes:
   - Config file: ~/.config/v4vmm/config.toml
@@ -388,7 +387,12 @@ fn parse_args() -> Result<Command> {
                 path: PathBuf::from(p),
             })
         }
-
+        Some("rss-dump") => {
+            let u = args
+                .next()
+                .ok_or_else(|| anyhow!("rss-dump requires a feed URL"))?;
+            Ok(Command::RssDump { feed_url: u })
+        }
         Some("help") | Some("-h") | Some("--help") | None => Ok(Command::Help),
 
         Some(other) => Err(anyhow!("unknown command: {other} (try: v4vmm help)")),
@@ -405,7 +409,7 @@ fn cmd_show_config(cfg: &Config, cfg_path: &Path) -> Result<()> {
 fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result<()> {
     println!("Fetching: {feed_url}");
 
-    // HTTP fetch
+    // --- fetch ---
     let body = reqwest::blocking::Client::new()
         .get(feed_url)
         .send()
@@ -415,47 +419,44 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
         .bytes()
         .with_context(|| format!("read body {feed_url}"))?;
 
-    // Parse RSS
+    // --- parse ---
     let feed = Channel::read_from(Cursor::new(body)).context("parse RSS")?;
 
-    // ----- feed-level fields -----
+    // --- feed-level fields (RSS channel + podcast extensions) ---
     let feed_title = feed.title().to_string();
+
     let feed_link = {
         let l = feed.link().trim();
-        if l.is_empty() {
-            None
-        } else {
-            Some(l.to_string())
-        }
+        if l.is_empty() { None } else { Some(l.to_string()) }
     };
+
     let language = feed.language().map(|s| s.to_string());
+
     let desc = feed.description().trim();
-    let description = if desc.is_empty() {
-        None
-    } else {
-        Some(desc.to_string())
-    };
-    // podcast:guid, podcast:medium
+    let description = if desc.is_empty() { None } else { Some(desc.to_string()) };
+
+    // Podcasting 2.0 extensions: rss crate stores keys without prefix (guid, medium, value, ...)
     let feed_guid = find_ext_text(feed.extensions(), "podcast", "guid");
     let podcast_medium = find_ext_text(feed.extensions(), "podcast", "medium");
 
-    // images: prefer podcast:image/@href, then itunes:image/@href, then <image> url
-    let mut album_image_href = find_ext_attr(feed.extensions(), "podcast", "image", "href")
-        .or_else(|| find_ext_attr(feed.extensions(), "itunes", "image", "href"));
+    // Album image (prefer podcast:image/@href; fall back to itunes channel image; then <image><url>)
+    let mut album_image_href =
+        find_ext_attr(feed.extensions(), "podcast", "image", "href")
+            .or_else(|| feed.itunes_ext().and_then(|it| it.image()).map(|s| s.to_string()));
     if album_image_href.is_none() {
         if let Some(img) = feed.image() {
             album_image_href = Some(img.url().to_string());
         }
     }
-    let album_image_mime: Option<String> = None; // can be filled later if you care
+    let album_image_mime: Option<String> = None;
 
-    // people at feed level
+    // People at feed level (podcast:person); ok if None
     let feed_people_json = collect_people_json(feed.extensions());
 
-    // feed-level value block
+    // Full value block (including recipients) as JSON
     let podcast_value_json = value_block_json(feed.extensions(), "podcast", "value");
 
-    // ----- UPSERT feed row -----
+    // --- upsert feed row (always mark subscribed) ---
     conn.execute(
         r#"
         INSERT INTO feeds (
@@ -475,18 +476,18 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
         )
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 1, datetime('now'))
         ON CONFLICT(feed_url) DO UPDATE SET
-            feed_guid         = excluded.feed_guid,
-            title             = excluded.title,
-            link              = excluded.link,
-            language          = excluded.language,
-            description       = excluded.description,
-            podcast_medium    = excluded.podcast_medium,
-            album_image_href  = excluded.album_image_href,
-            album_image_mime  = excluded.album_image_mime,
-            people_json       = excluded.people_json,
-            podcast_value_json= excluded.podcast_value_json,
-            is_subscribed     = 1,
-            last_fetched_at   = datetime('now')
+            feed_guid          = excluded.feed_guid,
+            title              = excluded.title,
+            link               = excluded.link,
+            language           = excluded.language,
+            description        = excluded.description,
+            podcast_medium     = excluded.podcast_medium,
+            album_image_href   = excluded.album_image_href,
+            album_image_mime   = excluded.album_image_mime,
+            people_json        = excluded.people_json,
+            podcast_value_json = excluded.podcast_value_json,
+            is_subscribed      = 1,
+            last_fetched_at    = datetime('now')
         "#,
         rusqlite::params![
             feed_url,
@@ -512,48 +513,44 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
         )
         .context("lookup feed_id")?;
 
-    // ----- tracks -----
-    let mut upserted = 0usize;
+    // --- tracks: upsert all items in one transaction ---
     let tx = conn.transaction().context("begin transaction")?;
+    let mut upserted = 0usize;
 
     for item in feed.items() {
-        // identity
+        // Stable identity: item <guid>. If missing, skip (we need stable IDs).
         let item_guid = match item.guid() {
             Some(g) => g.value().to_string(),
-            None => continue, // skip items with no GUID
+            None => continue,
         };
 
         let enclosure_url = item.enclosure().map(|e| e.url().to_string());
         let item_link = item.link().map(|s| s.to_string());
         let pub_date = item.pub_date().map(|s| s.to_string());
 
-        // provisional music metadata (can be overridden by ID3 later)
+        // Provisional music fields (ID3 will become canonical once downloaded)
         let track_title = item.title().map(|s| s.to_string());
         let artist_name: Option<String> = None;
         let album_title: Option<String> = None;
         let album_artist_name: Option<String> = None;
         let disc_number: Option<i64> = None;
 
-        // track_number from podcast:episode
-        let track_number: Option<i64> = find_ext_text(item.extensions(), "podcast", "episode")
-            .and_then(|s| s.trim().parse::<i64>().ok());
+        // Canonical ordering: podcast:episode
+        let track_number: Option<i64> =
+            find_ext_text(item.extensions(), "podcast", "episode")
+                .and_then(|s| s.trim().parse::<i64>().ok());
 
-        // image / duration / explicit
-        let itunes_duration_raw = find_ext_text(item.extensions(), "itunes", "duration")
-            .or_else(|| find_ext_text(item.extensions(), "itunes", "itunes:duration"));
+        // iTunes item tags are NOT in extensions; rss crate exposes them via itunes_ext()
+        let itunes = item.itunes_ext();
+        let itunes_duration_raw = itunes.and_then(|it| it.duration()).map(|s| s.to_string());
         let duration_seconds: Option<i64> = itunes_duration_raw
             .as_deref()
             .and_then(parse_itunes_duration);
-        let itunes_explicit = find_ext_text(item.extensions(), "itunes", "explicit")
-            .or_else(|| find_ext_text(item.extensions(), "itunes", "itunes:explicit"));
-
-        let track_image_href = find_ext_attr(item.extensions(), "itunes", "image", "href")
-            .or_else(|| find_ext_attr(item.extensions(), "itunes", "itunes:image", "href"))
-            .or_else(|| find_ext_attr(item.extensions(), "podcast", "image", "href"))
-            .or_else(|| find_ext_attr(item.extensions(), "podcast", "podcast:image", "href"));
+        let itunes_explicit = itunes.and_then(|it| it.explicit()).map(|s| s.to_string());
+        let track_image_href = itunes.and_then(|it| it.image()).map(|s| s.to_string());
         let track_image_mime: Option<String> = None;
 
-        // item-level people & value
+        // Item-level people/value (podcast:* extensions)
         let people_json = collect_people_json(item.extensions());
         let item_value_json = value_block_json(item.extensions(), "podcast", "value");
 
@@ -627,11 +624,7 @@ fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result
 
     tx.commit().context("commit tracks")?;
 
-    println!(
-        "Subscribed/updated feed: {} (tracks upserted: {})",
-        feed_title, upserted
-    );
-
+    println!("Subscribed/updated feed: {feed_title} (tracks upserted: {upserted})");
     Ok(())
 }
 
@@ -672,6 +665,80 @@ fn cmd_id3_dump(_cfg: &Config, path: &Path) -> Result<()> {
     println!("Frames: {} unique IDs", counts.len());
 
     Ok(())
+}
+
+// tool to help us figure out how feeds are parsed
+fn cmd_rss_dump(feed_url: &str) -> Result<()> {
+    println!("Fetching: {feed_url}");
+
+    let body = reqwest::blocking::Client::new()
+        .get(feed_url)
+        .send()
+        .with_context(|| format!("GET {feed_url}"))?
+        .error_for_status()
+        .with_context(|| format!("HTTP error for {feed_url}"))?
+        .bytes()
+        .with_context(|| format!("read body {feed_url}"))?;
+
+    let feed = Channel::read_from(Cursor::new(body)).context("parse RSS")?;
+
+    println!("--- channel ---");
+    println!("title: {}", feed.title());
+    println!("link : {}", feed.link());
+    println!("desc : {}", feed.description());
+    dump_exts("channel extensions", feed.extensions());
+
+    println!("--- items (first 3) ---");
+    for (i, item) in feed.items().iter().take(3).enumerate() {
+        println!("#{}", i + 1);
+        println!("  title: {:?}", item.title());
+        println!("  guid : {:?}", item.guid().map(|g| g.value()));
+        println!("  enc  : {:?}", item.enclosure().map(|e| e.url()));
+        println!("  pub  : {:?}", item.pub_date());
+
+        // itunes tags
+        let itunes = item.itunes_ext();
+
+        let dur = itunes.and_then(|it| it.duration()).map(|s| s.to_string());
+        let expl = itunes.and_then(|it| it.explicit()).map(|s| s.to_string());
+        let img = itunes.and_then(|it| it.image()).map(|s| s.to_string());
+
+        println!("  itunes:duration => {:?}", dur);
+        println!("  itunes:explicit => {:?}", expl);
+        println!("  itunes:image    => {:?}", img);
+
+        dump_exts("  item extensions", item.extensions());
+    }
+
+    Ok(())
+}
+
+fn dump_exts(label: &str, exts: &ExtensionMap) {
+    println!("{label}:");
+    for (ns, keys) in exts {
+        println!("  NS: {ns}");
+        for (k, vec) in keys {
+            println!("    key: {k} ({} value(s))", vec.len());
+            for (j, ext) in vec.iter().enumerate() {
+                dump_one_ext(j, ext, 6);
+            }
+        }
+    }
+}
+
+fn dump_one_ext(idx: usize, ext: &Extension, indent: usize) {
+    let pad = " ".repeat(indent);
+    println!("{pad}[{idx}] value={:?} attrs={:?}", ext.value, ext.attrs);
+
+    if !ext.children.is_empty() {
+        // print only child keys + counts (keeps it readable)
+        let child_summary: Vec<String> = ext
+            .children
+            .iter()
+            .map(|(k, v)| format!("{k}={}", v.len()))
+            .collect();
+        println!("{pad}    children: {}", child_summary.join(", "));
+    }
 }
 
 /// Return the first text-like value for a given frame id (e.g. "TRCK").
