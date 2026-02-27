@@ -45,7 +45,11 @@ pub fn ext_to_json(ext: &Extension) -> JsonValue {
     })
 }
 
-pub fn value_block_json(exts: &rss::extension::ExtensionMap, ns: &str, name: &str) -> Option<String> {
+pub fn value_block_json(
+    exts: &rss::extension::ExtensionMap,
+    ns: &str,
+    name: &str,
+) -> Option<String> {
     let ext = find_ext(exts, ns, name)?;
     serde_json::to_string(&ext_to_json(ext)).ok()
 }

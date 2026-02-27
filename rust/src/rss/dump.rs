@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use reqwest;
-use rss::{Channel, extension::{Extension, ExtensionMap}};
+use rss::{
+    extension::{Extension, ExtensionMap},
+    Channel,
+};
 use std::io::Cursor;
 
 // tool to help us figure out how feeds are parsed

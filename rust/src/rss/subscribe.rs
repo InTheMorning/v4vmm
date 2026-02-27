@@ -1,11 +1,11 @@
 use anyhow::{Context, Result};
 use reqwest;
 use rss::Channel;
-use rusqlite::{Connection};
+use rusqlite::Connection;
 use std::io::Cursor;
 
-use crate::config::Config;
 use super::helpers::*;
+use crate::config::Config;
 
 pub fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result<()> {
     println!("Fetching: {feed_url}");

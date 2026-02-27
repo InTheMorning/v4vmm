@@ -1,8 +1,8 @@
 mod cli;
 mod config;
 mod db;
-mod rss;
 mod id3;
+mod rss;
 
 use anyhow::Result;
 
