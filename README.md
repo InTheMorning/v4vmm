@@ -38,9 +38,9 @@ cd rust
 cargo build
 cargo install --path .
 ```
-This creates the binary in `~/.cargo/bin` so you can add that folder to your `$PATH` or run `~/.cargo/bin/v4vmm` directly
+This creates the `v4vmm` CLI binary in `~/.cargo/bin` so you can add that folder to your `$PATH` or run `~/.cargo/bin/v4vmm` directly.
 
-So far it is a CLI tool:
+The main binary is a CLI tool:
 ```
 Usage:
   v4vmm show-config
@@ -49,7 +49,28 @@ Usage:
   v4vmm rss-dump <feed-url>
 ```
 
-Running the command will create config file `~/.config/v4vmm/config.toml`
+## MusicIndex UI
+
+There is also a GPUI desktop search app for MusicIndex/Stophammer data. It searches MusicIndex feeds, tracks, and publishers, shows compact results on the left, and opens the selected result in a right-side inspector with feed tracks, track/feed drill-downs, contributors, and value routes.
+
+Run it from the Rust crate:
+
+```
+cd rust
+cargo run --bin search
+```
+
+If you want an installed launcher:
+
+```
+cd rust
+cargo install --path . --bin search
+search
+```
+
+The UI uses `https://musicindex.org` by default and needs network access. It is separate from the local `v4vmm` SQLite database used by the RSS subscription CLI.
+
+Running the CLI will create config file `~/.config/v4vmm/config.toml`
 This file contains defaults:
 ```
 # V4V-only library root
