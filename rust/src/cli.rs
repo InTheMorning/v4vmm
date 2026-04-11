@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Command {
     ShowConfig,
     Id3Dump { path: PathBuf },
@@ -15,7 +15,15 @@ pub enum Command {
 }
 
 pub fn parse_args() -> Result<Command> {
-    let mut args = env::args().skip(1); // skip program name
+    parse_args_from(env::args().skip(1))
+}
+
+pub fn parse_args_from<I, S>(args: I) -> Result<Command>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    let mut args = args.into_iter().map(Into::into);
 
     match args.next().as_deref() {
         Some("show-config") => Ok(Command::ShowConfig),

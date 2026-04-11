@@ -62,3 +62,8 @@ db_path = "/home/<username>/.local/share/v4vmm/v4vmm.sqlite"
 For now it only supports subcribing to a feed which adds its relevant RSS data to our database along with additional fields for eventual id3 tag info and toggling as *in our library*.
 
 It can also print id3 data from any local (mp3-only, for now) file, and for development purposes print what our rss library sees when it looks at a feed.
+
+# Project discipline
+
+- Architecture decisions live in `docs/adr/`
+- Rust regression and integration tests live in `rust/tests/`

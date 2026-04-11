@@ -1,10 +1,5 @@
-mod cli;
-mod config;
-mod db;
-mod id3;
-mod rss;
-
 use anyhow::Result;
+use v4vmm::{cli, config, db, id3, rss};
 
 fn main() {
     if let Err(e) = run() {
