@@ -7,17 +7,30 @@ edition = "2021"
 toml  = "1.0"
 id3 = "1"
 rusqlite = { version = "0.38", features = ["bundled"] }
-reqwest = { version = "0.13", features = ["blocking"] }
+reqwest = { version = "0.13", features = ["blocking", "json"] }
 rss = "2"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 serde_json = "1"
 
 # config parsing
 serde = { version = "1", features = ["derive"] }
-directories = "6" 
+directories = "6"
 
 # nice error handling
 anyhow = "1"
 
+# GPUI desktop UI
+gpui = "0.2"
+gpui-component = "0.5"
+gpui-component-assets = "0.5"
+
 [dev-dependencies]
 tempfile = "3"
+
+[[bin]]
+name = "v4vmm"
+path = "src/main.rs"
+
+[[bin]]
+name = "search"
+path = "src/bin/search.rs"

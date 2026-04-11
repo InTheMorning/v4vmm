@@ -3,3 +3,4 @@ pub mod config;
 pub mod db;
 pub mod id3;
 pub mod rss;
+pub mod musicindex;
