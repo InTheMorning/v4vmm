@@ -42,7 +42,8 @@ fn subscribe_persists_feed_and_tracks() {
     let (cfg, _dir) = common::test_config();
     config::ensure_dirs(&cfg).unwrap();
     let mut conn = db::open_db(&cfg).unwrap();
-    let base_url = common::serve_http_sequence(vec![(sample_feed("Example Feed"), "application/rss+xml")]);
+    let base_url =
+        common::serve_http_sequence(vec![(sample_feed("Example Feed"), "application/rss+xml")]);
     let feed_url = format!("{base_url}/feed.xml");
 
     rss::cmd_subscribe(&cfg, &mut conn, &feed_url).unwrap();
@@ -103,9 +104,11 @@ fn subscribe_is_idempotent_for_same_feed_url() {
     assert_eq!(counts, (1, 1));
 
     let title: String = conn
-        .query_row("SELECT title FROM feeds WHERE feed_url = ?1", params![feed_url], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT title FROM feeds WHERE feed_url = ?1",
+            params![feed_url],
+            |row| row.get(0),
+        )
         .unwrap();
     assert_eq!(title, "Updated Title");
 }

@@ -10,7 +10,10 @@ fn schema_creates_expected_tables() {
     let tables = common::table_names(&conn);
 
     for table in ["feeds", "local_files", "schema_version", "tracks"] {
-        assert!(tables.contains(&table.to_string()), "missing table: {table}");
+        assert!(
+            tables.contains(&table.to_string()),
+            "missing table: {table}"
+        );
     }
 }
 
