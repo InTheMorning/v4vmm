@@ -6745,6 +6745,7 @@ dependencies = [
  "gpui-component",
  "gpui-component-assets",
  "id3",
+ "open",
  "reqwest",
  "rss",
  "rusqlite",

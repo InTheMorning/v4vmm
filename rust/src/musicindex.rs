@@ -4,8 +4,8 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use gpui::{
     div, img, prelude::*, px, rgb, size, AnyElement, Application, Bounds, ClickEvent, Context,
-    Entity, FontWeight, IntoElement, Render, SharedString, Styled, Window, WindowBounds,
-    WindowOptions,
+    Entity, FontWeight, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -461,6 +461,8 @@ pub struct SearchApp {
     has_more: bool,
     selected_key: Option<String>,
     inspector_stack: Vec<InspectorFrame>,
+    left_pane_width: gpui::Pixels,
+    resizing: bool,
     _input_sub: gpui::Subscription,
 }
 
@@ -484,6 +486,8 @@ impl SearchApp {
             has_more: false,
             selected_key: None,
             inspector_stack: Vec::new(),
+            left_pane_width: px(360.0),
+            resizing: false,
             _input_sub: input_sub,
         }
     }
@@ -838,20 +842,38 @@ impl Render for SearchApp {
             )
             .child(
                 div()
+                    .id("pane-container")
                     .flex()
                     .flex_row()
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
+                    .on_mouse_move(cx.listener(
+                        |this, event: &MouseMoveEvent, _window, cx| {
+                            if this.resizing {
+                                let x = event.position.x;
+                                let clamped = x.max(px(200.0)).min(px(800.0));
+                                this.left_pane_width = clamped;
+                                cx.notify();
+                            }
+                        },
+                    ))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseUpEvent, _window, cx| {
+                            if this.resizing {
+                                this.resizing = false;
+                                cx.notify();
+                            }
+                        }),
+                    )
                     .child(
                         div()
-                            .w(px(360.0))
-                            .min_w(px(280.0))
+                            .w(self.left_pane_width)
+                            .min_w(px(200.0))
                             .flex_shrink_0()
                             .flex()
                             .flex_col()
-                            .border_r_1()
-                            .border_color(border())
                             .overflow_hidden()
                             .child(
                                 div()
@@ -925,6 +947,24 @@ impl Render for SearchApp {
                                                 )
                                             }),
                                     ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("resize-handle")
+                            .w(px(5.0))
+                            .cursor_col_resize()
+                            .bg(border())
+                            .hover(|s| s.bg(accent()))
+                            .flex_shrink_0()
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(
+                                    |this, _: &MouseDownEvent, _window, cx| {
+                                        this.resizing = true;
+                                        cx.notify();
+                                    },
+                                ),
                             ),
                     )
                     .child(
@@ -1247,8 +1287,18 @@ fn render_feed_inspector(
                 cx,
             ))
         })
+        .when(feed.feed_url.is_some(), |el| {
+            let url = feed.feed_url.clone().unwrap_or_default();
+            el.child(
+                subtle_button("Open RSS Feed").on_click(cx.listener(
+                    move |_this, _: &ClickEvent, _window, _cx| {
+                        let _ = open::that(&url);
+                    },
+                )),
+            )
+        })
         .child(render_action_row(frame, cx))
-        .child(render_lazy_sections(frame))
+        .child(render_lazy_sections(frame, cx))
         .into_any_element()
 }
 
@@ -1309,8 +1359,18 @@ fn render_track_inspector(
                 })),
             )
         })
+        .when(track.enclosure_url.is_some(), |el| {
+            let url = track.enclosure_url.clone().unwrap_or_default();
+            el.child(
+                subtle_button("▶ Play Audio").on_click(cx.listener(
+                    move |_this, _: &ClickEvent, _window, _cx| {
+                        let _ = open::that(&url);
+                    },
+                )),
+            )
+        })
         .child(render_action_row(frame, cx))
-        .child(render_lazy_sections(frame))
+        .child(render_lazy_sections(frame, cx))
         .into_any_element()
 }
 
@@ -1402,10 +1462,10 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
         .into_any_element()
 }
 
-fn render_lazy_sections(frame: &InspectorFrame) -> AnyElement {
+fn render_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
     let mut element = div().flex().flex_col().gap(px(16.0));
     if let LazyPanel::Loaded(items) = &frame.contributors {
-        element = element.child(render_contributors(items));
+        element = element.child(render_contributors(items, cx));
     }
     if let LazyPanel::Loaded(items) = &frame.value_routes {
         element = element.child(render_value_routes(items));
@@ -1413,7 +1473,10 @@ fn render_lazy_sections(frame: &InspectorFrame) -> AnyElement {
     element.into_any_element()
 }
 
-fn render_contributors(contributors: &[Contributor]) -> AnyElement {
+fn render_contributors(
+    contributors: &[Contributor],
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     let mut groups = BTreeMap::<String, Vec<&Contributor>>::new();
     for contributor in contributors {
         groups
@@ -1422,32 +1485,55 @@ fn render_contributors(contributors: &[Contributor]) -> AnyElement {
             .push(contributor);
     }
 
+    let mut all_elements: Vec<AnyElement> = Vec::new();
+    for (group, members) in groups {
+        if !group.is_empty() {
+            all_elements.push(group_heading(group));
+        }
+        for contributor in members {
+            let name = contributor
+                .name
+                .clone()
+                .unwrap_or_else(|| "Unknown".into());
+            let role_str = contributor
+                .role
+                .as_ref()
+                .map_or(String::new(), |r| format!(" ({r})"));
+
+            if let Some(href) = contributor.href.clone() {
+                let href_for_click = href.clone();
+                let id = SharedString::from(format!("contrib-link:{}:{}", name, href));
+                all_elements.push(
+                    div()
+                        .id(id)
+                        .text_size(px(11.5))
+                        .text_color(accent())
+                        .cursor_pointer()
+                        .on_click(cx.listener(
+                            move |_this, _: &ClickEvent, _window, _cx| {
+                                let _ = open::that(&href_for_click);
+                            },
+                        ))
+                        .child(SharedString::from(format!("{name}{role_str}")))
+                        .into_any_element(),
+                );
+            } else {
+                all_elements.push(
+                    div()
+                        .text_size(px(11.5))
+                        .child(SharedString::from(format!("{name}{role_str}")))
+                        .into_any_element(),
+                );
+            }
+        }
+    }
+
     div()
         .flex()
         .flex_col()
         .gap(px(4.0))
         .child(section_heading("Contributors"))
-        .children(groups.into_iter().flat_map(|(group, members)| {
-            let mut elements = Vec::new();
-            if !group.is_empty() {
-                elements.push(group_heading(group));
-            }
-            elements.extend(members.into_iter().map(|contributor| {
-                let role = contributor
-                    .role
-                    .as_ref()
-                    .map_or(String::new(), |role| format!(" ({role})"));
-                div()
-                    .text_size(px(11.5))
-                    .child(SharedString::from(format!(
-                        "{}{}",
-                        contributor.name.clone().unwrap_or_else(|| "Unknown".into()),
-                        role
-                    )))
-                    .into_any_element()
-            }));
-            elements
-        }))
+        .children(all_elements)
         .into_any_element()
 }
 
@@ -1500,6 +1586,24 @@ fn render_value_routes(routes: &[PaymentRoute]) -> AnyElement {
                                 )),
                         )
                     })
+                    .when(
+                        route.custom_key.is_some() || route.custom_value.is_some(),
+                        |el| {
+                            let mut parts = Vec::new();
+                            if let Some(k) = &route.custom_key {
+                                parts.push(format!("key {k}"));
+                            }
+                            if let Some(v) = &route.custom_value {
+                                parts.push(format!("value {v}"));
+                            }
+                            el.child(
+                                div()
+                                    .text_color(muted())
+                                    .text_size(px(10.5))
+                                    .child(SharedString::from(parts.join(" · "))),
+                            )
+                        },
+                    )
                     .into_any_element()
             }));
             elements
