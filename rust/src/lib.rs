@@ -1,3 +1,4 @@
+pub mod audio_tags;
 pub mod cli;
 pub mod config;
 pub mod db;

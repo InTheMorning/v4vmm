@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use gpui::{
-    div, prelude::*, px, rgb, size, AnyElement, Application, Bounds, ClickEvent, Context,
-    Entity, FontWeight, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, img, prelude::*, px, rgb, size, AnyElement, Application, Bounds, ClickEvent, Context,
+    Entity, FontWeight, Image, ImageFormat, IntoElement, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, ObjectFit, Render, SharedString, Styled, Window, WindowBounds,
+    WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -428,6 +429,7 @@ struct InspectorFrame {
     entity_id: String,
     title: String,
     detail: InspectorDetail,
+    image: Option<Arc<Image>>,
     contributors: LazyPanel<Vec<Contributor>>,
     value_routes: LazyPanel<Vec<PaymentRoute>>,
 }
@@ -439,6 +441,7 @@ impl InspectorFrame {
             entity_id,
             title: title.clone(),
             detail: InspectorDetail::Loading(format!("Loading {title}...")),
+            image: None,
             contributors: LazyPanel::Hidden,
             value_routes: LazyPanel::Hidden,
         }
@@ -644,10 +647,16 @@ impl SearchApp {
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
                         if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
-                                frame.detail = match detail {
-                                    Ok(detail) => detail,
-                                    Err(error) => InspectorDetail::Error(error.to_string()),
-                                };
+                                match detail {
+                                    Ok((detail, image)) => {
+                                        frame.detail = detail;
+                                        frame.image = image;
+                                    }
+                                    Err(error) => {
+                                        frame.detail =
+                                            InspectorDetail::Error(error.to_string());
+                                    }
+                                }
                             }
                         }
                         cx.notify();
@@ -1036,17 +1045,45 @@ fn fetch_inspector_detail(
     client: &Client,
     entity_type: &str,
     entity_id: &str,
-) -> Result<InspectorDetail> {
+) -> Result<(InspectorDetail, Option<Arc<Image>>)> {
     match entity_type {
-        "feed" => Ok(InspectorDetail::Feed(
-            client.fetch_feed(entity_id, Some("tracks"))?,
-        )),
-        "track" => Ok(InspectorDetail::Track(client.fetch_track(entity_id, None)?)),
-        "publisher" => Ok(InspectorDetail::Publisher(
-            client.fetch_publisher(entity_id)?,
+        "feed" => {
+            let feed = client.fetch_feed(entity_id, Some("tracks"))?;
+            let image = feed
+                .image_url
+                .as_deref()
+                .and_then(|url| download_image(&client.client, url));
+            Ok((InspectorDetail::Feed(feed), image))
+        }
+        "track" => {
+            let track = client.fetch_track(entity_id, None)?;
+            let image = track
+                .image_url
+                .as_deref()
+                .and_then(|url| download_image(&client.client, url));
+            Ok((InspectorDetail::Track(track), image))
+        }
+        "publisher" => Ok((
+            InspectorDetail::Publisher(client.fetch_publisher(entity_id)?),
+            None,
         )),
         _ => Err(anyhow!("unknown inspector entity type: {entity_type}")),
     }
+}
+
+fn download_image(client: &ReqwestClient, url: &str) -> Option<Arc<Image>> {
+    let response = client.get(url).send().ok()?.error_for_status().ok()?;
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let format = ImageFormat::from_mime_type(content_type).unwrap_or(ImageFormat::Jpeg);
+    let bytes = response.bytes().ok()?.to_vec();
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(Arc::new(Image::from_bytes(format, bytes)))
 }
 
 fn render_filter_button(
@@ -1078,7 +1115,7 @@ fn render_result_item(
     selected_key: Option<&str>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let (line1, line2, line3, image_url) = result_lines(row);
+    let (line1, line2, line3, _image_url) = result_lines(row);
     let is_selected = selected_key == Some(entity_key(&row.entity_type, &row.entity_id).as_str());
     let entity_type = row.entity_type.clone();
     let entity_id = row.entity_id.clone();
@@ -1106,7 +1143,7 @@ fn render_result_item(
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
         }))
-        .child(render_thumb(&image_url, &row.entity_type, 36.0, false))
+        .child(render_thumb(None, &row.entity_type, 36.0, false))
         .child(
             div()
                 .flex_1()
@@ -1124,7 +1161,7 @@ fn render_result_item(
                 .flex_shrink_0()
                 .text_size(px(9.0))
                 .font_weight(FontWeight::BOLD)
-                .text_color(rgb(0xffffff))
+                .text_color(badge_text(&row.entity_type))
                 .bg(type_color(&row.entity_type))
                 .px(px(5.0))
                 .py(px(1.0))
@@ -1265,11 +1302,7 @@ fn render_feed_inspector(
         .flex()
         .flex_col()
         .gap(px(16.0))
-        .child(render_detail_header(
-            "feed",
-            &title,
-            feed.image_url.as_deref(),
-        ))
+        .child(render_detail_header("feed", &title, frame.image.as_ref()))
         .child(render_detail_grid(rows))
         .when(!tracks.is_empty(), |el| {
             el.child(render_track_list_section(
@@ -1344,11 +1377,7 @@ fn render_track_inspector(
         .flex()
         .flex_col()
         .gap(px(16.0))
-        .child(render_detail_header(
-            "track",
-            &title,
-            track.image_url.as_deref(),
-        ))
+        .child(render_detail_header("track", &title, frame.image.as_ref()))
         .child(render_detail_grid(rows))
         .when(feed_guid.is_some(), |el| {
             let guid = feed_guid.unwrap_or_default();
@@ -1669,7 +1698,7 @@ fn render_track_row(track: Track, cx: &mut Context<SearchApp>) -> AnyElement {
                         .map_or_else(|| "·".into(), |n| n.to_string()),
                 ),
         )
-        .child(render_thumb(&track.image_url, "track", 28.0, false))
+        .child(render_thumb(None, "track", 28.0, false))
         .child(truncated(track_title(&track)).flex_1())
         .when(track.duration_secs.is_some(), |el| {
             el.child(
@@ -1713,7 +1742,7 @@ fn render_feed_list_section(
                         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                             this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
                         }))
-                        .child(render_thumb(&feed.image_url, "feed", 28.0, false))
+                        .child(render_thumb(None, "feed", 28.0, false))
                         .child(truncated(feed_title(&feed)).flex_1())
                         .when(feed.episode_count.is_some(), |el| {
                             el.child(div().text_color(muted()).text_size(px(11.0)).child(format!(
@@ -1728,18 +1757,17 @@ fn render_feed_list_section(
         .into_any_element()
 }
 
-fn render_detail_header(entity_type: &str, title: &str, image_url: Option<&str>) -> AnyElement {
+fn render_detail_header(
+    entity_type: &str,
+    title: &str,
+    image: Option<&Arc<Image>>,
+) -> AnyElement {
     div()
         .flex()
         .flex_row()
         .items_start()
         .gap(px(16.0))
-        .child(render_thumb(
-            &image_url.map(str::to_string),
-            entity_type,
-            80.0,
-            true,
-        ))
+        .child(render_thumb(image, entity_type, 80.0, true))
         .child(
             div()
                 .flex_1()
@@ -1748,7 +1776,7 @@ fn render_detail_header(entity_type: &str, title: &str, image_url: Option<&str>)
                     div()
                         .text_size(px(10.0))
                         .font_weight(FontWeight::BOLD)
-                        .text_color(rgb(0xffffff))
+                        .text_color(badge_text(entity_type))
                         .bg(type_color(entity_type))
                         .px(px(6.0))
                         .py(px(2.0))
@@ -1792,23 +1820,40 @@ fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
 }
 
 fn render_thumb(
-    _image_url: &Option<String>,
+    image_data: Option<&Arc<Image>>,
     entity_type: &str,
     size: f32,
     large: bool,
 ) -> AnyElement {
-    div()
-        .w(px(size))
-        .h(px(size))
-        .rounded(px(if large { 6.0 } else { 4.0 }))
-        .bg(border())
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(if large { 28.0 } else { 14.0 }))
-        .flex_shrink_0()
-        .child(type_emoji(entity_type))
-        .into_any_element()
+    let radius = if large { 6.0 } else { 4.0 };
+    if let Some(image) = image_data {
+        div()
+            .w(px(size))
+            .h(px(size))
+            .rounded(px(radius))
+            .overflow_hidden()
+            .flex_shrink_0()
+            .child(
+                img(image.clone())
+                    .w(px(size))
+                    .h(px(size))
+                    .object_fit(ObjectFit::Cover),
+            )
+            .into_any_element()
+    } else {
+        div()
+            .w(px(size))
+            .h(px(size))
+            .rounded(px(radius))
+            .bg(border())
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(if large { 28.0 } else { 14.0 }))
+            .flex_shrink_0()
+            .child(type_emoji(entity_type))
+            .into_any_element()
+    }
 }
 
 fn render_inspector_empty() -> AnyElement {
@@ -1999,11 +2044,11 @@ fn text() -> gpui::Rgba {
 }
 
 fn muted() -> gpui::Rgba {
-    rgb(0x777c91)
+    rgb(0x9298ab)
 }
 
 fn accent() -> gpui::Rgba {
-    rgb(0x6c7cff)
+    rgb(0x8b9bff)
 }
 
 fn type_color(entity_type: &str) -> gpui::Rgba {
@@ -2015,6 +2060,15 @@ fn type_color(entity_type: &str) -> gpui::Rgba {
         "release" => rgb(0x6c7cff),
         "recording" => rgb(0xb06cf4),
         _ => accent(),
+    }
+}
+
+fn badge_text(entity_type: &str) -> gpui::Rgba {
+    match entity_type {
+        // Dark text on bright badges for WCAG AA contrast
+        "feed" | "track" | "artist" => rgb(0x111318),
+        // White text on darker badges
+        _ => rgb(0xffffff),
     }
 }
 
