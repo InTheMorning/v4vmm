@@ -5,3 +5,4 @@ pub mod db;
 pub mod id3;
 pub mod musicindex;
 pub mod rss;
+pub mod track_compare;

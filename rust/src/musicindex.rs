@@ -136,12 +136,15 @@ pub struct Track {
     pub explicit: Option<bool>,
     pub description: Option<String>,
     pub enclosure_url: Option<String>,
+    pub enclosure_type: Option<String>,
+    pub enclosure_bytes: Option<i64>,
     pub image_url: Option<String>,
     pub track_artist: Option<String>,
     pub release_artist: Option<String>,
     pub publisher_text: Option<String>,
     pub artist_credit: Option<ArtistCredit>,
     pub source_contributors: Option<Vec<Contributor>>,
+    pub source_enclosures: Option<Vec<SourceEnclosure>>,
     pub payment_routes: Option<Vec<PaymentRoute>>,
     pub updated_at: Option<i64>,
 }
@@ -175,6 +178,19 @@ pub struct PaymentRoute {
     pub address: Option<String>,
     pub custom_key: Option<String>,
     pub custom_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SourceEnclosure {
+    pub url: Option<String>,
+    pub mime_type: Option<String>,
+    pub bytes: Option<i64>,
+    pub rel: Option<String>,
+    pub title: Option<String>,
+    pub is_primary: Option<bool>,
+    pub source: Option<String>,
+    pub extraction_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
