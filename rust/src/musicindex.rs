@@ -15,6 +15,12 @@ use reqwest::blocking::Client as ReqwestClient;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::audio_tags::read_audio_tags;
+use crate::config;
+use crate::track_compare::{
+    compare_track_tags, download_track_mp3, ComparisonRow, ComparisonStatus,
+};
+
 const DEFAULT_BASE_URL: &str = "https://musicindex.org";
 const PAGE_LIMIT: i32 = 20;
 
@@ -448,6 +454,7 @@ struct InspectorFrame {
     image: Option<Arc<Image>>,
     contributors: LazyPanel<Vec<Contributor>>,
     value_routes: LazyPanel<Vec<PaymentRoute>>,
+    tag_compare: LazyPanel<TagCompareResult>,
 }
 
 impl InspectorFrame {
@@ -460,8 +467,15 @@ impl InspectorFrame {
             image: None,
             contributors: LazyPanel::Hidden,
             value_routes: LazyPanel::Hidden,
+            tag_compare: LazyPanel::Hidden,
         }
     }
+}
+
+#[derive(Clone, Debug)]
+struct TagCompareResult {
+    path: String,
+    rows: Vec<ComparisonRow>,
 }
 
 struct SearchBatch {
@@ -786,6 +800,56 @@ impl SearchApp {
         )
         .detach();
     }
+
+    fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.entity_type != "track" {
+            return;
+        }
+
+        match frame.tag_compare {
+            LazyPanel::Loaded(_) => {
+                frame.tag_compare = LazyPanel::Hidden;
+                cx.notify();
+                return;
+            }
+            LazyPanel::Loading => return,
+            LazyPanel::Empty(_) | LazyPanel::Hidden => frame.tag_compare = LazyPanel::Loading,
+        }
+
+        let entity_id = frame.entity_id.clone();
+        let client = Arc::new(Client::new());
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let request_id = entity_id.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { download_and_compare_track(&client, &request_id) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == "track" && frame.entity_id == entity_id {
+                                frame.tag_compare = match result {
+                                    Ok(result) => LazyPanel::Loaded(result),
+                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                };
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
 }
 
 impl Render for SearchApp {
@@ -1085,6 +1149,20 @@ fn fetch_inspector_detail(
         )),
         _ => Err(anyhow!("unknown inspector entity type: {entity_type}")),
     }
+}
+
+fn download_and_compare_track(client: &Client, entity_id: &str) -> Result<TagCompareResult> {
+    let track = client.fetch_track(entity_id, Some("source_enclosures"))?;
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
+    config::ensure_dirs(&cfg)?;
+    let downloaded = download_track_mp3(&cfg, &client.client, &track)?;
+    let tags = read_audio_tags(&downloaded.path)?;
+
+    Ok(TagCompareResult {
+        path: downloaded.path.display().to_string(),
+        rows: compare_track_tags(&track, &tags),
+    })
 }
 
 fn download_image(client: &ReqwestClient, url: &str) -> Option<Arc<Image>> {
@@ -1504,6 +1582,19 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
                 this.toggle_value_routes(cx);
             })),
         )
+        .when(frame.entity_type == "track", |el| {
+            el.child(
+                subtle_button(match frame.tag_compare {
+                    LazyPanel::Loaded(_) => "Hide Compare",
+                    LazyPanel::Loading => "Downloading...",
+                    LazyPanel::Empty(_) | LazyPanel::Hidden => "Download + Compare",
+                })
+                .disabled(matches!(frame.tag_compare, LazyPanel::Loading))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_tag_compare(cx);
+                })),
+            )
+        })
         .into_any_element()
 }
 
@@ -1514,6 +1605,20 @@ fn render_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> 
     }
     if let LazyPanel::Loaded(items) = &frame.value_routes {
         element = element.child(render_value_routes(items));
+    }
+    match &frame.tag_compare {
+        LazyPanel::Loaded(result) => {
+            element = element.child(render_tag_compare(result));
+        }
+        LazyPanel::Loading => {
+            element = element.child(render_loading(
+                "Downloading and reading embedded metadata...",
+            ));
+        }
+        LazyPanel::Empty(label) => {
+            element = element.child(render_loading(label));
+        }
+        LazyPanel::Hidden => {}
     }
     element.into_any_element()
 }
@@ -1654,6 +1759,87 @@ fn render_value_routes(routes: &[PaymentRoute]) -> AnyElement {
             elements
         }))
         .into_any_element()
+}
+
+fn render_tag_compare(result: &TagCompareResult) -> AnyElement {
+    let mut cells: Vec<AnyElement> = Vec::new();
+    for heading in ["Field", "MusicIndex", "File Tag", "Status"] {
+        cells.push(
+            div()
+                .text_color(muted())
+                .font_weight(FontWeight::BOLD)
+                .text_size(px(10.5))
+                .child(heading)
+                .into_any_element(),
+        );
+    }
+
+    for row in &result.rows {
+        let status = comparison_status_label(&row.status);
+        cells.push(compare_cell(row.field));
+        cells.push(compare_cell(
+            row.source_value.as_deref().unwrap_or("<missing>"),
+        ));
+        cells.push(compare_cell(
+            row.tag_value.as_deref().unwrap_or("<missing>"),
+        ));
+        cells.push(
+            div()
+                .text_size(px(11.0))
+                .text_color(comparison_status_color(&row.status))
+                .child(status)
+                .into_any_element(),
+        );
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.0))
+        .child(section_heading("Embedded Metadata Compare"))
+        .child(
+            div()
+                .text_color(muted())
+                .text_size(px(10.5))
+                .line_clamp(2)
+                .child(SharedString::from(result.path.clone())),
+        )
+        .child(
+            div()
+                .grid()
+                .grid_cols(4)
+                .gap_x(px(10.0))
+                .gap_y(px(5.0))
+                .children(cells),
+        )
+        .into_any_element()
+}
+
+fn compare_cell(value: &str) -> AnyElement {
+    div()
+        .text_size(px(11.0))
+        .line_height(px(16.0))
+        .child(SharedString::from(value.to_string()))
+        .into_any_element()
+}
+
+fn comparison_status_label(status: &ComparisonStatus) -> &'static str {
+    match status {
+        ComparisonStatus::Match => "match",
+        ComparisonStatus::Different => "diff",
+        ComparisonStatus::MissingSource => "missing source",
+        ComparisonStatus::MissingTag => "missing tag",
+        ComparisonStatus::MissingBoth => "missing both",
+    }
+}
+
+fn comparison_status_color(status: &ComparisonStatus) -> gpui::Rgba {
+    match status {
+        ComparisonStatus::Match => rgb(0x4caf82),
+        ComparisonStatus::Different => rgb(0xffc857),
+        ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => rgb(0xff8a65),
+        ComparisonStatus::MissingBoth => muted(),
+    }
 }
 
 fn render_track_list_section(
