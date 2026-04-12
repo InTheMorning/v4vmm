@@ -683,8 +683,7 @@ impl SearchApp {
                                         frame.image = image;
                                     }
                                     Err(error) => {
-                                        frame.detail =
-                                            InspectorDetail::Error(error.to_string());
+                                        frame.detail = InspectorDetail::Error(error.to_string());
                                     }
                                 }
                             }
@@ -937,16 +936,14 @@ impl Render for SearchApp {
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
-                    .on_mouse_move(cx.listener(
-                        |this, event: &MouseMoveEvent, _window, cx| {
-                            if this.resizing {
-                                let x = event.position.x;
-                                let clamped = x.max(px(200.0)).min(px(800.0));
-                                this.left_pane_width = clamped;
-                                cx.notify();
-                            }
-                        },
-                    ))
+                    .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                        if this.resizing {
+                            let x = event.position.x;
+                            let clamped = x.max(px(200.0)).min(px(800.0));
+                            this.left_pane_width = clamped;
+                            cx.notify();
+                        }
+                    }))
                     .on_mouse_up(
                         MouseButton::Left,
                         cx.listener(|this, _: &MouseUpEvent, _window, cx| {
@@ -1048,12 +1045,10 @@ impl Render for SearchApp {
                             .flex_shrink_0()
                             .on_mouse_down(
                                 MouseButton::Left,
-                                cx.listener(
-                                    |this, _: &MouseDownEvent, _window, cx| {
-                                        this.resizing = true;
-                                        cx.notify();
-                                    },
-                                ),
+                                cx.listener(|this, _: &MouseDownEvent, _window, cx| {
+                                    this.resizing = true;
+                                    cx.notify();
+                                }),
                             ),
                     )
                     .child(
@@ -1416,13 +1411,11 @@ fn render_feed_inspector(
         })
         .when(feed.feed_url.is_some(), |el| {
             let url = feed.feed_url.clone().unwrap_or_default();
-            el.child(
-                subtle_button("Open RSS Feed").on_click(cx.listener(
-                    move |_this, _: &ClickEvent, _window, _cx| {
-                        let _ = open::that(&url);
-                    },
-                )),
-            )
+            el.child(subtle_button("Open RSS Feed").on_click(cx.listener(
+                move |_this, _: &ClickEvent, _window, _cx| {
+                    let _ = open::that(&url);
+                },
+            )))
         })
         .child(render_action_row(frame, cx))
         .child(render_lazy_sections(frame, cx))
@@ -1484,13 +1477,11 @@ fn render_track_inspector(
         })
         .when(track.enclosure_url.is_some(), |el| {
             let url = track.enclosure_url.clone().unwrap_or_default();
-            el.child(
-                subtle_button("▶ Play Audio").on_click(cx.listener(
-                    move |_this, _: &ClickEvent, _window, _cx| {
-                        let _ = open::that(&url);
-                    },
-                )),
-            )
+            el.child(subtle_button("▶ Play Audio").on_click(cx.listener(
+                move |_this, _: &ClickEvent, _window, _cx| {
+                    let _ = open::that(&url);
+                },
+            )))
         })
         .child(render_action_row(frame, cx))
         .child(render_lazy_sections(frame, cx))
@@ -1623,10 +1614,7 @@ fn render_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> 
     element.into_any_element()
 }
 
-fn render_contributors(
-    contributors: &[Contributor],
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
+fn render_contributors(contributors: &[Contributor], cx: &mut Context<SearchApp>) -> AnyElement {
     let mut groups = BTreeMap::<String, Vec<&Contributor>>::new();
     for contributor in contributors {
         groups
@@ -1641,10 +1629,7 @@ fn render_contributors(
             all_elements.push(group_heading(group));
         }
         for contributor in members {
-            let name = contributor
-                .name
-                .clone()
-                .unwrap_or_else(|| "Unknown".into());
+            let name = contributor.name.clone().unwrap_or_else(|| "Unknown".into());
             let role_str = contributor
                 .role
                 .as_ref()
@@ -1659,11 +1644,9 @@ fn render_contributors(
                         .text_size(px(11.5))
                         .text_color(accent())
                         .cursor_pointer()
-                        .on_click(cx.listener(
-                            move |_this, _: &ClickEvent, _window, _cx| {
-                                let _ = open::that(&href_for_click);
-                            },
-                        ))
+                        .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
+                            let _ = open::that(&href_for_click);
+                        }))
                         .child(SharedString::from(format!("{name}{role_str}")))
                         .into_any_element(),
                 );
@@ -1959,11 +1942,7 @@ fn render_feed_list_section(
         .into_any_element()
 }
 
-fn render_detail_header(
-    entity_type: &str,
-    title: &str,
-    image: Option<&Arc<Image>>,
-) -> AnyElement {
+fn render_detail_header(entity_type: &str, title: &str, image: Option<&Arc<Image>>) -> AnyElement {
     div()
         .flex()
         .flex_row()
