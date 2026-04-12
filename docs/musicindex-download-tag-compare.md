@@ -14,7 +14,7 @@ This is an operator/debugging workflow first. It should surface differences clea
 - The Stophammer `/v1/tracks/{guid}` endpoint supports `include=source_enclosures`, which can expose primary and alternate enclosure choices.
 - `v4vmm id3-dump <path>` already reads basic MP3 ID3 metadata and custom `TXXX` frames.
 
-## First Supported Flow
+## Implemented Flow
 
 1. The operator searches for a track in the existing MusicIndex GUI.
 2. The operator selects a track result.
@@ -66,27 +66,35 @@ For the first implementation:
 - Do not mutate file tags.
 - Surface source conflicts as differences rather than resolving them.
 
-## Phases
+## Phase Status
 
 ### Phase 1: Format-Neutral Metadata Boundary
 
-- Add an `AudioTags` shape and MP3-backed tag reader.
-- Keep the existing `v4vmm id3-dump` command working.
-- Add focused tests for parsing CLI behavior and tag normalization where practical.
+Status: complete.
+
+- Added an `AudioTags` shape and MP3-backed tag reader.
+- Kept the existing `v4vmm id3-dump` command working.
+- Added focused tests for tag normalization.
 
 ### Phase 2: Download and Compare Core
 
-- Add a downloader helper that stores selected MP3 enclosures under the configured music directory.
-- Add a comparison helper that maps MusicIndex track fields and `AudioTags` into comparison rows.
-- Keep this layer independent of GPUI rendering.
+Status: complete.
+
+- Added a downloader helper that stores selected MP3 enclosures under the configured music directory.
+- Added a comparison helper that maps MusicIndex track fields and `AudioTags` into comparison rows.
+- Kept this layer independent of GPUI rendering.
 
 ### Phase 3: GUI Integration
 
-- Extend the track inspector with download-and-compare state.
-- Fetch track details with `source_enclosures`.
-- Render download status and comparison rows in the existing inspector.
+Status: complete.
+
+- Extended the track inspector with download-and-compare state.
+- Fetches track details with `source_enclosures`.
+- Renders download status and comparison rows in the existing inspector.
 
 ### Phase 4: Later Formats
+
+Status: deferred.
 
 - Replace or extend the MP3-specific reader with a multi-format tag backend only when needed.
 - Add FLAC/MP4/OGG enclosure selection rules in a separate ADR or phase plan if the behavior affects operator expectations.

@@ -51,7 +51,7 @@ Usage:
 
 ## MusicIndex UI
 
-There is also a GPUI desktop search app for MusicIndex/Stophammer data. It searches MusicIndex feeds, tracks, and publishers, shows compact results on the left, and opens the selected result in a right-side inspector with feed tracks, track/feed drill-downs, contributors, and value routes.
+There is also a GPUI desktop search app for MusicIndex/Stophammer data. It searches MusicIndex feeds, tracks, and publishers, shows compact results on the left, and opens the selected result in a right-side inspector with feed tracks, track/feed drill-downs, contributors, value routes, and MP3 embedded-metadata comparison.
 
 Run it from the Rust crate:
 
@@ -69,6 +69,8 @@ search
 ```
 
 The UI uses `https://musicindex.org` by default and needs network access. It is separate from the local `v4vmm` SQLite database used by the RSS subscription CLI.
+
+For track results, use `Download + Compare` in the inspector to fetch the MP3 enclosure into `music_dir`, read its embedded MP3 tags, and compare title, artist, album/feed, track number, and publisher fields against MusicIndex/Stophammer source facts. This is read-only: it does not rewrite tags.
 
 Running the CLI will create config file `~/.config/v4vmm/config.toml`
 This file contains defaults:
