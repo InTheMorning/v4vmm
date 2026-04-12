@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use gpui::{
-    div, img, prelude::*, px, rgb, size, AnyElement, Application, Bounds, ClickEvent, Context,
+    div, prelude::*, px, rgb, size, AnyElement, Application, Bounds, ClickEvent, Context,
     Entity, FontWeight, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
@@ -1792,21 +1792,11 @@ fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
 }
 
 fn render_thumb(
-    image_url: &Option<String>,
+    _image_url: &Option<String>,
     entity_type: &str,
     size: f32,
     large: bool,
 ) -> AnyElement {
-    if let Some(image_url) = image_url {
-        return img(image_url.clone())
-            .w(px(size))
-            .h(px(size))
-            .rounded(px(if large { 6.0 } else { 4.0 }))
-            .bg(border())
-            .flex_shrink_0()
-            .into_any_element();
-    }
-
     div()
         .w(px(size))
         .h(px(size))
@@ -1869,6 +1859,8 @@ fn subtle_button(label: &str) -> Button {
         .with_size(Size::Small)
         .ghost()
         .rounded(px(4.0))
+        .border_1()
+        .border_color(accent())
 }
 
 fn truncated(text: String) -> gpui::Div {
