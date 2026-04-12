@@ -15,7 +15,7 @@ use reqwest::blocking::Client as ReqwestClient;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::audio_tags::read_audio_tags;
+use crate::audio_tags::{read_audio_tags, EmbeddedArtwork, Id3Field};
 use crate::config;
 use crate::track_compare::{
     compare_track_tags, download_track_mp3, ComparisonRow, ComparisonStatus,
@@ -476,6 +476,11 @@ impl InspectorFrame {
 struct TagCompareResult {
     path: String,
     rows: Vec<ComparisonRow>,
+    source_image: Option<Arc<Image>>,
+    file_image: Option<Arc<Image>>,
+    contributors: Vec<Contributor>,
+    value_routes: Vec<PaymentRoute>,
+    id3_fields: Vec<Id3Field>,
 }
 
 struct SearchBatch {
@@ -1147,16 +1152,29 @@ fn fetch_inspector_detail(
 }
 
 fn download_and_compare_track(client: &Client, entity_id: &str) -> Result<TagCompareResult> {
-    let track = client.fetch_track(entity_id, Some("source_enclosures"))?;
+    let track = client.fetch_track(
+        entity_id,
+        Some("source_enclosures,source_contributors,payment_routes"),
+    )?;
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
     let downloaded = download_track_mp3(&cfg, &client.client, &track)?;
     let tags = read_audio_tags(&downloaded.path)?;
+    let source_image = track
+        .image_url
+        .as_deref()
+        .and_then(|url| download_image(&client.client, url));
+    let file_image = tags.artwork.as_ref().and_then(image_from_artwork);
 
     Ok(TagCompareResult {
         path: downloaded.path.display().to_string(),
         rows: compare_track_tags(&track, &tags),
+        source_image,
+        file_image,
+        contributors: track.source_contributors.unwrap_or_default(),
+        value_routes: track.payment_routes.unwrap_or_default(),
+        id3_fields: tags.fields,
     })
 }
 
@@ -1173,6 +1191,14 @@ fn download_image(client: &ReqwestClient, url: &str) -> Option<Arc<Image>> {
         return None;
     }
     Some(Arc::new(Image::from_bytes(format, bytes)))
+}
+
+fn image_from_artwork(artwork: &EmbeddedArtwork) -> Option<Arc<Image>> {
+    if artwork.data.is_empty() {
+        return None;
+    }
+    let format = ImageFormat::from_mime_type(&artwork.mime_type).unwrap_or(ImageFormat::Jpeg);
+    Some(Arc::new(Image::from_bytes(format, artwork.data.clone())))
 }
 
 fn render_filter_button(
@@ -1760,12 +1786,8 @@ fn render_tag_compare(result: &TagCompareResult) -> AnyElement {
     for row in &result.rows {
         let status = comparison_status_label(&row.status);
         cells.push(compare_cell(row.field));
-        cells.push(compare_cell(
-            row.source_value.as_deref().unwrap_or("<missing>"),
-        ));
-        cells.push(compare_cell(
-            row.tag_value.as_deref().unwrap_or("<missing>"),
-        ));
+        cells.push(compare_cell(row.source_value.as_deref().unwrap_or("")));
+        cells.push(compare_cell(row.tag_value.as_deref().unwrap_or("")));
         cells.push(
             div()
                 .text_size(px(11.0))
@@ -1795,6 +1817,160 @@ fn render_tag_compare(result: &TagCompareResult) -> AnyElement {
                 .gap_y(px(5.0))
                 .children(cells),
         )
+        .child(render_compare_artwork(
+            result.source_image.as_ref(),
+            result.file_image.as_ref(),
+        ))
+        .child(render_compare_detail_columns(result))
+        .into_any_element()
+}
+
+fn render_compare_artwork(
+    source_image: Option<&Arc<Image>>,
+    file_image: Option<&Arc<Image>>,
+) -> AnyElement {
+    div()
+        .grid()
+        .grid_cols(2)
+        .gap(px(12.0))
+        .child(render_compare_artwork_side(
+            "MusicIndex artwork",
+            source_image,
+            "track",
+        ))
+        .child(render_compare_artwork_side(
+            "File artwork",
+            file_image,
+            "track",
+        ))
+        .into_any_element()
+}
+
+fn render_compare_artwork_side(
+    label: &str,
+    image: Option<&Arc<Image>>,
+    entity_type: &str,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.0))
+        .child(section_heading(label))
+        .child(render_thumb(image, entity_type, 96.0, true))
+        .into_any_element()
+}
+
+fn render_compare_detail_columns(result: &TagCompareResult) -> AnyElement {
+    div()
+        .grid()
+        .grid_cols(2)
+        .gap(px(16.0))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.0))
+                .child(render_compare_contributors(&result.contributors))
+                .child(render_compare_value_routes(&result.value_routes)),
+        )
+        .child(render_id3_fields(&result.id3_fields))
+        .into_any_element()
+}
+
+fn render_compare_contributors(contributors: &[Contributor]) -> AnyElement {
+    let rows = if contributors.is_empty() {
+        vec![muted_line("No contributors")]
+    } else {
+        contributors
+            .iter()
+            .map(|contributor| {
+                let name = contributor.name.clone().unwrap_or_else(|| "Unknown".into());
+                let role = contributor
+                    .role
+                    .as_ref()
+                    .map_or(String::new(), |role| format!(" ({role})"));
+                let group = contributor
+                    .group_name
+                    .as_ref()
+                    .map_or(String::new(), |group| format!(" · {group}"));
+                compare_line(format!("{name}{role}{group}"))
+            })
+            .collect()
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(section_heading("RSS Contributors"))
+        .children(rows)
+        .into_any_element()
+}
+
+fn render_compare_value_routes(routes: &[PaymentRoute]) -> AnyElement {
+    let rows = if routes.is_empty() {
+        vec![muted_line("No wallet routes")]
+    } else {
+        routes
+            .iter()
+            .map(|route| {
+                let name = route
+                    .recipient_name
+                    .clone()
+                    .unwrap_or_else(|| "Unnamed recipient".into());
+                let split = route.split.unwrap_or_default();
+                let fee = if route.fee.unwrap_or_default() {
+                    "fee"
+                } else {
+                    "split"
+                };
+                let route_type = route.route_type.clone().unwrap_or_else(|| "route".into());
+                compare_line(format!("{name} ({route_type} · {split}% · {fee})"))
+            })
+            .collect()
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(section_heading("RSS Wallet Routes"))
+        .children(rows)
+        .into_any_element()
+}
+
+fn render_id3_fields(fields: &[Id3Field]) -> AnyElement {
+    let rows = if fields.is_empty() {
+        vec![muted_line("No ID3 tag frames")]
+    } else {
+        fields
+            .iter()
+            .map(|field| compare_line(format!("{} = {}", field.frame_id, field.value)))
+            .collect()
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(section_heading("All ID3 Tags"))
+        .children(rows)
+        .into_any_element()
+}
+
+fn compare_line(value: String) -> AnyElement {
+    div()
+        .text_size(px(10.5))
+        .line_height(px(15.0))
+        .child(SharedString::from(value))
+        .into_any_element()
+}
+
+fn muted_line(value: &str) -> AnyElement {
+    div()
+        .text_color(muted())
+        .text_size(px(10.5))
+        .child(SharedString::from(value.to_string()))
         .into_any_element()
 }
 
@@ -2084,6 +2260,7 @@ fn subtle_button(label: &str) -> Button {
         .label(SharedString::from(label.to_string()))
         .with_size(Size::Small)
         .ghost()
+        .text_color(text())
         .rounded(px(4.0))
         .border_1()
         .border_color(accent())

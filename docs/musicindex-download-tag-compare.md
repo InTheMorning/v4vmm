@@ -31,6 +31,8 @@ This is an operator/debugging workflow first. It should surface differences clea
    | Track # | Track number | ID3 track | match/diff/missing |
    | Publisher | Publisher text | Custom tag if present | match/diff/missing |
 
+7. The compare panel also renders MusicIndex artwork, embedded file artwork, RSS contributors, RSS wallet routes, and all ID3 frames found in the file.
+
 ## Metadata Boundary
 
 The feature should be MP3-only for the first implementation, but the public boundary should be format-neutral:
@@ -62,6 +64,7 @@ For the first implementation:
 
 - Compare normalized display strings only.
 - Treat empty and missing values as missing.
+- Render missing embedded MP3 tags as blank tag-side fields, not as a hard workflow error.
 - Do not infer values from filenames, URLs, feed titles, or contributors.
 - Do not mutate file tags.
 - Surface source conflicts as differences rather than resolving them.
@@ -91,6 +94,7 @@ Status: complete.
 - Extended the track inspector with download-and-compare state.
 - Fetches track details with `source_enclosures`.
 - Renders download status and comparison rows in the existing inspector.
+- Renders MusicIndex/file artwork, RSS contributors, RSS wallet routes, and all ID3 frames.
 
 ### Phase 4: Later Formats
 

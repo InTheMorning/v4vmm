@@ -338,8 +338,8 @@ mod tests {
             artist: Some("Other Artist".into()),
             album: None,
             track_number: Some("4".into()),
-            date: None,
             custom,
+            ..AudioTags::default()
         };
 
         assert_eq!(
