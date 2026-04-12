@@ -1641,19 +1641,18 @@ fn render_track_inspector(
     track: &Track,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let left = render_track_left_column(frame, track, cx);
-    if matches!(frame.tag_compare, LazyPanel::Hidden) {
-        return left;
+    match &frame.tag_compare {
+        LazyPanel::Loaded(result) => render_track_compare_window(frame, track, result, cx),
+        LazyPanel::Loading | LazyPanel::Empty(_) => div()
+            .grid()
+            .grid_cols(2)
+            .gap(px(24.0))
+            .items_start()
+            .child(render_track_left_column(frame, track, cx))
+            .child(render_track_compare_panel(frame))
+            .into_any_element(),
+        LazyPanel::Hidden => render_track_left_column(frame, track, cx),
     }
-
-    div()
-        .grid()
-        .grid_cols(2)
-        .gap(px(24.0))
-        .items_start()
-        .child(left)
-        .child(render_track_compare_panel(frame))
-        .into_any_element()
 }
 
 fn render_track_left_column(
@@ -1737,11 +1736,65 @@ fn render_track_source_sections(frame: &InspectorFrame, cx: &mut Context<SearchA
 
 fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
     match &frame.tag_compare {
-        LazyPanel::Loaded(result) => render_tag_compare(result),
+        LazyPanel::Loaded(result) => render_tag_compare(result, "Embedded Metadata Compare"),
         LazyPanel::Loading => render_loading("Downloading and reading embedded metadata..."),
         LazyPanel::Empty(label) => render_loading(label),
         LazyPanel::Hidden => div().into_any_element(),
     }
+}
+
+fn render_track_compare_window(
+    frame: &InspectorFrame,
+    track: &Track,
+    result: &TagCompareResult,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let title = track_title(track);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.0))
+        .child(
+            div()
+                .grid()
+                .grid_cols(2)
+                .gap(px(24.0))
+                .items_start()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(12.0))
+                        .child(render_detail_header("track", &title, frame.image.as_ref()))
+                        .child(render_action_row(frame, cx)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(12.0))
+                        .child(render_file_header(result)),
+                ),
+        )
+        .child(render_tag_compare(result, "RSS and ID3 Compare"))
+        .child(
+            div()
+                .grid()
+                .grid_cols(2)
+                .gap(px(24.0))
+                .items_start()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(16.0))
+                        .child(render_contributors(&result.contributors, cx))
+                        .child(render_value_routes(&result.value_routes)),
+                )
+                .child(render_id3_fields(&result.id3_fields)),
+        )
+        .into_any_element()
 }
 
 fn render_publisher_inspector(publisher: &Publisher, cx: &mut Context<SearchApp>) -> AnyElement {
@@ -1990,9 +2043,9 @@ fn render_value_routes(routes: &[PaymentRoute]) -> AnyElement {
         .into_any_element()
 }
 
-fn render_tag_compare(result: &TagCompareResult) -> AnyElement {
+fn render_tag_compare(result: &TagCompareResult, title: &'static str) -> AnyElement {
     let mut cells: Vec<AnyElement> = Vec::new();
-    for heading in ["Field", "MusicIndex", "File Tag", "Status"] {
+    for heading in ["Field", "RSS", "ID3", "Status"] {
         cells.push(
             div()
                 .text_color(muted())
@@ -2005,13 +2058,20 @@ fn render_tag_compare(result: &TagCompareResult) -> AnyElement {
 
     for row in &result.rows {
         let status = comparison_status_label(&row.status);
-        cells.push(compare_cell(row.field));
-        cells.push(compare_cell(row.source_value.as_deref().unwrap_or("")));
-        cells.push(compare_cell(row.tag_value.as_deref().unwrap_or("")));
+        let color = comparison_status_color(&row.status);
+        cells.push(compare_cell(row.field, None));
+        cells.push(compare_cell(
+            row.source_value.as_deref().unwrap_or(""),
+            Some(color),
+        ));
+        cells.push(compare_cell(
+            row.tag_value.as_deref().unwrap_or(""),
+            Some(color),
+        ));
         cells.push(
             div()
                 .text_size(px(11.0))
-                .text_color(comparison_status_color(&row.status))
+                .text_color(color)
                 .child(status)
                 .into_any_element(),
         );
@@ -2021,34 +2081,61 @@ fn render_tag_compare(result: &TagCompareResult) -> AnyElement {
         .flex()
         .flex_col()
         .gap(px(6.0))
-        .child(section_heading("Embedded Metadata Compare"))
-        .child(
-            div()
-                .text_color(muted())
-                .text_size(px(10.5))
-                .line_clamp(2)
-                .child(SharedString::from(result.path.clone())),
-        )
+        .child(section_heading(title))
         .child(
             div()
                 .grid()
                 .grid_cols(4)
                 .gap_x(px(10.0))
-                .gap_y(px(5.0))
+                .gap_y(px(7.0))
                 .children(cells),
         )
-        .child(render_file_artwork(result.file_image.as_ref()))
-        .child(render_id3_fields(&result.id3_fields))
         .into_any_element()
 }
 
-fn render_file_artwork(image: Option<&Arc<Image>>) -> AnyElement {
+fn render_file_header(result: &TagCompareResult) -> AnyElement {
     div()
         .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .child(section_heading("File Artwork"))
-        .child(render_thumb(image, "track", 96.0, true))
+        .flex_row()
+        .items_start()
+        .gap(px(16.0))
+        .child(render_thumb(
+            result.file_image.as_ref(),
+            "track",
+            80.0,
+            true,
+        ))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(badge_text("track"))
+                        .bg(type_color("track"))
+                        .px(px(6.0))
+                        .py(px(2.0))
+                        .rounded(px(4.0))
+                        .mb(px(6.0))
+                        .child("id3"),
+                )
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_height(px(23.0))
+                        .child("Embedded MP3 metadata"),
+                )
+                .child(
+                    div()
+                        .text_color(muted())
+                        .text_size(px(10.5))
+                        .line_clamp(2)
+                        .child(SharedString::from(result.path.clone())),
+                ),
+        )
         .into_any_element()
 }
 
@@ -2087,11 +2174,12 @@ fn muted_line(value: &str) -> AnyElement {
         .into_any_element()
 }
 
-fn compare_cell(value: &str) -> AnyElement {
-    div()
-        .text_size(px(11.0))
-        .line_height(px(16.0))
-        .child(SharedString::from(value.to_string()))
+fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
+    let mut cell = div().text_size(px(11.0)).line_height(px(16.0));
+    if let Some(color) = color {
+        cell = cell.text_color(color);
+    }
+    cell.child(SharedString::from(value.to_string()))
         .into_any_element()
 }
 
@@ -2267,24 +2355,33 @@ fn render_detail_header(entity_type: &str, title: &str, image: Option<&Arc<Image
 
 fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
     div()
-        .grid()
-        .grid_cols(2)
-        .gap_x(px(12.0))
-        .gap_y(px(5.0))
-        .children(rows.into_iter().flat_map(|(key, value)| {
-            [
-                div()
-                    .text_color(muted())
-                    .whitespace_nowrap()
-                    .text_size(px(11.5))
-                    .child(SharedString::from(key))
-                    .into_any_element(),
-                div()
-                    .text_size(px(11.5))
-                    .line_height(px(17.0))
-                    .child(SharedString::from(value))
-                    .into_any_element(),
-            ]
+        .flex()
+        .flex_col()
+        .gap(px(5.0))
+        .children(rows.into_iter().map(|(key, value)| {
+            div()
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap(px(12.0))
+                .child(
+                    div()
+                        .w(px(124.0))
+                        .flex_shrink_0()
+                        .text_color(muted())
+                        .whitespace_nowrap()
+                        .text_size(px(11.5))
+                        .child(SharedString::from(key)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(11.5))
+                        .line_height(px(17.0))
+                        .child(SharedString::from(value)),
+                )
+                .into_any_element()
         }))
         .into_any_element()
 }
