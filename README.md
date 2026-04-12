@@ -70,7 +70,7 @@ search
 
 The UI uses `https://musicindex.org` by default and needs network access. It is separate from the local `v4vmm` SQLite database used by the RSS subscription CLI.
 
-For track results, use `Download + Compare` in the inspector to fetch the MP3 enclosure into `music_dir`, read its embedded MP3 tags, and compare title, artist, album/feed, track number, and publisher fields against MusicIndex/Stophammer source facts. The panel also shows MusicIndex and embedded artwork, RSS contributors, RSS wallet routes, and all ID3 frames found in the file. Missing ID3 tags render as blank fields. This is read-only: it does not rewrite tags.
+For track results, use `Download + Compare` in the inspector to fetch the MP3 enclosure into `music_dir`, read its embedded MP3 tags, and compare title, artist, album/feed, track number, publisher, nostr handle, website, and release pubdate fields against MusicIndex/Stophammer source facts. The inspector keeps MusicIndex/RSS data and actions on the left and opens file-side ID3 details on the right. It also shows embedded artwork and all ID3 frames found in the file. Missing ID3 tags render as blank fields. This is read-only: it does not rewrite tags.
 
 Running the CLI will create config file `~/.config/v4vmm/config.toml`
 This file contains defaults:

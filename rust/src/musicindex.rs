@@ -124,6 +124,9 @@ pub struct Feed {
     pub image_url: Option<String>,
     pub tracks: Option<Vec<Track>>,
     pub source_contributors: Option<Vec<Contributor>>,
+    pub source_links: Option<Vec<SourceEntityLink>>,
+    pub source_ids: Option<Vec<SourceEntityId>>,
+    pub source_release_claims: Option<Vec<SourceReleaseClaim>>,
     pub payment_routes: Option<Vec<PaymentRoute>>,
     pub updated_at: Option<i64>,
 }
@@ -150,6 +153,9 @@ pub struct Track {
     pub publisher_text: Option<String>,
     pub artist_credit: Option<ArtistCredit>,
     pub source_contributors: Option<Vec<Contributor>>,
+    pub source_links: Option<Vec<SourceEntityLink>>,
+    pub source_ids: Option<Vec<SourceEntityId>>,
+    pub source_release_claims: Option<Vec<SourceReleaseClaim>>,
     pub source_enclosures: Option<Vec<SourceEnclosure>>,
     pub payment_routes: Option<Vec<PaymentRoute>>,
     pub updated_at: Option<i64>,
@@ -184,6 +190,45 @@ pub struct PaymentRoute {
     pub address: Option<String>,
     pub custom_key: Option<String>,
     pub custom_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SourceEntityLink {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub position: Option<i64>,
+    pub link_type: Option<String>,
+    pub url: Option<String>,
+    pub source: Option<String>,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SourceEntityId {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub position: Option<i64>,
+    pub scheme: Option<String>,
+    pub value: Option<String>,
+    pub source: Option<String>,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SourceReleaseClaim {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub position: Option<i64>,
+    pub claim_type: Option<String>,
+    pub claim_value: Option<String>,
+    pub source: Option<String>,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -476,7 +521,6 @@ impl InspectorFrame {
 struct TagCompareResult {
     path: String,
     rows: Vec<ComparisonRow>,
-    source_image: Option<Arc<Image>>,
     file_image: Option<Arc<Image>>,
     contributors: Vec<Contributor>,
     value_routes: Vec<PaymentRoute>,
@@ -1154,23 +1198,27 @@ fn fetch_inspector_detail(
 fn download_and_compare_track(client: &Client, entity_id: &str) -> Result<TagCompareResult> {
     let track = client.fetch_track(
         entity_id,
-        Some("source_enclosures,source_contributors,payment_routes"),
+        Some("source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
     )?;
+    let feed = match track.feed_guid.as_deref() {
+        Some(feed_guid) => client
+            .fetch_feed(
+                feed_guid,
+                Some("source_links,source_ids,source_release_claims"),
+            )
+            .ok(),
+        None => None,
+    };
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
     let downloaded = download_track_mp3(&cfg, &client.client, &track)?;
     let tags = read_audio_tags(&downloaded.path)?;
-    let source_image = track
-        .image_url
-        .as_deref()
-        .and_then(|url| download_image(&client.client, url));
     let file_image = tags.artwork.as_ref().and_then(image_from_artwork);
 
     Ok(TagCompareResult {
         path: downloaded.path.display().to_string(),
-        rows: compare_track_tags(&track, &tags),
-        source_image,
+        rows: compare_track_rows(&track, feed.as_ref(), &tags),
         file_image,
         contributors: track.source_contributors.unwrap_or_default(),
         value_routes: track.payment_routes.unwrap_or_default(),
@@ -1199,6 +1247,146 @@ fn image_from_artwork(artwork: &EmbeddedArtwork) -> Option<Arc<Image>> {
     }
     let format = ImageFormat::from_mime_type(&artwork.mime_type).unwrap_or(ImageFormat::Jpeg);
     Some(Arc::new(Image::from_bytes(format, artwork.data.clone())))
+}
+
+fn compare_track_rows(
+    track: &Track,
+    feed: Option<&Feed>,
+    tags: &crate::audio_tags::AudioTags,
+) -> Vec<ComparisonRow> {
+    let mut rows = compare_track_tags(track, tags);
+
+    push_compare_row(&mut rows, "Nostr handle", track_nostr(track), None);
+    push_compare_row(&mut rows, "Website", track_website(track), None);
+    push_compare_row(
+        &mut rows,
+        "Release pubdate",
+        track_release_pubdate(track),
+        None,
+    );
+
+    if let Some(feed) = feed {
+        push_if_differs(
+            &mut rows,
+            "Feed Nostr handle",
+            feed_nostr(feed),
+            track_nostr(track),
+        );
+        push_if_differs(
+            &mut rows,
+            "Feed Website",
+            feed_website(feed),
+            track_website(track),
+        );
+        push_if_differs(
+            &mut rows,
+            "Feed Release pubdate",
+            feed_release_pubdate(feed),
+            track_release_pubdate(track),
+        );
+    }
+
+    rows
+}
+
+fn push_if_differs(
+    rows: &mut Vec<ComparisonRow>,
+    field: &'static str,
+    feed_value: Option<String>,
+    track_value: Option<String>,
+) {
+    if normalized_compare_value(feed_value.as_deref())
+        != normalized_compare_value(track_value.as_deref())
+    {
+        push_compare_row(rows, field, feed_value, None);
+    }
+}
+
+fn push_compare_row(
+    rows: &mut Vec<ComparisonRow>,
+    field: &'static str,
+    source_value: Option<String>,
+    tag_value: Option<String>,
+) {
+    if normalized_compare_value(source_value.as_deref()).is_some()
+        || normalized_compare_value(tag_value.as_deref()).is_some()
+    {
+        rows.push(ComparisonRow {
+            field,
+            source_value,
+            tag_value,
+            status: ComparisonStatus::MissingTag,
+        });
+    }
+}
+
+fn track_nostr(track: &Track) -> Option<String> {
+    nostr_from_ids(track.source_ids.as_deref())
+}
+
+fn feed_nostr(feed: &Feed) -> Option<String> {
+    nostr_from_ids(feed.source_ids.as_deref())
+}
+
+fn nostr_from_ids(ids: Option<&[SourceEntityId]>) -> Option<String> {
+    ids?.iter().find_map(|id| {
+        if id.scheme.as_deref() == Some("nostr_npub") {
+            id.value.clone()
+        } else {
+            None
+        }
+    })
+}
+
+fn track_website(track: &Track) -> Option<String> {
+    website_from_links(track.source_links.as_deref())
+}
+
+fn feed_website(feed: &Feed) -> Option<String> {
+    website_from_links(feed.source_links.as_deref())
+}
+
+fn website_from_links(links: Option<&[SourceEntityLink]>) -> Option<String> {
+    links?.iter().find_map(|link| {
+        let link_type = link.link_type.as_deref()?;
+        if link_type == "website" || link_type == "web_page" {
+            link.url.clone()
+        } else {
+            None
+        }
+    })
+}
+
+fn track_release_pubdate(track: &Track) -> Option<String> {
+    release_pubdate_from_claims(track.source_release_claims.as_deref())
+        .or_else(|| track.pub_date.and_then(fmt_date))
+}
+
+fn feed_release_pubdate(feed: &Feed) -> Option<String> {
+    release_pubdate_from_claims(feed.source_release_claims.as_deref())
+        .or_else(|| feed.release_date.and_then(fmt_date))
+}
+
+fn release_pubdate_from_claims(claims: Option<&[SourceReleaseClaim]>) -> Option<String> {
+    claims?.iter().find_map(|claim| {
+        if claim.claim_type.as_deref() != Some("release_date") {
+            return None;
+        }
+
+        let value = claim.claim_value.as_deref()?;
+        value
+            .parse::<i64>()
+            .ok()
+            .and_then(fmt_date)
+            .or_else(|| Some(value.to_string()))
+    })
+}
+
+fn normalized_compare_value(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 fn render_filter_button(
@@ -1453,6 +1641,26 @@ fn render_track_inspector(
     track: &Track,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
+    let left = render_track_left_column(frame, track, cx);
+    if matches!(frame.tag_compare, LazyPanel::Hidden) {
+        return left;
+    }
+
+    div()
+        .grid()
+        .grid_cols(2)
+        .gap(px(24.0))
+        .items_start()
+        .child(left)
+        .child(render_track_compare_panel(frame))
+        .into_any_element()
+}
+
+fn render_track_left_column(
+    frame: &InspectorFrame,
+    track: &Track,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     let title = track_title(track);
     let mut rows = Vec::new();
     optional_row(&mut rows, "Artist", track.track_artist.clone());
@@ -1510,8 +1718,30 @@ fn render_track_inspector(
             )))
         })
         .child(render_action_row(frame, cx))
-        .child(render_lazy_sections(frame, cx))
+        .child(render_track_source_sections(frame, cx))
         .into_any_element()
+}
+
+fn render_track_source_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
+    match &frame.tag_compare {
+        LazyPanel::Loaded(result) => div()
+            .flex()
+            .flex_col()
+            .gap(px(16.0))
+            .child(render_contributors(&result.contributors, cx))
+            .child(render_value_routes(&result.value_routes))
+            .into_any_element(),
+        _ => render_rss_lazy_sections(frame, cx),
+    }
+}
+
+fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
+    match &frame.tag_compare {
+        LazyPanel::Loaded(result) => render_tag_compare(result),
+        LazyPanel::Loading => render_loading("Downloading and reading embedded metadata..."),
+        LazyPanel::Empty(label) => render_loading(label),
+        LazyPanel::Hidden => div().into_any_element(),
+    }
 }
 
 fn render_publisher_inspector(publisher: &Publisher, cx: &mut Context<SearchApp>) -> AnyElement {
@@ -1616,26 +1846,16 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
 }
 
 fn render_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
+    render_rss_lazy_sections(frame, cx)
+}
+
+fn render_rss_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
     let mut element = div().flex().flex_col().gap(px(16.0));
     if let LazyPanel::Loaded(items) = &frame.contributors {
         element = element.child(render_contributors(items, cx));
     }
     if let LazyPanel::Loaded(items) = &frame.value_routes {
         element = element.child(render_value_routes(items));
-    }
-    match &frame.tag_compare {
-        LazyPanel::Loaded(result) => {
-            element = element.child(render_tag_compare(result));
-        }
-        LazyPanel::Loading => {
-            element = element.child(render_loading(
-                "Downloading and reading embedded metadata...",
-            ));
-        }
-        LazyPanel::Empty(label) => {
-            element = element.child(render_loading(label));
-        }
-        LazyPanel::Hidden => {}
     }
     element.into_any_element()
 }
@@ -1817,125 +2037,18 @@ fn render_tag_compare(result: &TagCompareResult) -> AnyElement {
                 .gap_y(px(5.0))
                 .children(cells),
         )
-        .child(render_compare_artwork(
-            result.source_image.as_ref(),
-            result.file_image.as_ref(),
-        ))
-        .child(render_compare_detail_columns(result))
-        .into_any_element()
-}
-
-fn render_compare_artwork(
-    source_image: Option<&Arc<Image>>,
-    file_image: Option<&Arc<Image>>,
-) -> AnyElement {
-    div()
-        .grid()
-        .grid_cols(2)
-        .gap(px(12.0))
-        .child(render_compare_artwork_side(
-            "MusicIndex artwork",
-            source_image,
-            "track",
-        ))
-        .child(render_compare_artwork_side(
-            "File artwork",
-            file_image,
-            "track",
-        ))
-        .into_any_element()
-}
-
-fn render_compare_artwork_side(
-    label: &str,
-    image: Option<&Arc<Image>>,
-    entity_type: &str,
-) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .child(section_heading(label))
-        .child(render_thumb(image, entity_type, 96.0, true))
-        .into_any_element()
-}
-
-fn render_compare_detail_columns(result: &TagCompareResult) -> AnyElement {
-    div()
-        .grid()
-        .grid_cols(2)
-        .gap(px(16.0))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(10.0))
-                .child(render_compare_contributors(&result.contributors))
-                .child(render_compare_value_routes(&result.value_routes)),
-        )
+        .child(render_file_artwork(result.file_image.as_ref()))
         .child(render_id3_fields(&result.id3_fields))
         .into_any_element()
 }
 
-fn render_compare_contributors(contributors: &[Contributor]) -> AnyElement {
-    let rows = if contributors.is_empty() {
-        vec![muted_line("No contributors")]
-    } else {
-        contributors
-            .iter()
-            .map(|contributor| {
-                let name = contributor.name.clone().unwrap_or_else(|| "Unknown".into());
-                let role = contributor
-                    .role
-                    .as_ref()
-                    .map_or(String::new(), |role| format!(" ({role})"));
-                let group = contributor
-                    .group_name
-                    .as_ref()
-                    .map_or(String::new(), |group| format!(" · {group}"));
-                compare_line(format!("{name}{role}{group}"))
-            })
-            .collect()
-    };
-
+fn render_file_artwork(image: Option<&Arc<Image>>) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap(px(4.0))
-        .child(section_heading("RSS Contributors"))
-        .children(rows)
-        .into_any_element()
-}
-
-fn render_compare_value_routes(routes: &[PaymentRoute]) -> AnyElement {
-    let rows = if routes.is_empty() {
-        vec![muted_line("No wallet routes")]
-    } else {
-        routes
-            .iter()
-            .map(|route| {
-                let name = route
-                    .recipient_name
-                    .clone()
-                    .unwrap_or_else(|| "Unnamed recipient".into());
-                let split = route.split.unwrap_or_default();
-                let fee = if route.fee.unwrap_or_default() {
-                    "fee"
-                } else {
-                    "split"
-                };
-                let route_type = route.route_type.clone().unwrap_or_else(|| "route".into());
-                compare_line(format!("{name} ({route_type} · {split}% · {fee})"))
-            })
-            .collect()
-    };
-
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.0))
-        .child(section_heading("RSS Wallet Routes"))
-        .children(rows)
+        .gap(px(6.0))
+        .child(section_heading("File Artwork"))
+        .child(render_thumb(image, "track", 96.0, true))
         .into_any_element()
 }
 

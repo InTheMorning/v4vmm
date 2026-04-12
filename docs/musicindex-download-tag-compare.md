@@ -30,8 +30,12 @@ This is an operator/debugging workflow first. It should surface differences clea
    | Album/Feed | Feed title | ID3 album | match/diff/missing |
    | Track # | Track number | ID3 track | match/diff/missing |
    | Publisher | Publisher text | Custom tag if present | match/diff/missing |
+   | Nostr handle | Track-level source ID | ID3 tag if present | match/diff/missing |
+   | Website | Track-level source link | ID3 tag if present | match/diff/missing |
+   | Release pubdate | Track pubdate/release claim | ID3 tag if present | match/diff/missing |
 
-7. The compare panel also renders MusicIndex artwork, embedded file artwork, RSS contributors, RSS wallet routes, and all ID3 frames found in the file.
+7. If feed-level nostr handle, website, or release pubdate differs from the item-level value, the feed-level value is shown as its own row.
+8. The track inspector keeps MusicIndex/RSS data and actions on the left. When compare is active, the file-side panel opens on the right with embedded artwork and all ID3 frames found in the file.
 
 ## Metadata Boundary
 
@@ -65,6 +69,7 @@ For the first implementation:
 - Compare normalized display strings only.
 - Treat empty and missing values as missing.
 - Render missing embedded MP3 tags as blank tag-side fields, not as a hard workflow error.
+- Show differing feed-level source values separately from item-level values.
 - Do not infer values from filenames, URLs, feed titles, or contributors.
 - Do not mutate file tags.
 - Surface source conflicts as differences rather than resolving them.
@@ -92,9 +97,10 @@ Status: complete.
 Status: complete.
 
 - Extended the track inspector with download-and-compare state.
-- Fetches track details with `source_enclosures`.
-- Renders download status and comparison rows in the existing inspector.
-- Renders MusicIndex/file artwork, RSS contributors, RSS wallet routes, and all ID3 frames.
+- Fetches track details with `source_enclosures`, `source_links`, `source_ids`, `source_release_claims`, `source_contributors`, and `payment_routes`.
+- Renders download status and comparison rows in a right-side file panel.
+- Renders RSS data and actions on the left, including contributors and wallet routes when compare is active.
+- Renders embedded file artwork and all ID3 frames.
 
 ### Phase 4: Later Formats
 
