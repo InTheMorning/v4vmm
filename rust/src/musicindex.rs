@@ -17,6 +17,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::audio_tags::{read_audio_tags, EmbeddedArtwork, Id3Field};
 use crate::config;
+use crate::musicbrainz::{
+    lookup_recordings, LookupMetadata, MusicBrainzCandidate, MusicBrainzLookup,
+};
 use crate::track_compare::{
     compare_track_tags, download_track_mp3, ComparisonRow, ComparisonStatus,
 };
@@ -498,8 +501,11 @@ struct InspectorFrame {
     detail: InspectorDetail,
     image: Option<Arc<Image>>,
     contributors: LazyPanel<Vec<Contributor>>,
+    contributors_collapsed: bool,
     value_routes: LazyPanel<Vec<PaymentRoute>>,
+    value_routes_collapsed: bool,
     tag_compare: LazyPanel<TagCompareResult>,
+    musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
 }
 
 impl InspectorFrame {
@@ -511,8 +517,11 @@ impl InspectorFrame {
             detail: InspectorDetail::Loading(format!("Loading {title}...")),
             image: None,
             contributors: LazyPanel::Hidden,
+            contributors_collapsed: true,
             value_routes: LazyPanel::Hidden,
+            value_routes_collapsed: true,
             tag_compare: LazyPanel::Hidden,
+            musicbrainz_lookup: LazyPanel::Hidden,
         }
     }
 }
@@ -525,6 +534,12 @@ struct TagCompareResult {
     contributors: Vec<Contributor>,
     value_routes: Vec<PaymentRoute>,
     id3_fields: Vec<Id3Field>,
+}
+
+#[derive(Clone, Debug)]
+struct MusicBrainzLookupResult {
+    path: String,
+    lookup: MusicBrainzLookup,
 }
 
 struct SearchBatch {
@@ -758,14 +773,28 @@ impl SearchApp {
             return;
         };
 
+        if matches!(frame.tag_compare, LazyPanel::Loaded(_)) {
+            frame.contributors_collapsed = !frame.contributors_collapsed;
+            cx.notify();
+            return;
+        }
+
         match frame.contributors {
             LazyPanel::Loaded(_) => {
-                frame.contributors = LazyPanel::Hidden;
+                frame.contributors_collapsed = !frame.contributors_collapsed;
                 cx.notify();
                 return;
             }
-            LazyPanel::Loading | LazyPanel::Empty(_) => return,
-            LazyPanel::Hidden => frame.contributors = LazyPanel::Loading,
+            LazyPanel::Loading => return,
+            LazyPanel::Empty(_) => {
+                frame.contributors_collapsed = !frame.contributors_collapsed;
+                cx.notify();
+                return;
+            }
+            LazyPanel::Hidden => {
+                frame.contributors = LazyPanel::Loading;
+                frame.contributors_collapsed = false;
+            }
         }
 
         let entity_type = frame.entity_type.clone();
@@ -806,14 +835,28 @@ impl SearchApp {
             return;
         };
 
+        if matches!(frame.tag_compare, LazyPanel::Loaded(_)) {
+            frame.value_routes_collapsed = !frame.value_routes_collapsed;
+            cx.notify();
+            return;
+        }
+
         match frame.value_routes {
             LazyPanel::Loaded(_) => {
-                frame.value_routes = LazyPanel::Hidden;
+                frame.value_routes_collapsed = !frame.value_routes_collapsed;
                 cx.notify();
                 return;
             }
-            LazyPanel::Loading | LazyPanel::Empty(_) => return,
-            LazyPanel::Hidden => frame.value_routes = LazyPanel::Loading,
+            LazyPanel::Loading => return,
+            LazyPanel::Empty(_) => {
+                frame.value_routes_collapsed = !frame.value_routes_collapsed;
+                cx.notify();
+                return;
+            }
+            LazyPanel::Hidden => {
+                frame.value_routes = LazyPanel::Loading;
+                frame.value_routes_collapsed = false;
+            }
         }
 
         let entity_type = frame.entity_type.clone();
@@ -885,6 +928,58 @@ impl SearchApp {
                         if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == "track" && frame.entity_id == entity_id {
                                 frame.tag_compare = match result {
+                                    Ok(result) => LazyPanel::Loaded(result),
+                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                };
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn toggle_musicbrainz_lookup(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.entity_type != "track" {
+            return;
+        }
+
+        match frame.musicbrainz_lookup {
+            LazyPanel::Loaded(_) => {
+                frame.musicbrainz_lookup = LazyPanel::Hidden;
+                cx.notify();
+                return;
+            }
+            LazyPanel::Loading => return,
+            LazyPanel::Empty(_) | LazyPanel::Hidden => {
+                frame.musicbrainz_lookup = LazyPanel::Loading;
+            }
+        }
+
+        let entity_id = frame.entity_id.clone();
+        let client = Arc::new(Client::new());
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let request_id = entity_id.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { lookup_musicbrainz_track(&client, &request_id) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == "track" && frame.entity_id == entity_id {
+                                frame.musicbrainz_lookup = match result {
                                     Ok(result) => LazyPanel::Loaded(result),
                                     Err(error) => LazyPanel::Empty(format!("Error: {error}")),
                                 };
@@ -1224,6 +1319,54 @@ fn download_and_compare_track(client: &Client, entity_id: &str) -> Result<TagCom
         value_routes: track.payment_routes.unwrap_or_default(),
         id3_fields: tags.fields,
     })
+}
+
+fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBrainzLookupResult> {
+    let track = client.fetch_track(entity_id, Some("source_enclosures"))?;
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
+    config::ensure_dirs(&cfg)?;
+    let downloaded = download_track_mp3(&cfg, &client.client, &track)?;
+    let tags = read_audio_tags(&downloaded.path)?;
+    let metadata = musicbrainz_lookup_metadata(&track, &tags);
+    let musicbrainz_client = ReqwestClient::builder()
+        .user_agent(format!(
+            "v4vmm/{} (MusicBrainz metadata lookup)",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()?;
+    let lookup = lookup_recordings(&musicbrainz_client, &metadata, 5)?;
+
+    Ok(MusicBrainzLookupResult {
+        path: downloaded.path.display().to_string(),
+        lookup,
+    })
+}
+
+fn musicbrainz_lookup_metadata(
+    track: &Track,
+    tags: &crate::audio_tags::AudioTags,
+) -> LookupMetadata {
+    LookupMetadata {
+        title: tags
+            .title
+            .clone()
+            .or_else(|| track.title.clone())
+            .or_else(|| track.name.clone()),
+        artist: tags.artist.clone().or_else(|| track.track_artist.clone()),
+        album: tags.album.clone().or_else(|| track.feed_title.clone()),
+        track_number: tags
+            .track_number
+            .clone()
+            .or_else(|| track.track_number.map(|number| number.to_string())),
+        total_tracks: None,
+        duration_secs: track.duration_secs.map(i64::from),
+        isrc: tags
+            .custom
+            .get("ISRC")
+            .cloned()
+            .or_else(|| tags.custom.get("isrc").cloned()),
+    }
 }
 
 fn download_image(client: &ReqwestClient, url: &str) -> Option<Arc<Image>> {
@@ -1717,6 +1860,7 @@ fn render_track_left_column(
             )))
         })
         .child(render_action_row(frame, cx))
+        .child(render_musicbrainz_panel(frame))
         .child(render_track_source_sections(frame, cx))
         .into_any_element()
 }
@@ -1727,8 +1871,16 @@ fn render_track_source_sections(frame: &InspectorFrame, cx: &mut Context<SearchA
             .flex()
             .flex_col()
             .gap(px(16.0))
-            .child(render_contributors(&result.contributors, cx))
-            .child(render_value_routes(&result.value_routes))
+            .child(render_contributors(
+                &result.contributors,
+                frame.contributors_collapsed,
+                cx,
+            ))
+            .child(render_value_routes(
+                &result.value_routes,
+                frame.value_routes_collapsed,
+                cx,
+            ))
             .into_any_element(),
         _ => render_rss_lazy_sections(frame, cx),
     }
@@ -1778,6 +1930,7 @@ fn render_track_compare_window(
                 ),
         )
         .child(render_tag_compare(result, "RSS and ID3 Compare"))
+        .child(render_musicbrainz_panel(frame))
         .child(
             div()
                 .grid()
@@ -1789,8 +1942,16 @@ fn render_track_compare_window(
                         .flex()
                         .flex_col()
                         .gap(px(16.0))
-                        .child(render_contributors(&result.contributors, cx))
-                        .child(render_value_routes(&result.value_routes)),
+                        .child(render_contributors(
+                            &result.contributors,
+                            frame.contributors_collapsed,
+                            cx,
+                        ))
+                        .child(render_value_routes(
+                            &result.value_routes,
+                            frame.value_routes_collapsed,
+                            cx,
+                        )),
                 )
                 .child(render_id3_fields(&result.id3_fields)),
         )
@@ -1852,36 +2013,6 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
         .flex_row()
         .flex_wrap()
         .gap(px(8.0))
-        .child(
-            subtle_button(match frame.contributors {
-                LazyPanel::Loaded(_) => "Hide Contributors",
-                LazyPanel::Loading => "Loading...",
-                LazyPanel::Empty(ref label) => label.as_str(),
-                LazyPanel::Hidden => "Show Contributors",
-            })
-            .disabled(matches!(
-                frame.contributors,
-                LazyPanel::Loading | LazyPanel::Empty(_)
-            ))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.toggle_contributors(cx);
-            })),
-        )
-        .child(
-            subtle_button(match frame.value_routes {
-                LazyPanel::Loaded(_) => "Hide Value Routes",
-                LazyPanel::Loading => "Loading...",
-                LazyPanel::Empty(ref label) => label.as_str(),
-                LazyPanel::Hidden => "Show Value Routes",
-            })
-            .disabled(matches!(
-                frame.value_routes,
-                LazyPanel::Loading | LazyPanel::Empty(_)
-            ))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.toggle_value_routes(cx);
-            })),
-        )
         .when(frame.entity_type == "track", |el| {
             el.child(
                 subtle_button(match frame.tag_compare {
@@ -1894,6 +2025,17 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
                     this.toggle_tag_compare(cx);
                 })),
             )
+            .child(
+                subtle_button(match frame.musicbrainz_lookup {
+                    LazyPanel::Loaded(_) => "Hide MusicBrainz",
+                    LazyPanel::Loading => "Searching MusicBrainz...",
+                    LazyPanel::Empty(_) | LazyPanel::Hidden => "MusicBrainz",
+                })
+                .disabled(matches!(frame.musicbrainz_lookup, LazyPanel::Loading))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_musicbrainz_lookup(cx);
+                })),
+            )
         })
         .into_any_element()
 }
@@ -1903,17 +2045,73 @@ fn render_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> 
 }
 
 fn render_rss_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
-    let mut element = div().flex().flex_col().gap(px(16.0));
-    if let LazyPanel::Loaded(items) = &frame.contributors {
-        element = element.child(render_contributors(items, cx));
-    }
-    if let LazyPanel::Loaded(items) = &frame.value_routes {
-        element = element.child(render_value_routes(items));
-    }
-    element.into_any_element()
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.0))
+        .child(render_lazy_contributors(frame, cx))
+        .child(render_lazy_value_routes(frame, cx))
+        .into_any_element()
 }
 
-fn render_contributors(contributors: &[Contributor], cx: &mut Context<SearchApp>) -> AnyElement {
+fn render_lazy_contributors(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
+    let collapsed = frame.contributors_collapsed || matches!(frame.contributors, LazyPanel::Hidden);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(render_contributors_heading(collapsed, cx))
+        .when(!collapsed, |el| match &frame.contributors {
+            LazyPanel::Loaded(items) => el.children(contributor_elements(items, cx)),
+            LazyPanel::Loading => el.child(render_loading("Loading contributors...")),
+            LazyPanel::Empty(label) => el.child(muted_line(label)),
+            LazyPanel::Hidden => el,
+        })
+        .into_any_element()
+}
+
+fn render_lazy_value_routes(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
+    let collapsed = frame.value_routes_collapsed || matches!(frame.value_routes, LazyPanel::Hidden);
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(render_value_routes_heading(collapsed, cx))
+        .when(!collapsed, |el| match &frame.value_routes {
+            LazyPanel::Loaded(items) => el.children(value_route_elements(items)),
+            LazyPanel::Loading => el.child(render_loading("Loading value routes...")),
+            LazyPanel::Empty(label) => el.child(muted_line(label)),
+            LazyPanel::Hidden => el,
+        })
+        .into_any_element()
+}
+
+fn render_contributors(
+    contributors: &[Contributor],
+    collapsed: bool,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .child(render_contributors_heading(collapsed, cx))
+        .when(!collapsed, |el| {
+            if contributors.is_empty() {
+                el.child(muted_line("No contributors found"))
+            } else {
+                el.children(contributor_elements(contributors, cx))
+            }
+        })
+        .into_any_element()
+}
+
+fn contributor_elements(
+    contributors: &[Contributor],
+    cx: &mut Context<SearchApp>,
+) -> Vec<AnyElement> {
     let mut groups = BTreeMap::<String, Vec<&Contributor>>::new();
     for contributor in contributors {
         groups
@@ -1960,16 +2158,30 @@ fn render_contributors(contributors: &[Contributor], cx: &mut Context<SearchApp>
         }
     }
 
+    all_elements
+}
+
+fn render_value_routes(
+    routes: &[PaymentRoute],
+    collapsed: bool,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .gap(px(4.0))
-        .child(section_heading("Contributors"))
-        .children(all_elements)
+        .child(render_value_routes_heading(collapsed, cx))
+        .when(!collapsed, |el| {
+            if routes.is_empty() {
+                el.child(muted_line("No value routes found"))
+            } else {
+                el.children(value_route_elements(routes))
+            }
+        })
         .into_any_element()
 }
 
-fn render_value_routes(routes: &[PaymentRoute]) -> AnyElement {
+fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
     let mut groups = BTreeMap::<String, Vec<&PaymentRoute>>::new();
     for route in routes {
         let group = if route.fee.unwrap_or_default() {
@@ -1980,12 +2192,9 @@ fn render_value_routes(routes: &[PaymentRoute]) -> AnyElement {
         groups.entry(group.into()).or_default().push(route);
     }
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.0))
-        .child(section_heading("Value Routes"))
-        .children(groups.into_iter().flat_map(|(group, routes)| {
+    groups
+        .into_iter()
+        .flat_map(|(group, routes)| {
             let mut elements = vec![group_heading(group)];
             elements.extend(routes.into_iter().map(|route| {
                 let name = route
@@ -2039,7 +2248,137 @@ fn render_value_routes(routes: &[PaymentRoute]) -> AnyElement {
                     .into_any_element()
             }));
             elements
+        })
+        .collect()
+}
+
+fn render_contributors_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
+    render_clickable_section_heading("Contributors", collapsed)
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.toggle_contributors(cx);
         }))
+        .into_any_element()
+}
+
+fn render_value_routes_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
+    render_clickable_section_heading("Value Routes", collapsed)
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.toggle_value_routes(cx);
+        }))
+        .into_any_element()
+}
+
+fn render_musicbrainz_panel(frame: &InspectorFrame) -> AnyElement {
+    match &frame.musicbrainz_lookup {
+        LazyPanel::Loaded(result) => render_musicbrainz_lookup(result),
+        LazyPanel::Loading => render_loading("Searching MusicBrainz..."),
+        LazyPanel::Empty(label) => render_loading(label),
+        LazyPanel::Hidden => div().into_any_element(),
+    }
+}
+
+fn render_musicbrainz_lookup(result: &MusicBrainzLookupResult) -> AnyElement {
+    let mut element = div()
+        .flex()
+        .flex_col()
+        .gap(px(6.0))
+        .child(section_heading("MusicBrainz"))
+        .child(
+            div()
+                .text_color(muted())
+                .text_size(px(10.5))
+                .line_clamp(2)
+                .child(SharedString::from(result.lookup.query.clone())),
+        )
+        .child(
+            div()
+                .text_color(muted())
+                .text_size(px(10.5))
+                .line_clamp(2)
+                .child(SharedString::from(result.path.clone())),
+        );
+
+    if result.lookup.candidates.is_empty() {
+        element = element.child(muted_line("No MusicBrainz recording match found"));
+    } else {
+        for (idx, candidate) in result.lookup.candidates.iter().enumerate() {
+            element = element.child(render_musicbrainz_candidate(idx == 0, candidate));
+        }
+    }
+
+    element.into_any_element()
+}
+
+fn render_musicbrainz_candidate(best: bool, candidate: &MusicBrainzCandidate) -> AnyElement {
+    let title = if candidate.title.is_empty() {
+        "Untitled recording".to_string()
+    } else {
+        candidate.title.clone()
+    };
+    let mut details = Vec::new();
+    if let Some(artist) = &candidate.artist {
+        details.push(artist.clone());
+    }
+    if let Some(release) = &candidate.release_title {
+        details.push(release.clone());
+    }
+    if let Some(date) = &candidate.release_date {
+        details.push(date.clone());
+    }
+    if let Some(track_number) = &candidate.track_number {
+        details.push(format!("track {track_number}"));
+    }
+    if let Some(format) = &candidate.format {
+        details.push(format.clone());
+    }
+
+    let score = if let Some(musicbrainz_score) = candidate.musicbrainz_score {
+        format!(
+            "{}% local · {} MB",
+            candidate.similarity_score, musicbrainz_score
+        )
+    } else {
+        format!("{}% local", candidate.similarity_score)
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .py(px(4.0))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.0))
+                .child(
+                    div()
+                        .text_size(px(11.5))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(SharedString::from(if best {
+                            format!("Best: {title}")
+                        } else {
+                            title
+                        })),
+                )
+                .child(div().text_color(accent()).text_size(px(10.5)).child(score)),
+        )
+        .when(!details.is_empty(), |el| {
+            el.child(
+                div()
+                    .text_color(muted())
+                    .text_size(px(10.5))
+                    .line_clamp(2)
+                    .child(SharedString::from(details.join(" · "))),
+            )
+        })
+        .child(
+            div()
+                .text_color(muted())
+                .text_size(px(10.0))
+                .child(SharedString::from(candidate.recording_id.clone())),
+        )
         .into_any_element()
 }
 
@@ -2064,9 +2403,10 @@ fn render_tag_compare(result: &TagCompareResult, title: &'static str) -> AnyElem
             row.source_value.as_deref().unwrap_or(""),
             Some(color),
         ));
-        cells.push(compare_cell(
+        cells.push(compare_tag_cell(
             row.tag_value.as_deref().unwrap_or(""),
             Some(color),
+            id3_frame_hint(row.field),
         ));
         cells.push(
             div()
@@ -2143,26 +2483,51 @@ fn render_id3_fields(fields: &[Id3Field]) -> AnyElement {
     let rows = if fields.is_empty() {
         vec![muted_line("No ID3 tag frames")]
     } else {
-        fields
+        let rows = fields
             .iter()
-            .map(|field| compare_line(format!("{} = {}", field.frame_id, field.value)))
-            .collect()
+            .filter(|field| !id3_frame_is_summarized(&field.frame_id))
+            .map(render_id3_field_line)
+            .collect::<Vec<_>>();
+        if rows.is_empty() {
+            vec![muted_line(
+                "Comparable ID3 frames are shown in the aligned rows above",
+            )]
+        } else {
+            rows
+        }
     };
 
     div()
         .flex()
         .flex_col()
         .gap(px(4.0))
-        .child(section_heading("All ID3 Tags"))
+        .child(section_heading("Other ID3 Tags"))
         .children(rows)
         .into_any_element()
 }
 
-fn compare_line(value: String) -> AnyElement {
+fn render_id3_field_line(field: &Id3Field) -> AnyElement {
     div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(6.0))
         .text_size(px(10.5))
         .line_height(px(15.0))
-        .child(SharedString::from(value))
+        .child(
+            div()
+                .w(px(44.0))
+                .flex_shrink_0()
+                .text_color(muted())
+                .text_size(px(9.5))
+                .child(SharedString::from(field.frame_id.clone())),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(SharedString::from(field.value.clone())),
+        )
         .into_any_element()
 }
 
@@ -2181,6 +2546,49 @@ fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
     }
     cell.child(SharedString::from(value.to_string()))
         .into_any_element()
+}
+
+fn compare_tag_cell(
+    value: &str,
+    color: Option<gpui::Rgba>,
+    frame_id: Option<&'static str>,
+) -> AnyElement {
+    let mut value_cell = div().text_size(px(11.0)).line_height(px(16.0));
+    if let Some(color) = color {
+        value_cell = value_cell.text_color(color);
+    }
+
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(6.0))
+        .when(frame_id.is_some(), |el| {
+            el.child(
+                div()
+                    .text_color(muted())
+                    .text_size(px(9.5))
+                    .line_height(px(16.0))
+                    .child(frame_id.unwrap_or_default()),
+            )
+        })
+        .child(value_cell.child(SharedString::from(value.to_string())))
+        .into_any_element()
+}
+
+fn id3_frame_hint(field: &str) -> Option<&'static str> {
+    match field {
+        "Title" => Some("TIT2"),
+        "Artist" => Some("TPE1"),
+        "Album/Feed" => Some("TALB"),
+        "Track #" => Some("TRCK"),
+        "Publisher" => Some("TXXX"),
+        _ => None,
+    }
+}
+
+fn id3_frame_is_summarized(frame_id: &str) -> bool {
+    matches!(frame_id, "TIT2" | "TPE1" | "TALB" | "TRCK")
 }
 
 fn comparison_status_label(status: &ComparisonStatus) -> &'static str {
@@ -2453,6 +2861,39 @@ fn section_heading(label: &str) -> AnyElement {
         .text_color(muted())
         .child(SharedString::from(label.to_string()))
         .into_any_element()
+}
+
+fn render_clickable_section_heading(label: &str, collapsed: bool) -> gpui::Stateful<gpui::Div> {
+    let state = if collapsed { "show" } else { "hide" };
+    let glyph = if collapsed { ">" } else { "v" };
+
+    div()
+        .id(SharedString::from(format!("section-heading:{label}")))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(6.0))
+        .cursor_pointer()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(FontWeight::BOLD)
+                .text_color(muted())
+                .child(glyph),
+        )
+        .child(
+            div()
+                .text_size(px(10.5))
+                .font_weight(FontWeight::BOLD)
+                .text_color(muted())
+                .child(SharedString::from(label.to_string())),
+        )
+        .child(
+            div()
+                .text_size(px(9.5))
+                .text_color(muted())
+                .child(SharedString::from(state.to_string())),
+        )
 }
 
 fn group_heading(label: String) -> AnyElement {
