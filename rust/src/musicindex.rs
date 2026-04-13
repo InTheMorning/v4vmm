@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -36,6 +36,17 @@ const ID3V24_FRAME_IDS: &[&str] = &[
     "TMOO", "TOAL", "TOFN", "TOLY", "TOPE", "TOWN", "TPE1", "TPE2", "TPE3", "TPE4", "TPOS", "TPRO",
     "TPUB", "TRCK", "TRSN", "TRSO", "TSOA", "TSOP", "TSOT", "TSRC", "TSSE", "TSST", "TXXX", "UFID",
     "USER", "USLT", "WCOM", "WCOP", "WOAF", "WOAR", "WOAS", "WORS", "WPAY", "WPUB", "WXXX",
+];
+const ID3V24_FRAME_GROUPS: &[(&str, &str)] = &[
+    ("text", "ID3v2.4 text frames"),
+    ("url", "ID3v2.4 URL link frames"),
+    ("lyrics-comments", "ID3v2.4 comments and lyrics"),
+    ("pictures-objects", "ID3v2.4 pictures and objects"),
+    ("timing", "ID3v2.4 timing and sync"),
+    ("ownership-commercial", "ID3v2.4 ownership and commercial"),
+    ("registration-private", "ID3v2.4 registration and private"),
+    ("counters-popularity", "ID3v2.4 counters and popularity"),
+    ("audio-security", "ID3v2.4 audio encryption"),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -516,7 +527,7 @@ struct InspectorFrame {
     contributors_collapsed: bool,
     value_routes: LazyPanel<Vec<PaymentRoute>>,
     value_routes_collapsed: bool,
-    unused_id3_frames_collapsed: bool,
+    expanded_id3_frame_groups: BTreeSet<String>,
     tag_compare: LazyPanel<TagCompareResult>,
     musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     musicbrainz_selected: usize,
@@ -534,7 +545,7 @@ impl InspectorFrame {
             contributors_collapsed: true,
             value_routes: LazyPanel::Hidden,
             value_routes_collapsed: true,
-            unused_id3_frames_collapsed: true,
+            expanded_id3_frame_groups: BTreeSet::new(),
             tag_compare: LazyPanel::Hidden,
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
@@ -571,6 +582,18 @@ struct AlignedCompareRow {
     musicbrainz_key: Option<String>,
     id3_status: ComparisonStatus,
     musicbrainz_status: ComparisonStatus,
+}
+
+struct MetadataGroupRow {
+    key: Option<String>,
+    label: String,
+    expanded: bool,
+    unused_count: usize,
+}
+
+enum MetadataGridRow {
+    Group(MetadataGroupRow),
+    Data(AlignedCompareRow),
 }
 
 struct SearchBatch {
@@ -923,11 +946,13 @@ impl SearchApp {
         .detach();
     }
 
-    fn toggle_unused_id3_frames(&mut self, cx: &mut Context<Self>) {
+    fn toggle_id3_frame_group(&mut self, group_key: String, cx: &mut Context<Self>) {
         let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
-        frame.unused_id3_frames_collapsed = !frame.unused_id3_frames_collapsed;
+        if !frame.expanded_id3_frame_groups.remove(&group_key) {
+            frame.expanded_id3_frame_groups.insert(group_key);
+        }
         cx.notify();
     }
 
@@ -2380,31 +2405,28 @@ fn render_track_metadata_grid(
     let show_musicbrainz = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
     let show_id3 = !matches!(frame.tag_compare, LazyPanel::Hidden);
     let rows = result.map_or_else(
-        || track_metadata_rows(track, selected_musicbrainz),
-        |result| aligned_compare_rows(result, selected_musicbrainz),
+        || track_metadata_rows(track, selected_musicbrainz, show_musicbrainz),
+        |result| {
+            aligned_compare_rows(
+                result,
+                selected_musicbrainz,
+                show_musicbrainz,
+                &frame.expanded_id3_frame_groups,
+            )
+        },
     );
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(8.0))
-        .child(render_metadata_grid(rows, show_id3, show_musicbrainz))
-        .when_some(result.filter(|_| show_id3), |el, result| {
-            el.child(render_unused_id3v24_frames(
-                result,
-                frame.unused_id3_frames_collapsed,
-                cx,
-            ))
-        })
-        .into_any_element()
+    render_metadata_grid(rows, show_id3, show_musicbrainz, cx)
 }
 
 fn render_metadata_grid(
-    rows: Vec<AlignedCompareRow>,
+    rows: Vec<MetadataGridRow>,
     show_id3: bool,
     show_musicbrainz: bool,
+    cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let mut cells: Vec<AnyElement> = Vec::new();
+    let columns = 1 + u16::from(show_id3) + u16::from(show_musicbrainz);
     cells.push(metadata_heading_cell("RSS"));
     if show_id3 {
         cells.push(metadata_heading_cell("ID3"));
@@ -2414,31 +2436,38 @@ fn render_metadata_grid(
     }
 
     for row in rows {
-        cells.push(metadata_rss_cell(
-            row.field,
-            row.rss_value.as_deref().unwrap_or(""),
-        ));
-        if show_id3 {
-            let id3_color = comparison_status_color(&row.id3_status);
-            cells.push(metadata_value_cell(compare_tag_cell(
-                row.id3_value.as_deref().unwrap_or(""),
-                Some(id3_color),
-                row.id3_frame.as_deref(),
-            )));
-        }
-        if show_musicbrainz {
-            let musicbrainz_color = comparison_status_color(&row.musicbrainz_status);
-            cells.push(metadata_value_cell(compare_tag_cell(
-                row.musicbrainz_value.as_deref().unwrap_or(""),
-                Some(musicbrainz_color),
-                row.musicbrainz_key.as_deref(),
-            )));
+        match row {
+            MetadataGridRow::Group(group) => {
+                cells.push(metadata_group_cell(group, columns, cx));
+            }
+            MetadataGridRow::Data(row) => {
+                cells.push(metadata_rss_cell(
+                    row.field,
+                    row.rss_value.as_deref().unwrap_or(""),
+                ));
+                if show_id3 {
+                    let id3_color = comparison_status_color(&row.id3_status);
+                    cells.push(metadata_value_cell(compare_tag_cell(
+                        row.id3_value.as_deref().unwrap_or(""),
+                        Some(id3_color),
+                        row.id3_frame.as_deref(),
+                    )));
+                }
+                if show_musicbrainz {
+                    let musicbrainz_color = comparison_status_color(&row.musicbrainz_status);
+                    cells.push(metadata_value_cell(compare_tag_cell(
+                        row.musicbrainz_value.as_deref().unwrap_or(""),
+                        Some(musicbrainz_color),
+                        row.musicbrainz_key.as_deref(),
+                    )));
+                }
+            }
         }
     }
 
     div()
         .grid()
-        .grid_cols(1 + u16::from(show_id3) + u16::from(show_musicbrainz))
+        .grid_cols(columns)
         .gap_x(px(24.0))
         .gap_y(px(7.0))
         .children(cells)
@@ -2483,42 +2512,88 @@ fn metadata_value_cell(value: AnyElement) -> AnyElement {
     div().pl(px(96.0)).min_w_0().child(value).into_any_element()
 }
 
-fn render_unused_id3v24_frames(
-    result: &TagCompareResult,
-    collapsed: bool,
+fn metadata_group_cell(
+    group: MetadataGroupRow,
+    columns: u16,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let unused = unused_id3v24_frames(result);
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.0))
-        .child(
-            render_clickable_section_heading(
-                &format!("Unused ID3v2.4 frames ({})", unused.len()),
-                collapsed,
-            )
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.toggle_unused_id3_frames(cx);
-            })),
-        )
-        .when(!collapsed, |el| {
-            el.child(
-                div()
-                    .pl(px(96.0))
-                    .text_color(muted())
-                    .text_size(px(10.0))
-                    .line_height(px(15.0))
-                    .child(SharedString::from(unused.join(" "))),
-            )
-        })
-        .into_any_element()
+    let label = if group.unused_count == 0 {
+        group.label
+    } else {
+        format!("{} ({} unused)", group.label, group.unused_count)
+    };
+
+    let expanded = group.expanded;
+    let mut cell = div().col_span(columns).mt(px(6.0));
+    if let Some(group_key) = group.key {
+        cell = cell.child(
+            render_clickable_section_heading(&label, !expanded).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.toggle_id3_frame_group(group_key.clone(), cx);
+                },
+            )),
+        );
+    } else {
+        cell = cell.child(
+            div()
+                .text_size(px(10.5))
+                .font_weight(FontWeight::BOLD)
+                .text_color(muted())
+                .child(SharedString::from(label)),
+        );
+    }
+    cell.into_any_element()
 }
 
-fn unused_id3v24_frames(result: &TagCompareResult) -> Vec<&'static str> {
+fn metadata_group_row(
+    label: impl Into<String>,
+    key: Option<&str>,
+    expanded: bool,
+    unused_count: usize,
+) -> MetadataGridRow {
+    MetadataGridRow::Group(MetadataGroupRow {
+        key: key.map(str::to_string),
+        label: label.into(),
+        expanded,
+        unused_count,
+    })
+}
+
+fn metadata_data_row(row: AlignedCompareRow) -> MetadataGridRow {
+    MetadataGridRow::Data(row)
+}
+
+fn id3_unused_frame_row(frame_id: &str) -> MetadataGridRow {
+    metadata_data_row(AlignedCompareRow {
+        field: format!("ID3 {frame_id}"),
+        rss_value: None,
+        id3_value: None,
+        id3_frame: Some(frame_id.into()),
+        musicbrainz_value: None,
+        musicbrainz_key: None,
+        id3_status: ComparisonStatus::MissingBoth,
+        musicbrainz_status: ComparisonStatus::MissingBoth,
+    })
+}
+
+fn used_id3_field_row(field: &Id3Field) -> MetadataGridRow {
+    metadata_data_row(AlignedCompareRow {
+        field: format!("ID3 {}", field.frame_id),
+        rss_value: None,
+        id3_value: Some(field.value.clone()),
+        id3_frame: Some(field.frame_id.clone()),
+        musicbrainz_value: None,
+        musicbrainz_key: None,
+        id3_status: ComparisonStatus::MissingSource,
+        musicbrainz_status: ComparisonStatus::MissingBoth,
+    })
+}
+
+fn unused_id3v24_frames_for_group(result: &TagCompareResult, group_key: &str) -> Vec<&'static str> {
     ID3V24_FRAME_IDS
         .iter()
         .copied()
+        .filter(|frame_id| id3_frame_group_key(frame_id) == group_key)
         .filter(|frame_id| {
             !result
                 .id3_fields
@@ -2528,11 +2603,53 @@ fn unused_id3v24_frames(result: &TagCompareResult) -> Vec<&'static str> {
         .collect()
 }
 
+fn used_id3_fields_for_group<'a>(
+    result: &'a TagCompareResult,
+    group_key: &str,
+) -> Vec<&'a Id3Field> {
+    result
+        .id3_fields
+        .iter()
+        .filter(|field| !id3_frame_is_summarized(&field.frame_id))
+        .filter(|field| id3_frame_group_key(&field.frame_id) == group_key)
+        .collect()
+}
+
+fn unknown_id3_fields(result: &TagCompareResult) -> Vec<&Id3Field> {
+    result
+        .id3_fields
+        .iter()
+        .filter(|field| !id3_frame_is_summarized(&field.frame_id))
+        .filter(|field| !ID3V24_FRAME_IDS.contains(&field.frame_id.as_str()))
+        .collect()
+}
+
+fn id3_frame_group_key(frame_id: &str) -> &'static str {
+    match frame_id {
+        "TALB" | "TBPM" | "TCOM" | "TCON" | "TCOP" | "TDEN" | "TDLY" | "TDOR" | "TDRC" | "TDRL"
+        | "TDTG" | "TENC" | "TEXT" | "TFLT" | "TIPL" | "TIT1" | "TIT2" | "TIT3" | "TKEY"
+        | "TLAN" | "TLEN" | "TMCL" | "TMED" | "TMOO" | "TOAL" | "TOFN" | "TOLY" | "TOPE"
+        | "TOWN" | "TPE1" | "TPE2" | "TPE3" | "TPE4" | "TPOS" | "TPRO" | "TPUB" | "TRCK"
+        | "TRSN" | "TRSO" | "TSOA" | "TSOP" | "TSOT" | "TSRC" | "TSSE" | "TSST" | "TXXX" => "text",
+        "WCOM" | "WCOP" | "WOAF" | "WOAR" | "WOAS" | "WORS" | "WPAY" | "WPUB" | "WXXX" => "url",
+        "COMM" | "SYLT" | "USLT" => "lyrics-comments",
+        "APIC" | "GEOB" | "MCDI" => "pictures-objects",
+        "ASPI" | "EQU2" | "ETCO" | "MLLT" | "POSS" | "RBUF" | "RVA2" | "RVRB" | "SEEK" | "SIGN"
+        | "SYTC" => "timing",
+        "COMR" | "OWNE" => "ownership-commercial",
+        "ENCR" | "GRID" | "LINK" | "PRIV" | "UFID" | "USER" => "registration-private",
+        "PCNT" | "POPM" => "counters-popularity",
+        "AENC" => "audio-security",
+        _ => "unknown",
+    }
+}
+
 fn track_metadata_rows(
     track: &Track,
     musicbrainz: Option<&MusicBrainzCandidate>,
-) -> Vec<AlignedCompareRow> {
-    let mut rows = Vec::new();
+    show_musicbrainz: bool,
+) -> Vec<MetadataGridRow> {
+    let mut rows = vec![metadata_group_row("RSS tags", None, false, 0)];
     push_track_metadata_row(
         &mut rows,
         "Artist",
@@ -2584,22 +2701,29 @@ fn track_metadata_rows(
         None,
     );
 
-    if let Some(candidate) = musicbrainz {
-        rows.extend(musicbrainz_remainder_rows(candidate));
+    if show_musicbrainz {
+        if let Some(candidate) = musicbrainz {
+            rows.push(metadata_group_row("MusicBrainz tags", None, false, 0));
+            rows.extend(
+                musicbrainz_remainder_rows(candidate)
+                    .into_iter()
+                    .map(metadata_data_row),
+            );
+        }
     }
 
     rows
 }
 
 fn push_track_metadata_row(
-    rows: &mut Vec<AlignedCompareRow>,
+    rows: &mut Vec<MetadataGridRow>,
     field: &str,
     rss_value: Option<String>,
     musicbrainz_value: Option<String>,
 ) {
     let musicbrainz_status =
         compare_optional_values(rss_value.as_deref(), musicbrainz_value.as_deref());
-    rows.push(AlignedCompareRow {
+    rows.push(metadata_data_row(AlignedCompareRow {
         field: field.into(),
         rss_value,
         id3_value: None,
@@ -2608,36 +2732,41 @@ fn push_track_metadata_row(
         musicbrainz_key: musicbrainz_key_for_field(field).map(str::to_string),
         id3_status: ComparisonStatus::MissingTag,
         musicbrainz_status,
-    });
+    }));
 }
 
 fn aligned_compare_rows(
     result: &TagCompareResult,
     musicbrainz: Option<&MusicBrainzCandidate>,
-) -> Vec<AlignedCompareRow> {
-    let mut rows = result
-        .rows
-        .iter()
-        .filter(|row| row.field != "Title")
-        .map(|row| {
-            let musicbrainz_value = musicbrainz_value_for_field(row.field, musicbrainz);
-            AlignedCompareRow {
-                field: row.field.to_string(),
-                rss_value: row.source_value.clone(),
-                id3_value: row.tag_value.clone(),
-                id3_frame: id3_frame_hint(row.field).map(str::to_string),
-                musicbrainz_status: compare_optional_values(
-                    row.source_value.as_deref(),
-                    musicbrainz_value.as_deref(),
-                ),
-                musicbrainz_value,
-                musicbrainz_key: musicbrainz_key_for_field(row.field).map(str::to_string),
-                id3_status: row.status.clone(),
-            }
-        })
-        .collect::<Vec<_>>();
+    show_musicbrainz: bool,
+    expanded_id3_frame_groups: &BTreeSet<String>,
+) -> Vec<MetadataGridRow> {
+    let mut rows = vec![metadata_group_row("RSS tags", None, false, 0)];
+    rows.extend(
+        result
+            .rows
+            .iter()
+            .filter(|row| row.field != "Title")
+            .map(|row| {
+                let musicbrainz_value = musicbrainz_value_for_field(row.field, musicbrainz);
+                AlignedCompareRow {
+                    field: row.field.to_string(),
+                    rss_value: row.source_value.clone(),
+                    id3_value: row.tag_value.clone(),
+                    id3_frame: id3_frame_hint(row.field).map(str::to_string),
+                    musicbrainz_status: compare_optional_values(
+                        row.source_value.as_deref(),
+                        musicbrainz_value.as_deref(),
+                    ),
+                    musicbrainz_value,
+                    musicbrainz_key: musicbrainz_key_for_field(row.field).map(str::to_string),
+                    id3_status: row.status.clone(),
+                }
+            })
+            .map(metadata_data_row),
+    );
 
-    rows.push(AlignedCompareRow {
+    rows.push(metadata_data_row(AlignedCompareRow {
         field: "Contributors".into(),
         rss_value: summarize_contributors(&result.contributors),
         id3_value: None,
@@ -2646,8 +2775,8 @@ fn aligned_compare_rows(
         musicbrainz_key: None,
         id3_status: ComparisonStatus::MissingTag,
         musicbrainz_status: ComparisonStatus::MissingTag,
-    });
-    rows.push(AlignedCompareRow {
+    }));
+    rows.push(metadata_data_row(AlignedCompareRow {
         field: "Value Routes".into(),
         rss_value: summarize_value_routes(&result.value_routes),
         id3_value: None,
@@ -2656,27 +2785,39 @@ fn aligned_compare_rows(
         musicbrainz_key: None,
         id3_status: ComparisonStatus::MissingTag,
         musicbrainz_status: ComparisonStatus::MissingTag,
-    });
+    }));
 
-    for field in result
-        .id3_fields
-        .iter()
-        .filter(|field| !id3_frame_is_summarized(&field.frame_id))
-    {
-        rows.push(AlignedCompareRow {
-            field: format!("ID3 {}", field.frame_id),
-            rss_value: None,
-            id3_value: Some(field.value.clone()),
-            id3_frame: Some(field.frame_id.clone()),
-            musicbrainz_value: None,
-            musicbrainz_key: None,
-            id3_status: ComparisonStatus::MissingSource,
-            musicbrainz_status: ComparisonStatus::MissingBoth,
-        });
+    for (group_key, label) in ID3V24_FRAME_GROUPS {
+        let unused = unused_id3v24_frames_for_group(result, group_key);
+        let used = used_id3_fields_for_group(result, group_key);
+        let expanded = expanded_id3_frame_groups.contains(*group_key);
+        rows.push(metadata_group_row(
+            *label,
+            Some(group_key),
+            expanded,
+            unused.len(),
+        ));
+        rows.extend(used.into_iter().map(used_id3_field_row));
+        if expanded {
+            rows.extend(unused.into_iter().map(id3_unused_frame_row));
+        }
     }
 
-    if let Some(candidate) = musicbrainz {
-        rows.extend(musicbrainz_remainder_rows(candidate));
+    let unknown = unknown_id3_fields(result);
+    if !unknown.is_empty() {
+        rows.push(metadata_group_row("ID3 non-v2.4 frames", None, false, 0));
+        rows.extend(unknown.into_iter().map(used_id3_field_row));
+    }
+
+    if show_musicbrainz {
+        if let Some(candidate) = musicbrainz {
+            rows.push(metadata_group_row("MusicBrainz tags", None, false, 0));
+            rows.extend(
+                musicbrainz_remainder_rows(candidate)
+                    .into_iter()
+                    .map(metadata_data_row),
+            );
+        }
     }
 
     rows
@@ -3710,11 +3851,30 @@ pub fn run_search_app() {
 
 #[cfg(test)]
 mod tests {
-    use super::{unused_id3v24_frames, TagCompareResult};
+    use super::{
+        id3_frame_group_key, unused_id3v24_frames_for_group, TagCompareResult, ID3V24_FRAME_GROUPS,
+        ID3V24_FRAME_IDS,
+    };
     use crate::audio_tags::Id3Field;
 
     #[test]
-    fn unused_id3v24_frames_excludes_present_frames() {
+    fn id3v24_frame_registry_covers_83_grouped_frames() {
+        assert_eq!(
+            ID3V24_FRAME_IDS.len(),
+            83,
+            "expected the complete ID3v2.4 frame registry"
+        );
+        for frame_id in ID3V24_FRAME_IDS {
+            let group = id3_frame_group_key(frame_id);
+            assert!(
+                ID3V24_FRAME_GROUPS.iter().any(|(key, _)| *key == group),
+                "frame {frame_id} should have a visible group"
+            );
+        }
+    }
+
+    #[test]
+    fn unused_id3v24_frames_are_grouped_and_exclude_present_frames() {
         let result = TagCompareResult {
             path: String::new(),
             rows: Vec::new(),
@@ -3733,18 +3893,19 @@ mod tests {
             ],
         };
 
-        let unused = unused_id3v24_frames(&result);
+        let text_unused = unused_id3v24_frames_for_group(&result, "text");
+        let picture_unused = unused_id3v24_frames_for_group(&result, "pictures-objects");
 
         assert!(
-            !unused.contains(&"TIT2"),
+            !text_unused.contains(&"TIT2"),
             "present title frame should not be listed"
         );
         assert!(
-            !unused.contains(&"APIC"),
+            !picture_unused.contains(&"APIC"),
             "present artwork frame should not be listed"
         );
         assert!(
-            unused.contains(&"TPE1"),
+            text_unused.contains(&"TPE1"),
             "absent artist frame should remain available"
         );
     }
