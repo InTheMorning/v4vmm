@@ -2608,6 +2608,8 @@ fn musicbrainz_value_for_field(
         "Artist" => candidate.artist.clone(),
         "Album/Feed" => candidate.release_title.clone(),
         "Track #" => candidate.track_number.clone(),
+        "Publisher" => join_values(&candidate.labels),
+        "Website" | "Feed Website" => join_values(&candidate.urls),
         "Release pubdate" | "Feed Release pubdate" => candidate.release_date.clone(),
         _ => None,
     }
@@ -2631,12 +2633,92 @@ fn musicbrainz_remainder_rows(candidate: &MusicBrainzCandidate) -> Vec<AlignedCo
         candidate.release_group_id.clone(),
     );
     push_musicbrainz_only_row(&mut rows, "MusicBrainz country", candidate.country.clone());
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz status",
+        candidate.release_status.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz packaging",
+        candidate.release_packaging.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz barcode",
+        candidate.release_barcode.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz release note",
+        candidate.release_disambiguation.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz release group type",
+        candidate.release_group_type.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz release group secondary types",
+        join_values(&candidate.release_group_secondary_types),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz labels",
+        join_values(&candidate.labels),
+    );
     push_musicbrainz_only_row(&mut rows, "MusicBrainz format", candidate.format.clone());
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz medium position",
+        candidate
+            .medium_position
+            .map(|position| position.to_string()),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz medium title",
+        candidate.medium_title.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz track position",
+        candidate
+            .track_position
+            .map(|position| position.to_string()),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz track title",
+        candidate.track_title.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz track artist",
+        candidate.track_artist.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz track note",
+        candidate.track_disambiguation.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz track length",
+        candidate.track_length_ms.map(fmt_ms),
+    );
     push_musicbrainz_only_row(
         &mut rows,
         "MusicBrainz tracks",
         candidate.total_tracks.map(|count| count.to_string()),
     );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz ISRCs",
+        join_values(&candidate.isrcs),
+    );
+    push_musicbrainz_only_row(&mut rows, "MusicBrainz URLs", join_values(&candidate.urls));
     rows
 }
 
@@ -3387,6 +3469,18 @@ fn track_title(track: &Track) -> String {
 
 fn fmt_dur(secs: i32) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+fn fmt_ms(ms: i64) -> String {
+    fmt_dur((ms / 1000).try_into().unwrap_or(i32::MAX))
+}
+
+fn join_values(values: &[String]) -> Option<String> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.join(" · "))
+    }
 }
 
 fn fmt_runtime(total_secs: i32) -> String {
