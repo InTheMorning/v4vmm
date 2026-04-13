@@ -1816,24 +1816,10 @@ fn render_track_inspector(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     match &frame.tag_compare {
-        LazyPanel::Loaded(result) => render_track_compare_window(frame, track, result, cx),
-        LazyPanel::Loading | LazyPanel::Empty(_) => div()
-            .grid()
-            .grid_cols(2)
-            .gap(px(24.0))
-            .items_start()
-            .child(render_track_left_column(frame, track, cx))
-            .child(render_track_compare_panel(frame))
-            .into_any_element(),
-        LazyPanel::Hidden if !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden) => div()
-            .grid()
-            .grid_cols(2)
-            .gap(px(24.0))
-            .items_start()
-            .child(render_track_left_column(frame, track, cx))
-            .child(render_musicbrainz_panel(frame, cx))
-            .into_any_element(),
-        LazyPanel::Hidden => render_track_left_column(frame, track, cx),
+        LazyPanel::Loaded(result) => render_track_window(frame, track, Some(result), cx),
+        LazyPanel::Loading | LazyPanel::Empty(_) | LazyPanel::Hidden => {
+            render_track_window(frame, track, None, cx)
+        }
     }
 }
 
@@ -1853,24 +1839,22 @@ fn render_track_left_column(
 
 fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
     match &frame.tag_compare {
-        LazyPanel::Loaded(result) => render_aligned_compare_grid(frame, result),
+        LazyPanel::Loaded(_) => div().into_any_element(),
         LazyPanel::Loading => render_loading("Downloading and reading embedded metadata..."),
         LazyPanel::Empty(label) => render_loading(label),
         LazyPanel::Hidden => div().into_any_element(),
     }
 }
 
-fn render_track_compare_window(
+fn render_track_window(
     frame: &InspectorFrame,
     track: &Track,
-    result: &TagCompareResult,
+    result: Option<&TagCompareResult>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let columns = if matches!(frame.musicbrainz_lookup, LazyPanel::Hidden) {
-        2
-    } else {
-        3
-    };
+    let show_id3_panel = !matches!(frame.tag_compare, LazyPanel::Hidden);
+    let show_musicbrainz_panel = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
+    let columns: u16 = 1 + u16::from(show_id3_panel) + u16::from(show_musicbrainz_panel);
 
     div()
         .flex()
@@ -1882,27 +1866,19 @@ fn render_track_compare_window(
                 .grid_cols(columns)
                 .gap(px(24.0))
                 .items_start()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(12.0))
-                        .child(render_track_header(frame, track, cx))
-                        .child(render_action_row(frame, cx)),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(12.0))
-                        .child(render_file_header(result)),
-                )
-                .when(
-                    !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden),
-                    |el| el.child(render_musicbrainz_panel(frame, cx)),
-                ),
+                .child(render_track_left_column(frame, track, cx))
+                .when(show_id3_panel, |el| {
+                    el.child(if let Some(result) = result {
+                        render_file_header(result)
+                    } else {
+                        render_track_compare_panel(frame)
+                    })
+                })
+                .when(show_musicbrainz_panel, |el| {
+                    el.child(render_musicbrainz_panel(frame, cx))
+                }),
         )
-        .child(render_aligned_compare_grid(frame, result))
+        .child(render_track_metadata_grid(frame, track, result))
         .into_any_element()
 }
 
@@ -1958,12 +1934,12 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
 
     div()
         .flex()
-        .flex_row()
-        .flex_wrap()
-        .gap(px(8.0))
+        .flex_col()
+        .items_start()
+        .gap(px(4.0))
         .when(frame.entity_type == "track", |el| {
             el.child(
-                subtle_button(match frame.tag_compare {
+                metadata_action_button(match frame.tag_compare {
                     LazyPanel::Loaded(_) => "Hide Compare",
                     LazyPanel::Loading => "Downloading...",
                     LazyPanel::Empty(_) | LazyPanel::Hidden => "Download + Compare",
@@ -1974,7 +1950,7 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
                 })),
             )
             .child(
-                subtle_button(match frame.musicbrainz_lookup {
+                metadata_action_button(match frame.musicbrainz_lookup {
                     LazyPanel::Loaded(_) => "Hide MusicBrainz",
                     LazyPanel::Loading => "Searching MusicBrainz...",
                     LazyPanel::Empty(_) | LazyPanel::Hidden => "MusicBrainz",
@@ -2371,65 +2347,188 @@ fn musicbrainz_subtitle(
     }
 }
 
-fn render_aligned_compare_grid(frame: &InspectorFrame, result: &TagCompareResult) -> AnyElement {
+fn render_track_metadata_grid(
+    frame: &InspectorFrame,
+    track: &Track,
+    result: Option<&TagCompareResult>,
+) -> AnyElement {
     let selected_musicbrainz = match &frame.musicbrainz_lookup {
         LazyPanel::Loaded(lookup) => selected_musicbrainz_candidate(frame, lookup),
         _ => None,
     };
     let show_musicbrainz = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
-    let rows = aligned_compare_rows(result, selected_musicbrainz);
+    let show_id3 = !matches!(frame.tag_compare, LazyPanel::Hidden);
+    let rows = result.map_or_else(
+        || track_metadata_rows(track, selected_musicbrainz),
+        |result| aligned_compare_rows(result, selected_musicbrainz),
+    );
+
+    render_metadata_grid(rows, show_id3, show_musicbrainz)
+}
+
+fn render_metadata_grid(
+    rows: Vec<AlignedCompareRow>,
+    show_id3: bool,
+    show_musicbrainz: bool,
+) -> AnyElement {
     let mut cells: Vec<AnyElement> = Vec::new();
-    let headings = if show_musicbrainz {
-        vec!["Field", "RSS", "ID3", "MusicBrainz"]
-    } else {
-        vec!["Field", "RSS", "ID3"]
-    };
-    for heading in headings {
-        cells.push(
-            div()
-                .text_color(muted())
-                .font_weight(FontWeight::BOLD)
-                .text_size(px(10.5))
-                .child(heading)
-                .into_any_element(),
-        );
+    cells.push(metadata_heading_cell("RSS"));
+    if show_id3 {
+        cells.push(metadata_heading_cell("ID3"));
+    }
+    if show_musicbrainz {
+        cells.push(metadata_heading_cell("MusicBrainz"));
     }
 
     for row in rows {
-        let id3_color = comparison_status_color(&row.id3_status);
-        let musicbrainz_color = comparison_status_color(&row.musicbrainz_status);
-        cells.push(compare_cell(&row.field, None));
-        cells.push(compare_cell(
+        cells.push(metadata_rss_cell(
+            row.field,
             row.rss_value.as_deref().unwrap_or(""),
-            Some(id3_color),
         ));
-        cells.push(compare_tag_cell(
-            row.id3_value.as_deref().unwrap_or(""),
-            Some(id3_color),
-            row.id3_frame,
-        ));
+        if show_id3 {
+            let id3_color = comparison_status_color(&row.id3_status);
+            cells.push(metadata_value_cell(compare_tag_cell(
+                row.id3_value.as_deref().unwrap_or(""),
+                Some(id3_color),
+                row.id3_frame,
+            )));
+        }
         if show_musicbrainz {
-            cells.push(compare_cell(
+            let musicbrainz_color = comparison_status_color(&row.musicbrainz_status);
+            cells.push(metadata_value_cell(compare_cell(
                 row.musicbrainz_value.as_deref().unwrap_or(""),
                 Some(musicbrainz_color),
-            ));
+            )));
         }
     }
 
     div()
+        .grid()
+        .grid_cols(1 + u16::from(show_id3) + u16::from(show_musicbrainz))
+        .gap_x(px(24.0))
+        .gap_y(px(7.0))
+        .children(cells)
+        .into_any_element()
+}
+
+fn metadata_heading_cell(label: &str) -> AnyElement {
+    div()
+        .pl(px(96.0))
+        .text_color(muted())
+        .font_weight(FontWeight::BOLD)
+        .text_size(px(10.5))
+        .child(SharedString::from(label.to_string()))
+        .into_any_element()
+}
+
+fn metadata_rss_cell(field: String, value: &str) -> AnyElement {
+    div()
         .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .child(section_heading("Aligned Metadata"))
+        .flex_row()
+        .items_start()
+        .gap(px(10.0))
         .child(
             div()
-                .grid()
-                .grid_cols(if show_musicbrainz { 4 } else { 3 })
-                .gap_x(px(10.0))
-                .gap_y(px(7.0))
-                .children(cells),
+                .w(px(86.0))
+                .flex_shrink_0()
+                .text_color(text())
+                .text_size(px(11.0))
+                .line_height(px(16.0))
+                .child(SharedString::from(field)),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(compare_cell(value, Some(text()))),
         )
         .into_any_element()
+}
+
+fn metadata_value_cell(value: AnyElement) -> AnyElement {
+    div().pl(px(96.0)).min_w_0().child(value).into_any_element()
+}
+
+fn track_metadata_rows(
+    track: &Track,
+    musicbrainz: Option<&MusicBrainzCandidate>,
+) -> Vec<AlignedCompareRow> {
+    let mut rows = Vec::new();
+    push_track_metadata_row(
+        &mut rows,
+        "Artist",
+        track.track_artist.clone(),
+        musicbrainz_value_for_field("Artist", musicbrainz),
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "Album/Feed",
+        track.feed_title.clone(),
+        musicbrainz_value_for_field("Album/Feed", musicbrainz),
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "Track #",
+        track.track_number.map(|number| number.to_string()),
+        musicbrainz_value_for_field("Track #", musicbrainz),
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "Publisher",
+        track.publisher_text.clone(),
+        musicbrainz_value_for_field("Publisher", musicbrainz),
+    );
+    push_track_metadata_row(&mut rows, "Nostr handle", track_nostr(track), None);
+    push_track_metadata_row(&mut rows, "Website", track_website(track), None);
+    push_track_metadata_row(
+        &mut rows,
+        "Release pubdate",
+        track_release_pubdate(track),
+        musicbrainz_value_for_field("Release pubdate", musicbrainz),
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "Contributors",
+        track
+            .source_contributors
+            .as_deref()
+            .and_then(summarize_contributors),
+        None,
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "Value Routes",
+        track
+            .payment_routes
+            .as_deref()
+            .and_then(summarize_value_routes),
+        None,
+    );
+
+    if let Some(candidate) = musicbrainz {
+        rows.extend(musicbrainz_remainder_rows(candidate));
+    }
+
+    rows
+}
+
+fn push_track_metadata_row(
+    rows: &mut Vec<AlignedCompareRow>,
+    field: &str,
+    rss_value: Option<String>,
+    musicbrainz_value: Option<String>,
+) {
+    let musicbrainz_status =
+        compare_optional_values(rss_value.as_deref(), musicbrainz_value.as_deref());
+    rows.push(AlignedCompareRow {
+        field: field.into(),
+        rss_value,
+        id3_value: None,
+        id3_frame: None,
+        musicbrainz_value,
+        id3_status: ComparisonStatus::MissingTag,
+        musicbrainz_status,
+    });
 }
 
 fn aligned_compare_rows(
@@ -3167,6 +3266,19 @@ fn subtle_button(label: &str) -> Button {
         .with_size(Size::Small)
         .ghost()
         .text_color(text())
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(accent())
+}
+
+fn metadata_action_button(label: &str) -> Button {
+    Button::new(SharedString::from(format!("metadata-action:{label}")))
+        .label(SharedString::from(label.to_string()))
+        .with_size(Size::XSmall)
+        .compact()
+        .ghost()
+        .text_color(text())
+        .text_size(px(10.0))
         .rounded(px(4.0))
         .border_1()
         .border_color(accent())
