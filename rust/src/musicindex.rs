@@ -10,6 +10,7 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable, Root, Sizable, Size};
 use reqwest::blocking::Client as ReqwestClient;
@@ -509,7 +510,6 @@ struct InspectorFrame {
     tag_compare: LazyPanel<TagCompareResult>,
     musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     musicbrainz_selected: usize,
-    musicbrainz_menu_open: bool,
 }
 
 impl InspectorFrame {
@@ -527,7 +527,6 @@ impl InspectorFrame {
             tag_compare: LazyPanel::Hidden,
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
-            musicbrainz_menu_open: false,
         }
     }
 }
@@ -544,7 +543,6 @@ struct TagCompareResult {
 
 #[derive(Clone, Debug)]
 struct MusicBrainzLookupResult {
-    path: String,
     lookup: MusicBrainzLookup,
 }
 
@@ -975,7 +973,6 @@ impl SearchApp {
             LazyPanel::Loaded(_) => {
                 frame.musicbrainz_lookup = LazyPanel::Hidden;
                 frame.musicbrainz_selected = 0;
-                frame.musicbrainz_menu_open = false;
                 cx.notify();
                 return;
             }
@@ -1005,7 +1002,6 @@ impl SearchApp {
                                 frame.musicbrainz_lookup = match result {
                                     Ok(result) => {
                                         frame.musicbrainz_selected = 0;
-                                        frame.musicbrainz_menu_open = false;
                                         LazyPanel::Loaded(result)
                                     }
                                     Err(error) => LazyPanel::Empty(format!("Error: {error}")),
@@ -1021,16 +1017,6 @@ impl SearchApp {
         .detach();
     }
 
-    fn toggle_musicbrainz_menu(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
-            return;
-        };
-        if matches!(frame.musicbrainz_lookup, LazyPanel::Loaded(_)) {
-            frame.musicbrainz_menu_open = !frame.musicbrainz_menu_open;
-            cx.notify();
-        }
-    }
-
     fn select_musicbrainz_candidate(&mut self, idx: usize, cx: &mut Context<Self>) {
         let Some(frame) = self.inspector_stack.last_mut() else {
             return;
@@ -1038,7 +1024,6 @@ impl SearchApp {
         if let LazyPanel::Loaded(result) = &frame.musicbrainz_lookup {
             if idx < result.lookup.candidates.len() {
                 frame.musicbrainz_selected = idx;
-                frame.musicbrainz_menu_open = false;
                 cx.notify();
             }
         }
@@ -1387,10 +1372,7 @@ fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBra
         .build()?;
     let lookup = lookup_recordings(&musicbrainz_client, &metadata, 5)?;
 
-    Ok(MusicBrainzLookupResult {
-        path: downloaded.path.display().to_string(),
-        lookup,
-    })
+    Ok(MusicBrainzLookupResult { lookup })
 }
 
 fn musicbrainz_lookup_metadata(
@@ -1862,6 +1844,7 @@ fn render_track_left_column(
 ) -> AnyElement {
     let title = track_title(track);
     let mut rows = Vec::new();
+    optional_row(&mut rows, "Track GUID", track.track_guid.clone());
     optional_row(&mut rows, "Artist", track.track_artist.clone());
     optional_row(&mut rows, "Publisher", track.publisher_text.clone());
     optional_row(&mut rows, "Duration", track.duration_secs.map(fmt_dur));
@@ -1875,7 +1858,6 @@ fn render_track_left_column(
         rows.push(("Explicit".into(), "Yes".into()));
     }
     optional_row(&mut rows, "Description", track.description.clone());
-    optional_row(&mut rows, "Track GUID", track.track_guid.clone());
 
     let feed_guid = track.feed_guid.clone();
     let feed_title = track.feed_title.clone();
@@ -2297,229 +2279,184 @@ fn render_musicbrainz_lookup(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let selected = selected_musicbrainz_candidate(frame, result);
-    let mut element = div()
-        .flex()
-        .flex_col()
-        .gap(px(6.0))
-        .child(render_musicbrainz_title_bar(frame, result, selected, cx))
-        .child(
-            div()
-                .text_color(muted())
-                .text_size(px(10.5))
-                .line_clamp(2)
-                .child(SharedString::from(result.lookup.query.clone())),
-        )
-        .child(
-            div()
-                .text_color(muted())
-                .text_size(px(10.5))
-                .line_clamp(2)
-                .child(SharedString::from(result.path.clone())),
-        );
-
-    if result.lookup.candidates.is_empty() {
-        element = element.child(muted_line("No MusicBrainz recording match found"));
-    } else if frame.musicbrainz_menu_open {
-        for (idx, candidate) in result.lookup.candidates.iter().enumerate() {
-            element = element.child(render_musicbrainz_release_option(
-                idx,
-                idx == frame.musicbrainz_selected,
-                candidate,
-                cx,
-            ));
-        }
-    } else if let Some(candidate) = selected {
-        element = element.child(render_musicbrainz_candidate(true, candidate));
-    } else {
-        for (idx, candidate) in result.lookup.candidates.iter().enumerate() {
-            element = element.child(render_musicbrainz_candidate(idx == 0, candidate));
-        }
+    match selected {
+        Some(candidate) => render_musicbrainz_header(frame, result, candidate, cx),
+        None => div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .child(render_musicbrainz_title_bar(result, None, cx))
+            .child(muted_line("No MusicBrainz recording match found"))
+            .into_any_element(),
     }
+}
 
-    element.into_any_element()
+fn render_musicbrainz_header(
+    frame: &InspectorFrame,
+    result: &MusicBrainzLookupResult,
+    candidate: &MusicBrainzCandidate,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(16.0))
+        .child(render_thumb(None, "track", 80.0, true))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(render_musicbrainz_title_bar(result, Some(candidate), cx))
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_height(px(23.0))
+                        .child(SharedString::from(candidate.title.clone())),
+                )
+                .child(
+                    div()
+                        .text_color(muted())
+                        .text_size(px(10.5))
+                        .line_clamp(2)
+                        .child(SharedString::from(musicbrainz_subtitle(
+                            frame, result, candidate,
+                        ))),
+                ),
+        )
+        .into_any_element()
 }
 
 fn render_musicbrainz_title_bar(
-    frame: &InspectorFrame,
     result: &MusicBrainzLookupResult,
     selected: Option<&MusicBrainzCandidate>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let label = selected
-        .and_then(|candidate| candidate.release_title.clone())
-        .or_else(|| selected.map(|candidate| candidate.title.clone()))
-        .unwrap_or_else(|| "No MusicBrainz release".into());
-    let count = result.lookup.candidates.len();
-    let suffix = if count == 1 {
-        "1 release".to_string()
-    } else {
-        format!("{count} releases")
-    };
-    let caret = if frame.musicbrainz_menu_open {
-        "v"
-    } else {
-        ">"
-    };
-
-    div()
-        .id("musicbrainz-release-picker")
-        .flex()
-        .flex_row()
-        .items_center()
-        .justify_between()
-        .gap(px(8.0))
-        .px(px(8.0))
-        .py(px(5.0))
+    let label = selected.map_or_else(
+        || "No MusicBrainz release".into(),
+        musicbrainz_release_summary,
+    );
+    let trigger = Button::new("musicbrainz-release-picker")
+        .label(SharedString::from(format!("MusicBrainz: {label}")))
+        .with_size(Size::XSmall)
+        .compact()
+        .ghost()
+        .w_full()
+        .justify_start()
+        .bg(type_color("track"))
+        .text_color(badge_text("track"))
+        .text_size(px(10.0))
+        .font_weight(FontWeight::BOLD)
+        .px(px(6.0))
+        .py(px(2.0))
+        .border_1()
+        .border_color(type_color("track"))
         .rounded(px(4.0))
-        .bg(rgb(0x4caf82))
-        .text_color(rgb(0x111318))
-        .cursor_pointer()
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.toggle_musicbrainz_menu(cx);
-        }))
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_size(px(11.5))
-                .font_weight(FontWeight::BOLD)
-                .child(SharedString::from(format!("MusicBrainz: {label}"))),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_size(px(10.5))
-                .child(SharedString::from(format!("{suffix} {caret}"))),
-        )
+        .mb(px(6.0));
+
+    if result.lookup.candidates.is_empty() {
+        return trigger.disabled(true).into_any_element();
+    }
+
+    let candidates = result.lookup.candidates.clone();
+    let selected_idx = selected
+        .and_then(|selected| {
+            candidates
+                .iter()
+                .position(|candidate| candidate.release_id == selected.release_id)
+        })
+        .unwrap_or_default();
+    let app = cx.weak_entity();
+
+    trigger
+        .dropdown_menu(move |menu, _window, _cx| {
+            candidates.iter().enumerate().fold(
+                menu.min_w(px(320.0)).max_w(px(520.0)).scrollable(true),
+                |menu, (idx, candidate)| {
+                    let app = app.clone();
+                    menu.item(
+                        PopupMenuItem::new(musicbrainz_release_option_label(candidate))
+                            .checked(idx == selected_idx)
+                            .on_click(move |_, _, cx| {
+                                let _ = app.update(cx, |this, cx| {
+                                    this.select_musicbrainz_candidate(idx, cx);
+                                });
+                            }),
+                    )
+                },
+            )
+        })
         .into_any_element()
 }
 
-fn render_musicbrainz_release_option(
-    idx: usize,
-    selected: bool,
-    candidate: &MusicBrainzCandidate,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let title = candidate
+fn musicbrainz_release_summary(candidate: &MusicBrainzCandidate) -> String {
+    let mut parts = Vec::new();
+    if let Some(country) = &candidate.country {
+        parts.push(country.clone());
+    }
+    if let Some(format) = &candidate.format {
+        parts.push(format.clone());
+    }
+    if let Some(tracks) = candidate.total_tracks {
+        parts.push(format!("{tracks} tracks"));
+    }
+
+    let mut value = if parts.is_empty() {
+        candidate
+            .release_title
+            .clone()
+            .unwrap_or_else(|| candidate.title.clone())
+    } else {
+        parts.join(" - ")
+    };
+
+    if let Some(date) = &candidate.release_date {
+        value.push_str(&format!(" ({date})"));
+    }
+    value
+}
+
+fn musicbrainz_release_option_label(candidate: &MusicBrainzCandidate) -> SharedString {
+    let release = candidate
         .release_title
         .clone()
         .unwrap_or_else(|| candidate.title.clone());
-    let mut details = Vec::new();
-    if let Some(date) = &candidate.release_date {
-        details.push(date.clone());
-    }
-    if let Some(country) = &candidate.country {
-        details.push(country.clone());
-    }
-    if let Some(format) = &candidate.format {
-        details.push(format.clone());
-    }
-
-    div()
-        .id(SharedString::from(format!(
-            "musicbrainz-release-option:{idx}"
-        )))
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .px(px(6.0))
-        .py(px(4.0))
-        .rounded(px(4.0))
-        .cursor_pointer()
-        .bg(if selected { surface() } else { bg() })
-        .border_1()
-        .border_color(if selected { rgb(0x4caf82) } else { border() })
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.select_musicbrainz_candidate(idx, cx);
-        }))
-        .child(
-            div()
-                .text_size(px(11.0))
-                .text_color(text())
-                .child(SharedString::from(title)),
-        )
-        .when(!details.is_empty(), |el| {
-            el.child(
-                div()
-                    .text_size(px(10.0))
-                    .text_color(muted())
-                    .child(SharedString::from(details.join(" · "))),
-            )
-        })
-        .into_any_element()
+    SharedString::from(format!(
+        "{} - {}",
+        musicbrainz_release_summary(candidate),
+        release
+    ))
 }
 
-fn render_musicbrainz_candidate(best: bool, candidate: &MusicBrainzCandidate) -> AnyElement {
-    let title = if candidate.title.is_empty() {
-        "Untitled recording".to_string()
+fn musicbrainz_subtitle(
+    frame: &InspectorFrame,
+    result: &MusicBrainzLookupResult,
+    candidate: &MusicBrainzCandidate,
+) -> String {
+    let rank = if result
+        .lookup
+        .candidates
+        .get(frame.musicbrainz_selected)
+        .is_some()
+    {
+        frame.musicbrainz_selected + 1
     } else {
-        candidate.title.clone()
+        1
     };
-    let mut details = Vec::new();
-    if let Some(artist) = &candidate.artist {
-        details.push(artist.clone());
-    }
-    if let Some(release) = &candidate.release_title {
-        details.push(release.clone());
-    }
-    if let Some(date) = &candidate.release_date {
-        details.push(date.clone());
-    }
-    if let Some(track_number) = &candidate.track_number {
-        details.push(format!("track {track_number}"));
-    }
-    if let Some(format) = &candidate.format {
-        details.push(format.clone());
-    }
-
     let score = if let Some(musicbrainz_score) = candidate.musicbrainz_score {
         format!(
-            "{}% local · {} MB",
-            candidate.similarity_score, musicbrainz_score
+            "Best: #{} · {}% local · {} MB",
+            rank, candidate.similarity_score, musicbrainz_score
         )
     } else {
-        format!("{}% local", candidate.similarity_score)
+        format!("Best: #{} · {}% local", rank, candidate.similarity_score)
     };
-
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .py(px(4.0))
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(8.0))
-                .child(
-                    div()
-                        .text_size(px(11.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(SharedString::from(if best {
-                            format!("Best: {title}")
-                        } else {
-                            title
-                        })),
-                )
-                .child(div().text_color(accent()).text_size(px(10.5)).child(score)),
-        )
-        .when(!details.is_empty(), |el| {
-            el.child(
-                div()
-                    .text_color(muted())
-                    .text_size(px(10.5))
-                    .line_clamp(2)
-                    .child(SharedString::from(details.join(" · "))),
-            )
-        })
-        .child(
-            div()
-                .text_color(muted())
-                .text_size(px(10.0))
-                .child(SharedString::from(candidate.recording_id.clone())),
-        )
-        .into_any_element()
+    if let Some(release_id) = &candidate.release_id {
+        format!("{score} · {release_id}")
+    } else {
+        format!("{score} · {}", candidate.recording_id)
+    }
 }
 
 fn render_aligned_compare_grid(frame: &InspectorFrame, result: &TagCompareResult) -> AnyElement {
@@ -2590,6 +2527,7 @@ fn aligned_compare_rows(
     let mut rows = result
         .rows
         .iter()
+        .filter(|row| row.field != "Title")
         .map(|row| {
             let musicbrainz_value = musicbrainz_value_for_field(row.field, musicbrainz);
             AlignedCompareRow {
@@ -2798,14 +2736,14 @@ fn render_file_header(result: &TagCompareResult) -> AnyElement {
                         .py(px(2.0))
                         .rounded(px(4.0))
                         .mb(px(6.0))
-                        .child("id3"),
+                        .child("Embedded id3"),
                 )
                 .child(
                     div()
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
                         .line_height(px(23.0))
-                        .child("Embedded MP3 metadata"),
+                        .child(SharedString::from(id3_header_title(result))),
                 )
                 .child(
                     div()
@@ -2816,6 +2754,16 @@ fn render_file_header(result: &TagCompareResult) -> AnyElement {
                 ),
         )
         .into_any_element()
+}
+
+fn id3_header_title(result: &TagCompareResult) -> String {
+    result
+        .rows
+        .iter()
+        .find(|row| row.field == "Title")
+        .and_then(|row| row.tag_value.clone())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| "Embedded id3".into())
 }
 
 fn muted_line(value: &str) -> AnyElement {
@@ -3072,19 +3020,20 @@ fn render_track_detail_grid(
                 .into_any_element(),
         })
         .collect::<Vec<_>>();
+    let mut unique_rows = Vec::new();
 
     if let Some(guid) = feed_guid {
         let title = feed_title.unwrap_or_else(|| guid.clone());
-        detail_rows.push(DetailRow {
+        unique_rows.push(DetailRow {
             key: "Feed".into(),
             value: render_feed_link_value(guid, title, feed_url, cx),
         });
     }
 
     if let Some(url) = audio_url.filter(|url| !url.is_empty()) {
-        detail_rows.push(DetailRow {
+        unique_rows.push(DetailRow {
             key: "Audio".into(),
-            value: subtle_button("Play")
+            value: subtle_button("▶")
                 .tooltip(url.clone())
                 .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
                     let _ = open::that(&url);
@@ -3092,6 +3041,9 @@ fn render_track_detail_grid(
                 .into_any_element(),
         });
     }
+
+    unique_rows.extend(detail_rows);
+    detail_rows = unique_rows;
 
     render_detail_grid_elements(detail_rows)
 }
