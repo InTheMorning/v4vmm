@@ -10,6 +10,7 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable, Root, Sizable, Size};
 use reqwest::blocking::Client as ReqwestClient;
 use serde::de::DeserializeOwned;
@@ -140,6 +141,7 @@ pub struct Track {
     pub track_guid: Option<String>,
     pub feed_guid: Option<String>,
     pub feed_title: Option<String>,
+    pub feed_url: Option<String>,
     pub title: Option<String>,
     pub name: Option<String>,
     pub duration_secs: Option<i32>,
@@ -506,6 +508,8 @@ struct InspectorFrame {
     value_routes_collapsed: bool,
     tag_compare: LazyPanel<TagCompareResult>,
     musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
+    musicbrainz_selected: usize,
+    musicbrainz_menu_open: bool,
 }
 
 impl InspectorFrame {
@@ -522,6 +526,8 @@ impl InspectorFrame {
             value_routes_collapsed: true,
             tag_compare: LazyPanel::Hidden,
             musicbrainz_lookup: LazyPanel::Hidden,
+            musicbrainz_selected: 0,
+            musicbrainz_menu_open: false,
         }
     }
 }
@@ -540,6 +546,21 @@ struct TagCompareResult {
 struct MusicBrainzLookupResult {
     path: String,
     lookup: MusicBrainzLookup,
+}
+
+struct DetailRow {
+    key: String,
+    value: AnyElement,
+}
+
+struct AlignedCompareRow {
+    field: String,
+    rss_value: Option<String>,
+    id3_value: Option<String>,
+    id3_frame: Option<&'static str>,
+    musicbrainz_value: Option<String>,
+    id3_status: ComparisonStatus,
+    musicbrainz_status: ComparisonStatus,
 }
 
 struct SearchBatch {
@@ -953,6 +974,8 @@ impl SearchApp {
         match frame.musicbrainz_lookup {
             LazyPanel::Loaded(_) => {
                 frame.musicbrainz_lookup = LazyPanel::Hidden;
+                frame.musicbrainz_selected = 0;
+                frame.musicbrainz_menu_open = false;
                 cx.notify();
                 return;
             }
@@ -980,7 +1003,11 @@ impl SearchApp {
                         if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == "track" && frame.entity_id == entity_id {
                                 frame.musicbrainz_lookup = match result {
-                                    Ok(result) => LazyPanel::Loaded(result),
+                                    Ok(result) => {
+                                        frame.musicbrainz_selected = 0;
+                                        frame.musicbrainz_menu_open = false;
+                                        LazyPanel::Loaded(result)
+                                    }
                                     Err(error) => LazyPanel::Empty(format!("Error: {error}")),
                                 };
                             }
@@ -992,6 +1019,29 @@ impl SearchApp {
             },
         )
         .detach();
+    }
+
+    fn toggle_musicbrainz_menu(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if matches!(frame.musicbrainz_lookup, LazyPanel::Loaded(_)) {
+            frame.musicbrainz_menu_open = !frame.musicbrainz_menu_open;
+            cx.notify();
+        }
+    }
+
+    fn select_musicbrainz_candidate(&mut self, idx: usize, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if let LazyPanel::Loaded(result) = &frame.musicbrainz_lookup {
+            if idx < result.lookup.candidates.len() {
+                frame.musicbrainz_selected = idx;
+                frame.musicbrainz_menu_open = false;
+                cx.notify();
+            }
+        }
     }
 }
 
@@ -1730,7 +1780,6 @@ fn render_feed_inspector(
     optional_row(&mut rows, "Description", feed.description.clone());
     optional_row(&mut rows, "Feed URL", feed.feed_url.clone());
     optional_row(&mut rows, "Feed GUID", feed.feed_guid.clone());
-    optional_row(&mut rows, "Updated", feed.updated_at.and_then(fmt_date));
 
     let mut tracks = feed.tracks.clone().unwrap_or_default();
     tracks.sort_by(|a, b| {
@@ -1794,6 +1843,14 @@ fn render_track_inspector(
             .child(render_track_left_column(frame, track, cx))
             .child(render_track_compare_panel(frame))
             .into_any_element(),
+        LazyPanel::Hidden if !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden) => div()
+            .grid()
+            .grid_cols(2)
+            .gap(px(24.0))
+            .items_start()
+            .child(render_track_left_column(frame, track, cx))
+            .child(render_musicbrainz_panel(frame, cx))
+            .into_any_element(),
         LazyPanel::Hidden => render_track_left_column(frame, track, cx),
     }
 }
@@ -1808,7 +1865,7 @@ fn render_track_left_column(
     optional_row(&mut rows, "Artist", track.track_artist.clone());
     optional_row(&mut rows, "Publisher", track.publisher_text.clone());
     optional_row(&mut rows, "Duration", track.duration_secs.map(fmt_dur));
-    optional_row(&mut rows, "Published", track.pub_date.and_then(fmt_date));
+    optional_row(&mut rows, "Item Release", track.pub_date.and_then(fmt_date));
     optional_row(
         &mut rows,
         "Track #",
@@ -1818,49 +1875,22 @@ fn render_track_left_column(
         rows.push(("Explicit".into(), "Yes".into()));
     }
     optional_row(&mut rows, "Description", track.description.clone());
-    optional_row(&mut rows, "Audio", track.enclosure_url.clone());
-    optional_row(
-        &mut rows,
-        "Feed",
-        Some(
-            track
-                .feed_title
-                .clone()
-                .or_else(|| track.feed_guid.clone())
-                .unwrap_or_default(),
-        ),
-    );
     optional_row(&mut rows, "Track GUID", track.track_guid.clone());
-    optional_row(&mut rows, "Updated", track.updated_at.and_then(fmt_date));
 
     let feed_guid = track.feed_guid.clone();
     let feed_title = track.feed_title.clone();
+    let feed_url = track.feed_url.clone().or_else(|| track.feed_guid.clone());
+    let audio_url = track.enclosure_url.clone();
 
     div()
         .flex()
         .flex_col()
         .gap(px(16.0))
         .child(render_detail_header("track", &title, frame.image.as_ref()))
-        .child(render_detail_grid(rows))
-        .when(feed_guid.is_some(), |el| {
-            let guid = feed_guid.unwrap_or_default();
-            let title = feed_title.unwrap_or_else(|| guid.clone());
-            el.child(
-                subtle_button("Open Feed").on_click(cx.listener(move |this, _, _, cx| {
-                    this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
-                })),
-            )
-        })
-        .when(track.enclosure_url.is_some(), |el| {
-            let url = track.enclosure_url.clone().unwrap_or_default();
-            el.child(subtle_button("▶ Play Audio").on_click(cx.listener(
-                move |_this, _: &ClickEvent, _window, _cx| {
-                    let _ = open::that(&url);
-                },
-            )))
-        })
+        .child(render_track_detail_grid(
+            rows, feed_guid, feed_title, feed_url, audio_url, cx,
+        ))
         .child(render_action_row(frame, cx))
-        .child(render_musicbrainz_panel(frame))
         .child(render_track_source_sections(frame, cx))
         .into_any_element()
 }
@@ -1888,7 +1918,7 @@ fn render_track_source_sections(frame: &InspectorFrame, cx: &mut Context<SearchA
 
 fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
     match &frame.tag_compare {
-        LazyPanel::Loaded(result) => render_tag_compare(result, "Embedded Metadata Compare"),
+        LazyPanel::Loaded(result) => render_aligned_compare_grid(frame, result),
         LazyPanel::Loading => render_loading("Downloading and reading embedded metadata..."),
         LazyPanel::Empty(label) => render_loading(label),
         LazyPanel::Hidden => div().into_any_element(),
@@ -1902,6 +1932,11 @@ fn render_track_compare_window(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let title = track_title(track);
+    let columns = if matches!(frame.musicbrainz_lookup, LazyPanel::Hidden) {
+        2
+    } else {
+        3
+    };
 
     div()
         .flex()
@@ -1910,7 +1945,7 @@ fn render_track_compare_window(
         .child(
             div()
                 .grid()
-                .grid_cols(2)
+                .grid_cols(columns)
                 .gap(px(24.0))
                 .items_start()
                 .child(
@@ -1927,34 +1962,13 @@ fn render_track_compare_window(
                         .flex_col()
                         .gap(px(12.0))
                         .child(render_file_header(result)),
+                )
+                .when(
+                    !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden),
+                    |el| el.child(render_musicbrainz_panel(frame, cx)),
                 ),
         )
-        .child(render_tag_compare(result, "RSS and ID3 Compare"))
-        .child(render_musicbrainz_panel(frame))
-        .child(
-            div()
-                .grid()
-                .grid_cols(2)
-                .gap(px(24.0))
-                .items_start()
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(16.0))
-                        .child(render_contributors(
-                            &result.contributors,
-                            frame.contributors_collapsed,
-                            cx,
-                        ))
-                        .child(render_value_routes(
-                            &result.value_routes,
-                            frame.value_routes_collapsed,
-                            cx,
-                        )),
-                )
-                .child(render_id3_fields(&result.id3_fields)),
-        )
+        .child(render_aligned_compare_grid(frame, result))
         .into_any_element()
 }
 
@@ -2268,21 +2282,26 @@ fn render_value_routes_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> 
         .into_any_element()
 }
 
-fn render_musicbrainz_panel(frame: &InspectorFrame) -> AnyElement {
+fn render_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
     match &frame.musicbrainz_lookup {
-        LazyPanel::Loaded(result) => render_musicbrainz_lookup(result),
+        LazyPanel::Loaded(result) => render_musicbrainz_lookup(frame, result, cx),
         LazyPanel::Loading => render_loading("Searching MusicBrainz..."),
         LazyPanel::Empty(label) => render_loading(label),
         LazyPanel::Hidden => div().into_any_element(),
     }
 }
 
-fn render_musicbrainz_lookup(result: &MusicBrainzLookupResult) -> AnyElement {
+fn render_musicbrainz_lookup(
+    frame: &InspectorFrame,
+    result: &MusicBrainzLookupResult,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let selected = selected_musicbrainz_candidate(frame, result);
     let mut element = div()
         .flex()
         .flex_col()
         .gap(px(6.0))
-        .child(section_heading("MusicBrainz"))
+        .child(render_musicbrainz_title_bar(frame, result, selected, cx))
         .child(
             div()
                 .text_color(muted())
@@ -2300,6 +2319,17 @@ fn render_musicbrainz_lookup(result: &MusicBrainzLookupResult) -> AnyElement {
 
     if result.lookup.candidates.is_empty() {
         element = element.child(muted_line("No MusicBrainz recording match found"));
+    } else if frame.musicbrainz_menu_open {
+        for (idx, candidate) in result.lookup.candidates.iter().enumerate() {
+            element = element.child(render_musicbrainz_release_option(
+                idx,
+                idx == frame.musicbrainz_selected,
+                candidate,
+                cx,
+            ));
+        }
+    } else if let Some(candidate) = selected {
+        element = element.child(render_musicbrainz_candidate(true, candidate));
     } else {
         for (idx, candidate) in result.lookup.candidates.iter().enumerate() {
             element = element.child(render_musicbrainz_candidate(idx == 0, candidate));
@@ -2307,6 +2337,116 @@ fn render_musicbrainz_lookup(result: &MusicBrainzLookupResult) -> AnyElement {
     }
 
     element.into_any_element()
+}
+
+fn render_musicbrainz_title_bar(
+    frame: &InspectorFrame,
+    result: &MusicBrainzLookupResult,
+    selected: Option<&MusicBrainzCandidate>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let label = selected
+        .and_then(|candidate| candidate.release_title.clone())
+        .or_else(|| selected.map(|candidate| candidate.title.clone()))
+        .unwrap_or_else(|| "No MusicBrainz release".into());
+    let count = result.lookup.candidates.len();
+    let suffix = if count == 1 {
+        "1 release".to_string()
+    } else {
+        format!("{count} releases")
+    };
+    let caret = if frame.musicbrainz_menu_open {
+        "v"
+    } else {
+        ">"
+    };
+
+    div()
+        .id("musicbrainz-release-picker")
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(px(8.0))
+        .px(px(8.0))
+        .py(px(5.0))
+        .rounded(px(4.0))
+        .bg(rgb(0x4caf82))
+        .text_color(rgb(0x111318))
+        .cursor_pointer()
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.toggle_musicbrainz_menu(cx);
+        }))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_size(px(11.5))
+                .font_weight(FontWeight::BOLD)
+                .child(SharedString::from(format!("MusicBrainz: {label}"))),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_size(px(10.5))
+                .child(SharedString::from(format!("{suffix} {caret}"))),
+        )
+        .into_any_element()
+}
+
+fn render_musicbrainz_release_option(
+    idx: usize,
+    selected: bool,
+    candidate: &MusicBrainzCandidate,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let title = candidate
+        .release_title
+        .clone()
+        .unwrap_or_else(|| candidate.title.clone());
+    let mut details = Vec::new();
+    if let Some(date) = &candidate.release_date {
+        details.push(date.clone());
+    }
+    if let Some(country) = &candidate.country {
+        details.push(country.clone());
+    }
+    if let Some(format) = &candidate.format {
+        details.push(format.clone());
+    }
+
+    div()
+        .id(SharedString::from(format!(
+            "musicbrainz-release-option:{idx}"
+        )))
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .px(px(6.0))
+        .py(px(4.0))
+        .rounded(px(4.0))
+        .cursor_pointer()
+        .bg(if selected { surface() } else { bg() })
+        .border_1()
+        .border_color(if selected { rgb(0x4caf82) } else { border() })
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.select_musicbrainz_candidate(idx, cx);
+        }))
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(text())
+                .child(SharedString::from(title)),
+        )
+        .when(!details.is_empty(), |el| {
+            el.child(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(muted())
+                    .child(SharedString::from(details.join(" · "))),
+            )
+        })
+        .into_any_element()
 }
 
 fn render_musicbrainz_candidate(best: bool, candidate: &MusicBrainzCandidate) -> AnyElement {
@@ -2382,9 +2522,20 @@ fn render_musicbrainz_candidate(best: bool, candidate: &MusicBrainzCandidate) ->
         .into_any_element()
 }
 
-fn render_tag_compare(result: &TagCompareResult, title: &'static str) -> AnyElement {
+fn render_aligned_compare_grid(frame: &InspectorFrame, result: &TagCompareResult) -> AnyElement {
+    let selected_musicbrainz = match &frame.musicbrainz_lookup {
+        LazyPanel::Loaded(lookup) => selected_musicbrainz_candidate(frame, lookup),
+        _ => None,
+    };
+    let show_musicbrainz = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
+    let rows = aligned_compare_rows(result, selected_musicbrainz);
     let mut cells: Vec<AnyElement> = Vec::new();
-    for heading in ["Field", "RSS", "ID3", "Status"] {
+    let headings = if show_musicbrainz {
+        vec!["Field", "RSS", "ID3", "MusicBrainz"]
+    } else {
+        vec!["Field", "RSS", "ID3"]
+    };
+    for heading in headings {
         cells.push(
             div()
                 .text_color(muted())
@@ -2395,42 +2546,230 @@ fn render_tag_compare(result: &TagCompareResult, title: &'static str) -> AnyElem
         );
     }
 
-    for row in &result.rows {
-        let status = comparison_status_label(&row.status);
-        let color = comparison_status_color(&row.status);
-        cells.push(compare_cell(row.field, None));
+    for row in rows {
+        let id3_color = comparison_status_color(&row.id3_status);
+        let musicbrainz_color = comparison_status_color(&row.musicbrainz_status);
+        cells.push(compare_cell(&row.field, None));
         cells.push(compare_cell(
-            row.source_value.as_deref().unwrap_or(""),
-            Some(color),
+            row.rss_value.as_deref().unwrap_or(""),
+            Some(id3_color),
         ));
         cells.push(compare_tag_cell(
-            row.tag_value.as_deref().unwrap_or(""),
-            Some(color),
-            id3_frame_hint(row.field),
+            row.id3_value.as_deref().unwrap_or(""),
+            Some(id3_color),
+            row.id3_frame,
         ));
-        cells.push(
-            div()
-                .text_size(px(11.0))
-                .text_color(color)
-                .child(status)
-                .into_any_element(),
-        );
+        if show_musicbrainz {
+            cells.push(compare_cell(
+                row.musicbrainz_value.as_deref().unwrap_or(""),
+                Some(musicbrainz_color),
+            ));
+        }
     }
 
     div()
         .flex()
         .flex_col()
         .gap(px(6.0))
-        .child(section_heading(title))
+        .child(section_heading("Aligned Metadata"))
         .child(
             div()
                 .grid()
-                .grid_cols(4)
+                .grid_cols(if show_musicbrainz { 4 } else { 3 })
                 .gap_x(px(10.0))
                 .gap_y(px(7.0))
                 .children(cells),
         )
         .into_any_element()
+}
+
+fn aligned_compare_rows(
+    result: &TagCompareResult,
+    musicbrainz: Option<&MusicBrainzCandidate>,
+) -> Vec<AlignedCompareRow> {
+    let mut rows = result
+        .rows
+        .iter()
+        .map(|row| {
+            let musicbrainz_value = musicbrainz_value_for_field(row.field, musicbrainz);
+            AlignedCompareRow {
+                field: row.field.to_string(),
+                rss_value: row.source_value.clone(),
+                id3_value: row.tag_value.clone(),
+                id3_frame: id3_frame_hint(row.field),
+                musicbrainz_status: compare_optional_values(
+                    row.source_value.as_deref(),
+                    musicbrainz_value.as_deref(),
+                ),
+                musicbrainz_value,
+                id3_status: row.status.clone(),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    rows.push(AlignedCompareRow {
+        field: "Contributors".into(),
+        rss_value: summarize_contributors(&result.contributors),
+        id3_value: None,
+        id3_frame: None,
+        musicbrainz_value: None,
+        id3_status: ComparisonStatus::MissingTag,
+        musicbrainz_status: ComparisonStatus::MissingTag,
+    });
+    rows.push(AlignedCompareRow {
+        field: "Value Routes".into(),
+        rss_value: summarize_value_routes(&result.value_routes),
+        id3_value: None,
+        id3_frame: None,
+        musicbrainz_value: None,
+        id3_status: ComparisonStatus::MissingTag,
+        musicbrainz_status: ComparisonStatus::MissingTag,
+    });
+
+    for field in result
+        .id3_fields
+        .iter()
+        .filter(|field| !id3_frame_is_summarized(&field.frame_id))
+    {
+        rows.push(AlignedCompareRow {
+            field: format!("ID3 {}", field.frame_id),
+            rss_value: None,
+            id3_value: Some(field.value.clone()),
+            id3_frame: Some("ID3"),
+            musicbrainz_value: None,
+            id3_status: ComparisonStatus::MissingSource,
+            musicbrainz_status: ComparisonStatus::MissingBoth,
+        });
+    }
+
+    if let Some(candidate) = musicbrainz {
+        rows.extend(musicbrainz_remainder_rows(candidate));
+    }
+
+    rows
+}
+
+fn musicbrainz_value_for_field(
+    field: &str,
+    candidate: Option<&MusicBrainzCandidate>,
+) -> Option<String> {
+    let candidate = candidate?;
+    match field {
+        "Title" => Some(candidate.title.clone()),
+        "Artist" => candidate.artist.clone(),
+        "Album/Feed" => candidate.release_title.clone(),
+        "Track #" => candidate.track_number.clone(),
+        "Release pubdate" | "Feed Release pubdate" => candidate.release_date.clone(),
+        _ => None,
+    }
+}
+
+fn musicbrainz_remainder_rows(candidate: &MusicBrainzCandidate) -> Vec<AlignedCompareRow> {
+    let mut rows = Vec::new();
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz recording",
+        Some(candidate.recording_id.clone()),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz release",
+        candidate.release_id.clone(),
+    );
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz release group",
+        candidate.release_group_id.clone(),
+    );
+    push_musicbrainz_only_row(&mut rows, "MusicBrainz country", candidate.country.clone());
+    push_musicbrainz_only_row(&mut rows, "MusicBrainz format", candidate.format.clone());
+    push_musicbrainz_only_row(
+        &mut rows,
+        "MusicBrainz tracks",
+        candidate.total_tracks.map(|count| count.to_string()),
+    );
+    rows
+}
+
+fn push_musicbrainz_only_row(
+    rows: &mut Vec<AlignedCompareRow>,
+    field: &str,
+    value: Option<String>,
+) {
+    if normalized_compare_value(value.as_deref()).is_some() {
+        rows.push(AlignedCompareRow {
+            field: field.into(),
+            rss_value: None,
+            id3_value: None,
+            id3_frame: None,
+            musicbrainz_value: value,
+            id3_status: ComparisonStatus::MissingBoth,
+            musicbrainz_status: ComparisonStatus::MissingSource,
+        });
+    }
+}
+
+fn compare_optional_values(source: Option<&str>, target: Option<&str>) -> ComparisonStatus {
+    let source = normalized_compare_value(source);
+    let target = normalized_compare_value(target);
+    match (&source, &target) {
+        (Some(source), Some(target)) if source == target => ComparisonStatus::Match,
+        (Some(_), Some(_)) => ComparisonStatus::Different,
+        (Some(_), None) => ComparisonStatus::MissingTag,
+        (None, Some(_)) => ComparisonStatus::MissingSource,
+        (None, None) => ComparisonStatus::MissingBoth,
+    }
+}
+
+fn summarize_contributors(contributors: &[Contributor]) -> Option<String> {
+    if contributors.is_empty() {
+        return None;
+    }
+    Some(
+        contributors
+            .iter()
+            .map(|contributor| {
+                let name = contributor.name.as_deref().unwrap_or("Unknown");
+                contributor
+                    .role
+                    .as_ref()
+                    .map_or_else(|| name.to_string(), |role| format!("{name} ({role})"))
+            })
+            .collect::<Vec<_>>()
+            .join(" · "),
+    )
+}
+
+fn summarize_value_routes(routes: &[PaymentRoute]) -> Option<String> {
+    if routes.is_empty() {
+        return None;
+    }
+    Some(
+        routes
+            .iter()
+            .map(|route| {
+                let name = route
+                    .recipient_name
+                    .as_deref()
+                    .unwrap_or("Unnamed recipient");
+                let split = route.split.unwrap_or_default();
+                let route_type = route.route_type.as_deref().unwrap_or("route");
+                format!("{name} ({route_type} {split}%)")
+            })
+            .collect::<Vec<_>>()
+            .join(" · "),
+    )
+}
+
+fn selected_musicbrainz_candidate<'a>(
+    frame: &InspectorFrame,
+    result: &'a MusicBrainzLookupResult,
+) -> Option<&'a MusicBrainzCandidate> {
+    result
+        .lookup
+        .candidates
+        .get(frame.musicbrainz_selected)
+        .or_else(|| result.lookup.candidates.first())
 }
 
 fn render_file_header(result: &TagCompareResult) -> AnyElement {
@@ -2475,58 +2814,6 @@ fn render_file_header(result: &TagCompareResult) -> AnyElement {
                         .line_clamp(2)
                         .child(SharedString::from(result.path.clone())),
                 ),
-        )
-        .into_any_element()
-}
-
-fn render_id3_fields(fields: &[Id3Field]) -> AnyElement {
-    let rows = if fields.is_empty() {
-        vec![muted_line("No ID3 tag frames")]
-    } else {
-        let rows = fields
-            .iter()
-            .filter(|field| !id3_frame_is_summarized(&field.frame_id))
-            .map(render_id3_field_line)
-            .collect::<Vec<_>>();
-        if rows.is_empty() {
-            vec![muted_line(
-                "Comparable ID3 frames are shown in the aligned rows above",
-            )]
-        } else {
-            rows
-        }
-    };
-
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.0))
-        .child(section_heading("Other ID3 Tags"))
-        .children(rows)
-        .into_any_element()
-}
-
-fn render_id3_field_line(field: &Id3Field) -> AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(px(6.0))
-        .text_size(px(10.5))
-        .line_height(px(15.0))
-        .child(
-            div()
-                .w(px(44.0))
-                .flex_shrink_0()
-                .text_color(muted())
-                .text_size(px(9.5))
-                .child(SharedString::from(field.frame_id.clone())),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(SharedString::from(field.value.clone())),
         )
         .into_any_element()
 }
@@ -2589,16 +2876,6 @@ fn id3_frame_hint(field: &str) -> Option<&'static str> {
 
 fn id3_frame_is_summarized(frame_id: &str) -> bool {
     matches!(frame_id, "TIT2" | "TPE1" | "TALB" | "TRCK")
-}
-
-fn comparison_status_label(status: &ComparisonStatus) -> &'static str {
-    match status {
-        ComparisonStatus::Match => "match",
-        ComparisonStatus::Different => "diff",
-        ComparisonStatus::MissingSource => "missing source",
-        ComparisonStatus::MissingTag => "missing tag",
-        ComparisonStatus::MissingBoth => "missing both",
-    }
 }
 
 fn comparison_status_color(status: &ComparisonStatus) -> gpui::Rgba {
@@ -2762,11 +3039,91 @@ fn render_detail_header(entity_type: &str, title: &str, image: Option<&Arc<Image
 }
 
 fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
+    render_detail_grid_elements(
+        rows.into_iter()
+            .map(|(key, value)| DetailRow {
+                key,
+                value: div()
+                    .text_size(px(11.5))
+                    .line_height(px(17.0))
+                    .child(SharedString::from(value))
+                    .into_any_element(),
+            })
+            .collect(),
+    )
+}
+
+fn render_track_detail_grid(
+    rows: Vec<(String, String)>,
+    feed_guid: Option<String>,
+    feed_title: Option<String>,
+    feed_url: Option<String>,
+    audio_url: Option<String>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let mut detail_rows = rows
+        .into_iter()
+        .map(|(key, value)| DetailRow {
+            key,
+            value: div()
+                .text_size(px(11.5))
+                .line_height(px(17.0))
+                .child(SharedString::from(value))
+                .into_any_element(),
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(guid) = feed_guid {
+        let title = feed_title.unwrap_or_else(|| guid.clone());
+        detail_rows.push(DetailRow {
+            key: "Feed".into(),
+            value: render_feed_link_value(guid, title, feed_url, cx),
+        });
+    }
+
+    if let Some(url) = audio_url.filter(|url| !url.is_empty()) {
+        detail_rows.push(DetailRow {
+            key: "Audio".into(),
+            value: subtle_button("Play")
+                .tooltip(url.clone())
+                .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
+                    let _ = open::that(&url);
+                }))
+                .into_any_element(),
+        });
+    }
+
+    render_detail_grid_elements(detail_rows)
+}
+
+fn render_feed_link_value(
+    guid: String,
+    title: String,
+    url: Option<String>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let tooltip = url.unwrap_or_else(|| guid.clone());
+    let click_title = title.clone();
+    div()
+        .id(SharedString::from(format!("track-feed-link:{guid}")))
+        .cursor_pointer()
+        .text_color(accent())
+        .text_size(px(11.5))
+        .line_height(px(17.0))
+        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.push_inspector("feed".into(), guid.clone(), click_title.clone(), cx);
+        }))
+        .child(SharedString::from(title))
+        .into_any_element()
+}
+
+fn render_detail_grid_elements(rows: Vec<DetailRow>) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .gap(px(5.0))
-        .children(rows.into_iter().map(|(key, value)| {
+        .children(rows.into_iter().map(|row| {
             div()
                 .flex()
                 .flex_row()
@@ -2779,16 +3136,9 @@ fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
                         .text_color(muted())
                         .whitespace_nowrap()
                         .text_size(px(11.5))
-                        .child(SharedString::from(key)),
+                        .child(SharedString::from(row.key)),
                 )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(px(11.5))
-                        .line_height(px(17.0))
-                        .child(SharedString::from(value)),
-                )
+                .child(div().flex_1().min_w_0().child(row.value))
                 .into_any_element()
         }))
         .into_any_element()
