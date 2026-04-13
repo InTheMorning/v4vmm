@@ -2451,6 +2451,7 @@ fn render_metadata_grid(
                         row.id3_value.as_deref().unwrap_or(""),
                         Some(id3_color),
                         row.id3_frame.as_deref(),
+                        row.id3_frame.as_deref().map(id3_frame_version_color),
                     )));
                 }
                 if show_musicbrainz {
@@ -2459,6 +2460,7 @@ fn render_metadata_grid(
                         row.musicbrainz_value.as_deref().unwrap_or(""),
                         Some(musicbrainz_color),
                         row.musicbrainz_key.as_deref(),
+                        None,
                     )));
                 }
             }
@@ -3150,12 +3152,18 @@ fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
         .into_any_element()
 }
 
-fn compare_tag_cell(value: &str, color: Option<gpui::Rgba>, frame_id: Option<&str>) -> AnyElement {
+fn compare_tag_cell(
+    value: &str,
+    color: Option<gpui::Rgba>,
+    frame_id: Option<&str>,
+    frame_color: Option<gpui::Rgba>,
+) -> AnyElement {
     let mut value_cell = div().text_size(px(11.0)).line_height(px(16.0));
     if let Some(color) = color {
         value_cell = value_cell.text_color(color);
     }
     let frame_id = frame_id.map(ToOwned::to_owned);
+    let frame_color = frame_color.unwrap_or_else(muted);
 
     div()
         .flex()
@@ -3165,7 +3173,7 @@ fn compare_tag_cell(value: &str, color: Option<gpui::Rgba>, frame_id: Option<&st
         .when(frame_id.is_some(), |el| {
             el.child(
                 div()
-                    .text_color(muted())
+                    .text_color(frame_color)
                     .text_size(px(9.5))
                     .line_height(px(16.0))
                     .child(SharedString::from(frame_id.clone().unwrap_or_default())),
@@ -3173,6 +3181,65 @@ fn compare_tag_cell(value: &str, color: Option<gpui::Rgba>, frame_id: Option<&st
         })
         .child(value_cell.child(SharedString::from(value.to_string())))
         .into_any_element()
+}
+
+fn id3_frame_version_color(frame_id: &str) -> gpui::Rgba {
+    match id3_frame_version(frame_id) {
+        Id3FrameVersion::V22 => rgb(0xb06cf4),
+        Id3FrameVersion::V23Only => rgb(0xffc857),
+        Id3FrameVersion::V24Only => rgb(0x3ac4c4),
+        Id3FrameVersion::V23V24 => accent(),
+        Id3FrameVersion::Unknown => rgb(0xff8a65),
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Id3FrameVersion {
+    V22,
+    V23Only,
+    V24Only,
+    V23V24,
+    Unknown,
+}
+
+fn id3_frame_version(frame_id: &str) -> Id3FrameVersion {
+    if frame_id.len() == 3 {
+        return Id3FrameVersion::V22;
+    }
+    if matches!(
+        frame_id,
+        "ASPI"
+            | "EQU2"
+            | "RVA2"
+            | "SEEK"
+            | "SIGN"
+            | "TDEN"
+            | "TDOR"
+            | "TDRC"
+            | "TDRL"
+            | "TDTG"
+            | "TIPL"
+            | "TMCL"
+            | "TMOO"
+            | "TPRO"
+            | "TSOA"
+            | "TSOP"
+            | "TSOT"
+            | "TSST"
+    ) {
+        return Id3FrameVersion::V24Only;
+    }
+    if matches!(
+        frame_id,
+        "CRM" | "EQUA" | "IPLS" | "RVAD" | "TDAT" | "TIME" | "TORY" | "TRDA" | "TSIZ" | "TYER"
+    ) {
+        return Id3FrameVersion::V23Only;
+    }
+    if ID3V24_FRAME_IDS.contains(&frame_id) {
+        Id3FrameVersion::V23V24
+    } else {
+        Id3FrameVersion::Unknown
+    }
 }
 
 fn id3_frame_hint(field: &str) -> Option<&'static str> {
@@ -3852,8 +3919,8 @@ pub fn run_search_app() {
 #[cfg(test)]
 mod tests {
     use super::{
-        id3_frame_group_key, unused_id3v24_frames_for_group, TagCompareResult, ID3V24_FRAME_GROUPS,
-        ID3V24_FRAME_IDS,
+        id3_frame_group_key, id3_frame_version, unused_id3v24_frames_for_group, Id3FrameVersion,
+        TagCompareResult, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::Id3Field;
 
@@ -3908,5 +3975,14 @@ mod tests {
             text_unused.contains(&"TPE1"),
             "absent artist frame should remain available"
         );
+    }
+
+    #[test]
+    fn id3_frame_version_classifies_frame_generations() {
+        assert_eq!(id3_frame_version("TT2"), Id3FrameVersion::V22);
+        assert_eq!(id3_frame_version("TYER"), Id3FrameVersion::V23Only);
+        assert_eq!(id3_frame_version("TDRC"), Id3FrameVersion::V24Only);
+        assert_eq!(id3_frame_version("TIT2"), Id3FrameVersion::V23V24);
+        assert_eq!(id3_frame_version("ZZZZ"), Id3FrameVersion::Unknown);
     }
 }
