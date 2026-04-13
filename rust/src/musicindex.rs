@@ -1842,60 +1842,13 @@ fn render_track_left_column(
     track: &Track,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let title = track_title(track);
-    let mut rows = Vec::new();
-    optional_row(&mut rows, "Track GUID", track.track_guid.clone());
-    optional_row(&mut rows, "Artist", track.track_artist.clone());
-    optional_row(&mut rows, "Publisher", track.publisher_text.clone());
-    optional_row(&mut rows, "Duration", track.duration_secs.map(fmt_dur));
-    optional_row(&mut rows, "Item Release", track.pub_date.and_then(fmt_date));
-    optional_row(
-        &mut rows,
-        "Track #",
-        track.track_number.map(|n| n.to_string()),
-    );
-    if track.explicit == Some(true) {
-        rows.push(("Explicit".into(), "Yes".into()));
-    }
-    optional_row(&mut rows, "Description", track.description.clone());
-
-    let feed_guid = track.feed_guid.clone();
-    let feed_title = track.feed_title.clone();
-    let feed_url = track.feed_url.clone().or_else(|| track.feed_guid.clone());
-    let audio_url = track.enclosure_url.clone();
-
     div()
         .flex()
         .flex_col()
-        .gap(px(16.0))
-        .child(render_detail_header("track", &title, frame.image.as_ref()))
-        .child(render_track_detail_grid(
-            rows, feed_guid, feed_title, feed_url, audio_url, cx,
-        ))
+        .gap(px(12.0))
+        .child(render_track_header(frame, track, cx))
         .child(render_action_row(frame, cx))
-        .child(render_track_source_sections(frame, cx))
         .into_any_element()
-}
-
-fn render_track_source_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
-    match &frame.tag_compare {
-        LazyPanel::Loaded(result) => div()
-            .flex()
-            .flex_col()
-            .gap(px(16.0))
-            .child(render_contributors(
-                &result.contributors,
-                frame.contributors_collapsed,
-                cx,
-            ))
-            .child(render_value_routes(
-                &result.value_routes,
-                frame.value_routes_collapsed,
-                cx,
-            ))
-            .into_any_element(),
-        _ => render_rss_lazy_sections(frame, cx),
-    }
 }
 
 fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
@@ -1913,7 +1866,6 @@ fn render_track_compare_window(
     result: &TagCompareResult,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let title = track_title(track);
     let columns = if matches!(frame.musicbrainz_lookup, LazyPanel::Hidden) {
         2
     } else {
@@ -1935,7 +1887,7 @@ fn render_track_compare_window(
                         .flex()
                         .flex_col()
                         .gap(px(12.0))
-                        .child(render_detail_header("track", &title, frame.image.as_ref()))
+                        .child(render_track_header(frame, track, cx))
                         .child(render_action_row(frame, cx)),
                 )
                 .child(
@@ -2084,26 +2036,6 @@ fn render_lazy_value_routes(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
         .into_any_element()
 }
 
-fn render_contributors(
-    contributors: &[Contributor],
-    collapsed: bool,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.0))
-        .child(render_contributors_heading(collapsed, cx))
-        .when(!collapsed, |el| {
-            if contributors.is_empty() {
-                el.child(muted_line("No contributors found"))
-            } else {
-                el.children(contributor_elements(contributors, cx))
-            }
-        })
-        .into_any_element()
-}
-
 fn contributor_elements(
     contributors: &[Contributor],
     cx: &mut Context<SearchApp>,
@@ -2155,26 +2087,6 @@ fn contributor_elements(
     }
 
     all_elements
-}
-
-fn render_value_routes(
-    routes: &[PaymentRoute],
-    collapsed: bool,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(4.0))
-        .child(render_value_routes_heading(collapsed, cx))
-        .when(!collapsed, |el| {
-            if routes.is_empty() {
-                el.child(muted_line("No value routes found"))
-            } else {
-                el.children(value_route_elements(routes))
-            }
-        })
-        .into_any_element()
 }
 
 fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
@@ -2986,6 +2898,73 @@ fn render_detail_header(entity_type: &str, title: &str, image: Option<&Arc<Image
         .into_any_element()
 }
 
+fn render_track_header(
+    frame: &InspectorFrame,
+    track: &Track,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let title = track_title(track);
+    let feed_guid = track.feed_guid.clone();
+    let feed_url = track.feed_url.clone().or_else(|| track.feed_guid.clone());
+    let audio_url = track.enclosure_url.clone();
+
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(16.0))
+        .child(render_thumb(frame.image.as_ref(), "track", 80.0, true))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(badge_text("track"))
+                        .bg(type_color("track"))
+                        .px(px(6.0))
+                        .py(px(2.0))
+                        .rounded(px(4.0))
+                        .mb(px(6.0))
+                        .child("track"),
+                )
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_height(px(23.0))
+                        .child(SharedString::from(title)),
+                )
+                .child(render_track_header_subtitle(
+                    feed_guid, feed_url, audio_url, cx,
+                )),
+        )
+        .into_any_element()
+}
+
+fn render_track_header_subtitle(
+    feed_guid: Option<String>,
+    feed_url: Option<String>,
+    audio_url: Option<String>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(6.0))
+        .min_w_0()
+        .when_some(feed_guid, |el, guid| {
+            el.child(render_feed_link_value(guid.clone(), guid, feed_url, cx))
+        })
+        .when_some(audio_url.filter(|url| !url.is_empty()), |el, url| {
+            el.child(render_play_icon_button(url, cx))
+        })
+        .into_any_element()
+}
+
 fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
     render_detail_grid_elements(
         rows.into_iter()
@@ -2999,53 +2978,6 @@ fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
             })
             .collect(),
     )
-}
-
-fn render_track_detail_grid(
-    rows: Vec<(String, String)>,
-    feed_guid: Option<String>,
-    feed_title: Option<String>,
-    feed_url: Option<String>,
-    audio_url: Option<String>,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let mut detail_rows = rows
-        .into_iter()
-        .map(|(key, value)| DetailRow {
-            key,
-            value: div()
-                .text_size(px(11.5))
-                .line_height(px(17.0))
-                .child(SharedString::from(value))
-                .into_any_element(),
-        })
-        .collect::<Vec<_>>();
-    let mut unique_rows = Vec::new();
-
-    if let Some(guid) = feed_guid {
-        let title = feed_title.unwrap_or_else(|| guid.clone());
-        unique_rows.push(DetailRow {
-            key: "Feed".into(),
-            value: render_feed_link_value(guid, title, feed_url, cx),
-        });
-    }
-
-    if let Some(url) = audio_url.filter(|url| !url.is_empty()) {
-        unique_rows.push(DetailRow {
-            key: "Audio".into(),
-            value: subtle_button("▶")
-                .tooltip(url.clone())
-                .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
-                    let _ = open::that(&url);
-                }))
-                .into_any_element(),
-        });
-    }
-
-    unique_rows.extend(detail_rows);
-    detail_rows = unique_rows;
-
-    render_detail_grid_elements(detail_rows)
 }
 
 fn render_feed_link_value(
@@ -3067,6 +2999,27 @@ fn render_feed_link_value(
             this.push_inspector("feed".into(), guid.clone(), click_title.clone(), cx);
         }))
         .child(SharedString::from(title))
+        .into_any_element()
+}
+
+fn render_play_icon_button(url: String, cx: &mut Context<SearchApp>) -> AnyElement {
+    Button::new("track-play-audio")
+        .label("▶")
+        .with_size(Size::XSmall)
+        .compact()
+        .ghost()
+        .w(px(18.0))
+        .h(px(18.0))
+        .px(px(0.0))
+        .py(px(0.0))
+        .text_color(text())
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(accent())
+        .tooltip(url.clone())
+        .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
+            let _ = open::that(&url);
+        }))
         .into_any_element()
 }
 
