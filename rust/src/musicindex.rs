@@ -38,15 +38,32 @@ const ID3V24_FRAME_IDS: &[&str] = &[
     "USER", "USLT", "WCOM", "WCOP", "WOAF", "WOAR", "WOAS", "WORS", "WPAY", "WPUB", "WXXX",
 ];
 const ID3V24_FRAME_GROUPS: &[(&str, &str)] = &[
-    ("text", "ID3v2.4 text frames"),
-    ("url", "ID3v2.4 URL link frames"),
-    ("lyrics-comments", "ID3v2.4 comments and lyrics"),
-    ("pictures-objects", "ID3v2.4 pictures and objects"),
-    ("timing", "ID3v2.4 timing and sync"),
-    ("ownership-commercial", "ID3v2.4 ownership and commercial"),
-    ("registration-private", "ID3v2.4 registration and private"),
-    ("counters-popularity", "ID3v2.4 counters and popularity"),
-    ("audio-security", "ID3v2.4 audio encryption"),
+    (
+        "identification-release-structure",
+        "Identification / release structure",
+    ),
+    ("people-credits", "People / credits"),
+    (
+        "descriptive-technical-rights-text",
+        "Descriptive / technical / rights text",
+    ),
+    ("url-link-frames", "URL link frames"),
+    (
+        "lyrics-comments-artwork-user-facing-content",
+        "Lyrics / comments / artwork / user-facing content",
+    ),
+    (
+        "identity-linking-private-registration",
+        "Identity / linking / private / registration",
+    ),
+    (
+        "timing-seeking-audio-analysis-playback-control",
+        "Timing / seeking / audio-analysis / playback-control",
+    ),
+    (
+        "music-disc-acquisition-commerce",
+        "Music-disc / acquisition / commerce",
+    ),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -2628,20 +2645,29 @@ fn unknown_id3_fields(result: &TagCompareResult) -> Vec<&Id3Field> {
 
 fn id3_frame_group_key(frame_id: &str) -> &'static str {
     match frame_id {
-        "TALB" | "TBPM" | "TCOM" | "TCON" | "TCOP" | "TDEN" | "TDLY" | "TDOR" | "TDRC" | "TDRL"
-        | "TDTG" | "TENC" | "TEXT" | "TFLT" | "TIPL" | "TIT1" | "TIT2" | "TIT3" | "TKEY"
-        | "TLAN" | "TLEN" | "TMCL" | "TMED" | "TMOO" | "TOAL" | "TOFN" | "TOLY" | "TOPE"
-        | "TOWN" | "TPE1" | "TPE2" | "TPE3" | "TPE4" | "TPOS" | "TPRO" | "TPUB" | "TRCK"
-        | "TRSN" | "TRSO" | "TSOA" | "TSOP" | "TSOT" | "TSRC" | "TSSE" | "TSST" | "TXXX" => "text",
-        "WCOM" | "WCOP" | "WOAF" | "WOAR" | "WOAS" | "WORS" | "WPAY" | "WPUB" | "WXXX" => "url",
-        "COMM" | "SYLT" | "USLT" => "lyrics-comments",
-        "APIC" | "GEOB" | "MCDI" => "pictures-objects",
-        "ASPI" | "EQU2" | "ETCO" | "MLLT" | "POSS" | "RBUF" | "RVA2" | "RVRB" | "SEEK" | "SIGN"
-        | "SYTC" => "timing",
-        "COMR" | "OWNE" => "ownership-commercial",
-        "ENCR" | "GRID" | "LINK" | "PRIV" | "UFID" | "USER" => "registration-private",
-        "PCNT" | "POPM" => "counters-popularity",
-        "AENC" => "audio-security",
+        "TALB" | "TIT1" | "TIT2" | "TIT3" | "TOAL" | "TPOS" | "TRCK" | "TSRC" | "TSST" => {
+            "identification-release-structure"
+        }
+        "TCOM" | "TENC" | "TEXT" | "TIPL" | "TMCL" | "TOLY" | "TOPE" | "TPE1" | "TPE2" | "TPE3"
+        | "TPE4" => "people-credits",
+        "TBPM" | "TCON" | "TCOP" | "TDEN" | "TDLY" | "TDOR" | "TDRC" | "TDRL" | "TDTG" | "TFLT"
+        | "TKEY" | "TLAN" | "TLEN" | "TMED" | "TMOO" | "TOFN" | "TOWN" | "TPRO" | "TPUB"
+        | "TRSN" | "TRSO" | "TSOA" | "TSOP" | "TSOT" | "TSSE" | "TXXX" => {
+            "descriptive-technical-rights-text"
+        }
+        "WCOM" | "WCOP" | "WOAF" | "WOAR" | "WOAS" | "WORS" | "WPAY" | "WPUB" | "WXXX" => {
+            "url-link-frames"
+        }
+        "APIC" | "COMM" | "GEOB" | "PCNT" | "POPM" | "SYLT" | "USER" | "USLT" => {
+            "lyrics-comments-artwork-user-facing-content"
+        }
+        "AENC" | "ENCR" | "GRID" | "LINK" | "PRIV" | "SIGN" | "UFID" => {
+            "identity-linking-private-registration"
+        }
+        "ASPI" | "ETCO" | "EQU2" | "MLLT" | "POSS" | "RBUF" | "RVA2" | "RVRB" | "SEEK" | "SYTC" => {
+            "timing-seeking-audio-analysis-playback-control"
+        }
+        "COMR" | "MCDI" | "OWNE" => "music-disc-acquisition-commerce",
         _ => "unknown",
     }
 }
@@ -2651,41 +2677,59 @@ fn track_metadata_rows(
     musicbrainz: Option<&MusicBrainzCandidate>,
     show_musicbrainz: bool,
 ) -> Vec<MetadataGridRow> {
-    let mut rows = vec![metadata_group_row("RSS tags", None, false, 0)];
+    let mut rows = BTreeMap::<&'static str, Vec<MetadataGridRow>>::new();
     push_track_metadata_row(
         &mut rows,
+        "people-credits",
         "Artist",
         track.track_artist.clone(),
         musicbrainz_value_for_field("Artist", musicbrainz),
     );
     push_track_metadata_row(
         &mut rows,
+        "identification-release-structure",
         "Album/Feed",
         track.feed_title.clone(),
         musicbrainz_value_for_field("Album/Feed", musicbrainz),
     );
     push_track_metadata_row(
         &mut rows,
+        "identification-release-structure",
         "Track #",
         track.track_number.map(|number| number.to_string()),
         musicbrainz_value_for_field("Track #", musicbrainz),
     );
     push_track_metadata_row(
         &mut rows,
+        "descriptive-technical-rights-text",
         "Publisher",
         track.publisher_text.clone(),
         musicbrainz_value_for_field("Publisher", musicbrainz),
     );
-    push_track_metadata_row(&mut rows, "Nostr handle", track_nostr(track), None);
-    push_track_metadata_row(&mut rows, "Website", track_website(track), None);
     push_track_metadata_row(
         &mut rows,
+        "identity-linking-private-registration",
+        "Nostr handle",
+        track_nostr(track),
+        None,
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "url-link-frames",
+        "Website",
+        track_website(track),
+        None,
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "descriptive-technical-rights-text",
         "Release pubdate",
         track_release_pubdate(track),
         musicbrainz_value_for_field("Release pubdate", musicbrainz),
     );
     push_track_metadata_row(
         &mut rows,
+        "people-credits",
         "Contributors",
         track
             .source_contributors
@@ -2695,6 +2739,7 @@ fn track_metadata_rows(
     );
     push_track_metadata_row(
         &mut rows,
+        "music-disc-acquisition-commerce",
         "Value Routes",
         track
             .payment_routes
@@ -2705,36 +2750,42 @@ fn track_metadata_rows(
 
     if show_musicbrainz {
         if let Some(candidate) = musicbrainz {
-            rows.push(metadata_group_row("MusicBrainz tags", None, false, 0));
-            rows.extend(
-                musicbrainz_remainder_rows(candidate)
-                    .into_iter()
-                    .map(metadata_data_row),
-            );
+            for row in musicbrainz_remainder_rows(candidate) {
+                push_grouped_metadata_data_row(
+                    &mut rows,
+                    metadata_field_group_key(&row.field),
+                    row,
+                );
+            }
         }
     }
 
-    rows
+    grouped_metadata_rows(rows)
 }
 
 fn push_track_metadata_row(
-    rows: &mut Vec<MetadataGridRow>,
+    rows: &mut BTreeMap<&'static str, Vec<MetadataGridRow>>,
+    group_key: &'static str,
     field: &str,
     rss_value: Option<String>,
     musicbrainz_value: Option<String>,
 ) {
     let musicbrainz_status =
         compare_optional_values(rss_value.as_deref(), musicbrainz_value.as_deref());
-    rows.push(metadata_data_row(AlignedCompareRow {
-        field: field.into(),
-        rss_value,
-        id3_value: None,
-        id3_frame: None,
-        musicbrainz_value,
-        musicbrainz_key: musicbrainz_key_for_field(field).map(str::to_string),
-        id3_status: ComparisonStatus::MissingTag,
-        musicbrainz_status,
-    }));
+    push_grouped_metadata_data_row(
+        rows,
+        group_key,
+        AlignedCompareRow {
+            field: field.into(),
+            rss_value,
+            id3_value: None,
+            id3_frame: None,
+            musicbrainz_value,
+            musicbrainz_key: musicbrainz_key_for_field(field).map(str::to_string),
+            id3_status: ComparisonStatus::MissingTag,
+            musicbrainz_status,
+        },
+    );
 }
 
 fn aligned_compare_rows(
@@ -2743,62 +2794,82 @@ fn aligned_compare_rows(
     show_musicbrainz: bool,
     expanded_id3_frame_groups: &BTreeSet<String>,
 ) -> Vec<MetadataGridRow> {
-    let mut rows = vec![metadata_group_row("RSS tags", None, false, 0)];
-    rows.extend(
-        result
-            .rows
-            .iter()
-            .filter(|row| row.field != "Title")
-            .map(|row| {
-                let musicbrainz_value = musicbrainz_value_for_field(row.field, musicbrainz);
-                AlignedCompareRow {
-                    field: row.field.to_string(),
-                    rss_value: row.source_value.clone(),
-                    id3_value: row.tag_value.clone(),
-                    id3_frame: id3_frame_hint(row.field).map(str::to_string),
-                    musicbrainz_status: compare_optional_values(
-                        row.source_value.as_deref(),
-                        musicbrainz_value.as_deref(),
-                    ),
-                    musicbrainz_value,
-                    musicbrainz_key: musicbrainz_key_for_field(row.field).map(str::to_string),
-                    id3_status: row.status.clone(),
-                }
-            })
-            .map(metadata_data_row),
+    let mut grouped_rows = BTreeMap::<&'static str, Vec<MetadataGridRow>>::new();
+    for row in result.rows.iter().filter(|row| row.field != "Title") {
+        let musicbrainz_value = musicbrainz_value_for_field(row.field, musicbrainz);
+        push_grouped_metadata_data_row(
+            &mut grouped_rows,
+            metadata_field_group_key(row.field),
+            AlignedCompareRow {
+                field: row.field.to_string(),
+                rss_value: row.source_value.clone(),
+                id3_value: row.tag_value.clone(),
+                id3_frame: id3_frame_hint(row.field).map(str::to_string),
+                musicbrainz_status: compare_optional_values(
+                    row.source_value.as_deref(),
+                    musicbrainz_value.as_deref(),
+                ),
+                musicbrainz_value,
+                musicbrainz_key: musicbrainz_key_for_field(row.field).map(str::to_string),
+                id3_status: row.status.clone(),
+            },
+        );
+    }
+
+    push_grouped_metadata_data_row(
+        &mut grouped_rows,
+        "people-credits",
+        AlignedCompareRow {
+            field: "Contributors".into(),
+            rss_value: summarize_contributors(&result.contributors),
+            id3_value: None,
+            id3_frame: None,
+            musicbrainz_value: None,
+            musicbrainz_key: None,
+            id3_status: ComparisonStatus::MissingTag,
+            musicbrainz_status: ComparisonStatus::MissingTag,
+        },
+    );
+    push_grouped_metadata_data_row(
+        &mut grouped_rows,
+        "music-disc-acquisition-commerce",
+        AlignedCompareRow {
+            field: "Value Routes".into(),
+            rss_value: summarize_value_routes(&result.value_routes),
+            id3_value: None,
+            id3_frame: None,
+            musicbrainz_value: None,
+            musicbrainz_key: None,
+            id3_status: ComparisonStatus::MissingTag,
+            musicbrainz_status: ComparisonStatus::MissingTag,
+        },
     );
 
-    rows.push(metadata_data_row(AlignedCompareRow {
-        field: "Contributors".into(),
-        rss_value: summarize_contributors(&result.contributors),
-        id3_value: None,
-        id3_frame: None,
-        musicbrainz_value: None,
-        musicbrainz_key: None,
-        id3_status: ComparisonStatus::MissingTag,
-        musicbrainz_status: ComparisonStatus::MissingTag,
-    }));
-    rows.push(metadata_data_row(AlignedCompareRow {
-        field: "Value Routes".into(),
-        rss_value: summarize_value_routes(&result.value_routes),
-        id3_value: None,
-        id3_frame: None,
-        musicbrainz_value: None,
-        musicbrainz_key: None,
-        id3_status: ComparisonStatus::MissingTag,
-        musicbrainz_status: ComparisonStatus::MissingTag,
-    }));
+    if show_musicbrainz {
+        if let Some(candidate) = musicbrainz {
+            for row in musicbrainz_remainder_rows(candidate) {
+                push_grouped_metadata_data_row(
+                    &mut grouped_rows,
+                    metadata_field_group_key(&row.field),
+                    row,
+                );
+            }
+        }
+    }
 
-    for (group_key, label) in ID3V24_FRAME_GROUPS {
+    let mut rows = Vec::new();
+    for &(group_key, label) in ID3V24_FRAME_GROUPS {
+        let group_rows = grouped_rows.remove(group_key).unwrap_or_default();
         let unused = unused_id3v24_frames_for_group(result, group_key);
         let used = used_id3_fields_for_group(result, group_key);
-        let expanded = expanded_id3_frame_groups.contains(*group_key);
+        let expanded = expanded_id3_frame_groups.contains(group_key);
         rows.push(metadata_group_row(
-            *label,
+            label,
             Some(group_key),
             expanded,
             unused.len(),
         ));
+        rows.extend(group_rows);
         rows.extend(used.into_iter().map(used_id3_field_row));
         if expanded {
             rows.extend(unused.into_iter().map(id3_unused_frame_row));
@@ -2811,18 +2882,79 @@ fn aligned_compare_rows(
         rows.extend(unknown.into_iter().map(used_id3_field_row));
     }
 
-    if show_musicbrainz {
-        if let Some(candidate) = musicbrainz {
-            rows.push(metadata_group_row("MusicBrainz tags", None, false, 0));
-            rows.extend(
-                musicbrainz_remainder_rows(candidate)
-                    .into_iter()
-                    .map(metadata_data_row),
-            );
+    rows.extend(grouped_metadata_rows(grouped_rows));
+
+    rows
+}
+
+fn push_grouped_metadata_data_row(
+    rows: &mut BTreeMap<&'static str, Vec<MetadataGridRow>>,
+    group_key: &'static str,
+    row: AlignedCompareRow,
+) {
+    rows.entry(group_key)
+        .or_default()
+        .push(metadata_data_row(row));
+}
+
+fn grouped_metadata_rows(
+    mut grouped_rows: BTreeMap<&'static str, Vec<MetadataGridRow>>,
+) -> Vec<MetadataGridRow> {
+    let mut rows = Vec::new();
+    for &(group_key, label) in ID3V24_FRAME_GROUPS {
+        if let Some(group_rows) = grouped_rows.remove(group_key) {
+            if !group_rows.is_empty() {
+                rows.push(metadata_group_row(label, None, false, 0));
+                rows.extend(group_rows);
+            }
+        }
+    }
+
+    for (_group_key, group_rows) in grouped_rows {
+        if !group_rows.is_empty() {
+            rows.push(metadata_group_row("Other metadata", None, false, 0));
+            rows.extend(group_rows);
         }
     }
 
     rows
+}
+
+fn metadata_field_group_key(field: &str) -> &'static str {
+    match field {
+        "Title"
+        | "Album/Feed"
+        | "Track #"
+        | "MusicBrainz recording"
+        | "MusicBrainz release"
+        | "MusicBrainz release group"
+        | "MusicBrainz country"
+        | "MusicBrainz format"
+        | "MusicBrainz medium position"
+        | "MusicBrainz medium title"
+        | "MusicBrainz track position"
+        | "MusicBrainz track title"
+        | "MusicBrainz tracks"
+        | "MusicBrainz ISRCs" => "identification-release-structure",
+        "Artist" | "Contributors" | "MusicBrainz labels" | "MusicBrainz track artist" => {
+            "people-credits"
+        }
+        "Publisher"
+        | "Release pubdate"
+        | "Feed Release pubdate"
+        | "MusicBrainz status"
+        | "MusicBrainz packaging"
+        | "MusicBrainz barcode"
+        | "MusicBrainz release note"
+        | "MusicBrainz release group type"
+        | "MusicBrainz release group secondary types"
+        | "MusicBrainz track note"
+        | "MusicBrainz track length" => "descriptive-technical-rights-text",
+        "Website" | "Feed Website" | "MusicBrainz URLs" => "url-link-frames",
+        "Nostr handle" | "Feed Nostr handle" => "identity-linking-private-registration",
+        "Value Routes" => "music-disc-acquisition-commerce",
+        _ => "unknown",
+    }
 }
 
 fn musicbrainz_value_for_field(
@@ -3919,8 +4051,9 @@ pub fn run_search_app() {
 #[cfg(test)]
 mod tests {
     use super::{
-        id3_frame_group_key, id3_frame_version, unused_id3v24_frames_for_group, Id3FrameVersion,
-        TagCompareResult, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
+        id3_frame_group_key, id3_frame_version, metadata_field_group_key,
+        unused_id3v24_frames_for_group, Id3FrameVersion, TagCompareResult, ID3V24_FRAME_GROUPS,
+        ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::Id3Field;
 
@@ -3936,6 +4069,41 @@ mod tests {
             assert!(
                 ID3V24_FRAME_GROUPS.iter().any(|(key, _)| *key == group),
                 "frame {frame_id} should have a visible group"
+            );
+        }
+
+        let grouped_count: usize = ID3V24_FRAME_GROUPS
+            .iter()
+            .map(|(group_key, _)| {
+                ID3V24_FRAME_IDS
+                    .iter()
+                    .filter(|frame_id| id3_frame_group_key(frame_id) == *group_key)
+                    .count()
+            })
+            .sum();
+        assert_eq!(
+            grouped_count, 83,
+            "every ID3v2.4 frame should map into the proposed HTML table groups"
+        );
+
+        let expected_counts = [
+            ("identification-release-structure", 9),
+            ("people-credits", 11),
+            ("descriptive-technical-rights-text", 26),
+            ("url-link-frames", 9),
+            ("lyrics-comments-artwork-user-facing-content", 8),
+            ("identity-linking-private-registration", 7),
+            ("timing-seeking-audio-analysis-playback-control", 10),
+            ("music-disc-acquisition-commerce", 3),
+        ];
+        for (group_key, expected_count) in expected_counts {
+            let actual_count = ID3V24_FRAME_IDS
+                .iter()
+                .filter(|frame_id| id3_frame_group_key(frame_id) == group_key)
+                .count();
+            assert_eq!(
+                actual_count, expected_count,
+                "group {group_key} should match the proposed HTML table count"
             );
         }
     }
@@ -3960,20 +4128,36 @@ mod tests {
             ],
         };
 
-        let text_unused = unused_id3v24_frames_for_group(&result, "text");
-        let picture_unused = unused_id3v24_frames_for_group(&result, "pictures-objects");
+        let identification_unused =
+            unused_id3v24_frames_for_group(&result, "identification-release-structure");
+        let content_unused =
+            unused_id3v24_frames_for_group(&result, "lyrics-comments-artwork-user-facing-content");
 
         assert!(
-            !text_unused.contains(&"TIT2"),
+            !identification_unused.contains(&"TIT2"),
             "present title frame should not be listed"
         );
         assert!(
-            !picture_unused.contains(&"APIC"),
+            !content_unused.contains(&"APIC"),
             "present artwork frame should not be listed"
         );
         assert!(
-            text_unused.contains(&"TPE1"),
-            "absent artist frame should remain available"
+            identification_unused.contains(&"TALB"),
+            "absent album frame should remain available"
+        );
+    }
+
+    #[test]
+    fn rss_and_musicbrainz_rows_use_semantic_groups() {
+        assert_eq!(metadata_field_group_key("Artist"), "people-credits");
+        assert_eq!(metadata_field_group_key("Website"), "url-link-frames");
+        assert_eq!(
+            metadata_field_group_key("MusicBrainz track title"),
+            "identification-release-structure"
+        );
+        assert_eq!(
+            metadata_field_group_key("Value Routes"),
+            "music-disc-acquisition-commerce"
         );
     }
 
