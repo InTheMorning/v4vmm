@@ -1135,6 +1135,18 @@ impl SearchApp {
         .detach();
     }
 
+    fn clear_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.applying_id3_edits {
+            return;
+        }
+        frame.pending_id3_edits.clear();
+        frame.id3_apply_error = None;
+        cx.notify();
+    }
+
     fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
         let Some(frame) = self.inspector_stack.last_mut() else {
             return;
@@ -2229,17 +2241,38 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
             .when(
                 !frame.pending_id3_edits.is_empty() || frame.applying_id3_edits,
                 |el| {
+                    let count = frame.pending_id3_edits.len();
                     let label = if frame.applying_id3_edits {
-                        "Applying ID3..."
+                        "Applying ID3...".to_string()
                     } else {
-                        "Apply ID3"
+                        format!("Apply ID3 ({count})")
                     };
                     el.child(
-                        metadata_action_button(label)
-                            .disabled(frame.applying_id3_edits)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.apply_pending_id3_edits(cx);
-                            })),
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_start()
+                            .gap(px(4.0))
+                            .child(div().text_size(px(10.0)).text_color(muted()).child(
+                                SharedString::from(format!(
+                                    "{count} staged ID3 edit{}",
+                                    if count == 1 { "" } else { "s" }
+                                )),
+                            ))
+                            .child(
+                                metadata_action_button(&label)
+                                    .disabled(frame.applying_id3_edits)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.apply_pending_id3_edits(cx);
+                                    })),
+                            )
+                            .when(!frame.applying_id3_edits, |el| {
+                                el.child(metadata_action_button("Discard ID3").on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.clear_pending_id3_edits(cx);
+                                    }),
+                                ))
+                            }),
                     )
                 },
             )
@@ -2795,7 +2828,11 @@ fn metadata_id3_cell(
         .pl(px(96.0))
         .min_w_0()
         .rounded(px(4.0))
-        .child(compare_tag_cell(value, Some(color), frame, frame_color));
+        .child(compare_tag_cell(value, Some(color), frame, frame_color))
+        .when_some(pending, |el, edit| {
+            el.border_1()
+                .border_color(pending_source_color(edit.source))
+        });
 
     if let Some(frame) = frame.filter(|frame| id3v24_drag_copy_frame_is_writable(frame)) {
         let row_id = row.row_id.clone();
