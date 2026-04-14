@@ -637,6 +637,7 @@ struct MetadataDragValue {
     row_id: String,
     field: String,
     frame: String,
+    target_existing_value: Option<String>,
     value: String,
     source: MetadataColumn,
 }
@@ -1052,7 +1053,12 @@ impl SearchApp {
         if !id3v24_drag_copy_frame_is_writable(&drag.frame) {
             return;
         }
-        let Some(value) = format_drag_value_for_id3v24(&drag.frame, &drag.value) else {
+        let Some(value) = format_drag_value_for_id3v24(
+            &drag.frame,
+            &drag.field,
+            drag.target_existing_value.as_deref(),
+            &drag.value,
+        ) else {
             return;
         };
         frame.pending_id3_edits.insert(
@@ -2866,6 +2872,7 @@ fn metadata_id3_cell(
         let row_id = row.row_id.clone();
         let target_field = row.field.clone();
         let target_frame = frame.to_string();
+        let target_existing_value = (!value.is_empty()).then(|| value.to_string());
         cell = cell
             .can_drop(|drag, _window, _cx| drag.downcast_ref::<MetadataDragValue>().is_some())
             .hover(|style| style.bg(surface()))
@@ -2875,6 +2882,7 @@ fn metadata_id3_cell(
                     drag.row_id = row_id.clone();
                     drag.field = target_field.clone();
                     drag.frame = target_frame.clone();
+                    drag.target_existing_value = target_existing_value.clone();
                     this.stage_id3_drag_copy(&drag, cx);
                 }),
             );
@@ -2926,6 +2934,7 @@ fn metadata_drag_value(
         row_id: row.row_id.clone(),
         field: row.field.clone(),
         frame: row.id3_frame.clone().unwrap_or_default(),
+        target_existing_value: None,
         value,
         source,
     })
@@ -3639,18 +3648,95 @@ fn id3_value_for_field(field: &str, result: &TagCompareResult) -> Option<String>
     id3_values_for_frame(result, frame_id, needles)
 }
 
-fn format_drag_value_for_id3v24(frame_label: &str, value: &str) -> Option<String> {
+fn format_drag_value_for_id3v24(
+    frame_label: &str,
+    target_field: &str,
+    existing_value: Option<&str>,
+    value: &str,
+) -> Option<String> {
     let value = sanitize_id3_text(value);
     if value.is_empty() {
         return None;
     }
     let frame_id = id3_frame_base(frame_label);
     match frame_id {
-        "TXXX" | "WXXX" | "UFID" => Some(value),
-        "TRCK" | "TPOS" => Some(value.replace(" / ", "/")),
-        "TDRC" | "TDRL" | "TDOR" | "TYER" => Some(value),
+        "TXXX" | "UFID" => Some(value),
+        "WXXX" => format_id3_url(&value),
+        "TRCK" => format_slash_number_frame(target_field, existing_value, &value),
+        "TPOS" => format_slash_number_frame(target_field, existing_value, &value),
+        "TDRC" | "TDRL" | "TDOR" | "TYER" => format_id3_timestamp(&value),
+        id if id.starts_with('W') => format_id3_url(&value),
         _ => Some(value),
     }
+}
+
+fn format_slash_number_frame(
+    target_field: &str,
+    existing_value: Option<&str>,
+    value: &str,
+) -> Option<String> {
+    let (value_position, value_total) = split_slash_number(value);
+    let value_position = value_position?;
+    let existing = existing_value
+        .and_then(|value| normalized_compare_value(Some(value)))
+        .unwrap_or_default();
+    let (existing_position, existing_total) = split_slash_number(&existing);
+
+    match target_field {
+        "Total tracks" => {
+            let total = value_total.unwrap_or(value_position);
+            existing_position.map(|position| format!("{position}/{total}"))
+        }
+        "Disc total" => {
+            let total = value_total.unwrap_or(value_position);
+            existing_position.map(|position| format!("{position}/{total}"))
+        }
+        _ => {
+            if let Some(total) = existing_total.or(value_total) {
+                Some(format!("{value_position}/{total}"))
+            } else {
+                Some(value_position)
+            }
+        }
+    }
+}
+
+fn split_slash_number(value: &str) -> (Option<String>, Option<String>) {
+    let Some((position, total)) = value.split_once('/') else {
+        return (first_unsigned_number(value), None);
+    };
+    (
+        first_unsigned_number(position),
+        first_unsigned_number(total),
+    )
+}
+
+fn first_unsigned_number(value: &str) -> Option<String> {
+    let digits = value
+        .chars()
+        .skip_while(|ch| !ch.is_ascii_digit())
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    (!digits.is_empty()).then_some(digits)
+}
+
+fn format_id3_timestamp(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value.len() >= 4 && value.chars().take(4).all(|ch| ch.is_ascii_digit()) {
+        return Some(value.to_string());
+    }
+
+    chrono::NaiveDate::parse_from_str(value, "%b %e, %Y")
+        .ok()
+        .map(|date| date.format("%Y-%m-%d").to_string())
+}
+
+fn format_id3_url(value: &str) -> Option<String> {
+    let url = value.split('·').next().map(str::trim).unwrap_or(value);
+    (!url.is_empty()).then(|| url.to_string())
 }
 
 fn id3v24_drag_copy_frame_is_writable(frame_label: &str) -> bool {
@@ -4714,7 +4800,7 @@ mod tests {
         AlignedCompareRow, Feed, Id3FrameVersion, MetadataColumn, PendingId3Edit, SourceEntityId,
         TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
     };
-    use crate::audio_tags::Id3Field;
+    use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
     use crate::musicbrainz::MusicBrainzCandidate;
     use crate::track_compare::{ComparisonRow, ComparisonStatus};
 
@@ -4966,15 +5052,96 @@ mod tests {
     #[test]
     fn drag_copy_formats_values_for_id3v24_target_frames() {
         assert_eq!(
-            format_drag_value_for_id3v24("TRCK", "3 / 12").as_deref(),
+            format_drag_value_for_id3v24("TRCK", "Track #", None, "3 / 12").as_deref(),
             Some("3/12")
         );
         assert_eq!(
-            format_drag_value_for_id3v24("TXXX:MusicIndex Contributors", " Alice \0 Bob ")
-                .as_deref(),
+            format_drag_value_for_id3v24(
+                "TXXX:MusicIndex Contributors",
+                "Contributors",
+                None,
+                " Alice \0 Bob ",
+            )
+            .as_deref(),
             Some("Alice   Bob")
         );
-        assert_eq!(format_drag_value_for_id3v24("TIT2", " \0 "), None);
+        assert_eq!(
+            format_drag_value_for_id3v24("TIT2", "Title", None, " \0 "),
+            None
+        );
+        assert_eq!(
+            format_drag_value_for_id3v24("TRCK", "Track #", Some("3/12"), "4").as_deref(),
+            Some("4/12")
+        );
+        assert_eq!(
+            format_drag_value_for_id3v24("TRCK", "Total tracks", Some("4"), "12").as_deref(),
+            Some("4/12")
+        );
+        assert_eq!(
+            format_drag_value_for_id3v24("TRCK", "Total tracks", None, "12"),
+            None
+        );
+        assert_eq!(
+            format_drag_value_for_id3v24("TDRC", "Release date", None, "Dec 8, 2025").as_deref(),
+            Some("2025-12-08")
+        );
+        assert_eq!(
+            format_drag_value_for_id3v24(
+                "WOAR",
+                "Website",
+                None,
+                "https://a.test · https://b.test"
+            )
+            .as_deref(),
+            Some("https://a.test")
+        );
+        assert_eq!(
+            format_drag_value_for_id3v24(
+                "WXXX:Official audio",
+                "Website",
+                None,
+                "https://a.test · https://b.test",
+            )
+            .as_deref(),
+            Some("https://a.test")
+        );
+    }
+
+    #[test]
+    fn all_compare_id3_hints_are_writable_id3v24_targets() {
+        let fields = [
+            "Title",
+            "Artist",
+            "Album/Feed",
+            "Track #",
+            "Publisher",
+            "Label",
+            "Website",
+            "Release date",
+            "Contributors",
+            "Value Routes",
+            "MusicBrainz recording",
+            "MusicBrainz release",
+            "MusicBrainz release group",
+            "Release country",
+            "Release status",
+            "Barcode",
+            "Release type",
+            "Release secondary types",
+            "Media",
+            "Disc #",
+            "Disc subtitle",
+            "Total tracks",
+            "ISRC",
+        ];
+
+        for field in fields {
+            let hint = super::id3_frame_hint(field).expect("field should have an ID3 hint");
+            assert!(
+                id3v24_edit_label_is_writable(hint),
+                "{field} should map to a writable ID3v2.4 target, got {hint}"
+            );
+        }
     }
 
     #[test]
