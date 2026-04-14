@@ -620,6 +620,7 @@ struct AlignedCompareRow {
 
 #[derive(Clone, Debug)]
 struct PendingId3Edit {
+    field: String,
     frame: String,
     value: String,
     source: MetadataColumn,
@@ -1057,6 +1058,7 @@ impl SearchApp {
         frame.pending_id3_edits.insert(
             drag.row_id.clone(),
             PendingId3Edit {
+                field: drag.field.clone(),
                 frame: drag.frame.clone(),
                 value,
                 source: drag.source,
@@ -1082,6 +1084,16 @@ impl SearchApp {
         let InspectorDetail::Track(track_context) = &frame.detail else {
             return;
         };
+        let conflicts = pending_id3_conflict_descriptions(&frame.pending_id3_edits);
+        if !conflicts.is_empty() {
+            frame.id3_apply_error = Some(format!(
+                "Resolve duplicate ID3 target{}: {}",
+                if conflicts.len() == 1 { "" } else { "s" },
+                conflicts.join("; ")
+            ));
+            cx.notify();
+            return;
+        }
 
         let entity_id = frame.entity_id.clone();
         let path = PathBuf::from(result.path.clone());
@@ -2210,6 +2222,8 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
     if frame.entity_type != "feed" && frame.entity_type != "track" {
         return div().into_any_element();
     }
+    let pending_conflicts = pending_id3_conflict_descriptions(&frame.pending_id3_edits);
+    let has_pending_conflicts = !pending_conflicts.is_empty();
 
     div()
         .flex()
@@ -2243,6 +2257,7 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
                 !frame.pending_id3_edits.is_empty() || frame.applying_id3_edits,
                 |el| {
                     let count = frame.pending_id3_edits.len();
+                    let conflict_text = pending_conflicts.join("; ");
                     let label = if frame.applying_id3_edits {
                         "Applying ID3...".to_string()
                     } else {
@@ -2262,11 +2277,23 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
                             ))
                             .child(
                                 metadata_action_button(&label)
-                                    .disabled(frame.applying_id3_edits)
+                                    .disabled(frame.applying_id3_edits || has_pending_conflicts)
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.apply_pending_id3_edits(cx);
                                     })),
                             )
+                            .when(has_pending_conflicts, |el| {
+                                el.child(
+                                    div()
+                                        .max_w(px(190.0))
+                                        .text_size(px(10.0))
+                                        .line_height(px(14.0))
+                                        .text_color(rgb(0xff8a65))
+                                        .child(SharedString::from(format!(
+                                            "Duplicate target: {conflict_text}"
+                                        ))),
+                                )
+                            })
                             .when(!frame.applying_id3_edits, |el| {
                                 el.child(metadata_action_button("Discard ID3").on_click(
                                     cx.listener(|this, _, _, cx| {
@@ -2837,6 +2864,7 @@ fn metadata_id3_cell(
 
     if let Some(frame) = frame.filter(|frame| id3v24_drag_copy_frame_is_writable(frame)) {
         let row_id = row.row_id.clone();
+        let target_field = row.field.clone();
         let target_frame = frame.to_string();
         cell = cell
             .can_drop(|drag, _window, _cx| drag.downcast_ref::<MetadataDragValue>().is_some())
@@ -2845,6 +2873,7 @@ fn metadata_id3_cell(
                 cx.listener(move |this, drag: &MetadataDragValue, _window, cx| {
                     let mut drag = drag.clone();
                     drag.row_id = row_id.clone();
+                    drag.field = target_field.clone();
                     drag.frame = target_frame.clone();
                     this.stage_id3_drag_copy(&drag, cx);
                 }),
@@ -3626,6 +3655,45 @@ fn format_drag_value_for_id3v24(frame_label: &str, value: &str) -> Option<String
 
 fn id3v24_drag_copy_frame_is_writable(frame_label: &str) -> bool {
     id3v24_edit_label_is_writable(frame_label)
+}
+
+fn pending_id3_conflict_descriptions(edits: &BTreeMap<String, PendingId3Edit>) -> Vec<String> {
+    let mut by_target = BTreeMap::<String, Vec<&PendingId3Edit>>::new();
+    for edit in edits.values() {
+        by_target
+            .entry(pending_id3_target_key(&edit.frame))
+            .or_default()
+            .push(edit);
+    }
+
+    by_target
+        .into_iter()
+        .filter_map(|(target, edits)| {
+            if edits.len() < 2 {
+                return None;
+            }
+            let fields = edits
+                .iter()
+                .map(|edit| edit.field.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            Some(format!("{target} ({fields})"))
+        })
+        .collect()
+}
+
+fn pending_id3_target_key(frame_label: &str) -> String {
+    let frame_id = id3_frame_base(frame_label).to_ascii_uppercase();
+    match frame_id.as_str() {
+        "TXXX" | "WXXX" | "UFID" => {
+            let descriptor = frame_label
+                .split_once(':')
+                .map_or("", |(_, descriptor)| descriptor.trim())
+                .to_ascii_lowercase();
+            format!("{frame_id}:{descriptor}")
+        }
+        _ => frame_id,
+    }
 }
 
 fn sanitize_id3_text(value: &str) -> String {
@@ -4637,12 +4705,14 @@ pub fn run_search_app() {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::{
         compare_row_id, format_drag_value_for_id3v24, id3_frame_group_key, id3_frame_version,
         metadata_drag_value, metadata_field_group_key, musicbrainz_remainder_rows,
-        unused_id3v24_frames_for_group, AlignedCompareRow, Feed, Id3FrameVersion, MetadataColumn,
-        SourceEntityId, TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS,
-        ID3V24_FRAME_IDS,
+        pending_id3_conflict_descriptions, pending_id3_target_key, unused_id3v24_frames_for_group,
+        AlignedCompareRow, Feed, Id3FrameVersion, MetadataColumn, PendingId3Edit, SourceEntityId,
+        TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::Id3Field;
     use crate::musicbrainz::MusicBrainzCandidate;
@@ -4905,5 +4975,47 @@ mod tests {
             Some("Alice   Bob")
         );
         assert_eq!(format_drag_value_for_id3v24("TIT2", " \0 "), None);
+    }
+
+    #[test]
+    fn pending_id3_conflicts_detect_duplicate_effective_targets() {
+        let edits = BTreeMap::from([
+            (
+                "track".into(),
+                PendingId3Edit {
+                    field: "Track #".into(),
+                    frame: "TRCK".into(),
+                    value: "4".into(),
+                    source: MetadataColumn::Rss,
+                },
+            ),
+            (
+                "total".into(),
+                PendingId3Edit {
+                    field: "Total tracks".into(),
+                    frame: "TRCK".into(),
+                    value: "10".into(),
+                    source: MetadataColumn::MusicBrainz,
+                },
+            ),
+            (
+                "release".into(),
+                PendingId3Edit {
+                    field: "MusicBrainz release".into(),
+                    frame: "TXXX:MusicBrainz Album Id".into(),
+                    value: "release-id".into(),
+                    source: MetadataColumn::MusicBrainz,
+                },
+            ),
+        ]);
+
+        assert_eq!(
+            pending_id3_target_key("TXXX:MusicBrainz Album Id"),
+            "TXXX:musicbrainz album id"
+        );
+        assert_eq!(
+            pending_id3_conflict_descriptions(&edits),
+            vec!["TRCK (Total tracks, Track #)"]
+        );
     }
 }
