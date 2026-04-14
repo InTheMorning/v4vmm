@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
@@ -17,7 +18,9 @@ use reqwest::blocking::Client as ReqwestClient;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::audio_tags::{read_audio_tags, EmbeddedArtwork, Id3Field};
+use crate::audio_tags::{
+    read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3Field, Id3v24Edit,
+};
 use crate::config;
 use crate::musicbrainz::{
     lookup_recordings, LookupMetadata, MusicBrainzCandidate, MusicBrainzLookup,
@@ -552,6 +555,8 @@ struct InspectorFrame {
     value_routes_collapsed: bool,
     expanded_id3_frame_groups: BTreeSet<String>,
     pending_id3_edits: BTreeMap<String, PendingId3Edit>,
+    applying_id3_edits: bool,
+    id3_apply_error: Option<String>,
     tag_compare: LazyPanel<TagCompareResult>,
     musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     musicbrainz_selected: usize,
@@ -571,6 +576,8 @@ impl InspectorFrame {
             value_routes_collapsed: true,
             expanded_id3_frame_groups: BTreeSet::new(),
             pending_id3_edits: BTreeMap::new(),
+            applying_id3_edits: false,
+            id3_apply_error: None,
             tag_compare: LazyPanel::Hidden,
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
@@ -1040,6 +1047,9 @@ impl SearchApp {
         let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
+        if !id3v24_drag_copy_frame_is_writable(&drag.frame) {
+            return;
+        }
         let Some(value) = format_drag_value_for_id3v24(&drag.frame, &drag.value) else {
             return;
         };
@@ -1051,7 +1061,78 @@ impl SearchApp {
                 source: drag.source,
             },
         );
+        frame.id3_apply_error = None;
         cx.notify();
+    }
+
+    fn apply_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.entity_type != "track"
+            || frame.pending_id3_edits.is_empty()
+            || frame.applying_id3_edits
+        {
+            return;
+        }
+        let LazyPanel::Loaded(result) = &frame.tag_compare else {
+            return;
+        };
+        let InspectorDetail::Track(track_context) = &frame.detail else {
+            return;
+        };
+
+        let entity_id = frame.entity_id.clone();
+        let path = PathBuf::from(result.path.clone());
+        let track_context = (**track_context).clone();
+        let edits = frame
+            .pending_id3_edits
+            .values()
+            .map(|edit| Id3v24Edit {
+                frame_label: edit.frame.clone(),
+                value: edit.value.clone(),
+            })
+            .collect::<Vec<_>>();
+        frame.applying_id3_edits = true;
+        frame.id3_apply_error = None;
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        write_id3v24_edits(&path, &edits)?;
+                        compare_downloaded_track_path(&path, &track_context)
+                    })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == "track" && frame.entity_id == entity_id {
+                                frame.applying_id3_edits = false;
+                                match result {
+                                    Ok(result) => {
+                                        frame.tag_compare = LazyPanel::Loaded(result);
+                                        frame.pending_id3_edits.clear();
+                                        frame.id3_apply_error = None;
+                                    }
+                                    Err(error) => {
+                                        frame.id3_apply_error =
+                                            Some(format!("Error applying ID3 edits: {error}"));
+                                    }
+                                }
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
     }
 
     fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
@@ -1502,15 +1583,25 @@ fn download_and_compare_track(client: &Client, entity_id: &str) -> Result<TagCom
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
     let downloaded = download_track_mp3(&cfg, &client.client, &track)?;
-    let tags = read_audio_tags(&downloaded.path)?;
+    let track_context = TrackContext { track, feed };
+
+    compare_downloaded_track_path(&downloaded.path, &track_context)
+}
+
+fn compare_downloaded_track_path(
+    path: &Path,
+    track_context: &TrackContext,
+) -> Result<TagCompareResult> {
+    let tags = read_audio_tags(path)?;
     let file_image = tags.artwork.as_ref().and_then(image_from_artwork);
+    let track = &track_context.track;
 
     Ok(TagCompareResult {
-        path: downloaded.path.display().to_string(),
-        rows: compare_track_rows(&track, feed.as_ref(), &tags),
+        path: path.display().to_string(),
+        rows: compare_track_rows(track, track_context.feed.as_ref(), &tags),
         file_image,
-        contributors: track.source_contributors.unwrap_or_default(),
-        value_routes: track.payment_routes.unwrap_or_default(),
+        contributors: track.source_contributors.clone().unwrap_or_default(),
+        value_routes: track.payment_routes.clone().unwrap_or_default(),
         id3_fields: tags.fields,
     })
 }
@@ -2135,6 +2226,33 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
                     this.toggle_musicbrainz_lookup(cx);
                 })),
             )
+            .when(
+                !frame.pending_id3_edits.is_empty() || frame.applying_id3_edits,
+                |el| {
+                    let label = if frame.applying_id3_edits {
+                        "Applying ID3..."
+                    } else {
+                        "Apply ID3"
+                    };
+                    el.child(
+                        metadata_action_button(label)
+                            .disabled(frame.applying_id3_edits)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.apply_pending_id3_edits(cx);
+                            })),
+                    )
+                },
+            )
+            .when_some(frame.id3_apply_error.clone(), |el, error| {
+                el.child(
+                    div()
+                        .max_w(px(180.0))
+                        .text_size(px(10.0))
+                        .line_height(px(14.0))
+                        .text_color(rgb(0xff8a65))
+                        .child(SharedString::from(error)),
+                )
+            })
         })
         .into_any_element()
 }
@@ -2679,7 +2797,7 @@ fn metadata_id3_cell(
         .rounded(px(4.0))
         .child(compare_tag_cell(value, Some(color), frame, frame_color));
 
-    if let Some(frame) = frame {
+    if let Some(frame) = frame.filter(|frame| id3v24_drag_copy_frame_is_writable(frame)) {
         let row_id = row.row_id.clone();
         let target_frame = frame.to_string();
         cell = cell
@@ -3466,6 +3584,11 @@ fn format_drag_value_for_id3v24(frame_label: &str, value: &str) -> Option<String
         "TDRC" | "TDRL" | "TDOR" | "TYER" => Some(value),
         _ => Some(value),
     }
+}
+
+fn id3v24_drag_copy_frame_is_writable(frame_label: &str) -> bool {
+    let frame_id = id3_frame_base(frame_label);
+    frame_id == "UFID" || frame_id.starts_with('T') || frame_id.starts_with('W')
 }
 
 fn sanitize_id3_text(value: &str) -> String {

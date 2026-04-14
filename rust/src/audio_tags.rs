@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use anyhow::{Context, Result};
-use id3::{no_tag_ok, Content, Tag, TagLike};
+use anyhow::{anyhow, Context, Result};
+use id3::frame::{ExtendedLink, ExtendedText, UniqueFileIdentifier};
+use id3::{no_tag_ok, Content, Frame, Tag, TagLike, Version};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AudioTags {
@@ -30,8 +31,35 @@ pub struct Id3Field {
     pub value: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Id3v24Edit {
+    pub frame_label: String,
+    pub value: String,
+}
+
 pub fn read_audio_tags(path: &Path) -> Result<AudioTags> {
     read_mp3_tags(path)
+}
+
+pub fn write_id3v24_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
+    if edits.is_empty() {
+        return Ok(0);
+    }
+
+    let mut tag = no_tag_ok(Tag::read_from_path(path))
+        .with_context(|| format!("read embedded MP3 tags from {}", path.display()))?
+        .unwrap_or_default();
+    let mut applied = 0;
+
+    for edit in edits {
+        let frame = id3v24_edit_frame(edit)?;
+        tag.add_frame(frame);
+        applied += 1;
+    }
+
+    tag.write_to_path(path, Version::Id3v24)
+        .with_context(|| format!("write ID3v2.4 tags to {}", path.display()))?;
+    Ok(applied)
 }
 
 fn read_mp3_tags(path: &Path) -> Result<AudioTags> {
@@ -111,6 +139,60 @@ fn id3_fields(tag: &Tag) -> Vec<Id3Field> {
         .collect()
 }
 
+fn id3v24_edit_frame(edit: &Id3v24Edit) -> Result<Frame> {
+    let (frame_id, descriptor) = split_frame_label(&edit.frame_label);
+    let value = edit.value.trim();
+    if frame_id.is_empty() {
+        return Err(anyhow!("missing ID3 frame id"));
+    }
+    if value.is_empty() {
+        return Err(anyhow!("missing ID3 value for {frame_id}"));
+    }
+
+    match frame_id.as_str() {
+        "TXXX" => Ok(Frame::with_content(
+            "TXXX",
+            Content::ExtendedText(ExtendedText {
+                description: descriptor.unwrap_or_default(),
+                value: value.to_string(),
+            }),
+        )),
+        "WXXX" => Ok(Frame::with_content(
+            "WXXX",
+            Content::ExtendedLink(ExtendedLink {
+                description: descriptor.unwrap_or_default(),
+                link: value.to_string(),
+            }),
+        )),
+        "UFID" => {
+            let Some(owner_identifier) = descriptor else {
+                return Err(anyhow!("UFID edits require an owner identifier"));
+            };
+            Ok(Frame::with_content(
+                "UFID",
+                Content::UniqueFileIdentifier(UniqueFileIdentifier {
+                    owner_identifier,
+                    identifier: value.as_bytes().to_vec(),
+                }),
+            ))
+        }
+        id if id.starts_with('T') => Ok(Frame::text(id, value)),
+        id if id.starts_with('W') => Ok(Frame::with_content(id, Content::Link(value.to_string()))),
+        _ => Err(anyhow!("unsupported ID3v2.4 edit frame {frame_id}")),
+    }
+}
+
+fn split_frame_label(label: &str) -> (String, Option<String>) {
+    let Some((frame_id, descriptor)) = label.split_once(':') else {
+        return (label.trim().to_ascii_uppercase(), None);
+    };
+    let descriptor = descriptor.trim();
+    (
+        frame_id.trim().to_ascii_uppercase(),
+        (!descriptor.is_empty()).then(|| descriptor.to_string()),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -119,7 +201,10 @@ mod tests {
     use id3::frame::{ExtendedText, Picture, PictureType};
     use id3::{Frame, Tag, TagLike};
 
-    use super::{audio_tags_from_id3, read_audio_tags, AudioTags, EmbeddedArtwork, Id3Field};
+    use super::{
+        audio_tags_from_id3, read_audio_tags, write_id3v24_edits, AudioTags, EmbeddedArtwork,
+        Id3Field, Id3v24Edit,
+    };
 
     #[test]
     fn maps_id3_frames_to_audio_tags() {
@@ -204,5 +289,49 @@ mod tests {
             read_audio_tags(temp.path()).expect("read blank tags"),
             AudioTags::default()
         );
+    }
+
+    #[test]
+    fn writes_staged_id3v24_text_extended_url_and_ufid_frames() {
+        let temp = tempfile::NamedTempFile::new().expect("temp file");
+        fs::write(temp.path(), b"not really an mp3").expect("write file");
+
+        let edits = [
+            Id3v24Edit {
+                frame_label: "TIT2".into(),
+                value: "Song".into(),
+            },
+            Id3v24Edit {
+                frame_label: "TXXX:MusicIndex Contributors".into(),
+                value: "Alice".into(),
+            },
+            Id3v24Edit {
+                frame_label: "WOAR".into(),
+                value: "https://example.test".into(),
+            },
+            Id3v24Edit {
+                frame_label: "UFID:http://musicbrainz.org".into(),
+                value: "recording-id".into(),
+            },
+        ];
+
+        assert_eq!(
+            write_id3v24_edits(temp.path(), &edits).expect("write ID3v2.4 edits"),
+            4
+        );
+
+        let tag = Tag::read_from_path(temp.path()).expect("read written ID3 tag");
+        assert_eq!(tag.title(), Some("Song"));
+        assert!(tag.frames().any(|frame| {
+            frame.id() == "TXXX" && frame.content().to_string() == "MusicIndex Contributors: Alice"
+        }));
+        assert!(tag
+            .frames()
+            .any(|frame| frame.id() == "WOAR"
+                && frame.content().to_string() == "https://example.test"));
+        assert!(tag.frames().any(|frame| {
+            frame.id() == "UFID"
+                && frame.content().to_string() == "http://musicbrainz.org: recording-id"
+        }));
     }
 }
