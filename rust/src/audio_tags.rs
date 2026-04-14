@@ -5,6 +5,16 @@ use anyhow::{anyhow, Context, Result};
 use id3::frame::{ExtendedLink, ExtendedText, UniqueFileIdentifier};
 use id3::{no_tag_ok, Content, Frame, Tag, TagLike, Version};
 
+const WRITABLE_TEXT_FRAMES: &[&str] = &[
+    "TALB", "TBPM", "TCOM", "TCON", "TCOP", "TDEN", "TDLY", "TDOR", "TDRC", "TDRL", "TDTG", "TENC",
+    "TEXT", "TFLT", "TIPL", "TIT1", "TIT2", "TIT3", "TKEY", "TLAN", "TLEN", "TMCL", "TMED", "TMOO",
+    "TOAL", "TOFN", "TOLY", "TOPE", "TOWN", "TPE1", "TPE2", "TPE3", "TPE4", "TPOS", "TPRO", "TPUB",
+    "TRCK", "TRSN", "TRSO", "TSOA", "TSOP", "TSOT", "TSRC", "TSSE", "TSST", "TXXX",
+];
+const WRITABLE_URL_FRAMES: &[&str] = &[
+    "WCOM", "WCOP", "WOAF", "WOAR", "WOAS", "WORS", "WPAY", "WPUB", "WXXX",
+];
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AudioTags {
     pub title: Option<String>,
@@ -149,25 +159,28 @@ fn id3v24_edit_frame(edit: &Id3v24Edit) -> Result<Frame> {
         return Err(anyhow!("missing ID3 value for {frame_id}"));
     }
 
-    match frame_id.as_str() {
+    let frame_id = frame_id.as_str();
+    if !id3v24_edit_frame_is_writable(frame_id) {
+        return Err(anyhow!("unsupported ID3v2.4 edit frame {frame_id}"));
+    }
+
+    match frame_id {
         "TXXX" => Ok(Frame::with_content(
             "TXXX",
             Content::ExtendedText(ExtendedText {
-                description: descriptor.unwrap_or_default(),
+                description: required_frame_descriptor(frame_id, descriptor)?,
                 value: value.to_string(),
             }),
         )),
         "WXXX" => Ok(Frame::with_content(
             "WXXX",
             Content::ExtendedLink(ExtendedLink {
-                description: descriptor.unwrap_or_default(),
+                description: required_frame_descriptor(frame_id, descriptor)?,
                 link: value.to_string(),
             }),
         )),
         "UFID" => {
-            let Some(owner_identifier) = descriptor else {
-                return Err(anyhow!("UFID edits require an owner identifier"));
-            };
+            let owner_identifier = required_frame_descriptor(frame_id, descriptor)?;
             Ok(Frame::with_content(
                 "UFID",
                 Content::UniqueFileIdentifier(UniqueFileIdentifier {
@@ -178,8 +191,26 @@ fn id3v24_edit_frame(edit: &Id3v24Edit) -> Result<Frame> {
         }
         id if id.starts_with('T') => Ok(Frame::text(id, value)),
         id if id.starts_with('W') => Ok(Frame::with_content(id, Content::Link(value.to_string()))),
-        _ => Err(anyhow!("unsupported ID3v2.4 edit frame {frame_id}")),
+        _ => unreachable!("frame writability was checked before construction"),
     }
+}
+
+pub fn id3v24_edit_label_is_writable(frame_label: &str) -> bool {
+    let (frame_id, descriptor) = split_frame_label(frame_label);
+    if !id3v24_edit_frame_is_writable(&frame_id) {
+        return false;
+    }
+    !matches!(frame_id.as_str(), "TXXX" | "WXXX" | "UFID") || descriptor.is_some()
+}
+
+fn id3v24_edit_frame_is_writable(frame_id: &str) -> bool {
+    WRITABLE_TEXT_FRAMES.contains(&frame_id)
+        || WRITABLE_URL_FRAMES.contains(&frame_id)
+        || frame_id == "UFID"
+}
+
+fn required_frame_descriptor(frame_id: &str, descriptor: Option<String>) -> Result<String> {
+    descriptor.ok_or_else(|| anyhow!("{frame_id} edits require a descriptor"))
 }
 
 fn split_frame_label(label: &str) -> (String, Option<String>) {
@@ -202,8 +233,8 @@ mod tests {
     use id3::{Frame, Tag, TagLike};
 
     use super::{
-        audio_tags_from_id3, read_audio_tags, write_id3v24_edits, AudioTags, EmbeddedArtwork,
-        Id3Field, Id3v24Edit,
+        audio_tags_from_id3, id3v24_edit_label_is_writable, read_audio_tags, write_id3v24_edits,
+        AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
     };
 
     #[test]
@@ -333,5 +364,34 @@ mod tests {
             frame.id() == "UFID"
                 && frame.content().to_string() == "http://musicbrainz.org: recording-id"
         }));
+    }
+
+    #[test]
+    fn rejects_unwritable_or_underspecified_id3v24_edit_labels() {
+        assert!(id3v24_edit_label_is_writable("TIT2"));
+        assert!(id3v24_edit_label_is_writable(
+            "TXXX:MusicIndex Contributors"
+        ));
+        assert!(id3v24_edit_label_is_writable("WXXX:Official audio"));
+        assert!(id3v24_edit_label_is_writable("UFID:http://musicbrainz.org"));
+        assert!(!id3v24_edit_label_is_writable("TXXX"));
+        assert!(!id3v24_edit_label_is_writable("WXXX"));
+        assert!(!id3v24_edit_label_is_writable("UFID"));
+        assert!(!id3v24_edit_label_is_writable("APIC"));
+        assert!(!id3v24_edit_label_is_writable("TFOO"));
+
+        let temp = tempfile::NamedTempFile::new().expect("temp file");
+        fs::write(temp.path(), b"not really an mp3").expect("write file");
+        let edits = [Id3v24Edit {
+            frame_label: "APIC".into(),
+            value: "not image data".into(),
+        }];
+
+        let error = write_id3v24_edits(temp.path(), &edits)
+            .expect_err("non-simple ID3v2.4 edits should be rejected");
+        assert!(
+            error.to_string().contains("unsupported ID3v2.4"),
+            "unexpected error: {error}"
+        );
     }
 }

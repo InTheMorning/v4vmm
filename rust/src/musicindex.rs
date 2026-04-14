@@ -19,7 +19,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::audio_tags::{
-    read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3Field, Id3v24Edit,
+    id3v24_edit_label_is_writable, read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3Field,
+    Id3v24Edit,
 };
 use crate::config;
 use crate::musicbrainz::{
@@ -3624,8 +3625,7 @@ fn format_drag_value_for_id3v24(frame_label: &str, value: &str) -> Option<String
 }
 
 fn id3v24_drag_copy_frame_is_writable(frame_label: &str) -> bool {
-    let frame_id = id3_frame_base(frame_label);
-    frame_id == "UFID" || frame_id.starts_with('T') || frame_id.starts_with('W')
+    id3v24_edit_label_is_writable(frame_label)
 }
 
 fn sanitize_id3_text(value: &str) -> String {
