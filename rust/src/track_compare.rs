@@ -55,12 +55,20 @@ pub fn select_mp3_enclosure(track: &Track) -> Option<SelectedEnclosure> {
 }
 
 pub fn local_mp3_path(cfg: &Config, track: &Track) -> PathBuf {
-    let feed_dir = sanitize_path_part(
+    let artist_dir = sanitize_path_part(
+        track
+            .track_artist
+            .as_deref()
+            .or(track.publisher_text.as_deref())
+            .or(track.feed_guid.as_deref())
+            .unwrap_or("unknown-artist"),
+    );
+    let album_dir = sanitize_path_part(
         track
             .feed_title
             .as_deref()
             .or(track.feed_guid.as_deref())
-            .unwrap_or("unknown-feed"),
+            .unwrap_or("unknown-album"),
     );
     let title = sanitize_path_part(
         track
@@ -76,7 +84,10 @@ pub fn local_mp3_path(cfg: &Config, track: &Track) -> PathBuf {
         |track_number| format!("{track_number:02} - {title}.mp3"),
     );
 
-    cfg.music_dir.join(feed_dir).join(filename)
+    cfg.music_dir
+        .join(artist_dir)
+        .join(album_dir)
+        .join(filename)
 }
 
 pub fn download_track_mp3(
@@ -324,6 +335,7 @@ mod tests {
         assert_eq!(
             local_mp3_path(&cfg, &track()),
             PathBuf::from("/tmp/v4vmm-test")
+                .join("Artist")
                 .join("Feed - Title")
                 .join("04 - Song- Title-.mp3")
         );
@@ -404,7 +416,15 @@ mod tests {
         let downloaded = download_track_mp3(&cfg, &ReqwestClient::new(), &track).expect("download");
 
         assert_eq!(
-            fs::read(downloaded.path).expect("read download"),
+            downloaded.path,
+            temp.path()
+                .join("music")
+                .join("Artist")
+                .join("Feed - Title")
+                .join("04 - Song- Title-.mp3")
+        );
+        assert_eq!(
+            fs::read(&downloaded.path).expect("read download"),
             b"mp3data"
         );
     }

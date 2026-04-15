@@ -555,11 +555,19 @@ fn score_candidate(metadata: &LookupMetadata, candidate: &MusicBrainzCandidate) 
         ),
     );
 
-    if total == 0.0 {
+    let base = if total == 0.0 {
         candidate.musicbrainz_score.unwrap_or_default()
     } else {
         ((score / total) * 100.0).round() as i32
+    };
+    let mut bonus = 0;
+    if candidate.format.as_deref() == Some("Digital Media") {
+        bonus += 3;
     }
+    if candidate.country.as_deref() == Some("XW") {
+        bonus += 2;
+    }
+    base + bonus
 }
 
 fn add_score(score: &mut f64, total: &mut f64, weight: f64, similarity: Option<f64>) {
@@ -833,6 +841,52 @@ mod tests {
         assert_eq!(
             candidate.urls,
             vec!["official homepage (url, forward): https://example.invalid/album".to_string()]
+        );
+    }
+
+    #[test]
+    fn digital_media_xw_candidate_scores_higher() {
+        use super::score_candidate;
+
+        let metadata = LookupMetadata {
+            title: Some("Test Song".into()),
+            artist: Some("Test Artist".into()),
+            album: None,
+            track_number: None,
+            total_tracks: None,
+            duration_secs: Some(180),
+            isrc: None,
+        };
+
+        let base_candidate = MusicBrainzCandidate {
+            recording_id: "rec-123".into(),
+            title: "Test Song".into(),
+            artist: Some("Test Artist".into()),
+            duration_ms: Some(180_000),
+            format: Some("CD".into()),
+            country: Some("US".into()),
+            ..MusicBrainzCandidate::default()
+        };
+
+        let digital_xw_candidate = MusicBrainzCandidate {
+            format: Some("Digital Media".into()),
+            country: Some("XW".into()),
+            ..base_candidate.clone()
+        };
+
+        let base_score = score_candidate(&metadata, &base_candidate);
+        let digital_xw_score = score_candidate(&metadata, &digital_xw_candidate);
+
+        assert!(
+            digital_xw_score > base_score,
+            "Digital Media/XW candidate should score higher: {} > {}",
+            digital_xw_score,
+            base_score
+        );
+        assert_eq!(
+            digital_xw_score - base_score,
+            5,
+            "Score difference should be 5 (3 for Digital Media + 2 for XW)"
         );
     }
 }

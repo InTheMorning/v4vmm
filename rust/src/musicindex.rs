@@ -27,7 +27,7 @@ use crate::musicbrainz::{
     lookup_recordings, LookupMetadata, MusicBrainzCandidate, MusicBrainzLookup,
 };
 use crate::track_compare::{
-    compare_track_tags, download_track_mp3, ComparisonRow, ComparisonStatus,
+    compare_track_tags, download_track_mp3, local_mp3_path, ComparisonRow, ComparisonStatus,
 };
 
 const DEFAULT_BASE_URL: &str = "https://musicindex.org";
@@ -556,6 +556,7 @@ struct InspectorFrame {
     value_routes_collapsed: bool,
     expanded_id3_frame_groups: BTreeSet<String>,
     pending_id3_edits: BTreeMap<String, PendingId3Edit>,
+    suppressed_auto_id3_edits: BTreeSet<String>,
     applying_id3_edits: bool,
     id3_apply_error: Option<String>,
     tag_compare: LazyPanel<TagCompareResult>,
@@ -577,6 +578,7 @@ impl InspectorFrame {
             value_routes_collapsed: true,
             expanded_id3_frame_groups: BTreeSet::new(),
             pending_id3_edits: BTreeMap::new(),
+            suppressed_auto_id3_edits: BTreeSet::new(),
             applying_id3_edits: false,
             id3_apply_error: None,
             tag_compare: LazyPanel::Hidden,
@@ -594,11 +596,13 @@ struct TagCompareResult {
     contributors: Vec<Contributor>,
     value_routes: Vec<PaymentRoute>,
     id3_fields: Vec<Id3Field>,
+    total_tracks: Option<String>,
 }
 
 #[derive(Clone, Debug)]
 struct MusicBrainzLookupResult {
     lookup: MusicBrainzLookup,
+    image: Option<Arc<Image>>,
 }
 
 struct DetailRow {
@@ -606,6 +610,7 @@ struct DetailRow {
     value: AnyElement,
 }
 
+#[derive(Clone, Debug)]
 struct AlignedCompareRow {
     row_id: String,
     field: String,
@@ -674,6 +679,7 @@ impl Render for MetadataDragPreview {
     }
 }
 
+#[derive(Clone, Debug)]
 struct MetadataGroupRow {
     key: Option<String>,
     label: String,
@@ -681,6 +687,7 @@ struct MetadataGroupRow {
     unused_count: usize,
 }
 
+#[derive(Clone, Debug)]
 enum MetadataGridRow {
     Group(MetadataGroupRow),
     Data(AlignedCompareRow),
@@ -1070,6 +1077,20 @@ impl SearchApp {
                 source: drag.source,
             },
         );
+        frame.suppressed_auto_id3_edits.remove(&drag.row_id);
+        frame.id3_apply_error = None;
+        cx.notify();
+    }
+
+    fn revert_pending_id3_edit(&mut self, row_id: String, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.applying_id3_edits {
+            return;
+        }
+        frame.pending_id3_edits.remove(&row_id);
+        frame.suppressed_auto_id3_edits.insert(row_id);
         frame.id3_apply_error = None;
         cx.notify();
     }
@@ -1078,10 +1099,7 @@ impl SearchApp {
         let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
-        if frame.entity_type != "track"
-            || frame.pending_id3_edits.is_empty()
-            || frame.applying_id3_edits
-        {
+        if frame.entity_type != "track" || frame.applying_id3_edits {
             return;
         }
         let LazyPanel::Loaded(result) = &frame.tag_compare else {
@@ -1090,7 +1108,16 @@ impl SearchApp {
         let InspectorDetail::Track(track_context) = &frame.detail else {
             return;
         };
-        let conflicts = pending_id3_conflict_descriptions(&frame.pending_id3_edits);
+        let rows = track_metadata_rows_for_frame(frame, track_context, Some(result));
+        let pending_id3_edits = auto_populated_pending_id3_edits(
+            &rows,
+            &frame.pending_id3_edits,
+            &frame.suppressed_auto_id3_edits,
+        );
+        if pending_id3_edits.is_empty() {
+            return;
+        }
+        let conflicts = pending_id3_conflict_descriptions(&pending_id3_edits);
         if !conflicts.is_empty() {
             frame.id3_apply_error = Some(format!(
                 "Resolve duplicate ID3 target{}: {}",
@@ -1104,14 +1131,7 @@ impl SearchApp {
         let entity_id = frame.entity_id.clone();
         let path = PathBuf::from(result.path.clone());
         let track_context = (**track_context).clone();
-        let edits = frame
-            .pending_id3_edits
-            .values()
-            .map(|edit| Id3v24Edit {
-                frame_label: edit.frame.clone(),
-                value: edit.value.clone(),
-            })
-            .collect::<Vec<_>>();
+        let edits = pending_id3_edits_for_apply(&pending_id3_edits);
         frame.applying_id3_edits = true;
         frame.id3_apply_error = None;
         cx.notify();
@@ -1136,6 +1156,7 @@ impl SearchApp {
                                     Ok(result) => {
                                         frame.tag_compare = LazyPanel::Loaded(result);
                                         frame.pending_id3_edits.clear();
+                                        frame.suppressed_auto_id3_edits.clear();
                                         frame.id3_apply_error = None;
                                     }
                                     Err(error) => {
@@ -1162,6 +1183,7 @@ impl SearchApp {
             return;
         }
         frame.pending_id3_edits.clear();
+        frame.suppressed_auto_id3_edits.clear();
         frame.id3_apply_error = None;
         cx.notify();
     }
@@ -1193,7 +1215,57 @@ impl SearchApp {
                 let request_id = entity_id.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move { download_and_compare_track(&client, &request_id) })
+                    .spawn(async move { download_and_compare_track(&client, &request_id, false) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == "track" && frame.entity_id == entity_id {
+                                frame.tag_compare = match result {
+                                    Ok(result) => LazyPanel::Loaded(result),
+                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                };
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn redownload_tag_compare(&mut self, cx: &mut Context<Self>) {
+        self.reload_tag_compare(true, cx);
+    }
+
+    fn reread_tag_compare(&mut self, cx: &mut Context<Self>) {
+        self.reload_tag_compare(false, cx);
+    }
+
+    fn reload_tag_compare(&mut self, force_download: bool, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.entity_type != "track" || !matches!(frame.tag_compare, LazyPanel::Loaded(_)) {
+            return;
+        }
+        frame.tag_compare = LazyPanel::Loading;
+        let entity_id = frame.entity_id.clone();
+        let client = Arc::new(Client::new());
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let request_id = entity_id.clone();
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        download_and_compare_track(&client, &request_id, force_download)
+                    })
                     .await;
 
                 this.update(
@@ -1596,7 +1668,11 @@ fn fetch_inspector_detail(
     }
 }
 
-fn download_and_compare_track(client: &Client, entity_id: &str) -> Result<TagCompareResult> {
+fn download_and_compare_track(
+    client: &Client,
+    entity_id: &str,
+    force_download: bool,
+) -> Result<TagCompareResult> {
     let track = client.fetch_track(
         entity_id,
         Some("source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
@@ -1613,10 +1689,13 @@ fn download_and_compare_track(client: &Client, entity_id: &str) -> Result<TagCom
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
-    let downloaded = download_track_mp3(&cfg, &client.client, &track)?;
+    let path = local_mp3_path(&cfg, &track);
+    if force_download || !path.exists() {
+        download_track_mp3(&cfg, &client.client, &track)?;
+    }
     let track_context = TrackContext { track, feed };
 
-    compare_downloaded_track_path(&downloaded.path, &track_context)
+    compare_downloaded_track_path(&path, &track_context)
 }
 
 fn compare_downloaded_track_path(
@@ -1633,6 +1712,7 @@ fn compare_downloaded_track_path(
         file_image,
         contributors: track.source_contributors.clone().unwrap_or_default(),
         value_routes: track.payment_routes.clone().unwrap_or_default(),
+        total_tracks: tags.total_tracks.clone(),
         id3_fields: tags.fields,
     })
 }
@@ -1653,7 +1733,16 @@ fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBra
         .build()?;
     let lookup = lookup_recordings(&musicbrainz_client, &metadata, 5)?;
 
-    Ok(MusicBrainzLookupResult { lookup })
+    let image = lookup
+        .candidates
+        .first()
+        .and_then(|c| c.release_id.as_deref())
+        .and_then(|release_id| {
+            let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
+            download_image(&musicbrainz_client, &url)
+        });
+
+    Ok(MusicBrainzLookupResult { lookup, image })
 }
 
 fn musicbrainz_lookup_metadata(
@@ -2101,7 +2190,7 @@ fn render_feed_inspector(
                 },
             )))
         })
-        .child(render_action_row(frame, cx))
+        .child(render_action_row(frame, &BTreeMap::new(), cx))
         .child(render_lazy_sections(frame, cx))
         .into_any_element()
 }
@@ -2122,6 +2211,7 @@ fn render_track_inspector(
 fn render_track_left_column(
     frame: &InspectorFrame,
     track: &Track,
+    pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     div()
@@ -2129,7 +2219,7 @@ fn render_track_left_column(
         .flex_col()
         .gap(px(12.0))
         .child(render_track_header(frame, track, cx))
-        .child(render_action_row(frame, cx))
+        .child(render_action_row(frame, pending_id3_edits, cx))
         .into_any_element()
 }
 
@@ -2152,6 +2242,12 @@ fn render_track_window(
     let show_id3_panel = !matches!(frame.tag_compare, LazyPanel::Hidden);
     let show_musicbrainz_panel = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
     let columns: u16 = 1 + u16::from(show_id3_panel) + u16::from(show_musicbrainz_panel);
+    let rows = track_metadata_rows_for_frame(frame, track_context, result);
+    let pending_id3_edits = auto_populated_pending_id3_edits(
+        &rows,
+        &frame.pending_id3_edits,
+        &frame.suppressed_auto_id3_edits,
+    );
 
     div()
         .flex()
@@ -2163,10 +2259,15 @@ fn render_track_window(
                 .grid_cols(columns)
                 .gap(px(24.0))
                 .items_start()
-                .child(render_track_left_column(frame, track, cx))
+                .child(render_track_left_column(
+                    frame,
+                    track,
+                    &pending_id3_edits,
+                    cx,
+                ))
                 .when(show_id3_panel, |el| {
                     el.child(if let Some(result) = result {
-                        render_file_header(result)
+                        render_file_header(result, cx)
                     } else {
                         render_track_compare_panel(frame)
                     })
@@ -2175,7 +2276,13 @@ fn render_track_window(
                     el.child(render_musicbrainz_panel(frame, cx))
                 }),
         )
-        .child(render_track_metadata_grid(frame, track_context, result, cx))
+        .child(render_track_metadata_grid(
+            rows,
+            show_id3_panel,
+            show_musicbrainz_panel,
+            &pending_id3_edits,
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -2224,11 +2331,15 @@ fn render_publisher_inspector(publisher: &Publisher, cx: &mut Context<SearchApp>
         .into_any_element()
 }
 
-fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
+fn render_action_row(
+    frame: &InspectorFrame,
+    pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     if frame.entity_type != "feed" && frame.entity_type != "track" {
         return div().into_any_element();
     }
-    let pending_conflicts = pending_id3_conflict_descriptions(&frame.pending_id3_edits);
+    let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
     let has_pending_conflicts = !pending_conflicts.is_empty();
 
     div()
@@ -2260,9 +2371,9 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
                 })),
             )
             .when(
-                !frame.pending_id3_edits.is_empty() || frame.applying_id3_edits,
+                !pending_id3_edits.is_empty() || frame.applying_id3_edits,
                 |el| {
-                    let count = frame.pending_id3_edits.len();
+                    let count = pending_id3_edits.len();
                     let conflict_text = pending_conflicts.join("; ");
                     let label = if frame.applying_id3_edits {
                         "Applying ID3...".to_string()
@@ -2300,13 +2411,16 @@ fn render_action_row(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> Any
                                         ))),
                                 )
                             })
-                            .when(!frame.applying_id3_edits, |el| {
-                                el.child(metadata_action_button("Discard ID3").on_click(
-                                    cx.listener(|this, _, _, cx| {
-                                        this.clear_pending_id3_edits(cx);
-                                    }),
-                                ))
-                            }),
+                            .when(
+                                !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty(),
+                                |el| {
+                                    el.child(metadata_action_button("Discard ID3").on_click(
+                                        cx.listener(|this, _, _, cx| {
+                                            this.clear_pending_id3_edits(cx);
+                                        }),
+                                    ))
+                                },
+                            ),
                     )
                 },
             )
@@ -2550,7 +2664,7 @@ fn render_musicbrainz_header(
         .flex_row()
         .items_start()
         .gap(px(16.0))
-        .child(render_thumb(None, "track", 80.0, true))
+        .child(render_thumb(result.image.as_ref(), "track", 80.0, true))
         .child(
             div()
                 .flex_1()
@@ -2707,18 +2821,16 @@ fn musicbrainz_subtitle(
     }
 }
 
-fn render_track_metadata_grid(
+fn track_metadata_rows_for_frame(
     frame: &InspectorFrame,
     track_context: &TrackContext,
     result: Option<&TagCompareResult>,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
+) -> Vec<MetadataGridRow> {
     let selected_musicbrainz = match &frame.musicbrainz_lookup {
         LazyPanel::Loaded(lookup) => selected_musicbrainz_candidate(frame, lookup),
         _ => None,
     };
     let show_musicbrainz = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
-    let show_id3 = !matches!(frame.tag_compare, LazyPanel::Hidden);
     let rows = result.map_or_else(
         || track_metadata_rows(track_context, selected_musicbrainz, show_musicbrainz),
         |result| {
@@ -2731,14 +2843,169 @@ fn render_track_metadata_grid(
             )
         },
     );
+    expand_woar_metadata_rows(rows)
+}
 
-    render_metadata_grid(
-        rows,
-        show_id3,
-        show_musicbrainz,
-        &frame.pending_id3_edits,
-        cx,
-    )
+fn render_track_metadata_grid(
+    rows: Vec<MetadataGridRow>,
+    show_id3: bool,
+    show_musicbrainz: bool,
+    pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    render_metadata_grid(rows, show_id3, show_musicbrainz, pending_id3_edits, cx)
+}
+
+fn expand_woar_metadata_rows(rows: Vec<MetadataGridRow>) -> Vec<MetadataGridRow> {
+    rows.into_iter()
+        .flat_map(|row| match row {
+            MetadataGridRow::Data(row)
+                if row.field == "Website"
+                    && normalized_compare_value(row.id3_value.as_deref()).is_none() =>
+            {
+                let urls = website_write_urls(&row);
+                if urls.len() <= 1 {
+                    vec![MetadataGridRow::Data(row)]
+                } else {
+                    urls.into_iter()
+                        .enumerate()
+                        .map(|(index, (source, value))| {
+                            let label = if index == 0 {
+                                "Website".to_string()
+                            } else {
+                                format!("Website {}", index + 1)
+                            };
+                            let (rss_value, musicbrainz_value, musicbrainz_key) = match source {
+                                MetadataColumn::Rss => (Some(value), None, None),
+                                MetadataColumn::MusicBrainz => {
+                                    (None, Some(value), Some("relation.url.resource".to_string()))
+                                }
+                            };
+                            MetadataGridRow::Data(AlignedCompareRow {
+                                row_id: compare_row_id(&label),
+                                field: label,
+                                rss_value,
+                                id3_value: None,
+                                id3_frame: Some("WOAR".into()),
+                                musicbrainz_value,
+                                musicbrainz_key,
+                                id3_status: ComparisonStatus::MissingTag,
+                                musicbrainz_status: ComparisonStatus::MissingSource,
+                            })
+                        })
+                        .collect()
+                }
+            }
+            row => vec![row],
+        })
+        .collect()
+}
+
+fn website_write_urls(row: &AlignedCompareRow) -> Vec<(MetadataColumn, String)> {
+    let mut seen = BTreeSet::new();
+    let mut urls = Vec::new();
+    for (source, value) in [
+        (MetadataColumn::Rss, row.rss_value.as_deref()),
+        (
+            MetadataColumn::MusicBrainz,
+            row.musicbrainz_value.as_deref(),
+        ),
+    ] {
+        let Some(value) = value else {
+            continue;
+        };
+        for url in split_joined_metadata_values(value) {
+            let normalized = url.to_ascii_lowercase();
+            if seen.insert(normalized) {
+                urls.push((source, url));
+            }
+        }
+    }
+    urls
+}
+
+fn split_joined_metadata_values(value: &str) -> Vec<String> {
+    value
+        .split('·')
+        .filter_map(|part| normalized_compare_value(Some(part)))
+        .collect()
+}
+
+fn auto_populated_pending_id3_edits(
+    rows: &[MetadataGridRow],
+    explicit: &BTreeMap<String, PendingId3Edit>,
+    suppressed: &BTreeSet<String>,
+) -> BTreeMap<String, PendingId3Edit> {
+    let mut pending = explicit.clone();
+    for row in rows {
+        let MetadataGridRow::Data(row) = row else {
+            continue;
+        };
+        if pending.contains_key(&row.row_id)
+            || suppressed.contains(&row.row_id)
+            || normalized_compare_value(row.id3_value.as_deref()).is_some()
+        {
+            continue;
+        }
+        let Some(frame) = row.id3_frame.as_deref() else {
+            continue;
+        };
+        if !id3v24_drag_copy_frame_is_writable(frame) {
+            continue;
+        }
+        let Some((source, source_value)) = auto_id3_source_value(row) else {
+            continue;
+        };
+        let existing_value = pending
+            .values()
+            .find(|edit| pending_id3_target_key(&edit.frame) == pending_id3_target_key(frame))
+            .map(|edit| edit.value.as_str())
+            .or(row.id3_value.as_deref());
+        let Some(value) =
+            format_drag_value_for_id3v24(frame, &row.field, existing_value, &source_value)
+        else {
+            continue;
+        };
+        update_matching_pending_target_values(&mut pending, frame, &value);
+        pending.insert(
+            row.row_id.clone(),
+            PendingId3Edit {
+                field: row.field.clone(),
+                frame: frame.to_string(),
+                value,
+                source,
+            },
+        );
+    }
+    pending
+}
+
+fn auto_id3_source_value(row: &AlignedCompareRow) -> Option<(MetadataColumn, String)> {
+    let rss = normalized_compare_value(row.rss_value.as_deref());
+    let musicbrainz = normalized_compare_value(row.musicbrainz_value.as_deref());
+    match (rss, musicbrainz) {
+        (Some(rss), Some(musicbrainz)) if rss == musicbrainz => Some((MetadataColumn::Rss, rss)),
+        (Some(_), Some(_)) => None,
+        (Some(rss), None) => Some((MetadataColumn::Rss, rss)),
+        (None, Some(musicbrainz)) => Some((MetadataColumn::MusicBrainz, musicbrainz)),
+        (None, None) => None,
+    }
+}
+
+fn update_matching_pending_target_values(
+    pending: &mut BTreeMap<String, PendingId3Edit>,
+    frame: &str,
+    value: &str,
+) {
+    if matches!(id3_frame_base(frame), "WCOM" | "WOAR") {
+        return;
+    }
+    let target = pending_id3_target_key(frame);
+    for edit in pending.values_mut() {
+        if pending_id3_target_key(&edit.frame) == target {
+            edit.value = value.to_string();
+        }
+    }
 }
 
 fn render_metadata_grid(
@@ -2750,12 +3017,12 @@ fn render_metadata_grid(
 ) -> AnyElement {
     let mut cells: Vec<AnyElement> = Vec::new();
     let columns = 1 + u16::from(show_id3) + u16::from(show_musicbrainz);
-    cells.push(metadata_heading_cell("RSS"));
+    cells.push(metadata_heading_cell("RSS", 96.0));
     if show_id3 {
-        cells.push(metadata_heading_cell("ID3"));
+        cells.push(metadata_heading_cell("ID3", 12.0));
     }
     if show_musicbrainz {
-        cells.push(metadata_heading_cell("MusicBrainz"));
+        cells.push(metadata_heading_cell("MusicBrainz", 12.0));
     }
 
     for row in rows {
@@ -2764,16 +3031,13 @@ fn render_metadata_grid(
                 cells.push(metadata_group_cell(group, columns, cx));
             }
             MetadataGridRow::Data(row) => {
-                cells.push(metadata_rss_cell(&row));
+                let pending = pending_id3_edits.get(&row.row_id);
+                cells.push(metadata_rss_cell(&row, pending));
                 if show_id3 {
-                    cells.push(metadata_id3_cell(
-                        &row,
-                        pending_id3_edits.get(&row.row_id),
-                        cx,
-                    ));
+                    cells.push(metadata_id3_cell(&row, pending, cx));
                 }
                 if show_musicbrainz {
-                    cells.push(metadata_musicbrainz_cell(&row));
+                    cells.push(metadata_musicbrainz_cell(&row, pending));
                 }
             }
         }
@@ -2788,9 +3052,9 @@ fn render_metadata_grid(
         .into_any_element()
 }
 
-fn metadata_heading_cell(label: &str) -> AnyElement {
+fn metadata_heading_cell(label: &str, indent: f32) -> AnyElement {
     div()
-        .pl(px(96.0))
+        .pl(px(indent))
         .text_color(muted())
         .font_weight(FontWeight::BOLD)
         .text_size(px(10.5))
@@ -2798,8 +3062,10 @@ fn metadata_heading_cell(label: &str) -> AnyElement {
         .into_any_element()
 }
 
-fn metadata_rss_cell(row: &AlignedCompareRow) -> AnyElement {
+fn metadata_rss_cell(row: &AlignedCompareRow, pending: Option<&PendingId3Edit>) -> AnyElement {
     let value = row.rss_value.as_deref().unwrap_or("");
+    let value_color = source_cell_color(pending, MetadataColumn::Rss, row.rss_value.as_deref())
+        .unwrap_or_else(text);
     let cell = div()
         .flex()
         .flex_row()
@@ -2818,7 +3084,7 @@ fn metadata_rss_cell(row: &AlignedCompareRow) -> AnyElement {
             div()
                 .flex_1()
                 .min_w_0()
-                .child(compare_cell(value, Some(text()))),
+                .child(compare_cell(value, Some(value_color))),
         );
     if let Some(drag) = metadata_drag_value(row, MetadataColumn::Rss) {
         cell.id(SharedString::from(format!(
@@ -2859,7 +3125,7 @@ fn metadata_id3_cell(
         .unwrap_or_else(|| comparison_status_color(&row.id3_status));
     let frame_color = frame.map(id3_frame_base).map(id3_frame_version_color);
     let mut cell = div()
-        .pl(px(96.0))
+        .pl(px(12.0))
         .min_w_0()
         .rounded(px(4.0))
         .child(compare_tag_cell(value, Some(color), frame, frame_color))
@@ -2867,6 +3133,15 @@ fn metadata_id3_cell(
             el.border_1()
                 .border_color(pending_source_color(edit.source))
         });
+    if pending.is_some() {
+        let row_id = row.row_id.clone();
+        cell = cell.on_mouse_down(
+            MouseButton::Right,
+            cx.listener(move |this, _: &MouseDownEvent, _window, cx| {
+                this.revert_pending_id3_edit(row_id.clone(), cx);
+            }),
+        );
+    }
 
     if let Some(frame) = frame.filter(|frame| id3v24_drag_copy_frame_is_writable(frame)) {
         let row_id = row.row_id.clone();
@@ -2890,10 +3165,18 @@ fn metadata_id3_cell(
     cell.into_any_element()
 }
 
-fn metadata_musicbrainz_cell(row: &AlignedCompareRow) -> AnyElement {
-    let musicbrainz_color = comparison_status_color(&row.musicbrainz_status);
+fn metadata_musicbrainz_cell(
+    row: &AlignedCompareRow,
+    pending: Option<&PendingId3Edit>,
+) -> AnyElement {
+    let musicbrainz_color = source_cell_color(
+        pending,
+        MetadataColumn::MusicBrainz,
+        row.musicbrainz_value.as_deref(),
+    )
+    .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status));
     let value = row.musicbrainz_value.as_deref().unwrap_or("");
-    let cell = div().pl(px(96.0)).min_w_0().child(compare_tag_cell(
+    let cell = div().pl(px(12.0)).min_w_0().child(compare_tag_cell(
         value,
         Some(musicbrainz_color),
         row.musicbrainz_key.as_deref(),
@@ -2942,8 +3225,25 @@ fn metadata_drag_value(
 
 fn pending_source_color(source: MetadataColumn) -> gpui::Rgba {
     match source {
-        MetadataColumn::Rss => text(),
+        MetadataColumn::Rss => rgb(0x4caf82),
         MetadataColumn::MusicBrainz => rgb(0x4caf82),
+    }
+}
+
+fn source_cell_color(
+    pending: Option<&PendingId3Edit>,
+    column: MetadataColumn,
+    cell_value: Option<&str>,
+) -> Option<gpui::Rgba> {
+    let edit = pending?;
+    if edit.source != column {
+        return None;
+    }
+    let cell_value = cell_value.map(str::trim).filter(|v| !v.is_empty())?;
+    if cell_value == edit.value.trim() {
+        Some(rgb(0x4caf82))
+    } else {
+        Some(rgb(0xffc857))
     }
 }
 
@@ -3117,12 +3417,16 @@ fn track_metadata_rows(
         track.feed_title.clone(),
         musicbrainz_value_for_field("Album/Feed", musicbrainz),
     );
+    let track_num = track.track_number.map(|n| n.to_string());
+    let total_tracks = musicindex_total_tracks(track_context);
+    let mb_track = musicbrainz_value_for_field("Track #", musicbrainz);
+    let mb_total = musicbrainz_value_for_field("Total tracks", musicbrainz);
     push_track_metadata_row(
         &mut rows,
         "identification-release-structure",
         "Track #",
-        track.track_number.map(|number| number.to_string()),
-        musicbrainz_value_for_field("Track #", musicbrainz),
+        format_track_slash_total(track_num.as_deref(), total_tracks.as_deref()),
+        format_track_slash_total(mb_track.as_deref(), mb_total.as_deref()),
     );
     push_track_metadata_row(
         &mut rows,
@@ -3181,6 +3485,19 @@ fn track_metadata_rows(
         }),
         None,
     );
+    let description = track.description.clone().or_else(|| {
+        track_context
+            .feed
+            .as_ref()
+            .and_then(|feed| feed.description.clone())
+    });
+    push_track_metadata_row(
+        &mut rows,
+        "descriptive-technical-rights-text",
+        "Description",
+        description,
+        None,
+    );
 
     if show_musicbrainz {
         if let Some(candidate) = musicbrainz {
@@ -3195,6 +3512,13 @@ fn track_metadata_rows(
     }
 
     grouped_metadata_rows(rows)
+}
+
+fn musicindex_total_tracks(track_context: &TrackContext) -> Option<String> {
+    let feed = track_context.feed.as_ref()?;
+    feed.episode_count
+        .map(|count| count.to_string())
+        .or_else(|| feed.tracks.as_ref().map(|tracks| tracks.len().to_string()))
 }
 
 fn push_track_metadata_row(
@@ -3233,25 +3557,38 @@ fn aligned_compare_rows(
     let mut grouped_rows = BTreeMap::<&'static str, Vec<MetadataGridRow>>::new();
     for row in result.rows.iter().filter(|row| row.field != "Title") {
         let musicbrainz_value = musicbrainz_value_for_field(row.field, musicbrainz);
-        let id3_value = row
-            .tag_value
-            .clone()
-            .or_else(|| id3_value_for_field(row.field, result));
-        let id3_status = compare_optional_values(row.source_value.as_deref(), id3_value.as_deref());
+        let (rss_value, id3_value, mb_value) = if row.field == "Track #" {
+            let total_rss = musicindex_total_tracks(track_context);
+            let total_mb = musicbrainz_value_for_field("Total tracks", musicbrainz);
+            let id3_track = row
+                .tag_value
+                .clone()
+                .or_else(|| id3_value_for_field(row.field, result));
+            (
+                format_track_slash_total(row.source_value.as_deref(), total_rss.as_deref()),
+                format_track_slash_total(id3_track.as_deref(), result.total_tracks.as_deref()),
+                format_track_slash_total(musicbrainz_value.as_deref(), total_mb.as_deref()),
+            )
+        } else {
+            let id3_value = row
+                .tag_value
+                .clone()
+                .or_else(|| id3_value_for_field(row.field, result));
+            (row.source_value.clone(), id3_value, musicbrainz_value)
+        };
+        let id3_status = compare_optional_values(rss_value.as_deref(), id3_value.as_deref());
+        let musicbrainz_status = compare_optional_values(rss_value.as_deref(), mb_value.as_deref());
         push_grouped_metadata_data_row(
             &mut grouped_rows,
             metadata_field_group_key(row.field),
             AlignedCompareRow {
                 row_id: compare_row_id(row.field),
                 field: row.field.to_string(),
-                rss_value: row.source_value.clone(),
+                rss_value,
                 id3_value,
                 id3_frame: id3_frame_hint(row.field).map(str::to_string),
-                musicbrainz_status: compare_optional_values(
-                    row.source_value.as_deref(),
-                    musicbrainz_value.as_deref(),
-                ),
-                musicbrainz_value,
+                musicbrainz_status,
+                musicbrainz_value: mb_value,
                 musicbrainz_key: musicbrainz_key_for_field(row.field).map(str::to_string),
                 id3_status,
             },
@@ -3299,6 +3636,30 @@ fn aligned_compare_rows(
             musicbrainz_key: None,
             id3_status: value_routes_status,
             musicbrainz_status: ComparisonStatus::MissingTag,
+        },
+    );
+    let description_rss = track_context.track.description.clone().or_else(|| {
+        track_context
+            .feed
+            .as_ref()
+            .and_then(|feed| feed.description.clone())
+    });
+    let description_id3 = id3_value_for_field("Description", result);
+    let description_status =
+        compare_optional_values(description_rss.as_deref(), description_id3.as_deref());
+    push_grouped_metadata_data_row(
+        &mut grouped_rows,
+        "descriptive-technical-rights-text",
+        AlignedCompareRow {
+            row_id: compare_row_id("Description"),
+            field: "Description".into(),
+            rss_value: description_rss,
+            id3_value: description_id3,
+            id3_frame: None,
+            musicbrainz_value: None,
+            musicbrainz_key: None,
+            id3_status: description_status,
+            musicbrainz_status: ComparisonStatus::MissingBoth,
         },
     );
 
@@ -3413,7 +3774,8 @@ fn metadata_field_group_key(field: &str) -> &'static str {
         | "Release type"
         | "Release secondary types"
         | "Track note"
-        | "Duration" => "descriptive-technical-rights-text",
+        | "Duration"
+        | "Description" => "descriptive-technical-rights-text",
         "Website" | "RSS feed website" => "url-link-frames",
         "Nostr handle" | "RSS feed nostr handle" => "identity-linking-private-registration",
         "Value Routes" => "music-disc-acquisition-commerce",
@@ -3431,6 +3793,7 @@ fn musicbrainz_value_for_field(
         "Artist" => candidate.artist.clone(),
         "Album/Feed" => candidate.release_title.clone(),
         "Track #" => candidate.track_number.clone(),
+        "Total tracks" => candidate.total_tracks.map(|count| count.to_string()),
         "Publisher" => None,
         "Contributors" => candidate
             .track_artist
@@ -3447,7 +3810,7 @@ fn musicbrainz_key_for_field(field: &str) -> Option<&'static str> {
         "Title" => Some("recording.title"),
         "Artist" => Some("artist-credit.name"),
         "Album/Feed" => Some("release.title"),
-        "Track #" => Some("track.number"),
+        "Track #" => Some("track.number/medium.track-count"),
         "Contributors" => Some("track.artist-credit.name"),
         "Website" | "RSS feed website" => Some("relation.url.resource"),
         "Release date" => Some("release.date"),
@@ -3545,11 +3908,6 @@ fn musicbrainz_remainder_rows(
         "Duration",
         "track.length",
         candidate.track_length_ms.map(fmt_ms),
-    );
-    push(
-        "Total tracks",
-        "medium.track-count",
-        candidate.total_tracks.map(|count| count.to_string()),
     );
     push("ISRC", "recording.isrcs", join_values(&candidate.isrcs));
     rows
@@ -3747,7 +4105,7 @@ fn pending_id3_conflict_descriptions(edits: &BTreeMap<String, PendingId3Edit>) -
     let mut by_target = BTreeMap::<String, Vec<&PendingId3Edit>>::new();
     for edit in edits.values() {
         by_target
-            .entry(pending_id3_target_key(&edit.frame))
+            .entry(pending_id3_effective_target_key(edit))
             .or_default()
             .push(edit);
     }
@@ -3755,7 +4113,11 @@ fn pending_id3_conflict_descriptions(edits: &BTreeMap<String, PendingId3Edit>) -
     by_target
         .into_iter()
         .filter_map(|(target, edits)| {
-            if edits.len() < 2 {
+            let values = edits
+                .iter()
+                .filter_map(|edit| normalized_compare_value(Some(&edit.value)))
+                .collect::<BTreeSet<_>>();
+            if values.len() < 2 {
                 return None;
             }
             let fields = edits
@@ -3766,6 +4128,30 @@ fn pending_id3_conflict_descriptions(edits: &BTreeMap<String, PendingId3Edit>) -
             Some(format!("{target} ({fields})"))
         })
         .collect()
+}
+
+fn pending_id3_edits_for_apply(edits: &BTreeMap<String, PendingId3Edit>) -> Vec<Id3v24Edit> {
+    let mut by_target = BTreeMap::<String, Id3v24Edit>::new();
+    for edit in edits.values() {
+        by_target
+            .entry(pending_id3_effective_target_key(edit))
+            .or_insert_with(|| Id3v24Edit {
+                frame_label: edit.frame.clone(),
+                value: edit.value.clone(),
+            });
+    }
+    by_target.into_values().collect()
+}
+
+fn pending_id3_effective_target_key(edit: &PendingId3Edit) -> String {
+    let frame_id = id3_frame_base(&edit.frame).to_ascii_uppercase();
+    match frame_id.as_str() {
+        "WCOM" | "WOAR" => {
+            let value = normalized_compare_value(Some(&edit.value)).unwrap_or_default();
+            format!("{frame_id}:{}", value.to_ascii_lowercase())
+        }
+        _ => pending_id3_target_key(&edit.frame),
+    }
 }
 
 fn pending_id3_target_key(frame_label: &str) -> String {
@@ -3934,7 +4320,7 @@ fn selected_musicbrainz_candidate<'a>(
         .or_else(|| result.lookup.candidates.first())
 }
 
-fn render_file_header(result: &TagCompareResult) -> AnyElement {
+fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) -> AnyElement {
     div()
         .flex()
         .flex_row()
@@ -3952,15 +4338,32 @@ fn render_file_header(result: &TagCompareResult) -> AnyElement {
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(px(10.0))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(badge_text("track"))
-                        .bg(type_color("track"))
-                        .px(px(6.0))
-                        .py(px(2.0))
-                        .rounded(px(4.0))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.0))
                         .mb(px(6.0))
-                        .child("Embedded id3"),
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(badge_text("track"))
+                                .bg(type_color("track"))
+                                .px(px(6.0))
+                                .py(px(2.0))
+                                .rounded(px(4.0))
+                                .child("Embedded id3"),
+                        )
+                        .child(metadata_action_button("Re-read").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.reread_tag_compare(cx);
+                            },
+                        )))
+                        .child(metadata_action_button("Re-download").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.redownload_tag_compare(cx);
+                            },
+                        ))),
                 )
                 .child(
                     div()
@@ -4025,16 +4428,21 @@ fn compare_tag_cell(
         .flex_row()
         .items_start()
         .gap(px(6.0))
-        .when(frame_id.is_some(), |el| {
-            el.child(
-                div()
-                    .text_color(frame_color)
-                    .text_size(px(9.5))
-                    .line_height(px(16.0))
-                    .child(SharedString::from(frame_id.clone().unwrap_or_default())),
-            )
-        })
-        .child(value_cell.child(SharedString::from(value.to_string())))
+        .child(
+            div()
+                .w(px(136.0))
+                .flex_shrink_0()
+                .text_color(frame_color)
+                .text_size(px(9.5))
+                .line_height(px(16.0))
+                .child(SharedString::from(frame_id.unwrap_or_default())),
+        )
+        .child(
+            value_cell
+                .flex_1()
+                .min_w_0()
+                .child(SharedString::from(value.to_string())),
+        )
         .into_any_element()
 }
 
@@ -4128,6 +4536,15 @@ fn id3_frame_hint(field: &str) -> Option<&'static str> {
 
 fn id3_frame_is_summarized(frame_id: &str) -> bool {
     matches!(frame_id, "TIT2" | "TPE1" | "TALB" | "TRCK")
+}
+
+fn format_track_slash_total(track: Option<&str>, total: Option<&str>) -> Option<String> {
+    match (track, total) {
+        (Some(t), Some(tot)) => Some(format!("{t}/{tot}")),
+        (Some(t), None) => Some(t.to_string()),
+        (None, Some(tot)) => Some(format!("/{tot}")),
+        (None, None) => None,
+    }
 }
 
 fn comparison_status_color(status: &ComparisonStatus) -> gpui::Rgba {
@@ -4791,13 +5208,15 @@ pub fn run_search_app() {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        compare_row_id, format_drag_value_for_id3v24, id3_frame_group_key, id3_frame_version,
+        auto_populated_pending_id3_edits, compare_row_id, expand_woar_metadata_rows,
+        format_drag_value_for_id3v24, id3_frame_group_key, id3_frame_version, metadata_data_row,
         metadata_drag_value, metadata_field_group_key, musicbrainz_remainder_rows,
-        pending_id3_conflict_descriptions, pending_id3_target_key, unused_id3v24_frames_for_group,
-        AlignedCompareRow, Feed, Id3FrameVersion, MetadataColumn, PendingId3Edit, SourceEntityId,
+        pending_id3_conflict_descriptions, pending_id3_edits_for_apply, pending_id3_target_key,
+        track_metadata_rows, unused_id3v24_frames_for_group, AlignedCompareRow, Feed,
+        Id3FrameVersion, MetadataColumn, MetadataGridRow, PendingId3Edit, SourceEntityId,
         TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
@@ -4863,6 +5282,7 @@ mod tests {
             file_image: None,
             contributors: Vec::new(),
             value_routes: Vec::new(),
+            total_tracks: None,
             id3_fields: vec![
                 Id3Field {
                     frame_id: "TIT2".into(),
@@ -4984,6 +5404,7 @@ mod tests {
             file_image: None,
             contributors: Vec::new(),
             value_routes: Vec::new(),
+            total_tracks: None,
             id3_fields: vec![Id3Field {
                 frame_id: "TSRC".into(),
                 value: "USRC17607839".into(),
@@ -5145,6 +5566,171 @@ mod tests {
     }
 
     #[test]
+    fn auto_populates_missing_id3_from_rss_then_musicbrainz_without_source_conflicts() {
+        let rows = vec![
+            metadata_data_row(test_compare_row(
+                "Title",
+                Some("RSS Song"),
+                None,
+                Some("TIT2"),
+                None,
+            )),
+            metadata_data_row(test_compare_row(
+                "Artist",
+                Some("RSS Artist"),
+                None,
+                Some("TPE1"),
+                Some("MusicBrainz Artist"),
+            )),
+            metadata_data_row(test_compare_row(
+                "Label",
+                None,
+                None,
+                Some("TPUB"),
+                Some("MusicBrainz Label"),
+            )),
+            metadata_data_row(test_compare_row(
+                "Album/Feed",
+                Some("Existing Album"),
+                Some("Existing Album"),
+                Some("TALB"),
+                None,
+            )),
+            metadata_data_row(test_compare_row(
+                "Release date",
+                Some("2025"),
+                None,
+                Some("TDRC"),
+                Some("2025"),
+            )),
+        ];
+
+        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new());
+        assert_eq!(pending.len(), 3);
+        assert_eq!(pending["title"].value, "RSS Song");
+        assert_eq!(pending["title"].source, MetadataColumn::Rss);
+        assert_eq!(pending["label"].value, "MusicBrainz Label");
+        assert_eq!(pending["label"].source, MetadataColumn::MusicBrainz);
+        assert_eq!(pending["release-date"].value, "2025");
+        assert_eq!(pending["release-date"].source, MetadataColumn::Rss);
+        assert!(
+            !pending.contains_key("artist"),
+            "conflicting RSS and MusicBrainz values should remain manual"
+        );
+        assert!(
+            !pending.contains_key("album-feed"),
+            "existing ID3 values should not be auto-staged"
+        );
+    }
+
+    #[test]
+    fn auto_populates_composite_track_number_targets_once_for_apply() {
+        let rows = vec![
+            metadata_data_row(test_compare_row(
+                "Track #",
+                Some("4"),
+                None,
+                Some("TRCK"),
+                None,
+            )),
+            metadata_data_row(test_compare_row(
+                "Total tracks",
+                None,
+                None,
+                Some("TRCK"),
+                Some("10"),
+            )),
+        ];
+
+        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new());
+        assert_eq!(pending["track"].value, "4/10");
+        assert_eq!(pending["total-tracks"].value, "4/10");
+        assert!(
+            pending_id3_conflict_descriptions(&pending).is_empty(),
+            "same target and same staged value should not be a conflict"
+        );
+
+        let edits = pending_id3_edits_for_apply(&pending);
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].frame_label, "TRCK");
+        assert_eq!(edits[0].value, "4/10");
+    }
+
+    #[test]
+    fn auto_populates_multiple_woar_rows_for_distinct_outer_urls() {
+        let rows = vec![metadata_data_row(test_compare_row(
+            "Website",
+            Some("https://rss.example/artist"),
+            None,
+            Some("WOAR"),
+            Some("https://mb.example/artist"),
+        ))];
+
+        let expanded = expand_woar_metadata_rows(rows);
+        let pending =
+            auto_populated_pending_id3_edits(&expanded, &BTreeMap::new(), &BTreeSet::new());
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending["website"].value, "https://rss.example/artist");
+        assert_eq!(pending["website"].source, MetadataColumn::Rss);
+        assert_eq!(pending["website-2"].value, "https://mb.example/artist");
+        assert_eq!(pending["website-2"].source, MetadataColumn::MusicBrainz);
+        assert!(
+            pending_id3_conflict_descriptions(&pending).is_empty(),
+            "distinct WOAR URLs should be staged as repeatable URL frames"
+        );
+
+        let edits = pending_id3_edits_for_apply(&pending);
+        assert_eq!(edits.len(), 2);
+        assert!(edits.iter().all(|edit| edit.frame_label == "WOAR"));
+    }
+
+    #[test]
+    fn suppressed_auto_id3_rows_are_not_reselected() {
+        let rows = vec![metadata_data_row(test_compare_row(
+            "Title",
+            Some("RSS Song"),
+            None,
+            Some("TIT2"),
+            None,
+        ))];
+        let suppressed = BTreeSet::from(["title".to_string()]);
+
+        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &suppressed);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn track_rows_show_parent_feed_total_tracks_after_track_number() {
+        let track_context = TrackContext {
+            track: Track {
+                track_number: Some(4),
+                ..Default::default()
+            },
+            feed: Some(Feed {
+                episode_count: Some(10),
+                ..Default::default()
+            }),
+        };
+
+        let rows = track_metadata_rows(&track_context, None, false);
+        let fields = rows
+            .iter()
+            .filter_map(|row| match row {
+                MetadataGridRow::Data(row) => Some(row.field.as_str()),
+                MetadataGridRow::Group(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            fields.iter().any(|field| *field == "Track #"),
+            "track row should exist"
+        );
+        assert!(
+            !fields.iter().any(|field| *field == "Total tracks"),
+            "total tracks should be merged into Track # row"
+        );
+    }
+
+    #[test]
     fn pending_id3_conflicts_detect_duplicate_effective_targets() {
         let edits = BTreeMap::from([
             (
@@ -5184,5 +5770,25 @@ mod tests {
             pending_id3_conflict_descriptions(&edits),
             vec!["TRCK (Total tracks, Track #)"]
         );
+    }
+
+    fn test_compare_row(
+        field: &str,
+        rss_value: Option<&str>,
+        id3_value: Option<&str>,
+        id3_frame: Option<&str>,
+        musicbrainz_value: Option<&str>,
+    ) -> AlignedCompareRow {
+        AlignedCompareRow {
+            row_id: compare_row_id(field),
+            field: field.into(),
+            rss_value: rss_value.map(str::to_string),
+            id3_value: id3_value.map(str::to_string),
+            id3_frame: id3_frame.map(str::to_string),
+            musicbrainz_value: musicbrainz_value.map(str::to_string),
+            musicbrainz_key: None,
+            id3_status: ComparisonStatus::MissingTag,
+            musicbrainz_status: ComparisonStatus::MissingTag,
+        }
     }
 }

@@ -21,6 +21,7 @@ pub struct AudioTags {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub track_number: Option<String>,
+    pub total_tracks: Option<String>,
     pub date: Option<String>,
     pub custom: BTreeMap<String, String>,
     pub artwork: Option<EmbeddedArtwork>,
@@ -89,6 +90,13 @@ fn audio_tags_from_id3(tag: &Tag) -> AudioTags {
             .track()
             .map(|number| number.to_string())
             .or_else(|| first_text_frame(tag, "TRCK")),
+        total_tracks: tag
+            .total_tracks()
+            .map(|number| number.to_string())
+            .or_else(|| {
+                first_text_frame(tag, "TRCK")
+                    .and_then(|trck| trck.split('/').nth(1).map(str::to_string))
+            }),
         date: tag
             .year()
             .map(|year| year.to_string())
@@ -244,6 +252,7 @@ mod tests {
         tag.set_artist("Track Artist");
         tag.set_album("Feed Title");
         tag.set_track(7);
+        tag.set_total_tracks(10);
         tag.set_year(2026);
         tag.add_frame(Frame::with_content(
             "TXXX",
@@ -269,6 +278,7 @@ mod tests {
                 artist: Some("Track Artist".into()),
                 album: Some("Feed Title".into()),
                 track_number: Some("7".into()),
+                total_tracks: Some("10".into()),
                 date: Some("2026".into()),
                 custom: BTreeMap::from([("V4V_PUBLISHER".into(), "Wavlake".into())]),
                 artwork: Some(EmbeddedArtwork {
@@ -292,7 +302,7 @@ mod tests {
                     },
                     Id3Field {
                         frame_id: "TRCK".into(),
-                        value: "7".into(),
+                        value: "7/10".into(),
                     },
                     Id3Field {
                         frame_id: "TYER".into(),
@@ -341,6 +351,10 @@ mod tests {
                 value: "https://example.test".into(),
             },
             Id3v24Edit {
+                frame_label: "WOAR".into(),
+                value: "https://musicbrainz.example.test".into(),
+            },
+            Id3v24Edit {
                 frame_label: "UFID:http://musicbrainz.org".into(),
                 value: "recording-id".into(),
             },
@@ -348,7 +362,7 @@ mod tests {
 
         assert_eq!(
             write_id3v24_edits(temp.path(), &edits).expect("write ID3v2.4 edits"),
-            4
+            5
         );
 
         let tag = Tag::read_from_path(temp.path()).expect("read written ID3 tag");
@@ -360,6 +374,18 @@ mod tests {
             .frames()
             .any(|frame| frame.id() == "WOAR"
                 && frame.content().to_string() == "https://example.test"));
+        let woar_values = tag
+            .frames()
+            .filter(|frame| frame.id() == "WOAR")
+            .map(|frame| frame.content().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            woar_values,
+            vec![
+                "https://example.test".to_string(),
+                "https://musicbrainz.example.test".to_string()
+            ]
+        );
         assert!(tag.frames().any(|frame| {
             frame.id() == "UFID"
                 && frame.content().to_string() == "http://musicbrainz.org: recording-id"
