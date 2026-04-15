@@ -8,7 +8,7 @@ use reqwest::Url;
 
 use crate::audio_tags::AudioTags;
 use crate::config::Config;
-use crate::musicindex::{SourceEnclosure, Track};
+use crate::api::{SourceEnclosure, Track};
 
 const PUBLISHER_TAG_KEY: &str = "V4V_PUBLISHER";
 
@@ -263,7 +263,7 @@ mod tests {
     };
     use crate::audio_tags::AudioTags;
     use crate::config::Config;
-    use crate::musicindex::{SourceEnclosure, Track};
+    use crate::api::{SourceEnclosure, Track};
 
     fn track() -> Track {
         Track {

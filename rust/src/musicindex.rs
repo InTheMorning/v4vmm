@@ -18,57 +18,19 @@ use reqwest::blocking::Client as ReqwestClient;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::api::*;
 use crate::audio_tags::{
     id3v24_edit_label_is_writable, read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3Field,
     Id3v24Edit,
 };
 use crate::config;
+use crate::metadata::*;
 use crate::musicbrainz::{
     lookup_recordings, LookupMetadata, MusicBrainzCandidate, MusicBrainzLookup,
 };
 use crate::track_compare::{
     compare_track_tags, download_track_mp3, local_mp3_path, ComparisonRow, ComparisonStatus,
 };
-
-const DEFAULT_BASE_URL: &str = "https://musicindex.org";
-const PAGE_LIMIT: i32 = 20;
-const ID3V24_FRAME_IDS: &[&str] = &[
-    "AENC", "APIC", "ASPI", "COMM", "COMR", "ENCR", "EQU2", "ETCO", "GEOB", "GRID", "LINK", "MCDI",
-    "MLLT", "OWNE", "PRIV", "PCNT", "POPM", "POSS", "RBUF", "RVA2", "RVRB", "SEEK", "SIGN", "SYLT",
-    "SYTC", "TALB", "TBPM", "TCOM", "TCON", "TCOP", "TDEN", "TDLY", "TDOR", "TDRC", "TDRL", "TDTG",
-    "TENC", "TEXT", "TFLT", "TIPL", "TIT1", "TIT2", "TIT3", "TKEY", "TLAN", "TLEN", "TMCL", "TMED",
-    "TMOO", "TOAL", "TOFN", "TOLY", "TOPE", "TOWN", "TPE1", "TPE2", "TPE3", "TPE4", "TPOS", "TPRO",
-    "TPUB", "TRCK", "TRSN", "TRSO", "TSOA", "TSOP", "TSOT", "TSRC", "TSSE", "TSST", "TXXX", "UFID",
-    "USER", "USLT", "WCOM", "WCOP", "WOAF", "WOAR", "WOAS", "WORS", "WPAY", "WPUB", "WXXX",
-];
-const ID3V24_FRAME_GROUPS: &[(&str, &str)] = &[
-    (
-        "identification-release-structure",
-        "Identification / release structure",
-    ),
-    ("people-credits", "People / credits"),
-    (
-        "descriptive-technical-rights-text",
-        "Descriptive / technical / rights text",
-    ),
-    ("url-link-frames", "URL link frames"),
-    (
-        "lyrics-comments-artwork-user-facing-content",
-        "Lyrics / comments / artwork / user-facing content",
-    ),
-    (
-        "identity-linking-private-registration",
-        "Identity / linking / private / registration",
-    ),
-    (
-        "timing-seeking-audio-analysis-playback-control",
-        "Timing / seeking / audio-analysis / playback-control",
-    ),
-    (
-        "music-disc-acquisition-commerce",
-        "Music-disc / acquisition / commerce",
-    ),
-];
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -179,136 +141,12 @@ pub struct Feed {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
-pub struct Track {
-    pub track_guid: Option<String>,
-    pub feed_guid: Option<String>,
-    pub feed_title: Option<String>,
-    pub feed_url: Option<String>,
-    pub title: Option<String>,
-    pub name: Option<String>,
-    pub duration_secs: Option<i32>,
-    pub pub_date: Option<i64>,
-    pub track_number: Option<i32>,
-    pub explicit: Option<bool>,
-    pub description: Option<String>,
-    pub enclosure_url: Option<String>,
-    pub enclosure_type: Option<String>,
-    pub enclosure_bytes: Option<i64>,
-    pub image_url: Option<String>,
-    pub track_artist: Option<String>,
-    pub release_artist: Option<String>,
-    pub publisher_text: Option<String>,
-    pub artist_credit: Option<ArtistCredit>,
-    pub source_contributors: Option<Vec<Contributor>>,
-    pub source_links: Option<Vec<SourceEntityLink>>,
-    pub source_ids: Option<Vec<SourceEntityId>>,
-    pub source_release_claims: Option<Vec<SourceReleaseClaim>>,
-    pub source_enclosures: Option<Vec<SourceEnclosure>>,
-    pub payment_routes: Option<Vec<PaymentRoute>>,
-    pub updated_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
 pub struct Publisher {
     pub publisher_text: Option<String>,
     pub feed_count: Option<i32>,
     pub track_count: Option<i32>,
     pub feeds: Option<Vec<Feed>>,
     pub tracks: Option<Vec<Track>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct Contributor {
-    pub name: Option<String>,
-    pub role: Option<String>,
-    pub href: Option<String>,
-    pub group_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct PaymentRoute {
-    pub recipient_name: Option<String>,
-    pub route_type: Option<String>,
-    pub split: Option<f64>,
-    pub fee: Option<bool>,
-    pub address: Option<String>,
-    pub custom_key: Option<String>,
-    pub custom_value: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct SourceEntityLink {
-    pub entity_type: Option<String>,
-    pub entity_id: Option<String>,
-    pub position: Option<i64>,
-    pub link_type: Option<String>,
-    pub url: Option<String>,
-    pub source: Option<String>,
-    pub extraction_path: Option<String>,
-    pub observed_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct SourceEntityId {
-    pub entity_type: Option<String>,
-    pub entity_id: Option<String>,
-    pub position: Option<i64>,
-    pub scheme: Option<String>,
-    pub value: Option<String>,
-    pub source: Option<String>,
-    pub extraction_path: Option<String>,
-    pub observed_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct SourceReleaseClaim {
-    pub entity_type: Option<String>,
-    pub entity_id: Option<String>,
-    pub position: Option<i64>,
-    pub claim_type: Option<String>,
-    pub claim_value: Option<String>,
-    pub source: Option<String>,
-    pub extraction_path: Option<String>,
-    pub observed_at: Option<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct SourceEnclosure {
-    pub url: Option<String>,
-    pub mime_type: Option<String>,
-    pub bytes: Option<i64>,
-    pub rel: Option<String>,
-    pub title: Option<String>,
-    pub is_primary: Option<bool>,
-    pub source: Option<String>,
-    pub extraction_path: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct ArtistCredit {
-    pub display_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct ReleaseReference {
-    pub position: Option<i32>,
-    pub title: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct Source {
-    pub title: Option<String>,
-    pub primary_enclosure_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

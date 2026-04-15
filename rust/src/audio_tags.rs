@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
-use id3::frame::{ExtendedLink, ExtendedText, UniqueFileIdentifier};
+use id3::frame::{ExtendedLink, ExtendedText, Picture, PictureType, UniqueFileIdentifier};
 use id3::{no_tag_ok, Content, Frame, Tag, TagLike, Version};
 
 const WRITABLE_TEXT_FRAMES: &[&str] = &[
@@ -197,6 +198,7 @@ fn id3v24_edit_frame(edit: &Id3v24Edit) -> Result<Frame> {
                 }),
             ))
         }
+        "APIC" => apic_frame_from_reference(value),
         id if id.starts_with('T') => Ok(Frame::text(id, value)),
         id if id.starts_with('W') => Ok(Frame::with_content(id, Content::Link(value.to_string()))),
         _ => unreachable!("frame writability was checked before construction"),
@@ -214,6 +216,7 @@ pub fn id3v24_edit_label_is_writable(frame_label: &str) -> bool {
 fn id3v24_edit_frame_is_writable(frame_id: &str) -> bool {
     WRITABLE_TEXT_FRAMES.contains(&frame_id)
         || WRITABLE_URL_FRAMES.contains(&frame_id)
+        || frame_id == "APIC"
         || frame_id == "UFID"
 }
 
@@ -230,6 +233,66 @@ fn split_frame_label(label: &str) -> (String, Option<String>) {
         frame_id.trim().to_ascii_uppercase(),
         (!descriptor.is_empty()).then(|| descriptor.to_string()),
     )
+}
+
+fn apic_frame_from_reference(reference: &str) -> Result<Frame> {
+    let (mime_type, data) = read_picture_reference(reference)?;
+    Ok(Frame::with_content(
+        "APIC",
+        Content::Picture(Picture {
+            mime_type,
+            picture_type: PictureType::CoverFront,
+            description: "front cover".into(),
+            data,
+        }),
+    ))
+}
+
+fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
+    if reference.starts_with("http://") || reference.starts_with("https://") {
+        let response = reqwest::blocking::get(reference)
+            .with_context(|| format!("download APIC image {reference}"))?
+            .error_for_status()
+            .with_context(|| format!("download APIC image {reference}"))?;
+        let mime_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(image_mime_type)
+            .ok_or_else(|| anyhow!("APIC image response missing image content type"))?;
+        let data = response
+            .bytes()
+            .with_context(|| format!("read APIC image {reference}"))?
+            .to_vec();
+        if data.is_empty() {
+            return Err(anyhow!("APIC image is empty"));
+        }
+        return Ok((mime_type, data));
+    }
+
+    let path = Path::new(reference);
+    let data = fs::read(path).with_context(|| format!("read APIC image {}", path.display()))?;
+    if data.is_empty() {
+        return Err(anyhow!("APIC image is empty"));
+    }
+    let mime_type = image_mime_type_for_path(path)
+        .ok_or_else(|| anyhow!("unsupported APIC image type for {}", path.display()))?;
+    Ok((mime_type, data))
+}
+
+fn image_mime_type(value: &str) -> Option<String> {
+    let mime_type = value.split(';').next()?.trim().to_ascii_lowercase();
+    mime_type.starts_with("image/").then_some(mime_type)
+}
+
+fn image_mime_type_for_path(path: &Path) -> Option<String> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "jpg" | "jpeg" => Some("image/jpeg".into()),
+        "png" => Some("image/png".into()),
+        "gif" => Some("image/gif".into()),
+        "webp" => Some("image/webp".into()),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -336,6 +399,11 @@ mod tests {
     fn writes_staged_id3v24_text_extended_url_and_ufid_frames() {
         let temp = tempfile::NamedTempFile::new().expect("temp file");
         fs::write(temp.path(), b"not really an mp3").expect("write file");
+        let image = tempfile::Builder::new()
+            .suffix(".png")
+            .tempfile()
+            .expect("temp image file");
+        fs::write(image.path(), [1, 2, 3]).expect("write image file");
 
         let edits = [
             Id3v24Edit {
@@ -358,11 +426,15 @@ mod tests {
                 frame_label: "UFID:http://musicbrainz.org".into(),
                 value: "recording-id".into(),
             },
+            Id3v24Edit {
+                frame_label: "APIC".into(),
+                value: image.path().display().to_string(),
+            },
         ];
 
         assert_eq!(
             write_id3v24_edits(temp.path(), &edits).expect("write ID3v2.4 edits"),
-            5
+            6
         );
 
         let tag = Tag::read_from_path(temp.path()).expect("read written ID3 tag");
@@ -390,6 +462,10 @@ mod tests {
             frame.id() == "UFID"
                 && frame.content().to_string() == "http://musicbrainz.org: recording-id"
         }));
+        assert!(tag.frames().any(|frame| {
+            frame.id() == "APIC"
+                && frame.content().to_string() == "front cover: Front cover (image/png, 3 bytes)"
+        }));
     }
 
     #[test]
@@ -400,21 +476,21 @@ mod tests {
         ));
         assert!(id3v24_edit_label_is_writable("WXXX:Official audio"));
         assert!(id3v24_edit_label_is_writable("UFID:http://musicbrainz.org"));
+        assert!(id3v24_edit_label_is_writable("APIC"));
         assert!(!id3v24_edit_label_is_writable("TXXX"));
         assert!(!id3v24_edit_label_is_writable("WXXX"));
         assert!(!id3v24_edit_label_is_writable("UFID"));
-        assert!(!id3v24_edit_label_is_writable("APIC"));
         assert!(!id3v24_edit_label_is_writable("TFOO"));
 
         let temp = tempfile::NamedTempFile::new().expect("temp file");
         fs::write(temp.path(), b"not really an mp3").expect("write file");
         let edits = [Id3v24Edit {
-            frame_label: "APIC".into(),
-            value: "not image data".into(),
+            frame_label: "TFOO".into(),
+            value: "not writable".into(),
         }];
 
         let error = write_id3v24_edits(temp.path(), &edits)
-            .expect_err("non-simple ID3v2.4 edits should be rejected");
+            .expect_err("unsupported ID3v2.4 edits should be rejected");
         assert!(
             error.to_string().contains("unsupported ID3v2.4"),
             "unexpected error: {error}"

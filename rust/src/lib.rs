@@ -1,8 +1,10 @@
+pub mod api;
 pub mod audio_tags;
 pub mod cli;
 pub mod config;
 pub mod db;
 pub mod id3;
+pub mod metadata;
 pub mod musicbrainz;
 pub mod musicindex;
 pub mod rss;
