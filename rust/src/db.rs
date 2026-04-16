@@ -35,6 +35,7 @@ pub struct TrackRow {
     pub feed_title: Option<String>,
     pub album_image_href: Option<String>,
     pub local_path: Option<String>,
+    pub transcript_url: Option<String>,
 }
 
 pub fn subscribed_feeds(conn: &Connection) -> Result<Vec<FeedRow>> {
@@ -70,7 +71,7 @@ pub fn feed_tracks(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
             "SELECT t.id, t.feed_id, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -94,7 +95,7 @@ pub fn library_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
             "SELECT t.id, t.feed_id, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -298,7 +299,7 @@ pub fn cached_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
             "SELECT t.id, t.feed_id, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              JOIN local_files lf ON lf.track_id = t.id
@@ -349,7 +350,21 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
         feed_title: row.get(13)?,
         album_image_href: row.get(14)?,
         local_path: row.get(15)?,
+        transcript_url: transcript_url_from_extra_json(
+            row.get::<_, Option<String>>(16)?.as_deref(),
+        ),
     })
+}
+
+fn transcript_url_from_extra_json(extra_json: Option<&str>) -> Option<String> {
+    let extra_json = extra_json?;
+    let value = serde_json::from_str::<serde_json::Value>(extra_json).ok()?;
+    value
+        .get("transcript_url")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 pub fn open_db(cfg: &Config) -> Result<Connection> {

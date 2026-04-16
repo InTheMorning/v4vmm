@@ -15,7 +15,7 @@ use gpui_component::Sizable;
 use gpui_component::Size;
 use reqwest::blocking::Client as ReqwestClient;
 
-use crate::api::Track;
+use crate::api::{SourceEntityLink, Track};
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, Id3v24Edit};
 use crate::config;
 use crate::db::{self, TrackRow};
@@ -971,6 +971,17 @@ fn track_row_to_api_track(track: &TrackRow) -> Track {
         enclosure_url: track.enclosure_url.clone(),
         image_url: track.track_image_href.clone(),
         track_artist: track.artist_name.clone(),
+        source_links: track.transcript_url.as_ref().map(|url| {
+            vec![SourceEntityLink {
+                entity_type: Some("track".into()),
+                entity_id: Some(track.item_guid.clone()),
+                link_type: Some("transcript".into()),
+                url: Some(url.clone()),
+                source: Some("rss".into()),
+                extraction_path: Some("podcast:transcript@url".into()),
+                ..Default::default()
+            }]
+        }),
         ..Default::default()
     }
 }

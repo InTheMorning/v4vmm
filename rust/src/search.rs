@@ -2861,6 +2861,7 @@ fn metadata_heading_cell(label: &str, indent: f32) -> AnyElement {
 
 fn metadata_rss_cell(row: &AlignedCompareRow, pending: Option<&PendingId3Edit>) -> AnyElement {
     let value = row.rss_value.as_deref().unwrap_or("");
+    let display_value = display_metadata_value(&row.field, value);
     let value_color = source_cell_color(pending, MetadataColumn::Rss, row.rss_value.as_deref())
         .unwrap_or_else(text);
     let cell = div()
@@ -2881,7 +2882,7 @@ fn metadata_rss_cell(row: &AlignedCompareRow, pending: Option<&PendingId3Edit>) 
             div()
                 .flex_1()
                 .min_w_0()
-                .child(compare_cell(value, Some(value_color))),
+                .child(compare_cell(&display_value, Some(value_color))),
         );
     if let Some(drag) = metadata_drag_value(row, MetadataColumn::Rss) {
         cell.id(SharedString::from(format!(
@@ -2917,6 +2918,7 @@ fn metadata_id3_cell(
         .map(|edit| edit.value.as_str())
         .or(row.id3_value.as_deref())
         .unwrap_or("");
+    let display_value = display_metadata_value(&row.field, value);
     let color = pending
         .map(|edit| pending_source_color(edit.source))
         .unwrap_or_else(|| comparison_status_color(&row.id3_status));
@@ -2925,7 +2927,12 @@ fn metadata_id3_cell(
         .pl(px(12.0))
         .min_w_0()
         .rounded(px(4.0))
-        .child(compare_tag_cell(value, Some(color), frame, frame_color))
+        .child(compare_tag_cell(
+            &display_value,
+            Some(color),
+            frame,
+            frame_color,
+        ))
         .when_some(pending, |el, edit| {
             el.border_1()
                 .border_color(pending_source_color(edit.source))
@@ -2973,8 +2980,9 @@ fn metadata_musicbrainz_cell(
     )
     .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status));
     let value = row.musicbrainz_value.as_deref().unwrap_or("");
+    let display_value = display_metadata_value(&row.field, value);
     let cell = div().pl(px(12.0)).min_w_0().child(compare_tag_cell(
-        value,
+        &display_value,
         Some(musicbrainz_color),
         row.musicbrainz_key.as_deref(),
         None,
@@ -4122,9 +4130,13 @@ mod tests {
         pending_id3_conflict_descriptions, pending_id3_edits_for_apply, pending_id3_target_key,
         track_metadata_rows, unused_id3v24_frames_for_group, AlignedCompareRow, Feed,
         Id3FrameVersion, MetadataColumn, MetadataGridRow, PendingId3Edit, SourceEntityId,
-        TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
+        SourceEntityLink, TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS,
+        ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
+    use crate::metadata::{
+        contributor_id3_rows, display_metadata_value, musicindex_contributors_id3_value,
+    };
     use crate::musicbrainz::MusicBrainzCandidate;
     use crate::track_compare::{ComparisonRow, ComparisonStatus};
 
@@ -4389,6 +4401,10 @@ mod tests {
             None
         );
         assert_eq!(
+            format_drag_value_for_id3v24("TIT2", "Title", None, " - Song").as_deref(),
+            Some("Song")
+        );
+        assert_eq!(
             format_drag_value_for_id3v24("TRCK", "Track #", Some("3/12"), "4").as_deref(),
             Some("4/12")
         );
@@ -4608,6 +4624,93 @@ mod tests {
         let edits = pending_id3_edits_for_apply(&pending);
         assert_eq!(edits.len(), 2);
         assert!(edits.iter().all(|edit| edit.frame_label == "WOAR"));
+    }
+
+    #[test]
+    fn tagger_stages_transcript_url_as_sylt_and_uslt() {
+        let context = TrackContext {
+            track: Track {
+                title: Some("Song".into()),
+                source_links: Some(vec![SourceEntityLink {
+                    link_type: Some("transcript".into()),
+                    url: Some("https://example.com/song.srt".into()),
+                    extraction_path: Some("podcast:transcript@url".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            },
+            feed: None,
+        };
+
+        let edits = super::id3_edits_for_track_context(&context);
+        assert!(edits.iter().any(|edit| {
+            edit.frame_label == "SYLT:MusicIndex Transcript"
+                && edit.value == "https://example.com/song.srt"
+        }));
+        assert!(edits.iter().any(|edit| {
+            edit.frame_label == "USLT:MusicIndex Transcript"
+                && edit.value == "https://example.com/song.srt"
+        }));
+    }
+
+    #[test]
+    fn contributors_map_to_picard_like_people_frames() {
+        let contributors = vec![
+            crate::api::Contributor {
+                name: Some("Alice".into()),
+                role: Some("guitarist".into()),
+                ..Default::default()
+            },
+            crate::api::Contributor {
+                name: Some("Bob".into()),
+                role: Some("audio engineer".into()),
+                ..Default::default()
+            },
+            crate::api::Contributor {
+                name: Some("Cara".into()),
+                role: Some("composer".into()),
+                ..Default::default()
+            },
+            crate::api::Contributor {
+                name: Some("Dana".into()),
+                role: Some("musician".into()),
+                ..Default::default()
+            },
+        ];
+
+        let rows = contributor_id3_rows(&contributors);
+        assert!(rows
+            .iter()
+            .any(|(_, frame, value)| { *frame == "TMCL" && value == "guitar: Alice" }));
+        assert!(rows
+            .iter()
+            .any(|(_, frame, value)| { *frame == "TIPL" && value == "engineer: Bob" }));
+        assert!(rows
+            .iter()
+            .any(|(_, frame, value)| { *frame == "TCOM" && value == "Cara" }));
+        assert!(rows
+            .iter()
+            .any(|(_, frame, value)| { *frame == "TPE1" && value == "Dana" }));
+
+        let musicindex = musicindex_contributors_id3_value(&contributors)
+            .expect("contributors should have a MusicIndex ID3 payload");
+        assert_eq!(
+            musicindex,
+            "guitarist: Alice / audio engineer: Bob / composer: Cara / musician: Dana"
+        );
+        assert_eq!(
+            display_metadata_value("Contributors", &musicindex),
+            "Alice: guitarist · Bob: audio engineer · Cara: composer · Dana: musician"
+        );
+    }
+
+    #[test]
+    fn value_routes_keep_json_payload_but_display_pretty() {
+        let value = r#"[{"recipient_name":"Alice","route_type":"node","split":75.0,"fee":false,"address":"abc","custom_key":null,"custom_value":null},{"recipient_name":"Hosting","route_type":"node","split":25.0,"fee":true,"address":"def","custom_key":null,"custom_value":null}]"#;
+        assert_eq!(
+            display_metadata_value("Value Routes", value),
+            "Alice: 75% node · Hosting: 25% node fee"
+        );
     }
 
     #[test]

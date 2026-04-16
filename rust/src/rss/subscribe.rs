@@ -175,9 +175,12 @@ pub fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Re
         let track_image_href = itunes.and_then(|it| it.image()).map(|s| s.to_string());
         let track_image_mime: Option<String> = None;
 
-        // Item-level people/value (podcast:* extensions)
+        // Item-level people/value/transcript (podcast:* extensions)
         let people_json = collect_people_json(item.extensions());
         let item_value_json = value_block_json(item.extensions(), "podcast", "value");
+        let transcript_url = find_ext_attr(item.extensions(), "podcast", "transcript", "url");
+        let transcript_type = find_ext_attr(item.extensions(), "podcast", "transcript", "type");
+        let extra_json = track_extra_json(transcript_url.as_deref(), transcript_type.as_deref());
 
         let changed = tx.execute(
             r#"
@@ -199,9 +202,10 @@ pub fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Re
                 track_image_href,
                 track_image_mime,
                 people_json,
-                item_value_json
+                item_value_json,
+                extra_json
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
             ON CONFLICT(feed_id, item_guid) DO UPDATE SET
                 enclosure_url       = excluded.enclosure_url,
                 link                = excluded.link,
@@ -218,7 +222,8 @@ pub fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Re
                 track_image_href    = excluded.track_image_href,
                 track_image_mime    = excluded.track_image_mime,
                 people_json         = excluded.people_json,
-                item_value_json     = excluded.item_value_json
+                item_value_json     = excluded.item_value_json,
+                extra_json          = excluded.extra_json
             "#,
             rusqlite::params![
                 feed_id,
@@ -239,6 +244,7 @@ pub fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Re
                 track_image_mime,
                 people_json,
                 item_value_json,
+                extra_json,
             ],
         )?;
 
@@ -251,4 +257,27 @@ pub fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Re
 
     println!("Subscribed/updated feed: {feed_title} (tracks upserted: {upserted})");
     Ok(())
+}
+
+fn track_extra_json(transcript_url: Option<&str>, transcript_type: Option<&str>) -> String {
+    let mut object = serde_json::Map::new();
+    if let Some(transcript_url) = transcript_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        object.insert(
+            "transcript_url".into(),
+            serde_json::Value::String(transcript_url.to_string()),
+        );
+    }
+    if let Some(transcript_type) = transcript_type
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        object.insert(
+            "transcript_type".into(),
+            serde_json::Value::String(transcript_type.to_string()),
+        );
+    }
+    serde_json::Value::Object(object).to_string()
 }

@@ -24,6 +24,7 @@ fn sample_feed(title: &str) -> String {
       <link>https://example.com/track-one</link>
       <pubDate>Tue, 12 Mar 2024 10:00:00 GMT</pubDate>
       <enclosure url="https://example.com/track1.mp3" type="audio/mpeg" length="12345" />
+      <podcast:transcript url="https://example.com/track1.srt" type="application/srt" />
       <itunes:duration>03:45</itunes:duration>
       <itunes:author>Track Artist</itunes:author>
       <itunes:explicit>no</itunes:explicit>
@@ -62,10 +63,10 @@ fn subscribe_persists_feed_and_tracks() {
     assert_eq!(feed_row.2, "music");
     assert_eq!(feed_row.3, "https://example.com/feed.jpg");
 
-    let track_row: (String, i64, String, String, String, String) = conn
+    let track_row: (String, i64, String, String, String, String, String) = conn
         .query_row(
             "SELECT track_title, duration_seconds, itunes_duration_raw,
-                    artist_name, album_title, album_artist_name \
+                    artist_name, album_title, album_artist_name, extra_json \
              FROM tracks WHERE item_guid = 'track-guid-1'",
             [],
             |row| {
@@ -76,6 +77,7 @@ fn subscribe_persists_feed_and_tracks() {
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
@@ -86,6 +88,10 @@ fn subscribe_persists_feed_and_tracks() {
     assert_eq!(track_row.3, "Track Artist");
     assert_eq!(track_row.4, "Example Feed");
     assert_eq!(track_row.5, "Feed Artist");
+    assert!(
+        track_row.6.contains("https://example.com/track1.srt"),
+        "extra_json should preserve podcast:transcript url"
+    );
 
     let track_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))

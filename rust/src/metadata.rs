@@ -781,7 +781,7 @@ pub fn track_metadata_rows(
         track
             .source_contributors
             .as_deref()
-            .and_then(summarize_contributors),
+            .and_then(musicindex_contributors_id3_value),
         musicbrainz_value_for_field("Contributors", musicbrainz),
     );
     if let Some(contributors) = track.source_contributors.as_deref() {
@@ -958,7 +958,7 @@ pub fn aligned_compare_rows(
         },
     );
 
-    let contributors_rss = summarize_contributors(&result.contributors);
+    let contributors_rss = musicindex_contributors_id3_value(&result.contributors);
     let contributors_id3 = id3_value_for_field("Contributors", result);
     let contributors_musicbrainz = musicbrainz_value_for_field("Contributors", musicbrainz);
     let contributors_status =
@@ -1528,6 +1528,7 @@ pub fn format_drag_value_for_id3v24(
     }
     let frame_id = id3_frame_base(frame_label);
     match frame_id {
+        "TIT2" => format_id3_title(&value),
         "TXXX" | "UFID" => Some(value),
         "COMM" | "USLT" | "SYLT" => Some(value),
         "WXXX" => format_id3_url(&value),
@@ -1540,6 +1541,16 @@ pub fn format_drag_value_for_id3v24(
         id if id.starts_with('W') => format_id3_url(&value),
         _ => Some(value),
     }
+}
+
+pub fn format_id3_title(value: &str) -> Option<String> {
+    let value = value
+        .trim_start()
+        .strip_prefix("- ")
+        .map(str::trim_start)
+        .unwrap_or(value)
+        .to_string();
+    (!value.trim().is_empty()).then_some(value)
 }
 
 pub fn format_source_value_for_id3v24(
@@ -1850,19 +1861,62 @@ pub fn summarize_contributors(contributors: &[Contributor]) -> Option<String> {
     if contributors.is_empty() {
         return None;
     }
+    let mut by_name = BTreeMap::<String, Vec<String>>::new();
+    for contributor in contributors {
+        let Some(name) = contributor
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
+            continue;
+        };
+        let role = contributor.role.as_deref().map(str::trim).unwrap_or("");
+        if role.is_empty() {
+            by_name.entry(name.to_string()).or_default();
+        } else {
+            by_name
+                .entry(name.to_string())
+                .or_default()
+                .push(role.to_string());
+        }
+    }
     Some(
-        contributors
-            .iter()
-            .map(|contributor| {
-                let name = contributor.name.as_deref().unwrap_or("Unknown");
-                contributor
-                    .role
-                    .as_ref()
-                    .map_or_else(|| name.to_string(), |role| format!("{name} ({role})"))
+        by_name
+            .into_iter()
+            .map(|(name, roles)| {
+                if roles.is_empty() {
+                    name
+                } else {
+                    format!("{name}: {}", roles.join(", "))
+                }
             })
             .collect::<Vec<_>>()
             .join(" · "),
     )
+}
+
+pub fn musicindex_contributors_id3_value(contributors: &[Contributor]) -> Option<String> {
+    if contributors.is_empty() {
+        return None;
+    }
+    let values = contributors
+        .iter()
+        .filter_map(|contributor| {
+            let name = contributor
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())?;
+            let role = contributor
+                .role
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("contributor");
+            Some(format!("{role}: {name}"))
+        })
+        .collect::<Vec<_>>();
+    (!values.is_empty()).then(|| values.join(" / "))
 }
 
 pub fn contributor_id3_rows(
@@ -1888,7 +1942,14 @@ pub fn contributor_id3_rows(
         let Some(target) = contributor_role_target(&role_key) else {
             continue;
         };
-        grouped.entry(target).or_default().push(name.to_string());
+        if target.1 == "TIPL" {
+            grouped
+                .entry(target)
+                .or_default()
+                .push(format!("{}: {name}", involved_people_role(&role_key)));
+        } else {
+            grouped.entry(target).or_default().push(name.to_string());
+        }
     }
     if !instruments.is_empty() {
         grouped
@@ -1910,7 +1971,16 @@ fn contributor_role_target(role: &str) -> Option<(&'static str, &'static str)> {
         role if role.contains("lyric") || role.contains("text writer") || role == "writer" => {
             Some(("Lyricist", "TEXT"))
         }
-        role if role.contains("lead") || role.contains("performer") || role.contains("artist") => {
+        role if role.contains("engineer") => Some(("Involved people", "TIPL")),
+        role if role.contains("producer") => Some(("Involved people", "TIPL")),
+        role if role.contains("arranger") => Some(("Involved people", "TIPL")),
+        role if role.contains("mixer") => Some(("Involved people", "TIPL")),
+        role if role.contains("master") => Some(("Involved people", "TIPL")),
+        role if role == "musician"
+            || role.contains("lead")
+            || role.contains("performer")
+            || role.contains("artist") =>
+        {
             Some(("Lead performer", "TPE1"))
         }
         role if role.contains("album artist")
@@ -1927,35 +1997,39 @@ fn contributor_role_target(role: &str) -> Option<(&'static str, &'static str)> {
     }
 }
 
+fn involved_people_role(role: &str) -> &'static str {
+    if role.contains("master") {
+        "mastering engineer"
+    } else if role.contains("mix") {
+        "mix engineer"
+    } else if role.contains("engineer") {
+        "engineer"
+    } else if role.contains("producer") {
+        "producer"
+    } else if role.contains("arranger") {
+        "arranger"
+    } else {
+        "involved person"
+    }
+}
+
 fn instrument_role(role: &str) -> Option<&str> {
-    let role = role.trim();
-    if role.is_empty() {
-        return None;
+    let lower = role.trim().to_ascii_lowercase();
+    match lower.as_str() {
+        "vocal" | "vocals" | "vocalist" | "singer" => Some("vocals"),
+        "guitar" | "guitars" | "guitarist" => Some("guitar"),
+        "bass" | "bassist" | "bass guitar" => Some("bass"),
+        "drum" | "drums" | "drummer" => Some("drums"),
+        "keyboard" | "keyboards" | "keyboardist" => Some("keyboards"),
+        "piano" | "pianist" => Some("piano"),
+        "banjo" | "banjoist" => Some("banjo"),
+        "violin" | "violinist" => Some("violin"),
+        "cello" | "cellist" => Some("cello"),
+        "saxophone" | "saxophonist" => Some("saxophone"),
+        "trumpet" | "trumpeter" => Some("trumpet"),
+        "percussion" | "percussionist" => Some("percussion"),
+        _ => None,
     }
-    let lower = role.to_ascii_lowercase();
-    let known_non_instruments = [
-        "artist",
-        "album artist",
-        "composer",
-        "conductor",
-        "contributor",
-        "host",
-        "lyricist",
-        "original artist",
-        "original lyricist",
-        "performer",
-        "producer",
-        "publisher",
-        "remixer",
-        "writer",
-    ];
-    if known_non_instruments
-        .iter()
-        .any(|known| lower == *known || lower.contains(known))
-    {
-        return None;
-    }
-    Some(role)
 }
 
 pub fn summarize_value_routes(routes: &[PaymentRoute]) -> Option<String> {
@@ -1963,6 +2037,67 @@ pub fn summarize_value_routes(routes: &[PaymentRoute]) -> Option<String> {
         return None;
     }
     serde_json::to_string(routes).ok()
+}
+
+pub fn display_metadata_value(field: &str, value: &str) -> String {
+    match field {
+        "Contributors" => display_picard_people_list(value),
+        "Value Routes" => display_value_routes(value),
+        _ => value.to_string(),
+    }
+}
+
+pub fn display_picard_people_list(value: &str) -> String {
+    let mut by_name = BTreeMap::<String, Vec<String>>::new();
+    for part in value.split(" / ") {
+        let Some((role, name)) = part.split_once(": ") else {
+            continue;
+        };
+        let role = role.trim();
+        let name = name.trim();
+        if role.is_empty() || name.is_empty() {
+            continue;
+        }
+        by_name
+            .entry(name.to_string())
+            .or_default()
+            .push(role.to_string());
+    }
+    if by_name.is_empty() {
+        return value.to_string();
+    }
+    by_name
+        .into_iter()
+        .map(|(name, roles)| format!("{name}: {}", roles.join(", ")))
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+pub fn display_value_routes(value: &str) -> String {
+    let Ok(routes) = serde_json::from_str::<Vec<PaymentRoute>>(value) else {
+        return value.to_string();
+    };
+    if routes.is_empty() {
+        return value.to_string();
+    }
+    routes
+        .iter()
+        .map(|route| {
+            let name = route
+                .recipient_name
+                .as_deref()
+                .unwrap_or("Unnamed recipient");
+            let split = route.split.unwrap_or_default();
+            let route_type = route.route_type.as_deref().unwrap_or("route");
+            let fee = if route.fee.unwrap_or_default() {
+                " fee"
+            } else {
+                ""
+            };
+            format!("{name}: {split}% {route_type}{fee}")
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 pub fn selected_musicbrainz_candidate(

@@ -217,6 +217,7 @@ fn id3v24_edit_frame(edit: &Id3v24Edit) -> Result<Frame> {
             frame_id,
             Content::InvolvedPeopleList(parse_involved_people_list(value)),
         )),
+        "TIT2" => Ok(Frame::text("TIT2", sanitize_title_text(value))),
         id if id.starts_with('T') => Ok(Frame::text(id, value)),
         id if id.starts_with('W') => Ok(Frame::with_content(id, Content::Link(value.to_string()))),
         _ => unreachable!("frame writability was checked before construction"),
@@ -260,6 +261,15 @@ fn parse_involved_people_list(value: &str) -> InvolvedPeopleList {
         })
         .collect();
     InvolvedPeopleList { items }
+}
+
+fn sanitize_title_text(value: &str) -> String {
+    value
+        .trim_start()
+        .strip_prefix("- ")
+        .map(str::trim_start)
+        .unwrap_or(value)
+        .to_string()
 }
 
 fn split_frame_label(label: &str) -> (String, Option<String>) {
@@ -696,7 +706,7 @@ mod tests {
         let edits = [
             Id3v24Edit {
                 frame_label: "TIT2".into(),
-                value: "Song".into(),
+                value: " - Song".into(),
             },
             Id3v24Edit {
                 frame_label: "TXXX:MusicIndex Contributors".into(),
@@ -730,11 +740,15 @@ mod tests {
                 frame_label: "SYLT:MusicIndex Transcript".into(),
                 value: transcript.path().display().to_string(),
             },
+            Id3v24Edit {
+                frame_label: "TMCL".into(),
+                value: "guitar: Alice / vocals: Bob".into(),
+            },
         ];
 
         assert_eq!(
             write_id3v24_edits(temp.path(), &edits).expect("write ID3v2.4 edits"),
-            9
+            10
         );
 
         let tag = Tag::read_from_path(temp.path()).expect("read written ID3 tag");
@@ -780,6 +794,18 @@ mod tests {
                 id3::Content::SynchronisedLyrics(lyrics)
                     if frame.id() == "SYLT"
                         && lyrics.content == vec![(1250, "Hello world".to_string())]
+            )
+        }));
+        assert!(tag.frames().any(|frame| {
+            matches!(
+                frame.content(),
+                id3::Content::InvolvedPeopleList(list)
+                    if frame.id() == "TMCL"
+                        && list.items.len() == 2
+                        && list.items[0].involvement == "guitar"
+                        && list.items[0].involvee == "Alice"
+                        && list.items[1].involvement == "vocals"
+                        && list.items[1].involvee == "Bob"
             )
         }));
     }
