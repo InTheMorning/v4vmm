@@ -130,10 +130,14 @@ pub fn download_enclosure(client: &ReqwestClient, url: &str, path: &Path) -> Res
 }
 
 pub fn compare_track_tags(track: &Track, tags: &AudioTags) -> Vec<ComparisonRow> {
-    vec![
+    let mut rows = vec![
         comparison_row(
             "Title",
-            track.title.as_deref().or(track.name.as_deref()),
+            track
+                .title
+                .as_deref()
+                .or(track.name.as_deref())
+                .map(sanitize_title_text),
             tags.title.as_deref(),
         ),
         comparison_row(
@@ -156,7 +160,18 @@ pub fn compare_track_tags(track: &Track, tags: &AudioTags) -> Vec<ComparisonRow>
             track.publisher_text.as_deref(),
             tags.custom.get(PUBLISHER_TAG_KEY).map(String::as_str),
         ),
-    ]
+    ];
+    if normalized(track.release_artist.as_deref()).is_some() {
+        rows.push(comparison_row(
+            "Album artist",
+            track.release_artist.as_deref(),
+            tags.fields
+                .iter()
+                .find(|field| field.frame_id == "TPE2")
+                .map(|field| field.value.as_str()),
+        ));
+    }
+    rows
 }
 
 fn selected_source_enclosure(enclosure: &SourceEnclosure) -> Option<SelectedEnclosure> {
@@ -226,6 +241,15 @@ fn normalized(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn sanitize_title_text(value: &str) -> String {
+    value
+        .trim_start()
+        .strip_prefix("- ")
+        .map(str::trim_start)
+        .unwrap_or(value)
+        .to_string()
 }
 
 fn sanitize_path_part(value: &str) -> String {

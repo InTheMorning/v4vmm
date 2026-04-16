@@ -154,12 +154,74 @@ fn embedded_artwork(tag: &Tag) -> Option<EmbeddedArtwork> {
 }
 
 fn id3_fields(tag: &Tag) -> Vec<Id3Field> {
-    tag.frames()
-        .map(|frame| Id3Field {
+    tag.frames().map(id3_field).collect()
+}
+
+fn id3_field(frame: &Frame) -> Id3Field {
+    match frame.content() {
+        Content::ExtendedText(ext) => Id3Field {
+            frame_id: descriptor_frame_label("TXXX", &ext.description),
+            value: ext.value.clone(),
+        },
+        Content::ExtendedLink(ext) => Id3Field {
+            frame_id: descriptor_frame_label("WXXX", &ext.description),
+            value: ext.link.clone(),
+        },
+        Content::Comment(comment) => Id3Field {
+            frame_id: descriptor_frame_label("COMM", &comment.description),
+            value: comment.text.clone(),
+        },
+        Content::Lyrics(lyrics) => Id3Field {
+            frame_id: descriptor_frame_label("USLT", &lyrics.description),
+            value: lyrics.text.clone(),
+        },
+        Content::SynchronisedLyrics(lyrics) => Id3Field {
+            frame_id: descriptor_frame_label("SYLT", &lyrics.description),
+            value: synchronised_lyrics_display_value(lyrics),
+        },
+        Content::UniqueFileIdentifier(ufid) => Id3Field {
+            frame_id: descriptor_frame_label("UFID", &ufid.owner_identifier),
+            value: String::from_utf8(ufid.identifier.clone())
+                .unwrap_or_else(|_| format!("{:x?}", &ufid.identifier)),
+        },
+        Content::InvolvedPeopleList(list) => Id3Field {
+            frame_id: frame.id().to_string(),
+            value: format_involved_people_list(list),
+        },
+        _ => Id3Field {
             frame_id: frame.id().to_string(),
             value: frame.content().to_string(),
-        })
-        .collect()
+        },
+    }
+}
+
+fn format_involved_people_list(list: &InvolvedPeopleList) -> String {
+    list.items
+        .iter()
+        .map(|item| format!("{}: {}", item.involvement.trim(), item.involvee.trim()))
+        .collect::<Vec<_>>()
+        .join(" / ")
+}
+
+fn descriptor_frame_label(frame_id: &str, descriptor: &str) -> String {
+    let descriptor = descriptor.trim();
+    if descriptor.is_empty() {
+        frame_id.to_string()
+    } else {
+        format!("{frame_id}:{descriptor}")
+    }
+}
+
+fn synchronised_lyrics_display_value(lyrics: &SynchronisedLyrics) -> String {
+    if lyrics.content.is_empty() {
+        return lyrics.content_type.to_string();
+    }
+    let mut bytes = Vec::new();
+    if lyrics.fmt_table(&mut bytes).is_ok() {
+        String::from_utf8(bytes).unwrap_or_else(|_| lyrics.content_type.to_string())
+    } else {
+        lyrics.content_type.to_string()
+    }
 }
 
 fn id3v24_edit_frame(edit: &Id3v24Edit) -> Result<Frame> {
@@ -661,8 +723,8 @@ mod tests {
                         value: "2026".into(),
                     },
                     Id3Field {
-                        frame_id: "TXXX".into(),
-                        value: "V4V_PUBLISHER: Wavlake".into(),
+                        frame_id: "TXXX:V4V_PUBLISHER".into(),
+                        value: "Wavlake".into(),
                     },
                     Id3Field {
                         frame_id: "APIC".into(),

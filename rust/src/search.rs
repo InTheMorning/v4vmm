@@ -1353,13 +1353,13 @@ fn fetch_inspector_detail(
             Ok((InspectorDetail::Feed(Box::new(feed)), image))
         }
         "track" => {
-            let track = client.fetch_track(
+            let mut track = client.fetch_track(
                 entity_id,
                 Some(
                     "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
                 ),
             )?;
-            let feed = track.feed_guid.as_deref().and_then(|feed_guid| {
+            let mut feed = track.feed_guid.as_deref().and_then(|feed_guid| {
                 client
                     .fetch_feed(
                         feed_guid,
@@ -1367,6 +1367,7 @@ fn fetch_inspector_detail(
                     )
                     .ok()
             });
+            enrich_track_context_from_rss(&mut track, feed.as_mut());
             let image = track
                 .image_url
                 .as_deref()
@@ -1389,11 +1390,11 @@ fn download_and_compare_track(
     entity_id: &str,
     force_download: bool,
 ) -> Result<TagCompareResult> {
-    let track = client.fetch_track(
+    let mut track = client.fetch_track(
         entity_id,
         Some("source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
     )?;
-    let feed = match track.feed_guid.as_deref() {
+    let mut feed = match track.feed_guid.as_deref() {
         Some(feed_guid) => client
             .fetch_feed(
                 feed_guid,
@@ -1402,6 +1403,7 @@ fn download_and_compare_track(
             .ok(),
         None => None,
     };
+    enrich_track_context_from_rss(&mut track, feed.as_mut());
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
@@ -1412,6 +1414,17 @@ fn download_and_compare_track(
     let track_context = TrackContext { track, feed };
 
     compare_downloaded_track_path(&path, &track_context)
+}
+
+fn enrich_track_context_from_rss(track: &mut Track, feed: Option<&mut Feed>) {
+    let feed_url = track
+        .feed_url
+        .clone()
+        .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone()));
+    let Some(feed_url) = feed_url else {
+        return;
+    };
+    let _ = rss::enrich_track_from_feed_rss(track, feed, &feed_url);
 }
 
 fn compare_downloaded_track_path(
@@ -1500,9 +1513,11 @@ fn subscribe_feed_from_search(
                 track = track_with_feed_defaults(hydrated, Some(&feed));
             }
         }
+        let mut context_feed = feed.clone();
+        enrich_track_context_from_rss(&mut track, Some(&mut context_feed));
         let track_context = TrackContext {
             track: track.clone(),
-            feed: Some(feed.clone()),
+            feed: Some(context_feed),
         };
         let edits = id3_edits_for_track_context(&track_context);
         match download_track_for_subscription(&cfg, &client, &track) {
@@ -1554,16 +1569,13 @@ fn subscribe_track_from_search(
     track_context: TrackContext,
     edits: Vec<Id3v24Edit>,
 ) -> Result<SearchSubscribeOutcome> {
-    let track = track_with_feed_defaults(track_context.track.clone(), track_context.feed.as_ref());
+    let mut feed = track_context.feed;
+    let mut track = track_with_feed_defaults(track_context.track.clone(), feed.as_ref());
+    enrich_track_context_from_rss(&mut track, feed.as_mut());
     let feed_url = track
         .feed_url
         .clone()
-        .or_else(|| {
-            track_context
-                .feed
-                .as_ref()
-                .and_then(|feed| feed.feed_url.clone())
-        })
+        .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone()))
         .ok_or_else(|| anyhow!("track has no RSS feed URL"))?;
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
@@ -1592,10 +1604,7 @@ fn subscribe_track_from_search(
         )?;
     }
 
-    let refreshed_context = TrackContext {
-        track,
-        feed: track_context.feed,
-    };
+    let refreshed_context = TrackContext { track, feed };
     let compare = compare_downloaded_track_path(&path, &refreshed_context)?;
     let edit_text = if edits.is_empty() {
         String::new()
@@ -2921,7 +2930,7 @@ fn metadata_id3_cell(
     let display_value = display_metadata_value(&row.field, value);
     let color = pending
         .map(|edit| pending_source_color(edit.source))
-        .unwrap_or_else(|| comparison_status_color(&row.id3_status));
+        .unwrap_or_else(|| id3_cell_status_color(row));
     let frame_color = frame.map(id3_frame_base).map(id3_frame_version_color);
     let mut cell = div()
         .pl(px(12.0))
@@ -3161,7 +3170,7 @@ fn unused_id3v24_frames_for_group(result: &TagCompareResult, group_key: &str) ->
             !result
                 .id3_fields
                 .iter()
-                .any(|field| field.frame_id == *frame_id)
+                .any(|field| id3_frame_base(&field.frame_id) == *frame_id)
         })
         .collect()
 }
@@ -3177,7 +3186,7 @@ fn used_id3_fields_for_group<'a>(
         .id3_fields
         .iter()
         .filter(|field| !id3_frame_is_summarized(&field.frame_id))
-        .filter(|field| !aligned_frame_ids.contains(&field.frame_id))
+        .filter(|field| !aligned_frame_ids.contains(&pending_id3_target_key(&field.frame_id)))
         .filter(|field| id3_frame_group_key(&field.frame_id) == group_key)
         .collect()
 }
@@ -3275,7 +3284,10 @@ fn muted_line(value: &str) -> AnyElement {
 }
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
-    let mut cell = div().text_size(px(11.0)).line_height(px(16.0));
+    let mut cell = div()
+        .text_size(px(11.0))
+        .line_height(px(16.0))
+        .line_clamp(4);
     if let Some(color) = color {
         cell = cell.text_color(color);
     }
@@ -3314,6 +3326,7 @@ fn compare_tag_cell(
             value_cell
                 .flex_1()
                 .min_w_0()
+                .line_clamp(4)
                 .child(SharedString::from(value.to_string())),
         )
         .into_any_element()
@@ -3387,8 +3400,10 @@ fn id3_frame_hint(field: &str) -> Option<&'static str> {
         "Album/Feed" => Some("TALB"),
         "Track #" => Some("TRCK"),
         "Publisher" => Some("TXXX:V4V_PUBLISHER"),
+        "Nostr handle" | "RSS feed nostr handle" => Some("TXXX:RSS Nostr Handle"),
         "Label" => Some("TPUB"),
         "Website" => Some("WOAR"),
+        "Tempo" => Some("TBPM"),
         "Release date" => Some("TDRC"),
         "Release year" => Some("TYER"),
         "Duration" => Some("TLEN"),
@@ -3447,6 +3462,13 @@ fn comparison_status_color(status: &ComparisonStatus) -> gpui::Rgba {
         ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => rgb(0xff8a65),
         ComparisonStatus::MissingBoth => muted(),
     }
+}
+
+fn id3_cell_status_color(row: &AlignedCompareRow) -> gpui::Rgba {
+    if row.id3_value.is_some() && row.rss_value.is_none() && row.musicbrainz_value.is_none() {
+        return text();
+    }
+    comparison_status_color(&row.id3_status)
 }
 
 fn render_track_list_section(
@@ -4124,14 +4146,14 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        auto_populated_pending_id3_edits, compare_row_id, expand_woar_metadata_rows,
-        format_drag_value_for_id3v24, id3_frame_group_key, id3_frame_version, metadata_data_row,
-        metadata_drag_value, metadata_field_group_key, musicbrainz_remainder_rows,
-        pending_id3_conflict_descriptions, pending_id3_edits_for_apply, pending_id3_target_key,
-        track_metadata_rows, unused_id3v24_frames_for_group, AlignedCompareRow, Feed,
-        Id3FrameVersion, MetadataColumn, MetadataGridRow, PendingId3Edit, SourceEntityId,
-        SourceEntityLink, TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS,
-        ID3V24_FRAME_IDS,
+        aligned_compare_rows, aligned_id3_frame_ids, auto_populated_pending_id3_edits,
+        compare_row_id, expand_woar_metadata_rows, format_drag_value_for_id3v24,
+        id3_frame_group_key, id3_frame_version, metadata_data_row, metadata_drag_value,
+        metadata_field_group_key, musicbrainz_remainder_rows, pending_id3_conflict_descriptions,
+        pending_id3_edits_for_apply, pending_id3_target_key, track_metadata_rows,
+        unused_id3v24_frames_for_group, AlignedCompareRow, Feed, Id3FrameVersion, MetadataColumn,
+        MetadataGridRow, PendingId3Edit, SourceEntityId, SourceEntityLink, TagCompareResult, Track,
+        TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
     use crate::metadata::{
@@ -4228,6 +4250,106 @@ mod tests {
         assert!(
             identification_unused.contains(&"TALB"),
             "absent album frame should remain available"
+        );
+    }
+
+    #[test]
+    fn descriptor_id3_rows_are_suppressed_when_semantic_row_exists() {
+        let result = TagCompareResult {
+            path: String::new(),
+            rows: Vec::new(),
+            file_image: None,
+            contributors: Vec::new(),
+            value_routes: Vec::new(),
+            total_tracks: None,
+            id3_fields: vec![Id3Field {
+                frame_id: "TXXX:MusicIndex Value Routes".into(),
+                value: r#"[{"recipient_name":"Alice","split":1.0}]"#.into(),
+            }],
+        };
+        let mut grouped = BTreeMap::<&'static str, Vec<MetadataGridRow>>::new();
+        grouped.insert(
+            "music-disc-acquisition-commerce",
+            vec![metadata_data_row(test_compare_row(
+                "Value Routes",
+                Some(r#"[{"recipient_name":"Alice","split":1.0}]"#),
+                Some(r#"[{"recipient_name":"Alice","split":1.0}]"#),
+                Some("TXXX:MusicIndex Value Routes"),
+                None,
+            ))],
+        );
+
+        let aligned = aligned_id3_frame_ids(&grouped);
+        let used = super::used_id3_fields_for_group(
+            &result,
+            "descriptive-technical-rights-text",
+            &aligned,
+        );
+
+        assert!(
+            used.is_empty(),
+            "descriptor-specific TXXX rows should not also appear as raw ID3 rows"
+        );
+    }
+
+    #[test]
+    fn tempo_aliases_are_displayed_as_one_metadata_row() {
+        let result = TagCompareResult {
+            path: String::new(),
+            rows: Vec::new(),
+            file_image: None,
+            contributors: Vec::new(),
+            value_routes: Vec::new(),
+            total_tracks: None,
+            id3_fields: vec![
+                Id3Field {
+                    frame_id: "TBPM".into(),
+                    value: "100.0".into(),
+                },
+                Id3Field {
+                    frame_id: "TXXX:IBPM".into(),
+                    value: "100.0".into(),
+                },
+                Id3Field {
+                    frame_id: "TXXX:tempo".into(),
+                    value: "100.0".into(),
+                },
+                Id3Field {
+                    frame_id: "TXXX:bpm".into(),
+                    value: "100.0".into(),
+                },
+            ],
+        };
+        let track_context = TrackContext {
+            track: Track::default(),
+            feed: None,
+        };
+
+        let rows = aligned_compare_rows(&result, &track_context, None, false, &BTreeSet::new());
+        let tempo = rows
+            .iter()
+            .find_map(|row| match row {
+                MetadataGridRow::Data(row) if row.field == "Tempo" => Some(row),
+                MetadataGridRow::Data(_) | MetadataGridRow::Group(_) => None,
+            })
+            .expect("tempo row");
+
+        assert_eq!(
+            tempo.id3_value.as_deref(),
+            Some("TBPM: 100.0\nTXXX:IBPM: 100.0\nTXXX:tempo: 100.0\nTXXX:bpm: 100.0")
+        );
+
+        let mut grouped = BTreeMap::<&'static str, Vec<MetadataGridRow>>::new();
+        grouped.insert("timing-seeking-audio-analysis-playback-control", rows);
+        let aligned = aligned_id3_frame_ids(&grouped);
+        let used = super::used_id3_fields_for_group(
+            &result,
+            "descriptive-technical-rights-text",
+            &aligned,
+        );
+        assert!(
+            used.is_empty(),
+            "tempo aliases should not be repeated as separate raw ID3 rows"
         );
     }
 
@@ -4454,8 +4576,11 @@ mod tests {
             "Album/Feed",
             "Track #",
             "Publisher",
+            "Nostr handle",
+            "RSS feed nostr handle",
             "Label",
             "Website",
+            "Tempo",
             "Release date",
             "Release year",
             "Duration",
@@ -4654,6 +4779,27 @@ mod tests {
     }
 
     #[test]
+    fn tagger_stages_nostr_handles_as_txxx() {
+        let context = TrackContext {
+            track: Track {
+                title: Some("Song".into()),
+                source_ids: Some(vec![SourceEntityId {
+                    scheme: Some("nostr_npub".into()),
+                    value: Some("npub1track".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            },
+            feed: None,
+        };
+
+        let edits = super::id3_edits_for_track_context(&context);
+        assert!(edits.iter().any(|edit| {
+            edit.frame_label == "TXXX:RSS Nostr Handle" && edit.value == "npub1track"
+        }));
+    }
+
+    #[test]
     fn contributors_map_to_picard_like_people_frames() {
         let contributors = vec![
             crate::api::Contributor {
@@ -4679,9 +4825,9 @@ mod tests {
         ];
 
         let rows = contributor_id3_rows(&contributors);
-        assert!(rows
-            .iter()
-            .any(|(_, frame, value)| { *frame == "TMCL" && value == "guitar: Alice" }));
+        assert!(rows.iter().any(|(field, frame, value)| {
+            field == "Performer [guitar]" && *frame == "TMCL" && value == "Alice"
+        }));
         assert!(rows
             .iter()
             .any(|(_, frame, value)| { *frame == "TIPL" && value == "engineer: Bob" }));
@@ -4700,7 +4846,7 @@ mod tests {
         );
         assert_eq!(
             display_metadata_value("Contributors", &musicindex),
-            "Alice: guitarist · Bob: audio engineer · Cara: composer · Dana: musician"
+            "[\n  { \"role\": \"guitarist\", \"name\": \"Alice\" },\n  { \"role\": \"audio engineer\", \"name\": \"Bob\" },\n  { \"role\": \"composer\", \"name\": \"Cara\" },\n  { \"role\": \"musician\", \"name\": \"Dana\" }\n]"
         );
     }
 
@@ -4709,7 +4855,7 @@ mod tests {
         let value = r#"[{"recipient_name":"Alice","route_type":"node","split":75.0,"fee":false,"address":"abc","custom_key":null,"custom_value":null},{"recipient_name":"Hosting","route_type":"node","split":25.0,"fee":true,"address":"def","custom_key":null,"custom_value":null}]"#;
         assert_eq!(
             display_metadata_value("Value Routes", value),
-            "Alice: 75% node · Hosting: 25% node fee"
+            "[\n  { \"recipient_name\": \"Alice\", \"route_type\": \"node\", \"split\": 75.0, \"fee\": false, \"address\": \"abc\", \"custom_key\": null, \"custom_value\": null },\n  { \"recipient_name\": \"Hosting\", \"route_type\": \"node\", \"split\": 25.0, \"fee\": true, \"address\": \"def\", \"custom_key\": null, \"custom_value\": null }\n]"
         );
     }
 
