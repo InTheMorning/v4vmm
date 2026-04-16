@@ -4,9 +4,9 @@ use std::sync::Arc;
 use gpui::{Image, SharedString};
 
 use crate::api::*;
-use crate::audio_tags::{Id3Field, Id3v24Edit, id3v24_edit_label_is_writable};
+use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field, Id3v24Edit};
 use crate::musicbrainz::{MusicBrainzCandidate, MusicBrainzLookup};
-use crate::track_compare::{ComparisonRow, ComparisonStatus, compare_track_tags};
+use crate::track_compare::{compare_track_tags, ComparisonRow, ComparisonStatus};
 
 // Constants
 
@@ -248,6 +248,10 @@ pub fn feed_website(feed: &Feed) -> Option<String> {
     website_from_links(feed.source_links.as_deref())
 }
 
+pub fn track_transcript_url(track: &Track) -> Option<String> {
+    transcript_from_links(track.source_links.as_deref())
+}
+
 pub fn track_artwork_url(track_context: &TrackContext) -> Option<String> {
     artwork_url(&track_context.track, track_context.feed.as_ref())
 }
@@ -268,6 +272,39 @@ pub fn website_from_links(links: Option<&[SourceEntityLink]>) -> Option<String> 
             None
         }
     })
+}
+
+pub fn transcript_from_links(links: Option<&[SourceEntityLink]>) -> Option<String> {
+    links?.iter().find_map(|link| {
+        let url = link.url.as_deref()?;
+        let link_type = link
+            .link_type
+            .as_deref()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        let path = link
+            .extraction_path
+            .as_deref()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        if link_type.contains("transcript")
+            || link_type.contains("caption")
+            || link_type.contains("subtitle")
+            || path.contains("transcript")
+            || transcript_url_extension(url)
+        {
+            Some(url.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn transcript_url_extension(url: &str) -> bool {
+    let path = url.split('?').next().unwrap_or(url).to_ascii_lowercase();
+    [".srt", ".vtt", ".lrc", ".sub", ".sbv", ".ttml", ".dfxp"]
+        .iter()
+        .any(|extension| path.ends_with(extension))
 }
 
 pub fn track_release_pubdate(track: &Track) -> Option<String> {
@@ -561,9 +598,13 @@ pub fn auto_populated_pending_id3_edits(
             .find(|edit| pending_id3_target_key(&edit.frame) == pending_id3_target_key(frame))
             .map(|edit| edit.value.as_str())
             .or(row.id3_value.as_deref());
-        let Some(value) =
-            format_drag_value_for_id3v24(frame, &row.field, existing_value, &source_value)
-        else {
+        let Some(value) = format_source_value_for_id3v24(
+            frame,
+            &row.field,
+            source,
+            existing_value,
+            &source_value,
+        ) else {
             continue;
         };
         update_matching_pending_target_values(&mut pending, frame, &value);
@@ -597,7 +638,7 @@ pub fn update_matching_pending_target_values(
     frame: &str,
     value: &str,
 ) {
-    if matches!(id3_frame_base(frame), "WCOM" | "WOAR") {
+    if matches!(id3_frame_base(frame), "WCOM" | "WOAR" | "COMM") {
         return;
     }
     let target = pending_id3_target_key(frame);
@@ -616,7 +657,7 @@ pub fn id3_frame_group_key(frame_id: &str) -> &'static str {
         "TCOM" | "TENC" | "TEXT" | "TIPL" | "TMCL" | "TOLY" | "TOPE" | "TPE1" | "TPE2" | "TPE3"
         | "TPE4" => "people-credits",
         "TBPM" | "TCON" | "TCOP" | "TDEN" | "TDLY" | "TDOR" | "TDRC" | "TDRL" | "TDTG" | "TFLT"
-        | "TKEY" | "TLAN" | "TLEN" | "TMCL" | "TMED" | "TMOO" | "TOFN" | "TOWN" | "TPRO" | "TPUB"
+        | "TKEY" | "TLAN" | "TLEN" | "TMED" | "TMOO" | "TOFN" | "TOWN" | "TPRO" | "TPUB"
         | "TRSN" | "TRSO" | "TSOA" | "TSOP" | "TSOT" | "TSSE" | "TXXX" => {
             "descriptive-technical-rights-text"
         }
@@ -701,6 +742,13 @@ pub fn track_metadata_rows(
     push_track_metadata_row(
         &mut rows,
         "descriptive-technical-rights-text",
+        "Release year",
+        musicindex_release_date(track_context),
+        musicbrainz_value_for_field("Release date", musicbrainz),
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "descriptive-technical-rights-text",
         "Duration",
         track.duration_secs.map(fmt_dur),
         musicbrainz_value_for_field("Duration", musicbrainz),
@@ -714,6 +762,20 @@ pub fn track_metadata_rows(
     );
     push_track_metadata_row(
         &mut rows,
+        "lyrics-comments-artwork-user-facing-content",
+        "Transcript",
+        track_transcript_url(track),
+        None,
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "lyrics-comments-artwork-user-facing-content",
+        "Transcript text",
+        track_transcript_url(track),
+        None,
+    );
+    push_track_metadata_row(
+        &mut rows,
         "people-credits",
         "Contributors",
         track
@@ -722,6 +784,25 @@ pub fn track_metadata_rows(
             .and_then(summarize_contributors),
         musicbrainz_value_for_field("Contributors", musicbrainz),
     );
+    if let Some(contributors) = track.source_contributors.as_deref() {
+        for (field, frame, value) in contributor_id3_rows(contributors) {
+            push_grouped_metadata_data_row(
+                &mut rows,
+                "people-credits",
+                AlignedCompareRow {
+                    row_id: compare_row_id(field),
+                    field: field.into(),
+                    rss_value: Some(value),
+                    id3_value: None,
+                    id3_frame: Some(frame.into()),
+                    musicbrainz_value: None,
+                    musicbrainz_key: None,
+                    id3_status: ComparisonStatus::MissingTag,
+                    musicbrainz_status: ComparisonStatus::MissingBoth,
+                },
+            );
+        }
+    }
     push_track_metadata_row(
         &mut rows,
         "music-disc-acquisition-commerce",
@@ -851,6 +932,32 @@ pub fn aligned_compare_rows(
         );
     }
 
+    let release_year_rss = musicindex_release_date(track_context)
+        .or_else(|| comparison_source_value(result, "Release date"));
+    let release_year_id3 = id3_value_for_field("Release year", result);
+    let release_year_musicbrainz = musicbrainz_value_for_field("Release date", musicbrainz);
+    let release_year_status =
+        compare_optional_values(release_year_rss.as_deref(), release_year_id3.as_deref());
+    let release_year_musicbrainz_status = compare_optional_values(
+        release_year_rss.as_deref(),
+        release_year_musicbrainz.as_deref(),
+    );
+    push_grouped_metadata_data_row(
+        &mut grouped_rows,
+        "descriptive-technical-rights-text",
+        AlignedCompareRow {
+            row_id: compare_row_id("Release year"),
+            field: "Release year".into(),
+            rss_value: release_year_rss,
+            id3_value: release_year_id3,
+            id3_frame: id3_frame_hint("Release year").map(str::to_string),
+            musicbrainz_value: release_year_musicbrainz,
+            musicbrainz_key: musicbrainz_key_for_field("Release date").map(str::to_string),
+            id3_status: release_year_status,
+            musicbrainz_status: release_year_musicbrainz_status,
+        },
+    );
+
     let contributors_rss = summarize_contributors(&result.contributors);
     let contributors_id3 = id3_value_for_field("Contributors", result);
     let contributors_musicbrainz = musicbrainz_value_for_field("Contributors", musicbrainz);
@@ -875,6 +982,25 @@ pub fn aligned_compare_rows(
             musicbrainz_status: contributors_musicbrainz_status,
         },
     );
+    for (field, frame, value) in contributor_id3_rows(&result.contributors) {
+        let id3_value = id3_values_for_frame(result, id3_frame_base(frame), &[]);
+        let id3_status = compare_optional_values(Some(value.as_str()), id3_value.as_deref());
+        push_grouped_metadata_data_row(
+            &mut grouped_rows,
+            "people-credits",
+            AlignedCompareRow {
+                row_id: compare_row_id(field),
+                field: field.into(),
+                rss_value: Some(value),
+                id3_value,
+                id3_frame: Some(frame.into()),
+                musicbrainz_value: None,
+                musicbrainz_key: None,
+                id3_status,
+                musicbrainz_status: ComparisonStatus::MissingBoth,
+            },
+        );
+    }
     let value_routes_rss = summarize_value_routes(&result.value_routes);
     let value_routes_id3 = id3_value_for_field("Value Routes", result);
     let value_routes_status =
@@ -911,13 +1037,34 @@ pub fn aligned_compare_rows(
             field: "Description".into(),
             rss_value: description_rss,
             id3_value: description_id3,
-            id3_frame: None,
+            id3_frame: id3_frame_hint("Description").map(str::to_string),
             musicbrainz_value: None,
             musicbrainz_key: None,
             id3_status: description_status,
             musicbrainz_status: ComparisonStatus::MissingBoth,
         },
     );
+    let transcript_rss = track_transcript_url(&track_context.track);
+    for field in ["Transcript", "Transcript text"] {
+        let transcript_id3 = id3_value_for_field(field, result);
+        let transcript_status =
+            compare_optional_values(transcript_rss.as_deref(), transcript_id3.as_deref());
+        push_grouped_metadata_data_row(
+            &mut grouped_rows,
+            "lyrics-comments-artwork-user-facing-content",
+            AlignedCompareRow {
+                row_id: compare_row_id(field),
+                field: field.into(),
+                rss_value: transcript_rss.clone(),
+                id3_value: transcript_id3,
+                id3_frame: id3_frame_hint(field).map(str::to_string),
+                musicbrainz_value: None,
+                musicbrainz_key: None,
+                id3_status: transcript_status,
+                musicbrainz_status: ComparisonStatus::MissingBoth,
+            },
+        );
+    }
 
     if show_musicbrainz {
         if let Some(candidate) = musicbrainz {
@@ -1021,6 +1168,7 @@ pub fn metadata_field_group_key(field: &str) -> &'static str {
         "Artist" | "Contributors" | "Label" => "people-credits",
         "Publisher"
         | "Release date"
+        | "Release year"
         | "RSS item pubdate"
         | "Release country"
         | "Release status"
@@ -1032,10 +1180,14 @@ pub fn metadata_field_group_key(field: &str) -> &'static str {
         | "Track note"
         | "Duration"
         | "Description" => "descriptive-technical-rights-text",
-        "Artwork" => "lyrics-comments-artwork-user-facing-content",
+        "Artwork" | "Transcript" | "Transcript text" => {
+            "lyrics-comments-artwork-user-facing-content"
+        }
         "Website" | "RSS feed website" => "url-link-frames",
         "Nostr handle" | "RSS feed nostr handle" => "identity-linking-private-registration",
         "Value Routes" => "music-disc-acquisition-commerce",
+        "Composer" | "Lyricist" | "Lead performer" | "Album artist" | "Conductor" | "Remixer"
+        | "Original artist" | "Original lyricist" | "Involved musicians" => "people-credits",
         _ => "unknown",
     }
 }
@@ -1235,11 +1387,17 @@ pub fn musicbrainz_source_value_for_field(
             "Barcode" => source_id_by_scheme(track.source_ids.as_deref(), &["barcode"]),
             "ISRC" => source_id_by_scheme(track.source_ids.as_deref(), &["isrc"]),
             "Duration" => track.duration_secs.map(fmt_dur),
+            "Release year" => musicindex_release_date(track_context),
             _ => None,
         })
 }
 
-pub fn metadata_group_row(label: &str, key: Option<&str>, expanded: bool, unused_count: usize) -> MetadataGridRow {
+pub fn metadata_group_row(
+    label: &str,
+    key: Option<&str>,
+    expanded: bool,
+    unused_count: usize,
+) -> MetadataGridRow {
     MetadataGridRow::Group(MetadataGroupRow {
         key: key.map(str::to_string),
         label: label.to_string(),
@@ -1284,7 +1442,10 @@ pub fn used_id3_field_row(field: &Id3Field) -> MetadataGridRow {
     })
 }
 
-pub fn unused_id3v24_frames_for_group(result: &TagCompareResult, group_key: &str) -> Vec<&'static str> {
+pub fn unused_id3v24_frames_for_group(
+    result: &TagCompareResult,
+    group_key: &str,
+) -> Vec<&'static str> {
     result
         .id3_fields
         .iter()
@@ -1343,6 +1504,9 @@ pub fn id3_value_for_field(field: &str, result: &TagCompareResult) -> Option<Str
     if frame_id == "TXXX" {
         return id3_values_for_frame(result, frame_id, id3_txxx_needles(field));
     }
+    if matches!(frame_id, "COMM" | "USLT" | "SYLT") {
+        return id3_values_for_frame(result, frame_id, id3_descriptor_needles(field));
+    }
 
     let needles = if field == "MusicBrainz recording" {
         &["musicbrainz"][..]
@@ -1365,15 +1529,35 @@ pub fn format_drag_value_for_id3v24(
     let frame_id = id3_frame_base(frame_label);
     match frame_id {
         "TXXX" | "UFID" => Some(value),
+        "COMM" | "USLT" | "SYLT" => Some(value),
         "WXXX" => format_id3_url(&value),
         "TRCK" => format_slash_number_frame(target_field, existing_value, &value),
         "TPOS" => format_slash_number_frame(target_field, existing_value, &value),
         "TLEN" => format_id3_duration_ms(&value),
         "APIC" => format_id3_url(&value),
-        "TDRC" | "TDRL" | "TDOR" | "TYER" => format_id3_timestamp(&value),
+        "TYER" => format_id3_timestamp(&value).map(|value| value.chars().take(4).collect()),
+        "TDRC" | "TDRL" | "TDOR" => format_id3_timestamp(&value),
         id if id.starts_with('W') => format_id3_url(&value),
         _ => Some(value),
     }
+}
+
+pub fn format_source_value_for_id3v24(
+    frame_label: &str,
+    target_field: &str,
+    source: MetadataColumn,
+    existing_value: Option<&str>,
+    value: &str,
+) -> Option<String> {
+    let prepared = if source == MetadataColumn::Rss
+        && id3_frame_base(frame_label) == "WOAR"
+        && target_field.to_ascii_lowercase().contains("website")
+    {
+        format!("download for free (url, forward): {value}")
+    } else {
+        value.to_string()
+    };
+    format_drag_value_for_id3v24(frame_label, target_field, existing_value, &prepared)
 }
 
 pub fn format_slash_number_frame(
@@ -1525,9 +1709,13 @@ pub fn pending_id3_edits_for_apply(edits: &BTreeMap<String, PendingId3Edit>) -> 
 pub fn pending_id3_effective_target_key(edit: &PendingId3Edit) -> String {
     let frame_id = id3_frame_base(&edit.frame).to_ascii_uppercase();
     match frame_id.as_str() {
-        "WCOM" | "WOAR" => {
+        "WCOM" | "WOAR" | "COMM" => {
             let value = normalized_compare_value(Some(&edit.value)).unwrap_or_default();
-            format!("{frame_id}:{}", value.to_ascii_lowercase())
+            format!(
+                "{}:{}",
+                pending_id3_target_key(&edit.frame),
+                value.to_ascii_lowercase()
+            )
         }
         _ => pending_id3_target_key(&edit.frame),
     }
@@ -1536,7 +1724,7 @@ pub fn pending_id3_effective_target_key(edit: &PendingId3Edit) -> String {
 pub fn pending_id3_target_key(frame_label: &str) -> String {
     let frame_id = id3_frame_base(frame_label).to_ascii_uppercase();
     match frame_id.as_str() {
-        "TXXX" | "WXXX" | "UFID" => {
+        "TXXX" | "WXXX" | "UFID" | "COMM" | "USLT" | "SYLT" => {
             let descriptor = frame_label
                 .split_once(':')
                 .map_or("", |(_, descriptor)| descriptor.trim())
@@ -1593,6 +1781,14 @@ pub fn id3_txxx_needles(field: &str) -> &'static [&'static str] {
         "Publisher" => &["v4v", "publisher"],
         "Contributors" => &["musicindex", "contributors"],
         "Value Routes" => &["musicindex", "value", "routes"],
+        _ => &[],
+    }
+}
+
+pub fn id3_descriptor_needles(field: &str) -> &'static [&'static str] {
+    match field {
+        "Description" => &["musicindex", "description"],
+        "Transcript" | "Transcript text" => &["musicindex", "transcript"],
         _ => &[],
     }
 }
@@ -1669,31 +1865,110 @@ pub fn summarize_contributors(contributors: &[Contributor]) -> Option<String> {
     )
 }
 
+pub fn contributor_id3_rows(
+    contributors: &[Contributor],
+) -> Vec<(&'static str, &'static str, String)> {
+    let mut grouped = BTreeMap::<(&'static str, &'static str), Vec<String>>::new();
+    let mut instruments = Vec::new();
+    for contributor in contributors {
+        let Some(name) = contributor
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+        else {
+            continue;
+        };
+        let role = contributor.role.as_deref().unwrap_or("").trim();
+        if let Some(instrument) = instrument_role(role) {
+            instruments.push(format!("{instrument}: {name}"));
+            continue;
+        }
+        let role_key = role.to_ascii_lowercase();
+        let Some(target) = contributor_role_target(&role_key) else {
+            continue;
+        };
+        grouped.entry(target).or_default().push(name.to_string());
+    }
+    if !instruments.is_empty() {
+        grouped
+            .entry(("Involved musicians", "TMCL"))
+            .or_default()
+            .extend(instruments);
+    }
+    grouped
+        .into_iter()
+        .map(|((field, frame), names)| (field, frame, names.join(" / ")))
+        .collect()
+}
+
+fn contributor_role_target(role: &str) -> Option<(&'static str, &'static str)> {
+    match role {
+        role if role.contains("composer") || role.contains("composed") => {
+            Some(("Composer", "TCOM"))
+        }
+        role if role.contains("lyric") || role.contains("text writer") || role == "writer" => {
+            Some(("Lyricist", "TEXT"))
+        }
+        role if role.contains("lead") || role.contains("performer") || role.contains("artist") => {
+            Some(("Lead performer", "TPE1"))
+        }
+        role if role.contains("album artist")
+            || role.contains("band")
+            || role.contains("group") =>
+        {
+            Some(("Album artist", "TPE2"))
+        }
+        role if role.contains("conductor") => Some(("Conductor", "TPE3")),
+        role if role.contains("remix") => Some(("Remixer", "TPE4")),
+        role if role.contains("original artist") => Some(("Original artist", "TOPE")),
+        role if role.contains("original lyric") => Some(("Original lyricist", "TOLY")),
+        _ => None,
+    }
+}
+
+fn instrument_role(role: &str) -> Option<&str> {
+    let role = role.trim();
+    if role.is_empty() {
+        return None;
+    }
+    let lower = role.to_ascii_lowercase();
+    let known_non_instruments = [
+        "artist",
+        "album artist",
+        "composer",
+        "conductor",
+        "contributor",
+        "host",
+        "lyricist",
+        "original artist",
+        "original lyricist",
+        "performer",
+        "producer",
+        "publisher",
+        "remixer",
+        "writer",
+    ];
+    if known_non_instruments
+        .iter()
+        .any(|known| lower == *known || lower.contains(known))
+    {
+        return None;
+    }
+    Some(role)
+}
+
 pub fn summarize_value_routes(routes: &[PaymentRoute]) -> Option<String> {
     if routes.is_empty() {
         return None;
     }
-    Some(
-        routes
-            .iter()
-            .map(|route| {
-                let name = route
-                    .recipient_name
-                    .as_deref()
-                    .unwrap_or("Unnamed recipient");
-                let split = route.split.unwrap_or_default();
-                let route_type = route.route_type.as_deref().unwrap_or("route");
-                format!("{name} ({route_type} {split}%)")
-            })
-            .collect::<Vec<_>>()
-            .join(" · "),
-    )
+    serde_json::to_string(routes).ok()
 }
 
-pub fn selected_musicbrainz_candidate<'a>(
+pub fn selected_musicbrainz_candidate(
     frame_musicbrainz_selected: usize,
-    result: &'a MusicBrainzLookupResult,
-) -> Option<&'a MusicBrainzCandidate> {
+    result: &MusicBrainzLookupResult,
+) -> Option<&MusicBrainzCandidate> {
     result
         .lookup
         .candidates
@@ -1815,9 +2090,22 @@ pub fn id3_frame_hint(field: &str) -> Option<&'static str> {
         "Label" => Some("TPUB"),
         "Website" | "RSS feed website" => Some("WOAR"),
         "Release date" => Some("TDRC"),
+        "Release year" => Some("TYER"),
         "Duration" => Some("TLEN"),
         "Artwork" => Some("APIC"),
+        "Description" => Some("COMM:MusicIndex Description"),
+        "Transcript" => Some("SYLT:MusicIndex Transcript"),
+        "Transcript text" => Some("USLT:MusicIndex Transcript"),
         "Contributors" => Some("TXXX:MusicIndex Contributors"),
+        "Composer" => Some("TCOM"),
+        "Lyricist" => Some("TEXT"),
+        "Lead performer" => Some("TPE1"),
+        "Album artist" => Some("TPE2"),
+        "Conductor" => Some("TPE3"),
+        "Remixer" => Some("TPE4"),
+        "Original artist" => Some("TOPE"),
+        "Original lyricist" => Some("TOLY"),
+        "Involved musicians" => Some("TMCL"),
         "Value Routes" => Some("TXXX:MusicIndex Value Routes"),
         "MusicBrainz recording" => Some("UFID:http://musicbrainz.org"),
         "MusicBrainz release" => Some("TXXX:MusicBrainz Album Id"),

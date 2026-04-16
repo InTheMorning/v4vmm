@@ -3,14 +3,18 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
-use id3::frame::{ExtendedLink, ExtendedText, Picture, PictureType, UniqueFileIdentifier};
+use id3::frame::{
+    Comment, ExtendedLink, ExtendedText, InvolvedPeopleList, InvolvedPeopleListItem, Lyrics,
+    Picture, PictureType, SynchronisedLyrics, SynchronisedLyricsType, TimestampFormat,
+    UniqueFileIdentifier,
+};
 use id3::{no_tag_ok, Content, Frame, Tag, TagLike, Version};
 
 const WRITABLE_TEXT_FRAMES: &[&str] = &[
     "TALB", "TBPM", "TCOM", "TCON", "TCOP", "TDEN", "TDLY", "TDOR", "TDRC", "TDRL", "TDTG", "TENC",
-    "TEXT", "TFLT", "TIPL", "TIT1", "TIT2", "TIT3", "TKEY", "TLAN", "TLEN", "TMCL", "TMED", "TMOO",
-    "TOAL", "TOFN", "TOLY", "TOPE", "TOWN", "TPE1", "TPE2", "TPE3", "TPE4", "TPOS", "TPRO", "TPUB",
-    "TRCK", "TRSN", "TRSO", "TSOA", "TSOP", "TSOT", "TSRC", "TSSE", "TSST", "TXXX",
+    "TEXT", "TFLT", "TIT1", "TIT2", "TIT3", "TKEY", "TLAN", "TLEN", "TMED", "TMOO", "TOAL", "TOFN",
+    "TOLY", "TOPE", "TOWN", "TPE1", "TPE2", "TPE3", "TPE4", "TPOS", "TPRO", "TPUB", "TRCK", "TRSN",
+    "TRSO", "TSOA", "TSOP", "TSOT", "TSRC", "TSSE", "TSST", "TXXX", "TYER",
 ];
 const WRITABLE_URL_FRAMES: &[&str] = &[
     "WCOM", "WCOP", "WOAF", "WOAR", "WOAS", "WORS", "WPAY", "WPUB", "WXXX",
@@ -198,7 +202,21 @@ fn id3v24_edit_frame(edit: &Id3v24Edit) -> Result<Frame> {
                 }),
             ))
         }
+        "COMM" => Ok(Frame::with_content(
+            "COMM",
+            Content::Comment(Comment {
+                lang: "eng".into(),
+                description: required_frame_descriptor(frame_id, descriptor)?,
+                text: value.to_string(),
+            }),
+        )),
+        "USLT" => uslt_frame_from_reference(value, descriptor),
+        "SYLT" => sylt_frame_from_reference(value, descriptor),
         "APIC" => apic_frame_from_reference(value),
+        "TIPL" | "TMCL" => Ok(Frame::with_content(
+            frame_id,
+            Content::InvolvedPeopleList(parse_involved_people_list(value)),
+        )),
         id if id.starts_with('T') => Ok(Frame::text(id, value)),
         id if id.starts_with('W') => Ok(Frame::with_content(id, Content::Link(value.to_string()))),
         _ => unreachable!("frame writability was checked before construction"),
@@ -210,18 +228,38 @@ pub fn id3v24_edit_label_is_writable(frame_label: &str) -> bool {
     if !id3v24_edit_frame_is_writable(&frame_id) {
         return false;
     }
-    !matches!(frame_id.as_str(), "TXXX" | "WXXX" | "UFID") || descriptor.is_some()
+    !matches!(
+        frame_id.as_str(),
+        "TXXX" | "WXXX" | "UFID" | "COMM" | "USLT" | "SYLT"
+    ) || descriptor.is_some()
 }
 
 fn id3v24_edit_frame_is_writable(frame_id: &str) -> bool {
     WRITABLE_TEXT_FRAMES.contains(&frame_id)
         || WRITABLE_URL_FRAMES.contains(&frame_id)
         || frame_id == "APIC"
+        || matches!(frame_id, "COMM" | "USLT" | "SYLT")
         || frame_id == "UFID"
+        || matches!(frame_id, "TIPL" | "TMCL")
 }
 
 fn required_frame_descriptor(frame_id: &str, descriptor: Option<String>) -> Result<String> {
     descriptor.ok_or_else(|| anyhow!("{frame_id} edits require a descriptor"))
+}
+
+/// Parse a `"role: name / role: name"` display string back into an [`InvolvedPeopleList`].
+fn parse_involved_people_list(value: &str) -> InvolvedPeopleList {
+    let items = value
+        .split(" / ")
+        .filter_map(|entry| {
+            let (involvement, involvee) = entry.split_once(": ")?;
+            Some(InvolvedPeopleListItem {
+                involvement: involvement.trim().to_string(),
+                involvee: involvee.trim().to_string(),
+            })
+        })
+        .collect();
+    InvolvedPeopleList { items }
 }
 
 fn split_frame_label(label: &str) -> (String, Option<String>) {
@@ -246,6 +284,247 @@ fn apic_frame_from_reference(reference: &str) -> Result<Frame> {
             data,
         }),
     ))
+}
+
+fn uslt_frame_from_reference(reference: &str, descriptor: Option<String>) -> Result<Frame> {
+    let description = required_frame_descriptor("USLT", descriptor)?;
+    let transcript = parse_transcript_reference(reference)?;
+    Ok(Frame::with_content(
+        "USLT",
+        Content::Lyrics(Lyrics {
+            lang: "eng".into(),
+            description,
+            text: transcript.plain_text,
+        }),
+    ))
+}
+
+fn sylt_frame_from_reference(reference: &str, descriptor: Option<String>) -> Result<Frame> {
+    let description = required_frame_descriptor("SYLT", descriptor)?;
+    let transcript = parse_transcript_reference(reference)?;
+    let content = if transcript.timed_lines.is_empty() {
+        vec![(0, transcript.plain_text)]
+    } else {
+        transcript.timed_lines
+    };
+    Ok(Frame::with_content(
+        "SYLT",
+        Content::SynchronisedLyrics(SynchronisedLyrics {
+            lang: "eng".into(),
+            timestamp_format: TimestampFormat::Ms,
+            content_type: SynchronisedLyricsType::Transcription,
+            description,
+            content,
+        }),
+    ))
+}
+
+#[derive(Debug, Default)]
+struct ParsedTranscript {
+    timed_lines: Vec<(u32, String)>,
+    plain_text: String,
+}
+
+fn parse_transcript_reference(reference: &str) -> Result<ParsedTranscript> {
+    let text = read_text_reference(reference)?;
+    let mut parsed = parse_srt_or_vtt_transcript(&text);
+    if parsed.timed_lines.is_empty() {
+        parsed = parse_lrc_transcript(&text);
+    }
+    if parsed.timed_lines.is_empty() {
+        parsed = parse_microdvd_sub_transcript(&text);
+    }
+    if parsed.plain_text.trim().is_empty() {
+        parsed.plain_text = strip_timecode_data(&text);
+    }
+    if parsed.plain_text.trim().is_empty() {
+        return Err(anyhow!("transcript is empty"));
+    }
+    Ok(parsed)
+}
+
+fn read_text_reference(reference: &str) -> Result<String> {
+    if reference.starts_with("http://") || reference.starts_with("https://") {
+        return reqwest::blocking::get(reference)
+            .with_context(|| format!("download transcript {reference}"))?
+            .error_for_status()
+            .with_context(|| format!("download transcript {reference}"))?
+            .text()
+            .with_context(|| format!("read transcript {reference}"));
+    }
+    fs::read_to_string(reference).with_context(|| format!("read transcript {reference}"))
+}
+
+fn parse_srt_or_vtt_transcript(text: &str) -> ParsedTranscript {
+    let mut timed_lines = Vec::new();
+    for block in text.replace("\r\n", "\n").split("\n\n") {
+        let lines = block
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && *line != "WEBVTT")
+            .collect::<Vec<_>>();
+        let Some(timestamp_index) = lines.iter().position(|line| line.contains("-->")) else {
+            continue;
+        };
+        let Some(start) = lines[timestamp_index]
+            .split("-->")
+            .next()
+            .and_then(parse_timecode_ms)
+        else {
+            continue;
+        };
+        let text = lines
+            .iter()
+            .skip(timestamp_index + 1)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !text.is_empty() {
+            timed_lines.push((start, text));
+        }
+    }
+    transcript_from_timed_lines(timed_lines)
+}
+
+fn parse_lrc_transcript(text: &str) -> ParsedTranscript {
+    let mut timed_lines = Vec::new();
+    for line in text.lines() {
+        let mut rest = line.trim();
+        let mut starts = Vec::new();
+        while let Some(stripped) = rest.strip_prefix('[') {
+            let Some((stamp, remaining)) = stripped.split_once(']') else {
+                break;
+            };
+            let Some(ms) = parse_lrc_timecode_ms(stamp) else {
+                break;
+            };
+            starts.push(ms);
+            rest = remaining.trim_start();
+        }
+        if rest.is_empty() {
+            continue;
+        }
+        timed_lines.extend(starts.into_iter().map(|start| (start, rest.to_string())));
+    }
+    transcript_from_timed_lines(timed_lines)
+}
+
+fn parse_microdvd_sub_transcript(text: &str) -> ParsedTranscript {
+    let mut timed_lines = Vec::new();
+    for line in text.lines().map(str::trim) {
+        let Some(after_open) = line.strip_prefix('{') else {
+            continue;
+        };
+        let Some((start_frame, rest)) = after_open.split_once('}') else {
+            continue;
+        };
+        let Some(rest) = rest.strip_prefix('{') else {
+            continue;
+        };
+        let Some((_end_frame, text)) = rest.split_once('}') else {
+            continue;
+        };
+        let Ok(start_frame) = start_frame.parse::<u32>() else {
+            continue;
+        };
+        let text = text.replace('|', " ").trim().to_string();
+        if !text.is_empty() {
+            timed_lines.push((start_frame.saturating_mul(40), text));
+        }
+    }
+    transcript_from_timed_lines(timed_lines)
+}
+
+fn transcript_from_timed_lines(timed_lines: Vec<(u32, String)>) -> ParsedTranscript {
+    let plain_text = timed_lines
+        .iter()
+        .map(|(_, text)| text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    ParsedTranscript {
+        timed_lines,
+        plain_text,
+    }
+}
+
+fn parse_timecode_ms(value: &str) -> Option<u32> {
+    let time = value
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .replace(',', ".");
+    let mut parts = time.split(':').collect::<Vec<_>>();
+    if parts.len() == 2 {
+        parts.insert(0, "0");
+    }
+    let [hours, minutes, seconds] = parts.as_slice() else {
+        return None;
+    };
+    let hours = hours.parse::<u32>().ok()?;
+    let minutes = minutes.parse::<u32>().ok()?;
+    let (seconds, millis) = seconds
+        .split_once('.')
+        .map_or((*seconds, "0"), |(seconds, millis)| (seconds, millis));
+    let seconds = seconds.parse::<u32>().ok()?;
+    let millis = parse_millis(millis)?;
+    hours
+        .checked_mul(3_600_000)?
+        .checked_add(minutes.checked_mul(60_000)?)?
+        .checked_add(seconds.checked_mul(1_000)?)?
+        .checked_add(millis)
+}
+
+fn parse_lrc_timecode_ms(value: &str) -> Option<u32> {
+    if !value.chars().next()?.is_ascii_digit() {
+        return None;
+    }
+    parse_timecode_ms(&format!("0:{value}"))
+}
+
+fn parse_millis(value: &str) -> Option<u32> {
+    let digits = value
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    if digits.is_empty() {
+        return Some(0);
+    }
+    let mut padded = digits;
+    while padded.len() < 3 {
+        padded.push('0');
+    }
+    padded.get(..3)?.parse::<u32>().ok()
+}
+
+fn strip_timecode_data(text: &str) -> String {
+    text.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty()
+                || trimmed == "WEBVTT"
+                || trimmed.chars().all(|ch| ch.is_ascii_digit())
+                || trimmed.contains("-->")
+            {
+                return None;
+            }
+            if trimmed.starts_with('[') && trimmed.contains(']') {
+                return trimmed
+                    .rsplit(']')
+                    .next()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty());
+            }
+            if trimmed.starts_with('{') && trimmed.contains('}') {
+                return trimmed
+                    .rsplit('}')
+                    .next()
+                    .map(str::trim)
+                    .filter(|text| !text.is_empty());
+            }
+            Some(trimmed)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
@@ -404,6 +683,15 @@ mod tests {
             .tempfile()
             .expect("temp image file");
         fs::write(image.path(), [1, 2, 3]).expect("write image file");
+        let transcript = tempfile::Builder::new()
+            .suffix(".srt")
+            .tempfile()
+            .expect("temp transcript file");
+        fs::write(
+            transcript.path(),
+            "1\n00:00:01,250 --> 00:00:03,000\nHello world\n",
+        )
+        .expect("write transcript file");
 
         let edits = [
             Id3v24Edit {
@@ -430,11 +718,23 @@ mod tests {
                 frame_label: "APIC".into(),
                 value: image.path().display().to_string(),
             },
+            Id3v24Edit {
+                frame_label: "COMM:MusicIndex Description".into(),
+                value: "RSS description".into(),
+            },
+            Id3v24Edit {
+                frame_label: "USLT:MusicIndex Transcript".into(),
+                value: transcript.path().display().to_string(),
+            },
+            Id3v24Edit {
+                frame_label: "SYLT:MusicIndex Transcript".into(),
+                value: transcript.path().display().to_string(),
+            },
         ];
 
         assert_eq!(
             write_id3v24_edits(temp.path(), &edits).expect("write ID3v2.4 edits"),
-            6
+            9
         );
 
         let tag = Tag::read_from_path(temp.path()).expect("read written ID3 tag");
@@ -466,6 +766,22 @@ mod tests {
             frame.id() == "APIC"
                 && frame.content().to_string() == "front cover: Front cover (image/png, 3 bytes)"
         }));
+        assert!(tag.frames().any(|frame| {
+            frame.id() == "COMM"
+                && frame.content().to_string() == "MusicIndex Description: RSS description"
+        }));
+        assert!(tag.frames().any(|frame| {
+            frame.id() == "USLT"
+                && frame.content().to_string() == "MusicIndex Transcript: Hello world"
+        }));
+        assert!(tag.frames().any(|frame| {
+            matches!(
+                frame.content(),
+                id3::Content::SynchronisedLyrics(lyrics)
+                    if frame.id() == "SYLT"
+                        && lyrics.content == vec![(1250, "Hello world".to_string())]
+            )
+        }));
     }
 
     #[test]
@@ -477,9 +793,16 @@ mod tests {
         assert!(id3v24_edit_label_is_writable("WXXX:Official audio"));
         assert!(id3v24_edit_label_is_writable("UFID:http://musicbrainz.org"));
         assert!(id3v24_edit_label_is_writable("APIC"));
+        assert!(id3v24_edit_label_is_writable("COMM:MusicIndex Description"));
+        assert!(id3v24_edit_label_is_writable("SYLT:MusicIndex Transcript"));
+        assert!(id3v24_edit_label_is_writable("USLT:MusicIndex Transcript"));
+        assert!(id3v24_edit_label_is_writable("TYER"));
         assert!(!id3v24_edit_label_is_writable("TXXX"));
         assert!(!id3v24_edit_label_is_writable("WXXX"));
         assert!(!id3v24_edit_label_is_writable("UFID"));
+        assert!(!id3v24_edit_label_is_writable("COMM"));
+        assert!(!id3v24_edit_label_is_writable("SYLT"));
+        assert!(!id3v24_edit_label_is_writable("USLT"));
         assert!(!id3v24_edit_label_is_writable("TFOO"));
 
         let temp = tempfile::NamedTempFile::new().expect("temp file");

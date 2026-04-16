@@ -6,9 +6,9 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::Client as ReqwestClient;
 use reqwest::Url;
 
+use crate::api::{SourceEnclosure, Track};
 use crate::audio_tags::AudioTags;
 use crate::config::Config;
-use crate::api::{SourceEnclosure, Track};
 
 const PUBLISHER_TAG_KEY: &str = "V4V_PUBLISHER";
 
@@ -261,9 +261,9 @@ mod tests {
         compare_track_tags, download_track_mp3, local_mp3_path, select_mp3_enclosure,
         ComparisonRow, ComparisonStatus, SelectedEnclosure, PUBLISHER_TAG_KEY,
     };
+    use crate::api::{SourceEnclosure, Track};
     use crate::audio_tags::AudioTags;
     use crate::config::Config;
-    use crate::api::{SourceEnclosure, Track};
 
     fn track() -> Track {
         Track {

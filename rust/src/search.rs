@@ -1,6 +1,9 @@
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use gpui::{
@@ -15,19 +18,18 @@ use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable, Root, Sizable, Size};
 use reqwest::blocking::Client as ReqwestClient;
+use rusqlite::Connection;
 
 use crate::api::*;
-use crate::audio_tags::{
-    read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3Field,
-};
+#[cfg(test)]
+use crate::audio_tags::Id3Field;
+use crate::audio_tags::{read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3v24Edit};
 use crate::config;
+use crate::db;
 use crate::metadata::*;
-use crate::musicbrainz::{
-    lookup_recordings, LookupMetadata, MusicBrainzCandidate,
-};
-use crate::track_compare::{
-    download_track_mp3, local_mp3_path, ComparisonStatus,
-};
+use crate::musicbrainz::{lookup_recordings, LookupMetadata, MusicBrainzCandidate};
+use crate::rss;
+use crate::track_compare::{download_track_mp3, local_mp3_path, ComparisonStatus};
 
 #[derive(Clone, Debug)]
 struct ResultRow {
@@ -44,7 +46,6 @@ enum InspectorDetail {
     Track(Box<TrackContext>),
     Publisher(Publisher),
 }
-
 
 #[derive(Clone, Debug, Default)]
 enum LazyPanel<T> {
@@ -71,6 +72,9 @@ struct InspectorFrame {
     suppressed_auto_id3_edits: BTreeSet<String>,
     applying_id3_edits: bool,
     id3_apply_error: Option<String>,
+    local_subscription: Option<bool>,
+    subscription_busy: bool,
+    subscription_message: Option<String>,
     tag_compare: LazyPanel<TagCompareResult>,
     musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     musicbrainz_selected: usize,
@@ -93,6 +97,9 @@ impl InspectorFrame {
             suppressed_auto_id3_edits: BTreeSet::new(),
             applying_id3_edits: false,
             id3_apply_error: None,
+            local_subscription: None,
+            subscription_busy: false,
+            subscription_message: None,
             tag_compare: LazyPanel::Hidden,
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
@@ -100,16 +107,10 @@ impl InspectorFrame {
     }
 }
 
-
-
 struct DetailRow {
     key: String,
     value: AnyElement,
 }
-
-
-
-
 
 struct MetadataDragPreview {
     label: String,
@@ -143,17 +144,23 @@ impl Render for MetadataDragPreview {
     }
 }
 
-
-
 struct SearchBatch {
     rows: Vec<ResultRow>,
     has_more: bool,
     cursor: Option<String>,
 }
 
+#[derive(Clone)]
+enum ThumbnailState {
+    Loading,
+    Loaded(Option<Arc<Image>>),
+}
+
 pub struct SearchApp {
+    conn: Arc<Mutex<Connection>>,
     input: Entity<InputState>,
     type_filter: usize,
+    fuzzy_search: bool,
     results: Vec<ResultRow>,
     loading: bool,
     status: String,
@@ -163,6 +170,7 @@ pub struct SearchApp {
     inspector_stack: Vec<InspectorFrame>,
     left_pane_width: gpui::Pixels,
     resizing: bool,
+    thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
 }
 
@@ -170,15 +178,17 @@ const TYPE_LABELS: &[&str] = &["All", "Feed", "Track", "Publisher"];
 const TYPE_VALUES: &[Option<&str>] = &[None, Some("feed"), Some("track"), Some("publisher")];
 
 impl SearchApp {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(conn: Arc<Mutex<Connection>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder("Search feeds, tracks, publishers...")
         });
         let input_sub = cx.subscribe(&input, Self::on_input_event);
 
         Self {
+            conn,
             input,
             type_filter: 0,
+            fuzzy_search: true,
             results: Vec::new(),
             loading: false,
             status: String::new(),
@@ -188,6 +198,7 @@ impl SearchApp {
             inspector_stack: Vec::new(),
             left_pane_width: px(360.0),
             resizing: false,
+            thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
         }
     }
@@ -231,6 +242,7 @@ impl SearchApp {
 
         let entity_type = TYPE_VALUES[self.type_filter].map(str::to_string);
         let cursor = if append { self.cursor.clone() } else { None };
+        let fuzzy = self.fuzzy_search;
         let client = Arc::new(Client::new());
 
         cx.spawn(
@@ -243,6 +255,7 @@ impl SearchApp {
                             &query,
                             entity_type.as_deref(),
                             cursor.as_deref(),
+                            fuzzy,
                         )
                     })
                     .await;
@@ -287,6 +300,56 @@ impl SearchApp {
             if total == 1 { "" } else { "s" },
             if self.has_more { "+" } else { "" }
         );
+    }
+
+    fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
+        self.fuzzy_search = !self.fuzzy_search;
+        let has_query = !self.input.read(cx).value().trim().is_empty();
+        cx.notify();
+        if has_query {
+            self.do_search(false, cx);
+        }
+    }
+
+    fn thumbnail_for_url(
+        &mut self,
+        url: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Option<Arc<Image>> {
+        let url = url?.trim();
+        if url.is_empty() {
+            return None;
+        }
+        match self.thumbnails.get(url) {
+            Some(ThumbnailState::Loaded(image)) => return image.clone(),
+            Some(ThumbnailState::Loading) => return None,
+            None => {}
+        }
+
+        self.thumbnails
+            .insert(url.to_string(), ThumbnailState::Loading);
+        let url = url.to_string();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let cache_url = url.clone();
+                let image = cx
+                    .background_executor()
+                    .spawn(async move { load_thumbnail_image(&cache_url).ok().flatten() })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        this.thumbnails.insert(url, ThumbnailState::Loaded(image));
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+
+        None
     }
 
     fn select_result(
@@ -342,12 +405,19 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        let local_subscription = detail.as_ref().ok().and_then(|(detail, _)| {
+                            local_subscription_for_detail(&this.conn, detail)
+                                .ok()
+                                .flatten()
+                        });
                         if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 match detail {
                                     Ok((detail, image)) => {
                                         frame.detail = detail;
                                         frame.image = image;
+                                        frame.local_subscription = local_subscription;
+                                        frame.subscription_message = None;
                                     }
                                     Err(error) => {
                                         frame.detail = InspectorDetail::Error(error.to_string());
@@ -512,9 +582,10 @@ impl SearchApp {
         if !id3v24_drag_copy_frame_is_writable(&drag.frame) {
             return;
         }
-        let Some(value) = format_drag_value_for_id3v24(
+        let Some(value) = format_source_value_for_id3v24(
             &drag.frame,
             &drag.field,
+            drag.source,
             drag.target_existing_value.as_deref(),
             &drag.value,
         ) else {
@@ -638,6 +709,173 @@ impl SearchApp {
         frame.suppressed_auto_id3_edits.clear();
         frame.id3_apply_error = None;
         cx.notify();
+    }
+
+    fn toggle_local_subscription(&mut self, cx: &mut Context<Self>) {
+        let is_subscribed = self
+            .inspector_stack
+            .last()
+            .and_then(|frame| frame.local_subscription)
+            .unwrap_or(false);
+        if is_subscribed {
+            self.unsubscribe_current(cx);
+        } else {
+            self.subscribe_current(cx);
+        }
+    }
+
+    fn subscribe_current(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.subscription_busy {
+            return;
+        }
+
+        let entity_type = frame.entity_type.clone();
+        let entity_id = frame.entity_id.clone();
+        let request = match &frame.detail {
+            InspectorDetail::Feed(feed) => SearchSubscribeRequest::Feed(Box::new((**feed).clone())),
+            InspectorDetail::Track(track_context) => {
+                let edits = if let LazyPanel::Loaded(result) = &frame.tag_compare {
+                    let rows = track_metadata_rows_for_frame(frame, track_context, Some(result));
+                    let pending = auto_populated_pending_id3_edits(
+                        &rows,
+                        &frame.pending_id3_edits,
+                        &frame.suppressed_auto_id3_edits,
+                    );
+                    let conflicts = pending_id3_conflict_descriptions(&pending);
+                    if !conflicts.is_empty() {
+                        frame.subscription_message = Some(format!(
+                            "Resolve duplicate ID3 target{}: {}",
+                            if conflicts.len() == 1 { "" } else { "s" },
+                            conflicts.join("; ")
+                        ));
+                        cx.notify();
+                        return;
+                    }
+                    pending_id3_edits_for_apply(&pending)
+                } else {
+                    Vec::new()
+                };
+                SearchSubscribeRequest::Track(Box::new((**track_context).clone()), edits)
+            }
+            InspectorDetail::Loading(_)
+            | InspectorDetail::Error(_)
+            | InspectorDetail::Publisher(_) => return,
+        };
+
+        frame.subscription_busy = true;
+        frame.subscription_message = Some("Subscribing...".into());
+        cx.notify();
+
+        let conn = Arc::clone(&self.conn);
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { subscribe_search_request(conn, request) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                                frame.subscription_busy = false;
+                                match result {
+                                    Ok(outcome) => {
+                                        frame.local_subscription = Some(true);
+                                        frame.subscription_message = Some(outcome.message);
+                                        if let Some(compare) = outcome.compare {
+                                            frame.tag_compare = LazyPanel::Loaded(compare);
+                                            frame.pending_id3_edits.clear();
+                                            frame.suppressed_auto_id3_edits.clear();
+                                            frame.id3_apply_error = None;
+                                        }
+                                    }
+                                    Err(error) => {
+                                        frame.subscription_message =
+                                            Some(format!("Subscribe error: {error:#}"));
+                                    }
+                                }
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn unsubscribe_current(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.subscription_busy {
+            return;
+        }
+
+        let entity_type = frame.entity_type.clone();
+        let entity_id = frame.entity_id.clone();
+        let request = match &frame.detail {
+            InspectorDetail::Feed(feed) => SearchUnsubscribeRequest::Feed {
+                feed_url: feed.feed_url.clone(),
+            },
+            InspectorDetail::Track(track_context) => SearchUnsubscribeRequest::Track {
+                feed_url: track_context.track.feed_url.clone().or_else(|| {
+                    track_context
+                        .feed
+                        .as_ref()
+                        .and_then(|feed| feed.feed_url.clone())
+                }),
+                item_guid: track_context.track.track_guid.clone(),
+                enclosure_url: track_context.track.enclosure_url.clone(),
+            },
+            InspectorDetail::Loading(_)
+            | InspectorDetail::Error(_)
+            | InspectorDetail::Publisher(_) => return,
+        };
+
+        frame.subscription_busy = true;
+        frame.subscription_message = Some("Unsubscribing...".into());
+        cx.notify();
+
+        let conn = Arc::clone(&self.conn);
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { unsubscribe_search_request(conn, request) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                                frame.subscription_busy = false;
+                                match result {
+                                    Ok(message) => {
+                                        frame.local_subscription = Some(false);
+                                        frame.subscription_message = Some(message);
+                                    }
+                                    Err(error) => {
+                                        frame.subscription_message =
+                                            Some(format!("Unsubscribe error: {error:#}"));
+                                    }
+                                }
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
     }
 
     fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
@@ -818,10 +1056,15 @@ impl Render for SearchApp {
             muted()
         };
 
-        let results: Vec<AnyElement> = self
-            .results
+        let rows = self.results.clone();
+        let selected_key = self.selected_key.clone();
+        let results: Vec<AnyElement> = rows
             .iter()
-            .map(|row| render_result_item(row, self.selected_key.as_deref(), cx))
+            .map(|row| {
+                let image_url = result_image_url(row);
+                let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
+                render_result_item(row, selected_key.as_deref(), thumbnail.as_ref(), cx)
+            })
             .collect();
         let type_filters: Vec<AnyElement> = TYPE_LABELS
             .iter()
@@ -837,55 +1080,7 @@ impl Render for SearchApp {
             .text_color(text())
             .text_sm()
             .flex()
-            .flex_col()
             .overflow_hidden()
-            .child(
-                div()
-                    .bg(surface())
-                    .border_b_1()
-                    .border_color(border())
-                    .p(px(12.0))
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(12.0))
-                    .flex_wrap()
-                    .child(
-                        div()
-                            .text_base()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(accent())
-                            .child("stophammer"),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(px(8.0))
-                            .flex_wrap()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div().flex_1().min_w(px(224.0)).child(
-                                    Input::new(&self.input)
-                                        .cleanable(true)
-                                        .with_size(Size::Small),
-                                ),
-                            )
-                            .children(type_filters)
-                            .child(
-                                Button::new("search-btn")
-                                    .label("Search")
-                                    .primary()
-                                    .with_size(Size::Small)
-                                    .loading(self.loading)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.do_search(false, cx);
-                                    })),
-                            ),
-                    ),
-            )
             .child(
                 div()
                     .id("pane-container")
@@ -921,13 +1116,75 @@ impl Render for SearchApp {
                             .overflow_hidden()
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(status_color)
-                                    .px(px(12.0))
-                                    .py(px(8.0))
+                                    .p(px(12.0))
                                     .border_b_1()
                                     .border_color(border())
-                                    .child(SharedString::from(status_text)),
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(8.0))
+                                    .child(
+                                        div()
+                                            .text_size(px(10.0))
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(muted())
+                                            .child("Search"),
+                                    )
+                                    .child(
+                                        Input::new(&self.input)
+                                            .cleanable(true)
+                                            .with_size(Size::Small),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .flex_wrap()
+                                            .gap(px(6.0))
+                                            .children(type_filters),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap(px(8.0))
+                                            .child(
+                                                Button::new("search-btn")
+                                                    .label("Search")
+                                                    .primary()
+                                                    .with_size(Size::Small)
+                                                    .text_color(rgb(0xffffff))
+                                                    .loading(self.loading)
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.do_search(false, cx);
+                                                    })),
+                                            )
+                                            .child(
+                                                Button::new("fuzzy-toggle")
+                                                    .label(if self.fuzzy_search {
+                                                        "Fuzzy: On"
+                                                    } else {
+                                                        "Fuzzy: Off"
+                                                    })
+                                                    .with_size(Size::Small)
+                                                    .when(self.fuzzy_search, |button| {
+                                                        button.primary()
+                                                    })
+                                                    .when(!self.fuzzy_search, |button| {
+                                                        button.ghost()
+                                                    })
+                                                    .text_color(rgb(0xffffff))
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.toggle_fuzzy_search(cx);
+                                                    })),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(status_color)
+                                            .child(SharedString::from(status_text)),
+                                    ),
                             )
                             .child(
                                 div()
@@ -985,6 +1242,7 @@ impl Render for SearchApp {
                                                         .label("Load more")
                                                         .ghost()
                                                         .with_size(Size::Small)
+                                                        .text_color(rgb(0xffffff))
                                                         .on_click(cx.listener(|this, _, _, cx| {
                                                             this.do_search(true, cx);
                                                         })),
@@ -1027,9 +1285,10 @@ fn fetch_search_batch(
     query: &str,
     entity_type: Option<&str>,
     cursor: Option<&str>,
+    fuzzy: bool,
 ) -> Result<SearchBatch> {
     if entity_type == Some("publisher") {
-        let response = client.search_publishers(query, Some(PAGE_LIMIT))?;
+        let response = client.search_publishers(query, Some(PAGE_LIMIT), fuzzy)?;
         let rows = response
             .data
             .into_iter()
@@ -1050,7 +1309,7 @@ fn fetch_search_batch(
         });
     }
 
-    let response = client.search(query, entity_type, Some(PAGE_LIMIT), cursor)?;
+    let response = client.search(query, entity_type, Some(PAGE_LIMIT), cursor, fuzzy)?;
     let rows = response
         .data
         .iter()
@@ -1081,7 +1340,12 @@ fn fetch_inspector_detail(
 ) -> Result<(InspectorDetail, Option<Arc<Image>>)> {
     match entity_type {
         "feed" => {
-            let feed = client.fetch_feed(entity_id, Some("tracks"))?;
+            let feed = client.fetch_feed(
+                entity_id,
+                Some(
+                    "tracks,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
+                ),
+            )?;
             let image = feed
                 .image_url
                 .as_deref()
@@ -1169,6 +1433,291 @@ fn compare_downloaded_track_path(
     })
 }
 
+enum SearchSubscribeRequest {
+    Feed(Box<Feed>),
+    Track(Box<TrackContext>, Vec<Id3v24Edit>),
+}
+
+enum SearchUnsubscribeRequest {
+    Feed {
+        feed_url: Option<String>,
+    },
+    Track {
+        feed_url: Option<String>,
+        item_guid: Option<String>,
+        enclosure_url: Option<String>,
+    },
+}
+
+struct SearchSubscribeOutcome {
+    message: String,
+    compare: Option<TagCompareResult>,
+}
+
+fn subscribe_search_request(
+    conn: Arc<Mutex<Connection>>,
+    request: SearchSubscribeRequest,
+) -> Result<SearchSubscribeOutcome> {
+    match request {
+        SearchSubscribeRequest::Feed(feed) => subscribe_feed_from_search(conn, *feed),
+        SearchSubscribeRequest::Track(track_context, edits) => {
+            subscribe_track_from_search(conn, *track_context, edits)
+        }
+    }
+}
+
+fn subscribe_feed_from_search(
+    conn: Arc<Mutex<Connection>>,
+    feed: Feed,
+) -> Result<SearchSubscribeOutcome> {
+    let feed_url = feed
+        .feed_url
+        .clone()
+        .ok_or_else(|| anyhow!("feed has no RSS URL"))?;
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
+    config::ensure_dirs(&cfg)?;
+
+    {
+        let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+        rss::cmd_subscribe(&cfg, &mut db, &feed_url)?;
+    }
+
+    let client = ReqwestClient::new();
+    let api_client = Client::new();
+    let mut downloaded = 0usize;
+    let mut applied_edits = 0usize;
+    let mut skipped = 0usize;
+    for track in feed.tracks.clone().unwrap_or_default() {
+        let mut track = track_with_feed_defaults(track, Some(&feed));
+        if let Some(track_guid) = track.track_guid.as_deref() {
+            if let Ok(hydrated) = api_client.fetch_track(
+                track_guid,
+                Some(
+                    "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
+                ),
+            ) {
+                track = track_with_feed_defaults(hydrated, Some(&feed));
+            }
+        }
+        let track_context = TrackContext {
+            track: track.clone(),
+            feed: Some(feed.clone()),
+        };
+        let edits = id3_edits_for_track_context(&track_context);
+        match download_track_for_subscription(&cfg, &client, &track) {
+            Ok((path, file_size)) => {
+                if !edits.is_empty() {
+                    write_id3v24_edits(&path, &edits)?;
+                    applied_edits += edits.len();
+                }
+                let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+                let marked = db::mark_track_downloaded_by_match(
+                    &db,
+                    track.feed_url.as_deref().or(Some(feed_url.as_str())),
+                    track.track_guid.as_deref(),
+                    track.enclosure_url.as_deref(),
+                    &path,
+                    file_size,
+                )?;
+                if marked {
+                    downloaded += 1;
+                } else {
+                    skipped += 1;
+                }
+            }
+            Err(_) => skipped += 1,
+        }
+    }
+
+    let message = if skipped == 0 {
+        format!(
+            "Subscribed feed; downloaded {downloaded} track{}, applied {applied_edits} ID3 edit{}",
+            plural(downloaded),
+            plural(applied_edits)
+        )
+    } else {
+        format!(
+            "Subscribed feed; downloaded {downloaded} track{}, applied {applied_edits} ID3 edit{}, skipped {skipped}",
+            plural(downloaded),
+            plural(applied_edits)
+        )
+    };
+    Ok(SearchSubscribeOutcome {
+        message,
+        compare: None,
+    })
+}
+
+fn subscribe_track_from_search(
+    conn: Arc<Mutex<Connection>>,
+    track_context: TrackContext,
+    edits: Vec<Id3v24Edit>,
+) -> Result<SearchSubscribeOutcome> {
+    let track = track_with_feed_defaults(track_context.track.clone(), track_context.feed.as_ref());
+    let feed_url = track
+        .feed_url
+        .clone()
+        .or_else(|| {
+            track_context
+                .feed
+                .as_ref()
+                .and_then(|feed| feed.feed_url.clone())
+        })
+        .ok_or_else(|| anyhow!("track has no RSS feed URL"))?;
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
+    config::ensure_dirs(&cfg)?;
+
+    {
+        let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+        rss::cmd_subscribe(&cfg, &mut db, &feed_url)?;
+    }
+
+    let client = ReqwestClient::new();
+    let (path, file_size) = download_track_for_subscription(&cfg, &client, &track)?;
+    if !edits.is_empty() {
+        write_id3v24_edits(&path, &edits)?;
+    }
+
+    {
+        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+        db::mark_track_downloaded_by_match(
+            &db,
+            Some(feed_url.as_str()),
+            track.track_guid.as_deref(),
+            track.enclosure_url.as_deref(),
+            &path,
+            file_size,
+        )?;
+    }
+
+    let refreshed_context = TrackContext {
+        track,
+        feed: track_context.feed,
+    };
+    let compare = compare_downloaded_track_path(&path, &refreshed_context)?;
+    let edit_text = if edits.is_empty() {
+        String::new()
+    } else {
+        format!(", applied {} ID3 edit{}", edits.len(), plural(edits.len()))
+    };
+    Ok(SearchSubscribeOutcome {
+        message: format!("Subscribed track{edit_text}"),
+        compare: Some(compare),
+    })
+}
+
+pub fn id3_edits_for_track_context(track_context: &TrackContext) -> Vec<Id3v24Edit> {
+    let rows = expand_woar_metadata_rows(track_metadata_rows(track_context, None, false));
+    let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new());
+    pending_id3_edits_for_apply(&pending)
+}
+
+fn unsubscribe_search_request(
+    conn: Arc<Mutex<Connection>>,
+    request: SearchUnsubscribeRequest,
+) -> Result<String> {
+    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+    match request {
+        SearchUnsubscribeRequest::Feed { feed_url } => {
+            let feed_url = feed_url.ok_or_else(|| anyhow!("feed has no RSS URL"))?;
+            db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
+            Ok("Unsubscribed feed".into())
+        }
+        SearchUnsubscribeRequest::Track {
+            feed_url,
+            item_guid,
+            enclosure_url,
+        } => {
+            db::set_track_in_library_by_match(
+                &db,
+                feed_url.as_deref(),
+                item_guid.as_deref(),
+                enclosure_url.as_deref(),
+                false,
+            )?;
+            Ok("Unsubscribed track".into())
+        }
+    }
+}
+
+fn local_subscription_for_detail(
+    conn: &Arc<Mutex<Connection>>,
+    detail: &InspectorDetail,
+) -> Result<Option<bool>> {
+    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+    match detail {
+        InspectorDetail::Feed(feed) => feed
+            .feed_url
+            .as_deref()
+            .map(|feed_url| db::feed_is_subscribed_by_url(&db, feed_url))
+            .transpose(),
+        InspectorDetail::Track(track_context) => {
+            let feed_url = track_context.track.feed_url.as_deref().or_else(|| {
+                track_context
+                    .feed
+                    .as_ref()
+                    .and_then(|feed| feed.feed_url.as_deref())
+            });
+            db::track_is_in_library_by_match(
+                &db,
+                feed_url,
+                track_context.track.track_guid.as_deref(),
+                track_context.track.enclosure_url.as_deref(),
+            )
+            .map(Some)
+        }
+        InspectorDetail::Loading(_) | InspectorDetail::Error(_) | InspectorDetail::Publisher(_) => {
+            Ok(None)
+        }
+    }
+}
+
+fn download_track_for_subscription(
+    cfg: &config::Config,
+    client: &ReqwestClient,
+    track: &Track,
+) -> Result<(PathBuf, Option<i64>)> {
+    let path = local_mp3_path(cfg, track);
+    if !path.exists() {
+        download_track_mp3(cfg, client, track)?;
+    }
+    let file_size = std::fs::metadata(&path)
+        .ok()
+        .and_then(|metadata| metadata.len().try_into().ok());
+    Ok((path, file_size))
+}
+
+fn track_with_feed_defaults(mut track: Track, feed: Option<&Feed>) -> Track {
+    if let Some(feed) = feed {
+        if track.feed_url.is_none() {
+            track.feed_url = feed.feed_url.clone();
+        }
+        if track.feed_guid.is_none() {
+            track.feed_guid = feed.feed_guid.clone();
+        }
+        if track.feed_title.is_none() {
+            track.feed_title = feed.title.clone().or_else(|| feed.name.clone());
+        }
+        if track.image_url.is_none() {
+            track.image_url = feed.image_url.clone();
+        }
+        if track.publisher_text.is_none() {
+            track.publisher_text = feed.publisher_text.clone();
+        }
+    }
+    track
+}
+
+fn plural(count: usize) -> &'static str {
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
+}
+
 fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBrainzLookupResult> {
     let track = client.fetch_track(entity_id, Some("source_enclosures"))?;
     let cfg_path = config::config_path()?;
@@ -1238,6 +1787,64 @@ fn download_image(client: &ReqwestClient, url: &str) -> Option<Arc<Image>> {
     Some(Arc::new(Image::from_bytes(format, bytes)))
 }
 
+fn load_thumbnail_image(url: &str) -> Result<Option<Arc<Image>>> {
+    let Some((bytes, mime_type)) = read_or_download_thumbnail(url)? else {
+        return Ok(None);
+    };
+    let format = ImageFormat::from_mime_type(&mime_type).unwrap_or(ImageFormat::Jpeg);
+    Ok(Some(Arc::new(Image::from_bytes(format, bytes))))
+}
+
+fn read_or_download_thumbnail(url: &str) -> Result<Option<(Vec<u8>, String)>> {
+    let cache_dir = thumbnail_cache_dir()?;
+    fs::create_dir_all(&cache_dir)?;
+    let key = thumbnail_cache_key(url);
+    let image_path = cache_dir.join(format!("{key}.image"));
+    let mime_path = cache_dir.join(format!("{key}.mime"));
+
+    if image_path.exists() && mime_path.exists() {
+        let bytes = fs::read(&image_path)?;
+        let mime_type = fs::read_to_string(&mime_path)?;
+        if !bytes.is_empty() && mime_type.trim().starts_with("image/") {
+            return Ok(Some((bytes, mime_type.trim().to_string())));
+        }
+    }
+
+    let response = ReqwestClient::new().get(url).send()?.error_for_status()?;
+    let mime_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .filter(|value| value.starts_with("image/"))
+        .map(str::to_string);
+    let Some(mime_type) = mime_type else {
+        return Ok(None);
+    };
+    let bytes = response.bytes()?.to_vec();
+    if bytes.is_empty() {
+        return Ok(None);
+    }
+    fs::write(&image_path, &bytes)?;
+    fs::write(&mime_path, mime_type.as_bytes())?;
+    Ok(Some((bytes, mime_type)))
+}
+
+fn thumbnail_cache_dir() -> Result<PathBuf> {
+    let cfg_path = config::config_path()?;
+    let parent = cfg_path
+        .parent()
+        .ok_or_else(|| anyhow!("config path has no parent: {}", cfg_path.display()))?;
+    Ok(parent.join("thumbnail-cache"))
+}
+
+fn thumbnail_cache_key(url: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    url.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 fn image_from_artwork(artwork: &EmbeddedArtwork) -> Option<Arc<Image>> {
     if artwork.data.is_empty() {
         return None;
@@ -1245,7 +1852,6 @@ fn image_from_artwork(artwork: &EmbeddedArtwork) -> Option<Arc<Image>> {
     let format = ImageFormat::from_mime_type(&artwork.mime_type).unwrap_or(ImageFormat::Jpeg);
     Some(Arc::new(Image::from_bytes(format, artwork.data.clone())))
 }
-
 
 fn render_filter_button(
     idx: usize,
@@ -1258,6 +1864,7 @@ fn render_filter_button(
         .with_size(Size::Small)
         .when(selected, |button| button.primary())
         .when(!selected, |button| button.ghost())
+        .text_color(rgb(0xffffff))
         .on_click(cx.listener(move |this, _, _, cx| {
             if this.type_filter != idx {
                 this.type_filter = idx;
@@ -1274,6 +1881,7 @@ fn render_filter_button(
 fn render_result_item(
     row: &ResultRow,
     selected_key: Option<&str>,
+    thumbnail: Option<&Arc<Image>>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let (line1, line2, line3, _image_url) = result_lines(row);
@@ -1304,7 +1912,7 @@ fn render_result_item(
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
         }))
-        .child(render_thumb(None, &row.entity_type, 36.0, false))
+        .child(render_thumb(thumbnail, &row.entity_type, 36.0, false))
         .child(
             div()
                 .flex_1()
@@ -1361,6 +1969,7 @@ fn render_inspector(
                             .label("← Back")
                             .ghost()
                             .with_size(Size::Small)
+                            .text_color(rgb(0xffffff))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.inspector_back(cx);
                             })),
@@ -1645,6 +2254,27 @@ fn render_action_row(
         .flex_col()
         .items_start()
         .gap(px(4.0))
+        .child(
+            metadata_action_button(&subscription_button_label(frame))
+                .disabled(frame.subscription_busy)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_local_subscription(cx);
+                })),
+        )
+        .when_some(frame.subscription_message.clone(), |el, message| {
+            el.child(
+                div()
+                    .max_w(px(220.0))
+                    .text_size(px(10.0))
+                    .line_height(px(14.0))
+                    .text_color(if message.contains("error") || message.contains("Error") {
+                        rgb(0xff8a65)
+                    } else {
+                        muted()
+                    })
+                    .child(SharedString::from(message)),
+            )
+        })
         .when(frame.entity_type == "track", |el| {
             el.child(
                 metadata_action_button(match frame.tag_compare {
@@ -1734,6 +2364,27 @@ fn render_action_row(
             })
         })
         .into_any_element()
+}
+
+fn subscription_button_label(frame: &InspectorFrame) -> String {
+    if frame.subscription_busy {
+        return if frame.local_subscription.unwrap_or(false) {
+            "Unsubscribing...".into()
+        } else {
+            "Subscribing...".into()
+        };
+    }
+
+    let noun = if frame.entity_type == "feed" {
+        "Feed"
+    } else {
+        "Track"
+    };
+    if frame.local_subscription.unwrap_or(false) {
+        format!("Unsubscribe {noun}")
+    } else {
+        format!("Subscribe {noun}")
+    }
 }
 
 fn render_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
@@ -2005,7 +2656,7 @@ fn render_musicbrainz_title_bar(
         .w_full()
         .justify_start()
         .bg(type_color("track"))
-        .text_color(badge_text("track"))
+        .text_color(rgb(0xffffff))
         .text_size(px(10.0))
         .font_weight(FontWeight::BOLD)
         .px(px(6.0))
@@ -2153,7 +2804,6 @@ fn render_track_metadata_grid(
 ) -> AnyElement {
     render_metadata_grid(rows, show_id3, show_musicbrainz, pending_id3_edits, cx)
 }
-
 
 fn render_metadata_grid(
     rows: Vec<MetadataGridRow>,
@@ -2427,6 +3077,8 @@ fn metadata_group_cell(
     cell.into_any_element()
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn metadata_group_row(
     label: impl Into<String>,
     key: Option<&str>,
@@ -2441,10 +3093,12 @@ fn metadata_group_row(
     })
 }
 
+#[cfg(test)]
 fn metadata_data_row(row: AlignedCompareRow) -> MetadataGridRow {
     MetadataGridRow::Data(row)
 }
 
+#[cfg(test)]
 fn compare_row_id(field: &str) -> String {
     let mut out = String::new();
     for ch in field.chars().flat_map(char::to_lowercase) {
@@ -2457,6 +3111,8 @@ fn compare_row_id(field: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn id3_unused_frame_row(frame_id: &str) -> MetadataGridRow {
     metadata_data_row(AlignedCompareRow {
         row_id: format!("id3-unused-{}", compare_row_id(frame_id)),
@@ -2471,6 +3127,8 @@ fn id3_unused_frame_row(frame_id: &str) -> MetadataGridRow {
     })
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn used_id3_field_row(field: &Id3Field) -> MetadataGridRow {
     metadata_data_row(AlignedCompareRow {
         row_id: format!("id3-field-{}", compare_row_id(&field.frame_id)),
@@ -2485,6 +3143,7 @@ fn used_id3_field_row(field: &Id3Field) -> MetadataGridRow {
     })
 }
 
+#[cfg(test)]
 fn unused_id3v24_frames_for_group(result: &TagCompareResult, group_key: &str) -> Vec<&'static str> {
     ID3V24_FRAME_IDS
         .iter()
@@ -2499,6 +3158,8 @@ fn unused_id3v24_frames_for_group(result: &TagCompareResult, group_key: &str) ->
         .collect()
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn used_id3_fields_for_group<'a>(
     result: &'a TagCompareResult,
     group_key: &str,
@@ -2710,6 +3371,7 @@ fn id3_frame_version(frame_id: &str) -> Id3FrameVersion {
     }
 }
 
+#[cfg(test)]
 fn id3_frame_hint(field: &str) -> Option<&'static str> {
     match field {
         "Title" => Some("TIT2"),
@@ -2720,7 +3382,22 @@ fn id3_frame_hint(field: &str) -> Option<&'static str> {
         "Label" => Some("TPUB"),
         "Website" => Some("WOAR"),
         "Release date" => Some("TDRC"),
+        "Release year" => Some("TYER"),
+        "Duration" => Some("TLEN"),
+        "Artwork" => Some("APIC"),
+        "Description" => Some("COMM:MusicIndex Description"),
+        "Transcript" => Some("SYLT:MusicIndex Transcript"),
+        "Transcript text" => Some("USLT:MusicIndex Transcript"),
         "Contributors" => Some("TXXX:MusicIndex Contributors"),
+        "Composer" => Some("TCOM"),
+        "Lyricist" => Some("TEXT"),
+        "Lead performer" => Some("TPE1"),
+        "Album artist" => Some("TPE2"),
+        "Conductor" => Some("TPE3"),
+        "Remixer" => Some("TPE4"),
+        "Original artist" => Some("TOPE"),
+        "Original lyricist" => Some("TOLY"),
+        "Involved musicians" => Some("TMCL"),
         "Value Routes" => Some("TXXX:MusicIndex Value Routes"),
         "MusicBrainz recording" => Some("UFID:http://musicbrainz.org"),
         "MusicBrainz release" => Some("TXXX:MusicBrainz Album Id"),
@@ -2738,10 +3415,14 @@ fn id3_frame_hint(field: &str) -> Option<&'static str> {
     }
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn id3_frame_is_summarized(frame_id: &str) -> bool {
     matches!(frame_id, "TIT2" | "TPE1" | "TALB" | "TRCK")
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn format_track_slash_total(track: Option<&str>, total: Option<&str>) -> Option<String> {
     match (track, total) {
         (Some(t), Some(tot)) => Some(format!("{t}/{tot}")),
@@ -3025,7 +3706,7 @@ fn render_play_icon_button(url: String, cx: &mut Context<SearchApp>) -> AnyEleme
         .h(px(18.0))
         .px(px(0.0))
         .py(px(0.0))
-        .text_color(text())
+        .text_color(rgb(0xffffff))
         .rounded(px(4.0))
         .border_1()
         .border_color(accent())
@@ -3179,7 +3860,7 @@ fn subtle_button(label: &str) -> Button {
         .label(SharedString::from(label.to_string()))
         .with_size(Size::Small)
         .ghost()
-        .text_color(text())
+        .text_color(rgb(0xffffff))
         .rounded(px(4.0))
         .border_1()
         .border_color(accent())
@@ -3191,7 +3872,7 @@ fn metadata_action_button(label: &str) -> Button {
         .with_size(Size::XSmall)
         .compact()
         .ghost()
-        .text_color(text())
+        .text_color(rgb(0xffffff))
         .text_size(px(10.0))
         .rounded(px(4.0))
         .border_1()
@@ -3278,6 +3959,17 @@ fn result_lines(row: &ResultRow) -> (String, String, String, Option<String>) {
     }
 }
 
+fn result_image_url(row: &ResultRow) -> Option<String> {
+    match &row.detail {
+        Some(EntityDetail::Feed(feed)) => feed.image_url.clone(),
+        Some(EntityDetail::Track(track)) => track.image_url.clone(),
+        Some(EntityDetail::Artist(artist)) => artist.image_url.clone(),
+        Some(EntityDetail::Release(release)) => release.image_url.clone(),
+        Some(EntityDetail::Recording(recording)) => recording.image_url.clone(),
+        Some(EntityDetail::Publisher(_)) | None => None,
+    }
+}
+
 fn entity_key(entity_type: &str, entity_id: &str) -> String {
     format!("{entity_type}:{entity_id}")
 }
@@ -3303,10 +3995,14 @@ fn fmt_dur(secs: i32) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn fmt_ms(ms: i64) -> String {
     fmt_dur((ms / 1000).try_into().unwrap_or(i32::MAX))
 }
 
+#[cfg(test)]
+#[allow(dead_code)]
 fn join_values(values: &[String]) -> Option<String> {
     if values.is_empty() {
         None
@@ -3391,6 +4087,11 @@ pub fn run_search_app() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
+        let cfg_path = config::config_path().expect("config path");
+        let cfg = config::load_config(&cfg_path).expect("load config");
+        config::ensure_dirs(&cfg).expect("ensure dirs");
+        let conn = db::open_db(&cfg).expect("open db");
+        let conn = Arc::new(Mutex::new(conn));
 
         cx.open_window(
             WindowOptions {
@@ -3402,7 +4103,7 @@ pub fn run_search_app() {
                 ..Default::default()
             },
             |window, cx| {
-                let view = cx.new(|cx| SearchApp::new(window, cx));
+                let view = cx.new(|cx| SearchApp::new(conn, window, cx));
                 cx.new(|cx| Root::new(view, window, cx))
             },
         )
@@ -3704,6 +4405,10 @@ mod tests {
             Some("2025-12-08")
         );
         assert_eq!(
+            format_drag_value_for_id3v24("TYER", "Release year", None, "Dec 8, 2025").as_deref(),
+            Some("2025")
+        );
+        assert_eq!(
             format_drag_value_for_id3v24(
                 "WOAR",
                 "Website",
@@ -3736,7 +4441,22 @@ mod tests {
             "Label",
             "Website",
             "Release date",
+            "Release year",
+            "Duration",
+            "Artwork",
+            "Description",
+            "Transcript",
+            "Transcript text",
             "Contributors",
+            "Composer",
+            "Lyricist",
+            "Lead performer",
+            "Album artist",
+            "Conductor",
+            "Remixer",
+            "Original artist",
+            "Original lyricist",
+            "Involved musicians",
             "Value Routes",
             "MusicBrainz recording",
             "MusicBrainz release",
@@ -3867,10 +4587,19 @@ mod tests {
         let pending =
             auto_populated_pending_id3_edits(&expanded, &BTreeMap::new(), &BTreeSet::new());
         assert_eq!(pending.len(), 2);
-        assert_eq!(pending["compare:website"].value, "https://rss.example/artist");
+        assert_eq!(
+            pending["compare:website"].value,
+            "download for free (url, forward): https://rss.example/artist"
+        );
         assert_eq!(pending["compare:website"].source, MetadataColumn::Rss);
-        assert_eq!(pending["compare:website-2"].value, "https://mb.example/artist");
-        assert_eq!(pending["compare:website-2"].source, MetadataColumn::MusicBrainz);
+        assert_eq!(
+            pending["compare:website-2"].value,
+            "https://mb.example/artist"
+        );
+        assert_eq!(
+            pending["compare:website-2"].source,
+            MetadataColumn::MusicBrainz
+        );
         assert!(
             pending_id3_conflict_descriptions(&pending).is_empty(),
             "distinct WOAR URLs should be staged as repeatable URL frames"

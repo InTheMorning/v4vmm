@@ -25,6 +25,10 @@ pub fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Re
 
     // --- feed-level fields (RSS channel + podcast extensions) ---
     let feed_title = feed.title().to_string();
+    let feed_artist = feed
+        .itunes_ext()
+        .and_then(|it| clean_text(it.author()))
+        .or_else(|| first_person_by_role(feed.extensions(), &["artist", "creator", "composer"]));
 
     let feed_link = {
         let l = feed.link().trim();
@@ -142,9 +146,19 @@ pub fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Re
 
         // Provisional music fields (ID3 will become canonical once downloaded)
         let track_title = item.title().map(|s| s.to_string());
-        let artist_name: Option<String> = None;
-        let album_title: Option<String> = None;
-        let album_artist_name: Option<String> = None;
+        let artist_name = item
+            .itunes_ext()
+            .and_then(|it| clean_text(it.author()))
+            .or_else(|| clean_text(item.author()))
+            .or_else(|| {
+                first_person_by_role(
+                    item.extensions(),
+                    &["artist", "creator", "composer", "performer"],
+                )
+            })
+            .or_else(|| feed_artist.clone());
+        let album_title = Some(feed_title.clone());
+        let album_artist_name = feed_artist.clone().or_else(|| artist_name.clone());
         let disc_number: Option<i64> = None;
 
         // Canonical ordering: podcast:episode

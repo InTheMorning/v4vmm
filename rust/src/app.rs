@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use gpui::{
-    div, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, FontWeight,
-    Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, FontWeight, Render,
+    SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{Root, Sizable, Size};
@@ -54,7 +54,8 @@ pub struct TopApp {
 
 impl TopApp {
     fn new(conn: Arc<Mutex<Connection>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search = cx.new(|cx| SearchApp::new(window, cx));
+        let search_conn = Arc::clone(&conn);
+        let search = cx.new(|cx| SearchApp::new(search_conn, window, cx));
         let library = cx.new(|cx| LibraryApp::new(conn, window, cx));
 
         Self {
@@ -133,11 +134,12 @@ fn render_app_tab(
         btn = btn.ghost();
     }
 
-    btn.on_click(cx.listener(move |this, _, _, cx| {
-        this.tab = tab;
-        cx.notify();
-    }))
-    .into_any_element()
+    btn.text_color(rgb(0xffffff))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.tab = tab;
+            cx.notify();
+        }))
+        .into_any_element()
 }
 
 // ---------------------------------------------------------------------------

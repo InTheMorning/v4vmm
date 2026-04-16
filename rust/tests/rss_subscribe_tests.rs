@@ -14,6 +14,7 @@ fn sample_feed(title: &str) -> String {
     <link>https://example.com/artist</link>
     <language>en-us</language>
     <description>Example music feed</description>
+    <itunes:author>Feed Artist</itunes:author>
     <podcast:guid>feed-guid-123</podcast:guid>
     <podcast:medium>music</podcast:medium>
     <podcast:image href="https://example.com/feed.jpg" />
@@ -24,6 +25,7 @@ fn sample_feed(title: &str) -> String {
       <pubDate>Tue, 12 Mar 2024 10:00:00 GMT</pubDate>
       <enclosure url="https://example.com/track1.mp3" type="audio/mpeg" length="12345" />
       <itunes:duration>03:45</itunes:duration>
+      <itunes:author>Track Artist</itunes:author>
       <itunes:explicit>no</itunes:explicit>
       <itunes:image href="https://example.com/track1.jpg" />
       <podcast:episode>7</podcast:episode>
@@ -60,17 +62,30 @@ fn subscribe_persists_feed_and_tracks() {
     assert_eq!(feed_row.2, "music");
     assert_eq!(feed_row.3, "https://example.com/feed.jpg");
 
-    let track_row: (String, i64, String) = conn
+    let track_row: (String, i64, String, String, String, String) = conn
         .query_row(
-            "SELECT track_title, duration_seconds, itunes_duration_raw \
+            "SELECT track_title, duration_seconds, itunes_duration_raw,
+                    artist_name, album_title, album_artist_name \
              FROM tracks WHERE item_guid = 'track-guid-1'",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
         )
         .unwrap();
     assert_eq!(track_row.0, "Track One");
     assert_eq!(track_row.1, 225);
     assert_eq!(track_row.2, "03:45");
+    assert_eq!(track_row.3, "Track Artist");
+    assert_eq!(track_row.4, "Example Feed");
+    assert_eq!(track_row.5, "Feed Artist");
 
     let track_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM tracks", [], |row| row.get(0))

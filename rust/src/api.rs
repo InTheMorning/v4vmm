@@ -284,6 +284,7 @@ impl Client {
         entity_type: Option<&str>,
         limit: Option<i32>,
         cursor: Option<&str>,
+        fuzzy: bool,
     ) -> Result<SearchResponse> {
         let mut params = vec![
             ("q", query.to_string()),
@@ -297,6 +298,9 @@ impl Client {
         if let Some(cursor) = cursor {
             params.push(("cursor", cursor.to_string()));
         }
+        if fuzzy {
+            params.push(("fuzzy", "true".to_string()));
+        }
 
         self.get_json(&["v1", "search"], &params)
     }
@@ -305,10 +309,12 @@ impl Client {
         &self,
         query: &str,
         limit: Option<i32>,
+        fuzzy: bool,
     ) -> Result<PublisherSearchResponse> {
         let params = vec![
             ("q", query.to_string()),
             ("limit", limit.unwrap_or(PAGE_LIMIT).to_string()),
+            ("fuzzy", fuzzy.to_string()),
         ];
         self.get_json(&["v1", "publishers"], &params)
     }

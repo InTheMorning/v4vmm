@@ -92,6 +92,8 @@ struct MbRelease {
     packaging: Option<String>,
     barcode: Option<String>,
     disambiguation: Option<String>,
+    score: Option<i32>,
+    artist_credit: Vec<MbArtistCredit>,
     release_group: Option<MbReleaseGroup>,
     label_info: Vec<MbLabelInfo>,
     media: Vec<MbMedium>,
@@ -201,6 +203,122 @@ pub fn lookup_recordings(
     enrich_candidates_with_release_details(client, &mut candidates);
 
     Ok(MusicBrainzLookup { query, candidates })
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct ReleaseSearchResponse {
+    releases: Vec<MbRelease>,
+}
+
+pub fn lookup_releases(
+    client: &ReqwestClient,
+    metadata: &LookupMetadata,
+    limit: i32,
+) -> Result<Vec<MusicBrainzCandidate>> {
+    let query = build_release_query(metadata)?;
+    let requested_limit = limit.max(0) as usize;
+    let limit = limit.to_string();
+    let mut url = Url::parse("https://musicbrainz.org/ws/2/release")?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("query", &query);
+        pairs.append_pair("limit", &limit);
+        pairs.append_pair("fmt", "json");
+    }
+
+    let response = client
+        .get(url)
+        .send()?
+        .error_for_status()?
+        .json::<ReleaseSearchResponse>()?;
+
+    // For each release stub, fetch full details and build per-track candidates.
+    let mut candidates = Vec::new();
+    let mut fetched = 0;
+    for release_stub in response.releases.iter().take(requested_limit) {
+        if fetched > 0 {
+            sleep(Duration::from_millis(1100));
+        }
+        let Ok(release) = fetch_release_detail(client, &release_stub.id) else {
+            fetched += 1;
+            continue;
+        };
+        let artist = artist_credit_name(&release.artist_credit)
+            .or_else(|| artist_credit_name(&release_stub.artist_credit));
+        for medium in &release.media {
+            for track in &medium.tracks {
+                let tc = track_context_from_medium_track(medium, track);
+                let recording_id = track
+                    .recording
+                    .as_ref()
+                    .and_then(|r| r.id.clone())
+                    .unwrap_or_default();
+                let title = tc
+                    .track_title
+                    .clone()
+                    .or_else(|| track.title.clone())
+                    .unwrap_or_default();
+                let candidate = MusicBrainzCandidate {
+                    recording_id,
+                    title,
+                    artist: tc.track_artist.clone().or_else(|| artist.clone()),
+                    release_id: Some(release.id.clone()),
+                    release_title: release.title.clone(),
+                    release_group_id: release.release_group.as_ref().and_then(|g| g.id.clone()),
+                    release_group_type: release
+                        .release_group
+                        .as_ref()
+                        .and_then(|g| g.primary_type.clone()),
+                    release_group_secondary_types: release
+                        .release_group
+                        .as_ref()
+                        .map_or_else(Vec::new, |g| g.secondary_types.clone()),
+                    release_date: release.date.clone(),
+                    country: release.country.clone(),
+                    release_status: release.status.clone(),
+                    release_packaging: release.packaging.clone(),
+                    release_barcode: release.barcode.clone(),
+                    release_disambiguation: release.disambiguation.clone(),
+                    format: tc.format.clone(),
+                    medium_position: tc.medium_position,
+                    medium_title: tc.medium_title.clone(),
+                    track_number: tc.number.clone(),
+                    track_position: tc.track_position,
+                    track_title: tc.track_title.clone(),
+                    track_artist: tc.track_artist.clone(),
+                    track_disambiguation: tc.track_disambiguation.clone(),
+                    track_length_ms: tc.track_length_ms,
+                    total_tracks: tc.total_tracks,
+                    isrcs: tc.isrcs.clone(),
+                    labels: release_label_values(&release),
+                    urls: release_url_values(&release),
+                    duration_ms: tc.track_length_ms,
+                    musicbrainz_score: release_stub.score,
+                    similarity_score: 0,
+                };
+                candidates.push(candidate);
+            }
+        }
+        fetched += 1;
+    }
+
+    Ok(candidates)
+}
+
+fn build_release_query(metadata: &LookupMetadata) -> Result<String> {
+    let mut parts = Vec::new();
+    push_lucene_part(&mut parts, "release", metadata.album.as_deref());
+    push_lucene_part(&mut parts, "artist", metadata.artist.as_deref());
+    push_lucene_part(&mut parts, "tracks", metadata.total_tracks.as_deref());
+
+    if parts.is_empty() {
+        return Err(anyhow!(
+            "not enough metadata for MusicBrainz release lookup"
+        ));
+    }
+
+    Ok(parts.join(" AND "))
 }
 
 fn enrich_candidates_with_release_details(

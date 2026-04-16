@@ -8,6 +8,6 @@ pub mod id3;
 pub mod library;
 pub mod metadata;
 pub mod musicbrainz;
-pub mod search;
 pub mod rss;
+pub mod search;
 pub mod track_compare;

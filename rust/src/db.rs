@@ -1,6 +1,8 @@
 // src/db.rs
 use anyhow::{Context, Result};
-use rusqlite::Connection;
+use std::path::Path;
+
+use rusqlite::{Connection, OptionalExtension};
 
 use crate::config::Config;
 
@@ -23,12 +25,15 @@ pub struct TrackRow {
     pub track_title: Option<String>,
     pub artist_name: Option<String>,
     pub album_title: Option<String>,
+    pub album_artist_name: Option<String>,
     pub track_number: Option<i64>,
+    pub disc_number: Option<i64>,
     pub duration_seconds: Option<i64>,
     pub enclosure_url: Option<String>,
     pub track_image_href: Option<String>,
     pub is_in_library: bool,
     pub feed_title: Option<String>,
+    pub album_image_href: Option<String>,
     pub local_path: Option<String>,
 }
 
@@ -63,8 +68,9 @@ pub fn feed_tracks(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
     let mut stmt = conn
         .prepare(
             "SELECT t.id, t.feed_id, t.item_guid, t.track_title, t.artist_name, t.album_title,
-                    t.track_number, t.duration_seconds, t.enclosure_url, t.track_image_href,
-                    t.is_in_library, f.title, lf.path
+                    t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
+                    t.enclosure_url, t.track_image_href,
+                    t.is_in_library, f.title, f.album_image_href, lf.path
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -86,8 +92,9 @@ pub fn library_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
     let mut stmt = conn
         .prepare(
             "SELECT t.id, t.feed_id, t.item_guid, t.track_title, t.artist_name, t.album_title,
-                    t.track_number, t.duration_seconds, t.enclosure_url, t.track_image_href,
-                    t.is_in_library, f.title, lf.path
+                    t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
+                    t.enclosure_url, t.track_image_href,
+                    t.is_in_library, f.title, f.album_image_href, lf.path
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -114,12 +121,213 @@ pub fn set_feed_subscribed(conn: &Connection, feed_id: i64, subscribed: bool) ->
     Ok(())
 }
 
+pub fn set_feed_subscribed_by_url(
+    conn: &Connection,
+    feed_url: &str,
+    subscribed: bool,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE feeds SET is_subscribed = ?1 WHERE feed_url = ?2",
+        rusqlite::params![subscribed as i64, feed_url],
+    )
+    .context("set_feed_subscribed_by_url")?;
+    Ok(())
+}
+
+pub fn feed_is_subscribed_by_url(conn: &Connection, feed_url: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT is_subscribed FROM feeds WHERE feed_url = ?1",
+        [feed_url],
+        |row| row.get::<_, i64>(0),
+    )
+    .optional()
+    .context("feed_is_subscribed_by_url")
+    .map(|value| value.unwrap_or_default() != 0)
+}
+
 pub fn set_track_in_library(conn: &Connection, track_id: i64, in_library: bool) -> Result<()> {
     conn.execute(
         "UPDATE tracks SET is_in_library = ?1 WHERE id = ?2",
         rusqlite::params![in_library as i64, track_id],
     )
     .context("set_track_in_library")?;
+    Ok(())
+}
+
+pub fn set_track_in_library_by_match(
+    conn: &Connection,
+    feed_url: Option<&str>,
+    item_guid: Option<&str>,
+    enclosure_url: Option<&str>,
+    in_library: bool,
+) -> Result<bool> {
+    let Some(track_id) = find_track_id(conn, feed_url, item_guid, enclosure_url)? else {
+        return Ok(false);
+    };
+    set_track_in_library(conn, track_id, in_library)?;
+    Ok(true)
+}
+
+pub fn track_is_in_library_by_match(
+    conn: &Connection,
+    feed_url: Option<&str>,
+    item_guid: Option<&str>,
+    enclosure_url: Option<&str>,
+) -> Result<bool> {
+    let Some(track_id) = find_track_id(conn, feed_url, item_guid, enclosure_url)? else {
+        return Ok(false);
+    };
+    conn.query_row(
+        "SELECT is_in_library FROM tracks WHERE id = ?1",
+        [track_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .context("track_is_in_library_by_match")
+    .map(|value| value != 0)
+}
+
+pub fn mark_track_downloaded(
+    conn: &Connection,
+    track_id: i64,
+    path: &Path,
+    file_size_bytes: Option<i64>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE tracks SET is_in_library = 1 WHERE id = ?1",
+        [track_id],
+    )
+    .context("mark downloaded track in library")?;
+    upsert_local_file(conn, track_id, path, file_size_bytes)
+}
+
+pub fn mark_track_downloaded_by_match(
+    conn: &Connection,
+    feed_url: Option<&str>,
+    item_guid: Option<&str>,
+    enclosure_url: Option<&str>,
+    path: &Path,
+    file_size_bytes: Option<i64>,
+) -> Result<bool> {
+    let Some(track_id) = find_track_id(conn, feed_url, item_guid, enclosure_url)? else {
+        return Ok(false);
+    };
+    mark_track_downloaded(conn, track_id, path, file_size_bytes)?;
+    Ok(true)
+}
+
+fn upsert_local_file(
+    conn: &Connection,
+    track_id: i64,
+    path: &Path,
+    file_size_bytes: Option<i64>,
+) -> Result<()> {
+    let path = path.display().to_string();
+    conn.execute(
+        r#"
+        INSERT INTO local_files (path, track_id, file_size_bytes)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT(path) DO UPDATE SET
+            track_id = excluded.track_id,
+            file_size_bytes = excluded.file_size_bytes
+        "#,
+        rusqlite::params![path, track_id, file_size_bytes],
+    )
+    .context("upsert local file")?;
+    Ok(())
+}
+
+fn find_track_id(
+    conn: &Connection,
+    feed_url: Option<&str>,
+    item_guid: Option<&str>,
+    enclosure_url: Option<&str>,
+) -> Result<Option<i64>> {
+    if let (Some(feed_url), Some(item_guid)) = (feed_url, item_guid) {
+        if let Some(track_id) = conn
+            .query_row(
+                "SELECT t.id
+                 FROM tracks t
+                 JOIN feeds f ON f.id = t.feed_id
+                 WHERE f.feed_url = ?1 AND t.item_guid = ?2
+                 LIMIT 1",
+                rusqlite::params![feed_url, item_guid],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("find track by feed URL and item GUID")?
+        {
+            return Ok(Some(track_id));
+        }
+    }
+
+    if let (Some(feed_url), Some(enclosure_url)) = (feed_url, enclosure_url) {
+        if let Some(track_id) = conn
+            .query_row(
+                "SELECT t.id
+                 FROM tracks t
+                 JOIN feeds f ON f.id = t.feed_id
+                 WHERE f.feed_url = ?1 AND t.enclosure_url = ?2
+                 LIMIT 1",
+                rusqlite::params![feed_url, enclosure_url],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("find track by feed URL and enclosure URL")?
+        {
+            return Ok(Some(track_id));
+        }
+    }
+
+    if let Some(enclosure_url) = enclosure_url {
+        return conn
+            .query_row(
+                "SELECT id FROM tracks WHERE enclosure_url = ?1 LIMIT 1",
+                [enclosure_url],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("find track by enclosure URL");
+    }
+
+    Ok(None)
+}
+
+pub fn cached_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.feed_id, t.item_guid, t.track_title, t.artist_name, t.album_title,
+                    t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
+                    t.enclosure_url, t.track_image_href,
+                    t.is_in_library, f.title, f.album_image_href, lf.path
+             FROM tracks t
+             JOIN feeds f ON f.id = t.feed_id
+             JOIN local_files lf ON lf.track_id = t.id
+             WHERE t.is_in_library = 0
+             ORDER BY f.title COLLATE NOCASE, t.track_number, t.track_title COLLATE NOCASE",
+        )
+        .context("prepare cached_tracks")?;
+
+    let rows = stmt
+        .query_map([], track_row_from_sql)
+        .context("query cached_tracks")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect cached_tracks")?;
+
+    Ok(rows)
+}
+
+pub fn unsubscribe_feed_tracks(conn: &Connection, feed_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE tracks SET is_in_library = 0 WHERE feed_id = ?1",
+        [feed_id],
+    )
+    .context("unsubscribe_feed_tracks")?;
+    Ok(())
+}
+
+pub fn delete_local_file(conn: &Connection, local_file_path: &str) -> Result<()> {
+    conn.execute("DELETE FROM local_files WHERE path = ?1", [local_file_path])
+        .context("delete_local_file")?;
     Ok(())
 }
 
@@ -131,13 +339,16 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
         track_title: row.get(3)?,
         artist_name: row.get(4)?,
         album_title: row.get(5)?,
-        track_number: row.get(6)?,
-        duration_seconds: row.get(7)?,
-        enclosure_url: row.get(8)?,
-        track_image_href: row.get(9)?,
-        is_in_library: row.get::<_, i64>(10)? != 0,
-        feed_title: row.get(11)?,
-        local_path: row.get(12)?,
+        album_artist_name: row.get(6)?,
+        track_number: row.get(7)?,
+        disc_number: row.get(8)?,
+        duration_seconds: row.get(9)?,
+        enclosure_url: row.get(10)?,
+        track_image_href: row.get(11)?,
+        is_in_library: row.get::<_, i64>(12)? != 0,
+        feed_title: row.get(13)?,
+        album_image_href: row.get(14)?,
+        local_path: row.get(15)?,
     })
 }
 

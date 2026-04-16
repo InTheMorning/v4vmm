@@ -13,6 +13,35 @@ pub fn find_ext_attr(exts: &ExtensionMap, ns: &str, name: &str, attr: &str) -> O
     find_ext(exts, ns, name)?.attrs.get(attr).cloned()
 }
 
+pub fn clean_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+pub fn first_person_by_role(exts: &ExtensionMap, roles: &[&str]) -> Option<String> {
+    let persons = exts.get("podcast")?.get("person")?;
+    persons.iter().find_map(|person| {
+        let role = person
+            .attrs
+            .get("role")
+            .map(|role| role.to_ascii_lowercase())
+            .unwrap_or_default();
+        if roles
+            .iter()
+            .any(|candidate| role.contains(&candidate.to_ascii_lowercase()))
+        {
+            person
+                .value
+                .as_deref()
+                .and_then(|value| clean_text(Some(value)))
+        } else {
+            None
+        }
+    })
+}
+
 // podcast:person -> JSON array [{ name, attrs }, ...]
 pub fn collect_people_json(exts: &ExtensionMap) -> Option<String> {
     let persons = exts.get("podcast")?.get("person")?;
