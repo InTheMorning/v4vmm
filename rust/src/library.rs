@@ -1,15 +1,18 @@
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
 use gpui::{
-    div, img, prelude::*, px, rgb, AnyElement, Context, FontWeight, Image, ImageFormat,
+    div, img, prelude::*, px, rgb, AnyElement, Context, Entity, FontWeight, Image, ImageFormat,
     IntoElement, ObjectFit, Render, SharedString, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::menu::DropdownMenu as _;
 use gpui_component::Disableable;
 use gpui_component::Sizable;
 use gpui_component::Size;
@@ -19,7 +22,13 @@ use crate::api::{SourceEntityLink, Track};
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, Id3v24Edit};
 use crate::config;
 use crate::db::{self, TrackRow};
-use crate::metadata::TrackContext;
+use crate::metadata::{
+    aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
+    expand_woar_metadata_rows, id3_frame_base, metadata_field_is_expandable,
+    pending_id3_conflict_descriptions, pending_id3_edits_for_apply, track_metadata_rows,
+    AlignedCompareRow, MetadataColumn, MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit,
+    TagCompareResult, TrackContext,
+};
 use crate::musicbrainz::{
     lookup_recordings, lookup_releases, LookupMetadata, MusicBrainzCandidate,
 };
@@ -40,9 +49,67 @@ pub enum LibraryTab {
 enum LibraryDetail {
     None,
     Album(AlbumNode),
-    Track(Box<TrackRow>),
+    Track(Box<InspectorFrame>),
 }
 
+#[derive(Clone, Debug, Default)]
+enum LazyPanel<T> {
+    #[default]
+    Hidden,
+    Loading,
+    Empty(String),
+    Loaded(T),
+}
+
+#[derive(Clone, Debug)]
+struct InspectorFrame {
+    entity_id: i64,
+    title: String,
+    track: TrackRow,
+    image: Option<Arc<Image>>,
+    expanded_id3_frame_groups: BTreeSet<String>,
+    expanded_metadata_cells: BTreeSet<String>,
+    pending_id3_edits: BTreeMap<String, PendingId3Edit>,
+    suppressed_auto_id3_edits: BTreeSet<String>,
+    applying_id3_edits: bool,
+    id3_apply_error: Option<String>,
+    local_subscription: bool,
+    subscription_busy: bool,
+    subscription_message: Option<String>,
+    tag_compare: LazyPanel<TagCompareResult>,
+    musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
+    musicbrainz_selected: usize,
+}
+
+impl InspectorFrame {
+    fn for_track(track: TrackRow, image: Option<Arc<Image>>) -> Self {
+        let title = track
+            .track_title
+            .clone()
+            .or_else(|| track.feed_title.clone())
+            .unwrap_or_else(|| "Untitled".into());
+        Self {
+            entity_id: track.id,
+            title,
+            local_subscription: track.is_in_library,
+            track,
+            image,
+            expanded_id3_frame_groups: BTreeSet::new(),
+            expanded_metadata_cells: BTreeSet::new(),
+            pending_id3_edits: BTreeMap::new(),
+            suppressed_auto_id3_edits: BTreeSet::new(),
+            applying_id3_edits: false,
+            id3_apply_error: None,
+            subscription_busy: false,
+            subscription_message: None,
+            tag_compare: LazyPanel::Hidden,
+            musicbrainz_lookup: LazyPanel::Hidden,
+            musicbrainz_selected: 0,
+        }
+    }
+}
+
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 enum MbTrackStatus {
     Pending,
@@ -89,6 +156,9 @@ pub struct LibraryApp {
     busy_track: Option<i64>,
     mb_status: BTreeMap<i64, MbTrackStatus>,
     thumbnails: BTreeMap<String, ThumbnailState>,
+    search_input: Entity<InputState>,
+    search_query: String,
+    _search_sub: gpui::Subscription,
 }
 
 // ---------------------------------------------------------------------------
@@ -119,11 +189,11 @@ fn accent() -> gpui::Rgba {
 // ---------------------------------------------------------------------------
 
 impl LibraryApp {
-    pub fn new(
-        conn: Arc<Mutex<Connection>>,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(conn: Arc<Mutex<Connection>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let search_input = cx.new(|cx: &mut Context<InputState>| {
+            InputState::new(window, cx).placeholder("Search your library...")
+        });
+        let search_sub = cx.subscribe(&search_input, Self::on_search_event);
         let mut app = Self {
             conn,
             tab: LibraryTab::Library,
@@ -137,9 +207,30 @@ impl LibraryApp {
             busy_track: None,
             mb_status: BTreeMap::new(),
             thumbnails: BTreeMap::new(),
+            search_input,
+            search_query: String::new(),
+            _search_sub: search_sub,
         };
         app.reload();
         app
+    }
+
+    fn on_search_event(
+        &mut self,
+        _entity: Entity<InputState>,
+        event: &InputEvent,
+        cx: &mut Context<Self>,
+    ) {
+        if let InputEvent::PressEnter { .. } = event {
+            self.apply_search(cx);
+        }
+    }
+
+    fn apply_search(&mut self, cx: &mut Context<Self>) {
+        self.search_query = self.search_input.read(cx).value().trim().to_string();
+        self.selected_id = None;
+        self.detail = LibraryDetail::None;
+        cx.notify();
     }
 
     fn reload(&mut self) {
@@ -223,9 +314,15 @@ impl LibraryApp {
         self.detail = LibraryDetail::Album(album.clone());
     }
 
-    fn select_track(&mut self, track: &TrackRow) {
+    fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
         self.selected_id = Some(track.id);
-        self.detail = LibraryDetail::Track(Box::new(track.clone()));
+        let image = track
+            .track_image_href
+            .as_deref()
+            .or(track.album_image_href.as_deref())
+            .and_then(|url| self.thumbnail_for_url(Some(url), cx));
+        self.detail =
+            LibraryDetail::Track(Box::new(InspectorFrame::for_track(track.clone(), image)));
     }
 
     fn toggle_artist(&mut self, name: &str) {
@@ -304,6 +401,330 @@ impl LibraryApp {
         .detach();
     }
 
+    fn selected_track_frame_mut(&mut self) -> Option<&mut InspectorFrame> {
+        match &mut self.detail {
+            LibraryDetail::Track(frame) => Some(frame),
+            LibraryDetail::None | LibraryDetail::Album(_) => None,
+        }
+    }
+
+    fn toggle_id3_frame_group(&mut self, group_key: String, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        if !frame.expanded_id3_frame_groups.remove(&group_key) {
+            frame.expanded_id3_frame_groups.insert(group_key);
+        }
+        cx.notify();
+    }
+
+    fn toggle_metadata_cell(&mut self, cell_key: String, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        if !frame.expanded_metadata_cells.remove(&cell_key) {
+            frame.expanded_metadata_cells.insert(cell_key);
+        }
+        cx.notify();
+    }
+
+    fn apply_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        if frame.applying_id3_edits {
+            return;
+        }
+        let LazyPanel::Loaded(result) = &frame.tag_compare else {
+            return;
+        };
+        let track_context = track_row_to_track_context(&frame.track);
+        let rows = track_metadata_rows_for_frame(frame, &track_context, Some(result));
+        let pending_id3_edits = auto_populated_pending_id3_edits(
+            &rows,
+            &frame.pending_id3_edits,
+            &frame.suppressed_auto_id3_edits,
+        );
+        if pending_id3_edits.is_empty() {
+            return;
+        }
+        let conflicts = pending_id3_conflict_descriptions(&pending_id3_edits);
+        if !conflicts.is_empty() {
+            frame.id3_apply_error = Some(format!(
+                "Resolve duplicate ID3 target{}: {}",
+                if conflicts.len() == 1 { "" } else { "s" },
+                conflicts.join("; ")
+            ));
+            cx.notify();
+            return;
+        }
+
+        let entity_id = frame.entity_id;
+        let path = PathBuf::from(result.path.clone());
+        let edits = pending_id3_edits_for_apply(&pending_id3_edits);
+        frame.applying_id3_edits = true;
+        frame.id3_apply_error = None;
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        write_id3v24_edits(&path, &edits)?;
+                        compare_downloaded_track_path(&path, &track_context)
+                    })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
+                        if let Some(frame) = this.selected_track_frame_mut() {
+                            if frame.entity_id == entity_id {
+                                frame.applying_id3_edits = false;
+                                match result {
+                                    Ok(result) => {
+                                        frame.tag_compare = LazyPanel::Loaded(result);
+                                        frame.pending_id3_edits.clear();
+                                        frame.suppressed_auto_id3_edits.clear();
+                                        frame.id3_apply_error = None;
+                                    }
+                                    Err(error) => {
+                                        frame.id3_apply_error =
+                                            Some(format!("Error applying ID3 edits: {error}"));
+                                    }
+                                }
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn clear_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        if frame.applying_id3_edits {
+            return;
+        }
+        frame.pending_id3_edits.clear();
+        frame.suppressed_auto_id3_edits.clear();
+        frame.id3_apply_error = None;
+        cx.notify();
+    }
+
+    fn toggle_local_subscription(&mut self, cx: &mut Context<Self>) {
+        let Some((track_id, subscribe)) = (match self.selected_track_frame_mut() {
+            Some(frame) if frame.subscription_busy => return,
+            Some(frame) if frame.local_subscription => {
+                frame.subscription_busy = true;
+                frame.subscription_message = Some("Unsubscribing...".into());
+                Some((frame.entity_id, false))
+            }
+            Some(frame) => {
+                frame.subscription_busy = true;
+                frame.subscription_message = Some("Subscribing...".into());
+                Some((frame.entity_id, true))
+            }
+            None => None,
+        }) else {
+            return;
+        };
+        cx.notify();
+
+        let result = {
+            let db = self.conn.lock().expect("lock db");
+            db::set_track_in_library(&db, track_id, subscribe)
+        };
+        if let Some(frame) = self.selected_track_frame_mut() {
+            if frame.entity_id == track_id {
+                frame.subscription_busy = false;
+                match result {
+                    Ok(()) => {
+                        frame.local_subscription = subscribe;
+                        frame.track.is_in_library = subscribe;
+                        frame.subscription_message = Some(if subscribe {
+                            "Subscribed track".into()
+                        } else {
+                            "Unsubscribed track".into()
+                        });
+                    }
+                    Err(err) => {
+                        let action = if subscribe {
+                            "Subscribe"
+                        } else {
+                            "Unsubscribe"
+                        };
+                        frame.subscription_message = Some(format!("{action} error: {err:#}"));
+                    }
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        match frame.tag_compare {
+            LazyPanel::Loaded(_) => {
+                frame.tag_compare = LazyPanel::Hidden;
+                cx.notify();
+                return;
+            }
+            LazyPanel::Loading => return,
+            LazyPanel::Empty(_) | LazyPanel::Hidden => {
+                frame.tag_compare = LazyPanel::Loading;
+            }
+        }
+
+        let entity_id = frame.entity_id;
+        let track = frame.track.clone();
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { compare_library_track(&track) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
+                        if let Some(frame) = this.selected_track_frame_mut() {
+                            if frame.entity_id == entity_id {
+                                frame.tag_compare = match result {
+                                    Ok(result) => LazyPanel::Loaded(result),
+                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                };
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn redownload_tag_compare(&mut self, cx: &mut Context<Self>) {
+        self.reload_tag_compare(cx);
+    }
+
+    fn reread_tag_compare(&mut self, cx: &mut Context<Self>) {
+        self.reload_tag_compare(cx);
+    }
+
+    fn reload_tag_compare(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        if !matches!(frame.tag_compare, LazyPanel::Loaded(_)) {
+            return;
+        }
+        frame.tag_compare = LazyPanel::Loading;
+        let entity_id = frame.entity_id;
+        let track = frame.track.clone();
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { compare_library_track(&track) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
+                        if let Some(frame) = this.selected_track_frame_mut() {
+                            if frame.entity_id == entity_id {
+                                frame.tag_compare = match result {
+                                    Ok(result) => LazyPanel::Loaded(result),
+                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                };
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn toggle_musicbrainz_lookup(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        match frame.musicbrainz_lookup {
+            LazyPanel::Loaded(_) => {
+                frame.musicbrainz_lookup = LazyPanel::Hidden;
+                frame.musicbrainz_selected = 0;
+                cx.notify();
+                return;
+            }
+            LazyPanel::Loading => return,
+            LazyPanel::Empty(_) | LazyPanel::Hidden => {
+                frame.musicbrainz_lookup = LazyPanel::Loading;
+            }
+        }
+
+        let entity_id = frame.entity_id;
+        let track = frame.track.clone();
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { lookup_musicbrainz_library_track(&track) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
+                        if let Some(frame) = this.selected_track_frame_mut() {
+                            if frame.entity_id == entity_id {
+                                frame.musicbrainz_lookup = match result {
+                                    Ok(result) => {
+                                        frame.musicbrainz_selected = 0;
+                                        LazyPanel::Loaded(result)
+                                    }
+                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                };
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn select_musicbrainz_candidate(&mut self, idx: usize, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        if let LazyPanel::Loaded(result) = &frame.musicbrainz_lookup {
+            if idx < result.lookup.candidates.len() {
+                frame.musicbrainz_selected = idx;
+                cx.notify();
+            }
+        }
+    }
+
     fn delete_cached_file(&mut self, path: String) {
         if let Err(err) = std::fs::remove_file(&path) {
             if err.kind() != std::io::ErrorKind::NotFound {
@@ -350,6 +771,7 @@ impl LibraryApp {
         self.reload();
     }
 
+    #[allow(dead_code)]
     fn musicbrainz_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
         if self.mb_status.contains_key(&track.id) {
             return;
@@ -393,6 +815,7 @@ impl LibraryApp {
         .detach();
     }
 
+    #[allow(dead_code)]
     fn musicbrainz_feed(&mut self, album: AlbumNode, cx: &mut Context<Self>) {
         let downloadable: Vec<TrackRow> = album
             .tracks
@@ -604,6 +1027,7 @@ fn subscribe_library_track(
     Ok(path)
 }
 
+#[allow(dead_code)]
 fn musicbrainz_autotag_track(
     _conn: Arc<Mutex<Connection>>,
     track: &TrackRow,
@@ -656,6 +1080,7 @@ fn musicbrainz_autotag_track(
     Ok(count)
 }
 
+#[allow(dead_code)]
 fn match_candidate_to_track<'a>(
     candidates: &'a [MusicBrainzCandidate],
     track: &TrackRow,
@@ -694,6 +1119,7 @@ fn match_candidate_to_track<'a>(
     })
 }
 
+#[allow(dead_code)]
 fn apply_candidate_to_track(
     track: &TrackRow,
     candidate: &MusicBrainzCandidate,
@@ -712,6 +1138,7 @@ fn apply_candidate_to_track(
     Ok(count)
 }
 
+#[allow(dead_code)]
 async fn musicbrainz_feed_per_track(
     this: gpui::WeakEntity<LibraryApp>,
     cx: &mut gpui::AsyncApp,
@@ -836,6 +1263,53 @@ fn build_tree(tracks: &[TrackRow]) -> LibraryTree {
     LibraryTree { artists }
 }
 
+fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return tree.clone();
+    }
+    let mut artists = Vec::new();
+    for artist in &tree.artists {
+        let artist_match = artist.name.to_lowercase().contains(&q);
+        let mut albums = Vec::new();
+        for album in &artist.albums {
+            let album_match = album.name.to_lowercase().contains(&q);
+            let keep_all = artist_match || album_match;
+            let tracks: Vec<TrackRow> = if keep_all {
+                album.tracks.clone()
+            } else {
+                album
+                    .tracks
+                    .iter()
+                    .filter(|t| {
+                        t.track_title
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&q)
+                    })
+                    .cloned()
+                    .collect()
+            };
+            if keep_all || !tracks.is_empty() {
+                albums.push(AlbumNode {
+                    name: album.name.clone(),
+                    feed_id: album.feed_id,
+                    image_href: album.image_href.clone(),
+                    tracks,
+                });
+            }
+        }
+        if !albums.is_empty() {
+            artists.push(ArtistNode {
+                name: artist.name.clone(),
+                albums,
+            });
+        }
+    }
+    LibraryTree { artists }
+}
+
 fn cleanup_empty_parents(path: &std::path::Path) {
     let music_dir = config::config_path()
         .ok()
@@ -858,6 +1332,7 @@ fn cleanup_empty_parents(path: &std::path::Path) {
     }
 }
 
+#[allow(dead_code)]
 fn mb_edits_for_missing_fields(
     tags: &crate::audio_tags::AudioTags,
     candidate: &MusicBrainzCandidate,
@@ -955,6 +1430,7 @@ fn mb_edits_for_missing_fields(
     edits
 }
 
+#[allow(dead_code)]
 fn tag_has_frame(tags: &crate::audio_tags::AudioTags, frame_id: &str) -> bool {
     tags.fields.iter().any(|f| f.frame_id == frame_id)
 }
@@ -1032,19 +1508,46 @@ impl Render for LibraryApp {
             }
         }
 
-        let tree = match self.tab {
+        let base_tree = match self.tab {
             LibraryTab::Library => &self.tree,
             LibraryTab::Cached => &self.cached_tree,
         };
+        let query = self.search_query.trim();
+        let has_query = !query.is_empty();
+        let filtered_tree = if has_query {
+            filter_tree(base_tree, query)
+        } else {
+            base_tree.clone()
+        };
+        let (expanded_artists, expanded_albums) = if has_query {
+            let ea: HashSet<String> = filtered_tree
+                .artists
+                .iter()
+                .map(|a| a.name.clone())
+                .collect();
+            let eb: HashSet<(String, String)> = filtered_tree
+                .artists
+                .iter()
+                .flat_map(|a| {
+                    a.albums
+                        .iter()
+                        .map(move |alb| (a.name.clone(), alb.name.clone()))
+                })
+                .collect();
+            (ea, eb)
+        } else {
+            (self.expanded_artists.clone(), self.expanded_albums.clone())
+        };
         let left_items: Vec<AnyElement> = render_tree(
-            tree,
-            &self.expanded_artists,
-            &self.expanded_albums,
+            &filtered_tree,
+            &expanded_artists,
+            &expanded_albums,
             self.selected_id,
             is_cached_tab,
             &album_thumbs,
             cx,
         );
+        let filtered_empty = filtered_tree.artists.is_empty();
 
         let detail_pane = render_detail(
             &self.detail,
@@ -1123,6 +1626,37 @@ impl Render for LibraryApp {
                             .border_color(border())
                             .child(
                                 div()
+                                    .p(px(12.0))
+                                    .border_b_1()
+                                    .border_color(border())
+                                    .flex()
+                                    .flex_col()
+                                    .gap(px(8.0))
+                                    .child(
+                                        div()
+                                            .text_size(px(10.0))
+                                            .font_weight(FontWeight::BOLD)
+                                            .text_color(muted())
+                                            .child("Search Library"),
+                                    )
+                                    .child(
+                                        Input::new(&self.search_input)
+                                            .cleanable(true)
+                                            .with_size(Size::Small),
+                                    )
+                                    .child(
+                                        Button::new("lib-search-btn")
+                                            .label("Search")
+                                            .primary()
+                                            .with_size(Size::Small)
+                                            .text_color(rgb(0xffffff))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.apply_search(cx);
+                                            })),
+                                    ),
+                            )
+                            .child(
+                                div()
                                     .text_xs()
                                     .text_color(status_color)
                                     .px(px(12.0))
@@ -1143,42 +1677,48 @@ impl Render for LibraryApp {
                                             .flex_col()
                                             .gap(px(2.0))
                                             .children(left_items)
-                                            .when(is_cached_tab && !self.list_is_empty(), |el| {
-                                                el.child(
-                                                    div().pt(px(8.0)).child(
-                                                        Button::new("delete-all-cached")
-                                                            .label("Delete All Cached")
-                                                            .danger()
-                                                            .with_size(Size::XSmall)
-                                                            .text_color(rgb(0xffffff))
-                                                            .on_click(cx.listener(
-                                                                |this, _, _, cx| {
-                                                                    this.delete_all_cached();
-                                                                    cx.notify();
-                                                                },
-                                                            )),
-                                                    ),
-                                                )
-                                            })
                                             .when(
-                                                self.list_is_empty()
+                                                is_cached_tab
+                                                    && !self.list_is_empty()
+                                                    && !has_query,
+                                                |el| {
+                                                    el.child(
+                                                        div().pt(px(8.0)).child(
+                                                            Button::new("delete-all-cached")
+                                                                .label("Delete All Cached")
+                                                                .danger()
+                                                                .with_size(Size::XSmall)
+                                                                .text_color(rgb(0xffffff))
+                                                                .on_click(cx.listener(
+                                                                    |this, _, _, cx| {
+                                                                        this.delete_all_cached();
+                                                                        cx.notify();
+                                                                    },
+                                                                )),
+                                                        ),
+                                                    )
+                                                },
+                                            )
+                                            .when(
+                                                filtered_empty
                                                     && !self.status.starts_with("Error:"),
                                                 |el| {
+                                                    let label = if has_query {
+                                                        "No matches"
+                                                    } else {
+                                                        match self.tab {
+                                                            LibraryTab::Library => {
+                                                                "No library tracks yet"
+                                                            }
+                                                            LibraryTab::Cached => "No cached files",
+                                                        }
+                                                    };
                                                     el.child(
                                                         div()
                                                             .text_center()
                                                             .p(px(48.0))
                                                             .text_color(muted())
-                                                            .child(div().mt(px(8.0)).child(
-                                                                match self.tab {
-                                                                    LibraryTab::Library => {
-                                                                        "No library tracks yet"
-                                                                    }
-                                                                    LibraryTab::Cached => {
-                                                                        "No cached files"
-                                                                    }
-                                                                },
-                                                            )),
+                                                            .child(div().mt(px(8.0)).child(label)),
                                                     )
                                                 },
                                             ),
@@ -1394,7 +1934,7 @@ fn render_tree(
                             let path_for_delete = track.local_path.clone().unwrap_or_default();
                             row = row
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.select_track(&track_clone_a);
+                                    this.select_track(&track_clone_a, cx);
                                     cx.notify();
                                 }))
                                 .child(
@@ -1433,7 +1973,7 @@ fn render_tree(
                         } else {
                             row = row
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.select_track(&track_clone_b);
+                                    this.select_track(&track_clone_b, cx);
                                     cx.notify();
                                 }))
                                 .child(
@@ -1491,7 +2031,7 @@ fn render_detail(
             render_album_detail(album, busy_track, mb_status, album_thumbs, cx)
         }
 
-        LibraryDetail::Track(track) => render_track_detail(track, busy_track, mb_status, cx),
+        LibraryDetail::Track(frame) => render_track_detail(frame, cx),
     }
 }
 
@@ -1502,11 +2042,7 @@ fn render_album_detail(
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let album_clone = album.clone();
     let title = &album.name;
-    let has_any_mb = mb_status
-        .values()
-        .any(|s| matches!(s, MbTrackStatus::Pending | MbTrackStatus::Processing));
     let feed_id = album.feed_id;
     let thumb_image = album
         .image_href
@@ -1631,46 +2167,36 @@ fn render_album_detail(
         .iter()
         .filter(|t| t.local_path.is_some())
         .count();
+    let track_count = album.tracks.len();
+    let mut detail_rows = vec![
+        ("Artist".to_string(), artist.clone()),
+        (
+            "Tracks".to_string(),
+            format!(
+                "{track_count} track{}",
+                if track_count == 1 { "" } else { "s" }
+            ),
+        ),
+    ];
+    if !duration_str.is_empty() {
+        detail_rows.push(("Duration".to_string(), duration_str.clone()));
+    }
+    if downloaded > 0 {
+        detail_rows.push(("Downloaded".to_string(), downloaded.to_string()));
+    }
 
     // Buttons row.
     let mut buttons = div().flex().flex_row().gap(px(8.0));
     if let Some(fid) = feed_id {
         buttons = buttons.child(
-            Button::new("unsub-btn")
-                .label("Unsubscribe Feed")
+            metadata_action_button("Unsubscribe Feed")
                 .danger()
-                .with_size(Size::XSmall)
-                .text_color(rgb(0xffffff))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.unsubscribe_feed(fid);
                     cx.notify();
                 })),
         );
     }
-    buttons = buttons.child(
-        Button::new("mb-album-btn")
-            .label("MusicBrainz")
-            .ghost()
-            .with_size(Size::XSmall)
-            .text_color(rgb(0xffffff))
-            .disabled(has_any_mb)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.musicbrainz_feed(album_clone.clone(), cx);
-            })),
-    );
-
-    let track_count = album.tracks.len();
-    let mut info_parts = vec![format!(
-        "{track_count} track{}",
-        if track_count == 1 { "" } else { "s" }
-    )];
-    if !duration_str.is_empty() {
-        info_parts.push(duration_str);
-    }
-    if downloaded > 0 && downloaded < track_count {
-        info_parts.push(format!("{downloaded} downloaded"));
-    }
-
     div()
         .id("album-detail-scroll")
         .size_full()
@@ -1678,256 +2204,1347 @@ fn render_album_detail(
         .p(px(16.0))
         .flex()
         .flex_col()
-        .gap(px(8.0))
-        // Album art + title + artist header.
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .gap(px(16.0))
-                .child(render_album_thumb(thumb_image.as_ref(), 96.0))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(4.0))
-                        .child(
-                            div()
-                                .text_lg()
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(accent())
-                                .child(SharedString::from(title.clone())),
-                        )
-                        .child(div().text_color(text()).child(SharedString::from(artist)))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(muted())
-                                .child(SharedString::from(info_parts.join(" \u{00B7} "))),
-                        ),
-                ),
-        )
+        .gap(px(12.0))
+        .child(render_detail_header(
+            "feed",
+            title,
+            Some(artist.as_str()),
+            thumb_image.as_ref(),
+        ))
+        .child(render_detail_grid(detail_rows))
         .child(buttons)
         .child(div().flex().flex_col().gap(px(2.0)).children(track_rows))
         .into_any_element()
 }
 
-fn render_track_detail(
-    track: &TrackRow,
-    busy_track: Option<i64>,
-    mb_status: &BTreeMap<i64, MbTrackStatus>,
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let track_id = track.id;
-    let in_library = track.is_in_library;
-    let is_busy = busy_track == Some(track_id);
-    let track_for_click = track.clone();
-    let track_for_mb = track.clone();
-    let title = track.track_title.as_deref().unwrap_or("[untitled]");
-    let has_file = track.local_path.is_some();
-    let mb = mb_status.get(&track_id);
-    let mb_busy = matches!(mb, Some(MbTrackStatus::Processing));
-
-    let mb_label: SharedString = match mb {
-        Some(MbTrackStatus::Processing) => "MusicBrainz...".into(),
-        Some(MbTrackStatus::Done(n)) => SharedString::from(format!("MusicBrainz: {n} edits")),
-        Some(MbTrackStatus::Skipped(reason)) => SharedString::from(format!("MB: {reason}")),
-        _ => "MusicBrainz".into(),
+fn render_track_detail(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {
+    let context = track_row_to_track_context(&frame.track);
+    let result = match &frame.tag_compare {
+        LazyPanel::Loaded(result) => Some(result),
+        LazyPanel::Loading | LazyPanel::Empty(_) | LazyPanel::Hidden => None,
     };
-
-    // Build metadata rows — prefer ID3 tags from local file when available.
-    let mut rows: Vec<(String, String)> = Vec::new();
-    let mut embedded_art: Option<Arc<Image>> = None;
-
-    if let Some(path) = &track.local_path {
-        if let Ok(tags) = read_audio_tags(std::path::Path::new(path)) {
-            // Primary fields.
-            if let Some(v) = &tags.title {
-                rows.push(("Title".into(), v.clone()));
-            }
-            if let Some(v) = &tags.artist {
-                rows.push(("Artist".into(), v.clone()));
-            }
-            if let Some(v) = &tags.album {
-                rows.push(("Album".into(), v.clone()));
-            }
-            if let Some(v) = &tags.track_number {
-                let s = match &tags.total_tracks {
-                    Some(t) => format!("{v}/{t}"),
-                    None => v.clone(),
-                };
-                rows.push(("Track #".into(), s));
-            }
-            if let Some(v) = &tags.date {
-                rows.push(("Date".into(), v.clone()));
-            }
-            // Custom TXXX and other frames.
-            for (key, value) in &tags.custom {
-                rows.push((key.clone(), value.clone()));
-            }
-            // Raw ID3 fields not already covered.
-            for field in &tags.fields {
-                let dominated = matches!(
-                    field.frame_id.as_str(),
-                    "TIT2" | "TPE1" | "TALB" | "TRCK" | "TDRC"
-                ) || tags.custom.contains_key(&field.frame_id);
-                if !dominated {
-                    rows.push((field.frame_id.clone(), field.value.clone()));
-                }
-            }
-            // Embedded artwork.
-            if let Some(art) = &tags.artwork {
-                if !art.data.is_empty() {
-                    let fmt =
-                        ImageFormat::from_mime_type(&art.mime_type).unwrap_or(ImageFormat::Jpeg);
-                    embedded_art = Some(Arc::new(Image::from_bytes(fmt, art.data.clone())));
-                }
-            }
-        }
-    }
-
-    // If no tags were read, fall back to DB fields.
-    if rows.is_empty() {
-        let db_rows: Vec<(&str, Option<String>)> = vec![
-            ("Title", track.track_title.clone()),
-            ("Artist", track.artist_name.clone()),
-            (
-                "Album",
-                track
-                    .album_title
-                    .clone()
-                    .or_else(|| track.feed_title.clone()),
-            ),
-            ("Album Artist", track.album_artist_name.clone()),
-            ("Track #", track.track_number.map(|n| n.to_string())),
-            ("Disc #", track.disc_number.map(|n| n.to_string())),
-            (
-                "Duration",
-                track
-                    .duration_seconds
-                    .map(|s| format!("{}:{:02}", s / 60, s % 60)),
-            ),
-        ];
-        for (k, v) in db_rows {
-            if let Some(val) = v {
-                rows.push((k.into(), val));
-            }
-        }
-    }
-
-    // Always add feed + local file info at the bottom.
-    if let Some(v) = &track.feed_title {
-        rows.push(("Feed".into(), v.clone()));
-    }
-    if let Some(v) = &track.local_path {
-        rows.push(("Local file".into(), v.clone()));
-    }
-
-    let mut detail = div()
+    div()
         .id("track-detail-scroll")
         .size_full()
         .overflow_y_scroll()
         .p(px(16.0))
+        .child(render_track_window(frame, &context, result, cx))
+        .into_any_element()
+}
+
+fn render_track_window(
+    frame: &InspectorFrame,
+    track_context: &TrackContext,
+    result: Option<&TagCompareResult>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let show_id3_panel = !matches!(frame.tag_compare, LazyPanel::Hidden);
+    let show_musicbrainz_panel = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
+    let columns = 1 + u16::from(show_id3_panel) + u16::from(show_musicbrainz_panel);
+    let rows = track_metadata_rows_for_frame(frame, track_context, result);
+    let pending_id3_edits = auto_populated_pending_id3_edits(
+        &rows,
+        &frame.pending_id3_edits,
+        &frame.suppressed_auto_id3_edits,
+    );
+
+    div()
         .flex()
         .flex_col()
-        .gap(px(8.0));
+        .gap(px(16.0))
+        .child(
+            div()
+                .grid()
+                .grid_cols(columns)
+                .gap(px(24.0))
+                .items_start()
+                .child(render_track_left_column(
+                    frame,
+                    &track_context.track,
+                    &pending_id3_edits,
+                    cx,
+                ))
+                .when(show_id3_panel, |el| {
+                    el.child(if let Some(result) = result {
+                        render_file_header(result, cx)
+                    } else {
+                        render_track_compare_panel(frame)
+                    })
+                })
+                .when(show_musicbrainz_panel, |el| {
+                    el.child(render_musicbrainz_panel(frame, cx))
+                }),
+        )
+        .child(render_track_metadata_grid(
+            rows,
+            show_id3_panel,
+            show_musicbrainz_panel,
+            &pending_id3_edits,
+            &frame.expanded_metadata_cells,
+            result.and_then(|r| r.file_image.clone()),
+            cx,
+        ))
+        .into_any_element()
+}
 
-    // Artwork + title header.
-    if embedded_art.is_some() {
-        detail = detail.child(
+fn render_track_left_column(
+    frame: &InspectorFrame,
+    track: &Track,
+    pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(12.0))
+        .child(render_track_header(frame, track))
+        .child(render_action_row(frame, pending_id3_edits, cx))
+        .into_any_element()
+}
+
+fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
+    match &frame.tag_compare {
+        LazyPanel::Loaded(_) => div().into_any_element(),
+        LazyPanel::Loading => render_loading("Reading embedded metadata..."),
+        LazyPanel::Empty(label) => render_loading(label),
+        LazyPanel::Hidden => div().into_any_element(),
+    }
+}
+
+fn render_track_header(frame: &InspectorFrame, track: &Track) -> AnyElement {
+    let title = if frame.title.is_empty() {
+        track_title(track)
+    } else {
+        frame.title.clone()
+    };
+    let artist = track
+        .track_artist
+        .clone()
+        .or_else(|| track.release_artist.clone())
+        .unwrap_or_else(|| "Unknown".into());
+    render_detail_header("track", &title, Some(artist.as_str()), frame.image.as_ref())
+}
+
+fn render_action_row(
+    frame: &InspectorFrame,
+    pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
+    let has_pending_conflicts = !pending_conflicts.is_empty();
+
+    div()
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap(px(4.0))
+        .child(
+            metadata_action_button(&subscription_button_label(frame))
+                .disabled(frame.subscription_busy)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_local_subscription(cx);
+                })),
+        )
+        .when_some(frame.subscription_message.clone(), |el, message| {
+            el.child(
+                div()
+                    .max_w(px(220.0))
+                    .text_size(px(10.0))
+                    .line_height(px(14.0))
+                    .text_color(if message.contains("error") || message.contains("Error") {
+                        rgb(0xff8a65)
+                    } else {
+                        muted()
+                    })
+                    .child(SharedString::from(message)),
+            )
+        })
+        .when(frame.track.local_path.is_some(), |el| {
+            el.child(
+                metadata_action_button(match frame.tag_compare {
+                    LazyPanel::Loaded(_) => "Hide Compare",
+                    LazyPanel::Loading => "Reading ID3...",
+                    LazyPanel::Empty(_) | LazyPanel::Hidden => "Compare ID3",
+                })
+                .disabled(matches!(frame.tag_compare, LazyPanel::Loading))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_tag_compare(cx);
+                })),
+            )
+            .child(
+                metadata_action_button(match frame.musicbrainz_lookup {
+                    LazyPanel::Loaded(_) => "Hide MusicBrainz",
+                    LazyPanel::Loading => "Searching MusicBrainz...",
+                    LazyPanel::Empty(_) | LazyPanel::Hidden => "MusicBrainz",
+                })
+                .disabled(matches!(frame.musicbrainz_lookup, LazyPanel::Loading))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_musicbrainz_lookup(cx);
+                })),
+            )
+        })
+        .when(
+            !pending_id3_edits.is_empty() || frame.applying_id3_edits,
+            |el| {
+                let count = pending_id3_edits.len();
+                let conflict_text = pending_conflicts.join("; ");
+                let label = if frame.applying_id3_edits {
+                    "Applying ID3...".to_string()
+                } else {
+                    format!("Apply ID3 ({count})")
+                };
+                el.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_start()
+                        .gap(px(4.0))
+                        .child(div().text_size(px(10.0)).text_color(muted()).child(
+                            SharedString::from(format!(
+                                "{count} staged ID3 edit{}",
+                                if count == 1 { "" } else { "s" }
+                            )),
+                        ))
+                        .child(
+                            metadata_action_button(&label)
+                                .disabled(frame.applying_id3_edits || has_pending_conflicts)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.apply_pending_id3_edits(cx);
+                                })),
+                        )
+                        .when(has_pending_conflicts, |el| {
+                            el.child(
+                                div()
+                                    .max_w(px(190.0))
+                                    .text_size(px(10.0))
+                                    .line_height(px(14.0))
+                                    .text_color(rgb(0xff8a65))
+                                    .child(SharedString::from(format!(
+                                        "Duplicate target: {conflict_text}"
+                                    ))),
+                            )
+                        })
+                        .when(
+                            !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty(),
+                            |el| {
+                                el.child(metadata_action_button("Discard ID3").on_click(
+                                    cx.listener(|this, _, _, cx| {
+                                        this.clear_pending_id3_edits(cx);
+                                    }),
+                                ))
+                            },
+                        ),
+                )
+            },
+        )
+        .when_some(frame.id3_apply_error.clone(), |el, error| {
+            el.child(
+                div()
+                    .max_w(px(180.0))
+                    .text_size(px(10.0))
+                    .line_height(px(14.0))
+                    .text_color(rgb(0xff8a65))
+                    .child(SharedString::from(error)),
+            )
+        })
+        .into_any_element()
+}
+
+fn subscription_button_label(frame: &InspectorFrame) -> String {
+    if frame.subscription_busy {
+        return if frame.local_subscription {
+            "Unsubscribing...".into()
+        } else {
+            "Subscribing...".into()
+        };
+    }
+    if frame.local_subscription {
+        "Unsubscribe Track".into()
+    } else {
+        "Subscribe Track".into()
+    }
+}
+
+fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(16.0))
+        .child(render_thumb(
+            result.file_image.as_ref(),
+            "track",
+            80.0,
+            true,
+        ))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.0))
+                        .mb(px(6.0))
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(badge_text("track"))
+                                .bg(type_color("track"))
+                                .px(px(6.0))
+                                .py(px(2.0))
+                                .rounded(px(4.0))
+                                .child("Embedded ID3"),
+                        )
+                        .child(metadata_action_button("Re-read").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.reread_tag_compare(cx);
+                            },
+                        )))
+                        .child(metadata_action_button("Re-download").on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.redownload_tag_compare(cx);
+                            },
+                        ))),
+                )
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_height(px(23.0))
+                        .child(SharedString::from(id3_header_title(result))),
+                )
+                .child(
+                    div()
+                        .text_color(muted())
+                        .text_size(px(10.5))
+                        .line_clamp(2)
+                        .child(SharedString::from(result.path.clone())),
+                ),
+        )
+        .into_any_element()
+}
+
+fn id3_header_title(result: &TagCompareResult) -> String {
+    result
+        .rows
+        .iter()
+        .find(|row| row.field == "Title")
+        .and_then(|row| row.tag_value.clone())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| "Embedded ID3".into())
+}
+
+fn render_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {
+    match &frame.musicbrainz_lookup {
+        LazyPanel::Loaded(result) => render_musicbrainz_lookup(frame, result, cx),
+        LazyPanel::Loading => render_loading("Searching MusicBrainz..."),
+        LazyPanel::Empty(label) => render_loading(label),
+        LazyPanel::Hidden => div().into_any_element(),
+    }
+}
+
+fn render_musicbrainz_lookup(
+    frame: &InspectorFrame,
+    result: &MusicBrainzLookupResult,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let selected = selected_musicbrainz_candidate(frame, result);
+    match selected {
+        Some(candidate) => render_musicbrainz_header(frame, result, candidate, cx),
+        None => div()
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .child(muted_line("No MusicBrainz recording match found"))
+            .into_any_element(),
+    }
+}
+
+fn render_musicbrainz_header(
+    frame: &InspectorFrame,
+    result: &MusicBrainzLookupResult,
+    candidate: &MusicBrainzCandidate,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(16.0))
+        .child(render_thumb(result.image.as_ref(), "track", 80.0, true))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(render_musicbrainz_title_bar(result, candidate, cx))
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_height(px(23.0))
+                        .child(SharedString::from(candidate.title.clone())),
+                )
+                .child(
+                    div()
+                        .text_color(muted())
+                        .text_size(px(10.5))
+                        .line_clamp(2)
+                        .child(SharedString::from(musicbrainz_subtitle(
+                            frame, result, candidate,
+                        ))),
+                ),
+        )
+        .into_any_element()
+}
+
+fn render_musicbrainz_title_bar(
+    result: &MusicBrainzLookupResult,
+    selected: &MusicBrainzCandidate,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let label = musicbrainz_release_summary(selected);
+    let candidates = result.lookup.candidates.clone();
+    let selected_idx = candidates
+        .iter()
+        .position(|candidate| candidate.release_id == selected.release_id)
+        .unwrap_or_default();
+    let app = cx.weak_entity();
+
+    Button::new("musicbrainz-release-picker")
+        .label(SharedString::from(format!("MusicBrainz: {label}")))
+        .with_size(Size::XSmall)
+        .compact()
+        .ghost()
+        .w_full()
+        .justify_start()
+        .bg(type_color("track"))
+        .text_color(rgb(0xffffff))
+        .text_size(px(10.0))
+        .font_weight(FontWeight::BOLD)
+        .px(px(6.0))
+        .py(px(2.0))
+        .border_1()
+        .border_color(type_color("track"))
+        .rounded(px(4.0))
+        .mb(px(6.0))
+        .dropdown_menu(move |menu, _window, _cx| {
+            candidates.iter().enumerate().fold(
+                menu.min_w(px(320.0)).max_w(px(520.0)).scrollable(true),
+                |menu, (idx, candidate)| {
+                    let app = app.clone();
+                    menu.item(
+                        gpui_component::menu::PopupMenuItem::new(musicbrainz_release_option_label(
+                            candidate,
+                        ))
+                        .checked(idx == selected_idx)
+                        .on_click(move |_, _, cx| {
+                            let _ = app.update(cx, |this, cx| {
+                                this.select_musicbrainz_candidate(idx, cx);
+                            });
+                        }),
+                    )
+                },
+            )
+        })
+        .into_any_element()
+}
+
+fn musicbrainz_release_summary(candidate: &MusicBrainzCandidate) -> String {
+    let mut parts = Vec::new();
+    if let Some(country) = &candidate.country {
+        parts.push(country.clone());
+    }
+    if let Some(format) = &candidate.format {
+        parts.push(format.clone());
+    }
+    if let Some(tracks) = candidate.total_tracks {
+        parts.push(format!("{tracks} tracks"));
+    }
+    let mut value = if parts.is_empty() {
+        candidate
+            .release_title
+            .clone()
+            .unwrap_or_else(|| candidate.title.clone())
+    } else {
+        parts.join(" - ")
+    };
+    if let Some(date) = &candidate.release_date {
+        value.push_str(&format!(" ({date})"));
+    }
+    value
+}
+
+fn musicbrainz_release_option_label(candidate: &MusicBrainzCandidate) -> SharedString {
+    let release = candidate
+        .release_title
+        .clone()
+        .unwrap_or_else(|| candidate.title.clone());
+    SharedString::from(format!(
+        "{} - {}",
+        musicbrainz_release_summary(candidate),
+        release
+    ))
+}
+
+fn musicbrainz_subtitle(
+    frame: &InspectorFrame,
+    result: &MusicBrainzLookupResult,
+    candidate: &MusicBrainzCandidate,
+) -> String {
+    let rank = if result
+        .lookup
+        .candidates
+        .get(frame.musicbrainz_selected)
+        .is_some()
+    {
+        frame.musicbrainz_selected + 1
+    } else {
+        1
+    };
+    let score = if let Some(musicbrainz_score) = candidate.musicbrainz_score {
+        format!(
+            "Best: #{} - {}% local - {} MB",
+            rank, candidate.similarity_score, musicbrainz_score
+        )
+    } else {
+        format!("Best: #{} - {}% local", rank, candidate.similarity_score)
+    };
+    if let Some(release_id) = &candidate.release_id {
+        format!("{score} - {release_id}")
+    } else {
+        format!("{score} - {}", candidate.recording_id)
+    }
+}
+
+fn selected_musicbrainz_candidate<'a>(
+    frame: &InspectorFrame,
+    result: &'a MusicBrainzLookupResult,
+) -> Option<&'a MusicBrainzCandidate> {
+    result
+        .lookup
+        .candidates
+        .get(frame.musicbrainz_selected)
+        .or_else(|| result.lookup.candidates.first())
+}
+
+fn track_metadata_rows_for_frame(
+    frame: &InspectorFrame,
+    track_context: &TrackContext,
+    result: Option<&TagCompareResult>,
+) -> Vec<MetadataGridRow> {
+    let selected_musicbrainz = match &frame.musicbrainz_lookup {
+        LazyPanel::Loaded(lookup) => selected_musicbrainz_candidate(frame, lookup),
+        _ => None,
+    };
+    let show_musicbrainz = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
+    let rows = result.map_or_else(
+        || track_metadata_rows(track_context, selected_musicbrainz, show_musicbrainz),
+        |result| {
+            aligned_compare_rows(
+                result,
+                track_context,
+                selected_musicbrainz,
+                show_musicbrainz,
+                &frame.expanded_id3_frame_groups,
+            )
+        },
+    );
+    expand_woar_metadata_rows(rows)
+}
+
+fn render_track_metadata_grid(
+    rows: Vec<MetadataGridRow>,
+    show_id3: bool,
+    show_musicbrainz: bool,
+    pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    expanded_metadata_cells: &BTreeSet<String>,
+    file_image: Option<Arc<Image>>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let mut cells: Vec<AnyElement> = Vec::new();
+    let columns = 1 + u16::from(show_id3) + u16::from(show_musicbrainz);
+    cells.push(metadata_heading_cell("RSS", 96.0));
+    if show_id3 {
+        cells.push(metadata_heading_cell("ID3", 12.0));
+    }
+    if show_musicbrainz {
+        cells.push(metadata_heading_cell("MusicBrainz", 12.0));
+    }
+
+    for row in rows {
+        match row {
+            MetadataGridRow::Group(group) => cells.push(metadata_group_cell(group, columns, cx)),
+            MetadataGridRow::Data(row) => {
+                let pending = pending_id3_edits.get(&row.row_id);
+                let rss_expanded = expanded_metadata_cells.contains(&format!("rss:{}", row.row_id));
+                let id3_expanded = expanded_metadata_cells.contains(&format!("id3:{}", row.row_id));
+                cells.push(metadata_rss_cell(&row, pending, rss_expanded, cx));
+                if show_id3 {
+                    cells.push(metadata_id3_cell(
+                        &row,
+                        pending,
+                        id3_expanded,
+                        file_image.as_ref(),
+                        cx,
+                    ));
+                }
+                if show_musicbrainz {
+                    cells.push(metadata_musicbrainz_cell(&row, pending));
+                }
+            }
+        }
+    }
+
+    div()
+        .grid()
+        .grid_cols(columns)
+        .gap_x(px(24.0))
+        .gap_y(px(7.0))
+        .children(cells)
+        .into_any_element()
+}
+
+fn metadata_heading_cell(label: &str, indent: f32) -> AnyElement {
+    div()
+        .pl(px(indent))
+        .text_color(muted())
+        .font_weight(FontWeight::BOLD)
+        .text_size(px(10.5))
+        .child(SharedString::from(label.to_string()))
+        .into_any_element()
+}
+
+fn metadata_group_cell(
+    group: crate::metadata::MetadataGroupRow,
+    columns: u16,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let label = if group.unused_count == 0 {
+        group.label
+    } else {
+        format!("{} ({} unused)", group.label, group.unused_count)
+    };
+    let expanded = group.expanded;
+    let mut cell = div().col_span(columns).mt(px(6.0));
+    if let Some(group_key) = group.key {
+        cell = cell.child(
+            render_clickable_section_heading(&label, !expanded).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.toggle_id3_frame_group(group_key.clone(), cx);
+                },
+            )),
+        );
+    } else {
+        cell = cell.child(
+            div()
+                .text_size(px(10.5))
+                .font_weight(FontWeight::BOLD)
+                .text_color(muted())
+                .child(SharedString::from(label)),
+        );
+    }
+    cell.into_any_element()
+}
+
+fn metadata_rss_cell(
+    row: &AlignedCompareRow,
+    pending: Option<&PendingId3Edit>,
+    expanded: bool,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let value = row.rss_value.as_deref().unwrap_or("");
+    let display_value = display_metadata_value(&row.field, value);
+    let value_color = source_cell_color(pending, MetadataColumn::Rss, row.rss_value.as_deref())
+        .unwrap_or_else(text);
+    let value_element = metadata_value_cell(
+        &row.field,
+        &row.row_id,
+        value,
+        &display_value,
+        expanded,
+        value_color,
+        "rss",
+        None,
+        cx,
+    );
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(10.0))
+        .child(
+            div()
+                .w(px(86.0))
+                .flex_shrink_0()
+                .text_color(text())
+                .text_size(px(11.0))
+                .line_height(px(16.0))
+                .child(SharedString::from(row.field.clone())),
+        )
+        .child(div().flex_1().min_w_0().child(value_element))
+        .into_any_element()
+}
+
+fn metadata_id3_cell(
+    row: &AlignedCompareRow,
+    pending: Option<&PendingId3Edit>,
+    expanded: bool,
+    file_image: Option<&Arc<Image>>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let frame = pending
+        .map(|edit| edit.frame.as_str())
+        .or(row.id3_frame.as_deref());
+    let value = pending
+        .map(|edit| edit.value.as_str())
+        .or(row.id3_value.as_deref())
+        .unwrap_or("");
+    let display_value = display_metadata_value(&row.field, value);
+    let color = pending
+        .map(|edit| pending_source_color(edit.source))
+        .unwrap_or_else(|| id3_cell_status_color(row));
+    let value_element = metadata_tag_cell(
+        &row.field,
+        &row.row_id,
+        value,
+        &display_value,
+        expanded,
+        color,
+        frame,
+        file_image,
+        cx,
+    );
+    div()
+        .pl(px(12.0))
+        .min_w_0()
+        .rounded(px(4.0))
+        .child(value_element)
+        .when_some(pending, |el, edit| {
+            el.border_1()
+                .border_color(pending_source_color(edit.source))
+        })
+        .into_any_element()
+}
+
+fn metadata_musicbrainz_cell(
+    row: &AlignedCompareRow,
+    pending: Option<&PendingId3Edit>,
+) -> AnyElement {
+    let musicbrainz_color = source_cell_color(
+        pending,
+        MetadataColumn::MusicBrainz,
+        row.musicbrainz_value.as_deref(),
+    )
+    .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status));
+    let value = row.musicbrainz_value.as_deref().unwrap_or("");
+    let display_value = display_metadata_value(&row.field, value);
+    div()
+        .pl(px(12.0))
+        .min_w_0()
+        .child(compare_tag_cell(
+            &display_value,
+            Some(musicbrainz_color),
+            row.musicbrainz_key.as_deref(),
+            None,
+        ))
+        .into_any_element()
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "UI cell renderer keeps field context explicit"
+)]
+fn metadata_value_cell(
+    field: &str,
+    row_id: &str,
+    raw_value: &str,
+    display_value: &str,
+    expanded: bool,
+    color: gpui::Rgba,
+    column: &str,
+    file_image: Option<&Arc<Image>>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let expandable = metadata_field_is_expandable(field) && !raw_value.is_empty();
+    if !expandable {
+        return compare_cell(display_value, Some(color));
+    }
+    let cell_key = format!("{column}:{row_id}");
+    let glyph = if expanded { "v" } else { ">" };
+    let summary = expandable_cell_summary(field, raw_value, display_value);
+    let content = if expanded {
+        expanded_metadata_value(field, raw_value, display_value, color, file_image)
+    } else {
+        div()
+            .text_color(accent())
+            .truncate()
+            .child(SharedString::from(summary))
+            .into_any_element()
+    };
+    let cell_id = SharedString::from(format!("metadata-cell:{cell_key}"));
+    div()
+        .id(cell_id)
+        .cursor_pointer()
+        .text_size(px(11.0))
+        .line_height(px(16.0))
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(4.0))
+        .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+            this.toggle_metadata_cell(cell_key.clone(), cx);
+        }))
+        .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+        .child(div().flex_1().min_w_0().child(content))
+        .into_any_element()
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "UI cell renderer keeps field context explicit"
+)]
+fn metadata_tag_cell(
+    field: &str,
+    row_id: &str,
+    raw_value: &str,
+    display_value: &str,
+    expanded: bool,
+    color: gpui::Rgba,
+    frame_id: Option<&str>,
+    file_image: Option<&Arc<Image>>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let frame_color = frame_id.map_or_else(muted, id3_frame_color);
+    let value = metadata_value_cell(
+        field,
+        row_id,
+        raw_value,
+        display_value,
+        expanded,
+        color,
+        "id3",
+        file_image,
+        cx,
+    );
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(6.0))
+        .child(
+            div()
+                .w(px(136.0))
+                .flex_shrink_0()
+                .text_color(frame_color)
+                .text_size(px(9.5))
+                .line_height(px(16.0))
+                .child(SharedString::from(frame_id.unwrap_or_default().to_string())),
+        )
+        .child(div().flex_1().min_w_0().child(value))
+        .into_any_element()
+}
+
+fn expanded_metadata_value(
+    field: &str,
+    raw_value: &str,
+    display_value: &str,
+    color: gpui::Rgba,
+    file_image: Option<&Arc<Image>>,
+) -> AnyElement {
+    if field == "Artwork" {
+        if let Some(image) = file_image {
+            return div()
+                .flex()
+                .flex_col()
+                .gap(px(4.0))
+                .child(SharedString::from(display_value.to_string()))
+                .child(render_thumb(Some(image), "track", 160.0, true))
+                .into_any_element();
+        }
+    }
+    div()
+        .text_color(color)
+        .flex()
+        .flex_col()
+        .children(compare_value_line_elements(
+            if display_value.is_empty() {
+                raw_value
+            } else {
+                display_value
+            },
+            20,
+        ))
+        .into_any_element()
+}
+
+fn expandable_cell_summary(field: &str, raw_value: &str, display_value: &str) -> String {
+    match field {
+        "Contributors" | "Value Routes" => {
+            if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
+                format!("[{} items]", arr.len())
+            } else {
+                display_value.to_string()
+            }
+        }
+        "Artwork" if raw_value.starts_with("http://") || raw_value.starts_with("https://") => {
+            raw_value
+                .rsplit('/')
+                .next()
+                .unwrap_or(raw_value)
+                .to_string()
+        }
+        _ => display_value.to_string(),
+    }
+}
+
+fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
+    let mut cell = div()
+        .text_size(px(11.0))
+        .line_height(px(16.0))
+        .flex()
+        .flex_col();
+    if let Some(color) = color {
+        cell = cell.text_color(color);
+    }
+    cell.children(compare_value_line_elements(value, 4))
+        .into_any_element()
+}
+
+fn compare_tag_cell(
+    value: &str,
+    color: Option<gpui::Rgba>,
+    frame_id: Option<&str>,
+    frame_color: Option<gpui::Rgba>,
+) -> AnyElement {
+    let mut value_cell = div().text_size(px(11.0)).line_height(px(16.0));
+    if let Some(color) = color {
+        value_cell = value_cell.text_color(color);
+    }
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(6.0))
+        .child(
+            div()
+                .w(px(136.0))
+                .flex_shrink_0()
+                .text_color(frame_color.unwrap_or_else(muted))
+                .text_size(px(9.5))
+                .line_height(px(16.0))
+                .child(SharedString::from(frame_id.unwrap_or_default().to_string())),
+        )
+        .child(
+            value_cell
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .children(compare_value_line_elements(value, 4)),
+        )
+        .into_any_element()
+}
+
+fn compare_value_line_elements(value: &str, max_lines: usize) -> Vec<AnyElement> {
+    let mut lines = value.lines().collect::<Vec<_>>();
+    if lines.is_empty() {
+        lines.push("");
+    }
+    let truncated = lines.len() > max_lines;
+    lines
+        .into_iter()
+        .take(max_lines)
+        .enumerate()
+        .map(|(index, line)| {
+            let line = if truncated && index + 1 == max_lines {
+                "..."
+            } else if line.is_empty() {
+                " "
+            } else {
+                line
+            };
+            div()
+                .truncate()
+                .child(SharedString::from(line.to_string()))
+                .into_any_element()
+        })
+        .collect()
+}
+
+fn id3_frame_color(frame_id: &str) -> gpui::Rgba {
+    match id3_frame_base(frame_id) {
+        "SYLT" | "USLT" | "APIC" => rgb(0x3ac4c4),
+        "TXXX" | "WXXX" | "UFID" => rgb(0xb06cf4),
+        _ => accent(),
+    }
+}
+
+fn comparison_status_color(status: &crate::track_compare::ComparisonStatus) -> gpui::Rgba {
+    match status {
+        crate::track_compare::ComparisonStatus::Match => rgb(0x4caf82),
+        crate::track_compare::ComparisonStatus::Different => rgb(0xffc857),
+        crate::track_compare::ComparisonStatus::MissingSource
+        | crate::track_compare::ComparisonStatus::MissingTag => rgb(0xff8a65),
+        crate::track_compare::ComparisonStatus::MissingBoth => muted(),
+    }
+}
+
+fn id3_cell_status_color(row: &AlignedCompareRow) -> gpui::Rgba {
+    if row.id3_value.is_some() && row.rss_value.is_none() && row.musicbrainz_value.is_none() {
+        return text();
+    }
+    comparison_status_color(&row.id3_status)
+}
+
+fn pending_source_color(source: MetadataColumn) -> gpui::Rgba {
+    match source {
+        MetadataColumn::Rss | MetadataColumn::MusicBrainz => rgb(0x4caf82),
+    }
+}
+
+fn source_cell_color(
+    pending: Option<&PendingId3Edit>,
+    column: MetadataColumn,
+    cell_value: Option<&str>,
+) -> Option<gpui::Rgba> {
+    let edit = pending?;
+    if edit.source != column {
+        return None;
+    }
+    let cell_value = cell_value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    if cell_value == edit.value.trim() {
+        Some(rgb(0x4caf82))
+    } else {
+        Some(rgb(0xffc857))
+    }
+}
+
+fn render_detail_header(
+    entity_type: &str,
+    title: &str,
+    subtitle: Option<&str>,
+    image: Option<&Arc<Image>>,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(16.0))
+        .child(render_thumb(image, entity_type, 80.0, true))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(badge_text(entity_type))
+                        .bg(type_color(entity_type))
+                        .px(px(6.0))
+                        .py(px(2.0))
+                        .rounded(px(4.0))
+                        .mb(px(6.0))
+                        .child(SharedString::from(entity_type.to_string())),
+                )
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_height(px(23.0))
+                        .child(SharedString::from(title.to_string())),
+                )
+                .when_some(subtitle.map(str::to_owned), |el, sub| {
+                    el.child(
+                        div()
+                            .mt(px(4.0))
+                            .text_size(px(15.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .line_height(px(20.0))
+                            .text_color(muted())
+                            .child(SharedString::from(sub)),
+                    )
+                }),
+        )
+        .into_any_element()
+}
+
+fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(5.0))
+        .children(rows.into_iter().map(|(key, value)| {
             div()
                 .flex()
                 .flex_row()
+                .items_start()
                 .gap(px(12.0))
-                .child(render_album_thumb(embedded_art.as_ref(), 80.0))
                 .child(
-                    div().flex().flex_col().gap(px(4.0)).child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(accent())
-                            .child(SharedString::from(title.to_string())),
-                    ),
-                ),
-        );
-    } else {
-        detail = detail.child(
-            div()
-                .text_lg()
-                .font_weight(FontWeight::BOLD)
-                .text_color(accent())
-                .child(SharedString::from(title.to_string())),
-        );
-    }
-
-    detail = detail.child(
-        div()
-            .flex()
-            .flex_row()
-            .gap(px(8.0))
-            .child(
-                Button::new("lib-remove-btn")
-                    .label(if is_busy {
-                        "Subscribing..."
-                    } else if in_library {
-                        "Unsubscribe"
-                    } else {
-                        "Subscribe"
-                    })
-                    .with_size(Size::Small)
-                    .when(in_library, |btn| btn.danger())
-                    .when(!in_library, |btn| btn.primary())
-                    .text_color(rgb(0xffffff))
-                    .disabled(is_busy)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if in_library {
-                            this.remove_track(track_id);
-                        } else {
-                            this.subscribe_track(track_for_click.clone(), cx);
-                        }
-                        cx.notify();
-                    })),
-            )
-            .when(has_file, |el| {
-                el.child(
-                    Button::new("mb-track-btn")
-                        .label(mb_label.clone())
-                        .ghost()
-                        .with_size(Size::Small)
-                        .text_color(rgb(0xffffff))
-                        .disabled(mb_busy)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.musicbrainz_track(track_for_mb.clone(), cx);
-                        })),
+                    div()
+                        .w(px(124.0))
+                        .flex_shrink_0()
+                        .text_color(muted())
+                        .whitespace_nowrap()
+                        .text_size(px(11.5))
+                        .child(SharedString::from(key)),
                 )
-            }),
-    );
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(11.5))
+                        .line_height(px(17.0))
+                        .flex()
+                        .flex_col()
+                        .children(compare_value_line_elements(&value, 6)),
+                )
+                .into_any_element()
+        }))
+        .into_any_element()
+}
 
-    detail = detail.children(rows.into_iter().map(|(key, value)| {
+fn render_thumb(
+    image_data: Option<&Arc<Image>>,
+    entity_type: &str,
+    size: f32,
+    large: bool,
+) -> AnyElement {
+    let radius = if large { 6.0 } else { 4.0 };
+    if let Some(image) = image_data {
         div()
-            .flex()
-            .flex_row()
-            .gap(px(8.0))
+            .w(px(size))
+            .h(px(size))
+            .rounded(px(radius))
+            .overflow_hidden()
+            .flex_shrink_0()
             .child(
-                div()
-                    .w(px(120.0))
-                    .text_xs()
-                    .font_weight(FontWeight::BOLD)
-                    .text_color(muted())
-                    .child(SharedString::from(key)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(text())
-                    .child(SharedString::from(value)),
+                img(image.clone())
+                    .w(px(size))
+                    .h(px(size))
+                    .object_fit(ObjectFit::Cover),
             )
             .into_any_element()
-    }));
+    } else {
+        div()
+            .w(px(size))
+            .h(px(size))
+            .rounded(px(radius))
+            .bg(border())
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(if large { 28.0 } else { 14.0 }))
+            .flex_shrink_0()
+            .child(type_emoji(entity_type))
+            .into_any_element()
+    }
+}
 
-    detail.into_any_element()
+fn render_loading(message: &str) -> AnyElement {
+    div()
+        .text_color(muted())
+        .italic()
+        .py(px(8.0))
+        .child(SharedString::from(message.to_string()))
+        .into_any_element()
+}
+
+fn render_clickable_section_heading(label: &str, collapsed: bool) -> gpui::Stateful<gpui::Div> {
+    let state = if collapsed { "show" } else { "hide" };
+    let glyph = if collapsed { ">" } else { "v" };
+    div()
+        .id(SharedString::from(format!("section-heading:{label}")))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(6.0))
+        .cursor_pointer()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(FontWeight::BOLD)
+                .text_color(muted())
+                .child(glyph),
+        )
+        .child(
+            div()
+                .text_size(px(10.5))
+                .font_weight(FontWeight::BOLD)
+                .text_color(muted())
+                .child(SharedString::from(label.to_string())),
+        )
+        .child(
+            div()
+                .text_size(px(9.5))
+                .text_color(muted())
+                .child(SharedString::from(state.to_string())),
+        )
+}
+
+fn metadata_action_button(label: &str) -> Button {
+    Button::new(SharedString::from(format!("metadata-action:{label}")))
+        .label(SharedString::from(label.to_string()))
+        .with_size(Size::XSmall)
+        .compact()
+        .ghost()
+        .text_color(rgb(0xffffff))
+        .text_size(px(10.0))
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(accent())
+}
+
+fn muted_line(value: &str) -> AnyElement {
+    div()
+        .text_color(muted())
+        .text_size(px(10.5))
+        .child(SharedString::from(value.to_string()))
+        .into_any_element()
+}
+
+fn type_color(entity_type: &str) -> gpui::Rgba {
+    match entity_type {
+        "feed" => rgb(0xe8943a),
+        "track" => rgb(0x3ac4c4),
+        "publisher" => rgb(0xe84393),
+        _ => accent(),
+    }
+}
+
+fn badge_text(entity_type: &str) -> gpui::Rgba {
+    match entity_type {
+        "feed" | "track" => rgb(0x111318),
+        _ => rgb(0xffffff),
+    }
+}
+
+fn type_emoji(entity_type: &str) -> &'static str {
+    match entity_type {
+        "feed" => "\u{1F4E1}",
+        "track" => "\u{1F3B6}",
+        "publisher" => "\u{1F3E2}",
+        _ => "\u{1F3B5}",
+    }
+}
+
+fn compare_downloaded_track_path(
+    path: &Path,
+    track_context: &TrackContext,
+) -> anyhow::Result<TagCompareResult> {
+    let tags = read_audio_tags(path)?;
+    let file_image = tags.artwork.as_ref().and_then(|art| {
+        if art.data.is_empty() {
+            None
+        } else {
+            let format = ImageFormat::from_mime_type(&art.mime_type).unwrap_or(ImageFormat::Jpeg);
+            Some(Arc::new(Image::from_bytes(format, art.data.clone())))
+        }
+    });
+    let track = &track_context.track;
+    Ok(TagCompareResult {
+        path: path.display().to_string(),
+        rows: crate::metadata::compare_track_rows(track, track_context.feed.as_ref(), &tags),
+        file_image,
+        contributors: track.source_contributors.clone().unwrap_or_default(),
+        value_routes: track.payment_routes.clone().unwrap_or_default(),
+        total_tracks: tags.total_tracks.clone(),
+        id3_fields: tags.fields,
+    })
+}
+
+fn compare_library_track(track: &TrackRow) -> anyhow::Result<TagCompareResult> {
+    let path = track
+        .local_path
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
+    let context = track_row_to_track_context(track);
+    compare_downloaded_track_path(Path::new(path), &context)
+}
+
+fn lookup_musicbrainz_library_track(track: &TrackRow) -> anyhow::Result<MusicBrainzLookupResult> {
+    let path = track
+        .local_path
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
+    let tags = read_audio_tags(Path::new(path))?;
+    let context = track_row_to_track_context(track);
+    let metadata = musicbrainz_lookup_metadata(&context.track, &tags);
+    let musicbrainz_client = ReqwestClient::builder()
+        .user_agent(format!(
+            "v4vmm/{} (MusicBrainz metadata lookup)",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()?;
+    let lookup = lookup_recordings(&musicbrainz_client, &metadata, 5)?;
+    let image = lookup
+        .candidates
+        .first()
+        .and_then(|candidate| candidate.release_id.as_deref())
+        .and_then(|release_id| {
+            let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
+            load_thumbnail_image(&url).ok().flatten()
+        });
+    Ok(MusicBrainzLookupResult { lookup, image })
+}
+
+fn musicbrainz_lookup_metadata(
+    track: &Track,
+    tags: &crate::audio_tags::AudioTags,
+) -> LookupMetadata {
+    LookupMetadata {
+        title: tags
+            .title
+            .clone()
+            .or_else(|| track.title.clone())
+            .or_else(|| track.name.clone()),
+        artist: tags.artist.clone().or_else(|| track.track_artist.clone()),
+        album: tags.album.clone().or_else(|| track.feed_title.clone()),
+        track_number: tags
+            .track_number
+            .clone()
+            .or_else(|| track.track_number.map(|number| number.to_string())),
+        total_tracks: None,
+        duration_secs: track.duration_secs.map(i64::from),
+        isrc: tags
+            .custom
+            .get("ISRC")
+            .cloned()
+            .or_else(|| tags.custom.get("isrc").cloned()),
+    }
+}
+
+fn track_row_to_track_context(track: &TrackRow) -> TrackContext {
+    let api_track = track_row_to_api_track(track);
+    let feed = Some(crate::api::Feed {
+        title: track.feed_title.clone(),
+        image_url: track.album_image_href.clone(),
+        ..Default::default()
+    });
+    TrackContext {
+        track: api_track,
+        feed,
+    }
+}
+
+fn track_title(track: &Track) -> String {
+    track
+        .title
+        .clone()
+        .or_else(|| track.name.clone())
+        .or_else(|| track.track_guid.clone())
+        .unwrap_or_else(|| "Untitled".into())
+}
+
+#[allow(dead_code)]
+fn fmt_dur(secs: i32) -> String {
+    format!("{}:{:02}", secs / 60, secs % 60)
 }
 
 fn load_thumbnail_image(url: &str) -> anyhow::Result<Option<Arc<Image>>> {

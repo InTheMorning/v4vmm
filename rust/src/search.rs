@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -25,7 +27,7 @@ use crate::api::*;
 use crate::audio_tags::Id3Field;
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3v24Edit};
 use crate::config;
-use crate::db::{self, TrackRow};
+use crate::db;
 use crate::metadata::*;
 use crate::musicbrainz::{lookup_recordings, LookupMetadata, MusicBrainzCandidate};
 use crate::rss;
@@ -44,7 +46,6 @@ enum InspectorDetail {
     Error(String),
     Feed(Box<Feed>),
     Track(Box<TrackContext>),
-    LocalTrack(Box<TrackRow>),
     Publisher(Publisher),
 }
 
@@ -155,17 +156,6 @@ struct SearchBatch {
     cursor: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SearchScope {
-    Discover,
-    Library,
-}
-
-#[derive(Clone, Debug)]
-struct LibraryResultRow {
-    track: TrackRow,
-}
-
 #[derive(Clone)]
 enum ThumbnailState {
     Loading,
@@ -175,8 +165,6 @@ enum ThumbnailState {
 pub struct SearchApp {
     conn: Arc<Mutex<Connection>>,
     input: Entity<InputState>,
-    library_input: Entity<InputState>,
-    scope: SearchScope,
     type_filter: usize,
     fuzzy_search: bool,
     results: Vec<ResultRow>,
@@ -186,16 +174,10 @@ pub struct SearchApp {
     has_more: bool,
     selected_key: Option<String>,
     inspector_stack: Vec<InspectorFrame>,
-    library_results: Vec<LibraryResultRow>,
-    library_loading: bool,
-    library_status: String,
-    library_selected_id: Option<i64>,
-    library_inspector_stack: Vec<InspectorFrame>,
     left_pane_width: gpui::Pixels,
     resizing: bool,
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
-    _library_input_sub: gpui::Subscription,
 }
 
 const TYPE_LABELS: &[&str] = &["All", "Feed", "Track", "Publisher"];
@@ -206,17 +188,11 @@ impl SearchApp {
         let input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder("Discover feeds, tracks, publishers...")
         });
-        let library_input = cx.new(|cx: &mut Context<InputState>| {
-            InputState::new(window, cx).placeholder("Search your library tracks...")
-        });
         let input_sub = cx.subscribe(&input, Self::on_input_event);
-        let library_input_sub = cx.subscribe(&library_input, Self::on_input_event);
 
         Self {
             conn,
             input,
-            library_input,
-            scope: SearchScope::Discover,
             type_filter: 0,
             fuzzy_search: true,
             results: Vec::new(),
@@ -226,16 +202,10 @@ impl SearchApp {
             has_more: false,
             selected_key: None,
             inspector_stack: Vec::new(),
-            library_results: Vec::new(),
-            library_loading: false,
-            library_status: String::new(),
-            library_selected_id: None,
-            library_inspector_stack: Vec::new(),
             left_pane_width: px(360.0),
             resizing: false,
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
-            _library_input_sub: library_input_sub,
         }
     }
 
@@ -246,40 +216,8 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) {
         if let InputEvent::PressEnter { .. } = event {
-            self.do_active_search(false, cx);
+            self.do_search(false, cx);
         }
-    }
-
-    fn do_active_search(&mut self, append: bool, cx: &mut Context<Self>) {
-        match self.scope {
-            SearchScope::Discover => self.do_search(append, cx),
-            SearchScope::Library => self.do_library_search(cx),
-        }
-    }
-
-    fn set_scope(&mut self, scope: SearchScope, cx: &mut Context<Self>) {
-        if self.scope != scope {
-            self.scope = scope;
-            cx.notify();
-        }
-    }
-
-    fn active_inspector_stack(&self) -> &Vec<InspectorFrame> {
-        match self.scope {
-            SearchScope::Discover => &self.inspector_stack,
-            SearchScope::Library => &self.library_inspector_stack,
-        }
-    }
-
-    fn active_inspector_stack_mut(&mut self) -> &mut Vec<InspectorFrame> {
-        match self.scope {
-            SearchScope::Discover => &mut self.inspector_stack,
-            SearchScope::Library => &mut self.library_inspector_stack,
-        }
-    }
-
-    fn active_inspector_frame_mut(&mut self) -> Option<&mut InspectorFrame> {
-        self.active_inspector_stack_mut().last_mut()
     }
 
     fn do_search(&mut self, append: bool, cx: &mut Context<Self>) {
@@ -368,61 +306,6 @@ impl SearchApp {
             if total == 1 { "" } else { "s" },
             if self.has_more { "+" } else { "" }
         );
-    }
-
-    fn do_library_search(&mut self, cx: &mut Context<Self>) {
-        if self.library_loading {
-            return;
-        }
-
-        let query = self.library_input.read(cx).value().trim().to_string();
-        if query.is_empty() {
-            return;
-        }
-
-        self.library_loading = true;
-        self.library_status = "Searching library...".into();
-        self.library_results.clear();
-        self.library_selected_id = None;
-        self.library_inspector_stack.clear();
-        cx.notify();
-
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let results = cx
-                    .background_executor()
-                    .spawn(async move { fetch_library_search_results(conn, &query) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        this.library_loading = false;
-                        match results {
-                            Ok(rows) => {
-                                let total = rows.len();
-                                this.library_results = rows;
-                                this.library_status = if total == 0 {
-                                    String::new()
-                                } else {
-                                    format!(
-                                        "{total} library result{}",
-                                        if total == 1 { "" } else { "s" }
-                                    )
-                                };
-                            }
-                            Err(error) => {
-                                this.library_status = format!("Error: {error}");
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
-            },
-        )
-        .detach();
     }
 
     fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
@@ -557,44 +440,10 @@ impl SearchApp {
         .detach();
     }
 
-    fn select_library_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
-        self.library_selected_id = Some(track.id);
-        let mut frame = InspectorFrame::loading(
-            "library_track".into(),
-            track.id.to_string(),
-            track
-                .track_title
-                .clone()
-                .or_else(|| track.feed_title.clone())
-                .unwrap_or_else(|| "Untitled".into()),
-        );
-        frame.detail = InspectorDetail::LocalTrack(Box::new(track.clone()));
-        frame.image = track
-            .track_image_href
-            .as_deref()
-            .or(track.album_image_href.as_deref())
-            .and_then(|url| self.thumbnail_for_url(Some(url), cx));
-        frame.local_subscription = Some(track.is_in_library);
-        frame.subscription_message = None;
-        self.library_inspector_stack.clear();
-        self.library_inspector_stack.push(frame);
-        cx.notify();
-    }
-
     fn inspector_back(&mut self, cx: &mut Context<Self>) {
-        match self.scope {
-            SearchScope::Discover => {
-                if self.inspector_stack.len() > 1 {
-                    self.inspector_stack.pop();
-                    cx.notify();
-                }
-            }
-            SearchScope::Library => {
-                if self.library_inspector_stack.len() > 1 {
-                    self.library_inspector_stack.pop();
-                    cx.notify();
-                }
-            }
+        if self.inspector_stack.len() > 1 {
+            self.inspector_stack.pop();
+            cx.notify();
         }
     }
 
@@ -723,7 +572,7 @@ impl SearchApp {
     }
 
     fn toggle_id3_frame_group(&mut self, group_key: String, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
         if !frame.expanded_id3_frame_groups.remove(&group_key) {
@@ -733,7 +582,7 @@ impl SearchApp {
     }
 
     fn toggle_metadata_cell(&mut self, cell_key: String, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
         if !frame.expanded_metadata_cells.remove(&cell_key) {
@@ -743,7 +592,7 @@ impl SearchApp {
     }
 
     fn stage_id3_drag_copy(&mut self, drag: &MetadataDragValue, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
         if !id3v24_drag_copy_frame_is_writable(&drag.frame) {
@@ -773,7 +622,7 @@ impl SearchApp {
     }
 
     fn revert_pending_id3_edit(&mut self, row_id: String, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
         if frame.applying_id3_edits {
@@ -786,12 +635,10 @@ impl SearchApp {
     }
 
     fn apply_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
-        if !matches!(frame.entity_type.as_str(), "track" | "library_track")
-            || frame.applying_id3_edits
-        {
+        if frame.entity_type != "track" || frame.applying_id3_edits {
             return;
         }
         let LazyPanel::Loaded(result) = &frame.tag_compare else {
@@ -799,7 +646,6 @@ impl SearchApp {
         };
         let track_context = match &frame.detail {
             InspectorDetail::Track(track_context) => (**track_context).clone(),
-            InspectorDetail::LocalTrack(track) => track_row_to_track_context(track),
             InspectorDetail::Loading(_)
             | InspectorDetail::Error(_)
             | InspectorDetail::Feed(_)
@@ -846,12 +692,7 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        let stack = if entity_type == "library_track" {
-                            &mut this.library_inspector_stack
-                        } else {
-                            &mut this.inspector_stack
-                        };
-                        if let Some(frame) = stack.last_mut() {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.applying_id3_edits = false;
                                 match result {
@@ -878,7 +719,7 @@ impl SearchApp {
     }
 
     fn clear_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
         if frame.applying_id3_edits {
@@ -892,7 +733,7 @@ impl SearchApp {
 
     fn toggle_local_subscription(&mut self, cx: &mut Context<Self>) {
         let is_subscribed = self
-            .active_inspector_stack()
+            .inspector_stack
             .last()
             .and_then(|frame| frame.local_subscription)
             .unwrap_or(false);
@@ -904,7 +745,7 @@ impl SearchApp {
     }
 
     fn subscribe_current(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
         if frame.subscription_busy {
@@ -939,9 +780,6 @@ impl SearchApp {
                 };
                 SearchSubscribeRequest::Track(Box::new((**track_context).clone()), edits)
             }
-            InspectorDetail::LocalTrack(track) => {
-                SearchSubscribeRequest::LocalTrack(Box::new((**track).clone()))
-            }
             InspectorDetail::Loading(_)
             | InspectorDetail::Error(_)
             | InspectorDetail::Publisher(_) => return,
@@ -962,12 +800,7 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        let stack = if entity_type == "library_track" {
-                            &mut this.library_inspector_stack
-                        } else {
-                            &mut this.inspector_stack
-                        };
-                        if let Some(frame) = stack.last_mut() {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.subscription_busy = false;
                                 match result {
@@ -998,7 +831,7 @@ impl SearchApp {
     }
 
     fn unsubscribe_current(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
         if frame.subscription_busy {
@@ -1021,9 +854,6 @@ impl SearchApp {
                 item_guid: track_context.track.track_guid.clone(),
                 enclosure_url: track_context.track.enclosure_url.clone(),
             },
-            InspectorDetail::LocalTrack(track) => {
-                SearchUnsubscribeRequest::LocalTrack { track_id: track.id }
-            }
             InspectorDetail::Loading(_)
             | InspectorDetail::Error(_)
             | InspectorDetail::Publisher(_) => return,
@@ -1044,12 +874,7 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        let stack = if entity_type == "library_track" {
-                            &mut this.library_inspector_stack
-                        } else {
-                            &mut this.inspector_stack
-                        };
-                        if let Some(frame) = stack.last_mut() {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.subscription_busy = false;
                                 match result {
@@ -1074,10 +899,10 @@ impl SearchApp {
     }
 
     fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
-        if !matches!(frame.entity_type.as_str(), "track" | "library_track") {
+        if frame.entity_type != "track" {
             return;
         }
 
@@ -1093,10 +918,6 @@ impl SearchApp {
 
         let entity_id = frame.entity_id.clone();
         let entity_type = frame.entity_type.clone();
-        let local_track = match &frame.detail {
-            InspectorDetail::LocalTrack(track) => Some((**track).clone()),
-            _ => None,
-        };
         let client = Arc::new(Client::new());
         cx.notify();
 
@@ -1105,24 +926,13 @@ impl SearchApp {
                 let request_id = entity_id.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move {
-                        if let Some(track) = local_track {
-                            compare_library_track(&track)
-                        } else {
-                            download_and_compare_track(&client, &request_id, false)
-                        }
-                    })
+                    .spawn(async move { download_and_compare_track(&client, &request_id, false) })
                     .await;
 
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        let stack = if entity_type == "library_track" {
-                            &mut this.library_inspector_stack
-                        } else {
-                            &mut this.inspector_stack
-                        };
-                        if let Some(frame) = stack.last_mut() {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.tag_compare = match result {
                                     Ok(result) => LazyPanel::Loaded(result),
@@ -1148,21 +958,15 @@ impl SearchApp {
     }
 
     fn reload_tag_compare(&mut self, force_download: bool, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
-        if !matches!(frame.entity_type.as_str(), "track" | "library_track")
-            || !matches!(frame.tag_compare, LazyPanel::Loaded(_))
-        {
+        if frame.entity_type != "track" || !matches!(frame.tag_compare, LazyPanel::Loaded(_)) {
             return;
         }
         frame.tag_compare = LazyPanel::Loading;
         let entity_id = frame.entity_id.clone();
         let entity_type = frame.entity_type.clone();
-        let local_track = match &frame.detail {
-            InspectorDetail::LocalTrack(track) => Some((**track).clone()),
-            _ => None,
-        };
         let client = Arc::new(Client::new());
         cx.notify();
 
@@ -1172,23 +976,14 @@ impl SearchApp {
                 let result = cx
                     .background_executor()
                     .spawn(async move {
-                        if let Some(track) = local_track {
-                            compare_library_track(&track)
-                        } else {
-                            download_and_compare_track(&client, &request_id, force_download)
-                        }
+                        download_and_compare_track(&client, &request_id, force_download)
                     })
                     .await;
 
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        let stack = if entity_type == "library_track" {
-                            &mut this.library_inspector_stack
-                        } else {
-                            &mut this.inspector_stack
-                        };
-                        if let Some(frame) = stack.last_mut() {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.tag_compare = match result {
                                     Ok(result) => LazyPanel::Loaded(result),
@@ -1206,10 +1001,10 @@ impl SearchApp {
     }
 
     fn toggle_musicbrainz_lookup(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
-        if !matches!(frame.entity_type.as_str(), "track" | "library_track") {
+        if frame.entity_type != "track" {
             return;
         }
 
@@ -1228,10 +1023,6 @@ impl SearchApp {
 
         let entity_id = frame.entity_id.clone();
         let entity_type = frame.entity_type.clone();
-        let local_track = match &frame.detail {
-            InspectorDetail::LocalTrack(track) => Some((**track).clone()),
-            _ => None,
-        };
         let client = Arc::new(Client::new());
         cx.notify();
 
@@ -1240,24 +1031,13 @@ impl SearchApp {
                 let request_id = entity_id.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move {
-                        if let Some(track) = local_track {
-                            lookup_musicbrainz_library_track(&track)
-                        } else {
-                            lookup_musicbrainz_track(&client, &request_id)
-                        }
-                    })
+                    .spawn(async move { lookup_musicbrainz_track(&client, &request_id) })
                     .await;
 
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        let stack = if entity_type == "library_track" {
-                            &mut this.library_inspector_stack
-                        } else {
-                            &mut this.inspector_stack
-                        };
-                        if let Some(frame) = stack.last_mut() {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.musicbrainz_lookup = match result {
                                     Ok(result) => {
@@ -1278,7 +1058,7 @@ impl SearchApp {
     }
 
     fn select_musicbrainz_candidate(&mut self, idx: usize, cx: &mut Context<Self>) {
-        let Some(frame) = self.active_inspector_frame_mut() else {
+        let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
         if let LazyPanel::Loaded(result) = &frame.musicbrainz_lookup {
@@ -1292,10 +1072,7 @@ impl SearchApp {
 
 impl Render for SearchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status_text = match self.scope {
-            SearchScope::Discover => self.status.clone(),
-            SearchScope::Library => self.library_status.clone(),
-        };
+        let status_text = self.status.clone();
         let status_color = if status_text.starts_with("Error:") {
             rgb(0xff6b6b)
         } else {
@@ -1303,54 +1080,28 @@ impl Render for SearchApp {
         };
         let status_empty = status_text.is_empty();
 
-        let results: Vec<AnyElement> = match self.scope {
-            SearchScope::Discover => {
-                let rows = self.results.clone();
-                let selected_key = self.selected_key.clone();
-                rows.iter()
-                    .map(|row| {
-                        let image_url = result_image_url(row);
-                        let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
-                        render_result_item(row, selected_key.as_deref(), thumbnail.as_ref(), cx)
-                    })
-                    .collect()
-            }
-            SearchScope::Library => {
-                let rows = self.library_results.clone();
-                let selected_id = self.library_selected_id;
-                rows.iter()
-                    .map(|row| {
-                        let image_url = library_result_image_url(row);
-                        let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
-                        render_library_result_item(row, selected_id, thumbnail.as_ref(), cx)
-                    })
-                    .collect()
-            }
-        };
+        let rows = self.results.clone();
+        let selected_key = self.selected_key.clone();
+        let results: Vec<AnyElement> = rows
+            .iter()
+            .map(|row| {
+                let image_url = result_image_url(row);
+                let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
+                render_result_item(row, selected_key.as_deref(), thumbnail.as_ref(), cx)
+            })
+            .collect();
         let type_filters: Vec<AnyElement> = TYPE_LABELS
             .iter()
             .enumerate()
             .map(|(idx, label)| render_filter_button(idx, label, idx == self.type_filter, cx))
             .collect();
-        let stack = self.active_inspector_stack();
-        let inspector = render_inspector(stack.last(), stack.len(), cx);
-        let active_input = match self.scope {
-            SearchScope::Discover => self.input.clone(),
-            SearchScope::Library => self.library_input.clone(),
-        };
-        let is_loading = match self.scope {
-            SearchScope::Discover => self.loading,
-            SearchScope::Library => self.library_loading,
-        };
-        let is_empty = match self.scope {
-            SearchScope::Discover => self.results.is_empty(),
-            SearchScope::Library => self.library_results.is_empty(),
-        };
-        let has_more = self.scope == SearchScope::Discover && self.has_more;
-        let search_label = match self.scope {
-            SearchScope::Discover => "Discover",
-            SearchScope::Library => "Search Library",
-        };
+        let stack = self.inspector_stack.clone();
+        let inspector = render_inspector(stack.last(), stack.len(), self, cx);
+        let active_input = self.input.clone();
+        let is_loading = self.loading;
+        let is_empty = self.results.is_empty();
+        let has_more = self.has_more;
+        let search_label = "Search Index";
 
         div()
             .size_full()
@@ -1405,41 +1156,21 @@ impl Render for SearchApp {
                                             .text_size(px(10.0))
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(muted())
-                                            .child("Discover"),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .gap(px(6.0))
-                                            .child(render_scope_button(
-                                                "Index",
-                                                SearchScope::Discover,
-                                                self.scope,
-                                                cx,
-                                            ))
-                                            .child(render_scope_button(
-                                                "Library",
-                                                SearchScope::Library,
-                                                self.scope,
-                                                cx,
-                                            )),
+                                            .child("Search Index"),
                                     )
                                     .child(
                                         Input::new(&active_input)
                                             .cleanable(true)
                                             .with_size(Size::Small),
                                     )
-                                    .when(self.scope == SearchScope::Discover, |el| {
-                                        el.child(
-                                            div()
-                                                .flex()
-                                                .flex_row()
-                                                .flex_wrap()
-                                                .gap(px(6.0))
-                                                .children(type_filters),
-                                        )
-                                    })
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .flex_wrap()
+                                            .gap(px(6.0))
+                                            .children(type_filters),
+                                    )
                                     .child(
                                         div()
                                             .flex()
@@ -1454,30 +1185,28 @@ impl Render for SearchApp {
                                                     .text_color(rgb(0xffffff))
                                                     .loading(is_loading)
                                                     .on_click(cx.listener(|this, _, _, cx| {
-                                                        this.do_active_search(false, cx);
+                                                        this.do_search(false, cx);
                                                     })),
                                             )
-                                            .when(self.scope == SearchScope::Discover, |el| {
-                                                el.child(
-                                                    Button::new("fuzzy-toggle")
-                                                        .label(if self.fuzzy_search {
-                                                            "Fuzzy: On"
-                                                        } else {
-                                                            "Fuzzy: Off"
-                                                        })
-                                                        .with_size(Size::Small)
-                                                        .when(self.fuzzy_search, |button| {
-                                                            button.primary()
-                                                        })
-                                                        .when(!self.fuzzy_search, |button| {
-                                                            button.ghost()
-                                                        })
-                                                        .text_color(rgb(0xffffff))
-                                                        .on_click(cx.listener(|this, _, _, cx| {
-                                                            this.toggle_fuzzy_search(cx);
-                                                        })),
-                                                )
-                                            }),
+                                            .child(
+                                                Button::new("fuzzy-toggle")
+                                                    .label(if self.fuzzy_search {
+                                                        "Fuzzy: On"
+                                                    } else {
+                                                        "Fuzzy: Off"
+                                                    })
+                                                    .with_size(Size::Small)
+                                                    .when(self.fuzzy_search, |button| {
+                                                        button.primary()
+                                                    })
+                                                    .when(!self.fuzzy_search, |button| {
+                                                        button.ghost()
+                                                    })
+                                                    .text_color(rgb(0xffffff))
+                                                    .on_click(cx.listener(|this, _, _, cx| {
+                                                        this.toggle_fuzzy_search(cx);
+                                                    })),
+                                            ),
                                     )
                                     .child(
                                         div()
@@ -1530,7 +1259,7 @@ impl Render for SearchApp {
                                                         .with_size(Size::Small)
                                                         .text_color(rgb(0xffffff))
                                                         .on_click(cx.listener(|this, _, _, cx| {
-                                                            this.do_active_search(true, cx);
+                                                            this.do_search(true, cx);
                                                         })),
                                                 )
                                             }),
@@ -1617,31 +1346,6 @@ fn fetch_search_batch(
         has_more: response.pagination.has_more,
         cursor: response.pagination.cursor,
     })
-}
-
-fn fetch_library_search_results(
-    conn: Arc<Mutex<Connection>>,
-    query: &str,
-) -> Result<Vec<LibraryResultRow>> {
-    let query = query.trim().to_ascii_lowercase();
-    if query.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-    let mut rows = db::library_tracks(&db)?
-        .into_iter()
-        .filter(|track| track_matches_query(track, &query))
-        .map(|track| LibraryResultRow { track })
-        .collect::<Vec<_>>();
-    rows.sort_by(|a, b| {
-        a.track
-            .feed_title
-            .cmp(&b.track.feed_title)
-            .then_with(|| a.track.track_number.cmp(&b.track.track_number))
-            .then_with(|| a.track.track_title.cmp(&b.track.track_title))
-    });
-    Ok(rows)
 }
 
 fn fetch_inspector_detail(
@@ -1757,85 +1461,9 @@ fn compare_downloaded_track_path(
     })
 }
 
-fn compare_library_track(track: &TrackRow) -> Result<TagCompareResult> {
-    let path = track
-        .local_path
-        .as_deref()
-        .ok_or_else(|| anyhow!("library track has no local file"))?;
-    let context = track_row_to_track_context(track);
-    compare_downloaded_track_path(Path::new(path), &context)
-}
-
-fn lookup_musicbrainz_library_track(track: &TrackRow) -> Result<MusicBrainzLookupResult> {
-    let path = track
-        .local_path
-        .as_deref()
-        .ok_or_else(|| anyhow!("library track has no local file"))?;
-    let tags = read_audio_tags(Path::new(path))?;
-    let context = track_row_to_track_context(track);
-    let metadata = musicbrainz_lookup_metadata(&context.track, &tags);
-    let musicbrainz_client = ReqwestClient::builder()
-        .user_agent(format!(
-            "v4vmm/{} (MusicBrainz metadata lookup)",
-            env!("CARGO_PKG_VERSION")
-        ))
-        .build()?;
-    let lookup = lookup_recordings(&musicbrainz_client, &metadata, 5)?;
-
-    let image = lookup
-        .candidates
-        .first()
-        .and_then(|candidate| candidate.release_id.as_deref())
-        .and_then(|release_id| {
-            let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
-            download_image(&musicbrainz_client, &url)
-        });
-
-    Ok(MusicBrainzLookupResult { lookup, image })
-}
-
-fn track_row_to_track_context(track: &TrackRow) -> TrackContext {
-    let api_track = Track {
-        track_guid: Some(track.item_guid.clone()),
-        feed_title: track.feed_title.clone(),
-        title: track.track_title.clone(),
-        duration_secs: track.duration_seconds.and_then(|secs| secs.try_into().ok()),
-        track_number: track.track_number.and_then(|number| number.try_into().ok()),
-        enclosure_url: track.enclosure_url.clone(),
-        image_url: track
-            .track_image_href
-            .clone()
-            .or_else(|| track.album_image_href.clone()),
-        track_artist: track.artist_name.clone(),
-        release_artist: track.album_artist_name.clone(),
-        source_links: track.transcript_url.as_ref().map(|url| {
-            vec![SourceEntityLink {
-                entity_type: Some("track".into()),
-                entity_id: Some(track.item_guid.clone()),
-                link_type: Some("transcript".into()),
-                url: Some(url.clone()),
-                source: Some("rss".into()),
-                extraction_path: Some("local:transcript".into()),
-                ..Default::default()
-            }]
-        }),
-        ..Default::default()
-    };
-    let feed = Some(Feed {
-        title: track.feed_title.clone(),
-        image_url: track.album_image_href.clone(),
-        ..Default::default()
-    });
-    TrackContext {
-        track: api_track,
-        feed,
-    }
-}
-
 enum SearchSubscribeRequest {
     Feed(Box<Feed>),
     Track(Box<TrackContext>, Vec<Id3v24Edit>),
-    LocalTrack(Box<TrackRow>),
 }
 
 enum SearchUnsubscribeRequest {
@@ -1846,9 +1474,6 @@ enum SearchUnsubscribeRequest {
         feed_url: Option<String>,
         item_guid: Option<String>,
         enclosure_url: Option<String>,
-    },
-    LocalTrack {
-        track_id: i64,
     },
 }
 
@@ -1865,9 +1490,6 @@ fn subscribe_search_request(
         SearchSubscribeRequest::Feed(feed) => subscribe_feed_from_search(conn, *feed),
         SearchSubscribeRequest::Track(track_context, edits) => {
             subscribe_track_from_search(conn, *track_context, edits)
-        }
-        SearchSubscribeRequest::LocalTrack(track) => {
-            subscribe_local_track_from_search(conn, *track)
         }
     }
 }
@@ -2010,18 +1632,6 @@ fn subscribe_track_from_search(
     })
 }
 
-fn subscribe_local_track_from_search(
-    conn: Arc<Mutex<Connection>>,
-    track: TrackRow,
-) -> Result<SearchSubscribeOutcome> {
-    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-    db::set_track_in_library(&db, track.id, true)?;
-    Ok(SearchSubscribeOutcome {
-        message: "Subscribed track".into(),
-        compare: None,
-    })
-}
-
 pub fn id3_edits_for_track_context(track_context: &TrackContext) -> Vec<Id3v24Edit> {
     let rows = expand_woar_metadata_rows(track_metadata_rows(track_context, None, false));
     let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new());
@@ -2053,10 +1663,6 @@ fn unsubscribe_search_request(
             )?;
             Ok("Unsubscribed track".into())
         }
-        SearchUnsubscribeRequest::LocalTrack { track_id } => {
-            db::set_track_in_library(&db, track_id, false)?;
-            Ok("Unsubscribed track".into())
-        }
     }
 }
 
@@ -2086,7 +1692,6 @@ fn local_subscription_for_detail(
             )
             .map(Some)
         }
-        InspectorDetail::LocalTrack(track) => Ok(Some(track.is_in_library)),
         InspectorDetail::Loading(_) | InspectorDetail::Error(_) | InspectorDetail::Publisher(_) => {
             Ok(None)
         }
@@ -2297,24 +1902,6 @@ fn render_filter_button(
         .into_any_element()
 }
 
-fn render_scope_button(
-    label: &str,
-    scope: SearchScope,
-    active: SearchScope,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    Button::new(SharedString::from(format!("search-scope-{label}")))
-        .label(SharedString::from(label.to_string()))
-        .with_size(Size::Small)
-        .when(scope == active, |button| button.primary())
-        .when(scope != active, |button| button.ghost())
-        .text_color(rgb(0xffffff))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.set_scope(scope, cx);
-        }))
-        .into_any_element()
-}
-
 fn render_result_item(
     row: &ResultRow,
     selected_key: Option<&str>,
@@ -2377,83 +1964,10 @@ fn render_result_item(
         .into_any_element()
 }
 
-fn render_library_result_item(
-    row: &LibraryResultRow,
-    selected_id: Option<i64>,
-    thumbnail: Option<&Arc<Image>>,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let track = row.track.clone();
-    let title = track
-        .track_title
-        .clone()
-        .unwrap_or_else(|| "[untitled]".into());
-    let artist = track
-        .artist_name
-        .clone()
-        .or_else(|| track.album_artist_name.clone())
-        .unwrap_or_else(|| "Unknown".into());
-    let release = track
-        .album_title
-        .clone()
-        .or_else(|| track.feed_title.clone())
-        .unwrap_or_else(|| "Unknown release".into());
-    let duration = track
-        .duration_seconds
-        .and_then(|duration| i32::try_from(duration).ok())
-        .map(fmt_dur);
-    let line1 = [Some(title.clone()), duration]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" - ");
-    let is_selected = selected_id == Some(track.id);
-
-    div()
-        .id(SharedString::from(format!(
-            "library-result-item:{}",
-            track.id
-        )))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(px(10.0))
-        .p(px(8.0))
-        .rounded(px(6.0))
-        .cursor_pointer()
-        .bg(if is_selected { surface() } else { bg() })
-        .border_1()
-        .border_color(if is_selected { accent() } else { bg() })
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.select_library_track(track.clone(), cx);
-        }))
-        .child(render_thumb(thumbnail, "track", 36.0, false))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(truncated(line1).font_weight(FontWeight::MEDIUM))
-                .child(truncated_muted(artist).text_size(px(10.5)))
-                .child(truncated_muted(release).text_size(px(10.0)).opacity(0.7)),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_size(px(9.0))
-                .font_weight(FontWeight::BOLD)
-                .text_color(badge_text("track"))
-                .bg(type_color("track"))
-                .px(px(5.0))
-                .py(px(1.0))
-                .rounded(px(3.0))
-                .child("library"),
-        )
-        .into_any_element()
-}
-
 fn render_inspector(
     frame: Option<&InspectorFrame>,
     stack_len: usize,
+    app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let title = frame.map_or("", |frame| frame.title.as_str());
@@ -2495,39 +2009,41 @@ fn render_inspector(
                 .overflow_y_scroll()
                 .p(px(20.0))
                 .child(match frame {
-                    Some(frame) => render_inspector_body(frame, cx),
+                    Some(frame) => render_inspector_body(frame, app, cx),
                     None => render_inspector_empty(),
                 }),
         )
         .into_any_element()
 }
 
-fn render_inspector_body(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
+fn render_inspector_body(
+    frame: &InspectorFrame,
+    app: &mut SearchApp,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     match &frame.detail {
         InspectorDetail::Loading(message) => render_loading(message),
         InspectorDetail::Error(error) => render_loading(&format!("Error: {error}")),
-        InspectorDetail::Feed(feed) => render_discover_feed_inspector(frame, feed, cx),
+        InspectorDetail::Feed(feed) => render_discover_feed_inspector(frame, feed, app, cx),
         InspectorDetail::Track(track_context) => {
             render_discover_track_inspector(frame, track_context, cx)
         }
-        InspectorDetail::LocalTrack(track) => render_library_track_inspector(frame, track, cx),
-        InspectorDetail::Publisher(publisher) => render_publisher_inspector(publisher, cx),
+        InspectorDetail::Publisher(publisher) => render_publisher_inspector(publisher, app, cx),
     }
 }
 
 fn render_discover_feed_inspector(
     frame: &InspectorFrame,
     feed: &Feed,
+    app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let title = feed_title(feed);
+    let artist = feed
+        .release_artist
+        .clone()
+        .unwrap_or_else(|| "Unknown".into());
     let mut rows = vec![
-        (
-            "Artist".to_string(),
-            feed.release_artist
-                .clone()
-                .unwrap_or_else(|| "Unknown".into()),
-        ),
         (
             "Release Kind".to_string(),
             feed.release_kind
@@ -2572,7 +2088,13 @@ fn render_discover_feed_inspector(
         .flex()
         .flex_col()
         .gap(px(16.0))
-        .child(render_detail_header("feed", &title, frame.image.as_ref()))
+        .child(render_detail_header(
+            "feed",
+            &title,
+            Some(artist.as_str()),
+            frame.image.as_ref(),
+        ))
+        .child(render_action_row(frame, &BTreeMap::new(), cx))
         .child(render_detail_grid(rows))
         .when(feed.description.is_some(), |el| {
             el.child(render_collapsed_text_section(
@@ -2593,10 +2115,10 @@ fn render_discover_feed_inspector(
                     }
                 ),
                 tracks,
+                app,
                 cx,
             ))
         })
-        .child(render_action_row(frame, &BTreeMap::new(), cx))
         .child(render_lazy_sections(frame, cx))
         .into_any_element()
 }
@@ -2608,20 +2130,15 @@ fn render_discover_track_inspector(
 ) -> AnyElement {
     let track = &track_context.track;
     let title = track_title(track);
-    let mut rows = vec![
-        (
-            "Artist".to_string(),
-            track
-                .track_artist
-                .clone()
-                .or_else(|| track.release_artist.clone())
-                .unwrap_or_else(|| "Unknown".into()),
-        ),
-        (
-            "Release".to_string(),
-            track.feed_title.clone().unwrap_or_else(|| "Unknown".into()),
-        ),
-    ];
+    let artist = track
+        .track_artist
+        .clone()
+        .or_else(|| track.release_artist.clone())
+        .unwrap_or_else(|| "Unknown".into());
+    let mut rows = vec![(
+        "Release".to_string(),
+        track.feed_title.clone().unwrap_or_else(|| "Unknown".into()),
+    )];
     optional_row(
         &mut rows,
         "Track #",
@@ -2635,7 +2152,13 @@ fn render_discover_track_inspector(
         .flex()
         .flex_col()
         .gap(px(16.0))
-        .child(render_detail_header("track", &title, frame.image.as_ref()))
+        .child(render_detail_header(
+            "track",
+            &title,
+            Some(artist.as_str()),
+            frame.image.as_ref(),
+        ))
+        .child(render_action_row(frame, &BTreeMap::new(), cx))
         .child(render_detail_grid(rows))
         .when(track.description.is_some(), |el| {
             el.child(render_collapsed_text_section(
@@ -2643,18 +2166,8 @@ fn render_discover_track_inspector(
                 track.description.clone().unwrap_or_default(),
             ))
         })
-        .child(render_action_row(frame, &BTreeMap::new(), cx))
         .child(render_lazy_sections(frame, cx))
         .into_any_element()
-}
-
-fn render_library_track_inspector(
-    frame: &InspectorFrame,
-    track: &TrackRow,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let context = track_row_to_track_context(track);
-    render_track_inspector(frame, &context, cx)
 }
 
 fn render_track_inspector(
@@ -2750,7 +2263,11 @@ fn render_track_window(
         .into_any_element()
 }
 
-fn render_publisher_inspector(publisher: &Publisher, cx: &mut Context<SearchApp>) -> AnyElement {
+fn render_publisher_inspector(
+    publisher: &Publisher,
+    app: &mut SearchApp,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     let title = publisher
         .publisher_text
         .clone()
@@ -2773,41 +2290,27 @@ fn render_publisher_inspector(publisher: &Publisher, cx: &mut Context<SearchApp>
     ];
 
     let feeds = publisher.feeds.clone().unwrap_or_default();
-    let tracks = publisher.tracks.clone().unwrap_or_default();
 
     div()
         .flex()
         .flex_col()
         .gap(px(16.0))
-        .child(render_detail_header("publisher", &title, None))
+        .child(render_detail_header("publisher", &title, None, None))
         .child(render_detail_grid(rows))
         .when(!feeds.is_empty(), |el| {
-            el.child(render_feed_list_section("Feeds", feeds, cx))
-        })
-        .when(!tracks.is_empty(), |el| {
-            el.child(render_track_list_section(
-                "Tracks",
-                String::new(),
-                tracks,
-                cx,
-            ))
+            el.child(render_feed_list_section("Feeds", feeds, app, cx))
         })
         .into_any_element()
 }
 
 fn render_action_row(
     frame: &InspectorFrame,
-    pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    _pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    if !matches!(
-        frame.entity_type.as_str(),
-        "feed" | "track" | "library_track"
-    ) {
+    if !matches!(frame.entity_type.as_str(), "feed" | "track") {
         return div().into_any_element();
     }
-    let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
-    let has_pending_conflicts = !pending_conflicts.is_empty();
 
     div()
         .flex()
@@ -2834,94 +2337,6 @@ fn render_action_row(
                     })
                     .child(SharedString::from(message)),
             )
-        })
-        .when(frame.entity_type == "library_track", |el| {
-            el.child(
-                metadata_action_button(match frame.tag_compare {
-                    LazyPanel::Loaded(_) => "Hide Compare",
-                    LazyPanel::Loading => "Reading ID3...",
-                    LazyPanel::Empty(_) | LazyPanel::Hidden => "Compare ID3",
-                })
-                .disabled(matches!(frame.tag_compare, LazyPanel::Loading))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_tag_compare(cx);
-                })),
-            )
-            .child(
-                metadata_action_button(match frame.musicbrainz_lookup {
-                    LazyPanel::Loaded(_) => "Hide MusicBrainz",
-                    LazyPanel::Loading => "Searching MusicBrainz...",
-                    LazyPanel::Empty(_) | LazyPanel::Hidden => "MusicBrainz",
-                })
-                .disabled(matches!(frame.musicbrainz_lookup, LazyPanel::Loading))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_musicbrainz_lookup(cx);
-                })),
-            )
-            .when(
-                !pending_id3_edits.is_empty() || frame.applying_id3_edits,
-                |el| {
-                    let count = pending_id3_edits.len();
-                    let conflict_text = pending_conflicts.join("; ");
-                    let label = if frame.applying_id3_edits {
-                        "Applying ID3...".to_string()
-                    } else {
-                        format!("Apply ID3 ({count})")
-                    };
-                    el.child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .items_start()
-                            .gap(px(4.0))
-                            .child(div().text_size(px(10.0)).text_color(muted()).child(
-                                SharedString::from(format!(
-                                    "{count} staged ID3 edit{}",
-                                    if count == 1 { "" } else { "s" }
-                                )),
-                            ))
-                            .child(
-                                metadata_action_button(&label)
-                                    .disabled(frame.applying_id3_edits || has_pending_conflicts)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.apply_pending_id3_edits(cx);
-                                    })),
-                            )
-                            .when(has_pending_conflicts, |el| {
-                                el.child(
-                                    div()
-                                        .max_w(px(190.0))
-                                        .text_size(px(10.0))
-                                        .line_height(px(14.0))
-                                        .text_color(rgb(0xff8a65))
-                                        .child(SharedString::from(format!(
-                                            "Duplicate target: {conflict_text}"
-                                        ))),
-                                )
-                            })
-                            .when(
-                                !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty(),
-                                |el| {
-                                    el.child(metadata_action_button("Discard ID3").on_click(
-                                        cx.listener(|this, _, _, cx| {
-                                            this.clear_pending_id3_edits(cx);
-                                        }),
-                                    ))
-                                },
-                            ),
-                    )
-                },
-            )
-            .when_some(frame.id3_apply_error.clone(), |el, error| {
-                el.child(
-                    div()
-                        .max_w(px(180.0))
-                        .text_size(px(10.0))
-                        .line_height(px(14.0))
-                        .text_color(rgb(0xff8a65))
-                        .child(SharedString::from(error)),
-                )
-            })
         })
         .into_any_element()
 }
@@ -4681,6 +4096,7 @@ fn render_track_list_section(
     heading: &str,
     note: String,
     tracks: Vec<Track>,
+    app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     div()
@@ -4701,13 +4117,20 @@ fn render_track_list_section(
         .children(
             tracks
                 .into_iter()
-                .map(|track| render_track_row(track, cx))
+                .map(|track| {
+                    let thumb = app.thumbnail_for_url(track.image_url.as_deref(), cx);
+                    render_track_row(track, thumb, cx)
+                })
                 .collect::<Vec<_>>(),
         )
         .into_any_element()
 }
 
-fn render_track_row(track: Track, cx: &mut Context<SearchApp>) -> AnyElement {
+fn render_track_row(
+    track: Track,
+    thumbnail: Option<Arc<Image>>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     let guid = track.track_guid.clone().unwrap_or_default();
     let title = track_title(&track);
     div()
@@ -4735,7 +4158,7 @@ fn render_track_row(track: Track, cx: &mut Context<SearchApp>) -> AnyElement {
                         .map_or_else(|| "·".into(), |n| n.to_string()),
                 ),
         )
-        .child(render_thumb(None, "track", 28.0, false))
+        .child(render_thumb(thumbnail.as_ref(), "track", 28.0, false))
         .child(truncated(track_title(&track)).flex_1())
         .when(track.duration_secs.is_some(), |el| {
             el.child(
@@ -4753,48 +4176,73 @@ fn render_track_row(track: Track, cx: &mut Context<SearchApp>) -> AnyElement {
 fn render_feed_list_section(
     heading: &str,
     feeds: Vec<Feed>,
+    app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
+    let tiles: Vec<AnyElement> = feeds
+        .into_iter()
+        .map(|feed| {
+            let guid = feed.feed_guid.clone().unwrap_or_default();
+            let title = feed_title(&feed);
+            let thumb = app.thumbnail_for_url(feed.image_url.as_deref(), cx);
+            let episode_note = feed
+                .episode_count
+                .map(|n| format!("{n} tracks"))
+                .unwrap_or_default();
+            div()
+                .id(SharedString::from(format!("feed-tile:{guid}")))
+                .w(px(140.0))
+                .flex()
+                .flex_col()
+                .gap(px(6.0))
+                .p(px(6.0))
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
+                }))
+                .child(render_thumb(thumb.as_ref(), "feed", 128.0, true))
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .line_height(px(15.0))
+                        .child(truncated(feed_title(&feed))),
+                )
+                .when(!episode_note.is_empty(), |el| {
+                    el.child(
+                        div()
+                            .text_color(muted())
+                            .text_size(px(10.5))
+                            .child(SharedString::from(episode_note)),
+                    )
+                })
+                .into_any_element()
+        })
+        .collect();
+
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(px(10.0))
         .child(section_heading(heading))
-        .children(
-            feeds
-                .into_iter()
-                .map(|feed| {
-                    let guid = feed.feed_guid.clone().unwrap_or_default();
-                    let title = feed_title(&feed);
-                    div()
-                        .id(SharedString::from(format!("feed-row:{guid}")))
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(8.0))
-                        .px(px(4.0))
-                        .py(px(5.0))
-                        .rounded(px(4.0))
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
-                        }))
-                        .child(render_thumb(None, "feed", 28.0, false))
-                        .child(truncated(feed_title(&feed)).flex_1())
-                        .when(feed.episode_count.is_some(), |el| {
-                            el.child(div().text_color(muted()).text_size(px(11.0)).child(format!(
-                                "{} tracks",
-                                feed.episode_count.unwrap_or_default()
-                            )))
-                        })
-                        .into_any_element()
-                })
-                .collect::<Vec<_>>(),
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap(px(12.0))
+                .children(tiles),
         )
         .into_any_element()
 }
 
-fn render_detail_header(entity_type: &str, title: &str, image: Option<&Arc<Image>>) -> AnyElement {
+fn render_detail_header(
+    entity_type: &str,
+    title: &str,
+    subtitle: Option<&str>,
+    image: Option<&Arc<Image>>,
+) -> AnyElement {
     div()
         .flex()
         .flex_row()
@@ -4823,7 +4271,18 @@ fn render_detail_header(entity_type: &str, title: &str, image: Option<&Arc<Image
                         .font_weight(FontWeight::SEMIBOLD)
                         .line_height(px(23.0))
                         .child(SharedString::from(title.to_string())),
-                ),
+                )
+                .when_some(subtitle.map(str::to_owned), |el, sub| {
+                    el.child(
+                        div()
+                            .mt(px(4.0))
+                            .text_size(px(15.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .line_height(px(20.0))
+                            .text_color(muted())
+                            .child(SharedString::from(sub)),
+                    )
+                }),
         )
         .into_any_element()
 }
@@ -5221,28 +4680,6 @@ fn result_image_url(row: &ResultRow) -> Option<String> {
         Some(EntityDetail::Recording(recording)) => recording.image_url.clone(),
         Some(EntityDetail::Publisher(_)) | None => None,
     }
-}
-
-fn library_result_image_url(row: &LibraryResultRow) -> Option<String> {
-    row.track
-        .track_image_href
-        .clone()
-        .or_else(|| row.track.album_image_href.clone())
-}
-
-fn track_matches_query(track: &TrackRow, query: &str) -> bool {
-    [
-        track.track_title.as_deref(),
-        track.artist_name.as_deref(),
-        track.album_title.as_deref(),
-        track.album_artist_name.as_deref(),
-        track.feed_title.as_deref(),
-        Some(track.item_guid.as_str()),
-        track.enclosure_url.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .any(|value| value.to_ascii_lowercase().contains(query))
 }
 
 fn entity_key(entity_type: &str, entity_id: &str) -> String {
