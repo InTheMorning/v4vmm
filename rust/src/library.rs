@@ -1010,7 +1010,18 @@ impl Render for LibraryApp {
             tree.artists
                 .iter()
                 .flat_map(|a| &a.albums)
-                .filter_map(|a| a.image_href.clone())
+                .flat_map(|album| {
+                    album
+                        .image_href
+                        .iter()
+                        .chain(album.tracks.iter().filter_map(|track| {
+                            track
+                                .track_image_href
+                                .as_ref()
+                                .or(track.album_image_href.as_ref())
+                        }))
+                        .cloned()
+                })
                 .collect()
         };
         let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
@@ -1331,7 +1342,7 @@ fn render_tree(
                                         .w(px(12.0))
                                         .child(SharedString::from(arrow)),
                                 )
-                                .child(render_album_thumb(thumb_image.as_ref(), 24.0))
+                                .child(render_album_thumb(thumb_image.as_ref(), 34.0))
                                 .child(
                                     div()
                                         .font_weight(FontWeight::MEDIUM)
@@ -1362,6 +1373,12 @@ fn render_tree(
                             .track_number
                             .map(|n| format!("{n:02} - "))
                             .unwrap_or_default();
+                        let track_thumb_image = track
+                            .track_image_href
+                            .as_ref()
+                            .or(track.album_image_href.as_ref())
+                            .and_then(|url| album_thumbs.get(url.as_str()))
+                            .and_then(|opt| opt.clone());
 
                         let mut row = div()
                             .id(SharedString::from(format!("tree-track-{}", track.id)))
@@ -1386,6 +1403,7 @@ fn render_tree(
                                         .flex_row()
                                         .items_center()
                                         .gap(px(6.0))
+                                        .child(render_album_thumb(track_thumb_image.as_ref(), 24.0))
                                         .child(
                                             div()
                                                 .flex_1()
@@ -1420,9 +1438,22 @@ fn render_tree(
                                 }))
                                 .child(
                                     div()
-                                        .text_xs()
-                                        .text_color(if is_selected { accent() } else { text() })
-                                        .child(SharedString::from(format!("{num}{title}"))),
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(px(6.0))
+                                        .child(render_album_thumb(track_thumb_image.as_ref(), 24.0))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .text_xs()
+                                                .text_color(if is_selected {
+                                                    accent()
+                                                } else {
+                                                    text()
+                                                })
+                                                .child(SharedString::from(format!("{num}{title}"))),
+                                        ),
                                 );
                         }
 

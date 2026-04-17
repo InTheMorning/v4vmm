@@ -155,9 +155,7 @@ pub fn compare_track_rows(
 
     push_compare_row(&mut rows, "Nostr handle", track_nostr(track), None);
     push_compare_row(&mut rows, "Website", track_website(track), None);
-    let release_date = feed
-        .and_then(feed_release_pubdate)
-        .or_else(|| track_release_pubdate(track));
+    let release_date = track_release_pubdate(track).or_else(|| feed.and_then(feed_release_pubdate));
     push_compare_row(&mut rows, "Release date", release_date.clone(), None);
     push_compare_row(
         &mut rows,
@@ -327,11 +325,8 @@ pub fn feed_release_pubdate(feed: &Feed) -> Option<String> {
 }
 
 pub fn musicindex_release_date(track_context: &TrackContext) -> Option<String> {
-    track_context
-        .feed
-        .as_ref()
-        .and_then(feed_release_pubdate)
-        .or_else(|| track_release_pubdate(&track_context.track))
+    track_release_pubdate(&track_context.track)
+        .or_else(|| track_context.feed.as_ref().and_then(feed_release_pubdate))
 }
 
 pub fn release_pubdate_from_claims(claims: Option<&[SourceReleaseClaim]>) -> Option<String> {
@@ -1165,8 +1160,16 @@ pub fn aligned_compare_rows(
             expanded,
             unused.len(),
         ));
-        rows.extend(group_rows);
-        rows.extend(used.into_iter().map(used_id3_field_row));
+        rows.extend(
+            group_rows
+                .into_iter()
+                .filter(|row| expanded || !metadata_row_collapsed_by_default(row)),
+        );
+        rows.extend(
+            used.into_iter()
+                .filter(|field| expanded || !id3_field_collapsed_by_default(field))
+                .map(used_id3_field_row),
+        );
         if expanded {
             rows.extend(unused.into_iter().map(id3_unused_frame_row));
         }
@@ -1272,6 +1275,43 @@ pub fn metadata_field_group_key(field: &str) -> &'static str {
         | "Original artist" | "Original lyricist" | "Involved musicians" => "people-credits",
         _ => "unknown",
     }
+}
+
+pub fn metadata_row_collapsed_by_default(row: &MetadataGridRow) -> bool {
+    match row {
+        MetadataGridRow::Group(_) => false,
+        MetadataGridRow::Data(row) => {
+            // Artwork, Transcript, Transcript text are always visible even when
+            // the content group is collapsed — they become clickable to reveal
+            // their content inline.
+            if matches!(
+                row.field.as_str(),
+                "Artwork" | "Transcript" | "Transcript text"
+            ) {
+                return false;
+            }
+            row.id3_frame
+                .as_deref()
+                .is_some_and(id3_frame_collapsed_by_default)
+        }
+    }
+}
+
+/// Returns true for fields whose values should be shown inline on click
+/// rather than always expanded.
+pub fn metadata_field_is_expandable(field: &str) -> bool {
+    matches!(
+        field,
+        "Contributors" | "Value Routes" | "Artwork" | "Transcript" | "Transcript text"
+    )
+}
+
+pub fn id3_field_collapsed_by_default(field: &Id3Field) -> bool {
+    id3_frame_collapsed_by_default(&field.frame_id)
+}
+
+fn id3_frame_collapsed_by_default(frame_label: &str) -> bool {
+    matches!(id3_frame_base(frame_label), "SYLT" | "USLT")
 }
 
 pub fn musicbrainz_value_for_field(
@@ -1627,11 +1667,31 @@ pub fn id3_involved_people_value(
         .filter(|field| id3_frame_base(&field.frame_id) == frame_id)
         .flat_map(|field| field.value.split(" / "))
         .filter_map(|entry| {
-            let (role, name) = entry.split_once(": ")?;
-            (role.trim().eq_ignore_ascii_case(&involvement)).then(|| name.trim().to_string())
+            let (role, name) = involved_people_entry(entry)?;
+            role.eq_ignore_ascii_case(&involvement).then_some(name)
         })
         .collect::<Vec<_>>();
     join_values(&values)
+}
+
+fn involved_people_entry(entry: &str) -> Option<(String, String)> {
+    let entry = entry.trim();
+    let (left, right) = entry
+        .split_once(": ")
+        .or_else(|| entry.split_once(':'))
+        .or_else(|| entry.split_once(" - "))?;
+    let left = left.trim();
+    let right = right.trim();
+    if left.is_empty() || right.is_empty() {
+        return None;
+    }
+    let left_is_role = instrument_role(left).is_some() || involved_people_role(left) == left;
+    let right_is_role = instrument_role(right).is_some() || involved_people_role(right) == right;
+    if left_is_role || !right_is_role {
+        Some((left.to_string(), right.to_string()))
+    } else {
+        Some((right.to_string(), left.to_string()))
+    }
 }
 
 pub fn format_drag_value_for_id3v24(
@@ -2058,11 +2118,94 @@ pub fn compare_id3_field_values(
             (None, None) => ComparisonStatus::MissingBoth,
         };
     }
-    compare_optional_values(source, target)
+    let source = normalized_field_compare_value(field, source);
+    let target = normalized_field_compare_value(field, target);
+    match (&source, &target) {
+        (Some(source), Some(target)) if source == target => ComparisonStatus::Match,
+        (Some(_), Some(_)) => ComparisonStatus::Different,
+        (Some(_), None) => ComparisonStatus::MissingTag,
+        (None, Some(_)) => ComparisonStatus::MissingSource,
+        (None, None) => ComparisonStatus::MissingBoth,
+    }
 }
 
 pub fn id3_presence_satisfies_field(field: &str) -> bool {
     matches!(field, "Artwork" | "Transcript" | "Transcript text")
+}
+
+pub fn normalized_field_compare_value(field: &str, value: Option<&str>) -> Option<String> {
+    let value = normalized_compare_value(value)?;
+    match field {
+        "Release date" | "RSS item pubdate" => normalized_date_compare_value(&value),
+        "Release year" => release_year_from_value(&value),
+        "Website" | "RSS feed website" => normalized_url_compare_value(&value),
+        "Artist" | "Album artist" | "Lead performer" | "Composer" | "Lyricist" | "Conductor"
+        | "Remixer" | "Original artist" | "Original lyricist" => {
+            normalized_people_compare_value(&value)
+        }
+        field if performer_instrument_field(field).is_some() => {
+            normalized_people_compare_value(&value)
+        }
+        _ => Some(value),
+    }
+}
+
+fn normalized_date_compare_value(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.len() >= 10
+        && value.chars().take(4).all(|ch| ch.is_ascii_digit())
+        && value.as_bytes().get(4) == Some(&b'-')
+        && value.as_bytes().get(7) == Some(&b'-')
+    {
+        return Some(value[..10].to_string());
+    }
+    if value.len() == 4 && value.chars().all(|ch| ch.is_ascii_digit()) {
+        return Some(value.to_string());
+    }
+    chrono::NaiveDate::parse_from_str(value, "%b %e, %Y")
+        .ok()
+        .map(|date| date.format("%Y-%m-%d").to_string())
+        .or_else(|| Some(value.to_string()))
+}
+
+fn normalized_url_compare_value(value: &str) -> Option<String> {
+    Some(
+        embedded_url(value)
+            .unwrap_or_else(|| value.trim().to_string())
+            .trim_end_matches('/')
+            .to_ascii_lowercase(),
+    )
+}
+
+fn normalized_people_compare_value(value: &str) -> Option<String> {
+    let mut values = split_joined_metadata_values(value)
+        .into_iter()
+        .flat_map(|part| {
+            part.split(" / ")
+                .filter_map(|value| {
+                    let value = involved_people_entry(value)
+                        .map_or_else(|| value.trim().to_string(), |(_role, name)| name);
+                    normalized_person_compare_key(&value)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        normalized_person_compare_key(value)
+    } else {
+        values.sort_unstable();
+        values.dedup();
+        Some(values.join("/"))
+    }
+}
+
+fn normalized_person_compare_key(value: &str) -> Option<String> {
+    let value = value
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    (!value.is_empty()).then_some(value)
 }
 
 pub fn release_year_from_value(value: &str) -> Option<String> {
@@ -2192,6 +2335,12 @@ fn contributor_role_target(role: &str) -> Option<(&'static str, &'static str)> {
         role if role.contains("lyric") || role.contains("text writer") || role == "writer" => {
             Some(("Lyricist", "TEXT"))
         }
+        role if role.contains("album artist")
+            || role.contains("band")
+            || role.contains("group") =>
+        {
+            Some(("Album artist", "TPE2"))
+        }
         role if role.contains("engineer") => Some(("Involved people", "TIPL")),
         role if role.contains("producer") => Some(("Involved people", "TIPL")),
         role if role.contains("arranger") => Some(("Involved people", "TIPL")),
@@ -2203,12 +2352,6 @@ fn contributor_role_target(role: &str) -> Option<(&'static str, &'static str)> {
             || role.contains("artist") =>
         {
             Some(("Lead performer", "TPE1"))
-        }
-        role if role.contains("album artist")
-            || role.contains("band")
-            || role.contains("group") =>
-        {
-            Some(("Album artist", "TPE2"))
         }
         role if role.contains("conductor") => Some(("Conductor", "TPE3")),
         role if role.contains("remix") => Some(("Remixer", "TPE4")),
@@ -2236,7 +2379,23 @@ fn involved_people_role(role: &str) -> &'static str {
 
 fn instrument_role(role: &str) -> Option<&str> {
     let lower = role.trim().to_ascii_lowercase();
-    match lower.as_str() {
+    if let Some(instrument) = lower
+        .strip_prefix("performer [")
+        .and_then(|value| value.strip_suffix(']'))
+    {
+        return canonical_instrument_role(instrument);
+    }
+    if let Some(instrument) = lower.strip_prefix("performer: ") {
+        return canonical_instrument_role(instrument);
+    }
+    if let Some(instrument) = lower.strip_prefix("performer - ") {
+        return canonical_instrument_role(instrument);
+    }
+    canonical_instrument_role(&lower)
+}
+
+fn canonical_instrument_role(role: &str) -> Option<&'static str> {
+    match role {
         "vocal" | "vocals" | "vocalist" | "singer" => Some("vocals"),
         "guitar" | "guitars" | "guitarist" => Some("guitar"),
         "bass" | "bassist" | "bass guitar" => Some("bass"),
@@ -2281,67 +2440,24 @@ pub fn display_picard_people_list(value: &str) -> String {
         if role.is_empty() || name.is_empty() {
             continue;
         }
-        entries.push(format!(
-            r#"{{ "role": "{}", "name": "{}" }}"#,
-            escape_display_json(role),
-            escape_display_json(name)
-        ));
+        entries.push(serde_json::json!({
+            "role": role,
+            "name": name,
+        }));
     }
     if entries.is_empty() {
         return value.to_string();
     }
-    format!("[\n  {}\n]", entries.join(",\n  "))
+    serde_json::to_string_pretty(&entries).unwrap_or_else(|_| value.to_string())
 }
 
 pub fn display_value_routes(value: &str) -> String {
-    display_collapsed_json_tree(value).unwrap_or_else(|| value.to_string())
+    display_pretty_json_tree(value).unwrap_or_else(|| value.to_string())
 }
 
-pub fn display_collapsed_json_tree(value: &str) -> Option<String> {
+pub fn display_pretty_json_tree(value: &str) -> Option<String> {
     let json = serde_json::from_str::<serde_json::Value>(value).ok()?;
-    Some(match json {
-        serde_json::Value::Array(values) => {
-            if values.is_empty() {
-                "[]".to_string()
-            } else {
-                let lines = values
-                    .iter()
-                    .map(collapsed_json_value)
-                    .collect::<Vec<_>>()
-                    .join(",\n  ");
-                format!("[\n  {lines}\n]")
-            }
-        }
-        value => collapsed_json_value(&value),
-    })
-}
-
-fn collapsed_json_value(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Object(map) => {
-            let fields = map
-                .iter()
-                .map(|(key, value)| format!(r#""{key}": {}"#, collapsed_json_scalar(value)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{{ {fields} }}")
-        }
-        value => collapsed_json_scalar(value),
-    }
-}
-
-fn collapsed_json_scalar(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Array(values) => {
-            format!("[{} item{}]", values.len(), plural(values.len()))
-        }
-        serde_json::Value::Object(map) => format!("{{{} field{}}}", map.len(), plural(map.len())),
-        _ => value.to_string(),
-    }
-}
-
-fn escape_display_json(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
+    serde_json::to_string_pretty(&json).ok()
 }
 
 fn display_embedded_text_summary(value: &str, label: &str) -> String {

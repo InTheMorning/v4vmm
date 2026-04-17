@@ -25,7 +25,7 @@ use crate::api::*;
 use crate::audio_tags::Id3Field;
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3v24Edit};
 use crate::config;
-use crate::db;
+use crate::db::{self, TrackRow};
 use crate::metadata::*;
 use crate::musicbrainz::{lookup_recordings, LookupMetadata, MusicBrainzCandidate};
 use crate::rss;
@@ -44,6 +44,7 @@ enum InspectorDetail {
     Error(String),
     Feed(Box<Feed>),
     Track(Box<TrackContext>),
+    LocalTrack(Box<TrackRow>),
     Publisher(Publisher),
 }
 
@@ -68,6 +69,7 @@ struct InspectorFrame {
     value_routes: LazyPanel<Vec<PaymentRoute>>,
     value_routes_collapsed: bool,
     expanded_id3_frame_groups: BTreeSet<String>,
+    expanded_metadata_cells: BTreeSet<String>,
     pending_id3_edits: BTreeMap<String, PendingId3Edit>,
     suppressed_auto_id3_edits: BTreeSet<String>,
     applying_id3_edits: bool,
@@ -93,6 +95,7 @@ impl InspectorFrame {
             value_routes: LazyPanel::Hidden,
             value_routes_collapsed: true,
             expanded_id3_frame_groups: BTreeSet::new(),
+            expanded_metadata_cells: BTreeSet::new(),
             pending_id3_edits: BTreeMap::new(),
             suppressed_auto_id3_edits: BTreeSet::new(),
             applying_id3_edits: false,
@@ -139,7 +142,9 @@ impl Render for MetadataDragPreview {
                     .text_size(px(11.0))
                     .line_height(px(16.0))
                     .text_color(text())
-                    .child(SharedString::from(self.value.clone())),
+                    .flex()
+                    .flex_col()
+                    .children(compare_value_line_elements(&self.value, 4)),
             )
     }
 }
@@ -148,6 +153,17 @@ struct SearchBatch {
     rows: Vec<ResultRow>,
     has_more: bool,
     cursor: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SearchScope {
+    Discover,
+    Library,
+}
+
+#[derive(Clone, Debug)]
+struct LibraryResultRow {
+    track: TrackRow,
 }
 
 #[derive(Clone)]
@@ -159,6 +175,8 @@ enum ThumbnailState {
 pub struct SearchApp {
     conn: Arc<Mutex<Connection>>,
     input: Entity<InputState>,
+    library_input: Entity<InputState>,
+    scope: SearchScope,
     type_filter: usize,
     fuzzy_search: bool,
     results: Vec<ResultRow>,
@@ -168,10 +186,16 @@ pub struct SearchApp {
     has_more: bool,
     selected_key: Option<String>,
     inspector_stack: Vec<InspectorFrame>,
+    library_results: Vec<LibraryResultRow>,
+    library_loading: bool,
+    library_status: String,
+    library_selected_id: Option<i64>,
+    library_inspector_stack: Vec<InspectorFrame>,
     left_pane_width: gpui::Pixels,
     resizing: bool,
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
+    _library_input_sub: gpui::Subscription,
 }
 
 const TYPE_LABELS: &[&str] = &["All", "Feed", "Track", "Publisher"];
@@ -180,13 +204,19 @@ const TYPE_VALUES: &[Option<&str>] = &[None, Some("feed"), Some("track"), Some("
 impl SearchApp {
     pub fn new(conn: Arc<Mutex<Connection>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx: &mut Context<InputState>| {
-            InputState::new(window, cx).placeholder("Search feeds, tracks, publishers...")
+            InputState::new(window, cx).placeholder("Discover feeds, tracks, publishers...")
+        });
+        let library_input = cx.new(|cx: &mut Context<InputState>| {
+            InputState::new(window, cx).placeholder("Search your library tracks...")
         });
         let input_sub = cx.subscribe(&input, Self::on_input_event);
+        let library_input_sub = cx.subscribe(&library_input, Self::on_input_event);
 
         Self {
             conn,
             input,
+            library_input,
+            scope: SearchScope::Discover,
             type_filter: 0,
             fuzzy_search: true,
             results: Vec::new(),
@@ -196,10 +226,16 @@ impl SearchApp {
             has_more: false,
             selected_key: None,
             inspector_stack: Vec::new(),
+            library_results: Vec::new(),
+            library_loading: false,
+            library_status: String::new(),
+            library_selected_id: None,
+            library_inspector_stack: Vec::new(),
             left_pane_width: px(360.0),
             resizing: false,
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
+            _library_input_sub: library_input_sub,
         }
     }
 
@@ -210,8 +246,40 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) {
         if let InputEvent::PressEnter { .. } = event {
-            self.do_search(false, cx);
+            self.do_active_search(false, cx);
         }
+    }
+
+    fn do_active_search(&mut self, append: bool, cx: &mut Context<Self>) {
+        match self.scope {
+            SearchScope::Discover => self.do_search(append, cx),
+            SearchScope::Library => self.do_library_search(cx),
+        }
+    }
+
+    fn set_scope(&mut self, scope: SearchScope, cx: &mut Context<Self>) {
+        if self.scope != scope {
+            self.scope = scope;
+            cx.notify();
+        }
+    }
+
+    fn active_inspector_stack(&self) -> &Vec<InspectorFrame> {
+        match self.scope {
+            SearchScope::Discover => &self.inspector_stack,
+            SearchScope::Library => &self.library_inspector_stack,
+        }
+    }
+
+    fn active_inspector_stack_mut(&mut self) -> &mut Vec<InspectorFrame> {
+        match self.scope {
+            SearchScope::Discover => &mut self.inspector_stack,
+            SearchScope::Library => &mut self.library_inspector_stack,
+        }
+    }
+
+    fn active_inspector_frame_mut(&mut self) -> Option<&mut InspectorFrame> {
+        self.active_inspector_stack_mut().last_mut()
     }
 
     fn do_search(&mut self, append: bool, cx: &mut Context<Self>) {
@@ -228,7 +296,7 @@ impl SearchApp {
         self.status = if append {
             "Loading more...".into()
         } else {
-            "Searching...".into()
+            "Discovering...".into()
         };
 
         if !append {
@@ -300,6 +368,61 @@ impl SearchApp {
             if total == 1 { "" } else { "s" },
             if self.has_more { "+" } else { "" }
         );
+    }
+
+    fn do_library_search(&mut self, cx: &mut Context<Self>) {
+        if self.library_loading {
+            return;
+        }
+
+        let query = self.library_input.read(cx).value().trim().to_string();
+        if query.is_empty() {
+            return;
+        }
+
+        self.library_loading = true;
+        self.library_status = "Searching library...".into();
+        self.library_results.clear();
+        self.library_selected_id = None;
+        self.library_inspector_stack.clear();
+        cx.notify();
+
+        let conn = Arc::clone(&self.conn);
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let results = cx
+                    .background_executor()
+                    .spawn(async move { fetch_library_search_results(conn, &query) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        this.library_loading = false;
+                        match results {
+                            Ok(rows) => {
+                                let total = rows.len();
+                                this.library_results = rows;
+                                this.library_status = if total == 0 {
+                                    String::new()
+                                } else {
+                                    format!(
+                                        "{total} library result{}",
+                                        if total == 1 { "" } else { "s" }
+                                    )
+                                };
+                            }
+                            Err(error) => {
+                                this.library_status = format!("Error: {error}");
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
     }
 
     fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
@@ -434,10 +557,44 @@ impl SearchApp {
         .detach();
     }
 
+    fn select_library_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
+        self.library_selected_id = Some(track.id);
+        let mut frame = InspectorFrame::loading(
+            "library_track".into(),
+            track.id.to_string(),
+            track
+                .track_title
+                .clone()
+                .or_else(|| track.feed_title.clone())
+                .unwrap_or_else(|| "Untitled".into()),
+        );
+        frame.detail = InspectorDetail::LocalTrack(Box::new(track.clone()));
+        frame.image = track
+            .track_image_href
+            .as_deref()
+            .or(track.album_image_href.as_deref())
+            .and_then(|url| self.thumbnail_for_url(Some(url), cx));
+        frame.local_subscription = Some(track.is_in_library);
+        frame.subscription_message = None;
+        self.library_inspector_stack.clear();
+        self.library_inspector_stack.push(frame);
+        cx.notify();
+    }
+
     fn inspector_back(&mut self, cx: &mut Context<Self>) {
-        if self.inspector_stack.len() > 1 {
-            self.inspector_stack.pop();
-            cx.notify();
+        match self.scope {
+            SearchScope::Discover => {
+                if self.inspector_stack.len() > 1 {
+                    self.inspector_stack.pop();
+                    cx.notify();
+                }
+            }
+            SearchScope::Library => {
+                if self.library_inspector_stack.len() > 1 {
+                    self.library_inspector_stack.pop();
+                    cx.notify();
+                }
+            }
         }
     }
 
@@ -566,7 +723,7 @@ impl SearchApp {
     }
 
     fn toggle_id3_frame_group(&mut self, group_key: String, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
         if !frame.expanded_id3_frame_groups.remove(&group_key) {
@@ -575,8 +732,18 @@ impl SearchApp {
         cx.notify();
     }
 
+    fn toggle_metadata_cell(&mut self, cell_key: String, cx: &mut Context<Self>) {
+        let Some(frame) = self.active_inspector_frame_mut() else {
+            return;
+        };
+        if !frame.expanded_metadata_cells.remove(&cell_key) {
+            frame.expanded_metadata_cells.insert(cell_key);
+        }
+        cx.notify();
+    }
+
     fn stage_id3_drag_copy(&mut self, drag: &MetadataDragValue, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
         if !id3v24_drag_copy_frame_is_writable(&drag.frame) {
@@ -606,7 +773,7 @@ impl SearchApp {
     }
 
     fn revert_pending_id3_edit(&mut self, row_id: String, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
         if frame.applying_id3_edits {
@@ -619,19 +786,26 @@ impl SearchApp {
     }
 
     fn apply_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
-        if frame.entity_type != "track" || frame.applying_id3_edits {
+        if !matches!(frame.entity_type.as_str(), "track" | "library_track")
+            || frame.applying_id3_edits
+        {
             return;
         }
         let LazyPanel::Loaded(result) = &frame.tag_compare else {
             return;
         };
-        let InspectorDetail::Track(track_context) = &frame.detail else {
-            return;
+        let track_context = match &frame.detail {
+            InspectorDetail::Track(track_context) => (**track_context).clone(),
+            InspectorDetail::LocalTrack(track) => track_row_to_track_context(track),
+            InspectorDetail::Loading(_)
+            | InspectorDetail::Error(_)
+            | InspectorDetail::Feed(_)
+            | InspectorDetail::Publisher(_) => return,
         };
-        let rows = track_metadata_rows_for_frame(frame, track_context, Some(result));
+        let rows = track_metadata_rows_for_frame(frame, &track_context, Some(result));
         let pending_id3_edits = auto_populated_pending_id3_edits(
             &rows,
             &frame.pending_id3_edits,
@@ -652,8 +826,8 @@ impl SearchApp {
         }
 
         let entity_id = frame.entity_id.clone();
+        let entity_type = frame.entity_type.clone();
         let path = PathBuf::from(result.path.clone());
-        let track_context = (**track_context).clone();
         let edits = pending_id3_edits_for_apply(&pending_id3_edits);
         frame.applying_id3_edits = true;
         frame.id3_apply_error = None;
@@ -672,8 +846,13 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == "track" && frame.entity_id == entity_id {
+                        let stack = if entity_type == "library_track" {
+                            &mut this.library_inspector_stack
+                        } else {
+                            &mut this.inspector_stack
+                        };
+                        if let Some(frame) = stack.last_mut() {
+                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.applying_id3_edits = false;
                                 match result {
                                     Ok(result) => {
@@ -699,7 +878,7 @@ impl SearchApp {
     }
 
     fn clear_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
         if frame.applying_id3_edits {
@@ -713,7 +892,7 @@ impl SearchApp {
 
     fn toggle_local_subscription(&mut self, cx: &mut Context<Self>) {
         let is_subscribed = self
-            .inspector_stack
+            .active_inspector_stack()
             .last()
             .and_then(|frame| frame.local_subscription)
             .unwrap_or(false);
@@ -725,7 +904,7 @@ impl SearchApp {
     }
 
     fn subscribe_current(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
         if frame.subscription_busy {
@@ -760,6 +939,9 @@ impl SearchApp {
                 };
                 SearchSubscribeRequest::Track(Box::new((**track_context).clone()), edits)
             }
+            InspectorDetail::LocalTrack(track) => {
+                SearchSubscribeRequest::LocalTrack(Box::new((**track).clone()))
+            }
             InspectorDetail::Loading(_)
             | InspectorDetail::Error(_)
             | InspectorDetail::Publisher(_) => return,
@@ -780,7 +962,12 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
+                        let stack = if entity_type == "library_track" {
+                            &mut this.library_inspector_stack
+                        } else {
+                            &mut this.inspector_stack
+                        };
+                        if let Some(frame) = stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.subscription_busy = false;
                                 match result {
@@ -811,7 +998,7 @@ impl SearchApp {
     }
 
     fn unsubscribe_current(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
         if frame.subscription_busy {
@@ -834,6 +1021,9 @@ impl SearchApp {
                 item_guid: track_context.track.track_guid.clone(),
                 enclosure_url: track_context.track.enclosure_url.clone(),
             },
+            InspectorDetail::LocalTrack(track) => {
+                SearchUnsubscribeRequest::LocalTrack { track_id: track.id }
+            }
             InspectorDetail::Loading(_)
             | InspectorDetail::Error(_)
             | InspectorDetail::Publisher(_) => return,
@@ -854,7 +1044,12 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
+                        let stack = if entity_type == "library_track" {
+                            &mut this.library_inspector_stack
+                        } else {
+                            &mut this.inspector_stack
+                        };
+                        if let Some(frame) = stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.subscription_busy = false;
                                 match result {
@@ -879,10 +1074,10 @@ impl SearchApp {
     }
 
     fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
-        if frame.entity_type != "track" {
+        if !matches!(frame.entity_type.as_str(), "track" | "library_track") {
             return;
         }
 
@@ -897,6 +1092,11 @@ impl SearchApp {
         }
 
         let entity_id = frame.entity_id.clone();
+        let entity_type = frame.entity_type.clone();
+        let local_track = match &frame.detail {
+            InspectorDetail::LocalTrack(track) => Some((**track).clone()),
+            _ => None,
+        };
         let client = Arc::new(Client::new());
         cx.notify();
 
@@ -905,14 +1105,25 @@ impl SearchApp {
                 let request_id = entity_id.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move { download_and_compare_track(&client, &request_id, false) })
+                    .spawn(async move {
+                        if let Some(track) = local_track {
+                            compare_library_track(&track)
+                        } else {
+                            download_and_compare_track(&client, &request_id, false)
+                        }
+                    })
                     .await;
 
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == "track" && frame.entity_id == entity_id {
+                        let stack = if entity_type == "library_track" {
+                            &mut this.library_inspector_stack
+                        } else {
+                            &mut this.inspector_stack
+                        };
+                        if let Some(frame) = stack.last_mut() {
+                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.tag_compare = match result {
                                     Ok(result) => LazyPanel::Loaded(result),
                                     Err(error) => LazyPanel::Empty(format!("Error: {error}")),
@@ -937,14 +1148,21 @@ impl SearchApp {
     }
 
     fn reload_tag_compare(&mut self, force_download: bool, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
-        if frame.entity_type != "track" || !matches!(frame.tag_compare, LazyPanel::Loaded(_)) {
+        if !matches!(frame.entity_type.as_str(), "track" | "library_track")
+            || !matches!(frame.tag_compare, LazyPanel::Loaded(_))
+        {
             return;
         }
         frame.tag_compare = LazyPanel::Loading;
         let entity_id = frame.entity_id.clone();
+        let entity_type = frame.entity_type.clone();
+        let local_track = match &frame.detail {
+            InspectorDetail::LocalTrack(track) => Some((**track).clone()),
+            _ => None,
+        };
         let client = Arc::new(Client::new());
         cx.notify();
 
@@ -954,15 +1172,24 @@ impl SearchApp {
                 let result = cx
                     .background_executor()
                     .spawn(async move {
-                        download_and_compare_track(&client, &request_id, force_download)
+                        if let Some(track) = local_track {
+                            compare_library_track(&track)
+                        } else {
+                            download_and_compare_track(&client, &request_id, force_download)
+                        }
                     })
                     .await;
 
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == "track" && frame.entity_id == entity_id {
+                        let stack = if entity_type == "library_track" {
+                            &mut this.library_inspector_stack
+                        } else {
+                            &mut this.inspector_stack
+                        };
+                        if let Some(frame) = stack.last_mut() {
+                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.tag_compare = match result {
                                     Ok(result) => LazyPanel::Loaded(result),
                                     Err(error) => LazyPanel::Empty(format!("Error: {error}")),
@@ -979,10 +1206,10 @@ impl SearchApp {
     }
 
     fn toggle_musicbrainz_lookup(&mut self, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
-        if frame.entity_type != "track" {
+        if !matches!(frame.entity_type.as_str(), "track" | "library_track") {
             return;
         }
 
@@ -1000,6 +1227,11 @@ impl SearchApp {
         }
 
         let entity_id = frame.entity_id.clone();
+        let entity_type = frame.entity_type.clone();
+        let local_track = match &frame.detail {
+            InspectorDetail::LocalTrack(track) => Some((**track).clone()),
+            _ => None,
+        };
         let client = Arc::new(Client::new());
         cx.notify();
 
@@ -1008,14 +1240,25 @@ impl SearchApp {
                 let request_id = entity_id.clone();
                 let result = cx
                     .background_executor()
-                    .spawn(async move { lookup_musicbrainz_track(&client, &request_id) })
+                    .spawn(async move {
+                        if let Some(track) = local_track {
+                            lookup_musicbrainz_library_track(&track)
+                        } else {
+                            lookup_musicbrainz_track(&client, &request_id)
+                        }
+                    })
                     .await;
 
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == "track" && frame.entity_id == entity_id {
+                        let stack = if entity_type == "library_track" {
+                            &mut this.library_inspector_stack
+                        } else {
+                            &mut this.inspector_stack
+                        };
+                        if let Some(frame) = stack.last_mut() {
+                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.musicbrainz_lookup = match result {
                                     Ok(result) => {
                                         frame.musicbrainz_selected = 0;
@@ -1035,7 +1278,7 @@ impl SearchApp {
     }
 
     fn select_musicbrainz_candidate(&mut self, idx: usize, cx: &mut Context<Self>) {
-        let Some(frame) = self.inspector_stack.last_mut() else {
+        let Some(frame) = self.active_inspector_frame_mut() else {
             return;
         };
         if let LazyPanel::Loaded(result) = &frame.musicbrainz_lookup {
@@ -1049,30 +1292,65 @@ impl SearchApp {
 
 impl Render for SearchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status_text = self.status.clone();
+        let status_text = match self.scope {
+            SearchScope::Discover => self.status.clone(),
+            SearchScope::Library => self.library_status.clone(),
+        };
         let status_color = if status_text.starts_with("Error:") {
             rgb(0xff6b6b)
         } else {
             muted()
         };
+        let status_empty = status_text.is_empty();
 
-        let rows = self.results.clone();
-        let selected_key = self.selected_key.clone();
-        let results: Vec<AnyElement> = rows
-            .iter()
-            .map(|row| {
-                let image_url = result_image_url(row);
-                let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
-                render_result_item(row, selected_key.as_deref(), thumbnail.as_ref(), cx)
-            })
-            .collect();
+        let results: Vec<AnyElement> = match self.scope {
+            SearchScope::Discover => {
+                let rows = self.results.clone();
+                let selected_key = self.selected_key.clone();
+                rows.iter()
+                    .map(|row| {
+                        let image_url = result_image_url(row);
+                        let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
+                        render_result_item(row, selected_key.as_deref(), thumbnail.as_ref(), cx)
+                    })
+                    .collect()
+            }
+            SearchScope::Library => {
+                let rows = self.library_results.clone();
+                let selected_id = self.library_selected_id;
+                rows.iter()
+                    .map(|row| {
+                        let image_url = library_result_image_url(row);
+                        let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
+                        render_library_result_item(row, selected_id, thumbnail.as_ref(), cx)
+                    })
+                    .collect()
+            }
+        };
         let type_filters: Vec<AnyElement> = TYPE_LABELS
             .iter()
             .enumerate()
             .map(|(idx, label)| render_filter_button(idx, label, idx == self.type_filter, cx))
             .collect();
-        let inspector =
-            render_inspector(self.inspector_stack.last(), self.inspector_stack.len(), cx);
+        let stack = self.active_inspector_stack();
+        let inspector = render_inspector(stack.last(), stack.len(), cx);
+        let active_input = match self.scope {
+            SearchScope::Discover => self.input.clone(),
+            SearchScope::Library => self.library_input.clone(),
+        };
+        let is_loading = match self.scope {
+            SearchScope::Discover => self.loading,
+            SearchScope::Library => self.library_loading,
+        };
+        let is_empty = match self.scope {
+            SearchScope::Discover => self.results.is_empty(),
+            SearchScope::Library => self.library_results.is_empty(),
+        };
+        let has_more = self.scope == SearchScope::Discover && self.has_more;
+        let search_label = match self.scope {
+            SearchScope::Discover => "Discover",
+            SearchScope::Library => "Search Library",
+        };
 
         div()
             .size_full()
@@ -1127,21 +1405,41 @@ impl Render for SearchApp {
                                             .text_size(px(10.0))
                                             .font_weight(FontWeight::BOLD)
                                             .text_color(muted())
-                                            .child("Search"),
-                                    )
-                                    .child(
-                                        Input::new(&self.input)
-                                            .cleanable(true)
-                                            .with_size(Size::Small),
+                                            .child("Discover"),
                                     )
                                     .child(
                                         div()
                                             .flex()
                                             .flex_row()
-                                            .flex_wrap()
                                             .gap(px(6.0))
-                                            .children(type_filters),
+                                            .child(render_scope_button(
+                                                "Index",
+                                                SearchScope::Discover,
+                                                self.scope,
+                                                cx,
+                                            ))
+                                            .child(render_scope_button(
+                                                "Library",
+                                                SearchScope::Library,
+                                                self.scope,
+                                                cx,
+                                            )),
                                     )
+                                    .child(
+                                        Input::new(&active_input)
+                                            .cleanable(true)
+                                            .with_size(Size::Small),
+                                    )
+                                    .when(self.scope == SearchScope::Discover, |el| {
+                                        el.child(
+                                            div()
+                                                .flex()
+                                                .flex_row()
+                                                .flex_wrap()
+                                                .gap(px(6.0))
+                                                .children(type_filters),
+                                        )
+                                    })
                                     .child(
                                         div()
                                             .flex()
@@ -1150,34 +1448,36 @@ impl Render for SearchApp {
                                             .gap(px(8.0))
                                             .child(
                                                 Button::new("search-btn")
-                                                    .label("Search")
+                                                    .label(search_label)
                                                     .primary()
                                                     .with_size(Size::Small)
                                                     .text_color(rgb(0xffffff))
-                                                    .loading(self.loading)
+                                                    .loading(is_loading)
                                                     .on_click(cx.listener(|this, _, _, cx| {
-                                                        this.do_search(false, cx);
+                                                        this.do_active_search(false, cx);
                                                     })),
                                             )
-                                            .child(
-                                                Button::new("fuzzy-toggle")
-                                                    .label(if self.fuzzy_search {
-                                                        "Fuzzy: On"
-                                                    } else {
-                                                        "Fuzzy: Off"
-                                                    })
-                                                    .with_size(Size::Small)
-                                                    .when(self.fuzzy_search, |button| {
-                                                        button.primary()
-                                                    })
-                                                    .when(!self.fuzzy_search, |button| {
-                                                        button.ghost()
-                                                    })
-                                                    .text_color(rgb(0xffffff))
-                                                    .on_click(cx.listener(|this, _, _, cx| {
-                                                        this.toggle_fuzzy_search(cx);
-                                                    })),
-                                            ),
+                                            .when(self.scope == SearchScope::Discover, |el| {
+                                                el.child(
+                                                    Button::new("fuzzy-toggle")
+                                                        .label(if self.fuzzy_search {
+                                                            "Fuzzy: On"
+                                                        } else {
+                                                            "Fuzzy: Off"
+                                                        })
+                                                        .with_size(Size::Small)
+                                                        .when(self.fuzzy_search, |button| {
+                                                            button.primary()
+                                                        })
+                                                        .when(!self.fuzzy_search, |button| {
+                                                            button.ghost()
+                                                        })
+                                                        .text_color(rgb(0xffffff))
+                                                        .on_click(cx.listener(|this, _, _, cx| {
+                                                            this.toggle_fuzzy_search(cx);
+                                                        })),
+                                                )
+                                            }),
                                     )
                                     .child(
                                         div()
@@ -1198,45 +1498,31 @@ impl Render for SearchApp {
                                             .flex_col()
                                             .gap(px(2.0))
                                             .children(results)
-                                            .when(
-                                                self.results.is_empty()
-                                                    && !self.loading
-                                                    && self.status.is_empty(),
-                                                |el| {
-                                                    el.child(
-                                                        div()
-                                                            .text_center()
-                                                            .p(px(48.0))
-                                                            .text_color(muted())
-                                                            .child(div().text_2xl().child("🔍"))
-                                                            .child(
-                                                                div()
-                                                                    .mt(px(8.0))
-                                                                    .child("No results"),
-                                                            ),
-                                                    )
-                                                },
-                                            )
-                                            .when(
-                                                self.results.is_empty()
-                                                    && !self.loading
-                                                    && !self.status.is_empty(),
-                                                |el| {
-                                                    el.child(
-                                                        div()
-                                                            .text_center()
-                                                            .p(px(48.0))
-                                                            .text_color(muted())
-                                                            .child(div().text_2xl().child("🔍"))
-                                                            .child(
-                                                                div()
-                                                                    .mt(px(8.0))
-                                                                    .child("No results"),
-                                                            ),
-                                                    )
-                                                },
-                                            )
-                                            .when(self.has_more && !self.loading, |el| {
+                                            .when(is_empty && !is_loading && status_empty, |el| {
+                                                el.child(
+                                                    div()
+                                                        .text_center()
+                                                        .p(px(48.0))
+                                                        .text_color(muted())
+                                                        .child(div().text_2xl().child("🔍"))
+                                                        .child(
+                                                            div().mt(px(8.0)).child("No results"),
+                                                        ),
+                                                )
+                                            })
+                                            .when(is_empty && !is_loading && !status_empty, |el| {
+                                                el.child(
+                                                    div()
+                                                        .text_center()
+                                                        .p(px(48.0))
+                                                        .text_color(muted())
+                                                        .child(div().text_2xl().child("🔍"))
+                                                        .child(
+                                                            div().mt(px(8.0)).child("No results"),
+                                                        ),
+                                                )
+                                            })
+                                            .when(has_more && !is_loading, |el| {
                                                 el.child(
                                                     Button::new("load-more")
                                                         .label("Load more")
@@ -1244,7 +1530,7 @@ impl Render for SearchApp {
                                                         .with_size(Size::Small)
                                                         .text_color(rgb(0xffffff))
                                                         .on_click(cx.listener(|this, _, _, cx| {
-                                                            this.do_search(true, cx);
+                                                            this.do_active_search(true, cx);
                                                         })),
                                                 )
                                             }),
@@ -1331,6 +1617,31 @@ fn fetch_search_batch(
         has_more: response.pagination.has_more,
         cursor: response.pagination.cursor,
     })
+}
+
+fn fetch_library_search_results(
+    conn: Arc<Mutex<Connection>>,
+    query: &str,
+) -> Result<Vec<LibraryResultRow>> {
+    let query = query.trim().to_ascii_lowercase();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+    let mut rows = db::library_tracks(&db)?
+        .into_iter()
+        .filter(|track| track_matches_query(track, &query))
+        .map(|track| LibraryResultRow { track })
+        .collect::<Vec<_>>();
+    rows.sort_by(|a, b| {
+        a.track
+            .feed_title
+            .cmp(&b.track.feed_title)
+            .then_with(|| a.track.track_number.cmp(&b.track.track_number))
+            .then_with(|| a.track.track_title.cmp(&b.track.track_title))
+    });
+    Ok(rows)
 }
 
 fn fetch_inspector_detail(
@@ -1446,9 +1757,85 @@ fn compare_downloaded_track_path(
     })
 }
 
+fn compare_library_track(track: &TrackRow) -> Result<TagCompareResult> {
+    let path = track
+        .local_path
+        .as_deref()
+        .ok_or_else(|| anyhow!("library track has no local file"))?;
+    let context = track_row_to_track_context(track);
+    compare_downloaded_track_path(Path::new(path), &context)
+}
+
+fn lookup_musicbrainz_library_track(track: &TrackRow) -> Result<MusicBrainzLookupResult> {
+    let path = track
+        .local_path
+        .as_deref()
+        .ok_or_else(|| anyhow!("library track has no local file"))?;
+    let tags = read_audio_tags(Path::new(path))?;
+    let context = track_row_to_track_context(track);
+    let metadata = musicbrainz_lookup_metadata(&context.track, &tags);
+    let musicbrainz_client = ReqwestClient::builder()
+        .user_agent(format!(
+            "v4vmm/{} (MusicBrainz metadata lookup)",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .build()?;
+    let lookup = lookup_recordings(&musicbrainz_client, &metadata, 5)?;
+
+    let image = lookup
+        .candidates
+        .first()
+        .and_then(|candidate| candidate.release_id.as_deref())
+        .and_then(|release_id| {
+            let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
+            download_image(&musicbrainz_client, &url)
+        });
+
+    Ok(MusicBrainzLookupResult { lookup, image })
+}
+
+fn track_row_to_track_context(track: &TrackRow) -> TrackContext {
+    let api_track = Track {
+        track_guid: Some(track.item_guid.clone()),
+        feed_title: track.feed_title.clone(),
+        title: track.track_title.clone(),
+        duration_secs: track.duration_seconds.and_then(|secs| secs.try_into().ok()),
+        track_number: track.track_number.and_then(|number| number.try_into().ok()),
+        enclosure_url: track.enclosure_url.clone(),
+        image_url: track
+            .track_image_href
+            .clone()
+            .or_else(|| track.album_image_href.clone()),
+        track_artist: track.artist_name.clone(),
+        release_artist: track.album_artist_name.clone(),
+        source_links: track.transcript_url.as_ref().map(|url| {
+            vec![SourceEntityLink {
+                entity_type: Some("track".into()),
+                entity_id: Some(track.item_guid.clone()),
+                link_type: Some("transcript".into()),
+                url: Some(url.clone()),
+                source: Some("rss".into()),
+                extraction_path: Some("local:transcript".into()),
+                ..Default::default()
+            }]
+        }),
+        ..Default::default()
+    };
+    let feed = Some(Feed {
+        title: track.feed_title.clone(),
+        image_url: track.album_image_href.clone(),
+        ..Default::default()
+    });
+    TrackContext {
+        track: api_track,
+        feed,
+    }
+}
+
 enum SearchSubscribeRequest {
     Feed(Box<Feed>),
     Track(Box<TrackContext>, Vec<Id3v24Edit>),
+    LocalTrack(Box<TrackRow>),
 }
 
 enum SearchUnsubscribeRequest {
@@ -1459,6 +1846,9 @@ enum SearchUnsubscribeRequest {
         feed_url: Option<String>,
         item_guid: Option<String>,
         enclosure_url: Option<String>,
+    },
+    LocalTrack {
+        track_id: i64,
     },
 }
 
@@ -1475,6 +1865,9 @@ fn subscribe_search_request(
         SearchSubscribeRequest::Feed(feed) => subscribe_feed_from_search(conn, *feed),
         SearchSubscribeRequest::Track(track_context, edits) => {
             subscribe_track_from_search(conn, *track_context, edits)
+        }
+        SearchSubscribeRequest::LocalTrack(track) => {
+            subscribe_local_track_from_search(conn, *track)
         }
     }
 }
@@ -1617,6 +2010,18 @@ fn subscribe_track_from_search(
     })
 }
 
+fn subscribe_local_track_from_search(
+    conn: Arc<Mutex<Connection>>,
+    track: TrackRow,
+) -> Result<SearchSubscribeOutcome> {
+    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+    db::set_track_in_library(&db, track.id, true)?;
+    Ok(SearchSubscribeOutcome {
+        message: "Subscribed track".into(),
+        compare: None,
+    })
+}
+
 pub fn id3_edits_for_track_context(track_context: &TrackContext) -> Vec<Id3v24Edit> {
     let rows = expand_woar_metadata_rows(track_metadata_rows(track_context, None, false));
     let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new());
@@ -1648,6 +2053,10 @@ fn unsubscribe_search_request(
             )?;
             Ok("Unsubscribed track".into())
         }
+        SearchUnsubscribeRequest::LocalTrack { track_id } => {
+            db::set_track_in_library(&db, track_id, false)?;
+            Ok("Unsubscribed track".into())
+        }
     }
 }
 
@@ -1677,6 +2086,7 @@ fn local_subscription_for_detail(
             )
             .map(Some)
         }
+        InspectorDetail::LocalTrack(track) => Ok(Some(track.is_in_library)),
         InspectorDetail::Loading(_) | InspectorDetail::Error(_) | InspectorDetail::Publisher(_) => {
             Ok(None)
         }
@@ -1887,6 +2297,24 @@ fn render_filter_button(
         .into_any_element()
 }
 
+fn render_scope_button(
+    label: &str,
+    scope: SearchScope,
+    active: SearchScope,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    Button::new(SharedString::from(format!("search-scope-{label}")))
+        .label(SharedString::from(label.to_string()))
+        .with_size(Size::Small)
+        .when(scope == active, |button| button.primary())
+        .when(scope != active, |button| button.ghost())
+        .text_color(rgb(0xffffff))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.set_scope(scope, cx);
+        }))
+        .into_any_element()
+}
+
 fn render_result_item(
     row: &ResultRow,
     selected_key: Option<&str>,
@@ -1949,6 +2377,80 @@ fn render_result_item(
         .into_any_element()
 }
 
+fn render_library_result_item(
+    row: &LibraryResultRow,
+    selected_id: Option<i64>,
+    thumbnail: Option<&Arc<Image>>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let track = row.track.clone();
+    let title = track
+        .track_title
+        .clone()
+        .unwrap_or_else(|| "[untitled]".into());
+    let artist = track
+        .artist_name
+        .clone()
+        .or_else(|| track.album_artist_name.clone())
+        .unwrap_or_else(|| "Unknown".into());
+    let release = track
+        .album_title
+        .clone()
+        .or_else(|| track.feed_title.clone())
+        .unwrap_or_else(|| "Unknown release".into());
+    let duration = track
+        .duration_seconds
+        .and_then(|duration| i32::try_from(duration).ok())
+        .map(fmt_dur);
+    let line1 = [Some(title.clone()), duration]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" - ");
+    let is_selected = selected_id == Some(track.id);
+
+    div()
+        .id(SharedString::from(format!(
+            "library-result-item:{}",
+            track.id
+        )))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(10.0))
+        .p(px(8.0))
+        .rounded(px(6.0))
+        .cursor_pointer()
+        .bg(if is_selected { surface() } else { bg() })
+        .border_1()
+        .border_color(if is_selected { accent() } else { bg() })
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.select_library_track(track.clone(), cx);
+        }))
+        .child(render_thumb(thumbnail, "track", 36.0, false))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(truncated(line1).font_weight(FontWeight::MEDIUM))
+                .child(truncated_muted(artist).text_size(px(10.5)))
+                .child(truncated_muted(release).text_size(px(10.0)).opacity(0.7)),
+        )
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_size(px(9.0))
+                .font_weight(FontWeight::BOLD)
+                .text_color(badge_text("track"))
+                .bg(type_color("track"))
+                .px(px(5.0))
+                .py(px(1.0))
+                .rounded(px(3.0))
+                .child("library"),
+        )
+        .into_any_element()
+}
+
 fn render_inspector(
     frame: Option<&InspectorFrame>,
     stack_len: usize,
@@ -2004,13 +2506,16 @@ fn render_inspector_body(frame: &InspectorFrame, cx: &mut Context<SearchApp>) ->
     match &frame.detail {
         InspectorDetail::Loading(message) => render_loading(message),
         InspectorDetail::Error(error) => render_loading(&format!("Error: {error}")),
-        InspectorDetail::Feed(feed) => render_feed_inspector(frame, feed, cx),
-        InspectorDetail::Track(track_context) => render_track_inspector(frame, track_context, cx),
+        InspectorDetail::Feed(feed) => render_discover_feed_inspector(frame, feed, cx),
+        InspectorDetail::Track(track_context) => {
+            render_discover_track_inspector(frame, track_context, cx)
+        }
+        InspectorDetail::LocalTrack(track) => render_library_track_inspector(frame, track, cx),
         InspectorDetail::Publisher(publisher) => render_publisher_inspector(publisher, cx),
     }
 }
 
-fn render_feed_inspector(
+fn render_discover_feed_inspector(
     frame: &InspectorFrame,
     feed: &Feed,
     cx: &mut Context<SearchApp>,
@@ -2050,19 +2555,6 @@ fn render_feed_inspector(
         "Tracks",
         feed.episode_count.map(|n| n.to_string()),
     );
-    optional_row(
-        &mut rows,
-        "Latest track",
-        feed.newest_item_at.and_then(fmt_date),
-    );
-    optional_row(
-        &mut rows,
-        "Oldest track",
-        feed.oldest_item_at.and_then(fmt_date),
-    );
-    optional_row(&mut rows, "Description", feed.description.clone());
-    optional_row(&mut rows, "Feed URL", feed.feed_url.clone());
-    optional_row(&mut rows, "Feed GUID", feed.feed_guid.clone());
 
     let mut tracks = feed.tracks.clone().unwrap_or_default();
     tracks.sort_by(|a, b| {
@@ -2082,6 +2574,12 @@ fn render_feed_inspector(
         .gap(px(16.0))
         .child(render_detail_header("feed", &title, frame.image.as_ref()))
         .child(render_detail_grid(rows))
+        .when(feed.description.is_some(), |el| {
+            el.child(render_collapsed_text_section(
+                "Description",
+                feed.description.clone().unwrap_or_default(),
+            ))
+        })
         .when(!tracks.is_empty(), |el| {
             el.child(render_track_list_section(
                 "Tracks",
@@ -2098,17 +2596,65 @@ fn render_feed_inspector(
                 cx,
             ))
         })
-        .when(feed.feed_url.is_some(), |el| {
-            let url = feed.feed_url.clone().unwrap_or_default();
-            el.child(subtle_button("Open RSS Feed").on_click(cx.listener(
-                move |_this, _: &ClickEvent, _window, _cx| {
-                    let _ = open::that(&url);
-                },
-            )))
+        .child(render_action_row(frame, &BTreeMap::new(), cx))
+        .child(render_lazy_sections(frame, cx))
+        .into_any_element()
+}
+
+fn render_discover_track_inspector(
+    frame: &InspectorFrame,
+    track_context: &TrackContext,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let track = &track_context.track;
+    let title = track_title(track);
+    let mut rows = vec![
+        (
+            "Artist".to_string(),
+            track
+                .track_artist
+                .clone()
+                .or_else(|| track.release_artist.clone())
+                .unwrap_or_else(|| "Unknown".into()),
+        ),
+        (
+            "Release".to_string(),
+            track.feed_title.clone().unwrap_or_else(|| "Unknown".into()),
+        ),
+    ];
+    optional_row(
+        &mut rows,
+        "Track #",
+        track.track_number.map(|number| number.to_string()),
+    );
+    optional_row(&mut rows, "Duration", track.duration_secs.map(fmt_dur));
+    optional_row(&mut rows, "Release Date", track.pub_date.and_then(fmt_date));
+    optional_row(&mut rows, "Publisher", track.publisher_text.clone());
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(16.0))
+        .child(render_detail_header("track", &title, frame.image.as_ref()))
+        .child(render_detail_grid(rows))
+        .when(track.description.is_some(), |el| {
+            el.child(render_collapsed_text_section(
+                "Description",
+                track.description.clone().unwrap_or_default(),
+            ))
         })
         .child(render_action_row(frame, &BTreeMap::new(), cx))
         .child(render_lazy_sections(frame, cx))
         .into_any_element()
+}
+
+fn render_library_track_inspector(
+    frame: &InspectorFrame,
+    track: &TrackRow,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let context = track_row_to_track_context(track);
+    render_track_inspector(frame, &context, cx)
 }
 
 fn render_track_inspector(
@@ -2197,6 +2743,8 @@ fn render_track_window(
             show_id3_panel,
             show_musicbrainz_panel,
             &pending_id3_edits,
+            &frame.expanded_metadata_cells,
+            result.and_then(|r| r.file_image.clone()),
             cx,
         ))
         .into_any_element()
@@ -2252,7 +2800,10 @@ fn render_action_row(
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    if frame.entity_type != "feed" && frame.entity_type != "track" {
+    if !matches!(
+        frame.entity_type.as_str(),
+        "feed" | "track" | "library_track"
+    ) {
         return div().into_any_element();
     }
     let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
@@ -2284,12 +2835,12 @@ fn render_action_row(
                     .child(SharedString::from(message)),
             )
         })
-        .when(frame.entity_type == "track", |el| {
+        .when(frame.entity_type == "library_track", |el| {
             el.child(
                 metadata_action_button(match frame.tag_compare {
                     LazyPanel::Loaded(_) => "Hide Compare",
-                    LazyPanel::Loading => "Downloading...",
-                    LazyPanel::Empty(_) | LazyPanel::Hidden => "Download + Compare",
+                    LazyPanel::Loading => "Reading ID3...",
+                    LazyPanel::Empty(_) | LazyPanel::Hidden => "Compare ID3",
                 })
                 .disabled(matches!(frame.tag_compare, LazyPanel::Loading))
                 .on_click(cx.listener(|this, _, _, cx| {
@@ -2809,9 +3360,19 @@ fn render_track_metadata_grid(
     show_id3: bool,
     show_musicbrainz: bool,
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    expanded_metadata_cells: &BTreeSet<String>,
+    file_image: Option<Arc<Image>>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    render_metadata_grid(rows, show_id3, show_musicbrainz, pending_id3_edits, cx)
+    render_metadata_grid(
+        rows,
+        show_id3,
+        show_musicbrainz,
+        pending_id3_edits,
+        expanded_metadata_cells,
+        file_image,
+        cx,
+    )
 }
 
 fn render_metadata_grid(
@@ -2819,6 +3380,8 @@ fn render_metadata_grid(
     show_id3: bool,
     show_musicbrainz: bool,
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    expanded_metadata_cells: &BTreeSet<String>,
+    file_image: Option<Arc<Image>>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let mut cells: Vec<AnyElement> = Vec::new();
@@ -2838,9 +3401,24 @@ fn render_metadata_grid(
             }
             MetadataGridRow::Data(row) => {
                 let pending = pending_id3_edits.get(&row.row_id);
-                cells.push(metadata_rss_cell(&row, pending));
+                let rss_expanded = expanded_metadata_cells.contains(&format!("rss:{}", row.row_id));
+                let id3_expanded = expanded_metadata_cells.contains(&format!("id3:{}", row.row_id));
+                cells.push(metadata_rss_cell(
+                    &row,
+                    pending,
+                    rss_expanded,
+                    expanded_metadata_cells,
+                    cx,
+                ));
                 if show_id3 {
-                    cells.push(metadata_id3_cell(&row, pending, cx));
+                    cells.push(metadata_id3_cell(
+                        &row,
+                        pending,
+                        id3_expanded,
+                        expanded_metadata_cells,
+                        file_image.as_ref(),
+                        cx,
+                    ));
                 }
                 if show_musicbrainz {
                     cells.push(metadata_musicbrainz_cell(&row, pending));
@@ -2868,11 +3446,34 @@ fn metadata_heading_cell(label: &str, indent: f32) -> AnyElement {
         .into_any_element()
 }
 
-fn metadata_rss_cell(row: &AlignedCompareRow, pending: Option<&PendingId3Edit>) -> AnyElement {
+fn metadata_rss_cell(
+    row: &AlignedCompareRow,
+    pending: Option<&PendingId3Edit>,
+    expanded: bool,
+    expanded_cells: &BTreeSet<String>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     let value = row.rss_value.as_deref().unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
     let value_color = source_cell_color(pending, MetadataColumn::Rss, row.rss_value.as_deref())
         .unwrap_or_else(text);
+    let expandable = metadata_field_is_expandable(&row.field) && !value.is_empty();
+    let value_element = if expandable {
+        expandable_cell(
+            ExpandableCellParams {
+                field: &row.field,
+                row_id: &row.row_id,
+                raw_value: value,
+                display_value: &display_value,
+                expanded,
+                color: value_color,
+            },
+            expanded_cells,
+            cx,
+        )
+    } else {
+        compare_cell(&display_value, Some(value_color))
+    };
     let cell = div()
         .flex()
         .flex_row()
@@ -2887,37 +3488,37 @@ fn metadata_rss_cell(row: &AlignedCompareRow, pending: Option<&PendingId3Edit>) 
                 .line_height(px(16.0))
                 .child(SharedString::from(row.field.clone())),
         )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(compare_cell(&display_value, Some(value_color))),
-        );
-    if let Some(drag) = metadata_drag_value(row, MetadataColumn::Rss) {
-        cell.id(SharedString::from(format!(
-            "metadata-rss-drag-{}",
-            row.row_id
-        )))
-        .cursor_move()
-        .hover(|style| style.bg(surface()))
-        .on_drag(
-            drag,
-            |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
-                cx.new(|_| MetadataDragPreview {
-                    label: drag.field.clone(),
-                    value: drag.value.clone(),
-                })
-            },
-        )
-        .into_any_element()
-    } else {
-        cell.into_any_element()
+        .child(div().flex_1().min_w_0().child(value_element));
+    if !expandable {
+        if let Some(drag) = metadata_drag_value(row, MetadataColumn::Rss) {
+            return cell
+                .id(SharedString::from(format!(
+                    "metadata-rss-drag-{}",
+                    row.row_id
+                )))
+                .cursor_move()
+                .hover(|style| style.bg(surface()))
+                .on_drag(
+                    drag,
+                    |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
+                        cx.new(|_| MetadataDragPreview {
+                            label: drag.field.clone(),
+                            value: drag.value.clone(),
+                        })
+                    },
+                )
+                .into_any_element();
+        }
     }
+    cell.into_any_element()
 }
 
 fn metadata_id3_cell(
     row: &AlignedCompareRow,
     pending: Option<&PendingId3Edit>,
+    expanded: bool,
+    expanded_cells: &BTreeSet<String>,
+    file_image: Option<&Arc<Image>>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let frame = pending
@@ -2932,16 +3533,33 @@ fn metadata_id3_cell(
         .map(|edit| pending_source_color(edit.source))
         .unwrap_or_else(|| id3_cell_status_color(row));
     let frame_color = frame.map(id3_frame_base).map(id3_frame_version_color);
+    let expandable = metadata_field_is_expandable(&row.field) && !value.is_empty();
+    let value_element = if expandable {
+        expandable_tag_cell(
+            ExpandableTagCellParams {
+                base: ExpandableCellParams {
+                    field: &row.field,
+                    row_id: &row.row_id,
+                    raw_value: value,
+                    display_value: &display_value,
+                    expanded,
+                    color,
+                },
+                frame_id: frame,
+                frame_color,
+                file_image,
+            },
+            expanded_cells,
+            cx,
+        )
+    } else {
+        compare_tag_cell(&display_value, Some(color), frame, frame_color)
+    };
     let mut cell = div()
         .pl(px(12.0))
         .min_w_0()
         .rounded(px(4.0))
-        .child(compare_tag_cell(
-            &display_value,
-            Some(color),
-            frame,
-            frame_color,
-        ))
+        .child(value_element)
         .when_some(pending, |el, edit| {
             el.border_1()
                 .border_color(pending_source_color(edit.source))
@@ -3283,15 +3901,576 @@ fn muted_line(value: &str) -> AnyElement {
         .into_any_element()
 }
 
+fn expandable_cell_summary(field: &str, raw_value: &str, display_value: &str) -> String {
+    match field {
+        "Contributors" | "Value Routes" => {
+            if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
+                format!("[{} items]", arr.len())
+            } else {
+                let lines = display_value.lines().count();
+                if lines > 1 {
+                    format!("[{lines} lines]")
+                } else {
+                    display_value.to_string()
+                }
+            }
+        }
+        "Artwork" => {
+            if raw_value.starts_with("http://") || raw_value.starts_with("https://") {
+                let filename = raw_value.rsplit('/').next().unwrap_or(raw_value);
+                filename.to_string()
+            } else {
+                display_value.to_string()
+            }
+        }
+        "Transcript" | "Transcript text" => display_value.to_string(),
+        _ => display_value.to_string(),
+    }
+}
+
+struct ExpandableCellParams<'a> {
+    field: &'a str,
+    row_id: &'a str,
+    raw_value: &'a str,
+    display_value: &'a str,
+    expanded: bool,
+    color: gpui::Rgba,
+}
+
+struct ExpandableTagCellParams<'a> {
+    base: ExpandableCellParams<'a>,
+    frame_id: Option<&'a str>,
+    frame_color: Option<gpui::Rgba>,
+    file_image: Option<&'a Arc<Image>>,
+}
+
+fn expandable_cell(
+    params: ExpandableCellParams<'_>,
+    expanded_cells: &BTreeSet<String>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let ExpandableCellParams {
+        field,
+        row_id,
+        raw_value,
+        display_value,
+        expanded,
+        color,
+    } = params;
+    let cell_key = format!("rss:{row_id}");
+    let glyph = if expanded { "v" } else { ">" };
+
+    // Value Routes when expanded: header click collapses, sub-items have own clicks.
+    // Use a non-clickable outer container so sub-item clicks don't bubble to toggle.
+    if expanded && field == "Value Routes" {
+        let cell_key_h = cell_key.clone();
+        return div()
+            .text_size(px(11.0))
+            .line_height(px(16.0))
+            .text_color(color)
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id(SharedString::from(format!("expandable-rss-{}-hdr", field)))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                        this.toggle_metadata_cell(cell_key_h.clone(), cx);
+                    }))
+                    .flex()
+                    .flex_row()
+                    .gap(px(4.0))
+                    .child(div().text_size(px(9.0)).text_color(muted()).child(glyph)),
+            )
+            .children(value_routes_tree_elements(
+                raw_value,
+                "rss",
+                row_id,
+                color,
+                expanded_cells,
+                cx,
+            ))
+            .into_any_element();
+    }
+
+    let mut container = div()
+        .id(SharedString::from(format!("expandable-rss-{}", field)))
+        .cursor_pointer()
+        .text_size(px(11.0))
+        .line_height(px(16.0))
+        .text_color(color)
+        .flex()
+        .flex_col()
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.toggle_metadata_cell(cell_key.clone(), cx);
+        }));
+
+    if expanded {
+        if matches!(field, "Artwork")
+            && (raw_value.starts_with("http://") || raw_value.starts_with("https://"))
+        {
+            let url = raw_value.to_string();
+            container = container
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap(px(4.0))
+                        .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+                        .child(
+                            div()
+                                .text_color(accent())
+                                .truncate()
+                                .child(SharedString::from(raw_value.to_string())),
+                        ),
+                )
+                .on_mouse_down(
+                    MouseButton::Middle,
+                    move |_: &MouseDownEvent, _window, _cx| {
+                        let _ = open::that(&url);
+                    },
+                );
+        } else if matches!(field, "Transcript" | "Transcript text") {
+            container = container.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(4.0))
+                    .items_start()
+                    .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .children(transcript_text_elements(raw_value, color)),
+                    ),
+            );
+        } else {
+            container = container.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(4.0))
+                    .items_start()
+                    .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .children(json_tree_elements(raw_value, display_value, color)),
+                    ),
+            );
+        }
+    } else {
+        let summary = expandable_cell_summary(field, raw_value, display_value);
+        container = container.child(
+            div()
+                .flex()
+                .flex_row()
+                .gap(px(4.0))
+                .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+                .child(
+                    div()
+                        .text_color(accent())
+                        .truncate()
+                        .child(SharedString::from(summary)),
+                ),
+        );
+    }
+    container.into_any_element()
+}
+
+fn expandable_tag_cell(
+    params: ExpandableTagCellParams<'_>,
+    expanded_cells: &BTreeSet<String>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let ExpandableTagCellParams {
+        base:
+            ExpandableCellParams {
+                field,
+                row_id,
+                raw_value,
+                display_value,
+                expanded,
+                color,
+            },
+        frame_id,
+        frame_color,
+        file_image,
+    } = params;
+    let cell_key = format!("id3:{row_id}");
+    let glyph = if expanded { "v" } else { ">" };
+    let frame_color = frame_color.unwrap_or_else(muted);
+    let frame_id_owned = frame_id.map(ToOwned::to_owned);
+
+    let value_el = if expanded {
+        if field == "Artwork" {
+            // Show the actual embedded album art image
+            if let Some(image) = file_image {
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.0))
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .line_height(px(16.0))
+                            .text_color(color)
+                            .child(SharedString::from(display_value.to_string())),
+                    )
+                    .child(
+                        div()
+                            .w(px(200.0))
+                            .h(px(200.0))
+                            .rounded(px(6.0))
+                            .overflow_hidden()
+                            .child(
+                                img(image.clone())
+                                    .w(px(200.0))
+                                    .h(px(200.0))
+                                    .object_fit(ObjectFit::Cover),
+                            ),
+                    )
+                    .into_any_element()
+            } else {
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(11.0))
+                    .line_height(px(16.0))
+                    .text_color(color)
+                    .child(SharedString::from(display_value.to_string()))
+                    .into_any_element()
+            }
+        } else if matches!(field, "Transcript" | "Transcript text") {
+            // Show the actual lyrics/transcript text
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(11.0))
+                .line_height(px(16.0))
+                .text_color(color)
+                .flex()
+                .flex_col()
+                .children(transcript_text_elements(raw_value, color))
+                .into_any_element()
+        } else {
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_size(px(11.0))
+                .line_height(px(16.0))
+                .text_color(color)
+                .flex()
+                .flex_col()
+                .children(json_tree_elements(raw_value, display_value, color))
+                .into_any_element()
+        }
+    } else {
+        let summary = expandable_cell_summary(field, raw_value, display_value);
+        div()
+            .flex_1()
+            .min_w_0()
+            .text_size(px(11.0))
+            .line_height(px(16.0))
+            .flex()
+            .flex_row()
+            .gap(px(4.0))
+            .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+            .child(
+                div()
+                    .text_color(accent())
+                    .truncate()
+                    .child(SharedString::from(summary)),
+            )
+            .into_any_element()
+    };
+
+    // Value Routes when expanded: separate header click from sub-item clicks
+    if expanded && field == "Value Routes" {
+        return div()
+            .flex()
+            .flex_col()
+            .text_size(px(11.0))
+            .line_height(px(16.0))
+            .text_color(color)
+            .child(
+                div()
+                    .id(SharedString::from(format!("expandable-id3-{}-hdr", field)))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                        this.toggle_metadata_cell(cell_key.clone(), cx);
+                    }))
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .w(px(136.0))
+                            .flex_shrink_0()
+                            .text_color(frame_color)
+                            .text_size(px(9.5))
+                            .line_height(px(16.0))
+                            .child(SharedString::from(frame_id_owned.unwrap_or_default())),
+                    )
+                    .child(div().text_size(px(9.0)).text_color(muted()).child(glyph)),
+            )
+            .child(
+                div()
+                    .pl(px(142.0))
+                    .flex()
+                    .flex_col()
+                    .children(value_routes_tree_elements(
+                        raw_value,
+                        "id3",
+                        row_id,
+                        color,
+                        expanded_cells,
+                        cx,
+                    )),
+            )
+            .into_any_element();
+    }
+
+    div()
+        .id(SharedString::from(format!("expandable-id3-{}", field)))
+        .cursor_pointer()
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.toggle_metadata_cell(cell_key.clone(), cx);
+        }))
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(6.0))
+        .child(
+            div()
+                .w(px(136.0))
+                .flex_shrink_0()
+                .text_color(frame_color)
+                .text_size(px(9.5))
+                .line_height(px(16.0))
+                .child(SharedString::from(frame_id_owned.unwrap_or_default())),
+        )
+        .child(value_el)
+        .into_any_element()
+}
+
+fn json_tree_elements(raw_value: &str, display_value: &str, color: gpui::Rgba) -> Vec<AnyElement> {
+    // Try to parse as JSON array and render structured tree
+    if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
+        return arr
+            .into_iter()
+            .map(|item| json_object_element(&item, color, 0))
+            .collect();
+    }
+    // Fall back to showing all lines of the display value
+    display_value
+        .lines()
+        .map(|line| {
+            let line = if line.is_empty() { " " } else { line };
+            div()
+                .truncate()
+                .child(SharedString::from(line.to_string()))
+                .into_any_element()
+        })
+        .collect()
+}
+
+fn json_object_element(value: &serde_json::Value, color: gpui::Rgba, depth: usize) -> AnyElement {
+    let indent = px((depth * 12) as f32);
+    match value {
+        serde_json::Value::Object(map) => {
+            let mut container = div()
+                .flex()
+                .flex_col()
+                .pl(indent)
+                .text_size(px(11.0))
+                .line_height(px(16.0));
+            for (key, val) in map {
+                let key_str = format!("{key}: ");
+                match val {
+                    serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                        container = container
+                            .child(div().text_color(muted()).child(SharedString::from(key_str)))
+                            .child(json_object_element(val, color, depth + 1));
+                    }
+                    _ => {
+                        let val_str = match val {
+                            serde_json::Value::String(s) => s.clone(),
+                            serde_json::Value::Null => "null".into(),
+                            other => other.to_string(),
+                        };
+                        container = container.child(
+                            div().flex().flex_row().gap(px(4.0)).child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .child(
+                                        div()
+                                            .text_color(muted())
+                                            .child(SharedString::from(key_str)),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(color)
+                                            .truncate()
+                                            .child(SharedString::from(val_str)),
+                                    ),
+                            ),
+                        );
+                    }
+                }
+            }
+            container.into_any_element()
+        }
+        serde_json::Value::Array(arr) => {
+            let mut container = div().flex().flex_col().pl(indent);
+            for item in arr {
+                container = container.child(json_object_element(item, color, depth));
+            }
+            container.into_any_element()
+        }
+        _ => {
+            let text = match value {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Null => "null".into(),
+                other => other.to_string(),
+            };
+            div()
+                .pl(indent)
+                .text_color(color)
+                .truncate()
+                .child(SharedString::from(text))
+                .into_any_element()
+        }
+    }
+}
+
+fn value_routes_tree_elements(
+    raw_value: &str,
+    column: &str,
+    row_id: &str,
+    color: gpui::Rgba,
+    expanded_cells: &BTreeSet<String>,
+    cx: &mut Context<SearchApp>,
+) -> Vec<AnyElement> {
+    let Ok(routes) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) else {
+        return json_tree_elements(raw_value, raw_value, color);
+    };
+    routes
+        .into_iter()
+        .enumerate()
+        .map(|(i, route)| {
+            let name = route
+                .get("recipient_name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let sub_key = format!("{column}:{row_id}:{i}");
+            let sub_expanded = expanded_cells.contains(&sub_key);
+            let sub_glyph = if sub_expanded { "v" } else { ">" };
+
+            let mut item = div()
+                .id(SharedString::from(format!("vr-{column}-{i}")))
+                .cursor_pointer()
+                .flex()
+                .flex_col();
+
+            let sub_key_click = sub_key.clone();
+            item = item.on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                this.toggle_metadata_cell(sub_key_click.clone(), cx);
+            }));
+
+            item = item.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap(px(4.0))
+                    .child(
+                        div()
+                            .text_size(px(9.0))
+                            .text_color(muted())
+                            .child(sub_glyph),
+                    )
+                    .child(
+                        div()
+                            .text_color(if sub_expanded { color } else { accent() })
+                            .child(SharedString::from(name.to_string())),
+                    ),
+            );
+
+            if sub_expanded {
+                if let serde_json::Value::Object(map) = &route {
+                    for (key, val) in map {
+                        if key == "recipient_name" {
+                            continue;
+                        }
+                        let val_str = match val {
+                            serde_json::Value::String(s) => s.clone(),
+                            serde_json::Value::Null => continue,
+                            serde_json::Value::Bool(b) => b.to_string(),
+                            other => other.to_string(),
+                        };
+                        if val_str.is_empty() {
+                            continue;
+                        }
+                        item = item.child(
+                            div()
+                                .pl(px(16.0))
+                                .flex()
+                                .flex_row()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .text_color(muted())
+                                        .child(SharedString::from(format!("{key}: "))),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(color)
+                                        .truncate()
+                                        .child(SharedString::from(val_str)),
+                                ),
+                        );
+                    }
+                }
+            }
+
+            item.into_any_element()
+        })
+        .collect()
+}
+
+fn transcript_text_elements(raw_value: &str, color: gpui::Rgba) -> Vec<AnyElement> {
+    raw_value
+        .lines()
+        .map(|line| {
+            let line = if line.is_empty() { " " } else { line };
+            div()
+                .text_color(color)
+                .child(SharedString::from(line.to_string()))
+                .into_any_element()
+        })
+        .collect()
+}
+
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
     let mut cell = div()
         .text_size(px(11.0))
         .line_height(px(16.0))
-        .line_clamp(4);
+        .flex()
+        .flex_col();
     if let Some(color) = color {
         cell = cell.text_color(color);
     }
-    cell.child(SharedString::from(value.to_string()))
+    cell.children(compare_value_line_elements(value, 4))
         .into_any_element()
 }
 
@@ -3326,10 +4505,37 @@ fn compare_tag_cell(
             value_cell
                 .flex_1()
                 .min_w_0()
-                .line_clamp(4)
-                .child(SharedString::from(value.to_string())),
+                .flex()
+                .flex_col()
+                .children(compare_value_line_elements(value, 4)),
         )
         .into_any_element()
+}
+
+fn compare_value_line_elements(value: &str, max_lines: usize) -> Vec<AnyElement> {
+    let mut lines = value.lines().collect::<Vec<_>>();
+    if lines.is_empty() {
+        lines.push("");
+    }
+    let truncated = lines.len() > max_lines;
+    lines
+        .into_iter()
+        .take(max_lines)
+        .enumerate()
+        .map(|(index, line)| {
+            let line = if truncated && index + 1 == max_lines {
+                "..."
+            } else if line.is_empty() {
+                " "
+            } else {
+                line
+            };
+            div()
+                .truncate()
+                .child(SharedString::from(line.to_string()))
+                .into_any_element()
+        })
+        .collect::<Vec<_>>()
 }
 
 fn id3_frame_version_color(frame_id: &str) -> gpui::Rgba {
@@ -3697,11 +4903,39 @@ fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
                 value: div()
                     .text_size(px(11.5))
                     .line_height(px(17.0))
-                    .child(SharedString::from(value))
+                    .flex()
+                    .flex_col()
+                    .children(compare_value_line_elements(&value, 6))
                     .into_any_element(),
             })
             .collect(),
     )
+}
+
+fn render_collapsed_text_section(label: &str, value: String) -> AnyElement {
+    div()
+        .border_1()
+        .border_color(border())
+        .rounded(px(6.0))
+        .p(px(10.0))
+        .child(
+            div()
+                .text_size(px(10.0))
+                .font_weight(FontWeight::BOLD)
+                .text_color(muted())
+                .child(SharedString::from(label.to_string())),
+        )
+        .child(
+            div()
+                .mt(px(4.0))
+                .text_size(px(11.5))
+                .line_height(px(17.0))
+                .text_color(text())
+                .flex()
+                .flex_col()
+                .children(compare_value_line_elements(&value, 3)),
+        )
+        .into_any_element()
 }
 
 fn render_feed_link_value(
@@ -3885,17 +5119,6 @@ fn group_heading(label: String) -> AnyElement {
         .into_any_element()
 }
 
-fn subtle_button(label: &str) -> Button {
-    Button::new(SharedString::from(format!("subtle-button:{label}")))
-        .label(SharedString::from(label.to_string()))
-        .with_size(Size::Small)
-        .ghost()
-        .text_color(rgb(0xffffff))
-        .rounded(px(4.0))
-        .border_1()
-        .border_color(accent())
-}
-
 fn metadata_action_button(label: &str) -> Button {
     Button::new(SharedString::from(format!("metadata-action:{label}")))
         .label(SharedString::from(label.to_string()))
@@ -3998,6 +5221,28 @@ fn result_image_url(row: &ResultRow) -> Option<String> {
         Some(EntityDetail::Recording(recording)) => recording.image_url.clone(),
         Some(EntityDetail::Publisher(_)) | None => None,
     }
+}
+
+fn library_result_image_url(row: &LibraryResultRow) -> Option<String> {
+    row.track
+        .track_image_href
+        .clone()
+        .or_else(|| row.track.album_image_href.clone())
+}
+
+fn track_matches_query(track: &TrackRow, query: &str) -> bool {
+    [
+        track.track_title.as_deref(),
+        track.artist_name.as_deref(),
+        track.album_title.as_deref(),
+        track.album_artist_name.as_deref(),
+        track.feed_title.as_deref(),
+        Some(track.item_guid.as_str()),
+        track.enclosure_url.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| value.to_ascii_lowercase().contains(query))
 }
 
 fn entity_key(entity_type: &str, entity_id: &str) -> String {
@@ -4157,7 +5402,8 @@ mod tests {
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
     use crate::metadata::{
-        contributor_id3_rows, display_metadata_value, musicindex_contributors_id3_value,
+        compare_id3_field_values, contributor_id3_rows, display_metadata_value,
+        musicindex_contributors_id3_value,
     };
     use crate::musicbrainz::MusicBrainzCandidate;
     use crate::track_compare::{ComparisonRow, ComparisonStatus};
@@ -4368,7 +5614,7 @@ mod tests {
     }
 
     #[test]
-    fn release_date_prefers_feed_then_oldest_item_pubdate() {
+    fn release_date_prefers_item_then_feed_then_oldest_item_pubdate() {
         let track_context = TrackContext {
             track: Track {
                 pub_date: Some(1_704_067_200),
@@ -4382,7 +5628,7 @@ mod tests {
         };
         assert_eq!(
             super::musicindex_release_date(&track_context).as_deref(),
-            Some("Jan 1, 2023")
+            Some("Jan 1, 2024")
         );
 
         let track_context = TrackContext {
@@ -4397,7 +5643,20 @@ mod tests {
         };
         assert_eq!(
             super::musicindex_release_date(&track_context).as_deref(),
-            Some("Jan 1, 2022")
+            Some("Jan 1, 2024")
+        );
+
+        let track_context = TrackContext {
+            track: Track::default(),
+            feed: Some(Feed {
+                release_date: Some(1_672_531_200),
+                oldest_item_at: Some(1_640_995_200),
+                ..Default::default()
+            }),
+        };
+        assert_eq!(
+            super::musicindex_release_date(&track_context).as_deref(),
+            Some("Jan 1, 2023")
         );
     }
 
@@ -4752,6 +6011,63 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_woar_url_counts_as_existing_website() {
+        let url = "https://lnbeats.com/album/a2d2e313-9cbd-5169-b89c-ab7b33ecc33";
+        let rows = vec![metadata_data_row(test_compare_row(
+            "Website",
+            Some(url),
+            Some(&format!("download for free (url, forward): {url}")),
+            Some("WOAR"),
+            None,
+        ))];
+
+        let expanded = expand_woar_metadata_rows(rows);
+        let row = expanded
+            .iter()
+            .find_map(|row| match row {
+                MetadataGridRow::Data(row) => Some(row),
+                MetadataGridRow::Group(_) => None,
+            })
+            .expect("website row");
+        assert_eq!(row.id3_status, ComparisonStatus::Match);
+
+        let pending =
+            auto_populated_pending_id3_edits(&expanded, &BTreeMap::new(), &BTreeSet::new());
+        assert!(
+            pending.is_empty(),
+            "matching wrapped WOAR should not stage a duplicate website"
+        );
+    }
+
+    #[test]
+    fn id3_compare_normalizes_dates_people_and_wrapped_urls() {
+        assert_eq!(
+            compare_id3_field_values("Release date", Some("Nov 7, 2023"), Some("2023-11-07")),
+            ComparisonStatus::Match
+        );
+        assert_eq!(
+            compare_id3_field_values(
+                "Website",
+                Some("https://example.test/album"),
+                Some("download for free (url, forward): https://example.test/album")
+            ),
+            ComparisonStatus::Match
+        );
+        assert_eq!(
+            compare_id3_field_values("Album artist", Some("HeyCitizen"), Some("Hey Citizen")),
+            ComparisonStatus::Match
+        );
+        assert_eq!(
+            compare_id3_field_values(
+                "Performer [vocals]",
+                Some("HeyCitizen / DuhLaurien / MaryKateUltra"),
+                Some("Hey Citizen / DuhLaurien / Mary KateUltra")
+            ),
+            ComparisonStatus::Match
+        );
+    }
+
+    #[test]
     fn tagger_stages_transcript_url_as_sylt_and_uslt() {
         let context = TrackContext {
             track: Track {
@@ -4822,6 +6138,16 @@ mod tests {
                 role: Some("musician".into()),
                 ..Default::default()
             },
+            crate::api::Contributor {
+                name: Some("Band".into()),
+                role: Some("album artist".into()),
+                ..Default::default()
+            },
+            crate::api::Contributor {
+                name: Some("Eli".into()),
+                role: Some("Performer [keyboards]".into()),
+                ..Default::default()
+            },
         ];
 
         let rows = contributor_id3_rows(&contributors);
@@ -4837,16 +6163,22 @@ mod tests {
         assert!(rows
             .iter()
             .any(|(_, frame, value)| { *frame == "TPE1" && value == "Dana" }));
+        assert!(rows
+            .iter()
+            .any(|(_, frame, value)| { *frame == "TPE2" && value == "Band" }));
+        assert!(rows.iter().any(|(field, frame, value)| {
+            field == "Performer [keyboards]" && *frame == "TMCL" && value == "Eli"
+        }));
 
         let musicindex = musicindex_contributors_id3_value(&contributors)
             .expect("contributors should have a MusicIndex ID3 payload");
         assert_eq!(
             musicindex,
-            "guitarist: Alice / audio engineer: Bob / composer: Cara / musician: Dana"
+            "guitarist: Alice / audio engineer: Bob / composer: Cara / musician: Dana / album artist: Band / Performer [keyboards]: Eli"
         );
         assert_eq!(
             display_metadata_value("Contributors", &musicindex),
-            "[\n  { \"role\": \"guitarist\", \"name\": \"Alice\" },\n  { \"role\": \"audio engineer\", \"name\": \"Bob\" },\n  { \"role\": \"composer\", \"name\": \"Cara\" },\n  { \"role\": \"musician\", \"name\": \"Dana\" }\n]"
+            "[\n  {\n    \"role\": \"guitarist\",\n    \"name\": \"Alice\"\n  },\n  {\n    \"role\": \"audio engineer\",\n    \"name\": \"Bob\"\n  },\n  {\n    \"role\": \"composer\",\n    \"name\": \"Cara\"\n  },\n  {\n    \"role\": \"musician\",\n    \"name\": \"Dana\"\n  },\n  {\n    \"role\": \"album artist\",\n    \"name\": \"Band\"\n  },\n  {\n    \"role\": \"Performer [keyboards]\",\n    \"name\": \"Eli\"\n  }\n]"
         );
     }
 
@@ -4855,8 +6187,113 @@ mod tests {
         let value = r#"[{"recipient_name":"Alice","route_type":"node","split":75.0,"fee":false,"address":"abc","custom_key":null,"custom_value":null},{"recipient_name":"Hosting","route_type":"node","split":25.0,"fee":true,"address":"def","custom_key":null,"custom_value":null}]"#;
         assert_eq!(
             display_metadata_value("Value Routes", value),
-            "[\n  { \"recipient_name\": \"Alice\", \"route_type\": \"node\", \"split\": 75.0, \"fee\": false, \"address\": \"abc\", \"custom_key\": null, \"custom_value\": null },\n  { \"recipient_name\": \"Hosting\", \"route_type\": \"node\", \"split\": 25.0, \"fee\": true, \"address\": \"def\", \"custom_key\": null, \"custom_value\": null }\n]"
+            "[\n  {\n    \"recipient_name\": \"Alice\",\n    \"route_type\": \"node\",\n    \"split\": 75.0,\n    \"fee\": false,\n    \"address\": \"abc\",\n    \"custom_key\": null,\n    \"custom_value\": null\n  },\n  {\n    \"recipient_name\": \"Hosting\",\n    \"route_type\": \"node\",\n    \"split\": 25.0,\n    \"fee\": true,\n    \"address\": \"def\",\n    \"custom_key\": null,\n    \"custom_value\": null\n  }\n]"
         );
+    }
+
+    #[test]
+    fn tmcl_rows_match_picard_like_performer_fields() {
+        let result = TagCompareResult {
+            path: String::new(),
+            rows: Vec::new(),
+            file_image: None,
+            contributors: vec![
+                crate::api::Contributor {
+                    name: Some("HeyCitizen".into()),
+                    role: Some("vocal".into()),
+                    ..Default::default()
+                },
+                crate::api::Contributor {
+                    name: Some("DuhLaurien".into()),
+                    role: Some("vocals".into()),
+                    ..Default::default()
+                },
+                crate::api::Contributor {
+                    name: Some("MaryKateUltra".into()),
+                    role: Some("vocalist".into()),
+                    ..Default::default()
+                },
+            ],
+            value_routes: Vec::new(),
+            total_tracks: None,
+            id3_fields: vec![Id3Field {
+                frame_id: "TMCL".into(),
+                value: "Hey Citizen - vocals / vocals:DuhLaurien / vocals: Mary KateUltra".into(),
+            }],
+        };
+        let rows = aligned_compare_rows(
+            &result,
+            &TrackContext {
+                track: Track::default(),
+                feed: None,
+            },
+            None,
+            false,
+            &BTreeSet::new(),
+        );
+        let performer = rows
+            .iter()
+            .find_map(|row| match row {
+                MetadataGridRow::Data(row) if row.field == "Performer [vocals]" => Some(row),
+                MetadataGridRow::Data(_) | MetadataGridRow::Group(_) => None,
+            })
+            .expect("performer row");
+
+        assert_eq!(performer.id3_status, ComparisonStatus::Match);
+        assert_eq!(
+            performer.id3_value.as_deref(),
+            Some("Hey Citizen · DuhLaurien · Mary KateUltra")
+        );
+    }
+
+    #[test]
+    fn transcript_rows_visible_even_when_content_group_collapsed() {
+        let result = TagCompareResult {
+            path: String::new(),
+            rows: Vec::new(),
+            file_image: None,
+            contributors: Vec::new(),
+            value_routes: Vec::new(),
+            total_tracks: None,
+            id3_fields: vec![Id3Field {
+                frame_id: "USLT:MusicIndex Transcript".into(),
+                value: "line one\nline two".into(),
+            }],
+        };
+        let track_context = TrackContext {
+            track: Track {
+                source_links: Some(vec![SourceEntityLink {
+                    link_type: Some("transcript".into()),
+                    url: Some("https://example.test/transcript.srt".into()),
+                    extraction_path: Some("podcast:transcript@url".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            },
+            feed: None,
+        };
+
+        // Transcript rows should be visible even when the content group is collapsed
+        let collapsed =
+            aligned_compare_rows(&result, &track_context, None, false, &BTreeSet::new());
+        let collapsed_fields = collapsed
+            .iter()
+            .filter_map(|row| match row {
+                MetadataGridRow::Data(row) => Some(row.field.as_str()),
+                MetadataGridRow::Group(_) => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(collapsed_fields.contains(&"Transcript"));
+        assert!(collapsed_fields.contains(&"Transcript text"));
+
+        let transcript_text = collapsed
+            .iter()
+            .find_map(|row| match row {
+                MetadataGridRow::Data(row) if row.field == "Transcript text" => Some(row),
+                MetadataGridRow::Data(_) | MetadataGridRow::Group(_) => None,
+            })
+            .expect("transcript text row");
+        assert_eq!(transcript_text.id3_status, ComparisonStatus::Match);
     }
 
     #[test]

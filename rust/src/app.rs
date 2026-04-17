@@ -39,7 +39,7 @@ fn accent() -> gpui::Rgba {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AppTab {
     Library,
-    Search,
+    Discover,
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ impl Render for TopApp {
                             .child("stophammer"),
                     )
                     .child(render_app_tab("Library", AppTab::Library, self.tab, cx))
-                    .child(render_app_tab("Search", AppTab::Search, self.tab, cx)),
+                    .child(render_app_tab("Discover", AppTab::Discover, self.tab, cx)),
             )
             // Active tab content
             .child(
@@ -110,7 +110,7 @@ impl Render for TopApp {
                     .when(self.tab == AppTab::Library, |el| {
                         el.child(self.library.clone())
                     })
-                    .when(self.tab == AppTab::Search, |el| {
+                    .when(self.tab == AppTab::Discover, |el| {
                         el.child(self.search.clone())
                     }),
             )
