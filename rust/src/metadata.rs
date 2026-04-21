@@ -153,6 +153,16 @@ pub fn compare_track_rows(
 ) -> Vec<ComparisonRow> {
     let mut rows = compare_track_tags(track, tags);
 
+    push_compare_row(&mut rows, "RSS track guid", track.track_guid.clone(), None);
+    push_compare_row(
+        &mut rows,
+        "RSS feed guid",
+        track
+            .feed_guid
+            .clone()
+            .or_else(|| feed.and_then(|feed| feed.feed_guid.clone())),
+        None,
+    );
     push_compare_row(&mut rows, "Nostr handle", track_nostr(track), None);
     push_compare_row(&mut rows, "Website", track_website(track), None);
     let release_date = track_release_pubdate(track).or_else(|| feed.and_then(feed_release_pubdate));
@@ -754,6 +764,25 @@ pub fn track_metadata_rows(
     push_track_metadata_row(
         &mut rows,
         "identity-linking-private-registration",
+        "RSS track guid",
+        track.track_guid.clone(),
+        None,
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "identity-linking-private-registration",
+        "RSS feed guid",
+        track.feed_guid.clone().or_else(|| {
+            track_context
+                .feed
+                .as_ref()
+                .and_then(|feed| feed.feed_guid.clone())
+        }),
+        None,
+    );
+    push_track_metadata_row(
+        &mut rows,
+        "identity-linking-private-registration",
         "Nostr handle",
         track_nostr(track),
         None,
@@ -1170,9 +1199,7 @@ pub fn aligned_compare_rows(
                 .filter(|field| expanded || !id3_field_collapsed_by_default(field))
                 .map(used_id3_field_row),
         );
-        if expanded {
-            rows.extend(unused.into_iter().map(id3_unused_frame_row));
-        }
+        rows.extend(unused.into_iter().map(id3_unused_frame_row));
     }
 
     rows.extend(grouped_metadata_rows(grouped_rows));
@@ -1951,10 +1978,7 @@ pub fn pending_id3_target_key(frame_label: &str) -> String {
     let frame_id = id3_frame_base(frame_label).to_ascii_uppercase();
     match frame_id.as_str() {
         "TXXX" | "WXXX" | "UFID" | "COMM" | "USLT" | "SYLT" => {
-            let descriptor = frame_label
-                .split_once(':')
-                .map_or("", |(_, descriptor)| descriptor.trim())
-                .to_ascii_lowercase();
+            let descriptor = normalized_id3_descriptor_key(frame_label);
             format!("{frame_id}:{descriptor}")
         }
         _ => frame_id,
@@ -2014,7 +2038,26 @@ fn tempo_id3_display_label(frame_label: &str) -> Option<&'static str> {
 pub fn id3_frame_base(frame_label: &str) -> &str {
     frame_label
         .split_once(':')
-        .map_or(frame_label, |(base, _)| base)
+        .map_or(frame_label.trim(), |(base, _)| base.trim())
+}
+
+fn normalized_id3_descriptor_key(frame_label: &str) -> String {
+    frame_label
+        .split_once(':')
+        .map_or("", |(_, descriptor)| descriptor)
+        .chars()
+        .map(|ch| {
+            if ch == '\0' || ch.is_control() {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
 }
 
 pub fn needles_match(value: &str, needles: &[&str]) -> bool {
@@ -2029,6 +2072,8 @@ pub fn needles_match(value: &str, needles: &[&str]) -> bool {
 
 pub fn id3_txxx_needles(field: &str) -> &'static [&'static str] {
     match field {
+        "RSS feed guid" => &["musicindex", "feed", "guid"],
+        "RSS track guid" => &["musicindex", "track", "guid"],
         "MusicBrainz release" => &["musicbrainz", "album", "id"],
         "MusicBrainz release group" => &["musicbrainz", "release", "group", "id"],
         "Release country" => &["musicbrainz", "album", "release", "country"],
@@ -2430,25 +2475,21 @@ pub fn display_metadata_value(field: &str, value: &str) -> String {
 }
 
 pub fn display_picard_people_list(value: &str) -> String {
-    let mut entries = Vec::new();
-    for part in value.split(" / ") {
-        let Some((role, name)) = part.split_once(": ") else {
-            continue;
-        };
-        let role = role.trim();
-        let name = name.trim();
-        if role.is_empty() || name.is_empty() {
-            continue;
-        }
-        entries.push(serde_json::json!({
-            "role": role,
-            "name": name,
-        }));
-    }
+    let entries = grouped_contributor_entries(value);
     if entries.is_empty() {
         return value.to_string();
     }
-    serde_json::to_string_pretty(&entries).unwrap_or_else(|_| value.to_string())
+    entries
+        .into_iter()
+        .map(|(name, roles)| {
+            if roles.is_empty() {
+                name
+            } else {
+                format!("{name}: {}", roles.join(", "))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn display_value_routes(value: &str) -> String {
@@ -2470,6 +2511,46 @@ fn display_embedded_text_summary(value: &str, label: &str) -> String {
     } else {
         format!("{label} ({lines} line{})", plural(lines))
     }
+}
+
+pub fn summarize_contributor_value(value: &str) -> Option<String> {
+    let count = grouped_contributor_entries(value).len();
+    match count {
+        0 => None,
+        1 => Some("1 contributor".into()),
+        count => Some(format!("{count} contributors")),
+    }
+}
+
+pub fn expanded_metadata_display_value<'a>(
+    field: &str,
+    raw_value: &'a str,
+    display_value: &'a str,
+) -> &'a str {
+    match field {
+        "Transcript" | "Transcript text" => raw_value,
+        _ if display_value.is_empty() => raw_value,
+        _ => display_value,
+    }
+}
+
+fn grouped_contributor_entries(value: &str) -> Vec<(String, Vec<String>)> {
+    let mut grouped = BTreeMap::<String, Vec<String>>::new();
+    for part in value.split(" / ") {
+        let Some((role, name)) = part.split_once(": ") else {
+            continue;
+        };
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let role = role.trim();
+        let roles = grouped.entry(name.to_string()).or_default();
+        if !role.is_empty() && !roles.iter().any(|existing| existing == role) {
+            roles.push(role.to_string());
+        }
+    }
+    grouped.into_iter().collect()
 }
 
 fn plural(count: usize) -> &'static str {
@@ -2613,6 +2694,8 @@ pub fn id3_frame_hint(field: &str) -> Option<&'static str> {
         "Album/Feed" => Some("TALB"),
         "Track #" => Some("TRCK"),
         "Publisher" => Some("TXXX:V4V_PUBLISHER"),
+        "RSS feed guid" => Some("TXXX:MusicIndex Feed Guid"),
+        "RSS track guid" => Some("TXXX:MusicIndex Track Guid"),
         "Nostr handle" | "RSS feed nostr handle" => Some("TXXX:RSS Nostr Handle"),
         "Label" => Some("TPUB"),
         "Website" | "RSS feed website" => Some("WOAR"),
@@ -2679,5 +2762,47 @@ pub fn metadata_drag_value(
         target_existing_value,
         value,
         source,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        display_metadata_value, expanded_metadata_display_value, id3_frame_base,
+        pending_id3_target_key, summarize_contributor_value,
+    };
+
+    #[test]
+    fn id3_target_keys_normalize_descriptor_control_chars() {
+        assert_eq!(
+            pending_id3_target_key("TXXX: \0MusicIndex Contributors\t"),
+            "TXXX:musicindex contributors"
+        );
+        assert_eq!(id3_frame_base(" TXXX : descriptor "), "TXXX");
+    }
+
+    #[test]
+    fn contributor_values_display_as_grouped_name_role_lines() {
+        let value = "guitarist: Alice / musician: Alice / audio engineer: Bob";
+        assert_eq!(
+            display_metadata_value("Contributors", value),
+            "Alice: guitarist, musician\nBob: audio engineer"
+        );
+        assert_eq!(
+            summarize_contributor_value(value).as_deref(),
+            Some("2 contributors")
+        );
+    }
+
+    #[test]
+    fn expanded_transcript_uses_raw_text() {
+        assert_eq!(
+            expanded_metadata_display_value(
+                "Transcript text",
+                "line one\nline two",
+                "Embedded transcript (2 lines)"
+            ),
+            "line one\nline two"
+        );
     }
 }

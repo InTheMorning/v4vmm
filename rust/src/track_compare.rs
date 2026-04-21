@@ -11,6 +11,7 @@ use crate::audio_tags::AudioTags;
 use crate::config::Config;
 
 const PUBLISHER_TAG_KEY: &str = "V4V_PUBLISHER";
+const MAX_PATH_PART_CHARS: usize = 120;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelectedEnclosure {
@@ -260,17 +261,60 @@ fn sanitize_path_part(value: &str) -> String {
                 out.push('-');
             }
             '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => {}
-            ch if ch.is_control() => {}
+            ch if ch.is_control() => {
+                if !out.ends_with(' ') && !out.is_empty() {
+                    out.push(' ');
+                }
+            }
             ch => out.push(ch),
         }
     }
 
+    let out = out.split_whitespace().collect::<Vec<_>>().join(" ");
     let out = out.trim_matches([' ', '.']);
+    let out = truncate_path_part(out, MAX_PATH_PART_CHARS);
     if out.is_empty() {
         "unknown".into()
+    } else if is_reserved_path_part(&out) {
+        format!("_{out}")
     } else {
-        out.into()
+        out
     }
+}
+
+fn truncate_path_part(value: &str, max_chars: usize) -> String {
+    let truncated = value.chars().take(max_chars).collect::<String>();
+    truncated.trim_matches([' ', '.']).to_string()
+}
+
+fn is_reserved_path_part(value: &str) -> bool {
+    let upper = value.to_ascii_uppercase();
+    matches!(
+        upper.as_str(),
+        "." | ".."
+            | "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
 }
 
 #[cfg(test)]
@@ -283,7 +327,7 @@ mod tests {
 
     use super::{
         compare_track_tags, download_track_mp3, local_mp3_path, select_mp3_enclosure,
-        ComparisonRow, ComparisonStatus, SelectedEnclosure, PUBLISHER_TAG_KEY,
+        ComparisonRow, ComparisonStatus, SelectedEnclosure, MAX_PATH_PART_CHARS, PUBLISHER_TAG_KEY,
     };
     use crate::api::{SourceEnclosure, Track};
     use crate::audio_tags::AudioTags;
@@ -362,6 +406,55 @@ mod tests {
                 .join("Artist")
                 .join("Feed - Title")
                 .join("04 - Song- Title-.mp3")
+        );
+    }
+
+    #[test]
+    fn sanitizes_ntfs_reserved_names_and_trailing_dots() {
+        let cfg = Config {
+            music_dir: "/tmp/v4vmm-test".into(),
+            db_path: "/tmp/v4vmm-test.sqlite".into(),
+        };
+        let mut track = track();
+        track.track_artist = Some("CON".into());
+        track.feed_title = Some("AUX.".into());
+        track.title = Some("NUL ".into());
+
+        assert_eq!(
+            local_mp3_path(&cfg, &track),
+            PathBuf::from("/tmp/v4vmm-test")
+                .join("_CON")
+                .join("_AUX")
+                .join("04 - _NUL.mp3")
+        );
+    }
+
+    #[test]
+    fn sanitizes_control_chars_and_caps_segment_length() {
+        let cfg = Config {
+            music_dir: "/tmp/v4vmm-test".into(),
+            db_path: "/tmp/v4vmm-test.sqlite".into(),
+        };
+        let mut track = track();
+        track.track_artist = Some("Artist\tName".into());
+        track.feed_title = Some("Feed\0Title".into());
+        track.title = Some("a".repeat(150));
+
+        let path = local_mp3_path(&cfg, &track);
+
+        assert_eq!(
+            path.parent().expect("parent"),
+            PathBuf::from("/tmp/v4vmm-test")
+                .join("Artist Name")
+                .join("Feed Title")
+        );
+        let filename = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("utf8 filename");
+        assert_eq!(
+            filename.len(),
+            "04 - ".len() + MAX_PATH_PART_CHARS + ".mp3".len()
         );
     }
 

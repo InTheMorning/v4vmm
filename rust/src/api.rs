@@ -3,7 +3,7 @@ use reqwest::blocking::Client as ReqwestClient;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_BASE_URL: &str = "https://musicindex.org";
+pub const DEFAULT_BASE_URL: &str = "https://api.musicindex.org";
 pub const PAGE_LIMIT: i32 = 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -142,6 +142,48 @@ pub struct Track {
     pub source_enclosures: Option<Vec<SourceEnclosure>>,
     pub payment_routes: Option<Vec<PaymentRoute>>,
     pub updated_at: Option<i64>,
+}
+
+pub fn track_with_feed_defaults(mut track: Track, feed: Option<&Feed>) -> Track {
+    if let Some(feed) = feed {
+        if track.feed_url.is_none() {
+            track.feed_url = feed.feed_url.clone();
+        }
+        if track.feed_guid.is_none() {
+            track.feed_guid = feed.feed_guid.clone();
+        }
+        if track.feed_title.is_none() {
+            track.feed_title = feed.title.clone().or_else(|| feed.name.clone());
+        }
+        if track.image_url.is_none() {
+            track.image_url = feed.image_url.clone();
+        }
+        if track.publisher_text.is_none() {
+            track.publisher_text = feed.publisher_text.clone();
+        }
+        if track.description.is_none() {
+            track.description = feed.description.clone();
+        }
+        if track.release_artist.is_none() {
+            track.release_artist = feed.release_artist.clone();
+        }
+        if track.source_contributors.is_none() {
+            track.source_contributors = feed.source_contributors.clone();
+        }
+        if track.source_links.is_none() {
+            track.source_links = feed.source_links.clone();
+        }
+        if track.source_ids.is_none() {
+            track.source_ids = feed.source_ids.clone();
+        }
+        if track.source_release_claims.is_none() {
+            track.source_release_claims = feed.source_release_claims.clone();
+        }
+        if track.payment_routes.is_none() {
+            track.payment_routes = feed.payment_routes.clone();
+        }
+    }
+    track
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -426,30 +468,126 @@ impl Client {
     where
         T: DeserializeOwned,
     {
+        let url = self.build_url(path_segments, query)?;
+        let response = self.client.get(url).send()?.error_for_status()?;
+        Ok(response.json()?)
+    }
+
+    fn build_url(&self, path_segments: &[&str], query: &[(&str, String)]) -> Result<reqwest::Url> {
         let mut url = reqwest::Url::parse(&format!("{}/", self.base_url.trim_end_matches('/')))?;
         {
             let mut segments = url
                 .path_segments_mut()
                 .map_err(|_| anyhow!("base URL cannot be a base: {}", self.base_url))?;
             for segment in path_segments {
-                segments.push(segment);
+                segments.push(&sanitize_api_path_segment(segment)?);
             }
         }
 
         if !query.is_empty() {
             let mut pairs = url.query_pairs_mut();
             for (key, value) in query {
-                pairs.append_pair(key, value);
+                pairs.append_pair(key, &sanitize_api_query_value(value));
             }
         }
 
-        let response = self.client.get(url).send()?.error_for_status()?;
-        Ok(response.json()?)
+        Ok(url)
     }
 }
 
 impl Default for Client {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn sanitize_api_path_segment(value: &str) -> Result<String> {
+    let sanitized = sanitize_api_query_value(value);
+    if sanitized.is_empty() {
+        return Err(anyhow!("API path segment is empty"));
+    }
+    Ok(sanitized)
+}
+
+fn sanitize_api_query_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch == '\0' || ch.is_control() {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Client, Contributor, Feed, PaymentRoute, SourceEntityId, Track};
+
+    #[test]
+    fn build_url_sanitizes_metadata_path_segments_and_query_values() {
+        let client = Client::new();
+        let url = client
+            .build_url(
+                &["v1", "publishers", "Den+ did this / Records"],
+                &[("q", "Den+\0 did this".into())],
+            )
+            .expect("url");
+
+        let segments = url
+            .path_segments()
+            .expect("path segments")
+            .collect::<Vec<_>>();
+        assert_eq!(
+            segments,
+            vec!["v1", "publishers", "Den+%20did%20this%20%2F%20Records"]
+        );
+
+        let query_pairs = url.query_pairs().collect::<Vec<_>>();
+        assert_eq!(query_pairs, vec![("q".into(), "Den+ did this".into())]);
+    }
+
+    #[test]
+    fn track_with_feed_defaults_inherits_missing_source_metadata() {
+        let track = Track {
+            track_guid: Some("track-guid".into()),
+            ..Default::default()
+        };
+        let feed = Feed {
+            feed_guid: Some("feed-guid".into()),
+            title: Some("Feed".into()),
+            publisher_text: Some("publisher".into()),
+            description: Some("description".into()),
+            source_ids: Some(vec![SourceEntityId {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1test".into()),
+                ..Default::default()
+            }]),
+            source_contributors: Some(vec![Contributor {
+                name: Some("Alice".into()),
+                role: Some("musician".into()),
+                ..Default::default()
+            }]),
+            payment_routes: Some(vec![PaymentRoute {
+                recipient_name: Some("Alice".into()),
+                split: Some(100.0),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+
+        let hydrated = super::track_with_feed_defaults(track, Some(&feed));
+        assert_eq!(hydrated.feed_guid.as_deref(), Some("feed-guid"));
+        assert_eq!(hydrated.feed_title.as_deref(), Some("Feed"));
+        assert_eq!(hydrated.publisher_text.as_deref(), Some("publisher"));
+        assert_eq!(hydrated.description.as_deref(), Some("description"));
+        assert_eq!(hydrated.source_ids.as_ref().map(Vec::len), Some(1));
+        assert_eq!(hydrated.source_contributors.as_ref().map(Vec::len), Some(1));
+        assert_eq!(hydrated.payment_routes.as_ref().map(Vec::len), Some(1));
     }
 }

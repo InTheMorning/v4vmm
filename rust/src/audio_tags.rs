@@ -204,11 +204,9 @@ fn format_involved_people_list(list: &InvolvedPeopleList) -> String {
 }
 
 fn descriptor_frame_label(frame_id: &str, descriptor: &str) -> String {
-    let descriptor = descriptor.trim();
-    if descriptor.is_empty() {
-        frame_id.to_string()
-    } else {
-        format!("{frame_id}:{descriptor}")
+    match normalize_frame_descriptor(descriptor) {
+        Some(descriptor) => format!("{frame_id}:{descriptor}"),
+        None => frame_id.to_string(),
     }
 }
 
@@ -338,11 +336,16 @@ fn split_frame_label(label: &str) -> (String, Option<String>) {
     let Some((frame_id, descriptor)) = label.split_once(':') else {
         return (label.trim().to_ascii_uppercase(), None);
     };
-    let descriptor = descriptor.trim();
     (
         frame_id.trim().to_ascii_uppercase(),
-        (!descriptor.is_empty()).then(|| descriptor.to_string()),
+        normalize_frame_descriptor(descriptor),
     )
+}
+
+fn normalize_frame_descriptor(descriptor: &str) -> Option<String> {
+    let descriptor = descriptor.replace('\0', " ");
+    let descriptor = descriptor.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!descriptor.is_empty()).then(|| descriptor.to_string())
 }
 
 fn apic_frame_from_reference(reference: &str) -> Result<Frame> {
@@ -655,8 +658,8 @@ mod tests {
     use id3::{Frame, Tag, TagLike};
 
     use super::{
-        audio_tags_from_id3, id3v24_edit_label_is_writable, read_audio_tags, write_id3v24_edits,
-        AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
+        audio_tags_from_id3, id3v24_edit_label_is_writable, normalize_frame_descriptor,
+        read_audio_tags, write_id3v24_edits, AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
     };
 
     #[test]
@@ -905,6 +908,14 @@ mod tests {
         assert!(
             error.to_string().contains("unsupported ID3v2.4"),
             "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn frame_descriptors_strip_nulls_and_whitespace() {
+        assert_eq!(
+            normalize_frame_descriptor(" \0MusicIndex Contributors\0 "),
+            Some("MusicIndex Contributors".into())
         );
     }
 }

@@ -6,6 +6,7 @@ pub mod config;
 pub mod db;
 pub mod id3;
 pub mod library;
+pub mod media;
 pub mod metadata;
 pub mod musicbrainz;
 pub mod rss;

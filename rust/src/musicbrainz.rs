@@ -178,14 +178,15 @@ pub fn lookup_recordings(
     let query = build_recording_query(metadata)?;
     let requested_limit = limit.max(0) as usize;
     let limit = limit.to_string();
-    let mut url = Url::parse("https://musicbrainz.org/ws/2/recording")?;
-    {
-        let mut pairs = url.query_pairs_mut();
-        pairs.append_pair("query", &query);
-        pairs.append_pair("limit", &limit);
-        pairs.append_pair("fmt", "json");
-        pairs.append_pair("inc", "artist-credits+releases+release-groups+media");
-    }
+    let url = build_musicbrainz_url(
+        &["ws", "2", "recording"],
+        &[
+            ("query", query.clone()),
+            ("limit", limit),
+            ("fmt", "json".into()),
+            ("inc", "artist-credits+releases+release-groups+media".into()),
+        ],
+    )?;
 
     let response = client
         .get(url)
@@ -219,13 +220,10 @@ pub fn lookup_releases(
     let query = build_release_query(metadata)?;
     let requested_limit = limit.max(0) as usize;
     let limit = limit.to_string();
-    let mut url = Url::parse("https://musicbrainz.org/ws/2/release")?;
-    {
-        let mut pairs = url.query_pairs_mut();
-        pairs.append_pair("query", &query);
-        pairs.append_pair("limit", &limit);
-        pairs.append_pair("fmt", "json");
-    }
+    let url = build_musicbrainz_url(
+        &["ws", "2", "release"],
+        &[("query", query), ("limit", limit), ("fmt", "json".into())],
+    )?;
 
     let response = client
         .get(url)
@@ -346,17 +344,16 @@ fn enrich_candidates_with_release_details(
 }
 
 fn fetch_release_detail(client: &ReqwestClient, release_id: &str) -> Result<MbRelease> {
-    let mut url = Url::parse(&format!(
-        "https://musicbrainz.org/ws/2/release/{release_id}"
-    ))?;
-    {
-        let mut pairs = url.query_pairs_mut();
-        pairs.append_pair("fmt", "json");
-        pairs.append_pair(
-            "inc",
-            "artist-credits+labels+recordings+release-groups+media+isrcs+url-rels",
-        );
-    }
+    let url = build_musicbrainz_url(
+        &["ws", "2", "release", release_id],
+        &[
+            ("fmt", "json".into()),
+            (
+                "inc",
+                "artist-credits+labels+recordings+release-groups+media+isrcs+url-rels".into(),
+            ),
+        ],
+    )?;
 
     Ok(client.get(url).send()?.error_for_status()?.json()?)
 }
@@ -789,41 +786,105 @@ fn build_recording_query(metadata: &LookupMetadata) -> Result<String> {
 }
 
 fn push_lucene_part(parts: &mut Vec<String>, field: &str, value: Option<&str>) {
-    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+    let Some(value) = value
+        .map(sanitize_lucene_metadata_value)
+        .filter(|value| !value.is_empty())
+    else {
         return;
     };
-    parts.push(format!("{field}:({})", escape_lucene_query(value)));
+    parts.push(format!("{field}:({})", format_lucene_query_value(&value)));
+}
+
+fn format_lucene_query_value(value: &str) -> String {
+    let escaped = escape_lucene_query(value);
+    if value
+        .chars()
+        .any(|ch| ch.is_whitespace() || is_lucene_special_character(ch))
+    {
+        format!("\"{escaped}\"")
+    } else {
+        escaped
+    }
 }
 
 fn escape_lucene_query(value: &str) -> String {
     let mut out = String::new();
     for ch in value.chars() {
-        if matches!(
-            ch,
-            '+' | '-'
-                | '&'
-                | '|'
-                | '!'
-                | '('
-                | ')'
-                | '{'
-                | '}'
-                | '['
-                | ']'
-                | '^'
-                | '"'
-                | '~'
-                | '*'
-                | '?'
-                | ':'
-                | '\\'
-                | '/'
-        ) {
+        if is_lucene_special_character(ch) {
             out.push('\\');
         }
         out.push(ch);
     }
     out
+}
+
+fn is_lucene_special_character(ch: char) -> bool {
+    matches!(
+        ch,
+        '+' | '-'
+            | '&'
+            | '|'
+            | '!'
+            | '('
+            | ')'
+            | '{'
+            | '}'
+            | '['
+            | ']'
+            | '^'
+            | '"'
+            | '~'
+            | '*'
+            | '?'
+            | ':'
+            | '\\'
+            | '/'
+    )
+}
+
+fn sanitize_lucene_metadata_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch == '\0' || ch.is_control() {
+                ' '
+            } else {
+                ch
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn build_musicbrainz_url(path_segments: &[&str], query: &[(&str, String)]) -> Result<Url> {
+    let mut url = Url::parse("https://musicbrainz.org/")?;
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| anyhow!("MusicBrainz base URL cannot be a base"))?;
+        for segment in path_segments {
+            segments.push(&sanitize_musicbrainz_path_segment(segment)?);
+        }
+    }
+
+    if !query.is_empty() {
+        let mut pairs = url.query_pairs_mut();
+        for (key, value) in query {
+            pairs.append_pair(key, &sanitize_lucene_metadata_value(value));
+        }
+    }
+
+    Ok(url)
+}
+
+fn sanitize_musicbrainz_path_segment(value: &str) -> Result<String> {
+    let sanitized = sanitize_lucene_metadata_value(value);
+    if sanitized.is_empty() {
+        return Err(anyhow!("MusicBrainz path segment is empty"));
+    }
+    Ok(sanitized)
 }
 
 #[cfg(test)]
@@ -848,8 +909,61 @@ mod tests {
 
         assert_eq!(
             query,
-            "recording:(A\\/B Song) AND artist:(Artist) AND release:(Album) AND tnum:(3) AND tracks:(10) AND isrc:(US1234567890) AND qdur:120"
+            "recording:(\"A\\/B Song\") AND artist:(Artist) AND release:(Album) AND tnum:(3) AND tracks:(10) AND isrc:(US1234567890) AND qdur:120"
         );
+    }
+
+    #[test]
+    fn recording_query_quotes_artist_with_literal_plus() {
+        let query = build_recording_query(&LookupMetadata {
+            title: Some("Song".into()),
+            artist: Some("Den+ did this".into()),
+            album: None,
+            track_number: None,
+            total_tracks: None,
+            duration_secs: None,
+            isrc: None,
+        })
+        .expect("query");
+
+        assert_eq!(query, "recording:(Song) AND artist:(\"Den\\+ did this\")");
+    }
+
+    #[test]
+    fn recording_query_strips_control_chars_before_escaping() {
+        let query = build_recording_query(&LookupMetadata {
+            title: Some("Den+\0 did this".into()),
+            artist: Some("Band\tName".into()),
+            album: None,
+            track_number: None,
+            total_tracks: None,
+            duration_secs: None,
+            isrc: None,
+        })
+        .expect("query");
+
+        assert_eq!(
+            query,
+            "recording:(\"Den\\+ did this\") AND artist:(\"Band Name\")"
+        );
+    }
+
+    #[test]
+    fn build_musicbrainz_url_sanitizes_path_and_query_values() {
+        let url = super::build_musicbrainz_url(
+            &["ws", "2", "release", " release-id\0 "],
+            &[("query", "Den+\0 did this".into())],
+        )
+        .expect("url");
+
+        let segments = url
+            .path_segments()
+            .expect("path segments")
+            .collect::<Vec<_>>();
+        assert_eq!(segments, vec!["ws", "2", "release", "release-id"]);
+
+        let query_pairs = url.query_pairs().collect::<Vec<_>>();
+        assert_eq!(query_pairs, vec![("query".into(), "Den+ did this".into())]);
     }
 
     #[test]

@@ -21,6 +21,7 @@ pub struct FeedRow {
 pub struct TrackRow {
     pub id: i64,
     pub feed_id: i64,
+    pub feed_guid: Option<String>,
     pub item_guid: String,
     pub track_title: Option<String>,
     pub artist_name: Option<String>,
@@ -68,7 +69,7 @@ pub fn subscribed_feeds(conn: &Connection) -> Result<Vec<FeedRow>> {
 pub fn feed_tracks(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
     let mut stmt = conn
         .prepare(
-            "SELECT t.id, t.feed_id, t.item_guid, t.track_title, t.artist_name, t.album_title,
+            "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.track_image_href,
                     t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
@@ -92,7 +93,7 @@ pub fn feed_tracks(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
 pub fn library_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
     let mut stmt = conn
         .prepare(
-            "SELECT t.id, t.feed_id, t.item_guid, t.track_title, t.artist_name, t.album_title,
+            "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.track_image_href,
                     t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
@@ -336,22 +337,23 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
     Ok(TrackRow {
         id: row.get(0)?,
         feed_id: row.get(1)?,
-        item_guid: row.get(2)?,
-        track_title: row.get(3)?,
-        artist_name: row.get(4)?,
-        album_title: row.get(5)?,
-        album_artist_name: row.get(6)?,
-        track_number: row.get(7)?,
-        disc_number: row.get(8)?,
-        duration_seconds: row.get(9)?,
-        enclosure_url: row.get(10)?,
-        track_image_href: row.get(11)?,
-        is_in_library: row.get::<_, i64>(12)? != 0,
-        feed_title: row.get(13)?,
-        album_image_href: row.get(14)?,
-        local_path: row.get(15)?,
+        feed_guid: row.get(2)?,
+        item_guid: row.get(3)?,
+        track_title: row.get(4)?,
+        artist_name: row.get(5)?,
+        album_title: row.get(6)?,
+        album_artist_name: row.get(7)?,
+        track_number: row.get(8)?,
+        disc_number: row.get(9)?,
+        duration_seconds: row.get(10)?,
+        enclosure_url: row.get(11)?,
+        track_image_href: row.get(12)?,
+        is_in_library: row.get::<_, i64>(13)? != 0,
+        feed_title: row.get(14)?,
+        album_image_href: row.get(15)?,
+        local_path: row.get(16)?,
         transcript_url: transcript_url_from_extra_json(
-            row.get::<_, Option<String>>(16)?.as_deref(),
+            row.get::<_, Option<String>>(17)?.as_deref(),
         ),
     })
 }

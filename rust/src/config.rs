@@ -5,6 +5,8 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::api::DEFAULT_BASE_URL;
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     /// Where v4vmm-managed audio files are stored.
@@ -61,6 +63,72 @@ pub fn load_config(cfg_path: &Path) -> Result<Config> {
     Ok(cfg)
 }
 
+pub fn load_musicindex_endpoint(cfg_path: &Path) -> Result<String> {
+    if !cfg_path.exists() {
+        let _ = load_config(cfg_path)?;
+    }
+
+    let raw = fs::read_to_string(cfg_path)
+        .with_context(|| format!("read config {}", cfg_path.display()))?;
+    let table = raw
+        .parse::<toml::Table>()
+        .with_context(|| format!("parse TOML {}", cfg_path.display()))?;
+
+    match table
+        .get("musicindex_endpoint")
+        .and_then(toml::Value::as_str)
+    {
+        Some(endpoint) => normalize_musicindex_endpoint(endpoint),
+        None => Ok(DEFAULT_BASE_URL.to_string()),
+    }
+}
+
+pub fn save_musicindex_endpoint(cfg_path: &Path, endpoint: &str) -> Result<String> {
+    let endpoint = normalize_musicindex_endpoint(endpoint)?;
+    if !cfg_path.exists() {
+        let _ = load_config(cfg_path)?;
+    }
+
+    let raw = fs::read_to_string(cfg_path)
+        .with_context(|| format!("read config {}", cfg_path.display()))?;
+    let mut table = raw
+        .parse::<toml::Table>()
+        .with_context(|| format!("parse TOML {}", cfg_path.display()))?;
+    table.insert(
+        "musicindex_endpoint".into(),
+        toml::Value::String(endpoint.clone()),
+    );
+
+    let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
+    fs::write(cfg_path, updated.as_bytes())
+        .with_context(|| format!("write config {}", cfg_path.display()))?;
+    Ok(endpoint)
+}
+
+pub fn normalize_musicindex_endpoint(endpoint: &str) -> Result<String> {
+    let trimmed = endpoint.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err(anyhow!("musicindex_endpoint is empty"));
+    }
+
+    let candidate = if trimmed.contains("://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    };
+    let url = reqwest::Url::parse(&candidate)
+        .with_context(|| format!("parse musicindex_endpoint {candidate:?}"))?;
+    match url.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(anyhow!("unsupported musicindex_endpoint scheme: {scheme}")),
+    }
+    if url.host_str().is_none() {
+        return Err(anyhow!("musicindex_endpoint must include a host"));
+    }
+
+    Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
 /// Default config content (TOML).
 /// Uses your stated defaults.
 fn default_config_toml() -> Result<String> {
@@ -82,9 +150,13 @@ music_dir = "{}"
 
 # SQLite database path (app data)
 db_path = "{}"
+
+# MusicIndex API endpoint
+musicindex_endpoint = "{}"
 "#,
         music_dir.display(),
         db_path.display(),
+        DEFAULT_BASE_URL,
     ))
 }
 

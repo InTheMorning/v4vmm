@@ -1,6 +1,4 @@
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -8,7 +6,7 @@ use rusqlite::Connection;
 
 use gpui::{
     div, img, prelude::*, px, rgb, AnyElement, Context, Entity, FontWeight, Image, ImageFormat,
-    IntoElement, ObjectFit, Render, SharedString, Styled, Window,
+    InteractiveElement, IntoElement, ObjectFit, Render, SharedString, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -18,19 +16,20 @@ use gpui_component::Sizable;
 use gpui_component::Size;
 use reqwest::blocking::Client as ReqwestClient;
 
-use crate::api::{SourceEntityLink, Track};
+use crate::api::{Client as MusicIndexClient, Feed, SourceEntityLink, Track};
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, Id3v24Edit};
 use crate::config;
 use crate::db::{self, TrackRow};
+use crate::media::ImageCache;
 use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
-    expand_woar_metadata_rows, id3_frame_base, metadata_field_is_expandable,
-    pending_id3_conflict_descriptions, pending_id3_edits_for_apply, track_metadata_rows,
-    AlignedCompareRow, MetadataColumn, MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit,
-    TagCompareResult, TrackContext,
+    expand_woar_metadata_rows, expanded_metadata_display_value, id3_frame_base,
+    metadata_field_is_expandable, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
+    summarize_contributor_value, track_metadata_rows, AlignedCompareRow, MetadataColumn,
+    MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
 };
 use crate::musicbrainz::{
-    lookup_recordings, lookup_releases, LookupMetadata, MusicBrainzCandidate,
+    lookup_recordings, lookup_releases, LookupMetadata, MusicBrainzCandidate, MusicBrainzLookup,
 };
 use crate::search::id3_edits_for_track_context;
 use crate::track_compare::{download_track_mp3, local_mp3_path};
@@ -66,6 +65,7 @@ struct InspectorFrame {
     entity_id: i64,
     title: String,
     track: TrackRow,
+    source_context: Option<TrackContext>,
     image: Option<Arc<Image>>,
     expanded_id3_frame_groups: BTreeSet<String>,
     expanded_metadata_cells: BTreeSet<String>,
@@ -93,6 +93,7 @@ impl InspectorFrame {
             title,
             local_subscription: track.is_in_library,
             track,
+            source_context: None,
             image,
             expanded_id3_frame_groups: BTreeSet::new(),
             expanded_metadata_cells: BTreeSet::new(),
@@ -119,6 +120,12 @@ enum MbTrackStatus {
 }
 
 #[derive(Clone, Debug)]
+struct StagedMusicBrainzLookup {
+    lookup: MusicBrainzLookupResult,
+    edit_count: usize,
+}
+
+#[derive(Clone, Debug)]
 struct ArtistNode {
     name: String,
     albums: Vec<AlbumNode>,
@@ -137,6 +144,12 @@ struct LibraryTree {
     artists: Vec<ArtistNode>,
 }
 
+#[derive(Clone, Debug)]
+struct LibraryTrackCompare {
+    tag_compare: TagCompareResult,
+    track_context: TrackContext,
+}
+
 #[derive(Clone)]
 enum ThumbnailState {
     Loading,
@@ -145,6 +158,8 @@ enum ThumbnailState {
 
 pub struct LibraryApp {
     conn: Arc<Mutex<Connection>>,
+    cache: Arc<ImageCache>,
+    musicindex_endpoint: String,
     tab: LibraryTab,
     tree: LibraryTree,
     cached_tree: LibraryTree,
@@ -155,7 +170,9 @@ pub struct LibraryApp {
     status: String,
     busy_track: Option<i64>,
     mb_status: BTreeMap<i64, MbTrackStatus>,
-    thumbnails: BTreeMap<String, ThumbnailState>,
+    staged_musicbrainz: BTreeMap<i64, MusicBrainzLookupResult>,
+    thumbnails: BTreeMap<(String, bool), ThumbnailState>,
+    hovered_thumb_url: Option<String>,
     search_input: Entity<InputState>,
     search_query: String,
     _search_sub: gpui::Subscription,
@@ -189,13 +206,21 @@ fn accent() -> gpui::Rgba {
 // ---------------------------------------------------------------------------
 
 impl LibraryApp {
-    pub fn new(conn: Arc<Mutex<Connection>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        conn: Arc<Mutex<Connection>>,
+        cache: Arc<ImageCache>,
+        musicindex_endpoint: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let search_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder("Search your library...")
         });
         let search_sub = cx.subscribe(&search_input, Self::on_search_event);
         let mut app = Self {
             conn,
+            cache,
+            musicindex_endpoint,
             tab: LibraryTab::Library,
             tree: LibraryTree::default(),
             cached_tree: LibraryTree::default(),
@@ -206,7 +231,9 @@ impl LibraryApp {
             status: String::new(),
             busy_track: None,
             mb_status: BTreeMap::new(),
+            staged_musicbrainz: BTreeMap::new(),
             thumbnails: BTreeMap::new(),
+            hovered_thumb_url: None,
             search_input,
             search_query: String::new(),
             _search_sub: search_sub,
@@ -230,6 +257,16 @@ impl LibraryApp {
         self.search_query = self.search_input.read(cx).value().trim().to_string();
         self.selected_id = None;
         self.detail = LibraryDetail::None;
+        cx.notify();
+    }
+
+    pub fn refresh(&mut self, cx: &mut Context<Self>) {
+        self.reload();
+        cx.notify();
+    }
+
+    pub fn set_musicindex_endpoint(&mut self, endpoint: String, cx: &mut Context<Self>) {
+        self.musicindex_endpoint = endpoint;
         cx.notify();
     }
 
@@ -274,31 +311,47 @@ impl LibraryApp {
     fn thumbnail_for_url(
         &mut self,
         url: Option<&str>,
+        animated: bool,
         cx: &mut Context<Self>,
     ) -> Option<Arc<Image>> {
         let url = url?.trim();
         if url.is_empty() {
             return None;
         }
-        match self.thumbnails.get(url) {
+        let cached = if animated {
+            self.cache.peek(url)
+        } else {
+            self.cache.peek_static(url)
+        };
+        if let Some(img) = cached {
+            return Some(img);
+        }
+        let key = (url.to_string(), animated);
+        match self.thumbnails.get(&key) {
             Some(ThumbnailState::Loaded(image)) => return image.clone(),
             Some(ThumbnailState::Loading) => return None,
             None => {}
         }
-        self.thumbnails
-            .insert(url.to_string(), ThumbnailState::Loading);
-        let url = url.to_string();
+        self.thumbnails.insert(key.clone(), ThumbnailState::Loading);
+        let cache = Arc::clone(&self.cache);
         cx.spawn(
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let cache_url = url.clone();
+                let cache_url = key.0.clone();
+                let cache_clone = Arc::clone(&cache);
                 let image = cx
                     .background_executor()
-                    .spawn(async move { load_thumbnail_image(&cache_url).ok().flatten() })
+                    .spawn(async move {
+                        if animated {
+                            cache_clone.fetch_blocking(&cache_url)
+                        } else {
+                            cache_clone.fetch_static_blocking(&cache_url)
+                        }
+                    })
                     .await;
                 this.update(
                     cx,
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        this.thumbnails.insert(url, ThumbnailState::Loaded(image));
+                        this.thumbnails.insert(key, ThumbnailState::Loaded(image));
                         cx.notify();
                     },
                 )
@@ -307,6 +360,13 @@ impl LibraryApp {
         )
         .detach();
         None
+    }
+
+    fn set_hovered_thumb(&mut self, url: Option<String>, cx: &mut Context<Self>) {
+        if self.hovered_thumb_url != url {
+            self.hovered_thumb_url = url;
+            cx.notify();
+        }
     }
 
     fn select_album(&mut self, album: &AlbumNode) {
@@ -320,9 +380,41 @@ impl LibraryApp {
             .track_image_href
             .as_deref()
             .or(track.album_image_href.as_deref())
-            .and_then(|url| self.thumbnail_for_url(Some(url), cx));
-        self.detail =
-            LibraryDetail::Track(Box::new(InspectorFrame::for_track(track.clone(), image)));
+            .and_then(|url| self.thumbnail_for_url(Some(url), true, cx));
+        let mut frame = InspectorFrame::for_track(track.clone(), image);
+        if let Some(lookup) = self.staged_musicbrainz.get(&track.id).cloned() {
+            frame.musicbrainz_lookup = LazyPanel::Loaded(lookup);
+            frame.musicbrainz_selected = 0;
+        }
+        self.detail = LibraryDetail::Track(Box::new(frame));
+        let entity_id = track.id;
+        let track = track.clone();
+        let musicindex_endpoint = self.musicindex_endpoint.clone();
+        cx.notify();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { fetch_library_track_context(&track, &musicindex_endpoint) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
+                        if let Some(frame) = this.selected_track_frame_mut() {
+                            if frame.entity_id == entity_id {
+                                if let Ok(context) = result {
+                                    frame.source_context = Some(context);
+                                }
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
     }
 
     fn toggle_artist(&mut self, name: &str) {
@@ -408,6 +500,21 @@ impl LibraryApp {
         }
     }
 
+    fn stage_musicbrainz_lookup_for_track(
+        &mut self,
+        track_id: i64,
+        lookup: MusicBrainzLookupResult,
+    ) {
+        self.staged_musicbrainz.insert(track_id, lookup.clone());
+        if let Some(frame) = self.selected_track_frame_mut() {
+            if frame.entity_id == track_id {
+                frame.musicbrainz_lookup = LazyPanel::Loaded(lookup);
+                frame.musicbrainz_selected = 0;
+                frame.id3_apply_error = None;
+            }
+        }
+    }
+
     fn toggle_id3_frame_group(&mut self, group_key: String, cx: &mut Context<Self>) {
         let Some(frame) = self.selected_track_frame_mut() else {
             return;
@@ -438,7 +545,8 @@ impl LibraryApp {
         let LazyPanel::Loaded(result) = &frame.tag_compare else {
             return;
         };
-        let track_context = track_row_to_track_context(&frame.track);
+        let fallback_context = track_row_to_track_context(&frame.track);
+        let track_context = frame.source_context.clone().unwrap_or(fallback_context);
         let rows = track_metadata_rows_for_frame(frame, &track_context, Some(result));
         let pending_id3_edits = auto_populated_pending_id3_edits(
             &rows,
@@ -586,13 +694,14 @@ impl LibraryApp {
 
         let entity_id = frame.entity_id;
         let track = frame.track.clone();
+        let musicindex_endpoint = self.musicindex_endpoint.clone();
         cx.notify();
 
         cx.spawn(
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { compare_library_track(&track) })
+                    .spawn(async move { compare_library_track(&track, &musicindex_endpoint) })
                     .await;
 
                 this.update(
@@ -601,7 +710,10 @@ impl LibraryApp {
                         if let Some(frame) = this.selected_track_frame_mut() {
                             if frame.entity_id == entity_id {
                                 frame.tag_compare = match result {
-                                    Ok(result) => LazyPanel::Loaded(result),
+                                    Ok(result) => {
+                                        frame.source_context = Some(result.track_context);
+                                        LazyPanel::Loaded(result.tag_compare)
+                                    }
                                     Err(error) => LazyPanel::Empty(format!("Error: {error}")),
                                 };
                             }
@@ -633,13 +745,14 @@ impl LibraryApp {
         frame.tag_compare = LazyPanel::Loading;
         let entity_id = frame.entity_id;
         let track = frame.track.clone();
+        let musicindex_endpoint = self.musicindex_endpoint.clone();
         cx.notify();
 
         cx.spawn(
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { compare_library_track(&track) })
+                    .spawn(async move { compare_library_track(&track, &musicindex_endpoint) })
                     .await;
 
                 this.update(
@@ -648,7 +761,10 @@ impl LibraryApp {
                         if let Some(frame) = this.selected_track_frame_mut() {
                             if frame.entity_id == entity_id {
                                 frame.tag_compare = match result {
-                                    Ok(result) => LazyPanel::Loaded(result),
+                                    Ok(result) => {
+                                        frame.source_context = Some(result.track_context);
+                                        LazyPanel::Loaded(result.tag_compare)
+                                    }
                                     Err(error) => LazyPanel::Empty(format!("Error: {error}")),
                                 };
                             }
@@ -681,13 +797,14 @@ impl LibraryApp {
 
         let entity_id = frame.entity_id;
         let track = frame.track.clone();
+        let cache = Arc::clone(&self.cache);
         cx.notify();
 
         cx.spawn(
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { lookup_musicbrainz_library_track(&track) })
+                    .spawn(async move { lookup_musicbrainz_library_track(&track, cache) })
                     .await;
 
                 this.update(
@@ -786,17 +903,19 @@ impl LibraryApp {
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { musicbrainz_autotag_track(conn, &track) })
+                    .spawn(async move { lookup_musicbrainz_stage_for_track(conn, &track) })
                     .await;
 
                 this.update(
                     cx,
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
                         match result {
-                            Ok(n) => {
+                            Ok(staged) => {
+                                let n = staged.edit_count;
+                                this.stage_musicbrainz_lookup_for_track(track_id, staged.lookup);
                                 this.mb_status.insert(track_id, MbTrackStatus::Done(n));
                                 this.status = format!(
-                                    "MusicBrainz: applied {n} edit{}",
+                                    "MusicBrainz: staged {n} edit{}",
                                     if n == 1 { "" } else { "s" }
                                 );
                             }
@@ -815,7 +934,6 @@ impl LibraryApp {
         .detach();
     }
 
-    #[allow(dead_code)]
     fn musicbrainz_feed(&mut self, album: AlbumNode, cx: &mut Context<Self>) {
         let downloadable: Vec<TrackRow> = album
             .tracks
@@ -929,7 +1047,7 @@ impl LibraryApp {
                         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
                             this.mb_status.insert(track_id, MbTrackStatus::Processing);
                             this.status = format!(
-                                "MusicBrainz: applying to track {progress}/{total_count} ...",
+                                "MusicBrainz: staging track {progress}/{total_count} ...",
                             );
                             cx.notify();
                         },
@@ -942,21 +1060,30 @@ impl LibraryApp {
                         Some(candidate) => {
                             let candidate = candidate.clone();
                             cx.background_executor()
-                                .spawn(async move { apply_candidate_to_track(&track2, &candidate) })
+                                .spawn(async move { stage_candidate_for_track(&track2, &candidate) })
                                 .await
                         }
                         None => {
                             // No matching candidate — fall back to recording search for this track.
                             let conn2 = Arc::clone(&conn);
                             cx.background_executor()
-                                .spawn(async move { musicbrainz_autotag_track(conn2, &track2) })
+                                .spawn(async move { lookup_musicbrainz_stage_for_track(conn2, &track2) })
                                 .await
                         }
                     };
 
                     let status = match result {
-                        Ok(n) => {
+                        Ok(staged) => {
+                            let n = staged.edit_count;
                             total_edits += n;
+                            let lookup = staged.lookup;
+                            this.update(
+                                cx,
+                                move |this: &mut LibraryApp, _cx: &mut Context<LibraryApp>| {
+                                    this.stage_musicbrainz_lookup_for_track(track_id, lookup);
+                                },
+                            )
+                            .ok();
                             MbTrackStatus::Done(n)
                         }
                         Err(err) => MbTrackStatus::Skipped(format!("{err:#}")),
@@ -974,16 +1101,14 @@ impl LibraryApp {
                     .ok();
                 }
 
-                // Refresh — rebuild tree and album detail
                 this.update(
                     cx,
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
                         this.status = format!(
-                            "MusicBrainz: {total_edits} edit{} across {} tracks",
+                            "MusicBrainz: staged {total_edits} edit{} across {} tracks",
                             if total_edits == 1 { "" } else { "s" },
                             processed,
                         );
-                        this.reload();
                         cx.notify();
                     },
                 )
@@ -1028,10 +1153,10 @@ fn subscribe_library_track(
 }
 
 #[allow(dead_code)]
-fn musicbrainz_autotag_track(
+fn lookup_musicbrainz_stage_for_track(
     _conn: Arc<Mutex<Connection>>,
     track: &TrackRow,
-) -> anyhow::Result<usize> {
+) -> anyhow::Result<StagedMusicBrainzLookup> {
     let path = track
         .local_path
         .as_deref()
@@ -1071,13 +1196,13 @@ fn musicbrainz_autotag_track(
         .first()
         .ok_or_else(|| anyhow::anyhow!("no MusicBrainz results"))?;
 
-    let edits = mb_edits_for_missing_fields(&tags, candidate);
-    if edits.is_empty() {
-        return Ok(0);
-    }
-    let count = edits.len();
-    write_id3v24_edits(std::path::Path::new(path), &edits)?;
-    Ok(count)
+    Ok(StagedMusicBrainzLookup {
+        edit_count: mb_edits_for_missing_fields(&tags, candidate).len(),
+        lookup: MusicBrainzLookupResult {
+            lookup,
+            image: None,
+        },
+    })
 }
 
 #[allow(dead_code)]
@@ -1120,22 +1245,25 @@ fn match_candidate_to_track<'a>(
 }
 
 #[allow(dead_code)]
-fn apply_candidate_to_track(
+fn stage_candidate_for_track(
     track: &TrackRow,
     candidate: &MusicBrainzCandidate,
-) -> anyhow::Result<usize> {
+) -> anyhow::Result<StagedMusicBrainzLookup> {
     let path = track
         .local_path
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("no local file"))?;
     let tags = read_audio_tags(std::path::Path::new(path))?;
-    let edits = mb_edits_for_missing_fields(&tags, candidate);
-    if edits.is_empty() {
-        return Ok(0);
-    }
-    let count = edits.len();
-    write_id3v24_edits(std::path::Path::new(path), &edits)?;
-    Ok(count)
+    Ok(StagedMusicBrainzLookup {
+        edit_count: mb_edits_for_missing_fields(&tags, candidate).len(),
+        lookup: MusicBrainzLookupResult {
+            lookup: MusicBrainzLookup {
+                query: "batch release lookup".into(),
+                candidates: vec![candidate.clone()],
+            },
+            image: None,
+        },
+    })
 }
 
 #[allow(dead_code)]
@@ -1156,8 +1284,7 @@ async fn musicbrainz_feed_per_track(
             cx,
             move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
                 this.mb_status.insert(track_id, MbTrackStatus::Processing);
-                this.status =
-                    format!("MusicBrainz: processing track {progress}/{total_count} ...",);
+                this.status = format!("MusicBrainz: staging track {progress}/{total_count} ...",);
                 cx.notify();
             },
         )
@@ -1167,12 +1294,21 @@ async fn musicbrainz_feed_per_track(
         let track2 = track.clone();
         let result = cx
             .background_executor()
-            .spawn(async move { musicbrainz_autotag_track(conn2, &track2) })
+            .spawn(async move { lookup_musicbrainz_stage_for_track(conn2, &track2) })
             .await;
 
         let status = match result {
-            Ok(n) => {
+            Ok(staged) => {
+                let n = staged.edit_count;
                 total_edits += n;
+                let lookup = staged.lookup;
+                this.update(
+                    cx,
+                    move |this: &mut LibraryApp, _cx: &mut Context<LibraryApp>| {
+                        this.stage_musicbrainz_lookup_for_track(track_id, lookup);
+                    },
+                )
+                .ok();
                 MbTrackStatus::Done(n)
             }
             Err(err) => MbTrackStatus::Skipped(format!("{err:#}")),
@@ -1200,11 +1336,10 @@ async fn musicbrainz_feed_per_track(
         cx,
         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
             this.status = format!(
-                "MusicBrainz: {total_edits} edit{} across {} tracks",
+                "MusicBrainz: staged {total_edits} edit{} across {} tracks",
                 if total_edits == 1 { "" } else { "s" },
                 processed,
             );
-            this.reload();
             cx.notify();
         },
     )
@@ -1218,7 +1353,6 @@ fn build_tree(tracks: &[TrackRow]) -> LibraryTree {
             .album_artist_name
             .clone()
             .or_else(|| track.artist_name.clone())
-            .or_else(|| track.feed_title.clone())
             .unwrap_or_else(|| "Unknown Artist".to_string());
         let album = track
             .album_title
@@ -1438,6 +1572,7 @@ fn tag_has_frame(tags: &crate::audio_tags::AudioTags, frame_id: &str) -> bool {
 fn track_row_to_api_track(track: &TrackRow) -> Track {
     Track {
         track_guid: Some(track.item_guid.clone()),
+        feed_guid: track.feed_guid.clone(),
         feed_title: track.feed_title.clone(),
         title: track.track_title.clone(),
         duration_secs: track
@@ -1460,6 +1595,133 @@ fn track_row_to_api_track(track: &TrackRow) -> Track {
         }),
         ..Default::default()
     }
+}
+
+fn track_row_to_feed(track: &TrackRow) -> Feed {
+    Feed {
+        feed_guid: track.feed_guid.clone(),
+        title: track.feed_title.clone(),
+        image_url: track.album_image_href.clone(),
+        ..Default::default()
+    }
+}
+
+fn track_defaults(mut track: Track, defaults: &Track) -> Track {
+    if track.track_guid.is_none() {
+        track.track_guid = defaults.track_guid.clone();
+    }
+    if track.feed_guid.is_none() {
+        track.feed_guid = defaults.feed_guid.clone();
+    }
+    if track.feed_title.is_none() {
+        track.feed_title = defaults.feed_title.clone();
+    }
+    if track.title.is_none() {
+        track.title = defaults.title.clone();
+    }
+    if track.duration_secs.is_none() {
+        track.duration_secs = defaults.duration_secs;
+    }
+    if track.track_number.is_none() {
+        track.track_number = defaults.track_number;
+    }
+    if track.enclosure_url.is_none() {
+        track.enclosure_url = defaults.enclosure_url.clone();
+    }
+    if track.image_url.is_none() {
+        track.image_url = defaults.image_url.clone();
+    }
+    if track.track_artist.is_none() {
+        track.track_artist = defaults.track_artist.clone();
+    }
+    if track.description.is_none() {
+        track.description = defaults.description.clone();
+    }
+    if track.publisher_text.is_none() {
+        track.publisher_text = defaults.publisher_text.clone();
+    }
+    if track.source_contributors.is_none() {
+        track.source_contributors = defaults.source_contributors.clone();
+    }
+    if track.source_links.is_none() {
+        track.source_links = defaults.source_links.clone();
+    }
+    if track.source_ids.is_none() {
+        track.source_ids = defaults.source_ids.clone();
+    }
+    if track.source_release_claims.is_none() {
+        track.source_release_claims = defaults.source_release_claims.clone();
+    }
+    if track.payment_routes.is_none() {
+        track.payment_routes = defaults.payment_routes.clone();
+    }
+    track
+}
+
+fn feed_defaults(mut feed: Feed, defaults: &Feed) -> Feed {
+    if feed.feed_guid.is_none() {
+        feed.feed_guid = defaults.feed_guid.clone();
+    }
+    if feed.title.is_none() {
+        feed.title = defaults.title.clone();
+    }
+    if feed.name.is_none() {
+        feed.name = defaults.name.clone();
+    }
+    if feed.feed_url.is_none() {
+        feed.feed_url = defaults.feed_url.clone();
+    }
+    if feed.image_url.is_none() {
+        feed.image_url = defaults.image_url.clone();
+    }
+    feed
+}
+
+fn merge_track_context_from_detail(
+    track_row: &TrackRow,
+    fetched_track: Option<Track>,
+    fetched_feed: Option<Feed>,
+) -> TrackContext {
+    let local_track = track_row_to_api_track(track_row);
+    let local_feed = track_row_to_feed(track_row);
+    let feed = feed_defaults(
+        fetched_feed.unwrap_or_else(|| local_feed.clone()),
+        &local_feed,
+    );
+    let track = crate::api::track_with_feed_defaults(
+        track_defaults(
+            fetched_track.unwrap_or_else(|| local_track.clone()),
+            &local_track,
+        ),
+        Some(&feed),
+    );
+    TrackContext {
+        track,
+        feed: Some(feed),
+    }
+}
+
+fn fetch_library_track_context(
+    track: &TrackRow,
+    musicindex_endpoint: &str,
+) -> anyhow::Result<TrackContext> {
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
+    let include =
+        Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
+    let fetched_track = client.fetch_track(&track.item_guid, include).ok();
+    let feed_guid = fetched_track
+        .as_ref()
+        .and_then(|track| track.feed_guid.as_deref())
+        .or(track.feed_guid.as_deref());
+    let fetched_feed = feed_guid.and_then(|feed_guid| client.fetch_feed(feed_guid, include).ok());
+    if fetched_track.is_none() && fetched_feed.is_none() {
+        return Err(anyhow::anyhow!("MusicIndex metadata unavailable"));
+    }
+    Ok(merge_track_context_from_detail(
+        track,
+        fetched_track,
+        fetched_feed,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1500,10 +1762,12 @@ impl Render for LibraryApp {
                 })
                 .collect()
         };
+        let hovered_url = self.hovered_thumb_url.clone();
         let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
         for url in &urls {
             if !album_thumbs.contains_key(url.as_str()) {
-                let img = self.thumbnail_for_url(Some(url), cx);
+                let animated = hovered_url.as_deref() == Some(url.as_str());
+                let img = self.thumbnail_for_url(Some(url), animated, cx);
                 album_thumbs.insert(url.clone(), img);
             }
         }
@@ -1846,8 +2110,8 @@ fn render_tree(
                 let artist_for_toggle = artist.name.clone();
                 let album_for_toggle = album.name.clone();
                 let album_for_select = album.clone();
-                let thumb_image = album
-                    .image_href
+                let thumb_url = album.image_href.clone();
+                let thumb_image = thumb_url
                     .as_ref()
                     .and_then(|url| album_thumbs.get(url.as_str()))
                     .and_then(|opt| opt.clone());
@@ -1882,7 +2146,12 @@ fn render_tree(
                                         .w(px(12.0))
                                         .child(SharedString::from(arrow)),
                                 )
-                                .child(render_album_thumb(thumb_image.as_ref(), 34.0))
+                                .child(hoverable_thumb(
+                                    thumb_url.clone(),
+                                    thumb_image.as_ref(),
+                                    34.0,
+                                    cx,
+                                ))
                                 .child(
                                     div()
                                         .font_weight(FontWeight::MEDIUM)
@@ -2055,6 +2324,7 @@ fn render_album_detail(
         .iter()
         .map(|track| {
             let track_for_click = track.clone();
+            let track_for_select = track.clone();
             let track_id = track.id;
             let in_library = track.is_in_library;
             let is_busy = busy_track == Some(track_id);
@@ -2093,7 +2363,13 @@ fn render_album_detail(
                 .hover(|el| el.bg(rgb(0x1f2230)))
                 .child(
                     div()
+                        .id(SharedString::from(format!("album-track-select-{track_id}")))
                         .flex_1()
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.select_track(&track_for_select, cx);
+                            cx.notify();
+                        }))
                         .child(SharedString::from(format!("{num_str}{track_title}{dur}")))
                         .when(mb_text.is_some(), |el| {
                             let color = match mb {
@@ -2186,6 +2462,10 @@ fn render_album_detail(
     }
 
     // Buttons row.
+    let has_active_mb = mb_status
+        .values()
+        .any(|s| matches!(s, MbTrackStatus::Pending | MbTrackStatus::Processing));
+    let album_for_mb = album.clone();
     let mut buttons = div().flex().flex_row().gap(px(8.0));
     if let Some(fid) = feed_id {
         buttons = buttons.child(
@@ -2197,6 +2477,13 @@ fn render_album_detail(
                 })),
         );
     }
+    buttons = buttons.child(
+        metadata_action_button("MusicBrainz")
+            .disabled(has_active_mb)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.musicbrainz_feed(album_for_mb.clone(), cx);
+            })),
+    );
     div()
         .id("album-detail-scroll")
         .size_full()
@@ -2219,6 +2506,7 @@ fn render_album_detail(
 
 fn render_track_detail(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {
     let context = track_row_to_track_context(&frame.track);
+    let context = frame.source_context.as_ref().unwrap_or(&context);
     let result = match &frame.tag_compare {
         LazyPanel::Loaded(result) => Some(result),
         LazyPanel::Loading | LazyPanel::Empty(_) | LazyPanel::Hidden => None,
@@ -2228,7 +2516,7 @@ fn render_track_detail(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> 
         .size_full()
         .overflow_y_scroll()
         .p(px(16.0))
-        .child(render_track_window(frame, &context, result, cx))
+        .child(render_track_window(frame, context, result, cx))
         .into_any_element()
 }
 
@@ -2782,12 +3070,19 @@ fn render_track_metadata_grid(
                 let pending = pending_id3_edits.get(&row.row_id);
                 let rss_expanded = expanded_metadata_cells.contains(&format!("rss:{}", row.row_id));
                 let id3_expanded = expanded_metadata_cells.contains(&format!("id3:{}", row.row_id));
-                cells.push(metadata_rss_cell(&row, pending, rss_expanded, cx));
+                cells.push(metadata_rss_cell(
+                    &row,
+                    pending,
+                    rss_expanded,
+                    expanded_metadata_cells,
+                    cx,
+                ));
                 if show_id3 {
                     cells.push(metadata_id3_cell(
                         &row,
                         pending,
                         id3_expanded,
+                        expanded_metadata_cells,
                         file_image.as_ref(),
                         cx,
                     ));
@@ -2854,6 +3149,7 @@ fn metadata_rss_cell(
     row: &AlignedCompareRow,
     pending: Option<&PendingId3Edit>,
     expanded: bool,
+    expanded_cells: &BTreeSet<String>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let value = row.rss_value.as_deref().unwrap_or("");
@@ -2868,6 +3164,7 @@ fn metadata_rss_cell(
         expanded,
         value_color,
         "rss",
+        expanded_cells,
         None,
         cx,
     );
@@ -2893,6 +3190,7 @@ fn metadata_id3_cell(
     row: &AlignedCompareRow,
     pending: Option<&PendingId3Edit>,
     expanded: bool,
+    expanded_cells: &BTreeSet<String>,
     file_image: Option<&Arc<Image>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -2915,6 +3213,7 @@ fn metadata_id3_cell(
         expanded,
         color,
         frame,
+        expanded_cells,
         file_image,
         cx,
     );
@@ -2966,18 +3265,53 @@ fn metadata_value_cell(
     expanded: bool,
     color: gpui::Rgba,
     column: &str,
+    expanded_cells: &BTreeSet<String>,
     file_image: Option<&Arc<Image>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let expandable = metadata_field_is_expandable(field) && !raw_value.is_empty();
+    let logical_field = metadata_logical_field(field);
+    let expandable = metadata_field_is_expandable(logical_field) && !raw_value.is_empty();
     if !expandable {
         return compare_cell(display_value, Some(color));
     }
     let cell_key = format!("{column}:{row_id}");
     let glyph = if expanded { "v" } else { ">" };
-    let summary = expandable_cell_summary(field, raw_value, display_value);
+    let summary = expandable_cell_summary(logical_field, field, raw_value, display_value);
+    if expanded && logical_field == "Value Routes" {
+        let header_key = cell_key.clone();
+        return div()
+            .text_size(px(11.0))
+            .line_height(px(16.0))
+            .text_color(color)
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id(SharedString::from(format!(
+                        "metadata-cell:{cell_key}:header"
+                    )))
+                    .cursor_pointer()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .gap(px(4.0))
+                    .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+                        this.toggle_metadata_cell(header_key.clone(), cx);
+                    }))
+                    .child(div().text_size(px(9.0)).text_color(muted()).child(glyph)),
+            )
+            .child(div().flex().flex_col().children(value_routes_tree_elements(
+                raw_value,
+                column,
+                row_id,
+                color,
+                expanded_cells,
+                cx,
+            )))
+            .into_any_element();
+    }
     let content = if expanded {
-        expanded_metadata_value(field, raw_value, display_value, color, file_image)
+        expanded_metadata_value(logical_field, raw_value, display_value, color, file_image)
     } else {
         div()
             .text_color(accent())
@@ -3015,6 +3349,7 @@ fn metadata_tag_cell(
     expanded: bool,
     color: gpui::Rgba,
     frame_id: Option<&str>,
+    expanded_cells: &BTreeSet<String>,
     file_image: Option<&Arc<Image>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -3027,6 +3362,7 @@ fn metadata_tag_cell(
         expanded,
         color,
         "id3",
+        expanded_cells,
         file_image,
         cx,
     );
@@ -3066,24 +3402,159 @@ fn expanded_metadata_value(
                 .into_any_element();
         }
     }
+    let value = expanded_metadata_display_value(field, raw_value, display_value);
     div()
         .text_color(color)
         .flex()
         .flex_col()
-        .children(compare_value_line_elements(
-            if display_value.is_empty() {
-                raw_value
-            } else {
-                display_value
-            },
-            20,
-        ))
+        .children(compare_value_line_elements(value, 20))
         .into_any_element()
 }
 
-fn expandable_cell_summary(field: &str, raw_value: &str, display_value: &str) -> String {
+fn value_routes_tree_elements(
+    raw_value: &str,
+    column: &str,
+    row_id: &str,
+    color: gpui::Rgba,
+    expanded_cells: &BTreeSet<String>,
+    cx: &mut Context<LibraryApp>,
+) -> Vec<AnyElement> {
+    let Ok(routes) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) else {
+        return compare_value_line_elements(raw_value, 20);
+    };
+
+    routes
+        .into_iter()
+        .enumerate()
+        .map(|(index, route)| {
+            let name = route
+                .get("recipient_name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("Unknown");
+            let split = route.get("split").and_then(route_split_label);
+            let label = split.map_or_else(|| name.to_string(), |split| format!("{name} {split}"));
+            let sub_key = format!("{column}:{row_id}:{index}");
+            let sub_expanded = expanded_cells.contains(&sub_key);
+            let sub_glyph = if sub_expanded { "v" } else { ">" };
+            let header_key = sub_key.clone();
+
+            let mut item = div()
+                .id(SharedString::from(format!(
+                    "value-route:{column}:{row_id}:{index}"
+                )))
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .child(
+                    div()
+                        .id(SharedString::from(format!(
+                            "value-route:{column}:{row_id}:{index}:header"
+                        )))
+                        .cursor_pointer()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(4.0))
+                        .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
+                            this.toggle_metadata_cell(header_key.clone(), cx);
+                        }))
+                        .child(
+                            div()
+                                .text_size(px(9.0))
+                                .text_color(muted())
+                                .child(sub_glyph),
+                        )
+                        .child(
+                            div()
+                                .text_color(if sub_expanded { color } else { accent() })
+                                .truncate()
+                                .child(SharedString::from(label)),
+                        ),
+                );
+
+            if sub_expanded {
+                if let serde_json::Value::Object(map) = &route {
+                    for (key, value) in map {
+                        if matches!(key.as_str(), "recipient_name" | "split") {
+                            continue;
+                        }
+                        let Some(value) = route_value_label(value) else {
+                            continue;
+                        };
+                        item = item.child(
+                            div()
+                                .pl(px(16.0))
+                                .flex()
+                                .flex_row()
+                                .gap(px(4.0))
+                                .child(
+                                    div()
+                                        .text_color(muted())
+                                        .child(SharedString::from(format!("{key}: "))),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(color)
+                                        .truncate()
+                                        .child(SharedString::from(value)),
+                                ),
+                        );
+                    }
+                }
+            }
+
+            item.into_any_element()
+        })
+        .collect()
+}
+
+fn route_value_label(value: &serde_json::Value) -> Option<String> {
+    let label = match value {
+        serde_json::Value::Null => return None,
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        other => other.to_string(),
+    };
+    let label = label.trim();
+    if label.is_empty() {
+        None
+    } else {
+        Some(label.to_string())
+    }
+}
+
+fn route_split_label(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Number(number) => {
+            let raw = number.to_string();
+            let trimmed = raw.strip_suffix(".0").unwrap_or(&raw);
+            Some(format!("{trimmed}%"))
+        }
+        _ => route_value_label(value),
+    }
+}
+
+fn metadata_logical_field(field: &str) -> &str {
     match field {
-        "Contributors" | "Value Routes" => {
+        "TXXX:MusicIndex Contributors" => "Contributors",
+        "TXXX:MusicIndex Value Routes" => "Value Routes",
+        _ => field,
+    }
+}
+
+fn expandable_cell_summary(
+    logical_field: &str,
+    _display_field: &str,
+    raw_value: &str,
+    display_value: &str,
+) -> String {
+    match logical_field {
+        "Contributors" => {
+            summarize_contributor_value(raw_value).unwrap_or_else(|| display_value.to_string())
+        }
+        "Value Routes" => {
             if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
                 format!("[{} items]", arr.len())
             } else {
@@ -3459,16 +3930,27 @@ fn compare_downloaded_track_path(
     })
 }
 
-fn compare_library_track(track: &TrackRow) -> anyhow::Result<TagCompareResult> {
+fn compare_library_track(
+    track: &TrackRow,
+    musicindex_endpoint: &str,
+) -> anyhow::Result<LibraryTrackCompare> {
     let path = track
         .local_path
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
-    let context = track_row_to_track_context(track);
-    compare_downloaded_track_path(Path::new(path), &context)
+    let context = fetch_library_track_context(track, musicindex_endpoint)
+        .unwrap_or_else(|_| track_row_to_track_context(track));
+    let tag_compare = compare_downloaded_track_path(Path::new(path), &context)?;
+    Ok(LibraryTrackCompare {
+        tag_compare,
+        track_context: context,
+    })
 }
 
-fn lookup_musicbrainz_library_track(track: &TrackRow) -> anyhow::Result<MusicBrainzLookupResult> {
+fn lookup_musicbrainz_library_track(
+    track: &TrackRow,
+    cache: Arc<ImageCache>,
+) -> anyhow::Result<MusicBrainzLookupResult> {
     let path = track
         .local_path
         .as_deref()
@@ -3489,7 +3971,7 @@ fn lookup_musicbrainz_library_track(track: &TrackRow) -> anyhow::Result<MusicBra
         .and_then(|candidate| candidate.release_id.as_deref())
         .and_then(|release_id| {
             let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
-            load_thumbnail_image(&url).ok().flatten()
+            cache.fetch_blocking(&url)
         });
     Ok(MusicBrainzLookupResult { lookup, image })
 }
@@ -3521,15 +4003,12 @@ fn musicbrainz_lookup_metadata(
 }
 
 fn track_row_to_track_context(track: &TrackRow) -> TrackContext {
-    let api_track = track_row_to_api_track(track);
-    let feed = Some(crate::api::Feed {
-        title: track.feed_title.clone(),
-        image_url: track.album_image_href.clone(),
-        ..Default::default()
-    });
+    let feed = track_row_to_feed(track);
+    let api_track =
+        crate::api::track_with_feed_defaults(track_row_to_api_track(track), Some(&feed));
     TrackContext {
         track: api_track,
-        feed,
+        feed: Some(feed),
     }
 }
 
@@ -3547,56 +4026,32 @@ fn fmt_dur(secs: i32) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
 }
 
-fn load_thumbnail_image(url: &str) -> anyhow::Result<Option<Arc<Image>>> {
-    let cache_dir = thumbnail_cache_dir()?;
-    std::fs::create_dir_all(&cache_dir)?;
-    let key = thumbnail_cache_key(url);
-    let image_path = cache_dir.join(format!("{key}.image"));
-    let mime_path = cache_dir.join(format!("{key}.mime"));
-
-    if image_path.exists() && mime_path.exists() {
-        let bytes = std::fs::read(&image_path)?;
-        let mime_type = std::fs::read_to_string(&mime_path)?;
-        if !bytes.is_empty() && mime_type.trim().starts_with("image/") {
-            let format = ImageFormat::from_mime_type(mime_type.trim()).unwrap_or(ImageFormat::Jpeg);
-            return Ok(Some(Arc::new(Image::from_bytes(format, bytes))));
-        }
-    }
-
-    let response = ReqwestClient::new().get(url).send()?.error_for_status()?;
-    let mime_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(';').next())
-        .map(str::trim)
-        .filter(|v| v.starts_with("image/"))
-        .map(str::to_string);
-    let Some(mime_type) = mime_type else {
-        return Ok(None);
+fn hoverable_thumb(
+    url: Option<String>,
+    image: Option<&Arc<Image>>,
+    size: f32,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let inner = render_album_thumb(image, size);
+    let Some(url) = url else {
+        return inner;
     };
-    let bytes = response.bytes()?.to_vec();
-    if bytes.is_empty() {
-        return Ok(None);
-    }
-    std::fs::write(&image_path, &bytes)?;
-    std::fs::write(&mime_path, mime_type.as_bytes())?;
-    let format = ImageFormat::from_mime_type(&mime_type).unwrap_or(ImageFormat::Jpeg);
-    Ok(Some(Arc::new(Image::from_bytes(format, bytes))))
-}
-
-fn thumbnail_cache_dir() -> anyhow::Result<std::path::PathBuf> {
-    let cfg_path = config::config_path()?;
-    let parent = cfg_path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("config path has no parent: {}", cfg_path.display()))?;
-    Ok(parent.join("thumbnail-cache"))
-}
-
-fn thumbnail_cache_key(url: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    url.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    let enter_url = url.clone();
+    let leave_url = url.clone();
+    div()
+        .id(SharedString::from(format!("thumb-{url}")))
+        .on_mouse_move(cx.listener(move |this, _, _, cx| {
+            if this.hovered_thumb_url.as_deref() != Some(enter_url.as_str()) {
+                this.set_hovered_thumb(Some(enter_url.clone()), cx);
+            }
+        }))
+        .on_hover(cx.listener(move |this, entered: &bool, _, cx| {
+            if !*entered && this.hovered_thumb_url.as_deref() == Some(leave_url.as_str()) {
+                this.set_hovered_thumb(None, cx);
+            }
+        }))
+        .child(inner)
+        .into_any_element()
 }
 
 fn render_album_thumb(image: Option<&Arc<Image>>, size: f32) -> AnyElement {
@@ -3627,5 +4082,111 @@ fn render_album_thumb(image: Option<&Arc<Image>>, size: f32) -> AnyElement {
             .flex_shrink_0()
             .child("\u{1F3B5}")
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{merge_track_context_from_detail, track_row_to_track_context, TrackRow};
+    use crate::api::{Contributor, Feed, PaymentRoute, SourceEntityId, Track};
+    use crate::search::id3_edits_for_track_context;
+
+    #[test]
+    fn library_track_context_preserves_feed_guid_for_id3_provenance() {
+        let track = TrackRow {
+            id: 1,
+            feed_id: 2,
+            feed_guid: Some("feed-guid".into()),
+            item_guid: "track-guid".into(),
+            track_title: Some("Song".into()),
+            artist_name: None,
+            album_title: None,
+            album_artist_name: None,
+            track_number: None,
+            disc_number: None,
+            duration_seconds: None,
+            enclosure_url: None,
+            track_image_href: None,
+            is_in_library: true,
+            feed_title: Some("Feed".into()),
+            album_image_href: None,
+            local_path: None,
+            transcript_url: None,
+        };
+
+        let context = track_row_to_track_context(&track);
+        let edits = id3_edits_for_track_context(&context);
+
+        assert!(edits.iter().any(|edit| {
+            edit.frame_label == "TXXX:MusicIndex Feed Guid" && edit.value == "feed-guid"
+        }));
+    }
+
+    #[test]
+    fn library_track_context_inherits_feed_level_musicindex_metadata() {
+        let track_row = TrackRow {
+            id: 1,
+            feed_id: 2,
+            feed_guid: Some("feed-guid".into()),
+            item_guid: "track-guid".into(),
+            track_title: Some("Song".into()),
+            artist_name: Some("Artist".into()),
+            album_title: None,
+            album_artist_name: None,
+            track_number: Some(4),
+            disc_number: None,
+            duration_seconds: Some(223),
+            enclosure_url: Some("https://example.test/track.mp3".into()),
+            track_image_href: None,
+            is_in_library: true,
+            feed_title: Some("Feed".into()),
+            album_image_href: None,
+            local_path: None,
+            transcript_url: None,
+        };
+        let track = Track {
+            track_guid: Some("track-guid".into()),
+            feed_guid: Some("feed-guid".into()),
+            title: Some("Song".into()),
+            ..Default::default()
+        };
+        let feed = Feed {
+            feed_guid: Some("feed-guid".into()),
+            title: Some("Feed".into()),
+            publisher_text: Some("HeyCitizen".into()),
+            description: Some("Feed description".into()),
+            source_ids: Some(vec![SourceEntityId {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1heycitizen".into()),
+                ..Default::default()
+            }]),
+            source_contributors: Some(vec![Contributor {
+                name: Some("HeyCitizen".into()),
+                role: Some("musician".into()),
+                ..Default::default()
+            }]),
+            payment_routes: Some(vec![PaymentRoute {
+                recipient_name: Some("HeyCitizen".into()),
+                split: Some(100.0),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+
+        let context = merge_track_context_from_detail(&track_row, Some(track), Some(feed));
+        assert_eq!(context.track.publisher_text.as_deref(), Some("HeyCitizen"));
+        assert_eq!(
+            context.track.source_contributors.as_ref().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(context.track.source_ids.as_ref().map(Vec::len), Some(1));
+        assert_eq!(context.track.payment_routes.as_ref().map(Vec::len), Some(1));
+        assert_eq!(
+            context
+                .feed
+                .as_ref()
+                .and_then(|feed| feed.description.as_deref()),
+            Some("Feed description")
+        );
     }
 }

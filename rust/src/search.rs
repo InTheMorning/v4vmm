@@ -1,9 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -28,6 +25,7 @@ use crate::audio_tags::Id3Field;
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3v24Edit};
 use crate::config;
 use crate::db;
+use crate::media::ImageCache;
 use crate::metadata::*;
 use crate::musicbrainz::{lookup_recordings, LookupMetadata, MusicBrainzCandidate};
 use crate::rss;
@@ -164,6 +162,8 @@ enum ThumbnailState {
 
 pub struct SearchApp {
     conn: Arc<Mutex<Connection>>,
+    cache: Arc<ImageCache>,
+    musicindex_endpoint: String,
     input: Entity<InputState>,
     type_filter: usize,
     fuzzy_search: bool,
@@ -184,7 +184,13 @@ const TYPE_LABELS: &[&str] = &["All", "Feed", "Track", "Publisher"];
 const TYPE_VALUES: &[Option<&str>] = &[None, Some("feed"), Some("track"), Some("publisher")];
 
 impl SearchApp {
-    pub fn new(conn: Arc<Mutex<Connection>>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        conn: Arc<Mutex<Connection>>,
+        cache: Arc<ImageCache>,
+        musicindex_endpoint: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder("Discover feeds, tracks, publishers...")
         });
@@ -192,6 +198,8 @@ impl SearchApp {
 
         Self {
             conn,
+            cache,
+            musicindex_endpoint,
             input,
             type_filter: 0,
             fuzzy_search: true,
@@ -207,6 +215,26 @@ impl SearchApp {
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
         }
+    }
+
+    pub fn set_musicindex_endpoint(&mut self, endpoint: String, cx: &mut Context<Self>) {
+        if self.musicindex_endpoint == endpoint {
+            return;
+        }
+
+        self.musicindex_endpoint = endpoint;
+        self.results.clear();
+        self.loading = false;
+        self.status = "MusicIndex endpoint updated".into();
+        self.cursor = None;
+        self.has_more = false;
+        self.selected_key = None;
+        self.inspector_stack.clear();
+        cx.notify();
+    }
+
+    fn api_client(&self) -> Arc<Client> {
+        Arc::new(Client::new_with_base_url(self.musicindex_endpoint.clone()))
     }
 
     fn on_input_event(
@@ -249,7 +277,7 @@ impl SearchApp {
         let entity_type = TYPE_VALUES[self.type_filter].map(str::to_string);
         let cursor = if append { self.cursor.clone() } else { None };
         let fuzzy = self.fuzzy_search;
-        let client = Arc::new(Client::new());
+        let client = self.api_client();
 
         cx.spawn(
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
@@ -326,6 +354,12 @@ impl SearchApp {
         if url.is_empty() {
             return None;
         }
+
+        // Fast path: check hot cache first
+        if let Some(image) = self.cache.peek(url) {
+            return Some(image);
+        }
+
         match self.thumbnails.get(url) {
             Some(ThumbnailState::Loaded(image)) => return image.clone(),
             Some(ThumbnailState::Loading) => return None,
@@ -335,12 +369,14 @@ impl SearchApp {
         self.thumbnails
             .insert(url.to_string(), ThumbnailState::Loading);
         let url = url.to_string();
+        let cache = Arc::clone(&self.cache);
         cx.spawn(
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
                 let cache_url = url.clone();
+                let cache_clone = Arc::clone(&cache);
                 let image = cx
                     .background_executor()
-                    .spawn(async move { load_thumbnail_image(&cache_url).ok().flatten() })
+                    .spawn(async move { cache_clone.fetch_blocking(&cache_url) })
                     .await;
 
                 this.update(
@@ -396,7 +432,7 @@ impl SearchApp {
         }
         cx.notify();
 
-        let client = Arc::new(Client::new());
+        let client = self.api_client();
         cx.spawn(
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
                 let request_type = entity_type.clone();
@@ -478,7 +514,7 @@ impl SearchApp {
 
         let entity_type = frame.entity_type.clone();
         let entity_id = frame.entity_id.clone();
-        let client = Arc::new(Client::new());
+        let client = self.api_client();
         cx.notify();
 
         cx.spawn(
@@ -540,7 +576,7 @@ impl SearchApp {
 
         let entity_type = frame.entity_type.clone();
         let entity_id = frame.entity_id.clone();
-        let client = Arc::new(Client::new());
+        let client = self.api_client();
         cx.notify();
 
         cx.spawn(
@@ -754,8 +790,11 @@ impl SearchApp {
 
         let entity_type = frame.entity_type.clone();
         let entity_id = frame.entity_id.clone();
+        let musicindex_endpoint = self.musicindex_endpoint.clone();
         let request = match &frame.detail {
-            InspectorDetail::Feed(feed) => SearchSubscribeRequest::Feed(Box::new((**feed).clone())),
+            InspectorDetail::Feed(feed) => {
+                SearchSubscribeRequest::Feed(Box::new((**feed).clone()), musicindex_endpoint)
+            }
             InspectorDetail::Track(track_context) => {
                 let edits = if let LazyPanel::Loaded(result) = &frame.tag_compare {
                     let rows = track_metadata_rows_for_frame(frame, track_context, Some(result));
@@ -918,7 +957,7 @@ impl SearchApp {
 
         let entity_id = frame.entity_id.clone();
         let entity_type = frame.entity_type.clone();
-        let client = Arc::new(Client::new());
+        let client = self.api_client();
         cx.notify();
 
         cx.spawn(
@@ -967,7 +1006,7 @@ impl SearchApp {
         frame.tag_compare = LazyPanel::Loading;
         let entity_id = frame.entity_id.clone();
         let entity_type = frame.entity_type.clone();
-        let client = Arc::new(Client::new());
+        let client = self.api_client();
         cx.notify();
 
         cx.spawn(
@@ -1023,7 +1062,7 @@ impl SearchApp {
 
         let entity_id = frame.entity_id.clone();
         let entity_type = frame.entity_type.clone();
-        let client = Arc::new(Client::new());
+        let client = self.api_client();
         cx.notify();
 
         cx.spawn(
@@ -1462,7 +1501,7 @@ fn compare_downloaded_track_path(
 }
 
 enum SearchSubscribeRequest {
-    Feed(Box<Feed>),
+    Feed(Box<Feed>, String),
     Track(Box<TrackContext>, Vec<Id3v24Edit>),
 }
 
@@ -1487,7 +1526,9 @@ fn subscribe_search_request(
     request: SearchSubscribeRequest,
 ) -> Result<SearchSubscribeOutcome> {
     match request {
-        SearchSubscribeRequest::Feed(feed) => subscribe_feed_from_search(conn, *feed),
+        SearchSubscribeRequest::Feed(feed, musicindex_endpoint) => {
+            subscribe_feed_from_search(conn, *feed, musicindex_endpoint)
+        }
         SearchSubscribeRequest::Track(track_context, edits) => {
             subscribe_track_from_search(conn, *track_context, edits)
         }
@@ -1497,6 +1538,7 @@ fn subscribe_search_request(
 fn subscribe_feed_from_search(
     conn: Arc<Mutex<Connection>>,
     feed: Feed,
+    musicindex_endpoint: String,
 ) -> Result<SearchSubscribeOutcome> {
     let feed_url = feed
         .feed_url
@@ -1512,7 +1554,7 @@ fn subscribe_feed_from_search(
     }
 
     let client = ReqwestClient::new();
-    let api_client = Client::new();
+    let api_client = Client::new_with_base_url(musicindex_endpoint);
     let mut downloaded = 0usize;
     let mut applied_edits = 0usize;
     let mut skipped = 0usize;
@@ -1713,25 +1755,8 @@ fn download_track_for_subscription(
     Ok((path, file_size))
 }
 
-fn track_with_feed_defaults(mut track: Track, feed: Option<&Feed>) -> Track {
-    if let Some(feed) = feed {
-        if track.feed_url.is_none() {
-            track.feed_url = feed.feed_url.clone();
-        }
-        if track.feed_guid.is_none() {
-            track.feed_guid = feed.feed_guid.clone();
-        }
-        if track.feed_title.is_none() {
-            track.feed_title = feed.title.clone().or_else(|| feed.name.clone());
-        }
-        if track.image_url.is_none() {
-            track.image_url = feed.image_url.clone();
-        }
-        if track.publisher_text.is_none() {
-            track.publisher_text = feed.publisher_text.clone();
-        }
-    }
-    track
+fn track_with_feed_defaults(track: Track, feed: Option<&Feed>) -> Track {
+    crate::api::track_with_feed_defaults(track, feed)
 }
 
 fn plural(count: usize) -> &'static str {
@@ -1809,64 +1834,6 @@ fn download_image(client: &ReqwestClient, url: &str) -> Option<Arc<Image>> {
         return None;
     }
     Some(Arc::new(Image::from_bytes(format, bytes)))
-}
-
-fn load_thumbnail_image(url: &str) -> Result<Option<Arc<Image>>> {
-    let Some((bytes, mime_type)) = read_or_download_thumbnail(url)? else {
-        return Ok(None);
-    };
-    let format = ImageFormat::from_mime_type(&mime_type).unwrap_or(ImageFormat::Jpeg);
-    Ok(Some(Arc::new(Image::from_bytes(format, bytes))))
-}
-
-fn read_or_download_thumbnail(url: &str) -> Result<Option<(Vec<u8>, String)>> {
-    let cache_dir = thumbnail_cache_dir()?;
-    fs::create_dir_all(&cache_dir)?;
-    let key = thumbnail_cache_key(url);
-    let image_path = cache_dir.join(format!("{key}.image"));
-    let mime_path = cache_dir.join(format!("{key}.mime"));
-
-    if image_path.exists() && mime_path.exists() {
-        let bytes = fs::read(&image_path)?;
-        let mime_type = fs::read_to_string(&mime_path)?;
-        if !bytes.is_empty() && mime_type.trim().starts_with("image/") {
-            return Ok(Some((bytes, mime_type.trim().to_string())));
-        }
-    }
-
-    let response = ReqwestClient::new().get(url).send()?.error_for_status()?;
-    let mime_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(';').next())
-        .map(str::trim)
-        .filter(|value| value.starts_with("image/"))
-        .map(str::to_string);
-    let Some(mime_type) = mime_type else {
-        return Ok(None);
-    };
-    let bytes = response.bytes()?.to_vec();
-    if bytes.is_empty() {
-        return Ok(None);
-    }
-    fs::write(&image_path, &bytes)?;
-    fs::write(&mime_path, mime_type.as_bytes())?;
-    Ok(Some((bytes, mime_type)))
-}
-
-fn thumbnail_cache_dir() -> Result<PathBuf> {
-    let cfg_path = config::config_path()?;
-    let parent = cfg_path
-        .parent()
-        .ok_or_else(|| anyhow!("config path has no parent: {}", cfg_path.display()))?;
-    Ok(parent.join("thumbnail-cache"))
-}
-
-fn thumbnail_cache_key(url: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    url.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
 }
 
 fn image_from_artwork(artwork: &EmbeddedArtwork) -> Option<Arc<Image>> {
@@ -3318,7 +3285,10 @@ fn muted_line(value: &str) -> AnyElement {
 
 fn expandable_cell_summary(field: &str, raw_value: &str, display_value: &str) -> String {
     match field {
-        "Contributors" | "Value Routes" => {
+        "Contributors" => {
+            summarize_contributor_value(raw_value).unwrap_or_else(|| display_value.to_string())
+        }
+        "Value Routes" => {
             if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
                 format!("[{} items]", arr.len())
             } else {
@@ -4021,6 +3991,8 @@ fn id3_frame_hint(field: &str) -> Option<&'static str> {
         "Album/Feed" => Some("TALB"),
         "Track #" => Some("TRCK"),
         "Publisher" => Some("TXXX:V4V_PUBLISHER"),
+        "RSS feed guid" => Some("TXXX:MusicIndex Feed Guid"),
+        "RSS track guid" => Some("TXXX:MusicIndex Track Guid"),
         "Nostr handle" | "RSS feed nostr handle" => Some("TXXX:RSS Nostr Handle"),
         "Label" => Some("TPUB"),
         "Website" => Some("WOAR"),
@@ -4804,6 +4776,15 @@ pub fn run_search_app() {
         config::ensure_dirs(&cfg).expect("ensure dirs");
         let conn = db::open_db(&cfg).expect("open db");
         let conn = Arc::new(Mutex::new(conn));
+        let musicindex_endpoint =
+            config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
+
+        let thumbnail_cache_dir = cfg_path
+            .parent()
+            .expect("config path has parent")
+            .join("thumbnail-cache");
+        let http = reqwest::blocking::Client::new();
+        let image_cache = ImageCache::new(http, thumbnail_cache_dir);
 
         cx.open_window(
             WindowOptions {
@@ -4815,7 +4796,8 @@ pub fn run_search_app() {
                 ..Default::default()
             },
             |window, cx| {
-                let view = cx.new(|cx| SearchApp::new(conn, window, cx));
+                let view =
+                    cx.new(|cx| SearchApp::new(conn, image_cache, musicindex_endpoint, window, cx));
                 cx.new(|cx| Root::new(view, window, cx))
             },
         )
@@ -5553,6 +5535,27 @@ mod tests {
     }
 
     #[test]
+    fn tagger_stages_musicindex_guids_as_txxx() {
+        let context = TrackContext {
+            track: Track {
+                title: Some("Song".into()),
+                track_guid: Some("track-guid".into()),
+                feed_guid: Some("feed-guid".into()),
+                ..Default::default()
+            },
+            feed: None,
+        };
+
+        let edits = super::id3_edits_for_track_context(&context);
+        assert!(edits.iter().any(|edit| {
+            edit.frame_label == "TXXX:MusicIndex Track Guid" && edit.value == "track-guid"
+        }));
+        assert!(edits.iter().any(|edit| {
+            edit.frame_label == "TXXX:MusicIndex Feed Guid" && edit.value == "feed-guid"
+        }));
+    }
+
+    #[test]
     fn contributors_map_to_picard_like_people_frames() {
         let contributors = vec![
             crate::api::Contributor {
@@ -5615,7 +5618,7 @@ mod tests {
         );
         assert_eq!(
             display_metadata_value("Contributors", &musicindex),
-            "[\n  {\n    \"role\": \"guitarist\",\n    \"name\": \"Alice\"\n  },\n  {\n    \"role\": \"audio engineer\",\n    \"name\": \"Bob\"\n  },\n  {\n    \"role\": \"composer\",\n    \"name\": \"Cara\"\n  },\n  {\n    \"role\": \"musician\",\n    \"name\": \"Dana\"\n  },\n  {\n    \"role\": \"album artist\",\n    \"name\": \"Band\"\n  },\n  {\n    \"role\": \"Performer [keyboards]\",\n    \"name\": \"Eli\"\n  }\n]"
+            "Alice: guitarist\nBand: album artist\nBob: audio engineer\nCara: composer\nDana: musician\nEli: Performer [keyboards]"
         );
     }
 
@@ -5776,6 +5779,45 @@ mod tests {
         assert!(
             !fields.iter().any(|field| *field == "Total tracks"),
             "total tracks should be merged into Track # row"
+        );
+    }
+
+    #[test]
+    fn guid_rows_only_read_matching_txxx_frames() {
+        let result = TagCompareResult {
+            path: String::new(),
+            rows: Vec::new(),
+            file_image: None,
+            contributors: Vec::new(),
+            value_routes: Vec::new(),
+            total_tracks: None,
+            id3_fields: vec![
+                Id3Field {
+                    frame_id: "TXXX:MusicIndex Track Guid".into(),
+                    value: "track-guid".into(),
+                },
+                Id3Field {
+                    frame_id: "TXXX:MusicIndex Feed Guid".into(),
+                    value: "feed-guid".into(),
+                },
+                Id3Field {
+                    frame_id: "TXXX:MusicIndex Value Routes".into(),
+                    value: "[4 items]".into(),
+                },
+                Id3Field {
+                    frame_id: "TXXX:MusicIndex Contributors".into(),
+                    value: "musician: HeyCitizen".into(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            super::id3_value_for_field("RSS track guid", &result).as_deref(),
+            Some("track-guid")
+        );
+        assert_eq!(
+            super::id3_value_for_field("RSS feed guid", &result).as_deref(),
+            Some("feed-guid")
         );
     }
 

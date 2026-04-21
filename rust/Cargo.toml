@@ -25,6 +25,11 @@ gpui-component = "0.5"
 gpui-component-assets = "0.5"
 open = "5"
 
+# media cache
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+sha2 = "0.10"
+lru = "0.12"
+
 [dev-dependencies]
 tempfile = "3"
 
