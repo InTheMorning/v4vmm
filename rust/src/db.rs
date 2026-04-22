@@ -297,7 +297,7 @@ fn find_track_id(
 pub fn cached_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
     let mut stmt = conn
         .prepare(
-            "SELECT t.id, t.feed_id, t.item_guid, t.track_title, t.artist_name, t.album_title,
+            "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.track_image_href,
                     t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json

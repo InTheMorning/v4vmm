@@ -4944,7 +4944,7 @@ mod tests {
             ))],
         );
 
-        let aligned = aligned_id3_frame_ids(&grouped);
+        let aligned = aligned_id3_frame_ids(&result, &grouped);
         let used = super::used_id3_fields_for_group(
             &result,
             "descriptive-technical-rights-text",
@@ -5006,7 +5006,7 @@ mod tests {
 
         let mut grouped = BTreeMap::<&'static str, Vec<MetadataGridRow>>::new();
         grouped.insert("timing-seeking-audio-analysis-playback-control", rows);
-        let aligned = aligned_id3_frame_ids(&grouped);
+        let aligned = aligned_id3_frame_ids(&result, &grouped);
         let used = super::used_id3_fields_for_group(
             &result,
             "descriptive-technical-rights-text",
@@ -5015,6 +5015,206 @@ mod tests {
         assert!(
             used.is_empty(),
             "tempo aliases should not be repeated as separate raw ID3 rows"
+        );
+    }
+
+    #[test]
+    fn sort_order_aliases_are_grouped_with_primary_rows() {
+        let result = TagCompareResult {
+            path: String::new(),
+            rows: vec![
+                ComparisonRow {
+                    field: "Title",
+                    source_value: Some("The Platform".into()),
+                    tag_value: Some("The Platform".into()),
+                    status: ComparisonStatus::Match,
+                },
+                ComparisonRow {
+                    field: "Artist",
+                    source_value: Some("HeyCitizen".into()),
+                    tag_value: Some("HeyCitizen".into()),
+                    status: ComparisonStatus::Match,
+                },
+                ComparisonRow {
+                    field: "Album/Feed",
+                    source_value: Some("Lofi Experience".into()),
+                    tag_value: Some("Lofi Experience".into()),
+                    status: ComparisonStatus::Match,
+                },
+            ],
+            file_image: None,
+            contributors: Vec::new(),
+            value_routes: Vec::new(),
+            total_tracks: None,
+            id3_fields: vec![
+                Id3Field {
+                    frame_id: "TIT2".into(),
+                    value: "The Platform".into(),
+                },
+                Id3Field {
+                    frame_id: "TSOT".into(),
+                    value: "Platform, The".into(),
+                },
+                Id3Field {
+                    frame_id: "TPE1".into(),
+                    value: "HeyCitizen".into(),
+                },
+                Id3Field {
+                    frame_id: "TSOP".into(),
+                    value: "Citizen, Hey".into(),
+                },
+                Id3Field {
+                    frame_id: "TALB".into(),
+                    value: "Lofi Experience".into(),
+                },
+                Id3Field {
+                    frame_id: "TSOA".into(),
+                    value: "Experience, Lofi".into(),
+                },
+            ],
+        };
+        let track_context = TrackContext {
+            track: Track::default(),
+            feed: None,
+        };
+
+        let rows = aligned_compare_rows(&result, &track_context, None, false, &BTreeSet::new());
+        let title = rows
+            .iter()
+            .find_map(|row| match row {
+                MetadataGridRow::Data(row) if row.field == "Title" => Some(row),
+                MetadataGridRow::Data(_) | MetadataGridRow::Group(_) => None,
+            })
+            .expect("title row");
+        let artist = rows
+            .iter()
+            .find_map(|row| match row {
+                MetadataGridRow::Data(row) if row.field == "Artist" => Some(row),
+                MetadataGridRow::Data(_) | MetadataGridRow::Group(_) => None,
+            })
+            .expect("artist row");
+        let album = rows
+            .iter()
+            .find_map(|row| match row {
+                MetadataGridRow::Data(row) if row.field == "Album/Feed" => Some(row),
+                MetadataGridRow::Data(_) | MetadataGridRow::Group(_) => None,
+            })
+            .expect("album row");
+
+        assert_eq!(
+            title.id3_value.as_deref(),
+            Some("TIT2: The Platform\nTSOT: Platform, The")
+        );
+        assert_eq!(
+            artist.id3_value.as_deref(),
+            Some("TPE1: HeyCitizen\nTSOP: Citizen, Hey")
+        );
+        assert_eq!(
+            album.id3_value.as_deref(),
+            Some("TALB: Lofi Experience\nTSOA: Experience, Lofi")
+        );
+        assert_eq!(title.id3_status, ComparisonStatus::Match);
+
+        let mut grouped = BTreeMap::<&'static str, Vec<MetadataGridRow>>::new();
+        grouped.insert("identification-release-structure", rows);
+        let aligned = aligned_id3_frame_ids(&result, &grouped);
+        let used = super::used_id3_fields_for_group(
+            &result,
+            "descriptive-technical-rights-text",
+            &aligned,
+        );
+        assert!(
+            used.is_empty(),
+            "sort-order aliases should not also appear as separate raw ID3 rows"
+        );
+    }
+
+    #[test]
+    fn contributor_related_id3_frames_roll_up_into_contributors_row() {
+        let result = TagCompareResult {
+            path: String::new(),
+            rows: Vec::new(),
+            file_image: None,
+            contributors: vec![
+                crate::api::Contributor {
+                    name: Some("Alice".into()),
+                    role: Some("guitarist".into()),
+                    ..Default::default()
+                },
+                crate::api::Contributor {
+                    name: Some("Bob".into()),
+                    role: Some("audio engineer".into()),
+                    ..Default::default()
+                },
+                crate::api::Contributor {
+                    name: Some("Cara".into()),
+                    role: Some("composer".into()),
+                    ..Default::default()
+                },
+                crate::api::Contributor {
+                    name: Some("Dana".into()),
+                    role: Some("musician".into()),
+                    ..Default::default()
+                },
+            ],
+            value_routes: Vec::new(),
+            total_tracks: None,
+            id3_fields: vec![
+                Id3Field {
+                    frame_id: "TXXX:MUSICIANCREDITS".into(),
+                    value: "guitar: Alice / musician: Dana".into(),
+                },
+                Id3Field {
+                    frame_id: "TCOM".into(),
+                    value: "Cara".into(),
+                },
+                Id3Field {
+                    frame_id: "TIPL".into(),
+                    value: "engineer: Bob".into(),
+                },
+                Id3Field {
+                    frame_id: "TMCL".into(),
+                    value: "guitar: Alice".into(),
+                },
+                Id3Field {
+                    frame_id: "TPE1".into(),
+                    value: "Dana".into(),
+                },
+            ],
+        };
+        let track_context = TrackContext {
+            track: Track::default(),
+            feed: None,
+        };
+
+        let rows = aligned_compare_rows(&result, &track_context, None, false, &BTreeSet::new());
+        let contributors = rows
+            .iter()
+            .find_map(|row| match row {
+                MetadataGridRow::Data(row) if row.field == "Contributors" => Some(row),
+                MetadataGridRow::Data(_) | MetadataGridRow::Group(_) => None,
+            })
+            .expect("contributors row");
+
+        assert_eq!(
+            display_metadata_value(
+                "Contributors",
+                contributors
+                    .id3_value
+                    .as_deref()
+                    .expect("contributors value")
+            ),
+            "Alice: guitar\nBob: engineer\nCara: composer\nDana: musician"
+        );
+        assert_eq!(contributors.id3_status, ComparisonStatus::Match);
+
+        let mut grouped = BTreeMap::<&'static str, Vec<MetadataGridRow>>::new();
+        grouped.insert("people-credits", rows);
+        let aligned = aligned_id3_frame_ids(&result, &grouped);
+        let used = super::used_id3_fields_for_group(&result, "people-credits", &aligned);
+        assert!(
+            used.is_empty(),
+            "contributor-related ID3 frames should stay grouped under Contributors"
         );
     }
 

@@ -808,6 +808,20 @@ pub fn track_metadata_rows(
         track_website(track),
         None,
     );
+    if let Some(feed) = track_context.feed.as_ref() {
+        let feed_website_value = feed_website(feed);
+        if normalized_compare_value(feed_website_value.as_deref())
+            != normalized_compare_value(track_website(track).as_deref())
+        {
+            push_track_metadata_row(
+                &mut rows,
+                "url-link-frames",
+                "RSS feed website",
+                feed_website_value,
+                None,
+            );
+        }
+    }
     push_track_metadata_row(
         &mut rows,
         "descriptive-technical-rights-text",
@@ -970,27 +984,46 @@ pub fn aligned_compare_rows(
     let mut grouped_rows = BTreeMap::<&'static str, Vec<MetadataGridRow>>::new();
     for row in &result.rows {
         let musicbrainz_value = musicbrainz_value_for_field(row.field, musicbrainz);
-        let (rss_value, id3_value, mb_value) = if row.field == "Track #" {
+        let (rss_value, id3_value, mb_value, id3_compare_value) = if row.field == "Track #" {
             let total_rss = musicindex_total_tracks(track_context);
             let total_mb = musicbrainz_value_for_field("Total tracks", musicbrainz);
-            let id3_track = row
+            let id3_track_display =
+                id3_value_for_field(row.field, result).or_else(|| row.tag_value.clone());
+            let id3_track_compare = row
                 .tag_value
                 .clone()
-                .or_else(|| id3_value_for_field(row.field, result));
+                .or_else(|| id3_compare_value_for_field(row.field, result));
             (
                 format_track_slash_total(row.source_value.as_deref(), total_rss.as_deref()),
-                format_track_slash_total(id3_track.as_deref(), result.total_tracks.as_deref()),
+                format_track_slash_total(
+                    id3_track_display.as_deref(),
+                    result.total_tracks.as_deref(),
+                ),
                 format_track_slash_total(musicbrainz_value.as_deref(), total_mb.as_deref()),
+                format_track_slash_total(
+                    id3_track_compare.as_deref(),
+                    result.total_tracks.as_deref(),
+                ),
             )
         } else {
-            let id3_value = row
+            let id3_value =
+                id3_value_for_field(row.field, result).or_else(|| row.tag_value.clone());
+            let id3_compare_value = row
                 .tag_value
                 .clone()
-                .or_else(|| id3_value_for_field(row.field, result));
-            (row.source_value.clone(), id3_value, musicbrainz_value)
+                .or_else(|| id3_compare_value_for_field(row.field, result));
+            (
+                row.source_value.clone(),
+                id3_value,
+                musicbrainz_value,
+                id3_compare_value,
+            )
         };
-        let id3_status =
-            compare_id3_field_values(row.field, rss_value.as_deref(), id3_value.as_deref());
+        let id3_status = compare_id3_field_values(
+            row.field,
+            rss_value.as_deref(),
+            id3_compare_value.as_deref(),
+        );
         let musicbrainz_status = compare_optional_values(rss_value.as_deref(), mb_value.as_deref());
         push_grouped_metadata_data_row(
             &mut grouped_rows,
@@ -1056,9 +1089,13 @@ pub fn aligned_compare_rows(
 
     let contributors_rss = musicindex_contributors_id3_value(&result.contributors);
     let contributors_id3 = id3_value_for_field("Contributors", result);
+    let contributors_id3_compare = id3_compare_value_for_field("Contributors", result);
     let contributors_musicbrainz = musicbrainz_value_for_field("Contributors", musicbrainz);
-    let contributors_status =
-        compare_optional_values(contributors_rss.as_deref(), contributors_id3.as_deref());
+    let contributors_status = compare_id3_field_values(
+        "Contributors",
+        contributors_rss.as_deref(),
+        contributors_id3_compare.as_deref(),
+    );
     let contributors_musicbrainz_status = compare_optional_values(
         contributors_rss.as_deref(),
         contributors_musicbrainz.as_deref(),
@@ -1177,7 +1214,7 @@ pub fn aligned_compare_rows(
     }
 
     let mut rows = Vec::new();
-    let aligned_frame_ids = aligned_id3_frame_ids(&grouped_rows);
+    let aligned_frame_ids = aligned_id3_frame_ids(result, &grouped_rows);
     for &(group_key, label) in ID3V24_FRAME_GROUPS {
         let group_rows = grouped_rows.remove(group_key).unwrap_or_default();
         let unused = unused_id3v24_frames_for_group(result, group_key);
@@ -1208,6 +1245,7 @@ pub fn aligned_compare_rows(
 }
 
 pub fn aligned_id3_frame_ids(
+    result: &TagCompareResult,
     grouped_rows: &BTreeMap<&'static str, Vec<MetadataGridRow>>,
 ) -> BTreeSet<String> {
     let mut frame_ids = BTreeSet::new();
@@ -1218,10 +1256,8 @@ pub fn aligned_id3_frame_ids(
         if let Some(frame) = row.id3_frame.as_deref() {
             frame_ids.insert(pending_id3_target_key(frame));
         }
-        if row.field == "Tempo" {
-            for frame in tempo_id3_frame_labels() {
-                frame_ids.insert(pending_id3_target_key(frame));
-            }
+        for frame in grouped_id3_frame_keys(&row.field, result) {
+            frame_ids.insert(frame);
         }
     }
     frame_ids
@@ -1638,6 +1674,44 @@ pub fn used_id3_fields_for_group<'a>(
 // ID3 formatting
 
 pub fn id3_value_for_field(field: &str, result: &TagCompareResult) -> Option<String> {
+    if let Some(instrument) = performer_instrument_field(field) {
+        return id3_involved_people_value(result, "TMCL", &instrument);
+    }
+
+    if field == "Tempo" {
+        return id3_tempo_values(result);
+    }
+
+    if let Some(value) = id3_sort_order_values(field, result) {
+        return Some(value);
+    }
+
+    if field == "Contributors" {
+        return id3_contributor_values(result);
+    }
+
+    let frame_label = id3_frame_hint(field)?;
+    let frame_id = id3_frame_base(frame_label);
+    if frame_id == "TLEN" {
+        return id3_values_for_frame(result, frame_id, &[])
+            .map(|value| value.parse::<i64>().ok().map(fmt_ms).unwrap_or(value));
+    }
+    if frame_id == "TXXX" {
+        return id3_values_for_frame(result, frame_id, id3_txxx_needles(field));
+    }
+    if matches!(frame_id, "COMM" | "USLT" | "SYLT") {
+        return id3_values_for_frame(result, frame_id, id3_descriptor_needles(field));
+    }
+
+    let needles = if field == "MusicBrainz recording" {
+        &["musicbrainz"][..]
+    } else {
+        &[][..]
+    };
+    id3_values_for_frame(result, frame_id, needles)
+}
+
+pub fn id3_compare_value_for_field(field: &str, result: &TagCompareResult) -> Option<String> {
     if let Some(value) = musicbrainz_equivalent_compare_field(field)
         .and_then(|compare_field| comparison_tag_value(result, compare_field))
     {
@@ -1648,8 +1722,8 @@ pub fn id3_value_for_field(field: &str, result: &TagCompareResult) -> Option<Str
         return id3_involved_people_value(result, "TMCL", &instrument);
     }
 
-    if field == "Tempo" {
-        return id3_tempo_values(result);
+    if field == "Contributors" {
+        return id3_contributor_values(result);
     }
 
     let frame_label = id3_frame_hint(field)?;
@@ -2007,32 +2081,169 @@ pub fn id3_values_for_frame(
     join_values(&values)
 }
 
-pub fn id3_tempo_values(result: &TagCompareResult) -> Option<String> {
+fn id3_values_for_target_key(result: &TagCompareResult, target_key: &str) -> Option<String> {
     let values = result
         .id3_fields
         .iter()
-        .filter_map(|field| {
-            let label = tempo_id3_display_label(&field.frame_id)?;
-            let value = normalized_compare_value(Some(&field.value))?;
-            Some(format!("{label}: {value}"))
-        })
+        .filter(|field| pending_id3_target_key(&field.frame_id) == target_key)
+        .filter_map(|field| normalized_compare_value(Some(&field.value)))
         .collect::<Vec<_>>();
-    join_line_values(&values)
+    join_values(&values)
+}
+
+fn id3_grouped_frame_lines(result: &TagCompareResult, frame_labels: &[&str]) -> Vec<String> {
+    frame_labels
+        .iter()
+        .filter_map(|frame_label| {
+            id3_values_for_target_key(result, &pending_id3_target_key(frame_label))
+                .map(|value| format!("{frame_label}: {value}"))
+        })
+        .collect()
+}
+
+pub fn id3_tempo_values(result: &TagCompareResult) -> Option<String> {
+    join_line_values(&id3_grouped_frame_lines(result, tempo_id3_frame_labels()))
 }
 
 pub fn tempo_id3_frame_labels() -> &'static [&'static str] {
-    &["TBPM", "TXXX:IBPM", "TXXX:bpm", "TXXX:tempo"]
+    &["TBPM", "TXXX:IBPM", "TXXX:tempo", "TXXX:bpm"]
 }
 
-fn tempo_id3_display_label(frame_label: &str) -> Option<&'static str> {
-    let target = pending_id3_target_key(frame_label);
-    match target.as_str() {
-        "TBPM" => Some("TBPM"),
-        "TXXX:ibpm" => Some("TXXX:IBPM"),
-        "TXXX:bpm" => Some("TXXX:bpm"),
-        "TXXX:tempo" => Some("TXXX:tempo"),
+pub fn grouped_id3_frame_keys(field: &str, result: &TagCompareResult) -> Vec<String> {
+    match field {
+        "Contributors" => contributor_grouped_id3_frame_keys(result),
+        _ => grouped_id3_frame_labels(field)
+            .into_iter()
+            .flat_map(|frames| frames.iter())
+            .map(|frame| pending_id3_target_key(frame))
+            .collect(),
+    }
+}
+
+pub fn grouped_id3_frame_labels(field: &str) -> Option<&'static [&'static str]> {
+    match field {
+        "Tempo" => Some(tempo_id3_frame_labels()),
+        "Title" => Some(&["TIT2", "TSOT"]),
+        "Artist" => Some(&["TPE1", "TSOP"]),
+        "Album/Feed" => Some(&["TALB", "TSOA"]),
+        "Contributors" => Some(&[
+            "TXXX:MusicIndex Contributors",
+            "TXXX:MUSICIANCREDITS",
+            "TXXX:Musician Credits",
+            "TCOM",
+            "TEXT",
+            "TIPL",
+            "TMCL",
+            "TPE1",
+            "TPE2",
+            "TPE3",
+            "TPE4",
+            "TOPE",
+            "TOLY",
+        ]),
         _ => None,
     }
+}
+
+pub fn id3_sort_order_values(field: &str, result: &TagCompareResult) -> Option<String> {
+    let frame_labels = match field {
+        "Title" => ["TIT2", "TSOT"].as_slice(),
+        "Artist" => ["TPE1", "TSOP"].as_slice(),
+        "Album/Feed" => ["TALB", "TSOA"].as_slice(),
+        _ => return None,
+    };
+    let sort_targets = frame_labels
+        .iter()
+        .skip(1)
+        .map(|frame| pending_id3_target_key(frame))
+        .collect::<BTreeSet<_>>();
+    let has_sort_order = result
+        .id3_fields
+        .iter()
+        .any(|field| sort_targets.contains(&pending_id3_target_key(&field.frame_id)));
+    has_sort_order.then(|| join_line_values(&id3_grouped_frame_lines(result, frame_labels)))?
+}
+
+pub fn id3_contributor_values(result: &TagCompareResult) -> Option<String> {
+    let mut seen = BTreeSet::<(String, String)>::new();
+    let values = result
+        .id3_fields
+        .iter()
+        .flat_map(id3_contributor_entries_for_field)
+        .filter(|(role, name)| seen.insert((role.to_ascii_lowercase(), name.to_ascii_lowercase())))
+        .map(|(role, name)| format!("{role}: {name}"))
+        .collect::<Vec<_>>();
+    (!values.is_empty()).then(|| values.join(" / "))
+}
+
+fn contributor_grouped_id3_frame_keys(result: &TagCompareResult) -> Vec<String> {
+    result
+        .id3_fields
+        .iter()
+        .filter(|field| id3_field_is_contributor_related(field))
+        .map(|field| pending_id3_target_key(&field.frame_id))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn id3_field_is_contributor_related(field: &Id3Field) -> bool {
+    match id3_frame_base(&field.frame_id) {
+        "TCOM" | "TEXT" | "TIPL" | "TMCL" | "TPE1" | "TPE2" | "TPE3" | "TPE4" | "TOPE" | "TOLY" => {
+            true
+        }
+        "TXXX" => {
+            let descriptor = normalized_id3_descriptor_key(&field.frame_id);
+            descriptor == "musicindex contributors"
+                || (descriptor.contains("musician") && descriptor.contains("credit"))
+        }
+        _ => false,
+    }
+}
+
+fn id3_contributor_entries_for_field(field: &Id3Field) -> Vec<(String, String)> {
+    match id3_frame_base(&field.frame_id) {
+        "TXXX" if id3_field_is_contributor_related(field) => {
+            contributor_entries_from_serialized(&field.value)
+        }
+        "TCOM" => contributor_entries_for_people_frame(&field.value, "composer"),
+        "TEXT" => contributor_entries_for_people_frame(&field.value, "lyricist"),
+        "TPE1" => contributor_entries_for_people_frame(&field.value, "musician"),
+        "TPE2" => contributor_entries_for_people_frame(&field.value, "album artist"),
+        "TPE3" => contributor_entries_for_people_frame(&field.value, "conductor"),
+        "TPE4" => contributor_entries_for_people_frame(&field.value, "remixer"),
+        "TOPE" => contributor_entries_for_people_frame(&field.value, "original artist"),
+        "TOLY" => contributor_entries_for_people_frame(&field.value, "original lyricist"),
+        "TIPL" | "TMCL" => field
+            .value
+            .split(" / ")
+            .filter_map(involved_people_entry)
+            .filter_map(|(role, name)| contributor_entry(&role, &name))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn contributor_entries_for_people_frame(value: &str, role: &str) -> Vec<(String, String)> {
+    value
+        .split(" / ")
+        .flat_map(split_joined_metadata_values)
+        .filter_map(|name| contributor_entry(role, &name))
+        .collect()
+}
+
+fn contributor_entries_from_serialized(value: &str) -> Vec<(String, String)> {
+    value
+        .split(" / ")
+        .filter_map(involved_people_entry)
+        .filter_map(|(role, name)| contributor_entry(&role, &name))
+        .collect()
+}
+
+fn contributor_entry(role: &str, name: &str) -> Option<(String, String)> {
+    let role = normalized_contributor_role(role)?;
+    let name = normalized_compare_value(Some(name))?;
+    Some((role, name))
 }
 
 pub fn id3_frame_base(frame_label: &str) -> &str {
@@ -2184,6 +2395,7 @@ pub fn normalized_field_compare_value(field: &str, value: Option<&str>) -> Optio
         "Release date" | "RSS item pubdate" => normalized_date_compare_value(&value),
         "Release year" => release_year_from_value(&value),
         "Website" | "RSS feed website" => normalized_url_compare_value(&value),
+        "Contributors" => normalized_contributors_compare_value(&value),
         "Artist" | "Album artist" | "Lead performer" | "Composer" | "Lyricist" | "Conductor"
         | "Remixer" | "Original artist" | "Original lyricist" => {
             normalized_people_compare_value(&value)
@@ -2242,6 +2454,72 @@ fn normalized_people_compare_value(value: &str) -> Option<String> {
         values.dedup();
         Some(values.join("/"))
     }
+}
+
+fn normalized_contributors_compare_value(value: &str) -> Option<String> {
+    let mut grouped = BTreeMap::<String, BTreeSet<String>>::new();
+    for (role, name) in contributor_entries_from_serialized(value) {
+        let Some(name_key) = normalized_person_compare_key(&name) else {
+            continue;
+        };
+        let Some(role_key) = normalized_compare_value(Some(&role)) else {
+            continue;
+        };
+        grouped.entry(name_key).or_default().insert(role_key);
+    }
+    if grouped.is_empty() {
+        return normalized_compare_value(Some(value));
+    }
+    Some(
+        grouped
+            .into_iter()
+            .map(|(name, roles)| {
+                format!("{name}:{}", roles.into_iter().collect::<Vec<_>>().join(","))
+            })
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
+}
+
+fn normalized_contributor_role(role: &str) -> Option<String> {
+    let role = role.trim();
+    if role.is_empty() {
+        return None;
+    }
+    if let Some(instrument) = instrument_role(role) {
+        return Some(instrument.to_string());
+    }
+    let role = role.to_ascii_lowercase();
+    let normalized = match role.as_str() {
+        role if role.contains("original lyric") => "original lyricist",
+        role if role.contains("original artist") => "original artist",
+        role if role.contains("composer") || role.contains("composed") => "composer",
+        role if role.contains("lyric") || role.contains("text writer") || role == "writer" => {
+            "lyricist"
+        }
+        role if role.contains("album artist")
+            || role.contains("band")
+            || role.contains("group") =>
+        {
+            "album artist"
+        }
+        role if role.contains("conductor") => "conductor",
+        role if role.contains("remix") => "remixer",
+        role if role.contains("master") => "mastering engineer",
+        role if role.contains("mix") => "mix engineer",
+        role if role.contains("engineer") => "engineer",
+        role if role.contains("producer") => "producer",
+        role if role.contains("arranger") => "arranger",
+        role if role == "musician"
+            || role.contains("lead")
+            || role.contains("performer")
+            || role.contains("artist") =>
+        {
+            "musician"
+        }
+        _ => role.as_str(),
+    };
+    Some(normalized.to_string())
 }
 
 fn normalized_person_compare_key(value: &str) -> Option<String> {
@@ -2740,7 +3018,10 @@ pub fn id3_frame_is_summarized(frame_id: &str) -> bool {
 
 pub fn format_track_slash_total(track: Option<&str>, total: Option<&str>) -> Option<String> {
     match (track, total) {
-        (Some(t), Some(tot)) => Some(format!("{t}/{tot}")),
+        (Some(t), Some(tot)) => {
+            let position = t.split_once('/').map_or(t, |(head, _)| head);
+            Some(format!("{position}/{tot}"))
+        }
         (Some(t), None) => Some(t.to_string()),
         (None, Some(tot)) => Some(format!("/{tot}")),
         (None, None) => None,
