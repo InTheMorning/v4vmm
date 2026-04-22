@@ -174,10 +174,23 @@ pub struct SearchApp {
     has_more: bool,
     selected_key: Option<String>,
     inspector_stack: Vec<InspectorFrame>,
+    inspector_origin: Option<InspectorOrigin>,
+    recent_feeds: Vec<Feed>,
+    recent_cursor: Option<String>,
+    recent_has_more: bool,
+    recent_loading: bool,
+    recent_status: String,
+    recent_loaded_once: bool,
     left_pane_width: gpui::Pixels,
     resizing: bool,
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InspectorOrigin {
+    Recents,
+    Search,
 }
 
 const TYPE_LABELS: &[&str] = &["All", "Feed", "Track", "Publisher"];
@@ -196,7 +209,7 @@ impl SearchApp {
         });
         let input_sub = cx.subscribe(&input, Self::on_input_event);
 
-        Self {
+        let mut this = Self {
             conn,
             cache,
             musicindex_endpoint,
@@ -210,11 +223,20 @@ impl SearchApp {
             has_more: false,
             selected_key: None,
             inspector_stack: Vec::new(),
+            inspector_origin: None,
+            recent_feeds: Vec::new(),
+            recent_cursor: None,
+            recent_has_more: false,
+            recent_loading: false,
+            recent_status: String::new(),
+            recent_loaded_once: false,
             left_pane_width: px(360.0),
             resizing: false,
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
-        }
+        };
+        this.load_recent_feeds(false, cx);
+        this
     }
 
     pub fn set_musicindex_endpoint(&mut self, endpoint: String, cx: &mut Context<Self>) {
@@ -230,7 +252,62 @@ impl SearchApp {
         self.has_more = false;
         self.selected_key = None;
         self.inspector_stack.clear();
+        self.inspector_origin = None;
+        self.recent_feeds.clear();
+        self.recent_cursor = None;
+        self.recent_has_more = false;
+        self.recent_loaded_once = false;
+        self.recent_status.clear();
+        self.load_recent_feeds(false, cx);
         cx.notify();
+    }
+
+    fn load_recent_feeds(&mut self, append: bool, cx: &mut Context<Self>) {
+        if self.recent_loading {
+            return;
+        }
+        self.recent_loading = true;
+        if !append {
+            self.recent_feeds.clear();
+            self.recent_cursor = None;
+            self.recent_has_more = false;
+        }
+        self.recent_status = if append {
+            "Loading more recent feeds...".into()
+        } else {
+            "Loading recent feeds...".into()
+        };
+        cx.notify();
+
+        let client = self.api_client();
+        let cursor = if append { self.recent_cursor.clone() } else { None };
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        client.fetch_recent_feeds(Some(PAGE_LIMIT), cursor.as_deref())
+                    })
+                    .await;
+                let _ = this.update(cx, move |this, cx| {
+                    this.recent_loading = false;
+                    this.recent_loaded_once = true;
+                    match result {
+                        Ok(response) => {
+                            this.recent_feeds.extend(response.data);
+                            this.recent_cursor = response.pagination.cursor;
+                            this.recent_has_more = response.pagination.has_more;
+                            this.recent_status.clear();
+                        }
+                        Err(error) => {
+                            this.recent_status = format!("Error: {error}");
+                        }
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .detach();
     }
 
     fn api_client(&self) -> Arc<Client> {
@@ -271,6 +348,7 @@ impl SearchApp {
             self.has_more = false;
             self.selected_key = None;
             self.inspector_stack.clear();
+            self.inspector_origin = None;
         }
         cx.notify();
 
@@ -402,7 +480,14 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) {
         self.selected_key = Some(entity_key(&entity_type, &entity_id));
+        self.inspector_origin = Some(InspectorOrigin::Search);
         self.load_inspector(entity_type, entity_id, title, false, cx);
+    }
+
+    fn open_recent_feed(&mut self, feed_guid: String, title: String, cx: &mut Context<Self>) {
+        self.selected_key = Some(entity_key("feed", &feed_guid));
+        self.inspector_origin = Some(InspectorOrigin::Recents);
+        self.load_inspector("feed".into(), feed_guid, title, false, cx);
     }
 
     fn push_inspector(
@@ -477,10 +562,15 @@ impl SearchApp {
     }
 
     fn inspector_back(&mut self, cx: &mut Context<Self>) {
-        if self.inspector_stack.len() > 1 {
-            self.inspector_stack.pop();
-            cx.notify();
+        if self.inspector_stack.is_empty() {
+            return;
         }
+        self.inspector_stack.pop();
+        if self.inspector_stack.is_empty() {
+            self.inspector_origin = None;
+            self.selected_key = None;
+        }
+        cx.notify();
     }
 
     fn toggle_contributors(&mut self, cx: &mut Context<Self>) {
@@ -1135,7 +1225,14 @@ impl Render for SearchApp {
             .map(|(idx, label)| render_filter_button(idx, label, idx == self.type_filter, cx))
             .collect();
         let stack = self.inspector_stack.clone();
-        let inspector = render_inspector(stack.last(), stack.len(), self, cx);
+        let show_back = !stack.is_empty()
+            && (stack.len() > 1 || self.inspector_origin == Some(InspectorOrigin::Recents));
+        let input_is_empty = self.input.read(cx).value().trim().is_empty();
+        let show_recents_root = stack.is_empty()
+            && self.inspector_origin.is_none()
+            && self.results.is_empty()
+            && input_is_empty;
+        let inspector = render_inspector(stack.last(), show_back, show_recents_root, self, cx);
         let active_input = self.input.clone();
         let is_loading = self.loading;
         let is_empty = self.results.is_empty();
@@ -1933,11 +2030,16 @@ fn render_result_item(
 
 fn render_inspector(
     frame: Option<&InspectorFrame>,
-    stack_len: usize,
+    show_back: bool,
+    show_recents_root: bool,
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let title = frame.map_or("", |frame| frame.title.as_str());
+    let title = if show_recents_root && frame.is_none() {
+        "Recent Feeds"
+    } else {
+        frame.map_or("", |frame| frame.title.as_str())
+    };
     div()
         .flex()
         .flex_col()
@@ -1955,7 +2057,7 @@ fn render_inspector(
                 .flex_row()
                 .items_center()
                 .gap(px(8.0))
-                .when(stack_len > 1, |el| {
+                .when(show_back, |el| {
                     el.child(
                         Button::new("inspector-back")
                             .label("← Back")
@@ -1977,6 +2079,7 @@ fn render_inspector(
                 .p(px(20.0))
                 .child(match frame {
                     Some(frame) => render_inspector_body(frame, app, cx),
+                    None if show_recents_root => render_recent_feeds_tiles(app, cx),
                     None => render_inspector_empty(),
                 }),
         )
@@ -4473,6 +4576,136 @@ fn render_thumb(
             .child(type_emoji(entity_type))
             .into_any_element()
     }
+}
+
+fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -> AnyElement {
+    let feeds = app.recent_feeds.clone();
+    let status = app.recent_status.clone();
+    let has_more = app.recent_has_more;
+    let loading = app.recent_loading;
+    let is_empty = feeds.is_empty();
+
+    let mut tiles: Vec<AnyElement> = Vec::with_capacity(feeds.len());
+    for feed in feeds {
+        let guid = match feed.feed_guid.clone() {
+            Some(guid) if !guid.trim().is_empty() => guid,
+            _ => continue,
+        };
+        let title = feed_title(&feed);
+        let artist = feed
+            .release_artist
+            .clone()
+            .or_else(|| feed.publisher_text.clone())
+            .unwrap_or_default();
+        let image_url = feed.image_url.clone();
+        let thumbnail = app.thumbnail_for_url(image_url.as_deref(), cx);
+        let click_guid = guid.clone();
+        let click_title = title.clone();
+        let tile = div()
+            .id(SharedString::from(format!("recent-tile:{guid}")))
+            .flex()
+            .flex_col()
+            .gap(px(6.0))
+            .w(px(168.0))
+            .p(px(8.0))
+            .rounded(px(8.0))
+            .cursor_pointer()
+            .hover(|el| el.bg(surface()))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.open_recent_feed(click_guid.clone(), click_title.clone(), cx);
+            }))
+            .child(
+                div()
+                    .w(px(152.0))
+                    .h(px(152.0))
+                    .rounded(px(6.0))
+                    .overflow_hidden()
+                    .flex_shrink_0()
+                    .when_some(thumbnail, |el, image| {
+                        el.child(
+                            img(image)
+                                .w(px(152.0))
+                                .h(px(152.0))
+                                .object_fit(ObjectFit::Cover),
+                        )
+                    })
+                    .when(image_url.is_none(), |el| {
+                        el.bg(border())
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(28.0))
+                            .child(type_emoji("feed"))
+                    }),
+            )
+            .child(
+                div()
+                    .text_size(px(12.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(truncated(title)),
+            )
+            .when(!artist.is_empty(), |el| {
+                el.child(
+                    div()
+                        .text_size(px(10.5))
+                        .text_color(muted())
+                        .child(truncated(artist)),
+                )
+            })
+            .into_any_element();
+        tiles.push(tile);
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(12.0))
+        .child(
+            div()
+                .text_size(px(16.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Recent Feeds"),
+        )
+        .when(!status.is_empty(), |el| {
+            el.child(
+                div()
+                    .text_xs()
+                    .text_color(muted())
+                    .child(SharedString::from(status)),
+            )
+        })
+        .when(is_empty && !loading, |el| {
+            el.child(
+                div()
+                    .text_center()
+                    .p(px(48.0))
+                    .text_color(muted())
+                    .child("No recent feeds"),
+            )
+        })
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap(px(12.0))
+                .children(tiles),
+        )
+        .when(has_more && !loading, |el| {
+            el.child(
+                div().pt(px(8.0)).child(
+                    Button::new("recent-load-more")
+                        .label("Load more")
+                        .ghost()
+                        .with_size(Size::Small)
+                        .text_color(rgb(0xffffff))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.load_recent_feeds(true, cx);
+                        })),
+                ),
+            )
+        })
+        .into_any_element()
 }
 
 fn render_inspector_empty() -> AnyElement {

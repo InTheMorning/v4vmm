@@ -30,6 +30,13 @@ pub struct PublisherSearchResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
+pub struct RecentFeedsResponse {
+    pub data: Vec<Feed>,
+    pub pagination: Pagination,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct Pagination {
     pub has_more: bool,
     pub cursor: Option<String>,
@@ -359,6 +366,18 @@ impl Client {
             ("fuzzy", fuzzy.to_string()),
         ];
         self.get_json(&["v1", "publishers"], &params)
+    }
+
+    pub fn fetch_recent_feeds(
+        &self,
+        limit: Option<i32>,
+        cursor: Option<&str>,
+    ) -> Result<RecentFeedsResponse> {
+        let mut params = vec![("limit", limit.unwrap_or(PAGE_LIMIT).to_string())];
+        if let Some(cursor) = cursor {
+            params.push(("cursor", cursor.to_string()));
+        }
+        self.get_json(&["v1", "feeds", "recent"], &params)
     }
 
     pub fn fetch_detail(&self, entity_type: &str, entity_id: &str) -> Result<EntityDetail> {
