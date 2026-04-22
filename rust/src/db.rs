@@ -66,6 +66,98 @@ pub fn subscribed_feeds(conn: &Connection) -> Result<Vec<FeedRow>> {
     Ok(rows)
 }
 
+#[derive(Clone, Debug)]
+pub struct FeedStaleCheckRow {
+    pub id: i64,
+    pub feed_guid: String,
+    pub title: Option<String>,
+    pub musicindex_updated_at: Option<i64>,
+}
+
+pub fn subscribed_feeds_for_stale_check(conn: &Connection) -> Result<Vec<FeedStaleCheckRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, feed_guid, title, musicindex_updated_at
+             FROM feeds
+             WHERE is_subscribed = 1 AND feed_guid IS NOT NULL AND feed_guid != ''
+             ORDER BY title COLLATE NOCASE",
+        )
+        .context("prepare subscribed_feeds_for_stale_check")?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(FeedStaleCheckRow {
+                id: row.get(0)?,
+                feed_guid: row.get(1)?,
+                title: row.get(2)?,
+                musicindex_updated_at: row.get(3)?,
+            })
+        })
+        .context("query subscribed_feeds_for_stale_check")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect subscribed_feeds_for_stale_check")?;
+
+    Ok(rows)
+}
+
+pub fn feed_stale_check_row(
+    conn: &Connection,
+    feed_id: i64,
+) -> Result<Option<FeedStaleCheckRow>> {
+    conn.query_row(
+        "SELECT id, feed_guid, title, musicindex_updated_at
+         FROM feeds
+         WHERE id = ?1 AND feed_guid IS NOT NULL AND feed_guid != ''",
+        [feed_id],
+        |row| {
+            Ok(FeedStaleCheckRow {
+                id: row.get(0)?,
+                feed_guid: row.get(1)?,
+                title: row.get(2)?,
+                musicindex_updated_at: row.get(3)?,
+            })
+        },
+    )
+    .optional()
+    .context("feed_stale_check_row")
+}
+
+pub fn set_feed_musicindex_updated_at(
+    conn: &Connection,
+    feed_id: i64,
+    updated_at: i64,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE feeds SET musicindex_updated_at = ?1 WHERE id = ?2",
+        rusqlite::params![updated_at, feed_id],
+    )
+    .context("set_feed_musicindex_updated_at")?;
+    Ok(())
+}
+
+pub fn library_tracks_for_feed(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name,
+                    t.album_title, t.album_artist_name, t.track_number, t.disc_number,
+                    t.duration_seconds, t.enclosure_url, t.track_image_href,
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+             FROM tracks t
+             JOIN feeds f ON f.id = t.feed_id
+             JOIN local_files lf ON lf.track_id = t.id
+             WHERE t.feed_id = ?1 AND t.is_in_library = 1",
+        )
+        .context("prepare library_tracks_for_feed")?;
+
+    let rows = stmt
+        .query_map([feed_id], track_row_from_sql)
+        .context("query library_tracks_for_feed")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect library_tracks_for_feed")?;
+
+    Ok(rows)
+}
+
 pub fn feed_tracks(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
     let mut stmt = conn
         .prepare(
@@ -380,7 +472,38 @@ pub fn open_db(cfg: &Config) -> Result<Connection> {
         .context("enable foreign_keys pragma")?;
 
     init_schema(&conn)?;
+    migrate_schema(&conn)?;
     Ok(conn)
+}
+
+fn migrate_schema(conn: &Connection) -> Result<()> {
+    add_column_if_missing(conn, "feeds", "musicindex_updated_at", "INTEGER")?;
+    Ok(())
+}
+
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    column_type: &str,
+) -> Result<()> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .with_context(|| format!("prepare table_info for {table}"))?;
+    let exists = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .with_context(|| format!("query table_info for {table}"))?
+        .filter_map(Result::ok)
+        .any(|name| name.eq_ignore_ascii_case(column));
+    drop(stmt);
+    if !exists {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {column_type}"),
+            [],
+        )
+        .with_context(|| format!("add column {column} to {table}"))?;
+    }
+    Ok(())
 }
 
 fn init_schema(conn: &Connection) -> Result<()> {

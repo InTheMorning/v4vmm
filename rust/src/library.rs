@@ -176,6 +176,31 @@ pub struct LibraryApp {
     search_input: Entity<InputState>,
     search_query: String,
     _search_sub: gpui::Subscription,
+    feed_update_state: FeedUpdateState,
+    in_flight_feed_checks: HashSet<i64>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct FeedUpdateState {
+    pub phase: FeedUpdatePhase,
+    pub status_message: Option<String>,
+    pub stale: Vec<StaleFeed>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum FeedUpdatePhase {
+    #[default]
+    Idle,
+    Checking,
+    Applying,
+}
+
+#[derive(Clone, Debug)]
+pub struct StaleFeed {
+    pub feed_id: i64,
+    pub feed_guid: String,
+    pub title: Option<String>,
+    pub new_updated_at: i64,
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +262,8 @@ impl LibraryApp {
             search_input,
             search_query: String::new(),
             _search_sub: search_sub,
+            feed_update_state: FeedUpdateState::default(),
+            in_flight_feed_checks: HashSet::new(),
         };
         app.reload();
         app
@@ -369,9 +396,192 @@ impl LibraryApp {
         }
     }
 
-    fn select_album(&mut self, album: &AlbumNode) {
+    fn select_album(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
         self.selected_id = album.feed_id;
         self.detail = LibraryDetail::Album(album.clone());
+        if let Some(feed_id) = album.feed_id {
+            self.check_feed_on_view(feed_id, cx);
+        }
+    }
+
+    fn check_feed_on_view(&mut self, feed_id: i64, cx: &mut Context<Self>) {
+        if self.feed_update_state.phase == FeedUpdatePhase::Applying
+            || self
+                .feed_update_state
+                .stale
+                .iter()
+                .any(|entry| entry.feed_id == feed_id)
+            || !self.in_flight_feed_checks.insert(feed_id)
+        {
+            return;
+        }
+        let conn = Arc::clone(&self.conn);
+        let endpoint = self.musicindex_endpoint.clone();
+        self.feed_update_state.status_message = Some("Checking feed...".into());
+        cx.notify();
+        cx.spawn(async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+            let stale = cx
+                .background_executor()
+                .spawn(async move { check_feed_staleness(&conn, &endpoint, feed_id) })
+                .await;
+            let _ = this.update(cx, move |this, cx| {
+                this.in_flight_feed_checks.remove(&feed_id);
+                match stale {
+                    Ok(Some(entry)) => {
+                        if !this
+                            .feed_update_state
+                            .stale
+                            .iter()
+                            .any(|existing| existing.feed_id == entry.feed_id)
+                        {
+                            this.feed_update_state.stale.push(entry);
+                        }
+                        this.feed_update_state.status_message = Some(format!(
+                            "{} feed update{} pending",
+                            this.feed_update_state.stale.len(),
+                            if this.feed_update_state.stale.len() == 1 {
+                                ""
+                            } else {
+                                "s"
+                            }
+                        ));
+                    }
+                    Ok(None) => {
+                        if this.feed_update_state.stale.is_empty()
+                            && this.in_flight_feed_checks.is_empty()
+                        {
+                            this.feed_update_state.status_message =
+                                Some("Feed up to date".into());
+                        }
+                    }
+                    Err(err) => {
+                        this.feed_update_state.status_message =
+                            Some(format!("Feed check error: {err:#}"));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn check_all_feeds(&mut self, cx: &mut Context<Self>) {
+        if self.feed_update_state.phase != FeedUpdatePhase::Idle {
+            return;
+        }
+        let feeds = {
+            let conn = match self.conn.lock() {
+                Ok(conn) => conn,
+                Err(_) => {
+                    self.feed_update_state.status_message =
+                        Some("Feed check error: database lock poisoned".into());
+                    cx.notify();
+                    return;
+                }
+            };
+            match db::subscribed_feeds_for_stale_check(&conn) {
+                Ok(rows) => rows,
+                Err(err) => {
+                    self.feed_update_state.status_message =
+                        Some(format!("Feed check error: {err:#}"));
+                    cx.notify();
+                    return;
+                }
+            }
+        };
+        if feeds.is_empty() {
+            self.feed_update_state.status_message = Some("No subscribed feeds to check".into());
+            cx.notify();
+            return;
+        }
+        self.feed_update_state.phase = FeedUpdatePhase::Checking;
+        self.feed_update_state.stale.clear();
+        self.feed_update_state.status_message = Some(format!("Checking {} feeds...", feeds.len()));
+        cx.notify();
+
+        let conn = Arc::clone(&self.conn);
+        let endpoint = self.musicindex_endpoint.clone();
+        cx.spawn(async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+            let stale = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut stale = Vec::new();
+                    for feed in feeds {
+                        if let Ok(Some(entry)) =
+                            check_feed_staleness(&conn, &endpoint, feed.id)
+                        {
+                            stale.push(entry);
+                        }
+                    }
+                    stale
+                })
+                .await;
+            let _ = this.update(cx, move |this, cx| {
+                this.feed_update_state.phase = FeedUpdatePhase::Idle;
+                this.feed_update_state.stale = stale;
+                this.feed_update_state.status_message = Some(if this.feed_update_state.stale.is_empty() {
+                    "All feeds up to date".into()
+                } else {
+                    format!(
+                        "{} feed update{} available",
+                        this.feed_update_state.stale.len(),
+                        if this.feed_update_state.stale.len() == 1 {
+                            ""
+                        } else {
+                            "s"
+                        }
+                    )
+                });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn apply_all_feed_updates(&mut self, cx: &mut Context<Self>) {
+        if self.feed_update_state.phase != FeedUpdatePhase::Idle
+            || self.feed_update_state.stale.is_empty()
+        {
+            return;
+        }
+        let stale = self.feed_update_state.stale.clone();
+        self.feed_update_state.phase = FeedUpdatePhase::Applying;
+        self.feed_update_state.status_message =
+            Some(format!("Applying updates to {} feed(s)...", stale.len()));
+        cx.notify();
+
+        let conn = Arc::clone(&self.conn);
+        let endpoint = self.musicindex_endpoint.clone();
+        cx.spawn(async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+            let outcomes = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut total_tracks = 0usize;
+                    let mut total_edits = 0usize;
+                    for entry in &stale {
+                        if let Ok(outcome) =
+                            apply_feed_updates(&conn, &endpoint, entry)
+                        {
+                            total_tracks += outcome.tracks_updated;
+                            total_edits += outcome.edits_written;
+                        }
+                    }
+                    (total_tracks, total_edits)
+                })
+                .await;
+            let _ = this.update(cx, move |this, cx| {
+                this.feed_update_state.phase = FeedUpdatePhase::Idle;
+                this.feed_update_state.stale.clear();
+                let (tracks, edits) = outcomes;
+                this.feed_update_state.status_message = Some(if tracks == 0 {
+                    "No edits written".into()
+                } else {
+                    format!("Applied {edits} edit(s) to {tracks} track(s)")
+                });
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
@@ -1725,6 +1935,94 @@ fn fetch_library_track_context(
 }
 
 // ---------------------------------------------------------------------------
+// Feed update checking / auto-apply
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct FeedApplyOutcome {
+    pub tracks_updated: usize,
+    pub edits_written: usize,
+}
+
+fn check_feed_staleness(
+    conn: &Arc<Mutex<Connection>>,
+    musicindex_endpoint: &str,
+    feed_id: i64,
+) -> anyhow::Result<Option<StaleFeed>> {
+    let stored = {
+        let db = conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+        db::feed_stale_check_row(&db, feed_id)?
+    };
+    let Some(stored) = stored else {
+        return Ok(None);
+    };
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
+    let api_feed = client.fetch_feed(&stored.feed_guid, None)?;
+    let Some(api_updated_at) = api_feed.updated_at else {
+        return Ok(None);
+    };
+    if stored
+        .musicindex_updated_at
+        .is_some_and(|stored_at| stored_at >= api_updated_at)
+    {
+        return Ok(None);
+    }
+    Ok(Some(StaleFeed {
+        feed_id,
+        feed_guid: stored.feed_guid,
+        title: stored.title,
+        new_updated_at: api_updated_at,
+    }))
+}
+
+fn apply_feed_updates(
+    conn: &Arc<Mutex<Connection>>,
+    musicindex_endpoint: &str,
+    stale: &StaleFeed,
+) -> anyhow::Result<FeedApplyOutcome> {
+    let tracks = {
+        let db = conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+        db::library_tracks_for_feed(&db, stale.feed_id)?
+    };
+    let mut outcome = FeedApplyOutcome {
+        tracks_updated: 0,
+        edits_written: 0,
+    };
+    for track in &tracks {
+        let Some(local_path) = track.local_path.clone() else {
+            continue;
+        };
+        let Ok(context) = fetch_library_track_context(track, musicindex_endpoint) else {
+            continue;
+        };
+        let edits = id3_edits_for_track_context(&context);
+        if edits.is_empty() {
+            continue;
+        }
+        match write_id3v24_edits(Path::new(&local_path), &edits) {
+            Ok(written) => {
+                if written > 0 {
+                    outcome.tracks_updated += 1;
+                    outcome.edits_written += written;
+                }
+            }
+            Err(_) => continue,
+        }
+    }
+    {
+        let db = conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+        db::set_feed_musicindex_updated_at(&db, stale.feed_id, stale.new_updated_at)?;
+    }
+    Ok(outcome)
+}
+
+// ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
 
@@ -1919,16 +2217,68 @@ impl Render for LibraryApp {
                                             })),
                                     ),
                             )
-                            .child(
+                            .child({
+                                let has_stale = !self.feed_update_state.stale.is_empty();
+                                let phase = self.feed_update_state.phase.clone();
+                                let stale_count = self.feed_update_state.stale.len();
+                                let feed_status = self.feed_update_state.status_message.clone();
+                                let show_feed_controls = self.tab == LibraryTab::Library;
                                 div()
-                                    .text_xs()
-                                    .text_color(status_color)
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap(px(8.0))
                                     .px(px(12.0))
                                     .py(px(6.0))
                                     .border_b_1()
                                     .border_color(border())
-                                    .child(SharedString::from(status_text)),
-                            )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .gap(px(2.0))
+                                            .child(
+                                                div()
+                                                    .text_xs()
+                                                    .text_color(status_color)
+                                                    .child(SharedString::from(status_text)),
+                                            )
+                                            .when_some(feed_status, |el, msg| {
+                                                el.child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(muted())
+                                                        .child(SharedString::from(msg)),
+                                                )
+                                            }),
+                                    )
+                                    .when(show_feed_controls, |el| {
+                                        el.child(if has_stale {
+                                            Button::new("apply-feed-updates")
+                                                .label(format!("Apply updates ({stale_count})"))
+                                                .primary()
+                                                .with_size(Size::XSmall)
+                                                .text_color(rgb(0xffffff))
+                                                .disabled(phase != FeedUpdatePhase::Idle)
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.apply_all_feed_updates(cx);
+                                                }))
+                                        } else {
+                                            Button::new("check-all-feeds")
+                                                .label(if phase == FeedUpdatePhase::Checking {
+                                                    "Checking..."
+                                                } else {
+                                                    "Check all feeds"
+                                                })
+                                                .with_size(Size::XSmall)
+                                                .disabled(phase != FeedUpdatePhase::Idle)
+                                                .on_click(cx.listener(|this, _, _, cx| {
+                                                    this.check_all_feeds(cx);
+                                                }))
+                                        })
+                                    })
+                            })
                             .child(
                                 div()
                                     .id("library-list")
@@ -2130,7 +2480,7 @@ fn render_tree(
                         .hover(|el| el.bg(rgb(0x1f2230)))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.toggle_album(&artist_for_toggle, &album_for_toggle);
-                            this.select_album(&album_for_select);
+                            this.select_album(&album_for_select, cx);
                             cx.notify();
                         }))
                         .child(
