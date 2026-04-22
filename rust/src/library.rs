@@ -2880,11 +2880,15 @@ fn render_track_window(
     let show_musicbrainz_panel = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
     let columns = 1 + u16::from(show_id3_panel) + u16::from(show_musicbrainz_panel);
     let rows = track_metadata_rows_for_frame(frame, track_context, result);
-    let pending_id3_edits = auto_populated_pending_id3_edits(
-        &rows,
-        &frame.pending_id3_edits,
-        &frame.suppressed_auto_id3_edits,
-    );
+    let pending_id3_edits = if result.is_some() {
+        auto_populated_pending_id3_edits(
+            &rows,
+            &frame.pending_id3_edits,
+            &frame.suppressed_auto_id3_edits,
+        )
+    } else {
+        frame.pending_id3_edits.clone()
+    };
 
     div()
         .flex()
