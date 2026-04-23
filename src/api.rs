@@ -30,6 +30,13 @@ pub struct PublisherSearchResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
+pub struct TrackListResponse {
+    pub data: Vec<Track>,
+    pub pagination: Pagination,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct RecentFeedsResponse {
     pub data: Vec<Feed>,
     pub pagination: Pagination,
@@ -53,6 +60,8 @@ pub struct Artist {
     pub artist_id: Option<String>,
     pub name: Option<String>,
     pub sort_name: Option<String>,
+    pub feed_count: Option<i32>,
+    pub track_count: Option<i32>,
     pub area: Option<String>,
     pub begin_year: Option<i32>,
     pub end_year: Option<i32>,
@@ -420,6 +429,22 @@ impl Client {
             params.push(("include", include.to_string()));
         }
         self.fetch_wrapped_with_query(&["v1", "tracks", track_guid], &params)
+    }
+
+    pub fn fetch_tracks_by_artist(
+        &self,
+        artist: &str,
+        limit: Option<i32>,
+        cursor: Option<&str>,
+    ) -> Result<TrackListResponse> {
+        let mut params = vec![
+            ("artist", artist.to_string()),
+            ("limit", limit.unwrap_or(PAGE_LIMIT).to_string()),
+        ];
+        if let Some(cursor) = cursor {
+            params.push(("cursor", cursor.to_string()));
+        }
+        self.get_json(&["v1", "tracks"], &params)
     }
 
     pub fn fetch_publisher(&self, publisher_text: &str) -> Result<Publisher> {
