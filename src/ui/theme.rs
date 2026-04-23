@@ -31,6 +31,55 @@ pub mod color {
     pub fn diff_missing() -> Rgba { rgb(0xffa07f) }
 }
 
+pub mod badges {
+    use super::*;
+
+    pub fn type_color(entity_type: &str) -> Rgba {
+        match entity_type {
+            "feed" => rgb(0xe8943a),
+            "track" => rgb(0x3ac4c4),
+            "publisher" => rgb(0xe84393),
+            "artist" => rgb(0x4caf82),
+            "release" => rgb(0x6c7cff),
+            "recording" => rgb(0xb06cf4),
+            _ => color::accent(),
+        }
+    }
+
+    pub fn text_color(entity_type: &str) -> Rgba {
+        match entity_type {
+            "feed" | "track" => rgb(0x111318),
+            _ => rgb(0xffffff),
+        }
+    }
+
+    pub fn emoji(entity_type: &str) -> &'static str {
+        match entity_type {
+            "feed" => "\u{1F4E1}",
+            "track" => "\u{1F3B6}",
+            "publisher" => "\u{1F3E2}",
+            _ => "\u{1F3B5}",
+        }
+    }
+}
+
+pub mod layout {
+    use super::*;
+    pub const TAB_BAR_HEIGHT: Pixels = px(44.0);
+    pub const ROW_HEIGHT: Pixels = px(36.0);
+    pub const HIT_TARGET_MIN: Pixels = px(28.0);
+    pub const INSPECTOR_WIDTH: Pixels = px(360.0);
+}
+
+pub mod glyphs {
+    pub const DIFF_MATCH: &str = "=";
+    pub const DIFF_DIFFERENT: &str = "\u{2260}";
+    pub const DIFF_MISSING: &str = "\u{2205}";
+    pub const STATUS_SUCCESS: &str = "\u{2713}";
+    pub const STATUS_WARNING: &str = "\u{26A0}";
+    pub const STATUS_DANGER: &str = "\u{2717}";
+}
+
 pub mod spacing {
     use super::*;
     pub const XXS: Pixels = px(2.0);

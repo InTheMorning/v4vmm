@@ -207,6 +207,7 @@ use crate::ui::theme::color;
 use crate::ui::theme::spacing;
 use crate::ui::theme::typography;
 use crate::ui::theme::radius;
+use crate::ui::theme::{layout, badges, glyphs};
 
 // ---------------------------------------------------------------------------
 // LibraryApp
@@ -2224,7 +2225,7 @@ impl Render for LibraryApp {
                     // Left pane: list
                     .child(
                         div()
-                            .w(px(320.0))
+                            .w(layout::INSPECTOR_WIDTH)
                             .min_w(px(200.0))
                             .flex_shrink_0()
                             .flex()
@@ -2455,7 +2456,7 @@ fn render_tree(
                 .py(spacing::XS)
                 .rounded(spacing::XS)
                 .cursor_pointer()
-                .hover(|el| el.bg(rgb(0x1f2230)))
+                .hover(|el| el.bg(color::bg_surface_hi()))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_artist(&artist_name);
                     cx.notify();
@@ -2522,7 +2523,7 @@ fn render_tree(
                         .py(spacing::XXS)
                         .rounded(spacing::XS)
                         .cursor_pointer()
-                        .hover(|el| el.bg(rgb(0x1f2230)))
+                        .hover(|el| el.bg(color::bg_surface_hi()))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.toggle_album(&artist_for_toggle, &album_for_toggle);
                             this.select_album(&album_for_select, cx);
@@ -2591,8 +2592,9 @@ fn render_tree(
                             .py(spacing::XXS)
                             .rounded(spacing::XS)
                             .cursor_pointer()
-                            .when(is_selected, |el| el.bg(rgb(0x252836)))
-                            .hover(|el| el.bg(rgb(0x1f2230)));
+                            .when(is_selected, |el| el.bg(color::bg_selected()))
+                            .when(is_selected, |el| el.border_l_2().border_color(color::accent()))
+                            .hover(|el| el.bg(color::bg_surface_hi()));
 
                         if is_cached {
                             let path_for_delete = track.local_path.clone().unwrap_or_default();
@@ -2755,7 +2757,7 @@ fn render_album_detail(
                 .px(spacing::SM)
                 .py(spacing::XS)
                 .rounded(radius::SM)
-                .hover(|el| el.bg(rgb(0x1f2230)))
+                .hover(|el| el.bg(color::bg_surface_hi()))
                 .child(
                     div()
                         .id(SharedString::from(format!("album-track-select-{track_id}")))
@@ -3039,7 +3041,7 @@ fn render_action_row(
                     .text_size(typography::SIZE_MICRO)
                     .line_height(px(14.0))
                     .text_color(if message.contains("error") || message.contains("Error") {
-                        rgb(0xff8a65)
+                        color::status_danger()
                     } else {
                         color::text_muted()
                     })
@@ -3105,7 +3107,7 @@ fn render_action_row(
                                     .max_w(px(190.0))
                                     .text_size(typography::SIZE_MICRO)
                                     .line_height(px(14.0))
-                                    .text_color(rgb(0xff8a65))
+                                    .text_color(color::status_danger())
                                     .child(SharedString::from(format!(
                                         "Duplicate target: {conflict_text}"
                                     ))),
@@ -3130,7 +3132,7 @@ fn render_action_row(
                     .max_w(px(180.0))
                     .text_size(typography::SIZE_MICRO)
                     .line_height(px(14.0))
-                    .text_color(rgb(0xff8a65))
+                    .text_color(color::status_danger())
                     .child(SharedString::from(error)),
             )
         })
@@ -3553,7 +3555,9 @@ fn metadata_rss_cell(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let value = row.rss_value.as_deref().unwrap_or("");
-    let display_value = display_metadata_value(&row.field, value);
+    let base_display = display_metadata_value(&row.field, value);
+    let glyph = pending_source_glyph(pending, MetadataColumn::Rss, row.rss_value.as_deref());
+    let display_value = display_with_glyph(glyph, &base_display);
     let value_color = source_cell_color(pending, MetadataColumn::Rss, row.rss_value.as_deref())
         .unwrap_or_else(color::text_primary);
     let value_element = metadata_value_cell(
@@ -3601,7 +3605,13 @@ fn metadata_id3_cell(
         .map(|edit| edit.value.as_str())
         .or(row.id3_value.as_deref())
         .unwrap_or("");
-    let display_value = display_metadata_value(&row.field, value);
+    let base_display = display_metadata_value(&row.field, value);
+    let glyph = if pending.is_some() {
+        Some(glyphs::DIFF_MATCH)
+    } else {
+        comparison_status_glyph(&row.id3_status)
+    };
+    let display_value = display_with_glyph(glyph, &base_display);
     let color = pending
         .map(|edit| pending_source_color(edit.source))
         .unwrap_or_else(|| id3_cell_status_color(row));
@@ -3640,7 +3650,10 @@ fn metadata_musicbrainz_cell(
     )
     .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status));
     let value = row.musicbrainz_value.as_deref().unwrap_or("");
-    let display_value = display_metadata_value(&row.field, value);
+    let base_display = display_metadata_value(&row.field, value);
+    let glyph = pending_source_glyph(pending, MetadataColumn::MusicBrainz, row.musicbrainz_value.as_deref())
+        .or_else(|| comparison_status_glyph(&row.musicbrainz_status));
+    let display_value = display_with_glyph(glyph, &base_display);
     div()
         .pl(spacing::MD)
         .min_w_0()
@@ -4056,11 +4069,46 @@ fn id3_frame_color(frame_id: &str) -> gpui::Rgba {
 
 fn comparison_status_color(status: &crate::track_compare::ComparisonStatus) -> gpui::Rgba {
     match status {
-        crate::track_compare::ComparisonStatus::Match => rgb(0x4caf82),
-        crate::track_compare::ComparisonStatus::Different => rgb(0xffc857),
+        crate::track_compare::ComparisonStatus::Match => color::diff_match(),
+        crate::track_compare::ComparisonStatus::Different => color::diff_different(),
         crate::track_compare::ComparisonStatus::MissingSource
-        | crate::track_compare::ComparisonStatus::MissingTag => rgb(0xff8a65),
+        | crate::track_compare::ComparisonStatus::MissingTag => color::diff_missing(),
         crate::track_compare::ComparisonStatus::MissingBoth => color::text_muted(),
+    }
+}
+
+fn comparison_status_glyph(status: &crate::track_compare::ComparisonStatus) -> Option<&'static str> {
+    match status {
+        crate::track_compare::ComparisonStatus::Match => Some(glyphs::DIFF_MATCH),
+        crate::track_compare::ComparisonStatus::Different => Some(glyphs::DIFF_DIFFERENT),
+        crate::track_compare::ComparisonStatus::MissingSource
+        | crate::track_compare::ComparisonStatus::MissingTag => Some(glyphs::DIFF_MISSING),
+        crate::track_compare::ComparisonStatus::MissingBoth => None,
+    }
+}
+
+fn pending_source_glyph(
+    pending: Option<&PendingId3Edit>,
+    column: MetadataColumn,
+    cell_value: Option<&str>,
+) -> Option<&'static str> {
+    let edit = pending?;
+    if edit.source != column {
+        return None;
+    }
+    let cell_value = cell_value.map(str::trim).filter(|v| !v.is_empty())?;
+    if cell_value == edit.value.trim() {
+        Some(glyphs::DIFF_MATCH)
+    } else {
+        Some(glyphs::DIFF_DIFFERENT)
+    }
+}
+
+fn display_with_glyph(glyph: Option<&str>, value: &str) -> String {
+    match glyph {
+        Some(g) if !value.is_empty() => format!("{g} {value}"),
+        Some(g) => g.to_string(),
+        None => value.to_string(),
     }
 }
 
@@ -4073,7 +4121,7 @@ fn id3_cell_status_color(row: &AlignedCompareRow) -> gpui::Rgba {
 
 fn pending_source_color(source: MetadataColumn) -> gpui::Rgba {
     match source {
-        MetadataColumn::Rss | MetadataColumn::MusicBrainz => rgb(0x4caf82),
+        MetadataColumn::Rss | MetadataColumn::MusicBrainz => color::diff_match(),
     }
 }
 
@@ -4090,9 +4138,9 @@ fn source_cell_color(
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
     if cell_value == edit.value.trim() {
-        Some(rgb(0x4caf82))
+        Some(color::diff_match())
     } else {
-        Some(rgb(0xffc857))
+        Some(color::diff_different())
     }
 }
 
@@ -4281,28 +4329,15 @@ fn muted_line(value: &str) -> AnyElement {
 }
 
 fn type_color(entity_type: &str) -> gpui::Rgba {
-    match entity_type {
-        "feed" => rgb(0xe8943a),
-        "track" => rgb(0x3ac4c4),
-        "publisher" => rgb(0xe84393),
-        _ => color::accent(),
-    }
+    badges::type_color(entity_type)
 }
 
 fn badge_text(entity_type: &str) -> gpui::Rgba {
-    match entity_type {
-        "feed" | "track" => rgb(0x111318),
-        _ => rgb(0xffffff),
-    }
+    badges::text_color(entity_type)
 }
 
 fn type_emoji(entity_type: &str) -> &'static str {
-    match entity_type {
-        "feed" => "\u{1F4E1}",
-        "track" => "\u{1F3B6}",
-        "publisher" => "\u{1F3E2}",
-        _ => "\u{1F3B5}",
-    }
+    badges::emoji(entity_type)
 }
 
 fn compare_downloaded_track_path(

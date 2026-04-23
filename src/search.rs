@@ -1286,8 +1286,9 @@ impl SearchApp {
 
 impl Render for SearchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status_text = self.status.clone();
+        let mut status_text = self.status.clone();
         let status_color = if status_text.starts_with("Error:") {
+            status_text = format!("{} {}", glyphs::STATUS_DANGER, status_text);
             color::status_danger()
         } else {
             color::text_muted()
@@ -2343,7 +2344,7 @@ fn render_result_item(
         .rounded(radius::MD)
         .cursor_pointer()
         .bg(if is_selected {
-            color::bg_surface()
+            color::bg_selected()
         } else {
             color::bg_canvas()
         })
@@ -2850,7 +2851,7 @@ fn render_action_row(
                     .text_size(typography::SIZE_MICRO)
                     .line_height(px(14.0))
                     .text_color(if message.contains("error") || message.contains("Error") {
-                        rgb(0xff8a65)
+                        color::diff_missing()
                     } else {
                         color::text_muted()
                     })
@@ -3389,8 +3390,13 @@ fn metadata_rss_cell(
 ) -> AnyElement {
     let value = row.rss_value.as_deref().unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
-    let value_color = source_cell_color(pending, MetadataColumn::Rss, row.rss_value.as_deref())
-        .unwrap_or_else(color::text_primary);
+    let (color_opt, glyph) = source_cell_color_and_glyph(pending, MetadataColumn::Rss, row.rss_value.as_deref());
+    let value_color = color_opt.unwrap_or_else(color::text_primary);
+    let display_value = if !glyph.is_empty() {
+        display_with_glyph(glyph, &display_value)
+    } else {
+        display_value
+    };
     let expandable = metadata_field_is_expandable(&row.field) && !value.is_empty();
     let value_element = if expandable {
         expandable_cell(
@@ -3534,14 +3540,23 @@ fn metadata_musicbrainz_cell(
     row: &AlignedCompareRow,
     pending: Option<&PendingId3Edit>,
 ) -> AnyElement {
-    let musicbrainz_color = source_cell_color(
+    let (color_opt, glyph) = source_cell_color_and_glyph(
         pending,
         MetadataColumn::MusicBrainz,
         row.musicbrainz_value.as_deref(),
-    )
-    .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status));
+    );
+    let (musicbrainz_color, glyph) = if let (Some(color), glyph) = (color_opt, glyph) {
+        (color, glyph)
+    } else {
+        (comparison_status_color(&row.musicbrainz_status), comparison_status_glyph(&row.musicbrainz_status))
+    };
     let value = row.musicbrainz_value.as_deref().unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
+    let display_value = if !glyph.is_empty() {
+        display_with_glyph(glyph, &display_value)
+    } else {
+        display_value
+    };
     let cell = div().pl(spacing::MD).min_w_0().child(compare_tag_cell(
         &display_value,
         Some(musicbrainz_color),
@@ -3591,8 +3606,8 @@ fn metadata_drag_value(
 
 fn pending_source_color(source: MetadataColumn) -> gpui::Rgba {
     match source {
-        MetadataColumn::Rss => rgb(0x4caf82),
-        MetadataColumn::MusicBrainz => rgb(0x4caf82),
+        MetadataColumn::Rss => color::diff_match(),
+        MetadataColumn::MusicBrainz => color::diff_match(),
     }
 }
 
@@ -3607,9 +3622,9 @@ fn source_cell_color(
     }
     let cell_value = cell_value.map(str::trim).filter(|v| !v.is_empty())?;
     if cell_value == edit.value.trim() {
-        Some(rgb(0x4caf82))
+        Some(color::diff_match())
     } else {
-        Some(rgb(0xffc857))
+        Some(color::diff_different())
     }
 }
 
@@ -4602,10 +4617,47 @@ fn format_track_slash_total(track: Option<&str>, total: Option<&str>) -> Option<
 
 fn comparison_status_color(status: &ComparisonStatus) -> gpui::Rgba {
     match status {
-        ComparisonStatus::Match => rgb(0x4caf82),
-        ComparisonStatus::Different => rgb(0xffc857),
-        ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => rgb(0xff8a65),
+        ComparisonStatus::Match => color::diff_match(),
+        ComparisonStatus::Different => color::diff_different(),
+        ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => color::diff_missing(),
         ComparisonStatus::MissingBoth => color::text_muted(),
+    }
+}
+
+fn comparison_status_glyph(status: &ComparisonStatus) -> &'static str {
+    match status {
+        ComparisonStatus::Match => glyphs::DIFF_MATCH,
+        ComparisonStatus::Different => glyphs::DIFF_DIFFERENT,
+        ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => glyphs::DIFF_MISSING,
+        ComparisonStatus::MissingBoth => "",
+    }
+}
+
+fn display_with_glyph(glyph: &str, value: &str) -> String {
+    if glyph.is_empty() {
+        value.to_string()
+    } else {
+        format!("{} {}", glyph, value)
+    }
+}
+
+fn source_cell_color_and_glyph(
+    pending: Option<&PendingId3Edit>,
+    column: MetadataColumn,
+    cell_value: Option<&str>,
+) -> (Option<gpui::Rgba>, &'static str) {
+    let edit = match pending {
+        Some(e) if e.source == column => e,
+        _ => return (None, ""),
+    };
+    let cell_value = match cell_value.map(str::trim).filter(|v| !v.is_empty()) {
+        Some(v) => v,
+        None => return (None, ""),
+    };
+    if cell_value == edit.value.trim() {
+        (Some(color::diff_match()), glyphs::DIFF_MATCH)
+    } else {
+        (Some(color::diff_different()), glyphs::DIFF_DIFFERENT)
     }
 }
 
@@ -5559,41 +5611,25 @@ fn fmt_date(ts: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.format("%b %-d, %Y").to_string())
 }
 
-use crate::ui::theme::color;
-use crate::ui::theme::spacing;
-use crate::ui::theme::typography;
-use crate::ui::theme::radius;
+use crate::ui::theme::{color, spacing, typography, radius, glyphs, badges};
 
 fn type_color(entity_type: &str) -> gpui::Rgba {
-    match entity_type {
-        "feed" => rgb(0xe8943a),
-        "track" => rgb(0x3ac4c4),
-        "publisher" => rgb(0xe84393),
-        "artist" => rgb(0x4caf82),
-        "release" => rgb(0x6c7cff),
-        "recording" => rgb(0xb06cf4),
-        _ => color::accent(),
-    }
+    badges::type_color(entity_type)
 }
 
 fn badge_text(entity_type: &str) -> gpui::Rgba {
     match entity_type {
         // Dark text on bright badges for WCAG AA contrast
-        "feed" | "track" | "artist" => rgb(0x111318),
-        // White text on darker badges
-        _ => rgb(0xffffff),
+        "artist" => rgb(0x111318),
+        _ => badges::text_color(entity_type),
     }
 }
 
 fn type_emoji(entity_type: &str) -> &'static str {
     match entity_type {
-        "feed" => "📡",
-        "track" => "🎶",
-        "publisher" => "🏢",
         "artist" => "🎤",
         "release" => "💿",
-        "recording" => "🎵",
-        _ => "?",
+        _ => badges::emoji(entity_type),
     }
 }
 

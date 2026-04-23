@@ -17,6 +17,8 @@ use crate::search::SearchApp;
 use crate::ui::theme::color;
 use crate::ui::theme::spacing;
 use crate::ui::theme::typography;
+use crate::ui::theme::layout;
+#[allow(unused_imports)]
 use crate::ui::theme::radius;
 
 // ---------------------------------------------------------------------------
@@ -217,11 +219,12 @@ impl Render for TopApp {
             // Top-level tab bar
             .child(
                 div()
+                    .h(layout::TAB_BAR_HEIGHT)
+                    .flex_shrink_0()
                     .bg(color::bg_surface())
                     .border_b_1()
                     .border_color(color::border_subtle())
                     .px(spacing::MD)
-                    .py(spacing::SM)
                     .flex()
                     .flex_row()
                     .items_center()
@@ -411,8 +414,10 @@ fn render_app_tab(
             }
             cx.notify();
         }))
-        .px(spacing::SM)
-        .py(spacing::XS)
+        .px(spacing::MD)
+        .min_h(layout::HIT_TARGET_MIN)
+        .flex()
+        .items_center()
         .rounded(radius::LG)
         .when(is_active, |el| {
             el.bg(color::accent()).text_color(color::text_on_accent())
