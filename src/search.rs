@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{anyhow, Result};
 use gpui::{
@@ -4385,7 +4385,13 @@ fn render_feed_header(
                             .child(SharedString::from(sub)),
                     )
                 })
-                .child(div().mt(px(6.0)).child(render_rss_icon_button(rss_url, cx))),
+                .child(
+                    div()
+                        .mt(px(6.0))
+                        .flex()
+                        .justify_start()
+                        .child(render_rss_icon_button(rss_url, cx)),
+                ),
         )
         .into_any_element()
 }
@@ -4401,26 +4407,47 @@ fn render_rss_icon_button(url: Option<String>, cx: &mut Context<SearchApp>) -> A
     );
     let click_url = url.clone();
 
-    Button::new(id)
-        .label("RSS")
-        .with_size(Size::XSmall)
-        .compact()
-        .ghost()
-        .h(px(20.0))
-        .px(px(5.0))
-        .py(px(0.0))
-        .text_color(rgb(0xffffff))
+    div()
+        .id(id)
+        .w(px(18.0))
+        .h(px(18.0))
+        .flex()
+        .items_center()
+        .justify_center()
         .rounded(px(4.0))
-        .border_1()
-        .border_color(accent())
-        .tooltip(tooltip)
-        .disabled(url.is_none())
+        .overflow_hidden()
+        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .when(url.is_some(), |el| el.cursor_pointer())
+        .when(url.is_none(), |el| el.opacity(0.45))
+        .child(
+            img(rss_icon_image())
+                .w(px(14.0))
+                .h(px(14.0))
+                .object_fit(ObjectFit::Contain),
+        )
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
             if let Some(url) = &click_url {
                 let _ = open::that(url);
             }
         }))
         .into_any_element()
+}
+
+fn rss_icon_image() -> Arc<Image> {
+    static RSS_ICON: OnceLock<Arc<Image>> = OnceLock::new();
+
+    Arc::clone(RSS_ICON.get_or_init(|| {
+        Arc::new(Image::from_bytes(
+            ImageFormat::Svg,
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
+<rect width="18" height="18" rx="4" fill="#f39a2e"/>
+<circle cx="5" cy="13" r="1.7" fill="#ffffff"/>
+<path d="M4 9.4A4.6 4.6 0 0 1 8.6 14" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+<path d="M4 5.2A8.8 8.8 0 0 1 12.8 14" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</svg>"##
+                .to_vec(),
+        ))
+    }))
 }
 
 fn render_play_icon_button_with_id(
