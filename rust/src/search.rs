@@ -1498,12 +1498,13 @@ fn fetch_inspector_detail(
 ) -> Result<(InspectorDetail, Option<Arc<Image>>)> {
     match entity_type {
         "feed" => {
-            let feed = client.fetch_feed(
+            let mut feed = client.fetch_feed(
                 entity_id,
                 Some(
-                    "tracks,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
+                    "tracks,source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
                 ),
             )?;
+            hydrate_feed_track_play_urls(client, &mut feed);
             let image = feed
                 .image_url
                 .as_deref()
@@ -1521,7 +1522,9 @@ fn fetch_inspector_detail(
                 client
                     .fetch_feed(
                         feed_guid,
-                        Some("tracks,source_links,source_ids,source_release_claims,payment_routes"),
+                        Some(
+                            "tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes",
+                        ),
                     )
                     .ok()
             });
@@ -1543,6 +1546,78 @@ fn fetch_inspector_detail(
     }
 }
 
+fn hydrate_feed_track_play_urls(client: &Client, feed: &mut Feed) {
+    let Some(tracks) = feed.tracks.as_mut() else {
+        return;
+    };
+
+    for track in tracks
+        .iter_mut()
+        .filter(|track| track_play_url(track).is_none())
+    {
+        let Some(track_guid) = nonempty_url(track.track_guid.as_deref()).map(str::to_string) else {
+            continue;
+        };
+        let Ok(hydrated) = client.fetch_track(&track_guid, Some("source_enclosures")) else {
+            continue;
+        };
+        merge_track_play_fields(track, hydrated);
+    }
+}
+
+fn merge_track_play_fields(track: &mut Track, hydrated: Track) {
+    if nonempty_url(track.enclosure_url.as_deref()).is_none() {
+        track.enclosure_url = hydrated.enclosure_url;
+    }
+    if track.enclosure_type.is_none() {
+        track.enclosure_type = hydrated.enclosure_type;
+    }
+    if track.enclosure_bytes.is_none() {
+        track.enclosure_bytes = hydrated.enclosure_bytes;
+    }
+    if track.source_enclosures.as_ref().is_none_or(Vec::is_empty) {
+        track.source_enclosures = hydrated.source_enclosures;
+    }
+}
+
+fn feed_rss_url(feed: &Feed) -> Option<String> {
+    nonempty_url(feed.feed_url.as_deref()).map(str::to_string)
+}
+
+fn track_play_url(track: &Track) -> Option<String> {
+    nonempty_url(track.enclosure_url.as_deref())
+        .map(str::to_string)
+        .or_else(|| {
+            track
+                .source_enclosures
+                .as_deref()
+                .and_then(primary_source_enclosure_url)
+        })
+        .or_else(|| {
+            track
+                .source_enclosures
+                .as_deref()
+                .and_then(first_source_enclosure_url)
+        })
+}
+
+fn primary_source_enclosure_url(enclosures: &[SourceEnclosure]) -> Option<String> {
+    enclosures
+        .iter()
+        .filter(|enclosure| enclosure.is_primary.unwrap_or(false))
+        .find_map(|enclosure| nonempty_url(enclosure.url.as_deref()).map(str::to_string))
+}
+
+fn first_source_enclosure_url(enclosures: &[SourceEnclosure]) -> Option<String> {
+    enclosures
+        .iter()
+        .find_map(|enclosure| nonempty_url(enclosure.url.as_deref()).map(str::to_string))
+}
+
+fn nonempty_url(url: Option<&str>) -> Option<&str> {
+    url.map(str::trim).filter(|url| !url.is_empty())
+}
+
 fn download_and_compare_track(
     client: &Client,
     entity_id: &str,
@@ -1556,7 +1631,7 @@ fn download_and_compare_track(
         Some(feed_guid) => client
             .fetch_feed(
                 feed_guid,
-                Some("tracks,source_links,source_ids,source_release_claims"),
+                Some("tracks,source_enclosures,source_links,source_ids,source_release_claims"),
             )
             .ok(),
         None => None,
@@ -2165,11 +2240,12 @@ fn render_discover_feed_inspector(
         .flex()
         .flex_col()
         .gap(px(16.0))
-        .child(render_detail_header(
-            "feed",
+        .child(render_feed_header(
+            frame,
+            feed,
             &title,
             Some(artist.as_str()),
-            frame.image.as_ref(),
+            cx,
         ))
         .child(render_action_row(frame, &BTreeMap::new(), cx))
         .child(render_detail_grid(rows))
@@ -2206,12 +2282,6 @@ fn render_discover_track_inspector(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let track = &track_context.track;
-    let title = track_title(track);
-    let artist = track
-        .track_artist
-        .clone()
-        .or_else(|| track.release_artist.clone())
-        .unwrap_or_else(|| "Unknown".into());
     let mut rows = vec![(
         "Release".to_string(),
         track.feed_title.clone().unwrap_or_else(|| "Unknown".into()),
@@ -2229,12 +2299,7 @@ fn render_discover_track_inspector(
         .flex()
         .flex_col()
         .gap(px(16.0))
-        .child(render_detail_header(
-            "track",
-            &title,
-            Some(artist.as_str()),
-            frame.image.as_ref(),
-        ))
+        .child(render_track_header(frame, track, cx))
         .child(render_action_row(frame, &BTreeMap::new(), cx))
         .child(render_detail_grid(rows))
         .when(track.description.is_some(), |el| {
@@ -4215,6 +4280,12 @@ fn render_track_row(
 ) -> AnyElement {
     let guid = track.track_guid.clone().unwrap_or_default();
     let title = track_title(&track);
+    let track_number = track.track_number;
+    let duration_secs = track.duration_secs;
+    let audio_url = track_play_url(&track);
+    let play_button_id = SharedString::from(format!("track-row-play:{guid}"));
+    let guid_for_click = guid.clone();
+    let title_for_click = title.clone();
     div()
         .id(SharedString::from(format!("track-row:{guid}")))
         .flex()
@@ -4224,34 +4295,162 @@ fn render_track_row(
         .px(px(4.0))
         .py(px(5.0))
         .rounded(px(4.0))
-        .cursor_pointer()
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.push_inspector("track".into(), guid.clone(), title.clone(), cx);
-        }))
         .child(
             div()
-                .w(px(24.0))
-                .text_right()
-                .text_color(muted())
-                .text_size(px(11.0))
+                .id(SharedString::from(format!("track-row-open:{guid}")))
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(8.0))
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                    this.push_inspector(
+                        "track".into(),
+                        guid_for_click.clone(),
+                        title_for_click.clone(),
+                        cx,
+                    );
+                }))
                 .child(
-                    track
-                        .track_number
-                        .map_or_else(|| "·".into(), |n| n.to_string()),
-                ),
+                    div()
+                        .w(px(24.0))
+                        .text_right()
+                        .text_color(muted())
+                        .text_size(px(11.0))
+                        .child(track_number.map_or_else(|| "·".into(), |n| n.to_string())),
+                )
+                .child(render_thumb(thumbnail.as_ref(), "track", 28.0, false))
+                .child(truncated(title).flex_1())
+                .when(duration_secs.is_some(), |el| {
+                    el.child(div().text_color(muted()).text_size(px(11.0)).child(
+                        SharedString::from(fmt_dur(duration_secs.unwrap_or_default())),
+                    ))
+                }),
         )
-        .child(render_thumb(thumbnail.as_ref(), "track", 28.0, false))
-        .child(truncated(track_title(&track)).flex_1())
-        .when(track.duration_secs.is_some(), |el| {
-            el.child(
-                div()
-                    .text_color(muted())
-                    .text_size(px(11.0))
-                    .child(SharedString::from(fmt_dur(
-                        track.duration_secs.unwrap_or_default(),
-                    ))),
-            )
-        })
+        .child(render_play_icon_button_with_id(
+            play_button_id,
+            audio_url,
+            cx,
+        ))
+        .into_any_element()
+}
+
+fn render_feed_header(
+    frame: &InspectorFrame,
+    feed: &Feed,
+    title: &str,
+    subtitle: Option<&str>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let rss_url = feed_rss_url(feed);
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(px(16.0))
+        .child(render_thumb(frame.image.as_ref(), "feed", 80.0, true))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(badge_text("feed"))
+                        .bg(type_color("feed"))
+                        .px(px(6.0))
+                        .py(px(2.0))
+                        .rounded(px(4.0))
+                        .mb(px(6.0))
+                        .child("feed"),
+                )
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_height(px(23.0))
+                        .child(SharedString::from(title.to_string())),
+                )
+                .when_some(subtitle.map(str::to_owned), |el, sub| {
+                    el.child(
+                        div()
+                            .mt(px(4.0))
+                            .text_size(px(15.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .line_height(px(20.0))
+                            .text_color(muted())
+                            .child(SharedString::from(sub)),
+                    )
+                })
+                .child(div().mt(px(6.0)).child(render_rss_icon_button(rss_url, cx))),
+        )
+        .into_any_element()
+}
+
+fn render_rss_icon_button(url: Option<String>, cx: &mut Context<SearchApp>) -> AnyElement {
+    let id = SharedString::from(match url.as_deref() {
+        Some(url) => format!("feed-rss:{url}"),
+        None => "feed-rss:missing".into(),
+    });
+    let tooltip = url.as_ref().map_or_else(
+        || "No RSS feed URL".into(),
+        |url| format!("Open RSS feed: {url}"),
+    );
+    let click_url = url.clone();
+
+    Button::new(id)
+        .label("RSS")
+        .with_size(Size::XSmall)
+        .compact()
+        .ghost()
+        .h(px(20.0))
+        .px(px(5.0))
+        .py(px(0.0))
+        .text_color(rgb(0xffffff))
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(accent())
+        .tooltip(tooltip)
+        .disabled(url.is_none())
+        .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
+            if let Some(url) = &click_url {
+                let _ = open::that(url);
+            }
+        }))
+        .into_any_element()
+}
+
+fn render_play_icon_button_with_id(
+    id: SharedString,
+    url: Option<String>,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let tooltip = url.clone().unwrap_or_else(|| "No audio URL".into());
+    let click_url = url.clone();
+
+    Button::new(id)
+        .label("▶")
+        .with_size(Size::XSmall)
+        .compact()
+        .ghost()
+        .w(px(18.0))
+        .h(px(18.0))
+        .px(px(0.0))
+        .py(px(0.0))
+        .text_color(rgb(0xffffff))
+        .rounded(px(4.0))
+        .border_1()
+        .border_color(accent())
+        .tooltip(tooltip)
+        .disabled(url.is_none())
+        .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
+            if let Some(url) = &click_url {
+                let _ = open::that(url);
+            }
+        }))
         .into_any_element()
 }
 
@@ -4375,9 +4574,14 @@ fn render_track_header(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let title = track_title(track);
+    let artist = track
+        .track_artist
+        .clone()
+        .or_else(|| track.release_artist.clone())
+        .unwrap_or_else(|| "Unknown".into());
     let feed_guid = track.feed_guid.clone();
     let feed_url = track.feed_url.clone().or_else(|| track.feed_guid.clone());
-    let audio_url = track.enclosure_url.clone();
+    let audio_url = track_play_url(track);
 
     div()
         .flex()
@@ -4408,6 +4612,15 @@ fn render_track_header(
                         .line_height(px(23.0))
                         .child(SharedString::from(title)),
                 )
+                .child(
+                    div()
+                        .mt(px(4.0))
+                        .text_size(px(15.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .line_height(px(20.0))
+                        .text_color(muted())
+                        .child(SharedString::from(artist)),
+                )
                 .child(render_track_header_subtitle(
                     feed_guid, feed_url, audio_url, cx,
                 )),
@@ -4430,9 +4643,11 @@ fn render_track_header_subtitle(
         .when_some(feed_guid, |el, guid| {
             el.child(render_feed_link_value(guid.clone(), guid, feed_url, cx))
         })
-        .when_some(audio_url.filter(|url| !url.is_empty()), |el, url| {
-            el.child(render_play_icon_button(url, cx))
-        })
+        .child(render_play_icon_button_with_id(
+            SharedString::from("track-play-audio"),
+            audio_url,
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -4498,27 +4713,6 @@ fn render_feed_link_value(
             this.push_inspector("feed".into(), guid.clone(), click_title.clone(), cx);
         }))
         .child(SharedString::from(title))
-        .into_any_element()
-}
-
-fn render_play_icon_button(url: String, cx: &mut Context<SearchApp>) -> AnyElement {
-    Button::new("track-play-audio")
-        .label("▶")
-        .with_size(Size::XSmall)
-        .compact()
-        .ghost()
-        .w(px(18.0))
-        .h(px(18.0))
-        .px(px(0.0))
-        .py(px(0.0))
-        .text_color(rgb(0xffffff))
-        .rounded(px(4.0))
-        .border_1()
-        .border_color(accent())
-        .tooltip(url.clone())
-        .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
-            let _ = open::that(&url);
-        }))
         .into_any_element()
 }
 
@@ -5051,14 +5245,14 @@ mod tests {
 
     use super::{
         aligned_compare_rows, aligned_id3_frame_ids, auto_populated_pending_id3_edits,
-        compare_row_id, expand_woar_metadata_rows, format_drag_value_for_id3v24,
-        id3_frame_group_key, id3_frame_version, metadata_data_row, metadata_drag_value,
-        metadata_field_group_key, musicbrainz_remainder_rows, pending_id3_conflict_descriptions,
-        pending_id3_edits_for_apply, pending_id3_target_key, should_show_inspector_back,
-        track_metadata_rows, unused_id3v24_frames_for_group, AlignedCompareRow, Feed,
-        Id3FrameVersion, MetadataColumn, MetadataGridRow, PendingId3Edit, SourceEntityId,
-        SourceEntityLink, TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS,
-        ID3V24_FRAME_IDS,
+        compare_row_id, expand_woar_metadata_rows, feed_rss_url, format_drag_value_for_id3v24,
+        id3_frame_group_key, id3_frame_version, merge_track_play_fields, metadata_data_row,
+        metadata_drag_value, metadata_field_group_key, musicbrainz_remainder_rows,
+        pending_id3_conflict_descriptions, pending_id3_edits_for_apply, pending_id3_target_key,
+        should_show_inspector_back, track_metadata_rows, track_play_url,
+        unused_id3v24_frames_for_group, AlignedCompareRow, Feed, Id3FrameVersion, MetadataColumn,
+        MetadataGridRow, PendingId3Edit, SourceEnclosure, SourceEntityId, SourceEntityLink,
+        TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
     use crate::metadata::{
@@ -5081,6 +5275,83 @@ mod tests {
         assert!(
             should_show_inspector_back(2),
             "nested inspector frames should keep showing Back"
+        );
+    }
+
+    #[test]
+    fn feed_and_track_action_urls_skip_empty_values() {
+        let feed = Feed {
+            feed_url: Some(" https://example.test/feed.xml ".into()),
+            ..Feed::default()
+        };
+        assert_eq!(
+            feed_rss_url(&feed).as_deref(),
+            Some("https://example.test/feed.xml")
+        );
+
+        let direct_track = Track {
+            enclosure_url: Some(" https://example.test/audio.mp3 ".into()),
+            ..Track::default()
+        };
+        assert_eq!(
+            track_play_url(&direct_track).as_deref(),
+            Some("https://example.test/audio.mp3")
+        );
+
+        let source_track = Track {
+            enclosure_url: Some(" ".into()),
+            source_enclosures: Some(vec![
+                SourceEnclosure {
+                    url: Some("https://example.test/alternate.mp3".into()),
+                    ..SourceEnclosure::default()
+                },
+                SourceEnclosure {
+                    url: Some("https://example.test/primary.mp3".into()),
+                    is_primary: Some(true),
+                    ..SourceEnclosure::default()
+                },
+            ]),
+            ..Track::default()
+        };
+        assert_eq!(
+            track_play_url(&source_track).as_deref(),
+            Some("https://example.test/primary.mp3")
+        );
+    }
+
+    #[test]
+    fn feed_track_play_hydration_merges_only_missing_audio_fields() {
+        let mut track = Track {
+            enclosure_url: Some(" ".into()),
+            title: Some("Local title".into()),
+            ..Track::default()
+        };
+        let hydrated = Track {
+            enclosure_url: Some("https://example.test/audio.mp3".into()),
+            enclosure_type: Some("audio/mpeg".into()),
+            enclosure_bytes: Some(123),
+            source_enclosures: Some(vec![SourceEnclosure {
+                url: Some("https://example.test/source.mp3".into()),
+                is_primary: Some(true),
+                ..SourceEnclosure::default()
+            }]),
+            title: Some("Hydrated title".into()),
+            ..Track::default()
+        };
+
+        merge_track_play_fields(&mut track, hydrated);
+
+        assert_eq!(
+            track.enclosure_url.as_deref(),
+            Some("https://example.test/audio.mp3")
+        );
+        assert_eq!(track.enclosure_type.as_deref(), Some("audio/mpeg"));
+        assert_eq!(track.enclosure_bytes, Some(123));
+        assert_eq!(track.source_enclosures.as_ref().map(Vec::len), Some(1));
+        assert_eq!(
+            track.title.as_deref(),
+            Some("Local title"),
+            "hydrating play fields should not replace displayed feed row metadata"
         );
     }
 
