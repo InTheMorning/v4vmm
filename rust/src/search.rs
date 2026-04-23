@@ -280,15 +280,19 @@ impl SearchApp {
         cx.notify();
 
         let client = self.api_client();
-        let cursor = if append { self.recent_cursor.clone() } else { None };
+        let cursor = if append {
+            self.recent_cursor.clone()
+        } else {
+            None
+        };
         cx.spawn(
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        client.fetch_recent_feeds(Some(PAGE_LIMIT), cursor.as_deref())
-                    })
-                    .await;
+                let result =
+                    cx.background_executor()
+                        .spawn(async move {
+                            client.fetch_recent_feeds(Some(PAGE_LIMIT), cursor.as_deref())
+                        })
+                        .await;
                 let _ = this.update(cx, move |this, cx| {
                     this.recent_loading = false;
                     this.recent_loaded_once = true;
@@ -1225,8 +1229,7 @@ impl Render for SearchApp {
             .map(|(idx, label)| render_filter_button(idx, label, idx == self.type_filter, cx))
             .collect();
         let stack = self.inspector_stack.clone();
-        let show_back = !stack.is_empty()
-            && (stack.len() > 1 || self.inspector_origin == Some(InspectorOrigin::Recents));
+        let show_back = should_show_inspector_back(stack.len());
         let input_is_empty = self.input.read(cx).value().trim().is_empty();
         let show_recents_root = stack.is_empty()
             && self.inspector_origin.is_none()
@@ -1482,6 +1485,10 @@ fn fetch_search_batch(
         has_more: response.pagination.has_more,
         cursor: response.pagination.cursor,
     })
+}
+
+fn should_show_inspector_back(stack_len: usize) -> bool {
+    stack_len > 0
 }
 
 fn fetch_inspector_detail(
@@ -5047,10 +5054,11 @@ mod tests {
         compare_row_id, expand_woar_metadata_rows, format_drag_value_for_id3v24,
         id3_frame_group_key, id3_frame_version, metadata_data_row, metadata_drag_value,
         metadata_field_group_key, musicbrainz_remainder_rows, pending_id3_conflict_descriptions,
-        pending_id3_edits_for_apply, pending_id3_target_key, track_metadata_rows,
-        unused_id3v24_frames_for_group, AlignedCompareRow, Feed, Id3FrameVersion, MetadataColumn,
-        MetadataGridRow, PendingId3Edit, SourceEntityId, SourceEntityLink, TagCompareResult, Track,
-        TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
+        pending_id3_edits_for_apply, pending_id3_target_key, should_show_inspector_back,
+        track_metadata_rows, unused_id3v24_frames_for_group, AlignedCompareRow, Feed,
+        Id3FrameVersion, MetadataColumn, MetadataGridRow, PendingId3Edit, SourceEntityId,
+        SourceEntityLink, TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS,
+        ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
     use crate::metadata::{
@@ -5059,6 +5067,22 @@ mod tests {
     };
     use crate::musicbrainz::MusicBrainzCandidate;
     use crate::track_compare::{ComparisonRow, ComparisonStatus};
+
+    #[test]
+    fn discover_back_button_is_visible_for_any_open_inspector() {
+        assert!(
+            !should_show_inspector_back(0),
+            "empty inspector stack should not show Back"
+        );
+        assert!(
+            should_show_inspector_back(1),
+            "first opened feed, track, or publisher should show Back"
+        );
+        assert!(
+            should_show_inspector_back(2),
+            "nested inspector frames should keep showing Back"
+        );
+    }
 
     #[test]
     fn id3v24_frame_registry_covers_83_grouped_frames() {

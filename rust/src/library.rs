@@ -419,49 +419,51 @@ impl LibraryApp {
         let endpoint = self.musicindex_endpoint.clone();
         self.feed_update_state.status_message = Some("Checking feed...".into());
         cx.notify();
-        cx.spawn(async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-            let stale = cx
-                .background_executor()
-                .spawn(async move { check_feed_staleness(&conn, &endpoint, feed_id) })
-                .await;
-            let _ = this.update(cx, move |this, cx| {
-                this.in_flight_feed_checks.remove(&feed_id);
-                match stale {
-                    Ok(Some(entry)) => {
-                        if !this
-                            .feed_update_state
-                            .stale
-                            .iter()
-                            .any(|existing| existing.feed_id == entry.feed_id)
-                        {
-                            this.feed_update_state.stale.push(entry);
-                        }
-                        this.feed_update_state.status_message = Some(format!(
-                            "{} feed update{} pending",
-                            this.feed_update_state.stale.len(),
-                            if this.feed_update_state.stale.len() == 1 {
-                                ""
-                            } else {
-                                "s"
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let stale = cx
+                    .background_executor()
+                    .spawn(async move { check_feed_staleness(&conn, &endpoint, feed_id) })
+                    .await;
+                let _ = this.update(cx, move |this, cx| {
+                    this.in_flight_feed_checks.remove(&feed_id);
+                    match stale {
+                        Ok(Some(entry)) => {
+                            if !this
+                                .feed_update_state
+                                .stale
+                                .iter()
+                                .any(|existing| existing.feed_id == entry.feed_id)
+                            {
+                                this.feed_update_state.stale.push(entry);
                             }
-                        ));
-                    }
-                    Ok(None) => {
-                        if this.feed_update_state.stale.is_empty()
-                            && this.in_flight_feed_checks.is_empty()
-                        {
+                            this.feed_update_state.status_message = Some(format!(
+                                "{} feed update{} pending",
+                                this.feed_update_state.stale.len(),
+                                if this.feed_update_state.stale.len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                }
+                            ));
+                        }
+                        Ok(None) => {
+                            if this.feed_update_state.stale.is_empty()
+                                && this.in_flight_feed_checks.is_empty()
+                            {
+                                this.feed_update_state.status_message =
+                                    Some("Feed up to date".into());
+                            }
+                        }
+                        Err(err) => {
                             this.feed_update_state.status_message =
-                                Some("Feed up to date".into());
+                                Some(format!("Feed check error: {err:#}"));
                         }
                     }
-                    Err(err) => {
-                        this.feed_update_state.status_message =
-                            Some(format!("Feed check error: {err:#}"));
-                    }
-                }
-                cx.notify();
-            });
-        })
+                    cx.notify();
+                });
+            },
+        )
         .detach();
     }
 
@@ -501,40 +503,42 @@ impl LibraryApp {
 
         let conn = Arc::clone(&self.conn);
         let endpoint = self.musicindex_endpoint.clone();
-        cx.spawn(async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-            let stale = cx
-                .background_executor()
-                .spawn(async move {
-                    let mut stale = Vec::new();
-                    for feed in feeds {
-                        if let Ok(Some(entry)) =
-                            check_feed_staleness(&conn, &endpoint, feed.id)
-                        {
-                            stale.push(entry);
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let stale = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let mut stale = Vec::new();
+                        for feed in feeds {
+                            if let Ok(Some(entry)) = check_feed_staleness(&conn, &endpoint, feed.id)
+                            {
+                                stale.push(entry);
+                            }
                         }
-                    }
-                    stale
-                })
-                .await;
-            let _ = this.update(cx, move |this, cx| {
-                this.feed_update_state.phase = FeedUpdatePhase::Idle;
-                this.feed_update_state.stale = stale;
-                this.feed_update_state.status_message = Some(if this.feed_update_state.stale.is_empty() {
-                    "All feeds up to date".into()
-                } else {
-                    format!(
-                        "{} feed update{} available",
-                        this.feed_update_state.stale.len(),
-                        if this.feed_update_state.stale.len() == 1 {
-                            ""
+                        stale
+                    })
+                    .await;
+                let _ = this.update(cx, move |this, cx| {
+                    this.feed_update_state.phase = FeedUpdatePhase::Idle;
+                    this.feed_update_state.stale = stale;
+                    this.feed_update_state.status_message =
+                        Some(if this.feed_update_state.stale.is_empty() {
+                            "All feeds up to date".into()
                         } else {
-                            "s"
-                        }
-                    )
+                            format!(
+                                "{} feed update{} available",
+                                this.feed_update_state.stale.len(),
+                                if this.feed_update_state.stale.len() == 1 {
+                                    ""
+                                } else {
+                                    "s"
+                                }
+                            )
+                        });
+                    cx.notify();
                 });
-                cx.notify();
-            });
-        })
+            },
+        )
         .detach();
     }
 
@@ -552,35 +556,35 @@ impl LibraryApp {
 
         let conn = Arc::clone(&self.conn);
         let endpoint = self.musicindex_endpoint.clone();
-        cx.spawn(async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-            let outcomes = cx
-                .background_executor()
-                .spawn(async move {
-                    let mut total_tracks = 0usize;
-                    let mut total_edits = 0usize;
-                    for entry in &stale {
-                        if let Ok(outcome) =
-                            apply_feed_updates(&conn, &endpoint, entry)
-                        {
-                            total_tracks += outcome.tracks_updated;
-                            total_edits += outcome.edits_written;
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let outcomes = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let mut total_tracks = 0usize;
+                        let mut total_edits = 0usize;
+                        for entry in &stale {
+                            if let Ok(outcome) = apply_feed_updates(&conn, &endpoint, entry) {
+                                total_tracks += outcome.tracks_updated;
+                                total_edits += outcome.edits_written;
+                            }
                         }
-                    }
-                    (total_tracks, total_edits)
-                })
-                .await;
-            let _ = this.update(cx, move |this, cx| {
-                this.feed_update_state.phase = FeedUpdatePhase::Idle;
-                this.feed_update_state.stale.clear();
-                let (tracks, edits) = outcomes;
-                this.feed_update_state.status_message = Some(if tracks == 0 {
-                    "No edits written".into()
-                } else {
-                    format!("Applied {edits} edit(s) to {tracks} track(s)")
+                        (total_tracks, total_edits)
+                    })
+                    .await;
+                let _ = this.update(cx, move |this, cx| {
+                    this.feed_update_state.phase = FeedUpdatePhase::Idle;
+                    this.feed_update_state.stale.clear();
+                    let (tracks, edits) = outcomes;
+                    this.feed_update_state.status_message = Some(if tracks == 0 {
+                        "No edits written".into()
+                    } else {
+                        format!("Applied {edits} edit(s) to {tracks} track(s)")
+                    });
+                    cx.notify();
                 });
-                cx.notify();
-            });
-        })
+            },
+        )
         .detach();
     }
 
