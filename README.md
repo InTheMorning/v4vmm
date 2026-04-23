@@ -50,13 +50,13 @@ The `v4vmm` binary is V4V Music Manager, a GPUI desktop app for local library ma
 
 The UI uses the configured MusicIndex endpoint and needs network access.
 
-For track results, use `Download + Compare` in the inspector to fetch the MP3 enclosure into `music_dir`, read its embedded MP3 tags, and compare title, artist, album/feed, track number, publisher, nostr handle, website, and release pubdate fields against MusicIndex source facts. The inspector keeps MusicIndex/RSS data and actions on the left and opens file-side ID3 details on the right. It also shows embedded artwork and all ID3 frames found in the file. Missing ID3 tags render as blank fields. This is read-only: it does not rewrite tags.
+For track results, use `Download + Compare` in the inspector to fetch the MP3 enclosure into `music_dir/artists`, read its embedded MP3 tags, and compare title, artist, album/feed, track number, publisher, nostr handle, website, and release pubdate fields against MusicIndex source facts. The inspector keeps MusicIndex/RSS data and actions on the left and opens file-side ID3 details on the right. It also shows embedded artwork and all ID3 frames found in the file. Missing ID3 tags render as blank fields. This is read-only: it does not rewrite tags.
 
 Running the app will create config file `~/.config/v4vmm/config.toml`.
 This file contains defaults:
 ```
 # V4V-only library root
-music_dir = "/home/<username>/V4VMusic"
+music_dir = "/home/<username>/V4Vmusic"
 
 # SQLite database path (app data)
 db_path = "/home/<username>/.local/share/v4vmm/v4vmm.sqlite"

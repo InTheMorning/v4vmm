@@ -86,6 +86,7 @@ pub fn local_mp3_path(cfg: &Config, track: &Track) -> PathBuf {
     );
 
     cfg.music_dir
+        .join("artists")
         .join(artist_dir)
         .join(album_dir)
         .join(filename)
@@ -403,6 +404,7 @@ mod tests {
         assert_eq!(
             local_mp3_path(&cfg, &track()),
             PathBuf::from("/tmp/v4vmm-test")
+                .join("artists")
                 .join("Artist")
                 .join("Feed - Title")
                 .join("04 - Song- Title-.mp3")
@@ -423,6 +425,7 @@ mod tests {
         assert_eq!(
             local_mp3_path(&cfg, &track),
             PathBuf::from("/tmp/v4vmm-test")
+                .join("artists")
                 .join("_CON")
                 .join("_AUX")
                 .join("04 - _NUL.mp3")
@@ -445,6 +448,7 @@ mod tests {
         assert_eq!(
             path.parent().expect("parent"),
             PathBuf::from("/tmp/v4vmm-test")
+                .join("artists")
                 .join("Artist Name")
                 .join("Feed Title")
         );
@@ -536,6 +540,7 @@ mod tests {
             downloaded.path,
             temp.path()
                 .join("music")
+                .join("artists")
                 .join("Artist")
                 .join("Feed - Title")
                 .join("04 - Song- Title-.mp3")

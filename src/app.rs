@@ -64,7 +64,8 @@ pub struct TopApp {
     tab: AppTab,
     search: Entity<SearchApp>,
     library: Entity<LibraryApp>,
-    settings_input: Entity<InputState>,
+    endpoint_input: Entity<InputState>,
+    music_dir_input: Entity<InputState>,
     cfg_path: PathBuf,
     settings_status: String,
 }
@@ -75,6 +76,7 @@ impl TopApp {
         image_cache: Arc<ImageCache>,
         cfg_path: PathBuf,
         musicindex_endpoint: String,
+        music_dir: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -87,37 +89,61 @@ impl TopApp {
         let library = cx.new(|cx| {
             LibraryApp::new(conn, library_cache, musicindex_endpoint.clone(), window, cx)
         });
-        let settings_default = musicindex_endpoint.clone();
-        let settings_input = cx.new(|cx: &mut Context<InputState>| {
+        let endpoint_default = musicindex_endpoint.clone();
+        let endpoint_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx)
                 .placeholder("https://api.musicindex.org")
-                .default_value(settings_default)
+                .default_value(endpoint_default)
+        });
+        let music_dir_default = music_dir.display().to_string();
+        let music_dir_input = cx.new(|cx: &mut Context<InputState>| {
+            InputState::new(window, cx)
+                .placeholder("~/V4Vmusic")
+                .default_value(music_dir_default)
         });
 
         Self {
             tab: AppTab::Library,
             search,
             library,
-            settings_input,
+            endpoint_input,
+            music_dir_input,
             cfg_path,
             settings_status: String::new(),
         }
     }
 
     fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let endpoint = self.settings_input.read(cx).value().to_string();
-        match config::save_musicindex_endpoint(&self.cfg_path, &endpoint) {
-            Ok(normalized) => {
+        let endpoint = self.endpoint_input.read(cx).value().to_string();
+        let music_dir = self.music_dir_input.read(cx).value().to_string();
+        match config::save_app_settings(&self.cfg_path, &endpoint, &music_dir) {
+            Ok((normalized_endpoint, normalized_music_dir)) => {
+                let cfg = match config::load_config(&self.cfg_path)
+                    .and_then(|cfg| config::ensure_dirs(&cfg).map(|()| cfg))
+                {
+                    Ok(cfg) => cfg,
+                    Err(error) => {
+                        self.settings_status = format!("Error: {error:#}");
+                        cx.notify();
+                        return;
+                    }
+                };
                 self.search.update(cx, |search, cx| {
-                    search.set_musicindex_endpoint(normalized.clone(), cx);
+                    search.set_musicindex_endpoint(normalized_endpoint.clone(), cx);
                 });
                 self.library.update(cx, |library, cx| {
-                    library.set_musicindex_endpoint(normalized.clone(), cx);
+                    library.set_musicindex_endpoint(normalized_endpoint.clone(), cx);
                 });
-                self.settings_input.update(cx, |input, cx| {
-                    input.set_value(normalized.clone(), window, cx);
+                self.endpoint_input.update(cx, |input, cx| {
+                    input.set_value(normalized_endpoint.clone(), window, cx);
                 });
-                self.settings_status = format!("Saved MusicIndex endpoint: {normalized}");
+                self.music_dir_input.update(cx, |input, cx| {
+                    input.set_value(normalized_music_dir.display().to_string(), window, cx);
+                });
+                self.settings_status = format!(
+                    "Saved settings. Music files download under {}/artists",
+                    cfg.music_dir.display()
+                );
             }
             Err(error) => {
                 self.settings_status = format!("Error: {error:#}");
@@ -204,7 +230,8 @@ impl Render for TopApp {
 }
 
 fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {
-    let input = app.settings_input.clone();
+    let endpoint_input = app.endpoint_input.clone();
+    let music_dir_input = app.music_dir_input.clone();
     let status = app.settings_status.clone();
     let status_color = if status.starts_with("Error:") {
         rgb(0xff6b6b)
@@ -237,12 +264,34 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .text_color(muted())
                         .child("MusicIndex endpoint"),
                 )
-                .child(Input::new(&input).cleanable(true).with_size(Size::Small))
+                .child(
+                    Input::new(&endpoint_input)
+                        .cleanable(true)
+                        .with_size(Size::Small),
+                )
                 .child(
                     div()
                         .text_xs()
                         .text_color(muted())
                         .child("Use api.musicindex.org or a full http/https URL."),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(muted())
+                        .child("Music directory"),
+                )
+                .child(
+                    Input::new(&music_dir_input)
+                        .cleanable(true)
+                        .with_size(Size::Small),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(muted())
+                        .child("Downloads are organized under an artists subfolder."),
                 )
                 .child(
                     div()
@@ -262,14 +311,30 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         )
                         .child(
                             Button::new("settings-default")
-                                .label("Use Default")
+                                .label("Use Defaults")
                                 .ghost()
                                 .with_size(Size::Small)
                                 .text_color(rgb(0xffffff))
                                 .on_click(cx.listener(|this, _, window, cx| {
-                                    this.settings_input.update(cx, |input, cx| {
+                                    this.endpoint_input.update(cx, |input, cx| {
                                         input.set_value(crate::api::DEFAULT_BASE_URL, window, cx);
                                     });
+                                    match config::default_music_dir() {
+                                        Ok(default_music_dir) => {
+                                            this.music_dir_input.update(cx, |input, cx| {
+                                                input.set_value(
+                                                    default_music_dir.display().to_string(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            });
+                                        }
+                                        Err(error) => {
+                                            this.settings_status = format!("Error: {error:#}");
+                                            cx.notify();
+                                            return;
+                                        }
+                                    }
                                     this.save_settings(window, cx);
                                 })),
                         ),
@@ -351,7 +416,15 @@ pub fn run_app() {
             },
             |window, cx| {
                 let view = cx.new(|cx| {
-                    TopApp::new(conn, image_cache, cfg_path, musicindex_endpoint, window, cx)
+                    TopApp::new(
+                        conn,
+                        image_cache,
+                        cfg_path,
+                        musicindex_endpoint,
+                        cfg.music_dir,
+                        window,
+                        cx,
+                    )
                 });
                 cx.new(|cx| Root::new(view, window, cx))
             },
