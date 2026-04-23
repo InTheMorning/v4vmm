@@ -36,7 +36,3 @@ tempfile = "3"
 [[bin]]
 name = "v4vmm"
 path = "src/main.rs"
-
-[[bin]]
-name = "search"
-path = "src/bin/search.rs"

@@ -7,9 +7,7 @@ use std::io::Cursor;
 use super::helpers::*;
 use crate::config::Config;
 
-pub fn cmd_subscribe(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result<()> {
-    println!("Fetching: {feed_url}");
-
+pub fn subscribe_feed(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result<()> {
     // --- fetch ---
     let body = reqwest::blocking::Client::new()
         .get(feed_url)

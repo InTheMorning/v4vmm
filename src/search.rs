@@ -1729,7 +1729,7 @@ fn subscribe_feed_from_search(
 
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        rss::cmd_subscribe(&cfg, &mut db, &feed_url)?;
+        rss::subscribe_feed(&cfg, &mut db, &feed_url)?;
     }
 
     let client = ReqwestClient::new();
@@ -1819,7 +1819,7 @@ fn subscribe_track_from_search(
 
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        rss::cmd_subscribe(&cfg, &mut db, &feed_url)?;
+        rss::subscribe_feed(&cfg, &mut db, &feed_url)?;
     }
 
     let client = ReqwestClient::new();

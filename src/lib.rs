@@ -1,10 +1,8 @@
 pub mod api;
 pub mod app;
 pub mod audio_tags;
-pub mod cli;
 pub mod config;
 pub mod db;
-pub mod id3;
 pub mod library;
 pub mod media;
 pub mod metadata;

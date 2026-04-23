@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use gpui::{
-    div, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, FontWeight, Render,
-    SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, img, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, FontWeight, Image,
+    ImageFormat, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
@@ -36,6 +36,13 @@ fn muted() -> gpui::Rgba {
 }
 fn accent() -> gpui::Rgba {
     rgb(0x8b9bff)
+}
+
+fn app_logo() -> Arc<Image> {
+    Arc::new(Image::from_bytes(
+        ImageFormat::Png,
+        include_bytes!("assets/music_network_logo.png").to_vec(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -143,14 +150,35 @@ impl Render for TopApp {
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap(px(4.0))
+                    .gap(px(6.0))
                     .child(
                         div()
-                            .text_base()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(accent())
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(8.0))
                             .mr(px(12.0))
-                            .child("stophammer"),
+                            .child(
+                                div()
+                                    .w(px(26.0))
+                                    .h(px(26.0))
+                                    .rounded(px(4.0))
+                                    .overflow_hidden()
+                                    .flex_shrink_0()
+                                    .child(
+                                        img(app_logo())
+                                            .w(px(26.0))
+                                            .h(px(26.0))
+                                            .object_fit(ObjectFit::Cover),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_base()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(accent())
+                                    .child("V4V Music Manager"),
+                            ),
                     )
                     .child(render_app_tab("Library", AppTab::Library, self.tab, cx))
                     .child(render_app_tab("Discover", AppTab::Discover, self.tab, cx))

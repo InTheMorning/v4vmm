@@ -30,49 +30,29 @@ Planned features:
 - Generate VTS for live RSS streaming, chapter art, and a ready-to-go podcast episode
 - Support arbitrary-length talk breaks between songs
 
-# Usage
+# Build and Run
 
 ```
-mkdir -p ~/.cargo/bin
-cd rust
 cargo build
-cargo install --path .
+cargo run
 ```
-This creates the `v4vmm` CLI binary in `~/.cargo/bin` so you can add that folder to your `$PATH` or run `~/.cargo/bin/v4vmm` directly.
 
-The main binary is a CLI tool:
+To install the desktop app binary:
+
 ```
-Usage:
-  v4vmm show-config
-  v4vmm id3-dump <path-to-mp3>
-  v4vmm subscribe <feed-url>
-  v4vmm rss-dump <feed-url>
+cargo install --path .
+v4vmm
 ```
 
 ## MusicIndex UI
 
-There is also a GPUI desktop search app for MusicIndex/Stophammer data. It searches MusicIndex feeds, tracks, and publishers, shows compact results on the left, and opens the selected result in a right-side inspector with feed tracks, track/feed drill-downs, contributors, value routes, and MP3 embedded-metadata comparison.
+The `v4vmm` binary is V4V Music Manager, a GPUI desktop app for local library management and MusicIndex discovery. It searches MusicIndex feeds, tracks, and publishers, shows compact results on the left, and opens the selected result in a right-side inspector with feed tracks, track/feed drill-downs, contributors, value routes, and MP3 embedded-metadata comparison.
 
-Run it from the Rust crate:
+The UI uses the configured MusicIndex endpoint and needs network access.
 
-```
-cd rust
-cargo run --bin search
-```
+For track results, use `Download + Compare` in the inspector to fetch the MP3 enclosure into `music_dir`, read its embedded MP3 tags, and compare title, artist, album/feed, track number, publisher, nostr handle, website, and release pubdate fields against MusicIndex source facts. The inspector keeps MusicIndex/RSS data and actions on the left and opens file-side ID3 details on the right. It also shows embedded artwork and all ID3 frames found in the file. Missing ID3 tags render as blank fields. This is read-only: it does not rewrite tags.
 
-If you want an installed launcher:
-
-```
-cd rust
-cargo install --path . --bin search
-search
-```
-
-The UI uses `https://musicindex.org` by default and needs network access. It is separate from the local `v4vmm` SQLite database used by the RSS subscription CLI.
-
-For track results, use `Download + Compare` in the inspector to fetch the MP3 enclosure into `music_dir`, read its embedded MP3 tags, and compare title, artist, album/feed, track number, publisher, nostr handle, website, and release pubdate fields against MusicIndex/Stophammer source facts. The inspector keeps MusicIndex/RSS data and actions on the left and opens file-side ID3 details on the right. It also shows embedded artwork and all ID3 frames found in the file. Missing ID3 tags render as blank fields. This is read-only: it does not rewrite tags.
-
-Running the CLI will create config file `~/.config/v4vmm/config.toml`
+Running the app will create config file `~/.config/v4vmm/config.toml`.
 This file contains defaults:
 ```
 # V4V-only library root
@@ -82,11 +62,9 @@ music_dir = "/home/<username>/V4VMusic"
 db_path = "/home/<username>/.local/share/v4vmm/v4vmm.sqlite"
 ```
 
-For now it only supports subcribing to a feed which adds its relevant RSS data to our database along with additional fields for eventual id3 tag info and toggling as *in our library*.
-
-It can also print id3 data from any local (mp3-only, for now) file, and for development purposes print what our rss library sees when it looks at a feed.
+The app can subscribe to a feed, add its relevant RSS data to the local database, download tracks, compare embedded metadata, and toggle tracks as *in our library*.
 
 # Project discipline
 
 - Architecture decisions live in `docs/adr/`
-- Rust regression and integration tests live in `rust/tests/`
+- Rust regression and integration tests live in `tests/`

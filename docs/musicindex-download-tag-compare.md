@@ -2,17 +2,17 @@
 
 ## Goal
 
-Build a workflow for selecting a MusicIndex track, downloading its audio file, reading the file's embedded metadata, and comparing those fields side by side against the source facts exposed by the MusicIndex/Stophammer API.
+Build a workflow for selecting a MusicIndex track, downloading its audio file, reading the file's embedded metadata, and comparing those fields side by side against the source facts exposed by the MusicIndex API.
 
 This is an operator/debugging workflow first. It should surface differences clearly and preserve provenance. It must not infer metadata, overwrite tags, or discard source data unless a later ADR and phase plan explicitly approves that behavior.
 
 ## Current Starting Point
 
-- `cargo run --bin search` launches the GPUI MusicIndex search UI.
-- `rust/src/musicindex.rs` already owns the MusicIndex client models, search flow, track inspector, feed drill-downs, contributors, and value-route loading.
+- `cargo run` launches the GPUI MusicIndex search UI as the `v4vmm` binary.
+- `src/search.rs` owns the MusicIndex client models, search flow, track inspector, feed drill-downs, contributors, and value-route loading.
 - Track detail responses already include primary `enclosure_url` fields.
-- The Stophammer `/v1/tracks/{guid}` endpoint supports `include=source_enclosures`, which can expose primary and alternate enclosure choices.
-- `v4vmm id3-dump <path>` already reads basic MP3 ID3 metadata and custom `TXXX` frames.
+- The MusicIndex `/v1/tracks/{guid}` endpoint supports `include=source_enclosures`, which can expose primary and alternate enclosure choices.
+- `src/audio_tags.rs` reads basic MP3 ID3 metadata and custom `TXXX` frames for the desktop workflow.
 
 ## Implemented Flow
 
@@ -23,7 +23,7 @@ This is an operator/debugging workflow first. It should surface differences clea
 5. The app reads embedded MP3 metadata from the downloaded file.
 6. The inspector renders a side-by-side comparison table:
 
-   | Field | MusicIndex/Stophammer | File Tag | Status |
+   | Field | MusicIndex | File Tag | Status |
    | --- | --- | --- | --- |
    | Title | Track title | ID3 title | match/diff/missing |
    | Artist | Track artist | ID3 artist | match/diff/missing |
@@ -81,7 +81,7 @@ For the first implementation:
 Status: complete.
 
 - Added an `AudioTags` shape and MP3-backed tag reader.
-- Kept the existing `v4vmm id3-dump` command working.
+- Kept MP3 tag reading available behind the format-neutral `AudioTags` boundary.
 - Added focused tests for tag normalization.
 
 ### Phase 2: Download and Compare Core
