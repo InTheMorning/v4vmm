@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use gpui::{
-    div, img, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, FontWeight, Image,
-    ImageFormat, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, img, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, Image,
+    ImageFormat, KeyDownEvent, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
@@ -14,29 +14,15 @@ use crate::db;
 use crate::library::LibraryApp;
 use crate::media::ImageCache;
 use crate::search::SearchApp;
+use crate::ui::theme::color;
+use crate::ui::theme::spacing;
+use crate::ui::theme::typography;
+use crate::ui::theme::radius;
 
 // ---------------------------------------------------------------------------
 // Color helpers (same palette)
 // ---------------------------------------------------------------------------
 
-fn bg() -> gpui::Rgba {
-    rgb(0x0f1117)
-}
-fn surface() -> gpui::Rgba {
-    rgb(0x1a1d27)
-}
-fn border() -> gpui::Rgba {
-    rgb(0x2a2d3a)
-}
-fn text() -> gpui::Rgba {
-    rgb(0xe2e4ed)
-}
-fn muted() -> gpui::Rgba {
-    rgb(0x9aa0b4)
-}
-fn accent() -> gpui::Rgba {
-    rgb(0x8b9bff)
-}
 
 fn app_logo() -> Arc<Image> {
     Arc::new(Image::from_bytes(
@@ -68,6 +54,9 @@ pub struct TopApp {
     music_dir_input: Entity<InputState>,
     cfg_path: PathBuf,
     settings_status: String,
+    library_tab_focus: gpui::FocusHandle,
+    discover_tab_focus: gpui::FocusHandle,
+    settings_tab_focus: gpui::FocusHandle,
 }
 
 impl TopApp {
@@ -110,6 +99,9 @@ impl TopApp {
             music_dir_input,
             cfg_path,
             settings_status: String::new(),
+            library_tab_focus: cx.focus_handle(),
+            discover_tab_focus: cx.focus_handle(),
+            settings_tab_focus: cx.focus_handle(),
         }
     }
 
@@ -159,36 +151,93 @@ impl Render for TopApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
-            .bg(bg())
-            .text_color(text())
+            .bg(color::bg_canvas())
+            .text_color(color::text_primary())
             .text_sm()
             .flex()
             .flex_col()
             .overflow_hidden()
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let modifiers = event.keystroke.modifiers;
+                let key = event.keystroke.key.as_str();
+
+                if modifiers.platform {
+                    match key {
+                        "1" => { this.tab = AppTab::Library; cx.notify(); }
+                        "2" => { this.tab = AppTab::Discover; cx.notify(); }
+                        "3" => { this.tab = AppTab::Settings; cx.notify(); }
+                        "f" => {
+                            match this.tab {
+                                AppTab::Library => this.library.update(cx, |lib, cx| lib.focus_search(window, cx)),
+                                AppTab::Discover => this.search.update(cx, |s, cx| s.focus_search(window, cx)),
+                                _ => {}
+                            }
+                        }
+                        "r" => {
+                            if this.tab == AppTab::Library {
+                                this.library.update(cx, |lib, cx| lib.refresh(cx));
+                            }
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match key {
+                        "escape" => {
+                            match this.tab {
+                                AppTab::Library => this.library.update(cx, |lib, cx| lib.pop_inspector(cx)),
+                                AppTab::Discover => this.search.update(cx, |s, cx| s.pop_inspector(cx)),
+                                _ => {}
+                            }
+                        }
+                        "up" => {
+                            match this.tab {
+                                AppTab::Library => this.library.update(cx, |lib, cx| lib.move_up(cx)),
+                                AppTab::Discover => this.search.update(cx, |s, cx| s.move_up(cx)),
+                                _ => {}
+                            }
+                        }
+                        "down" => {
+                            match this.tab {
+                                AppTab::Library => this.library.update(cx, |lib, cx| lib.move_down(cx)),
+                                AppTab::Discover => this.search.update(cx, |s, cx| s.move_down(cx)),
+                                _ => {}
+                            }
+                        }
+                        "enter" => {
+                            match this.tab {
+                                AppTab::Library => this.library.update(cx, |lib, cx| lib.confirm(cx)),
+                                AppTab::Discover => this.search.update(cx, |s, cx| s.confirm(cx)),
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }))
             // Top-level tab bar
             .child(
                 div()
-                    .bg(surface())
+                    .bg(color::bg_surface())
                     .border_b_1()
-                    .border_color(border())
-                    .px(px(12.0))
-                    .py(px(6.0))
+                    .border_color(color::border_subtle())
+                    .px(spacing::MD)
+                    .py(spacing::SM)
                     .flex()
                     .flex_row()
                     .items_center()
-                    .gap(px(6.0))
+                    .gap(spacing::XS)
                     .child(
                         div()
                             .flex()
                             .flex_row()
                             .items_center()
-                            .gap(px(8.0))
-                            .mr(px(12.0))
+                            .gap(spacing::SM)
+                            .mr(spacing::MD)
                             .child(
                                 div()
                                     .w(px(26.0))
                                     .h(px(26.0))
-                                    .rounded(px(4.0))
+                                    .rounded(spacing::XS)
                                     .overflow_hidden()
                                     .flex_shrink_0()
                                     .child(
@@ -199,16 +248,14 @@ impl Render for TopApp {
                                     ),
                             )
                             .child(
-                                div()
-                                    .text_base()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(accent())
+                                typography::type_headline(div())
+                                    .text_color(color::accent())
                                     .child("V4V Music Manager"),
                             ),
                     )
-                    .child(render_app_tab("Library", AppTab::Library, self.tab, cx))
-                    .child(render_app_tab("Discover", AppTab::Discover, self.tab, cx))
-                    .child(render_app_tab("Settings", AppTab::Settings, self.tab, cx)),
+                    .child(render_app_tab("Library", AppTab::Library, self.tab, &self.library_tab_focus, _window, cx))
+                    .child(render_app_tab("Discover", AppTab::Discover, self.tab, &self.discover_tab_focus, _window, cx))
+                    .child(render_app_tab("Settings", AppTab::Settings, self.tab, &self.settings_tab_focus, _window, cx)),
             )
             // Active tab content
             .child(
@@ -234,34 +281,30 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
     let music_dir_input = app.music_dir_input.clone();
     let status = app.settings_status.clone();
     let status_color = if status.starts_with("Error:") {
-        rgb(0xff6b6b)
+        color::status_danger()
     } else {
-        muted()
+        color::text_muted()
     };
 
     div()
         .id("settings-scroll")
         .size_full()
-        .bg(bg())
-        .p(px(24.0))
+        .bg(color::bg_canvas())
+        .p(spacing::XL)
         .overflow_y_scroll()
         .child(
             div()
                 .max_w(px(720.0))
                 .flex()
                 .flex_col()
-                .gap(px(14.0))
+                .gap(spacing::LG)
                 .child(
-                    div()
-                        .text_2xl()
-                        .font_weight(FontWeight::SEMIBOLD)
+                    typography::type_title(div())
                         .child("Settings"),
                 )
                 .child(
-                    div()
-                        .text_size(px(11.0))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(muted())
+                    typography::type_caption_strong(div())
+                        .text_color(color::text_muted())
                         .child("MusicIndex endpoint"),
                 )
                 .child(
@@ -270,16 +313,13 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .with_size(Size::Small),
                 )
                 .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted())
+                    typography::type_caption(div())
+                        .text_color(color::text_muted())
                         .child("Use api.musicindex.org or a full http/https URL."),
                 )
                 .child(
-                    div()
-                        .text_size(px(11.0))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(muted())
+                    typography::type_caption_strong(div())
+                        .text_color(color::text_muted())
                         .child("Music directory"),
                 )
                 .child(
@@ -288,9 +328,8 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .with_size(Size::Small),
                 )
                 .child(
-                    div()
-                        .text_xs()
-                        .text_color(muted())
+                    typography::type_caption(div())
+                        .text_color(color::text_muted())
                         .child("Downloads are organized under an artists subfolder."),
                 )
                 .child(
@@ -298,7 +337,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .flex()
                         .flex_row()
                         .items_center()
-                        .gap(px(8.0))
+                        .gap(spacing::SM)
                         .child(
                             Button::new("settings-save")
                                 .label("Save")
@@ -355,20 +394,16 @@ fn render_app_tab(
     label: &'static str,
     tab: AppTab,
     active: AppTab,
+    focus_handle: &gpui::FocusHandle,
+    window: &gpui::Window,
     cx: &mut Context<TopApp>,
 ) -> gpui::AnyElement {
     let is_active = tab == active;
-    let mut btn = Button::new(SharedString::from(format!("app-tab-{label}")))
-        .label(label)
-        .with_size(Size::Small);
+    let is_focused = focus_handle.is_focused(window);
 
-    if is_active {
-        btn = btn.primary();
-    } else {
-        btn = btn.ghost();
-    }
-
-    btn.text_color(rgb(0xffffff))
+    div()
+        .id(SharedString::from(format!("app-tab-{label}")))
+        .track_focus(focus_handle)
         .on_click(cx.listener(move |this, _, _, cx| {
             this.tab = tab;
             if tab == AppTab::Library {
@@ -376,6 +411,23 @@ fn render_app_tab(
             }
             cx.notify();
         }))
+        .px(spacing::SM)
+        .py(spacing::XS)
+        .rounded(radius::LG)
+        .when(is_active, |el| {
+            el.bg(color::accent()).text_color(color::text_on_accent())
+        })
+        .when(!is_active, |el| {
+            el.text_color(color::text_secondary())
+                .hover(|s| s.bg(color::bg_surface_hi()))
+        })
+        .when(is_focused, |el| {
+            el.border_2().border_color(color::focus_ring())
+        })
+        .child(
+            typography::type_body(div())
+                .child(label)
+        )
         .into_any_element()
 }
 
@@ -406,6 +458,7 @@ pub fn run_app() {
         let image_cache = ImageCache::new(http, thumbnail_cache_dir);
 
         cx.open_window(
+
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,

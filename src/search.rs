@@ -131,24 +131,24 @@ impl Render for MetadataDragPreview {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .max_w(px(320.0))
-            .rounded(px(6.0))
+            .rounded(radius::MD)
             .border_1()
-            .border_color(accent())
-            .bg(surface())
-            .p(px(8.0))
+            .border_color(color::accent())
+            .bg(color::bg_surface())
+            .p(spacing::SM)
             .child(
                 div()
-                    .text_size(px(10.0))
+                    .text_size(typography::SIZE_MICRO)
                     .font_weight(FontWeight::BOLD)
-                    .text_color(muted())
+                    .text_color(color::text_muted())
                     .child(SharedString::from(self.label.clone())),
             )
             .child(
                 div()
-                    .mt(px(4.0))
-                    .text_size(px(11.0))
+                    .mt(spacing::XS)
+                    .text_size(typography::SIZE_MICRO)
                     .line_height(px(16.0))
-                    .text_color(text())
+                    .text_color(color::text_primary())
                     .flex()
                     .flex_col()
                     .children(compare_value_line_elements(&self.value, 4)),
@@ -193,6 +193,7 @@ pub struct SearchApp {
     resizing: bool,
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
+    list_focus: gpui::FocusHandle,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -249,6 +250,7 @@ impl SearchApp {
             resizing: false,
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
+            list_focus: cx.focus_handle(),
         };
         this.load_recent_feeds(false, cx);
         this
@@ -331,6 +333,67 @@ impl SearchApp {
 
     fn api_client(&self) -> Arc<Client> {
         Arc::new(Client::new_with_base_url(self.musicindex_endpoint.clone()))
+    }
+
+    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |input, cx| {
+            input.focus(window, cx);
+        });
+    }
+
+    pub fn pop_inspector(&mut self, cx: &mut Context<Self>) {
+        if !self.inspector_stack.is_empty() {
+            self.inspector_stack.pop();
+            cx.notify();
+        }
+    }
+
+    pub fn move_up(&mut self, cx: &mut Context<Self>) {
+        if self.results.is_empty() {
+            return;
+        }
+        let current_key = self.selected_key.as_deref();
+        let current_idx = self
+            .results
+            .iter()
+            .position(|r| Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string()));
+        let next_idx = match current_idx {
+            Some(idx) if idx > 0 => idx - 1,
+            _ => 0,
+        };
+        if let Some(row) = self.results.get(next_idx) {
+            let entity_type = row.entity_type.clone();
+            let entity_id = row.entity_id.clone();
+            let (title, _, _, _) = result_lines(row);
+            self.select_result(entity_type, entity_id, title, cx);
+        }
+    }
+
+    pub fn move_down(&mut self, cx: &mut Context<Self>) {
+        if self.results.is_empty() {
+            return;
+        }
+        let current_key = self.selected_key.as_deref();
+        let current_idx = self
+            .results
+            .iter()
+            .position(|r| Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string()));
+        let next_idx = match current_idx {
+            Some(idx) if idx + 1 < self.results.len() => idx + 1,
+            Some(idx) => idx,
+            None => 0,
+        };
+        if let Some(row) = self.results.get(next_idx) {
+            let entity_type = row.entity_type.clone();
+            let entity_id = row.entity_id.clone();
+            let (title, _, _, _) = result_lines(row);
+            self.select_result(entity_type, entity_id, title, cx);
+        }
+    }
+
+    pub fn confirm(&mut self, _cx: &mut Context<Self>) {
+        // In search, confirm might mean "open details" which select_result already does.
+        // If we want to focus the inspector, we could do that.
     }
 
     fn on_input_event(
@@ -1225,20 +1288,21 @@ impl Render for SearchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let status_text = self.status.clone();
         let status_color = if status_text.starts_with("Error:") {
-            rgb(0xff6b6b)
+            color::status_danger()
         } else {
-            muted()
+            color::text_muted()
         };
         let status_empty = status_text.is_empty();
 
         let rows = self.results.clone();
         let selected_key = self.selected_key.clone();
+        let list_focused = self.list_focus.is_focused(_window);
         let results: Vec<AnyElement> = rows
             .iter()
             .map(|row| {
                 let image_url = result_image_url(row);
                 let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
-                render_result_item(row, selected_key.as_deref(), thumbnail.as_ref(), cx)
+                render_result_item(row, selected_key.as_deref(), thumbnail.as_ref(), list_focused, cx)
             })
             .collect();
         let type_filters: Vec<AnyElement> = TYPE_LABELS
@@ -1262,8 +1326,8 @@ impl Render for SearchApp {
 
         div()
             .size_full()
-            .bg(bg())
-            .text_color(text())
+            .bg(color::bg_canvas())
+            .text_color(color::text_primary())
             .text_sm()
             .flex()
             .overflow_hidden()
@@ -1302,17 +1366,17 @@ impl Render for SearchApp {
                             .overflow_hidden()
                             .child(
                                 div()
-                                    .p(px(12.0))
+                                    .p(spacing::MD)
                                     .border_b_1()
-                                    .border_color(border())
+                                    .border_color(color::border_subtle())
                                     .flex()
                                     .flex_col()
-                                    .gap(px(8.0))
+                                    .gap(spacing::SM)
                                     .child(
                                         div()
-                                            .text_size(px(10.0))
+                                            .text_size(typography::SIZE_MICRO)
                                             .font_weight(FontWeight::BOLD)
-                                            .text_color(muted())
+                                            .text_color(color::text_muted())
                                             .child("Search Index"),
                                     )
                                     .child(
@@ -1325,7 +1389,7 @@ impl Render for SearchApp {
                                             .flex()
                                             .flex_row()
                                             .flex_wrap()
-                                            .gap(px(6.0))
+                                            .gap(spacing::SM)
                                             .children(type_filters),
                                     )
                                     .child(
@@ -1333,7 +1397,7 @@ impl Render for SearchApp {
                                             .flex()
                                             .flex_row()
                                             .items_center()
-                                            .gap(px(8.0))
+                                            .gap(spacing::SM)
                                             .child(
                                                 Button::new("search-btn")
                                                     .label(search_label)
@@ -1375,24 +1439,25 @@ impl Render for SearchApp {
                             .child(
                                 div()
                                     .id("results-scroll")
+                                    .track_focus(&self.list_focus)
                                     .flex_1()
                                     .overflow_y_scroll()
-                                    .p(px(8.0))
+                                    .p(spacing::SM)
                                     .child(
                                         div()
                                             .flex()
                                             .flex_col()
-                                            .gap(px(2.0))
+                                            .gap(spacing::XXS)
                                             .children(results)
                                             .when(is_empty && !is_loading && status_empty, |el| {
                                                 el.child(
                                                     div()
                                                         .text_center()
-                                                        .p(px(48.0))
-                                                        .text_color(muted())
+                                                        .p(spacing::XXL)
+                                                        .text_color(color::text_muted())
                                                         .child(div().text_2xl().child("🔍"))
                                                         .child(
-                                                            div().mt(px(8.0)).child("No results"),
+                                                            div().mt(spacing::SM).child("No results"),
                                                         ),
                                                 )
                                             })
@@ -1400,11 +1465,11 @@ impl Render for SearchApp {
                                                 el.child(
                                                     div()
                                                         .text_center()
-                                                        .p(px(48.0))
-                                                        .text_color(muted())
+                                                        .p(spacing::XXL)
+                                                        .text_color(color::text_muted())
                                                         .child(div().text_2xl().child("🔍"))
                                                         .child(
-                                                            div().mt(px(8.0)).child("No results"),
+                                                            div().mt(spacing::SM).child("No results"),
                                                         ),
                                                 )
                                             })
@@ -1428,8 +1493,8 @@ impl Render for SearchApp {
                             .id("resize-handle")
                             .w(px(5.0))
                             .cursor_col_resize()
-                            .bg(border())
-                            .hover(|s| s.bg(accent()))
+                            .bg(color::border_subtle())
+                            .hover(|s| s.bg(color::accent()))
                             .flex_shrink_0()
                             .on_mouse_down(
                                 MouseButton::Left,
@@ -2252,6 +2317,7 @@ fn render_result_item(
     row: &ResultRow,
     selected_key: Option<&str>,
     thumbnail: Option<&Arc<Image>>,
+    list_focused: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let (line1, line2, line3, _image_url) = result_lines(row);
@@ -2272,13 +2338,24 @@ fn render_result_item(
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(10.0))
-        .p(px(8.0))
-        .rounded(px(6.0))
+        .gap(spacing::SM)
+        .p(spacing::SM)
+        .rounded(radius::MD)
         .cursor_pointer()
-        .bg(if is_selected { surface() } else { bg() })
+        .bg(if is_selected {
+            color::bg_surface()
+        } else {
+            color::bg_canvas()
+        })
         .border_1()
-        .border_color(if is_selected { accent() } else { bg() })
+        .border_color(if is_selected {
+            color::accent()
+        } else {
+            color::bg_canvas()
+        })
+        .when(is_selected && list_focused, |el| {
+            el.border_2().border_color(color::focus_ring())
+        })
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
         }))
@@ -2289,22 +2366,22 @@ fn render_result_item(
                 .min_w_0()
                 .child(truncated(line1).font_weight(FontWeight::MEDIUM))
                 .when(!line2.is_empty(), |el| {
-                    el.child(truncated_muted(line2).text_size(px(10.5)))
+                    el.child(truncated_muted(line2).text_size(typography::SIZE_MICRO))
                 })
                 .when(!line3.is_empty(), |el| {
-                    el.child(truncated_muted(line3).text_size(px(10.0)).opacity(0.7))
+                    el.child(truncated_muted(line3).text_size(typography::SIZE_MICRO).opacity(0.7))
                 }),
         )
         .child(
             div()
                 .flex_shrink_0()
-                .text_size(px(9.0))
+                .text_size(typography::SIZE_MICRO)
                 .font_weight(FontWeight::BOLD)
                 .text_color(badge_text(&row.entity_type))
                 .bg(type_color(&row.entity_type))
-                .px(px(5.0))
-                .py(px(1.0))
-                .rounded(px(3.0))
+                .px(spacing::XS)
+                .py(spacing::XXS)
+                .rounded(radius::SM)
                 .child(SharedString::from(row.entity_type.clone())),
         )
         .into_any_element()
@@ -2330,15 +2407,15 @@ fn render_inspector(
         .child(
             div()
                 .min_h(px(36.0))
-                .bg(surface())
+                .bg(color::bg_surface())
                 .border_b_1()
-                .border_color(border())
-                .px(px(12.0))
-                .py(px(6.0))
+                .border_color(color::border_subtle())
+                .px(spacing::MD)
+                .py(spacing::SM)
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap(px(8.0))
+                .gap(spacing::SM)
                 .when(show_back, |el| {
                     el.child(
                         Button::new("inspector-back")
@@ -2358,7 +2435,7 @@ fn render_inspector(
                 .id("inspector-scroll")
                 .flex_1()
                 .overflow_y_scroll()
-                .p(px(20.0))
+                .p(spacing::LG)
                 .child(match frame {
                     Some(frame) => render_inspector_body(frame, app, cx),
                     None if show_recents_root => render_recent_feeds_tiles(app, cx),
@@ -2399,6 +2476,8 @@ fn render_artist_inspector(
         .clone()
         .or_else(|| artist_context.artist.artist_id.clone())
         .unwrap_or_else(|| frame.title.clone());
+    
+    // ... rest of logic stays same ...
     let unique_releases = artist_context
         .tracks
         .iter()
@@ -2445,7 +2524,7 @@ fn render_artist_inspector(
     div()
         .flex()
         .flex_col()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_detail_header(
             "artist",
             &title,
@@ -2537,7 +2616,7 @@ fn render_discover_feed_inspector(
     div()
         .flex()
         .flex_col()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_feed_header(
             frame,
             feed,
@@ -2596,7 +2675,7 @@ fn render_discover_track_inspector(
     div()
         .flex()
         .flex_col()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_track_header(frame, track, cx))
         .child(render_action_row(frame, &BTreeMap::new(), cx))
         .child(render_detail_grid(rows))
@@ -2632,7 +2711,7 @@ fn render_track_left_column(
     div()
         .flex()
         .flex_col()
-        .gap(px(12.0))
+        .gap(spacing::MD)
         .child(render_track_header(frame, track, cx))
         .child(render_action_row(frame, pending_id3_edits, cx))
         .into_any_element()
@@ -2667,12 +2746,12 @@ fn render_track_window(
     div()
         .flex()
         .flex_col()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(
             div()
                 .grid()
                 .grid_cols(columns)
-                .gap(px(24.0))
+                .gap(spacing::XL)
                 .items_start()
                 .child(render_track_left_column(
                     frame,
@@ -2734,7 +2813,7 @@ fn render_publisher_inspector(
     div()
         .flex()
         .flex_col()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_detail_header("publisher", &title, None, None))
         .child(render_detail_grid(rows))
         .when(!feeds.is_empty(), |el| {
@@ -2756,7 +2835,7 @@ fn render_action_row(
         .flex()
         .flex_col()
         .items_start()
-        .gap(px(4.0))
+        .gap(spacing::XS)
         .child(
             metadata_action_button(&subscription_button_label(frame))
                 .disabled(frame.subscription_busy)
@@ -2768,12 +2847,12 @@ fn render_action_row(
             el.child(
                 div()
                     .max_w(px(220.0))
-                    .text_size(px(10.0))
+                    .text_size(typography::SIZE_MICRO)
                     .line_height(px(14.0))
                     .text_color(if message.contains("error") || message.contains("Error") {
                         rgb(0xff8a65)
                     } else {
-                        muted()
+                        color::text_muted()
                     })
                     .child(SharedString::from(message)),
             )
@@ -2810,7 +2889,7 @@ fn render_rss_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
     div()
         .flex()
         .flex_col()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_lazy_contributors(frame, cx))
         .child(render_lazy_value_routes(frame, cx))
         .into_any_element()
@@ -2822,7 +2901,7 @@ fn render_lazy_contributors(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
     div()
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(spacing::XS)
         .child(render_contributors_heading(collapsed, cx))
         .when(!collapsed, |el| match &frame.contributors {
             LazyPanel::Loaded(items) => el.children(contributor_elements(items, cx)),
@@ -2839,7 +2918,7 @@ fn render_lazy_value_routes(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
     div()
         .flex()
         .flex_col()
-        .gap(px(4.0))
+        .gap(spacing::XS)
         .child(render_value_routes_heading(collapsed, cx))
         .when(!collapsed, |el| match &frame.value_routes {
             LazyPanel::Loaded(items) => el.children(value_route_elements(items)),
@@ -2880,8 +2959,8 @@ fn contributor_elements(
                 all_elements.push(
                     div()
                         .id(id)
-                        .text_size(px(11.5))
-                        .text_color(accent())
+                        .text_size(typography::SIZE_MICRO)
+                        .text_color(color::accent())
                         .cursor_pointer()
                         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
                             let _ = open::that(&href_for_click);
@@ -2892,7 +2971,7 @@ fn contributor_elements(
             } else {
                 all_elements.push(
                     div()
-                        .text_size(px(11.5))
+                        .text_size(typography::SIZE_MICRO)
                         .child(SharedString::from(format!("{name}{role_str}")))
                         .into_any_element(),
                 );
@@ -2933,16 +3012,16 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(2.0))
-                    .text_size(px(11.5))
+                    .gap(spacing::XXS)
+                    .text_size(typography::SIZE_MICRO)
                     .child(SharedString::from(format!(
                         "{name} ({route_type} · {split}% · {fee_label})"
                     )))
                     .when(route.address.is_some(), |el| {
                         el.child(
                             div()
-                                .text_color(muted())
-                                .text_size(px(10.5))
+                                .text_color(color::text_muted())
+                                .text_size(typography::SIZE_MICRO)
                                 .line_clamp(2)
                                 .child(SharedString::from(
                                     route.address.clone().unwrap_or_default(),
@@ -2961,8 +3040,8 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
                             }
                             el.child(
                                 div()
-                                    .text_color(muted())
-                                    .text_size(px(10.5))
+                                    .text_color(color::text_muted())
+                                    .text_size(typography::SIZE_MICRO)
                                     .child(SharedString::from(parts.join(" · "))),
                             )
                         },
@@ -3010,7 +3089,7 @@ fn render_musicbrainz_lookup(
         None => div()
             .flex()
             .flex_col()
-            .gap(px(6.0))
+            .gap(spacing::SM)
             .child(render_musicbrainz_title_bar(result, None, cx))
             .child(muted_line("No MusicBrainz recording match found"))
             .into_any_element(),
@@ -3027,7 +3106,7 @@ fn render_musicbrainz_header(
         .flex()
         .flex_row()
         .items_start()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_thumb(result.image.as_ref(), "track", 80.0, true))
         .child(
             div()
@@ -3043,8 +3122,8 @@ fn render_musicbrainz_header(
                 )
                 .child(
                     div()
-                        .text_color(muted())
-                        .text_size(px(10.5))
+                        .text_color(color::text_muted())
+                        .text_size(typography::SIZE_MICRO)
                         .line_clamp(2)
                         .child(SharedString::from(musicbrainz_subtitle(
                             frame, result, candidate,
@@ -3072,14 +3151,14 @@ fn render_musicbrainz_title_bar(
         .justify_start()
         .bg(type_color("track"))
         .text_color(rgb(0xffffff))
-        .text_size(px(10.0))
+        .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::BOLD)
-        .px(px(6.0))
-        .py(px(2.0))
+        .px(spacing::SM)
+        .py(spacing::XXS)
         .border_1()
         .border_color(type_color("track"))
-        .rounded(px(4.0))
-        .mb(px(6.0));
+        .rounded(radius::SM)
+        .mb(spacing::SM);
 
     if result.lookup.candidates.is_empty() {
         return trigger.disabled(true).into_any_element();
@@ -3285,8 +3364,8 @@ fn render_metadata_grid(
     div()
         .grid()
         .grid_cols(columns)
-        .gap_x(px(24.0))
-        .gap_y(px(7.0))
+        .gap_x(spacing::XL)
+        .gap_y(spacing::SM)
         .children(cells)
         .into_any_element()
 }
@@ -3294,9 +3373,9 @@ fn render_metadata_grid(
 fn metadata_heading_cell(label: &str, indent: f32) -> AnyElement {
     div()
         .pl(px(indent))
-        .text_color(muted())
+        .text_color(color::text_muted())
         .font_weight(FontWeight::BOLD)
-        .text_size(px(10.5))
+        .text_size(typography::SIZE_MICRO)
         .child(SharedString::from(label.to_string()))
         .into_any_element()
 }
@@ -3311,7 +3390,7 @@ fn metadata_rss_cell(
     let value = row.rss_value.as_deref().unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
     let value_color = source_cell_color(pending, MetadataColumn::Rss, row.rss_value.as_deref())
-        .unwrap_or_else(text);
+        .unwrap_or_else(color::text_primary);
     let expandable = metadata_field_is_expandable(&row.field) && !value.is_empty();
     let value_element = if expandable {
         expandable_cell(
@@ -3333,13 +3412,13 @@ fn metadata_rss_cell(
         .flex()
         .flex_row()
         .items_start()
-        .gap(px(10.0))
+        .gap(spacing::SM)
         .child(
             div()
                 .w(px(86.0))
                 .flex_shrink_0()
-                .text_color(text())
-                .text_size(px(11.0))
+                .text_color(color::text_primary())
+                .text_size(typography::SIZE_MICRO)
                 .line_height(px(16.0))
                 .child(SharedString::from(row.field.clone())),
         )
@@ -3352,7 +3431,7 @@ fn metadata_rss_cell(
                     row.row_id
                 )))
                 .cursor_move()
-                .hover(|style| style.bg(surface()))
+                .hover(|style| style.bg(color::bg_surface()))
                 .on_drag(
                     drag,
                     |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
@@ -3411,9 +3490,9 @@ fn metadata_id3_cell(
         compare_tag_cell(&display_value, Some(color), frame, frame_color)
     };
     let mut cell = div()
-        .pl(px(12.0))
+        .pl(spacing::MD)
         .min_w_0()
-        .rounded(px(4.0))
+        .rounded(radius::SM)
         .child(value_element)
         .when_some(pending, |el, edit| {
             el.border_1()
@@ -3436,7 +3515,7 @@ fn metadata_id3_cell(
         let target_existing_value = (!value.is_empty()).then(|| value.to_string());
         cell = cell
             .can_drop(|drag, _window, _cx| drag.downcast_ref::<MetadataDragValue>().is_some())
-            .hover(|style| style.bg(surface()))
+            .hover(|style| style.bg(color::bg_surface()))
             .on_drop(
                 cx.listener(move |this, drag: &MetadataDragValue, _window, cx| {
                     let mut drag = drag.clone();
@@ -3463,7 +3542,7 @@ fn metadata_musicbrainz_cell(
     .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status));
     let value = row.musicbrainz_value.as_deref().unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
-    let cell = div().pl(px(12.0)).min_w_0().child(compare_tag_cell(
+    let cell = div().pl(spacing::MD).min_w_0().child(compare_tag_cell(
         &display_value,
         Some(musicbrainz_color),
         row.musicbrainz_key.as_deref(),
@@ -3475,7 +3554,7 @@ fn metadata_musicbrainz_cell(
             row.row_id
         )))
         .cursor_move()
-        .hover(|style| style.bg(surface()))
+        .hover(|style| style.bg(color::bg_surface()))
         .on_drag(
             drag,
             |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
@@ -3546,7 +3625,7 @@ fn metadata_group_cell(
     };
 
     let expanded = group.expanded;
-    let mut cell = div().col_span(columns).mt(px(6.0));
+    let mut cell = div().col_span(columns).mt(spacing::SM);
     if let Some(group_key) = group.key {
         cell = cell.child(
             render_clickable_section_heading(&label, !expanded).on_click(cx.listener(
@@ -3558,9 +3637,9 @@ fn metadata_group_cell(
     } else {
         cell = cell.child(
             div()
-                .text_size(px(10.5))
+                .text_size(typography::SIZE_MICRO)
                 .font_weight(FontWeight::BOLD)
-                .text_color(muted())
+                .text_color(color::text_muted())
                 .child(SharedString::from(label)),
         );
     }
@@ -3680,7 +3759,7 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
         .flex()
         .flex_row()
         .items_start()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_thumb(
             result.file_image.as_ref(),
             "track",
@@ -3696,17 +3775,17 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
                         .flex()
                         .flex_row()
                         .items_center()
-                        .gap(px(6.0))
-                        .mb(px(6.0))
+                        .gap(spacing::SM)
+                        .mb(spacing::SM)
                         .child(
                             div()
-                                .text_size(px(10.0))
+                                .text_size(typography::SIZE_MICRO)
                                 .font_weight(FontWeight::BOLD)
                                 .text_color(badge_text("track"))
                                 .bg(type_color("track"))
-                                .px(px(6.0))
-                                .py(px(2.0))
-                                .rounded(px(4.0))
+                                .px(spacing::SM)
+                                .py(spacing::XXS)
+                                .rounded(radius::SM)
                                 .child("Embedded id3"),
                         )
                         .child(metadata_action_button("Re-read").on_click(cx.listener(
@@ -3729,8 +3808,8 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
                 )
                 .child(
                     div()
-                        .text_color(muted())
-                        .text_size(px(10.5))
+                        .text_color(color::text_muted())
+                        .text_size(typography::SIZE_MICRO)
                         .line_clamp(2)
                         .child(SharedString::from(result.path.clone())),
                 ),
@@ -3750,8 +3829,8 @@ fn id3_header_title(result: &TagCompareResult) -> String {
 
 fn muted_line(value: &str) -> AnyElement {
     div()
-        .text_color(muted())
-        .text_size(px(10.5))
+        .text_color(color::text_muted())
+        .text_size(typography::SIZE_MICRO)
         .child(SharedString::from(value.to_string()))
         .into_any_element()
 }
@@ -3823,7 +3902,7 @@ fn expandable_cell(
     if expanded && field == "Value Routes" {
         let cell_key_h = cell_key.clone();
         return div()
-            .text_size(px(11.0))
+            .text_size(typography::SIZE_MICRO)
             .line_height(px(16.0))
             .text_color(color)
             .flex()
@@ -3837,8 +3916,8 @@ fn expandable_cell(
                     }))
                     .flex()
                     .flex_row()
-                    .gap(px(4.0))
-                    .child(div().text_size(px(9.0)).text_color(muted()).child(glyph)),
+                    .gap(spacing::XS)
+                    .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph)),
             )
             .children(value_routes_tree_elements(
                 raw_value,
@@ -3854,7 +3933,7 @@ fn expandable_cell(
     let mut container = div()
         .id(SharedString::from(format!("expandable-rss-{}", field)))
         .cursor_pointer()
-        .text_size(px(11.0))
+        .text_size(typography::SIZE_MICRO)
         .line_height(px(16.0))
         .text_color(color)
         .flex()
@@ -3873,11 +3952,11 @@ fn expandable_cell(
                     div()
                         .flex()
                         .flex_row()
-                        .gap(px(4.0))
-                        .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+                        .gap(spacing::XS)
+                        .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
                         .child(
                             div()
-                                .text_color(accent())
+                                .text_color(color::accent())
                                 .truncate()
                                 .child(SharedString::from(raw_value.to_string())),
                         ),
@@ -3893,9 +3972,9 @@ fn expandable_cell(
                 div()
                     .flex()
                     .flex_row()
-                    .gap(px(4.0))
+                    .gap(spacing::XS)
                     .items_start()
-                    .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+                    .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
                     .child(
                         div()
                             .flex_1()
@@ -3910,9 +3989,9 @@ fn expandable_cell(
                 div()
                     .flex()
                     .flex_row()
-                    .gap(px(4.0))
+                    .gap(spacing::XS)
                     .items_start()
-                    .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+                    .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
                     .child(
                         div()
                             .flex_1()
@@ -3929,11 +4008,11 @@ fn expandable_cell(
             div()
                 .flex()
                 .flex_row()
-                .gap(px(4.0))
-                .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+                .gap(spacing::XS)
+                .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
                 .child(
                     div()
-                        .text_color(accent())
+                        .text_color(color::accent())
                         .truncate()
                         .child(SharedString::from(summary)),
                 ),
@@ -3963,7 +4042,7 @@ fn expandable_tag_cell(
     } = params;
     let cell_key = format!("id3:{row_id}");
     let glyph = if expanded { "v" } else { ">" };
-    let frame_color = frame_color.unwrap_or_else(muted);
+    let frame_color = frame_color.unwrap_or_else(color::text_muted);
     let frame_id_owned = frame_id.map(ToOwned::to_owned);
 
     let value_el = if expanded {
@@ -3975,10 +4054,10 @@ fn expandable_tag_cell(
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .gap(px(4.0))
+                    .gap(spacing::XS)
                     .child(
                         div()
-                            .text_size(px(11.0))
+                            .text_size(typography::SIZE_MICRO)
                             .line_height(px(16.0))
                             .text_color(color)
                             .child(SharedString::from(display_value.to_string())),
@@ -3987,7 +4066,7 @@ fn expandable_tag_cell(
                         div()
                             .w(px(200.0))
                             .h(px(200.0))
-                            .rounded(px(6.0))
+                            .rounded(radius::MD)
                             .overflow_hidden()
                             .child(
                                 img(image.clone())
@@ -4001,7 +4080,7 @@ fn expandable_tag_cell(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(px(11.0))
+                    .text_size(typography::SIZE_MICRO)
                     .line_height(px(16.0))
                     .text_color(color)
                     .child(SharedString::from(display_value.to_string()))
@@ -4012,7 +4091,7 @@ fn expandable_tag_cell(
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(11.0))
+                .text_size(typography::SIZE_MICRO)
                 .line_height(px(16.0))
                 .text_color(color)
                 .flex()
@@ -4023,7 +4102,7 @@ fn expandable_tag_cell(
             div()
                 .flex_1()
                 .min_w_0()
-                .text_size(px(11.0))
+                .text_size(typography::SIZE_MICRO)
                 .line_height(px(16.0))
                 .text_color(color)
                 .flex()
@@ -4036,15 +4115,15 @@ fn expandable_tag_cell(
         div()
             .flex_1()
             .min_w_0()
-            .text_size(px(11.0))
+            .text_size(typography::SIZE_MICRO)
             .line_height(px(16.0))
             .flex()
             .flex_row()
-            .gap(px(4.0))
-            .child(div().text_size(px(9.0)).text_color(muted()).child(glyph))
+            .gap(spacing::XS)
+            .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
             .child(
                 div()
-                    .text_color(accent())
+                    .text_color(color::accent())
                     .truncate()
                     .child(SharedString::from(summary)),
             )
@@ -4056,7 +4135,7 @@ fn expandable_tag_cell(
         return div()
             .flex()
             .flex_col()
-            .text_size(px(11.0))
+            .text_size(typography::SIZE_MICRO)
             .line_height(px(16.0))
             .text_color(color)
             .child(
@@ -4069,17 +4148,17 @@ fn expandable_tag_cell(
                     .flex()
                     .flex_row()
                     .items_start()
-                    .gap(px(6.0))
+                    .gap(spacing::SM)
                     .child(
                         div()
                             .w(px(136.0))
                             .flex_shrink_0()
                             .text_color(frame_color)
-                            .text_size(px(9.5))
+                            .text_size(typography::SIZE_MICRO)
                             .line_height(px(16.0))
                             .child(SharedString::from(frame_id_owned.unwrap_or_default())),
                     )
-                    .child(div().text_size(px(9.0)).text_color(muted()).child(glyph)),
+                    .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph)),
             )
             .child(
                 div()
@@ -4107,13 +4186,13 @@ fn expandable_tag_cell(
         .flex()
         .flex_row()
         .items_start()
-        .gap(px(6.0))
+        .gap(spacing::SM)
         .child(
             div()
                 .w(px(136.0))
                 .flex_shrink_0()
                 .text_color(frame_color)
-                .text_size(px(9.5))
+                .text_size(typography::SIZE_MICRO)
                 .line_height(px(16.0))
                 .child(SharedString::from(frame_id_owned.unwrap_or_default())),
         )
@@ -4150,14 +4229,14 @@ fn json_object_element(value: &serde_json::Value, color: gpui::Rgba, depth: usiz
                 .flex()
                 .flex_col()
                 .pl(indent)
-                .text_size(px(11.0))
+                .text_size(typography::SIZE_MICRO)
                 .line_height(px(16.0));
             for (key, val) in map {
                 let key_str = format!("{key}: ");
                 match val {
                     serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
                         container = container
-                            .child(div().text_color(muted()).child(SharedString::from(key_str)))
+                            .child(div().text_color(color::text_muted()).child(SharedString::from(key_str)))
                             .child(json_object_element(val, color, depth + 1));
                     }
                     _ => {
@@ -4167,13 +4246,13 @@ fn json_object_element(value: &serde_json::Value, color: gpui::Rgba, depth: usiz
                             other => other.to_string(),
                         };
                         container = container.child(
-                            div().flex().flex_row().gap(px(4.0)).child(
+                            div().flex().flex_row().gap(spacing::XS).child(
                                 div()
                                     .flex()
                                     .flex_row()
                                     .child(
                                         div()
-                                            .text_color(muted())
+                                            .text_color(color::text_muted())
                                             .child(SharedString::from(key_str)),
                                     )
                                     .child(
@@ -4250,16 +4329,16 @@ fn value_routes_tree_elements(
                 div()
                     .flex()
                     .flex_row()
-                    .gap(px(4.0))
+                    .gap(spacing::XS)
                     .child(
                         div()
-                            .text_size(px(9.0))
-                            .text_color(muted())
+                            .text_size(typography::SIZE_MICRO)
+                            .text_color(color::text_muted())
                             .child(sub_glyph),
                     )
                     .child(
                         div()
-                            .text_color(if sub_expanded { color } else { accent() })
+                            .text_color(if sub_expanded { color } else { color::accent() })
                             .child(SharedString::from(name.to_string())),
                     ),
             );
@@ -4281,13 +4360,13 @@ fn value_routes_tree_elements(
                         }
                         item = item.child(
                             div()
-                                .pl(px(16.0))
+                                .pl(spacing::LG)
                                 .flex()
                                 .flex_row()
-                                .gap(px(4.0))
+                                .gap(spacing::XS)
                                 .child(
                                     div()
-                                        .text_color(muted())
+                                        .text_color(color::text_muted())
                                         .child(SharedString::from(format!("{key}: "))),
                                 )
                                 .child(
@@ -4321,7 +4400,7 @@ fn transcript_text_elements(raw_value: &str, color: gpui::Rgba) -> Vec<AnyElemen
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
     let mut cell = div()
-        .text_size(px(11.0))
+        .text_size(typography::SIZE_MICRO)
         .line_height(px(16.0))
         .flex()
         .flex_col();
@@ -4338,24 +4417,24 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let mut value_cell = div().text_size(px(11.0)).line_height(px(16.0));
+    let mut value_cell = div().text_size(typography::SIZE_MICRO).line_height(px(16.0));
     if let Some(color) = color {
         value_cell = value_cell.text_color(color);
     }
     let frame_id = frame_id.map(ToOwned::to_owned);
-    let frame_color = frame_color.unwrap_or_else(muted);
+    let frame_color = frame_color.unwrap_or_else(color::text_muted);
 
     div()
         .flex()
         .flex_row()
         .items_start()
-        .gap(px(6.0))
+        .gap(spacing::SM)
         .child(
             div()
                 .w(px(136.0))
                 .flex_shrink_0()
                 .text_color(frame_color)
-                .text_size(px(9.5))
+                .text_size(typography::SIZE_MICRO)
                 .line_height(px(16.0))
                 .child(SharedString::from(frame_id.unwrap_or_default())),
         )
@@ -4401,7 +4480,7 @@ fn id3_frame_version_color(frame_id: &str) -> gpui::Rgba {
         Id3FrameVersion::V22 => rgb(0xb06cf4),
         Id3FrameVersion::V23Only => rgb(0xffc857),
         Id3FrameVersion::V24Only => rgb(0x3ac4c4),
-        Id3FrameVersion::V23V24 => accent(),
+        Id3FrameVersion::V23V24 => color::accent(),
         Id3FrameVersion::Unknown => rgb(0xff8a65),
     }
 }
@@ -4526,13 +4605,13 @@ fn comparison_status_color(status: &ComparisonStatus) -> gpui::Rgba {
         ComparisonStatus::Match => rgb(0x4caf82),
         ComparisonStatus::Different => rgb(0xffc857),
         ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => rgb(0xff8a65),
-        ComparisonStatus::MissingBoth => muted(),
+        ComparisonStatus::MissingBoth => color::text_muted(),
     }
 }
 
 fn id3_cell_status_color(row: &AlignedCompareRow) -> gpui::Rgba {
     if row.id3_value.is_some() && row.rss_value.is_none() && row.musicbrainz_value.is_none() {
-        return text();
+        return color::text_primary();
     }
     comparison_status_color(&row.id3_status)
 }
@@ -4547,7 +4626,7 @@ fn render_track_list_section(
     div()
         .flex()
         .flex_col()
-        .gap(px(8.0))
+        .gap(spacing::SM)
         .child(
             div()
                 .flex()
@@ -4556,7 +4635,7 @@ fn render_track_list_section(
                 .justify_between()
                 .child(section_heading(heading))
                 .when(!note.is_empty(), |el| {
-                    el.child(div().text_color(muted()).text_size(px(10.5)).child(note))
+                    el.child(div().text_color(color::text_muted()).text_size(typography::SIZE_MICRO).child(note))
                 }),
         )
         .children(
@@ -4589,10 +4668,10 @@ fn render_track_row(
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(8.0))
-        .px(px(4.0))
-        .py(px(5.0))
-        .rounded(px(4.0))
+        .gap(spacing::SM)
+        .px(spacing::XS)
+        .py(spacing::XS)
+        .rounded(radius::SM)
         .child(
             div()
                 .id(SharedString::from(format!("track-row-open:{guid}")))
@@ -4601,7 +4680,7 @@ fn render_track_row(
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap(px(8.0))
+                .gap(spacing::SM)
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     this.push_inspector(
@@ -4615,14 +4694,14 @@ fn render_track_row(
                     div()
                         .w(px(24.0))
                         .text_right()
-                        .text_color(muted())
-                        .text_size(px(11.0))
+                        .text_color(color::text_muted())
+                        .text_size(typography::SIZE_MICRO)
                         .child(track_number.map_or_else(|| "·".into(), |n| n.to_string())),
                 )
                 .child(render_thumb(thumbnail.as_ref(), "track", 28.0, false))
                 .child(truncated(title).flex_1())
                 .when(duration_secs.is_some(), |el| {
-                    el.child(div().text_color(muted()).text_size(px(11.0)).child(
+                    el.child(div().text_color(color::text_muted()).text_size(typography::SIZE_MICRO).child(
                         SharedString::from(fmt_dur(duration_secs.unwrap_or_default())),
                     ))
                 }),
@@ -4647,7 +4726,7 @@ fn render_feed_header(
         .flex()
         .flex_row()
         .items_start()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_thumb(frame.image.as_ref(), "feed", 80.0, true))
         .child(
             div()
@@ -4655,14 +4734,14 @@ fn render_feed_header(
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(px(10.0))
+                        .text_size(typography::SIZE_MICRO)
                         .font_weight(FontWeight::BOLD)
                         .text_color(badge_text("feed"))
                         .bg(type_color("feed"))
-                        .px(px(6.0))
-                        .py(px(2.0))
-                        .rounded(px(4.0))
-                        .mb(px(6.0))
+                        .px(spacing::SM)
+                        .py(spacing::XXS)
+                        .rounded(radius::SM)
+                        .mb(spacing::SM)
                         .child("feed"),
                 )
                 .child(
@@ -4675,17 +4754,17 @@ fn render_feed_header(
                 .when_some(subtitle.map(str::to_owned), |el, sub| {
                     el.child(
                         div()
-                            .mt(px(4.0))
-                            .text_size(px(15.0))
+                            .mt(spacing::XS)
+                            .text_size(typography::SIZE_HEADLINE)
                             .font_weight(FontWeight::MEDIUM)
                             .line_height(px(20.0))
-                            .text_color(muted())
+                            .text_color(color::text_muted())
                             .child(SharedString::from(sub)),
                     )
                 })
                 .child(
                     div()
-                        .mt(px(6.0))
+                        .mt(spacing::SM)
                         .flex()
                         .justify_start()
                         .child(render_rss_icon_button(rss_url, cx)),
@@ -4712,7 +4791,7 @@ fn render_rss_icon_button(url: Option<String>, cx: &mut Context<SearchApp>) -> A
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(4.0))
+        .rounded(radius::SM)
         .overflow_hidden()
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .when(url.is_some(), |el| el.cursor_pointer())
@@ -4766,9 +4845,9 @@ fn render_play_icon_button_with_id(
         .px(px(0.0))
         .py(px(0.0))
         .text_color(rgb(0xffffff))
-        .rounded(px(4.0))
+        .rounded(radius::SM)
         .border_1()
-        .border_color(accent())
+        .border_color(color::accent())
         .tooltip(tooltip)
         .disabled(url.is_none())
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
@@ -4800,9 +4879,9 @@ fn render_feed_list_section(
                 .w(px(140.0))
                 .flex()
                 .flex_col()
-                .gap(px(6.0))
-                .p(px(6.0))
-                .rounded(px(6.0))
+                .gap(spacing::SM)
+                .p(spacing::XS)
+                .rounded(radius::MD)
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
@@ -4810,7 +4889,7 @@ fn render_feed_list_section(
                 .child(render_thumb(thumb.as_ref(), "feed", 128.0, true))
                 .child(
                     div()
-                        .text_size(px(12.0))
+                        .text_size(typography::SIZE_CAPTION)
                         .font_weight(FontWeight::MEDIUM)
                         .line_height(px(15.0))
                         .child(truncated(feed_title(&feed))),
@@ -4818,8 +4897,8 @@ fn render_feed_list_section(
                 .when(!episode_note.is_empty(), |el| {
                     el.child(
                         div()
-                            .text_color(muted())
-                            .text_size(px(10.5))
+                            .text_color(color::text_muted())
+                            .text_size(typography::SIZE_MICRO)
                             .child(SharedString::from(episode_note)),
                     )
                 })
@@ -4830,14 +4909,14 @@ fn render_feed_list_section(
     div()
         .flex()
         .flex_col()
-        .gap(px(10.0))
+        .gap(spacing::SM)
         .child(section_heading(heading))
         .child(
             div()
                 .flex()
                 .flex_row()
                 .flex_wrap()
-                .gap(px(12.0))
+                .gap(spacing::MD)
                 .children(tiles),
         )
         .into_any_element()
@@ -4853,7 +4932,7 @@ fn render_detail_header(
         .flex()
         .flex_row()
         .items_start()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_thumb(image, entity_type, 80.0, true))
         .child(
             div()
@@ -4861,31 +4940,25 @@ fn render_detail_header(
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(px(10.0))
+                        .text_size(typography::SIZE_MICRO)
                         .font_weight(FontWeight::BOLD)
                         .text_color(badge_text(entity_type))
                         .bg(type_color(entity_type))
-                        .px(px(6.0))
-                        .py(px(2.0))
-                        .rounded(px(4.0))
-                        .mb(px(6.0))
+                        .px(spacing::SM)
+                        .py(spacing::XXS)
+                        .rounded(radius::SM)
+                        .mb(spacing::SM)
                         .child(SharedString::from(entity_type.to_string())),
                 )
                 .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(px(23.0))
+                    typography::type_title(div())
                         .child(SharedString::from(title.to_string())),
                 )
                 .when_some(subtitle.map(str::to_owned), |el, sub| {
                     el.child(
-                        div()
-                            .mt(px(4.0))
-                            .text_size(px(15.0))
-                            .font_weight(FontWeight::MEDIUM)
-                            .line_height(px(20.0))
-                            .text_color(muted())
+                        typography::type_body(div())
+                            .mt(spacing::XS)
+                            .text_color(color::text_muted())
                             .child(SharedString::from(sub)),
                     )
                 }),
@@ -4912,7 +4985,7 @@ fn render_track_header(
         .flex()
         .flex_row()
         .items_start()
-        .gap(px(16.0))
+        .gap(spacing::LG)
         .child(render_thumb(frame.image.as_ref(), "track", 80.0, true))
         .child(
             div()
@@ -4920,30 +4993,24 @@ fn render_track_header(
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(px(10.0))
+                        .text_size(typography::SIZE_MICRO)
                         .font_weight(FontWeight::BOLD)
                         .text_color(badge_text("track"))
                         .bg(type_color("track"))
-                        .px(px(6.0))
-                        .py(px(2.0))
-                        .rounded(px(4.0))
-                        .mb(px(6.0))
+                        .px(spacing::SM)
+                        .py(spacing::XXS)
+                        .rounded(radius::SM)
+                        .mb(spacing::SM)
                         .child("track"),
                 )
                 .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(px(23.0))
+                    typography::type_title(div())
                         .child(SharedString::from(title)),
                 )
                 .child(
-                    div()
-                        .mt(px(4.0))
-                        .text_size(px(15.0))
-                        .font_weight(FontWeight::MEDIUM)
-                        .line_height(px(20.0))
-                        .text_color(muted())
+                    typography::type_headline(div())
+                        .mt(spacing::XS)
+                        .text_color(color::text_muted())
                         .child(SharedString::from(artist)),
                 )
                 .child(render_track_header_subtitle(
@@ -4963,7 +5030,7 @@ fn render_track_header_subtitle(
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(6.0))
+        .gap(spacing::SM)
         .min_w_0()
         .when_some(feed_guid, |el, guid| {
             el.child(render_feed_link_value(guid.clone(), guid, feed_url, cx))
@@ -4982,7 +5049,7 @@ fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
             .map(|(key, value)| DetailRow {
                 key,
                 value: div()
-                    .text_size(px(11.5))
+                    .text_size(typography::SIZE_MICRO)
                     .line_height(px(17.0))
                     .flex()
                     .flex_col()
@@ -4996,22 +5063,22 @@ fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
 fn render_collapsed_text_section(label: &str, value: String) -> AnyElement {
     div()
         .border_1()
-        .border_color(border())
-        .rounded(px(6.0))
-        .p(px(10.0))
+        .border_color(color::border_subtle())
+        .rounded(radius::MD)
+        .p(spacing::SM)
         .child(
             div()
-                .text_size(px(10.0))
+                .text_size(typography::SIZE_MICRO)
                 .font_weight(FontWeight::BOLD)
-                .text_color(muted())
+                .text_color(color::text_muted())
                 .child(SharedString::from(label.to_string())),
         )
         .child(
             div()
-                .mt(px(4.0))
-                .text_size(px(11.5))
+                .mt(spacing::XS)
+                .text_size(typography::SIZE_MICRO)
                 .line_height(px(17.0))
-                .text_color(text())
+                .text_color(color::text_primary())
                 .flex()
                 .flex_col()
                 .children(compare_value_line_elements(&value, 3)),
@@ -5030,8 +5097,8 @@ fn render_feed_link_value(
     div()
         .id(SharedString::from(format!("track-feed-link:{guid}")))
         .cursor_pointer()
-        .text_color(accent())
-        .text_size(px(11.5))
+        .text_color(color::accent())
+        .text_size(typography::SIZE_MICRO)
         .line_height(px(17.0))
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .on_click(cx.listener(move |this, _, _, cx| {
@@ -5045,20 +5112,20 @@ fn render_detail_grid_elements(rows: Vec<DetailRow>) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap(px(5.0))
+        .gap(spacing::XS)
         .children(rows.into_iter().map(|row| {
             div()
                 .flex()
                 .flex_row()
                 .items_start()
-                .gap(px(12.0))
+                .gap(spacing::MD)
                 .child(
                     div()
                         .w(px(124.0))
                         .flex_shrink_0()
-                        .text_color(muted())
+                        .text_color(color::text_muted())
                         .whitespace_nowrap()
-                        .text_size(px(11.5))
+                        .text_size(typography::SIZE_MICRO)
                         .child(SharedString::from(row.key)),
                 )
                 .child(div().flex_1().min_w_0().child(row.value))
@@ -5093,11 +5160,11 @@ fn render_thumb(
             .w(px(size))
             .h(px(size))
             .rounded(px(radius))
-            .bg(border())
+            .bg(color::border_subtle())
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(if large { 28.0 } else { 14.0 }))
+            .text_size(if large { px(28.0) } else { typography::SIZE_BODY })
             .flex_shrink_0()
             .child(type_emoji(entity_type))
             .into_any_element()
@@ -5131,12 +5198,12 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             .id(SharedString::from(format!("recent-tile:{guid}")))
             .flex()
             .flex_col()
-            .gap(px(6.0))
+            .gap(spacing::SM)
             .w(px(168.0))
-            .p(px(8.0))
-            .rounded(px(8.0))
+            .p(spacing::SM)
+            .rounded(radius::LG)
             .cursor_pointer()
-            .hover(|el| el.bg(surface()))
+            .hover(|el| el.bg(color::bg_surface()))
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open_recent_feed(click_guid.clone(), click_title.clone(), cx);
             }))
@@ -5144,7 +5211,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                 div()
                     .w(px(152.0))
                     .h(px(152.0))
-                    .rounded(px(6.0))
+                    .rounded(radius::MD)
                     .overflow_hidden()
                     .flex_shrink_0()
                     .when_some(thumbnail, |el, image| {
@@ -5156,7 +5223,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                         )
                     })
                     .when(image_url.is_none(), |el| {
-                        el.bg(border())
+                        el.bg(color::border_subtle())
                             .flex()
                             .items_center()
                             .justify_center()
@@ -5166,15 +5233,15 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             )
             .child(
                 div()
-                    .text_size(px(12.5))
+                    .text_size(typography::SIZE_CAPTION)
                     .font_weight(FontWeight::MEDIUM)
                     .child(truncated(title)),
             )
             .when(!artist.is_empty(), |el| {
                 el.child(
                     div()
-                        .text_size(px(10.5))
-                        .text_color(muted())
+                        .text_size(typography::SIZE_MICRO)
+                        .text_color(color::text_muted())
                         .child(truncated(artist)),
                 )
             })
@@ -5185,10 +5252,10 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
     div()
         .flex()
         .flex_col()
-        .gap(px(12.0))
+        .gap(spacing::MD)
         .child(
             div()
-                .text_size(px(16.0))
+                .text_size(typography::SIZE_HEADLINE)
                 .font_weight(FontWeight::SEMIBOLD)
                 .child("Recent Feeds"),
         )
@@ -5196,7 +5263,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             el.child(
                 div()
                     .text_xs()
-                    .text_color(muted())
+                    .text_color(color::text_muted())
                     .child(SharedString::from(status)),
             )
         })
@@ -5204,8 +5271,8 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             el.child(
                 div()
                     .text_center()
-                    .p(px(48.0))
-                    .text_color(muted())
+                    .p(spacing::XXL)
+                    .text_color(color::text_muted())
                     .child("No recent feeds"),
             )
         })
@@ -5214,12 +5281,12 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                 .flex()
                 .flex_row()
                 .flex_wrap()
-                .gap(px(12.0))
+                .gap(spacing::MD)
                 .children(tiles),
         )
         .when(has_more && !loading, |el| {
             el.child(
-                div().pt(px(8.0)).child(
+                div().pt(spacing::SM).child(
                     Button::new("recent-load-more")
                         .label("Load more")
                         .ghost()
@@ -5241,8 +5308,8 @@ fn render_inspector_empty() -> AnyElement {
         .flex_col()
         .items_center()
         .justify_center()
-        .text_color(muted())
-        .gap(px(8.0))
+        .text_color(color::text_muted())
+        .gap(spacing::SM)
         .child(div().text_3xl().opacity(0.4).child("🔍"))
         .child("Select a result to inspect")
         .into_any_element()
@@ -5250,18 +5317,18 @@ fn render_inspector_empty() -> AnyElement {
 
 fn render_loading(message: &str) -> AnyElement {
     div()
-        .text_color(muted())
+        .text_color(color::text_muted())
         .italic()
-        .py(px(8.0))
+        .py(spacing::SM)
         .child(SharedString::from(message.to_string()))
         .into_any_element()
 }
 
 fn section_heading(label: &str) -> AnyElement {
     div()
-        .text_size(px(10.5))
+        .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::BOLD)
-        .text_color(muted())
+        .text_color(color::text_muted())
         .child(SharedString::from(label.to_string()))
         .into_any_element()
 }
@@ -5275,36 +5342,36 @@ fn render_clickable_section_heading(label: &str, collapsed: bool) -> gpui::State
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(6.0))
+        .gap(spacing::SM)
         .cursor_pointer()
         .child(
             div()
-                .text_size(px(11.0))
+                .text_size(typography::SIZE_MICRO)
                 .font_weight(FontWeight::BOLD)
-                .text_color(muted())
+                .text_color(color::text_muted())
                 .child(glyph),
         )
         .child(
             div()
-                .text_size(px(10.5))
+                .text_size(typography::SIZE_MICRO)
                 .font_weight(FontWeight::BOLD)
-                .text_color(muted())
+                .text_color(color::text_muted())
                 .child(SharedString::from(label.to_string())),
         )
         .child(
             div()
-                .text_size(px(9.5))
-                .text_color(muted())
+                .text_size(typography::SIZE_MICRO)
+                .text_color(color::text_muted())
                 .child(SharedString::from(state.to_string())),
         )
 }
 
 fn group_heading(label: String) -> AnyElement {
     div()
-        .text_size(px(10.5))
+        .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(muted())
-        .mt(px(6.0))
+        .text_color(color::text_muted())
+        .mt(spacing::SM)
         .child(SharedString::from(label))
         .into_any_element()
 }
@@ -5316,22 +5383,22 @@ fn metadata_action_button(label: &str) -> Button {
         .compact()
         .ghost()
         .text_color(rgb(0xffffff))
-        .text_size(px(10.0))
-        .rounded(px(4.0))
+        .text_size(typography::SIZE_MICRO)
+        .rounded(radius::SM)
         .border_1()
-        .border_color(accent())
+        .border_color(color::accent())
 }
 
 fn truncated(text: String) -> gpui::Div {
     div()
         .min_w_0()
         .truncate()
-        .text_size(px(11.5))
+        .text_size(typography::SIZE_MICRO)
         .child(SharedString::from(text))
 }
 
 fn truncated_muted(text: String) -> gpui::Div {
-    truncated(text).text_color(muted())
+    truncated(text).text_color(color::text_muted())
 }
 
 fn optional_row(rows: &mut Vec<(String, String)>, key: &str, value: Option<String>) {
@@ -5492,29 +5559,10 @@ fn fmt_date(ts: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.format("%b %-d, %Y").to_string())
 }
 
-fn bg() -> gpui::Rgba {
-    rgb(0x0f1117)
-}
-
-fn surface() -> gpui::Rgba {
-    rgb(0x1a1d27)
-}
-
-fn border() -> gpui::Rgba {
-    rgb(0x2a2d3a)
-}
-
-fn text() -> gpui::Rgba {
-    rgb(0xe2e4ed)
-}
-
-fn muted() -> gpui::Rgba {
-    rgb(0x9298ab)
-}
-
-fn accent() -> gpui::Rgba {
-    rgb(0x8b9bff)
-}
+use crate::ui::theme::color;
+use crate::ui::theme::spacing;
+use crate::ui::theme::typography;
+use crate::ui::theme::radius;
 
 fn type_color(entity_type: &str) -> gpui::Rgba {
     match entity_type {
@@ -5524,7 +5572,7 @@ fn type_color(entity_type: &str) -> gpui::Rgba {
         "artist" => rgb(0x4caf82),
         "release" => rgb(0x6c7cff),
         "recording" => rgb(0xb06cf4),
-        _ => accent(),
+        _ => color::accent(),
     }
 }
 

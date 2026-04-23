@@ -10,3 +10,4 @@ pub mod musicbrainz;
 pub mod rss;
 pub mod search;
 pub mod track_compare;
+pub mod ui;
