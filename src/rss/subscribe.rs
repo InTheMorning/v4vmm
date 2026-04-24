@@ -139,6 +139,14 @@ pub fn subscribe_feed(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> R
         };
 
         let enclosure_url = item.enclosure().map(|e| e.url().to_string());
+        let enclosure_type = item.enclosure().and_then(|e| {
+            let mime = e.mime_type().trim();
+            if mime.is_empty() {
+                None
+            } else {
+                Some(mime.to_string())
+            }
+        });
         let item_link = item.link().map(|s| s.to_string());
         let pub_date = item.pub_date().map(|s| s.to_string());
 
@@ -186,6 +194,7 @@ pub fn subscribe_feed(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> R
                 feed_id,
                 item_guid,
                 enclosure_url,
+                enclosure_type,
                 link,
                 pub_date,
                 track_title,
@@ -203,9 +212,10 @@ pub fn subscribe_feed(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> R
                 item_value_json,
                 extra_json
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
             ON CONFLICT(feed_id, item_guid) DO UPDATE SET
                 enclosure_url       = excluded.enclosure_url,
+                enclosure_type      = excluded.enclosure_type,
                 link                = excluded.link,
                 pub_date            = excluded.pub_date,
                 track_title         = excluded.track_title,
@@ -227,6 +237,7 @@ pub fn subscribe_feed(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> R
                 feed_id,
                 item_guid,
                 enclosure_url,
+                enclosure_type,
                 item_link,
                 pub_date,
                 track_title,

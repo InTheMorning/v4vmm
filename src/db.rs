@@ -31,6 +31,7 @@ pub struct TrackRow {
     pub disc_number: Option<i64>,
     pub duration_seconds: Option<i64>,
     pub enclosure_url: Option<String>,
+    pub enclosure_type: Option<String>,
     pub track_image_href: Option<String>,
     pub is_in_library: bool,
     pub feed_title: Option<String>,
@@ -145,7 +146,7 @@ pub fn library_tracks_for_feed(conn: &Connection, feed_id: i64) -> Result<Vec<Tr
         .prepare(
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name,
                     t.album_title, t.album_artist_name, t.track_number, t.disc_number,
-                    t.duration_seconds, t.enclosure_url, t.track_image_href,
+                    t.duration_seconds, t.enclosure_url, t.enclosure_type, t.track_image_href,
                     t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
@@ -168,7 +169,7 @@ pub fn feed_tracks(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
         .prepare(
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
-                    t.enclosure_url, t.track_image_href,
+                    t.enclosure_url, t.enclosure_type, t.track_image_href,
                     t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
@@ -192,7 +193,7 @@ pub fn library_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
         .prepare(
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
-                    t.enclosure_url, t.track_image_href,
+                    t.enclosure_url, t.enclosure_type, t.track_image_href,
                     t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
@@ -396,7 +397,7 @@ pub fn cached_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
         .prepare(
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
-                    t.enclosure_url, t.track_image_href,
+                    t.enclosure_url, t.enclosure_type, t.track_image_href,
                     t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
@@ -444,13 +445,14 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
         disc_number: row.get(9)?,
         duration_seconds: row.get(10)?,
         enclosure_url: row.get(11)?,
-        track_image_href: row.get(12)?,
-        is_in_library: row.get::<_, i64>(13)? != 0,
-        feed_title: row.get(14)?,
-        album_image_href: row.get(15)?,
-        local_path: row.get(16)?,
+        enclosure_type: row.get(12)?,
+        track_image_href: row.get(13)?,
+        is_in_library: row.get::<_, i64>(14)? != 0,
+        feed_title: row.get(15)?,
+        album_image_href: row.get(16)?,
+        local_path: row.get(17)?,
         transcript_url: transcript_url_from_extra_json(
-            row.get::<_, Option<String>>(17)?.as_deref(),
+            row.get::<_, Option<String>>(18)?.as_deref(),
         ),
     })
 }
@@ -483,6 +485,7 @@ pub fn open_db(cfg: &Config) -> Result<Connection> {
 
 fn migrate_schema(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "feeds", "musicindex_updated_at", "INTEGER")?;
+    add_column_if_missing(conn, "tracks", "enclosure_type", "TEXT")?;
     Ok(())
 }
 
@@ -544,6 +547,7 @@ fn init_schema(conn: &Connection) -> Result<()> {
             feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
             item_guid TEXT NOT NULL,
             enclosure_url TEXT NULL,
+            enclosure_type TEXT NULL,
             link TEXT NULL,
             pub_date TEXT NULL,
             track_title TEXT NULL,

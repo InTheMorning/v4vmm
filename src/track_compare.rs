@@ -7,6 +7,7 @@ use reqwest::blocking::Client as ReqwestClient;
 use reqwest::Url;
 
 use crate::api::{SourceEnclosure, Track};
+use crate::audio_format::AudioFormat;
 use crate::audio_tags::AudioTags;
 use crate::config::Config;
 
@@ -19,12 +20,15 @@ pub struct SelectedEnclosure {
     pub mime_type: Option<String>,
     pub bytes: Option<i64>,
     pub is_primary: bool,
+    pub format: AudioFormat,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DownloadedTrack {
     pub path: PathBuf,
     pub enclosure: SelectedEnclosure,
+    pub detected_format: AudioFormat,
+    pub format_warning: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +48,7 @@ pub struct ComparisonRow {
     pub status: ComparisonStatus,
 }
 
-pub fn select_mp3_enclosure(track: &Track) -> Option<SelectedEnclosure> {
+pub fn select_audio_enclosure(track: &Track) -> Option<SelectedEnclosure> {
     let source_enclosures = track.source_enclosures.as_deref().unwrap_or_default();
 
     source_enclosures
@@ -55,7 +59,7 @@ pub fn select_mp3_enclosure(track: &Track) -> Option<SelectedEnclosure> {
         .or_else(|| selected_track_enclosure(track))
 }
 
-pub fn local_mp3_path(cfg: &Config, track: &Track) -> PathBuf {
+pub fn local_track_path(cfg: &Config, track: &Track, extension: &str) -> PathBuf {
     let artist_dir = sanitize_path_part(
         track
             .track_artist
@@ -81,8 +85,8 @@ pub fn local_mp3_path(cfg: &Config, track: &Track) -> PathBuf {
     );
 
     let filename = track.track_number.map_or_else(
-        || format!("{title}.mp3"),
-        |track_number| format!("{track_number:02} - {title}.mp3"),
+        || format!("{title}.{extension}"),
+        |track_number| format!("{track_number:02} - {title}.{extension}"),
     );
 
     cfg.music_dir
@@ -92,17 +96,84 @@ pub fn local_mp3_path(cfg: &Config, track: &Track) -> PathBuf {
         .join(filename)
 }
 
-pub fn download_track_mp3(
+pub fn download_track(
     cfg: &Config,
     client: &ReqwestClient,
     track: &Track,
 ) -> Result<DownloadedTrack> {
     let enclosure =
-        select_mp3_enclosure(track).ok_or_else(|| anyhow!("no MP3 enclosure available"))?;
-    let path = local_mp3_path(cfg, track);
-    download_enclosure(client, &enclosure.url, &path)?;
+        select_audio_enclosure(track).ok_or_else(|| anyhow!("no supported audio enclosure"))?;
+    let declared_format = enclosure.format;
+    let initial_path = local_track_path(cfg, track, declared_format.canonical_extension());
+    download_enclosure(client, &enclosure.url, &initial_path)?;
 
-    Ok(DownloadedTrack { path, enclosure })
+    let detected_format = AudioFormat::detect_from_file(&initial_path).unwrap_or(declared_format);
+
+    let mut warnings: Vec<String> = Vec::new();
+    if detected_format != declared_format {
+        warnings.push(format!(
+            "RSS declared {} but file is {}",
+            declared_format.display_label(),
+            detected_format.display_label()
+        ));
+    }
+
+    // Move the file to its detected-format extension first so the rest of the
+    // pipeline sees the right name.
+    let mut current_path = if detected_format != declared_format {
+        let renamed = local_track_path(cfg, track, detected_format.canonical_extension());
+        if renamed != initial_path {
+            if let Some(parent) = renamed.parent() {
+                fs::create_dir_all(parent).with_context(|| {
+                    format!("create download directory {}", parent.display())
+                })?;
+            }
+            fs::rename(&initial_path, &renamed).with_context(|| {
+                format!(
+                    "rename {} -> {}",
+                    initial_path.display(),
+                    renamed.display()
+                )
+            })?;
+        }
+        renamed
+    } else {
+        initial_path
+    };
+    let mut current_format = detected_format;
+
+    // WAV → FLAC silent upgrade. On success the file is replaced with a FLAC.
+    if current_format == AudioFormat::Wav {
+        if crate::audio_format::flac_cli_available() {
+            match crate::audio_format::transcode_wav_to_flac(&current_path) {
+                Ok(flac_path) => {
+                    current_path = flac_path;
+                    current_format = AudioFormat::Flac;
+                    warnings.push(
+                        "upgraded WAV to FLAC so tags can be written".to_string(),
+                    );
+                }
+                Err(err) => warnings.push(format!("WAV→FLAC transcode failed: {err:#}")),
+            }
+        } else {
+            warnings.push(
+                "install the `flac` CLI to enable tagging of WAV downloads".to_string(),
+            );
+        }
+    }
+
+    let format_warning = if warnings.is_empty() {
+        None
+    } else {
+        Some(warnings.join("; "))
+    };
+
+    Ok(DownloadedTrack {
+        path: current_path,
+        enclosure,
+        detected_format: current_format,
+        format_warning,
+    })
 }
 
 pub fn download_enclosure(client: &ReqwestClient, url: &str, path: &Path) -> Result<()> {
@@ -178,41 +249,43 @@ pub fn compare_track_tags(track: &Track, tags: &AudioTags) -> Vec<ComparisonRow>
 
 fn selected_source_enclosure(enclosure: &SourceEnclosure) -> Option<SelectedEnclosure> {
     let url = normalized(enclosure.url.as_deref())?;
-    if !is_mp3_enclosure(enclosure.mime_type.as_deref(), &url) {
-        return None;
-    }
+    let format = classify_enclosure(enclosure.mime_type.as_deref(), &url)?;
 
     Some(SelectedEnclosure {
         url,
         mime_type: normalized(enclosure.mime_type.as_deref()),
         bytes: enclosure.bytes,
         is_primary: enclosure.is_primary.unwrap_or(false),
+        format,
     })
 }
 
 fn selected_track_enclosure(track: &Track) -> Option<SelectedEnclosure> {
     let url = normalized(track.enclosure_url.as_deref())?;
-    if !is_mp3_enclosure(track.enclosure_type.as_deref(), &url) {
-        return None;
-    }
+    let format = classify_enclosure(track.enclosure_type.as_deref(), &url)?;
 
     Some(SelectedEnclosure {
         url,
         mime_type: normalized(track.enclosure_type.as_deref()),
         bytes: track.enclosure_bytes,
         is_primary: true,
+        format,
     })
 }
 
-fn is_mp3_enclosure(mime_type: Option<&str>, url: &str) -> bool {
-    mime_type
-        .map(|value| value.eq_ignore_ascii_case("audio/mpeg"))
-        .unwrap_or(false)
-        || url
-            .split_once('?')
-            .map_or(url, |(path, _query)| path)
-            .to_ascii_lowercase()
-            .ends_with(".mp3")
+fn classify_enclosure(mime_type: Option<&str>, url: &str) -> Option<AudioFormat> {
+    let from_mime = mime_type
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(AudioFormat::from_declared_mime);
+    let from_ext = AudioFormat::from_url_extension(url);
+    // URL extension trumps declared mime on disagreement (feeds frequently lie).
+    match (from_mime, from_ext) {
+        (Some(mime), Some(ext)) if mime != ext => Some(ext),
+        (Some(mime), _) => Some(mime),
+        (None, Some(ext)) => Some(ext),
+        (None, None) => None,
+    }
 }
 
 fn comparison_row(
@@ -327,10 +400,11 @@ mod tests {
     use reqwest::blocking::Client as ReqwestClient;
 
     use super::{
-        compare_track_tags, download_track_mp3, local_mp3_path, select_mp3_enclosure,
+        compare_track_tags, download_track, local_track_path, select_audio_enclosure,
         ComparisonRow, ComparisonStatus, SelectedEnclosure, MAX_PATH_PART_CHARS, PUBLISHER_TAG_KEY,
     };
     use crate::api::{SourceEnclosure, Track};
+    use crate::audio_format::AudioFormat;
     use crate::audio_tags::AudioTags;
     use crate::config::Config;
 
@@ -348,12 +422,12 @@ mod tests {
     }
 
     #[test]
-    fn prefers_primary_mp3_source_enclosure() {
+    fn prefers_first_primary_audio_source_enclosure() {
         let mut track = track();
         track.source_enclosures = Some(vec![
             SourceEnclosure {
-                url: Some("https://example.com/song.flac".into()),
-                mime_type: Some("audio/flac".into()),
+                url: Some("https://example.com/notes.txt".into()),
+                mime_type: Some("text/plain".into()),
                 is_primary: Some(true),
                 ..SourceEnclosure::default()
             },
@@ -365,20 +439,21 @@ mod tests {
                 ..SourceEnclosure::default()
             },
             SourceEnclosure {
-                url: Some("https://example.com/alt.mp3".into()),
-                mime_type: Some("audio/mpeg".into()),
+                url: Some("https://example.com/alt.flac".into()),
+                mime_type: Some("audio/flac".into()),
                 is_primary: Some(false),
                 ..SourceEnclosure::default()
             },
         ]);
 
         assert_eq!(
-            select_mp3_enclosure(&track),
+            select_audio_enclosure(&track),
             Some(SelectedEnclosure {
                 url: "https://example.com/song.mp3".into(),
                 mime_type: Some("audio/mpeg".into()),
                 bytes: Some(123),
                 is_primary: true,
+                format: AudioFormat::Mp3,
             })
         );
     }
@@ -389,9 +464,23 @@ mod tests {
         track.enclosure_url = Some("https://example.com/song.mp3?download=1".into());
 
         assert_eq!(
-            select_mp3_enclosure(&track).map(|enclosure| enclosure.url),
+            select_audio_enclosure(&track).map(|enclosure| enclosure.url),
             Some("https://example.com/song.mp3?download=1".into())
         );
+    }
+
+    #[test]
+    fn url_extension_overrides_lying_mime() {
+        let mut track = track();
+        track.source_enclosures = Some(vec![SourceEnclosure {
+            url: Some("https://example.com/song.wav".into()),
+            mime_type: Some("audio/mpeg".into()),
+            is_primary: Some(true),
+            ..SourceEnclosure::default()
+        }]);
+
+        let selected = select_audio_enclosure(&track).expect("selected");
+        assert_eq!(selected.format, AudioFormat::Wav);
     }
 
     #[test]
@@ -402,7 +491,7 @@ mod tests {
         };
 
         assert_eq!(
-            local_mp3_path(&cfg, &track()),
+            local_track_path(&cfg, &track(), "mp3"),
             PathBuf::from("/tmp/v4vmm-test")
                 .join("artists")
                 .join("Artist")
@@ -423,7 +512,7 @@ mod tests {
         track.title = Some("NUL ".into());
 
         assert_eq!(
-            local_mp3_path(&cfg, &track),
+            local_track_path(&cfg, &track, "mp3"),
             PathBuf::from("/tmp/v4vmm-test")
                 .join("artists")
                 .join("_CON")
@@ -443,7 +532,7 @@ mod tests {
         track.feed_title = Some("Feed\0Title".into());
         track.title = Some("a".repeat(150));
 
-        let path = local_mp3_path(&cfg, &track);
+        let path = local_track_path(&cfg, &track, "mp3");
 
         assert_eq!(
             path.parent().expect("parent"),
@@ -534,7 +623,7 @@ mod tests {
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
-        let downloaded = download_track_mp3(&cfg, &ReqwestClient::new(), &track).expect("download");
+        let downloaded = download_track(&cfg, &ReqwestClient::new(), &track).expect("download");
 
         assert_eq!(
             downloaded.path,

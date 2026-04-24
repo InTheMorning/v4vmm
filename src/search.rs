@@ -29,7 +29,9 @@ use crate::media::ImageCache;
 use crate::metadata::*;
 use crate::musicbrainz::{lookup_recordings, LookupMetadata, MusicBrainzCandidate};
 use crate::rss;
-use crate::track_compare::{download_track_mp3, local_mp3_path, ComparisonStatus};
+use crate::track_compare::{
+    download_track, local_track_path, select_audio_enclosure, ComparisonStatus,
+};
 
 #[derive(Clone, Debug)]
 struct ResultRow {
@@ -2047,10 +2049,7 @@ fn download_and_compare_track(
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
-    let path = local_mp3_path(&cfg, &track);
-    if force_download || !path.exists() {
-        download_track_mp3(&cfg, &client.client, &track)?;
-    }
+    let path = resolve_track_path(&cfg, &client.client, &track, force_download)?;
     let track_context = TrackContext { track, feed };
 
     compare_downloaded_track_path(&path, &track_context)
@@ -2074,10 +2073,19 @@ fn compare_downloaded_track_path(
     let tags = read_audio_tags(path)?;
     let file_image = tags.artwork.as_ref().and_then(image_from_artwork);
     let track = &track_context.track;
+    let mut rows = compare_track_rows(track, track_context.feed.as_ref(), &tags);
+    if let Ok(detected) = crate::audio_format::AudioFormat::detect_from_file(path) {
+        crate::metadata::push_compare_row(
+            &mut rows,
+            "File format",
+            None,
+            Some(detected.display_label().to_string()),
+        );
+    }
 
     Ok(TagCompareResult {
         path: path.display().to_string(),
-        rows: compare_track_rows(track, track_context.feed.as_ref(), &tags),
+        rows,
         file_image,
         contributors: track.source_contributors.clone().unwrap_or_default(),
         value_routes: track.payment_routes.clone().unwrap_or_default(),
@@ -2332,14 +2340,29 @@ fn download_track_for_subscription(
     client: &ReqwestClient,
     track: &Track,
 ) -> Result<(PathBuf, Option<i64>)> {
-    let path = local_mp3_path(cfg, track);
-    if !path.exists() {
-        download_track_mp3(cfg, client, track)?;
-    }
+    let path = resolve_track_path(cfg, client, track, false)?;
     let file_size = std::fs::metadata(&path)
         .ok()
         .and_then(|metadata| metadata.len().try_into().ok());
     Ok((path, file_size))
+}
+
+fn resolve_track_path(
+    cfg: &config::Config,
+    client: &ReqwestClient,
+    track: &Track,
+    force_download: bool,
+) -> Result<PathBuf> {
+    if !force_download {
+        if let Some(enclosure) = select_audio_enclosure(track) {
+            let candidate =
+                local_track_path(cfg, track, enclosure.format.canonical_extension());
+            if candidate.exists() {
+                return Ok(candidate);
+            }
+        }
+    }
+    Ok(download_track(cfg, client, track)?.path)
 }
 
 fn track_with_feed_defaults(track: Track, feed: Option<&Feed>) -> Track {
@@ -2359,7 +2382,7 @@ fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBra
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
-    let downloaded = download_track_mp3(&cfg, &client.client, &track)?;
+    let downloaded = download_track(&cfg, &client.client, &track)?;
     let tags = read_audio_tags(&downloaded.path)?;
     let metadata = musicbrainz_lookup_metadata(&track, &tags);
     let musicbrainz_client = ReqwestClient::builder()

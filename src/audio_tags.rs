@@ -54,7 +54,90 @@ pub struct Id3v24Edit {
 }
 
 pub fn read_audio_tags(path: &Path) -> Result<AudioTags> {
-    read_mp3_tags(path)
+    use crate::audio_format::AudioFormat;
+    match AudioFormat::detect_from_file(path) {
+        Ok(AudioFormat::Mp3) => read_mp3_tags(path),
+        Ok(_) => read_lofty_tags(path),
+        // Unknown format — fall back to id3 so we don't regress on files whose
+        // magic bytes weren't recognised (e.g. unusual MP3 headers).
+        Err(_) => read_mp3_tags(path),
+    }
+}
+
+fn read_lofty_tags(path: &Path) -> Result<AudioTags> {
+    use lofty::file::TaggedFileExt;
+    use lofty::prelude::{Accessor, ItemKey};
+    use lofty::probe::Probe;
+    use lofty::tag::{ItemValue, Tag as LoftyTag};
+
+    let tagged = Probe::open(path)
+        .with_context(|| format!("probe {}", path.display()))?
+        .read()
+        .with_context(|| format!("read tags from {}", path.display()))?;
+
+    let Some(tag) = tagged.primary_tag().or_else(|| tagged.first_tag()) else {
+        return Ok(AudioTags::default());
+    };
+
+    fn cow_to_string(value: Option<std::borrow::Cow<'_, str>>) -> Option<String> {
+        value.map(|c| c.into_owned())
+    }
+
+    let title = cow_to_string(Accessor::title(tag));
+    let artist = cow_to_string(Accessor::artist(tag));
+    let album = cow_to_string(Accessor::album(tag));
+    let track_number = Accessor::track(tag).map(|n| n.to_string());
+    let total_tracks = Accessor::track_total(tag).map(|n| n.to_string());
+    let date = LoftyTag::get_string(tag, &ItemKey::RecordingDate)
+        .map(|s| s.to_string())
+        .or_else(|| Accessor::year(tag).map(|y| y.to_string()));
+
+    let mut custom = BTreeMap::new();
+    let mut fields: Vec<Id3Field> = Vec::new();
+    for item in tag.items() {
+        let key_label = lofty_item_label(item.key());
+        let value = match item.value() {
+            ItemValue::Text(text) | ItemValue::Locator(text) => text.clone(),
+            ItemValue::Binary(_) => continue,
+        };
+        if let ItemKey::Unknown(name) = item.key() {
+            custom.insert(name.clone(), value.clone());
+        }
+        fields.push(Id3Field {
+            frame_id: key_label,
+            value,
+        });
+    }
+
+    let artwork = tag.pictures().first().map(|pic| EmbeddedArtwork {
+        mime_type: pic
+            .mime_type()
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| "application/octet-stream".into()),
+        picture_type: format!("{:?}", pic.pic_type()),
+        description: pic.description().unwrap_or("").to_string(),
+        data: pic.data().to_vec(),
+    });
+
+    Ok(AudioTags {
+        title,
+        artist,
+        album,
+        track_number,
+        total_tracks,
+        date,
+        custom,
+        artwork,
+        fields,
+    })
+}
+
+fn lofty_item_label(key: &lofty::prelude::ItemKey) -> String {
+    use lofty::prelude::ItemKey;
+    match key {
+        ItemKey::Unknown(name) => name.clone(),
+        other => format!("{other:?}"),
+    }
 }
 
 pub fn write_id3v24_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
@@ -62,6 +145,21 @@ pub fn write_id3v24_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
         return Ok(0);
     }
 
+    use crate::audio_format::AudioFormat;
+    match AudioFormat::detect_from_file(path) {
+        Ok(AudioFormat::Mp3) | Err(_) => write_mp3_edits(path, edits),
+        Ok(AudioFormat::Flac) | Ok(AudioFormat::OggVorbis) | Ok(AudioFormat::OggOpus) => {
+            write_lofty_edits(path, edits, lofty::tag::TagType::VorbisComments)
+        }
+        Ok(AudioFormat::Mp4) => write_lofty_edits(path, edits, lofty::tag::TagType::Mp4Ilst),
+        Ok(AudioFormat::Wav) => Err(anyhow!(
+            "cannot tag raw WAV ({}); install `flac` to upgrade on download",
+            path.display()
+        )),
+    }
+}
+
+fn write_mp3_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
     let mut tag = no_tag_ok(Tag::read_from_path(path))
         .with_context(|| format!("read embedded MP3 tags from {}", path.display()))?
         .unwrap_or_default();
@@ -75,6 +173,97 @@ pub fn write_id3v24_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
 
     tag.write_to_path(path, Version::Id3v24)
         .with_context(|| format!("write ID3v2.4 tags to {}", path.display()))?;
+    Ok(applied)
+}
+
+fn write_lofty_edits(
+    path: &Path,
+    edits: &[Id3v24Edit],
+    tag_type: lofty::tag::TagType,
+) -> Result<usize> {
+    use lofty::file::{AudioFile, TaggedFileExt};
+    use lofty::prelude::{Accessor, ItemKey};
+    use lofty::probe::Probe;
+    use lofty::tag::{ItemValue, Tag as LoftyTag, TagItem};
+
+    use crate::tag_field::TagFieldId;
+
+    let mut tagged = Probe::open(path)
+        .with_context(|| format!("probe {}", path.display()))?
+        .read()
+        .with_context(|| format!("read tags from {}", path.display()))?;
+
+    let mut tag = tagged
+        .remove(tag_type)
+        .unwrap_or_else(|| LoftyTag::new(tag_type));
+
+    let mut applied = 0usize;
+    for edit in edits {
+        let field = TagFieldId::from_id3_label(&edit.frame_label);
+        let inserted = match tag_type {
+            lofty::tag::TagType::VorbisComments => {
+                let key = match field.vorbis_key() {
+                    Some(k) => k,
+                    None => continue,
+                };
+                let item_key = ItemKey::Unknown(key);
+                let item = TagItem::new(item_key, ItemValue::Text(edit.value.clone()));
+                tag.push(item);
+                true
+            }
+            lofty::tag::TagType::Mp4Ilst => {
+                // Prefer the accessor for core fields; fall back to a freeform
+                // ---- atom for anything without a stock ilst atom.
+                let handled = match &field {
+                    TagFieldId::Title => {
+                        Accessor::set_title(&mut tag, edit.value.clone());
+                        true
+                    }
+                    TagFieldId::Artist => {
+                        Accessor::set_artist(&mut tag, edit.value.clone());
+                        true
+                    }
+                    TagFieldId::Album => {
+                        Accessor::set_album(&mut tag, edit.value.clone());
+                        true
+                    }
+                    TagFieldId::TrackNumber => {
+                        if let Ok(n) = edit.value.parse::<u32>() {
+                            Accessor::set_track(&mut tag, n);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                };
+                if !handled {
+                    let ns_key = match &field {
+                        TagFieldId::Custom(desc) => {
+                            format!("----:com.apple.iTunes:{desc}")
+                        }
+                        TagFieldId::Url(kind) => {
+                            format!("----:com.apple.iTunes:{}", kind.to_id3())
+                        }
+                        _ => format!("----:com.apple.iTunes:{}", edit.frame_label),
+                    };
+                    let item_key = ItemKey::Unknown(ns_key);
+                    let item = TagItem::new(item_key, ItemValue::Text(edit.value.clone()));
+                    tag.push(item);
+                }
+                true
+            }
+            _ => false,
+        };
+        if inserted {
+            applied += 1;
+        }
+    }
+
+    tagged.insert_tag(tag);
+    tagged
+        .save_to_path(path, lofty::config::WriteOptions::default())
+        .with_context(|| format!("write tags to {}", path.display()))?;
     Ok(applied)
 }
 

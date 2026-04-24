@@ -1,5 +1,6 @@
 pub mod api;
 pub mod app;
+pub mod audio_format;
 pub mod audio_tags;
 pub mod config;
 pub mod db;
@@ -9,5 +10,6 @@ pub mod metadata;
 pub mod musicbrainz;
 pub mod rss;
 pub mod search;
+pub mod tag_field;
 pub mod track_compare;
 pub mod ui;

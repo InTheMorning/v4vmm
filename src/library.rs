@@ -32,7 +32,7 @@ use crate::musicbrainz::{
     lookup_recordings, lookup_releases, LookupMetadata, MusicBrainzCandidate, MusicBrainzLookup,
 };
 use crate::search::id3_edits_for_track_context;
-use crate::track_compare::{download_track_mp3, local_mp3_path};
+use crate::track_compare::{download_track, select_audio_enclosure, DownloadedTrack};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -763,8 +763,14 @@ impl LibraryApp {
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
                         this.busy_track = None;
                         match result {
-                            Ok(path) => {
-                                this.status = format!("Subscribed track: {}", path.display());
+                            Ok(outcome) => {
+                                let mut msg =
+                                    format!("Subscribed track: {}", outcome.path.display());
+                                if let Some(warning) = outcome.format_warning {
+                                    msg.push_str(" — ");
+                                    msg.push_str(&warning);
+                                }
+                                this.status = msg;
                                 this.reload();
                             }
                             Err(error) => {
@@ -1406,18 +1412,51 @@ impl LibraryApp {
     }
 }
 
+pub struct SubscribedTrackOutcome {
+    pub path: std::path::PathBuf,
+    pub format_warning: Option<String>,
+}
+
 fn subscribe_library_track(
     conn: Arc<Mutex<Connection>>,
     track: TrackRow,
-) -> anyhow::Result<std::path::PathBuf> {
+) -> anyhow::Result<SubscribedTrackOutcome> {
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
     let api_track = track_row_to_api_track(&track);
-    let path = local_mp3_path(&cfg, &api_track);
-    if !path.exists() {
-        download_track_mp3(&cfg, &ReqwestClient::new(), &api_track)?;
-    }
+    let existing = track
+        .local_path
+        .as_deref()
+        .filter(|p| !p.is_empty())
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.exists());
+    let (path, format_warning) = if let Some(buf) = existing {
+        (buf, None)
+    } else if let Some(enclosure) = select_audio_enclosure(&api_track) {
+        let candidate = crate::track_compare::local_track_path(
+            &cfg,
+            &api_track,
+            enclosure.format.canonical_extension(),
+        );
+        if candidate.exists() {
+            (candidate, None)
+        } else {
+            let DownloadedTrack {
+                path,
+                format_warning,
+                ..
+            } = download_track(&cfg, &ReqwestClient::new(), &api_track)?;
+            (path, format_warning)
+        }
+    } else {
+        let DownloadedTrack {
+            path,
+            format_warning,
+            ..
+        } = download_track(&cfg, &ReqwestClient::new(), &api_track)?;
+        (path, format_warning)
+    };
     let file_size = std::fs::metadata(&path)
         .ok()
         .and_then(|metadata| metadata.len().try_into().ok());
@@ -1434,9 +1473,18 @@ fn subscribe_library_track(
     };
     let edits = id3_edits_for_track_context(&track_context);
     if !edits.is_empty() {
-        write_id3v24_edits(&path, &edits)?;
+        // Only attempt tag writes on formats we can tag today.
+        match write_id3v24_edits(&path, &edits) {
+            Ok(_) => {}
+            Err(err) => {
+                eprintln!("skip tag write for {}: {err:#}", path.display());
+            }
+        }
     }
-    Ok(path)
+    Ok(SubscribedTrackOutcome {
+        path,
+        format_warning,
+    })
 }
 
 #[allow(dead_code)]
@@ -1876,6 +1924,7 @@ fn track_row_to_api_track(track: &TrackRow) -> Track {
             .and_then(|seconds| seconds.try_into().ok()),
         track_number: track.track_number.and_then(|number| number.try_into().ok()),
         enclosure_url: track.enclosure_url.clone(),
+        enclosure_type: track.enclosure_type.clone(),
         image_url: track.track_image_href.clone(),
         track_artist: track.artist_name.clone(),
         source_links: track.transcript_url.as_ref().map(|url| {
@@ -4406,9 +4455,18 @@ fn compare_downloaded_track_path(
         }
     });
     let track = &track_context.track;
+    let mut rows = crate::metadata::compare_track_rows(track, track_context.feed.as_ref(), &tags);
+    if let Ok(detected) = crate::audio_format::AudioFormat::detect_from_file(path) {
+        crate::metadata::push_compare_row(
+            &mut rows,
+            "File format",
+            None,
+            Some(detected.display_label().to_string()),
+        );
+    }
     Ok(TagCompareResult {
         path: path.display().to_string(),
-        rows: crate::metadata::compare_track_rows(track, track_context.feed.as_ref(), &tags),
+        rows,
         file_image,
         contributors: track.source_contributors.clone().unwrap_or_default(),
         value_routes: track.payment_routes.clone().unwrap_or_default(),
@@ -4593,6 +4651,7 @@ mod tests {
             disc_number: None,
             duration_seconds: None,
             enclosure_url: None,
+            enclosure_type: None,
             track_image_href: None,
             is_in_library: true,
             feed_title: Some("Feed".into()),
@@ -4624,6 +4683,7 @@ mod tests {
             disc_number: None,
             duration_seconds: Some(223),
             enclosure_url: Some("https://example.test/track.mp3".into()),
+            enclosure_type: None,
             track_image_href: None,
             is_in_library: true,
             feed_title: Some("Feed".into()),

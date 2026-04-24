@@ -174,6 +174,12 @@ pub fn compare_track_rows(
         None,
     );
     push_compare_row(&mut rows, "Artwork", artwork_url(track, feed), None);
+    push_compare_row(
+        &mut rows,
+        "Source format",
+        track.enclosure_type.clone(),
+        None,
+    );
 
     if let Some(feed) = feed {
         push_if_differs(
