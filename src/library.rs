@@ -1432,7 +1432,7 @@ fn subscribe_library_track(
         .map(std::path::PathBuf::from)
         .filter(|p| p.exists());
     let (path, format_warning) = if let Some(buf) = existing {
-        (buf, None)
+        (crate::track_compare::ensure_taggable_local_path(&cfg, &buf), None)
     } else if let Some(enclosure) = select_audio_enclosure(&api_track) {
         let candidate = crate::track_compare::local_track_path(
             &cfg,
@@ -1440,7 +1440,10 @@ fn subscribe_library_track(
             enclosure.format.canonical_extension(),
         );
         if candidate.exists() {
-            (candidate, None)
+            (
+                crate::track_compare::ensure_taggable_local_path(&cfg, &candidate),
+                None,
+            )
         } else {
             let DownloadedTrack {
                 path,

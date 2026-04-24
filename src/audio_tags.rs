@@ -153,7 +153,7 @@ pub fn write_id3v24_edits(path: &Path, edits: &[Id3v24Edit]) -> Result<usize> {
         }
         Ok(AudioFormat::Mp4) => write_lofty_edits(path, edits, lofty::tag::TagType::Mp4Ilst),
         Ok(AudioFormat::Wav) => Err(anyhow!(
-            "cannot tag raw WAV ({}); install `flac` to upgrade on download",
+            "cannot tag raw WAV ({}); re-subscribe with `flac` installed to upgrade",
             path.display()
         )),
     }

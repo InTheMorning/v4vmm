@@ -2358,7 +2358,7 @@ fn resolve_track_path(
             let candidate =
                 local_track_path(cfg, track, enclosure.format.canonical_extension());
             if candidate.exists() {
-                return Ok(candidate);
+                return Ok(crate::track_compare::ensure_taggable_local_path(cfg, &candidate));
             }
         }
     }

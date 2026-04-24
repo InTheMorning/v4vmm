@@ -96,6 +96,29 @@ pub fn local_track_path(cfg: &Config, track: &Track, extension: &str) -> PathBuf
         .join(filename)
 }
 
+/// If `path` is a WAV file and the configured `flac` CLI is reachable,
+/// re-encode it in place and return the new FLAC path. Otherwise return
+/// `path` unchanged. Used by subscribe flows that reuse a pre-existing local
+/// file so tag writes land on a taggable container.
+pub fn ensure_taggable_local_path(cfg: &Config, path: &Path) -> PathBuf {
+    if path.extension().and_then(|s| s.to_str()).map(str::to_ascii_lowercase)
+        != Some("wav".to_string())
+    {
+        return path.to_path_buf();
+    }
+    if !matches!(AudioFormat::detect_from_file(path), Ok(AudioFormat::Wav)) {
+        return path.to_path_buf();
+    }
+    let flac_override = cfg.flac_path.as_deref();
+    if !crate::audio_format::flac_cli_available(flac_override) {
+        return path.to_path_buf();
+    }
+    match crate::audio_format::transcode_wav_to_flac(path, flac_override) {
+        Ok(flac_path) => flac_path,
+        Err(_) => path.to_path_buf(),
+    }
+}
+
 pub fn download_track(
     cfg: &Config,
     client: &ReqwestClient,
