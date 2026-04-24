@@ -47,6 +47,14 @@ Path segments are sanitized to avoid invalid characters, reserved names, and run
 
 When a feed lies about the enclosure type, the download layer detects the actual format from file bytes and renames the file to the matching extension.
 
+### WAV → FLAC silent upgrade
+
+WAV downloads are re-encoded to FLAC in place so they can be tagged. The app
+shells out to the standard `flac` CLI (resolved via `$PATH` unless a custom
+path is set under `Settings → flac binary` or the `flac_path` config key). If
+the CLI is not installed, the WAV file is kept as-is and the inspector shows
+a warning that tagging is disabled until `flac` is installed.
+
 ## Enclosure Selection
 
 The library download path uses a simple selection policy:

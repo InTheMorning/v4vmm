@@ -38,6 +38,21 @@ It is not currently a full playback app, a fingerprint scanner, or a general-pur
 cargo run
 ```
 
+### Optional dependency: `flac`
+
+When a feed declares MP3 but actually ships WAV (a known RSS quirk), v4vmm
+silently re-encodes the download to FLAC so it can be tagged. This path shells
+out to the standard `flac` CLI. Install it via your package manager:
+
+- Debian/Ubuntu: `sudo apt install flac`
+- Fedora: `sudo dnf install flac`
+- Arch: `sudo pacman -S flac`
+- macOS (Homebrew): `brew install flac`
+
+Without `flac` installed, WAV downloads are kept as WAV and left untagged. A
+custom binary path can be set under `Settings → flac binary` or via the
+`flac_path` config key.
+
 Build the desktop binary:
 
 ```bash
@@ -67,6 +82,7 @@ The `Settings` tab lets you update:
 
 - `musicindex_endpoint`
 - `music_dir`
+- `flac_path` (optional override; blank means use `flac` from `$PATH`)
 
 Downloads are organized under:
 

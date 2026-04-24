@@ -115,8 +115,24 @@ impl AudioFormat {
     }
 }
 
-/// Returns true if the `flac` CLI is reachable on PATH. Probed once and cached.
-pub fn flac_cli_available() -> bool {
+/// Resolve the `flac` binary. `override_path` wins when provided; otherwise we
+/// fall back to `flac` on `$PATH`.
+fn flac_binary(override_path: Option<&Path>) -> std::ffi::OsString {
+    override_path
+        .map(|p| p.as_os_str().to_os_string())
+        .unwrap_or_else(|| std::ffi::OsString::from("flac"))
+}
+
+/// Returns true if the `flac` CLI is reachable. When `override_path` is
+/// `None`, the PATH lookup result is cached after the first probe.
+pub fn flac_cli_available(override_path: Option<&Path>) -> bool {
+    if let Some(path) = override_path {
+        return Command::new(path)
+            .arg("--version")
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false);
+    }
     static PROBE: OnceLock<bool> = OnceLock::new();
     *PROBE.get_or_init(|| {
         Command::new("flac")
@@ -130,12 +146,16 @@ pub fn flac_cli_available() -> bool {
 /// Re-encode a WAV file to FLAC in place (output alongside the input with the
 /// `.flac` extension, removing the original WAV). Returns the new path on
 /// success. Fails if the `flac` CLI is not installed or the encode fails.
-pub fn transcode_wav_to_flac(wav_path: &Path) -> Result<std::path::PathBuf> {
-    if !flac_cli_available() {
+pub fn transcode_wav_to_flac(
+    wav_path: &Path,
+    binary_override: Option<&Path>,
+) -> Result<std::path::PathBuf> {
+    if !flac_cli_available(binary_override) {
         anyhow::bail!("flac CLI is not installed");
     }
+    let binary = flac_binary(binary_override);
     let flac_path = wav_path.with_extension("flac");
-    let status = Command::new("flac")
+    let status = Command::new(&binary)
         .arg("--best")
         .arg("--silent")
         .arg("--totally-silent")

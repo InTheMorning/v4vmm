@@ -54,6 +54,7 @@ pub struct TopApp {
     library: Entity<LibraryApp>,
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
+    flac_path_input: Entity<InputState>,
     cfg_path: PathBuf,
     settings_status: String,
     library_tab_focus: gpui::FocusHandle,
@@ -68,6 +69,7 @@ impl TopApp {
         cfg_path: PathBuf,
         musicindex_endpoint: String,
         music_dir: PathBuf,
+        flac_path: Option<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -92,6 +94,15 @@ impl TopApp {
                 .placeholder("~/V4Vmusic")
                 .default_value(music_dir_default)
         });
+        let flac_path_default = flac_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let flac_path_input = cx.new(|cx: &mut Context<InputState>| {
+            InputState::new(window, cx)
+                .placeholder("flac (from $PATH)")
+                .default_value(flac_path_default)
+        });
 
         Self {
             tab: AppTab::Library,
@@ -99,6 +110,7 @@ impl TopApp {
             library,
             endpoint_input,
             music_dir_input,
+            flac_path_input,
             cfg_path,
             settings_status: String::new(),
             library_tab_focus: cx.focus_handle(),
@@ -110,8 +122,9 @@ impl TopApp {
     fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let endpoint = self.endpoint_input.read(cx).value().to_string();
         let music_dir = self.music_dir_input.read(cx).value().to_string();
-        match config::save_app_settings(&self.cfg_path, &endpoint, &music_dir) {
-            Ok((normalized_endpoint, normalized_music_dir)) => {
+        let flac_path = self.flac_path_input.read(cx).value().to_string();
+        match config::save_app_settings(&self.cfg_path, &endpoint, &music_dir, &flac_path) {
+            Ok((normalized_endpoint, normalized_music_dir, normalized_flac_path)) => {
                 let cfg = match config::load_config(&self.cfg_path)
                     .and_then(|cfg| config::ensure_dirs(&cfg).map(|()| cfg))
                 {
@@ -133,6 +146,13 @@ impl TopApp {
                 });
                 self.music_dir_input.update(cx, |input, cx| {
                     input.set_value(normalized_music_dir.display().to_string(), window, cx);
+                });
+                let flac_display = normalized_flac_path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default();
+                self.flac_path_input.update(cx, |input, cx| {
+                    input.set_value(flac_display, window, cx);
                 });
                 self.settings_status = format!(
                     "Saved settings. Music files download under {}/artists",
@@ -282,6 +302,7 @@ impl Render for TopApp {
 fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {
     let endpoint_input = app.endpoint_input.clone();
     let music_dir_input = app.music_dir_input.clone();
+    let flac_path_input = app.flac_path_input.clone();
     let status = app.settings_status.clone();
     let status_color = if status.starts_with("Error:") {
         color::status_danger()
@@ -336,6 +357,23 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .child("Downloads are organized under an artists subfolder."),
                 )
                 .child(
+                    typography::type_caption_strong(div())
+                        .text_color(color::text_muted())
+                        .child("flac binary (optional)"),
+                )
+                .child(
+                    Input::new(&flac_path_input)
+                        .cleanable(true)
+                        .with_size(Size::Small),
+                )
+                .child(
+                    typography::type_caption(div())
+                        .text_color(color::text_muted())
+                        .child(
+                            "Used to silently upgrade WAV downloads to FLAC. Leave blank to resolve `flac` via $PATH.",
+                        ),
+                )
+                .child(
                     div()
                         .flex()
                         .flex_row()
@@ -360,6 +398,9 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.endpoint_input.update(cx, |input, cx| {
                                         input.set_value(crate::api::DEFAULT_BASE_URL, window, cx);
+                                    });
+                                    this.flac_path_input.update(cx, |input, cx| {
+                                        input.set_value("", window, cx);
                                     });
                                     match config::default_music_dir() {
                                         Ok(default_music_dir) => {
@@ -480,6 +521,7 @@ pub fn run_app() {
                         cfg_path,
                         musicindex_endpoint,
                         cfg.music_dir,
+                        cfg.flac_path,
                         window,
                         cx,
                     )

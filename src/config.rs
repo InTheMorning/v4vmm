@@ -16,6 +16,13 @@ pub struct Config {
     /// Where the sqlite DB lives.
     /// Example: "/home/user/.local/share/v4vmm/v4vmm.sqlite"
     pub db_path: PathBuf,
+
+    /// Override for the `flac` CLI used to re-encode WAV downloads. When
+    /// `None`, v4vmm resolves `flac` via `$PATH`. Install via your package
+    /// manager (e.g. `apt install flac`, `brew install flac`). Without it,
+    /// WAV downloads are left untagged.
+    #[serde(default)]
+    pub flac_path: Option<PathBuf>,
 }
 
 /// Determine the config path.
@@ -87,9 +94,11 @@ pub fn save_app_settings(
     cfg_path: &Path,
     endpoint: &str,
     music_dir: &str,
-) -> Result<(String, PathBuf)> {
+    flac_path: &str,
+) -> Result<(String, PathBuf, Option<PathBuf>)> {
     let endpoint = normalize_musicindex_endpoint(endpoint)?;
     let music_dir = normalize_music_dir(music_dir)?;
+    let flac_path = normalize_flac_path(flac_path)?;
     if !cfg_path.exists() {
         let _ = load_config(cfg_path)?;
     }
@@ -107,11 +116,22 @@ pub fn save_app_settings(
         "music_dir".into(),
         toml::Value::String(music_dir.display().to_string()),
     );
+    match &flac_path {
+        Some(path) => {
+            table.insert(
+                "flac_path".into(),
+                toml::Value::String(path.display().to_string()),
+            );
+        }
+        None => {
+            table.remove("flac_path");
+        }
+    }
 
     let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
     fs::write(cfg_path, updated.as_bytes())
         .with_context(|| format!("write config {}", cfg_path.display()))?;
-    Ok((endpoint, music_dir))
+    Ok((endpoint, music_dir, flac_path))
 }
 
 pub fn normalize_musicindex_endpoint(endpoint: &str) -> Result<String> {
@@ -165,6 +185,26 @@ pub fn normalize_music_dir(music_dir: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(trimmed))
 }
 
+/// Blank input clears the override (use `$PATH`). Otherwise expand `~` and
+/// return an absolute-ish path; presence and executability are probed lazily
+/// by `audio_format::flac_cli_available`.
+pub fn normalize_flac_path(flac_path: &str) -> Result<Option<PathBuf>> {
+    let trimmed = flac_path.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    if trimmed == "~" {
+        return Ok(Some(home_dir()?));
+    }
+
+    if let Some(rest) = trimmed.strip_prefix("~/") {
+        return Ok(Some(home_dir()?.join(rest)));
+    }
+
+    Ok(Some(PathBuf::from(trimmed)))
+}
+
 /// Default config content (TOML).
 /// Uses your stated defaults.
 fn default_config_toml() -> Result<String> {
@@ -188,6 +228,13 @@ db_path = "{}"
 
 # MusicIndex API endpoint
 musicindex_endpoint = "{}"
+
+# Optional override for the `flac` CLI used to silently upgrade WAV downloads
+# to FLAC so they can be tagged. Leave unset to resolve `flac` via $PATH.
+# Install the `flac` package from your OS (e.g. `apt install flac`,
+# `brew install flac`). Without it, WAV downloads are kept as WAV and are not
+# tagged.
+# flac_path = "/usr/bin/flac"
 "#,
         music_dir.display(),
         db_path.display(),
@@ -273,13 +320,19 @@ extra = "keep"
         )
         .expect("write config");
 
-        let (endpoint, music_dir) =
-            save_app_settings(&cfg_path, "api.musicindex.org/", "~/V4Vmusic").expect("save");
+        let (endpoint, music_dir, flac_path) =
+            save_app_settings(&cfg_path, "api.musicindex.org/", "~/V4Vmusic", "/usr/bin/flac")
+                .expect("save");
         let raw = fs::read_to_string(&cfg_path).expect("read config");
         let table = raw.parse::<toml::Table>().expect("parse TOML");
 
         assert_eq!(endpoint, DEFAULT_BASE_URL);
         assert_eq!(music_dir, default_music_dir().expect("default music dir"));
+        assert_eq!(flac_path, Some(PathBuf::from("/usr/bin/flac")));
+        assert_eq!(
+            table.get("flac_path").and_then(toml::Value::as_str),
+            Some("/usr/bin/flac")
+        );
         assert_eq!(
             table
                 .get("music_dir")

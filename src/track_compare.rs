@@ -144,8 +144,9 @@ pub fn download_track(
 
     // WAV → FLAC silent upgrade. On success the file is replaced with a FLAC.
     if current_format == AudioFormat::Wav {
-        if crate::audio_format::flac_cli_available() {
-            match crate::audio_format::transcode_wav_to_flac(&current_path) {
+        let flac_override = cfg.flac_path.as_deref();
+        if crate::audio_format::flac_cli_available(flac_override) {
+            match crate::audio_format::transcode_wav_to_flac(&current_path, flac_override) {
                 Ok(flac_path) => {
                     current_path = flac_path;
                     current_format = AudioFormat::Flac;
@@ -488,6 +489,7 @@ mod tests {
         let cfg = Config {
             music_dir: "/tmp/v4vmm-test".into(),
             db_path: "/tmp/v4vmm-test.sqlite".into(),
+            flac_path: None,
         };
 
         assert_eq!(
@@ -505,6 +507,7 @@ mod tests {
         let cfg = Config {
             music_dir: "/tmp/v4vmm-test".into(),
             db_path: "/tmp/v4vmm-test.sqlite".into(),
+            flac_path: None,
         };
         let mut track = track();
         track.track_artist = Some("CON".into());
@@ -526,6 +529,7 @@ mod tests {
         let cfg = Config {
             music_dir: "/tmp/v4vmm-test".into(),
             db_path: "/tmp/v4vmm-test.sqlite".into(),
+            flac_path: None,
         };
         let mut track = track();
         track.track_artist = Some("Artist\tName".into());
@@ -620,6 +624,7 @@ mod tests {
         let cfg = Config {
             music_dir: temp.path().join("music"),
             db_path: temp.path().join("db.sqlite"),
+            flac_path: None,
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
