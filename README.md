@@ -1,70 +1,127 @@
 # V4V Music Manager
 
-## V4V Music Manager is a small tool that acts as *glue* between RSS-based music feeds (e.g., DeMu) and a local audio file library.
+`v4vmm` is a Linux-first GPUI desktop app for working with MusicIndex-backed music feeds and a local managed audio library.
 
-The Rust core will:
+The current tool is not a generic roadmap project or a future media player shell. It is a desktop operator app that already does four concrete jobs:
 
-- Subscribe to multiple music feeds and store their metadata in a database
-- Flag individual tracks and whole albums as **in the library**
-- Download audio files into a target directory
-- Overwrite / normalize ID3 tags so regular music players display RSS (**source of truth**) titles, artwork, and metadata
+- discover artists, feeds, tracks, and publishers from MusicIndex
+- subscribe feeds by pulling their RSS into a local SQLite database
+- download track files into a managed library under `music_dir/artists/...`
+- compare and update embedded metadata on local files, with optional MusicBrainz-assisted staging
 
-## Eventual UI
+## What The App Does Today
 
-A GUI (possibly written in Qt) will provide:
+- `Discover` searches MusicIndex and shows recent feeds when the search box is empty.
+- Feed and track inspectors can subscribe or unsubscribe content against the local database.
+- Subscribing a feed stores its RSS metadata locally and attempts to download each track.
+- Subscribing a track stores the parent feed if needed, downloads the file, and marks that track as part of the managed library.
+- `Library` shows subscribed tracks grouped by artist and release/feed.
+- `Cached` shows downloaded files that exist locally but are not currently marked as subscribed library tracks.
+- Local track inspectors can compare embedded ID3 data against RSS-derived metadata and stage explicit ID3v2.4 edits.
+- Local track and album inspectors can run metadata-based MusicBrainz lookups and use the results to stage more ID3 edits.
+- The library can check subscribed feeds for newer `updated_at` values from MusicIndex and apply tag refreshes to downloaded files.
 
-- A browser for V4V music
-- Controls to flag/unflag items and execute downloads, deletions, and metadata updates
-- Some form of local playlist management
+## Current Scope
 
-## Eventual music player integration (Mixxx, Clementine, etc.)
+The app is built around four data sources:
 
-Your music player will:
+- RSS feed data imported into SQLite
+- MusicIndex API detail data
+- embedded file metadata, currently centered on ID3 workflows
+- MusicBrainz metadata lookups for local enrichment
 
-- Use **MPRIS / D-Bus** to communicate back to the UI
+It is not currently a full playback app, a fingerprint scanner, or a general-purpose tag editor.
 
-## Eventual Splitkit™ functionality
+## Run
 
-Planned features:
-
-- Generate VTS for live RSS streaming, chapter art, and a ready-to-go podcast episode
-- Support arbitrary-length talk breaks between songs
-
-# Build and Run
-
-```
-cargo build
+```bash
 cargo run
 ```
 
-To install the desktop app binary:
+Build the desktop binary:
 
+```bash
+cargo build
 ```
+
+Install it locally:
+
+```bash
 cargo install --path .
-v4vmm
 ```
 
-## MusicIndex UI
+## Configuration
 
-The `v4vmm` binary is V4V Music Manager, a GPUI desktop app for local library management and MusicIndex discovery. It searches MusicIndex feeds, tracks, and publishers, shows compact results on the left, and opens the selected result in a right-side inspector with feed tracks, track/feed drill-downs, contributors, value routes, and MP3 embedded-metadata comparison.
+On first run the app creates a config file, then ensures the required directories exist.
 
-The UI uses the configured MusicIndex endpoint and needs network access.
+Default locations on Linux-style systems:
 
-For track results, use `Download + Compare` in the inspector to fetch the MP3 enclosure into `music_dir/artists`, read its embedded MP3 tags, and compare title, artist, album/feed, track number, publisher, nostr handle, website, and release pubdate fields against MusicIndex source facts. The inspector keeps MusicIndex/RSS data and actions on the left and opens file-side ID3 details on the right. It also shows embedded artwork and all ID3 frames found in the file. Missing ID3 tags render as blank fields. This is read-only: it does not rewrite tags.
-
-Running the app will create config file `~/.config/v4vmm/config.toml`.
-This file contains defaults:
-```
-# V4V-only library root
-music_dir = "/home/<username>/V4Vmusic"
-
-# SQLite database path (app data)
-db_path = "/home/<username>/.local/share/v4vmm/v4vmm.sqlite"
+```toml
+# ~/.config/v4vmm/config.toml
+music_dir = "/home/<user>/V4Vmusic"
+db_path = "/home/<user>/.local/share/v4vmm/v4vmm.sqlite"
+musicindex_endpoint = "https://api.musicindex.org"
 ```
 
-The app can subscribe to a feed, add its relevant RSS data to the local database, download tracks, compare embedded metadata, and toggle tracks as *in our library*.
+The `Settings` tab lets you update:
 
-# Project discipline
+- `musicindex_endpoint`
+- `music_dir`
 
-- Architecture decisions live in `docs/adr/`
-- Rust regression and integration tests live in `tests/`
+Downloads are organized under:
+
+```text
+<music_dir>/artists/<artist>/<release-or-feed>/<track file>
+```
+
+The app also keeps a thumbnail cache beside the config directory.
+
+## Storage Model
+
+The SQLite database tracks three related states:
+
+- `feeds`: imported RSS feeds and subscription state
+- `tracks`: feed items and whether each track is part of the managed library
+- `local_files`: downloaded files on disk
+
+That gives the UI two useful views:
+
+- `Library`: downloaded tracks that are still marked `is_in_library = 1`
+- `Cached`: downloaded files whose tracks exist locally but are currently unsubscribed
+
+## Metadata Behavior
+
+The app is provenance-first. It keeps RSS, MusicIndex, embedded tags, and MusicBrainz values separate instead of silently collapsing them into one inferred truth.
+
+Current behavior:
+
+- RSS import stores source feed and item metadata locally.
+- RSS enrichment can pull transcript URLs and nostr handles directly from feed XML when MusicIndex detail data is missing them.
+- Local compare views line up RSS, ID3, and optionally MusicBrainz values side by side.
+- Applying tag changes writes explicit ID3v2.4 frames only.
+- MusicBrainz lookup is metadata-based. There is no acoustic fingerprinting flow in this app.
+
+Current limitations:
+
+- embedded metadata inspection and editing are centered on ID3-backed files
+- the library download layer recognizes more than MP3, but the richest compare/edit flows are still MP3/ID3-first
+- search-side download/compare code still follows an MP3-oriented path
+
+## Keyboard Shortcuts
+
+Global shortcuts wired in the app today:
+
+- `Cmd/Ctrl+1`: switch to `Library`
+- `Cmd/Ctrl+2`: switch to `Discover`
+- `Cmd/Ctrl+3`: switch to `Settings`
+- `Cmd/Ctrl+F`: focus the active tab search field in `Library` or `Discover`
+- `Cmd/Ctrl+R`: refresh `Library`
+- `Esc`: close the active inspector
+
+## Docs
+
+- [Docs index](docs/README.md)
+- [App overview](docs/app-overview.md)
+- [Library and discovery workflows](docs/workflows.md)
+- [Storage and metadata model](docs/storage-and-metadata.md)
+- ADRs remain in [`docs/adr/`](docs/adr/)
