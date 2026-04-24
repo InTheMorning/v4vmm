@@ -135,6 +135,7 @@ struct ArtistNode {
 struct AlbumNode {
     name: String,
     feed_id: Option<i64>,
+    feed_url: Option<String>,
     image_href: Option<String>,
     tracks: Vec<TrackRow>,
 }
@@ -208,6 +209,7 @@ use crate::ui::theme::spacing;
 use crate::ui::theme::typography;
 use crate::ui::theme::radius;
 use crate::ui::theme::{layout, badges, glyphs};
+use crate::ui::render_rss_icon_link;
 
 // ---------------------------------------------------------------------------
 // LibraryApp
@@ -346,7 +348,7 @@ impl LibraryApp {
             LibraryTab::Library => match db::library_tracks(&conn) {
                 Ok(rows) => {
                     let count = rows.len();
-                    self.tree = build_tree(&rows);
+                    self.tree = build_tree(&rows, &conn);
                     self.status =
                         format!("{count} library track{}", if count == 1 { "" } else { "s" });
                 }
@@ -357,7 +359,7 @@ impl LibraryApp {
             LibraryTab::Cached => match db::cached_tracks(&conn) {
                 Ok(rows) => {
                     let count = rows.len();
-                    self.cached_tree = build_tree(&rows);
+                    self.cached_tree = build_tree(&rows, &conn);
                     self.status =
                         format!("{count} cached file{}", if count == 1 { "" } else { "s" });
                 }
@@ -606,24 +608,52 @@ impl LibraryApp {
                     .spawn(async move {
                         let mut total_tracks = 0usize;
                         let mut total_edits = 0usize;
+                        let mut id3_errors: Vec<String> = Vec::new();
+                        let mut feed_errors: Vec<String> = Vec::new();
                         for entry in &stale {
-                            if let Ok(outcome) = apply_feed_updates(&conn, &endpoint, entry) {
-                                total_tracks += outcome.tracks_updated;
-                                total_edits += outcome.edits_written;
+                            match apply_feed_updates(&conn, &endpoint, entry) {
+                                Ok(outcome) => {
+                                    total_tracks += outcome.tracks_updated;
+                                    total_edits += outcome.edits_written;
+                                    id3_errors.extend(outcome.id3_errors);
+                                }
+                                Err(err) => {
+                                    let label = entry
+                                        .title
+                                        .clone()
+                                        .unwrap_or_else(|| entry.feed_guid.clone());
+                                    feed_errors.push(format!("{label}: {err:#}"));
+                                }
                             }
                         }
-                        (total_tracks, total_edits)
+                        (total_tracks, total_edits, id3_errors, feed_errors)
                     })
                     .await;
                 let _ = this.update(cx, move |this, cx| {
                     this.feed_update_state.phase = FeedUpdatePhase::Idle;
                     this.feed_update_state.stale.clear();
-                    let (tracks, edits) = outcomes;
-                    this.feed_update_state.status_message = Some(if tracks == 0 {
+                    let (tracks, edits, id3_errors, feed_errors) = outcomes;
+                    let mut parts: Vec<String> = Vec::new();
+                    parts.push(if tracks == 0 {
                         "No edits written".into()
                     } else {
                         format!("Applied {edits} edit(s) to {tracks} track(s)")
                     });
+                    if !id3_errors.is_empty() {
+                        parts.push(format!(
+                            "ID3 write errors ({}): {}",
+                            id3_errors.len(),
+                            id3_errors.join("; ")
+                        ));
+                    }
+                    if !feed_errors.is_empty() {
+                        parts.push(format!(
+                            "Feed errors ({}): {}",
+                            feed_errors.len(),
+                            feed_errors.join("; ")
+                        ));
+                    }
+                    this.feed_update_state.status_message = Some(parts.join(" — "));
                     cx.notify();
                 });
             },
@@ -1603,7 +1633,7 @@ async fn musicbrainz_feed_per_track(
     .ok();
 }
 
-fn build_tree(tracks: &[TrackRow]) -> LibraryTree {
+fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree {
     let mut artist_map: BTreeMap<String, BTreeMap<String, Vec<TrackRow>>> = BTreeMap::new();
     for track in tracks {
         let artist = track
@@ -1624,6 +1654,7 @@ fn build_tree(tracks: &[TrackRow]) -> LibraryTree {
             .push(track.clone());
     }
 
+    let mut feed_url_cache: BTreeMap<i64, Option<String>> = BTreeMap::new();
     let artists = artist_map
         .into_iter()
         .map(|(artist_name, album_map)| {
@@ -1632,6 +1663,12 @@ fn build_tree(tracks: &[TrackRow]) -> LibraryTree {
                 .map(|(album_name, mut tracks)| {
                     tracks.sort_by(|a, b| a.track_number.cmp(&b.track_number));
                     let feed_id = tracks.first().map(|t| t.feed_id);
+                    let feed_url = feed_id.and_then(|fid| {
+                        feed_url_cache
+                            .entry(fid)
+                            .or_insert_with(|| db::feed_url_by_id(conn, fid).ok().flatten())
+                            .clone()
+                    });
                     let image_href = tracks
                         .iter()
                         .find_map(|t| t.album_image_href.clone())
@@ -1639,6 +1676,7 @@ fn build_tree(tracks: &[TrackRow]) -> LibraryTree {
                     AlbumNode {
                         name: album_name,
                         feed_id,
+                        feed_url,
                         image_href,
                         tracks,
                     }
@@ -1686,6 +1724,7 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
                 albums.push(AlbumNode {
                     name: album.name.clone(),
                     feed_id: album.feed_id,
+                    feed_url: album.feed_url.clone(),
                     image_href: album.image_href.clone(),
                     tracks,
                 });
@@ -1989,6 +2028,7 @@ fn fetch_library_track_context(
 pub struct FeedApplyOutcome {
     pub tracks_updated: usize,
     pub edits_written: usize,
+    pub id3_errors: Vec<String>,
 }
 
 fn check_feed_staleness(
@@ -2038,6 +2078,7 @@ fn apply_feed_updates(
     let mut outcome = FeedApplyOutcome {
         tracks_updated: 0,
         edits_written: 0,
+        id3_errors: Vec::new(),
     };
     for track in &tracks {
         let Some(local_path) = track.local_path.clone() else {
@@ -2057,7 +2098,13 @@ fn apply_feed_updates(
                     outcome.edits_written += written;
                 }
             }
-            Err(_) => continue,
+            Err(error) => {
+                let label = track
+                    .track_title
+                    .clone()
+                    .unwrap_or_else(|| local_path.clone());
+                outcome.id3_errors.push(format!("{label}: {error:#}"));
+            }
         }
     }
     {
@@ -2863,7 +2910,12 @@ fn render_album_detail(
         .values()
         .any(|s| matches!(s, MbTrackStatus::Pending | MbTrackStatus::Processing));
     let album_for_mb = album.clone();
-    let mut buttons = div().flex().flex_row().gap(spacing::SM);
+    let feed_url = album.feed_url.clone();
+    let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
+    buttons = buttons.child(render_rss_icon_link(
+        &format!("album-{}", album.feed_id.unwrap_or(0)),
+        feed_url,
+    ));
     if let Some(fid) = feed_id {
         buttons = buttons.child(
             metadata_action_button("Unsubscribe Feed")

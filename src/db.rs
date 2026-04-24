@@ -100,6 +100,14 @@ pub fn subscribed_feeds_for_stale_check(conn: &Connection) -> Result<Vec<FeedSta
     Ok(rows)
 }
 
+pub fn feed_url_by_id(conn: &Connection, feed_id: i64) -> Result<Option<String>> {
+    conn.query_row("SELECT feed_url FROM feeds WHERE id = ?1", [feed_id], |row| {
+        row.get::<_, String>(0)
+    })
+    .optional()
+    .context("query feed_url_by_id")
+}
+
 pub fn feed_stale_check_row(conn: &Connection, feed_id: i64) -> Result<Option<FeedStaleCheckRow>> {
     conn.query_row(
         "SELECT id, feed_guid, title, musicindex_updated_at

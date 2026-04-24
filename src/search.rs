@@ -52,6 +52,7 @@ enum InspectorDetail {
 struct ArtistContext {
     artist: Artist,
     tracks: Vec<Track>,
+    feeds: Vec<Feed>,
     has_more_tracks: bool,
 }
 
@@ -483,7 +484,21 @@ impl SearchApp {
             return;
         }
 
-        self.results.extend(batch.rows);
+        if append {
+            let mut seen: std::collections::HashSet<(String, String)> = self
+                .results
+                .iter()
+                .map(|r| (r.entity_type.clone(), r.entity_id.clone()))
+                .collect();
+            for row in batch.rows {
+                let key = (row.entity_type.clone(), row.entity_id.clone());
+                if seen.insert(key) {
+                    self.results.push(row);
+                }
+            }
+        } else {
+            self.results.extend(batch.rows);
+        }
         self.cursor = batch.cursor;
         self.has_more = batch.has_more;
         self.loading = false;
@@ -623,6 +638,25 @@ impl SearchApp {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 match detail {
                                     Ok((detail, image)) => {
+                                        if let InspectorDetail::Artist(ctx) = &detail {
+                                            let target_id = entity_id.clone();
+                                            for row in this.results.iter_mut() {
+                                                if row.entity_type == "artist"
+                                                    && row.entity_id == target_id
+                                                {
+                                                    if let Some(EntityDetail::Artist(artist)) =
+                                                        row.detail.as_mut()
+                                                    {
+                                                        artist.track_count = ctx.artist.track_count;
+                                                        artist.feed_count = ctx.artist.feed_count;
+                                                        if ctx.artist.image_url.is_some() {
+                                                            artist.image_url =
+                                                                ctx.artist.image_url.clone();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                         frame.detail = detail;
                                         frame.image = image;
                                         frame.local_subscription = local_subscription;
@@ -1558,7 +1592,8 @@ fn fetch_search_batch(
         .map(|hit| search_hit_to_result_row(client, hit))
         .collect();
     if entity_type.is_none() {
-        let artist_rows = artist_rows_from_result_rows(&rows, Some(query));
+        let mut artist_rows = artist_rows_from_result_rows(&rows, Some(query));
+        enrich_artist_rows(client, &mut artist_rows);
         rows.splice(0..0, artist_rows);
     }
 
@@ -1583,7 +1618,11 @@ fn fetch_artist_search_batch(
         .collect();
 
     Ok(SearchBatch {
-        rows: artist_rows_from_result_rows(&rows, Some(query)),
+        rows: {
+            let mut artist_rows = artist_rows_from_result_rows(&rows, Some(query));
+            enrich_artist_rows(client, &mut artist_rows);
+            artist_rows
+        },
         has_more: response.pagination.has_more,
         cursor: response.pagination.cursor,
     })
@@ -1673,6 +1712,56 @@ fn artist_rows_from_result_rows(rows: &[ResultRow], query: Option<&str>) -> Vec<
         .collect()
 }
 
+fn enrich_artist_rows(client: &Client, rows: &mut [ResultRow]) {
+    for row in rows.iter_mut() {
+        if row.entity_type != "artist" {
+            continue;
+        }
+        let artist_name = match row.detail.as_ref() {
+            Some(EntityDetail::Artist(a)) => a
+                .name
+                .clone()
+                .or_else(|| a.artist_id.clone())
+                .unwrap_or_else(|| row.entity_id.clone()),
+            _ => row.entity_id.clone(),
+        };
+        if artist_name.is_empty() {
+            continue;
+        }
+        let Ok(response) =
+            client.fetch_tracks_by_artist(&artist_name, Some(PAGE_LIMIT * 2), None)
+        else {
+            continue;
+        };
+        let tracks = response.data;
+        let distinct_feeds: BTreeSet<String> = tracks
+            .iter()
+            .filter_map(|t| {
+                t.feed_guid
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            })
+            .collect();
+        let track_total = tracks.len() as i32;
+        let feed_total = distinct_feeds.len() as i32;
+        let first_feed_image = distinct_feeds
+            .iter()
+            .next()
+            .and_then(|g| client.fetch_feed(g, None).ok())
+            .and_then(|f| f.image_url);
+
+        if let Some(EntityDetail::Artist(artist)) = row.detail.as_mut() {
+            artist.track_count = Some(track_total);
+            artist.feed_count = Some(feed_total);
+            if artist.image_url.is_none() {
+                artist.image_url = first_feed_image;
+            }
+        }
+    }
+}
+
 fn insert_artist_candidate(
     artists: &mut BTreeMap<String, Artist>,
     artist: Artist,
@@ -1740,24 +1829,77 @@ fn fetch_inspector_detail(
     match entity_type {
         "artist" => {
             let response = client.fetch_tracks_by_artist(entity_id, Some(PAGE_LIMIT * 2), None)?;
-            let image_url = response
-                .data
+            let tracks = response.data;
+            let has_more_tracks = response.pagination.has_more;
+
+            let mut feed_order: Vec<String> = Vec::new();
+            let mut artist_track_count_by_feed: BTreeMap<String, i32> = BTreeMap::new();
+            for track in &tracks {
+                let Some(guid) = track
+                    .feed_guid
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                else {
+                    continue;
+                };
+                let key = guid.to_string();
+                let entry = artist_track_count_by_feed.entry(key.clone()).or_insert(0);
+                if *entry == 0 {
+                    feed_order.push(key);
+                }
+                *entry += 1;
+            }
+
+            let mut feeds: Vec<Feed> = Vec::with_capacity(feed_order.len());
+            for guid in &feed_order {
+                let fetched = client.fetch_feed(guid, None).ok();
+                let artist_tracks_in_feed = artist_track_count_by_feed.get(guid).copied().unwrap_or(0);
+                let feed = match fetched {
+                    Some(mut f) => {
+                        f.episode_count = Some(artist_tracks_in_feed);
+                        f
+                    }
+                    None => {
+                        let fallback_title = tracks
+                            .iter()
+                            .find(|t| t.feed_guid.as_deref() == Some(guid.as_str()))
+                            .and_then(|t| t.feed_title.clone());
+                        Feed {
+                            feed_guid: Some(guid.clone()),
+                            title: fallback_title,
+                            episode_count: Some(artist_tracks_in_feed),
+                            ..Feed::default()
+                        }
+                    }
+                };
+                feeds.push(feed);
+            }
+
+            let image_url = feeds
                 .iter()
-                .find_map(|track| nonempty_url(track.image_url.as_deref()).map(str::to_string));
+                .find_map(|f| nonempty_url(f.image_url.as_deref()).map(str::to_string))
+                .or_else(|| {
+                    tracks
+                        .iter()
+                        .find_map(|track| nonempty_url(track.image_url.as_deref()).map(str::to_string))
+                });
             let image = image_url
                 .as_deref()
                 .and_then(|url| download_image(&client.client, url));
             let artist = Artist {
                 name: Some(entity_id.to_string()),
                 image_url,
-                track_count: Some(response.data.len() as i32),
+                track_count: Some(tracks.len() as i32),
+                feed_count: Some(feeds.len() as i32),
                 ..Artist::default()
             };
             Ok((
                 InspectorDetail::Artist(Box::new(ArtistContext {
                     artist,
-                    tracks: response.data,
-                    has_more_tracks: response.pagination.has_more,
+                    tracks,
+                    feeds,
+                    has_more_tracks,
                 })),
                 image,
             ))
@@ -2479,18 +2621,8 @@ fn render_artist_inspector(
         .unwrap_or_else(|| frame.title.clone());
     
     // ... rest of logic stays same ...
-    let unique_releases = artist_context
-        .tracks
-        .iter()
-        .filter_map(|track| {
-            track
-                .feed_guid
-                .as_deref()
-                .or(track.feed_title.as_deref())
-                .map(str::to_string)
-        })
-        .collect::<BTreeSet<_>>()
-        .len();
+    let feeds = artist_context.feeds.clone();
+    let unique_releases = feeds.len();
     let track_count = artist_context
         .artist
         .track_count
@@ -2507,7 +2639,7 @@ fn render_artist_inspector(
                 }
             ),
         ),
-        ("Releases".to_string(), unique_releases.to_string()),
+        ("Feeds".to_string(), unique_releases.to_string()),
     ];
     optional_row(
         &mut rows,
@@ -2529,28 +2661,72 @@ fn render_artist_inspector(
         .child(render_detail_header(
             "artist",
             &title,
-            Some("Tracks by artist"),
+            Some("Feeds with tracks by this artist"),
             frame.image.as_ref(),
         ))
         .child(render_detail_grid(rows))
-        .when(!artist_context.tracks.is_empty(), |el| {
-            el.child(render_track_list_section(
-                "Tracks",
-                format!(
-                    "{} shown{}",
-                    artist_context.tracks.len(),
-                    if artist_context.has_more_tracks {
-                        "+"
-                    } else {
-                        ""
-                    }
-                ),
-                artist_context.tracks.clone(),
-                app,
-                cx,
-            ))
+        .when(!feeds.is_empty(), |el| {
+            el.child(render_feed_list_section("Feeds", feeds, app, cx))
         })
         .into_any_element()
+}
+
+fn artist_feeds_from_tracks(tracks: &[Track]) -> Vec<Feed> {
+    use std::collections::BTreeMap;
+    struct Agg {
+        feed: Feed,
+        image_counts: BTreeMap<String, i32>,
+    }
+    let mut order: Vec<String> = Vec::new();
+    let mut map: BTreeMap<String, Agg> = BTreeMap::new();
+    for track in tracks {
+        let guid = track
+            .feed_guid
+            .clone()
+            .or_else(|| track.feed_url.clone())
+            .unwrap_or_default();
+        if guid.is_empty() {
+            continue;
+        }
+        let entry = map.entry(guid.clone()).or_insert_with(|| {
+            order.push(guid.clone());
+            Agg {
+                feed: Feed {
+                    feed_guid: track.feed_guid.clone(),
+                    title: track.feed_title.clone(),
+                    feed_url: track.feed_url.clone(),
+                    image_url: None,
+                    episode_count: Some(0),
+                    ..Feed::default()
+                },
+                image_counts: BTreeMap::new(),
+            }
+        });
+        entry.feed.episode_count = Some(entry.feed.episode_count.unwrap_or(0) + 1);
+        if entry.feed.title.is_none() {
+            entry.feed.title = track.feed_title.clone();
+        }
+        if let Some(url) = track
+            .image_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            *entry.image_counts.entry(url.to_string()).or_insert(0) += 1;
+        }
+    }
+    order
+        .into_iter()
+        .filter_map(|k| map.remove(&k))
+        .map(|mut agg| {
+            agg.feed.image_url = agg
+                .image_counts
+                .into_iter()
+                .max_by_key(|(_, n)| *n)
+                .map(|(url, _)| url);
+            agg.feed
+        })
+        .collect()
 }
 
 fn artist_active_years(artist: &Artist) -> Option<String> {
@@ -5030,6 +5206,7 @@ fn render_track_header(
         .or_else(|| track.release_artist.clone())
         .unwrap_or_else(|| "Unknown".into());
     let feed_guid = track.feed_guid.clone();
+    let feed_title_label = track.feed_title.clone();
     let feed_url = track.feed_url.clone().or_else(|| track.feed_guid.clone());
     let audio_url = track_play_url(track);
 
@@ -5066,7 +5243,11 @@ fn render_track_header(
                         .child(SharedString::from(artist)),
                 )
                 .child(render_track_header_subtitle(
-                    feed_guid, feed_url, audio_url, cx,
+                    feed_guid,
+                    feed_title_label,
+                    feed_url,
+                    audio_url,
+                    cx,
                 )),
         )
         .into_any_element()
@@ -5074,6 +5255,7 @@ fn render_track_header(
 
 fn render_track_header_subtitle(
     feed_guid: Option<String>,
+    feed_title: Option<String>,
     feed_url: Option<String>,
     audio_url: Option<String>,
     cx: &mut Context<SearchApp>,
@@ -5085,7 +5267,13 @@ fn render_track_header_subtitle(
         .gap(spacing::SM)
         .min_w_0()
         .when_some(feed_guid, |el, guid| {
-            el.child(render_feed_link_value(guid.clone(), guid, feed_url, cx))
+            let label = feed_title
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| guid.clone());
+            el.child(render_feed_link_value(guid.clone(), label, feed_url, cx))
         })
         .child(render_play_icon_button_with_id(
             SharedString::from("track-play-audio"),
@@ -5141,10 +5329,10 @@ fn render_collapsed_text_section(label: &str, value: String) -> AnyElement {
 fn render_feed_link_value(
     guid: String,
     title: String,
-    url: Option<String>,
+    _url: Option<String>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let tooltip = url.unwrap_or_else(|| guid.clone());
+    let tooltip = guid.clone();
     let click_title = title.clone();
     div()
         .id(SharedString::from(format!("track-feed-link:{guid}")))
@@ -5466,10 +5654,16 @@ fn result_lines(row: &ResultRow) -> (String, String, String, Option<String>) {
         Some(EntityDetail::Artist(artist)) => {
             let mut parts = Vec::new();
             if let Some(count) = artist.track_count {
-                parts.push(format!("{count} tracks"));
+                parts.push(format!(
+                    "{count} track{}",
+                    if count == 1 { "" } else { "s" }
+                ));
             }
             if let Some(count) = artist.feed_count {
-                parts.push(format!("{count} feeds"));
+                parts.push(format!(
+                    "{count} feed{}",
+                    if count == 1 { "" } else { "s" }
+                ));
             }
             let line3 = artist
                 .area
