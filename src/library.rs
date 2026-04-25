@@ -188,6 +188,8 @@ pub struct LibraryApp {
     new_playlist_input: Entity<InputState>,
     playlists_expanded: bool,
     playlist_sort: PlaylistSort,
+    album_add_open_feed: bool,
+    album_add_open_track: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -292,6 +294,8 @@ impl LibraryApp {
             playlist_sort: PlaylistSort::default(),
             new_playlist_input,
             playlists_expanded: true,
+            album_add_open_feed: false,
+            album_add_open_track: None,
         };
         app.reload();
         app
@@ -560,6 +564,34 @@ impl LibraryApp {
             }
             Err(err) => self.status = format!("Error adding to playlist: {err:#}"),
         }
+        drop(conn);
+        self.reload_playlists();
+        cx.notify();
+    }
+
+    fn add_album_to_playlist(&mut self, feed_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
+        let conn = self.conn.lock().expect("lock db");
+        let tracks = match db::feed_tracks(&conn, feed_id) {
+            Ok(t) => t,
+            Err(err) => {
+                self.status = format!("Error loading album tracks: {err:#}");
+                cx.notify();
+                return;
+            }
+        };
+        let mut appended = 0usize;
+        for track in &tracks {
+            if db::playlist_append(&conn, playlist_id, track.id).is_ok() {
+                appended += 1;
+            }
+        }
+        let name = self
+            .playlists
+            .iter()
+            .find(|p| p.id == playlist_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+        self.status = format!("Added {appended} tracks to {name}");
         drop(conn);
         self.reload_playlists();
         cx.notify();
@@ -2562,6 +2594,8 @@ impl Render for LibraryApp {
             &self.mb_status,
             &album_thumbs,
             &self.playlists,
+            self.album_add_open_feed,
+            self.album_add_open_track,
             cx,
         );
 
@@ -2932,6 +2966,8 @@ fn render_detail(
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
+    album_add_open_feed: bool,
+    album_add_open_track: Option<i64>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -2948,9 +2984,16 @@ fn render_detail(
             )
             .into_any_element(),
 
-        LibraryDetail::Album(album) => {
-            render_album_detail(album, busy_track, mb_status, album_thumbs, cx)
-        }
+        LibraryDetail::Album(album) => render_album_detail(
+            album,
+            busy_track,
+            mb_status,
+            album_thumbs,
+            playlists,
+            album_add_open_feed,
+            album_add_open_track,
+            cx,
+        ),
 
         LibraryDetail::Track(frame) => render_track_detail(frame, playlists, cx),
 
@@ -2963,6 +3006,9 @@ fn render_album_detail(
     busy_track: Option<i64>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    playlists: &[db::Playlist],
+    add_open_feed: bool,
+    add_open_track: Option<i64>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let title = &album.name;
@@ -2982,6 +3028,7 @@ fn render_album_detail(
             let track_id = track.id;
             let in_library = track.is_in_library;
             let is_busy = busy_track == Some(track_id);
+            let popup_open = add_open_track == Some(track_id);
             let track_title = track
                 .track_title
                 .as_deref()
@@ -3005,7 +3052,7 @@ fn render_album_detail(
                 None => None,
             };
 
-            div()
+            let row = div()
                 .id(SharedString::from(format!("album-track-{track_id}")))
                 .flex()
                 .flex_row()
@@ -3066,7 +3113,34 @@ fn render_album_detail(
                 .when(track.local_path.is_some(), |el| {
                     el.child(div().text_xs().text_color(color::status_success()).child("dl'd"))
                 })
-                .into_any_element()
+                .child(
+                    Button::new(SharedString::from(format!("album-track-add-{track_id}")))
+                        .label(if popup_open { "Add ▴" } else { "Add ▾" })
+                        .ghost()
+                        .with_size(Size::XSmall)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.album_add_open_track =
+                                if this.album_add_open_track == Some(track_id) {
+                                    None
+                                } else {
+                                    Some(track_id)
+                                };
+                            cx.notify();
+                        })),
+                );
+
+            if popup_open {
+                let popup = render_album_track_add_panel(track_id, playlists, cx);
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(spacing::XXS)
+                    .child(row)
+                    .child(popup)
+                    .into_any_element()
+            } else {
+                row.into_any_element()
+            }
         })
         .collect();
 
@@ -3143,7 +3217,28 @@ fn render_album_detail(
                 this.musicbrainz_feed(album_for_mb.clone(), cx);
             })),
     );
-    div()
+    if let Some(fid) = feed_id {
+        buttons = buttons.child(
+            metadata_action_button(if add_open_feed {
+                "Add album to playlist ▴"
+            } else {
+                "Add album to playlist ▾"
+            })
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.album_add_open_feed = !this.album_add_open_feed;
+                let _ = fid;
+                cx.notify();
+            })),
+        );
+    }
+
+    let feed_popup: Option<AnyElement> = if add_open_feed {
+        feed_id.map(|fid| render_album_feed_add_panel(fid, playlists, cx))
+    } else {
+        None
+    };
+
+    let mut container = div()
         .id("album-detail-scroll")
         .size_full()
         .overflow_y_scroll()
@@ -3158,9 +3253,95 @@ fn render_album_detail(
             thumb_image.as_ref(),
         ))
         .child(render_detail_grid(detail_rows))
-        .child(buttons)
+        .child(buttons);
+    if let Some(panel) = feed_popup {
+        container = container.child(panel);
+    }
+    container
         .child(div().flex().flex_col().gap(spacing::XXS).children(track_rows))
         .into_any_element()
+}
+
+fn render_album_track_add_panel(
+    track_id: i64,
+    playlists: &[db::Playlist],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let mut panel = div()
+        .border_1()
+        .border_color(color::border_subtle())
+        .rounded(radius::SM)
+        .bg(color::bg_surface())
+        .p(spacing::SM)
+        .gap(spacing::XS)
+        .flex()
+        .flex_col();
+
+    if playlists.is_empty() {
+        panel = panel.child(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .text_color(color::text_muted())
+                .child(SharedString::from(
+                    "No playlists yet — create one from the sidebar.",
+                )),
+        );
+        return panel.into_any_element();
+    }
+
+    for p in playlists {
+        let playlist_id = p.id;
+        let label = format!("{} ({})", p.name, p.track_count);
+        panel = panel.child(
+            metadata_action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+                this.album_add_open_track = None;
+                this.add_track_to_playlist(track_id, playlist_id, cx);
+            })),
+        );
+    }
+
+    panel.into_any_element()
+}
+
+fn render_album_feed_add_panel(
+    feed_id: i64,
+    playlists: &[db::Playlist],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let mut panel = div()
+        .border_1()
+        .border_color(color::border_subtle())
+        .rounded(radius::SM)
+        .bg(color::bg_surface())
+        .p(spacing::SM)
+        .gap(spacing::XS)
+        .flex()
+        .flex_col();
+
+    if playlists.is_empty() {
+        panel = panel.child(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .text_color(color::text_muted())
+                .child(SharedString::from(
+                    "No playlists yet — create one from the sidebar.",
+                )),
+        );
+        return panel.into_any_element();
+    }
+
+    for p in playlists {
+        let playlist_id = p.id;
+        let label = format!("{} ({})", p.name, p.track_count);
+        panel = panel.child(
+            metadata_action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+                this.album_add_open_feed = false;
+                this.add_album_to_playlist(feed_id, playlist_id, cx);
+            })),
+        );
+    }
+
+    panel.into_any_element()
 }
 
 fn render_playlist_detail(

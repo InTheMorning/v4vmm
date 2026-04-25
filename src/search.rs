@@ -1218,24 +1218,47 @@ impl SearchApp {
         }
     }
 
+    fn ensure_feed_in_db(
+        &mut self,
+        feed_guid: &str,
+        feed_url: Option<&str>,
+    ) -> anyhow::Result<i64> {
+        {
+            let conn = self.conn.lock().expect("lock db");
+            if let Some(id) = db::find_feed_id_by_guid(&conn, feed_guid)? {
+                return Ok(id);
+            }
+        }
+        let url = feed_url
+            .ok_or_else(|| anyhow::anyhow!("feed URL unknown; cannot auto-subscribe"))?;
+        let cfg_path = config::config_path()?;
+        let cfg = config::load_config(&cfg_path)?;
+        config::ensure_dirs(&cfg)?;
+        {
+            let mut conn = self.conn.lock().expect("lock db");
+            rss::subscribe_feed(&cfg, &mut conn, url, &self.musicindex_endpoint)?;
+        }
+        let conn = self.conn.lock().expect("lock db");
+        db::find_feed_id_by_guid(&conn, feed_guid)?
+            .ok_or_else(|| anyhow::anyhow!("subscribe completed but feed not found"))
+    }
+
     fn add_feed_to_playlist(
         &mut self,
         feed_guid: &str,
+        feed_url: Option<&str>,
         playlist_id: i64,
         cx: &mut Context<Self>,
     ) {
-        let conn = self.conn.lock().expect("lock db");
-        let feed_id = match db::find_feed_id_by_guid(&conn, feed_guid) {
-            Ok(Some(id)) => id,
-            Ok(None) => {
-                self.status = "Subscribe to this feed first".into();
-                return;
-            }
+        let feed_id = match self.ensure_feed_in_db(feed_guid, feed_url) {
+            Ok(id) => id,
             Err(err) => {
-                self.status = format!("Error finding feed: {err:#}");
+                self.status = format!("Error subscribing feed: {err:#}");
+                cx.notify();
                 return;
             }
         };
+        let conn = self.conn.lock().expect("lock db");
         let tracks = match db::feed_tracks(&conn, feed_id) {
             Ok(t) => t,
             Err(err) => {
@@ -1264,22 +1287,20 @@ impl SearchApp {
     fn add_search_track_to_playlist(
         &mut self,
         feed_guid: &str,
+        feed_url: Option<&str>,
         track_guid: &str,
         playlist_id: i64,
         cx: &mut Context<Self>,
     ) {
-        let conn = self.conn.lock().expect("lock db");
-        let feed_id = match db::find_feed_id_by_guid(&conn, feed_guid) {
-            Ok(Some(id)) => id,
-            Ok(None) => {
-                self.status = "Subscribe to this feed first".into();
-                return;
-            }
+        let feed_id = match self.ensure_feed_in_db(feed_guid, feed_url) {
+            Ok(id) => id,
             Err(err) => {
-                self.status = format!("Error finding feed: {err:#}");
+                self.status = format!("Error subscribing feed: {err:#}");
+                cx.notify();
                 return;
             }
         };
+        let conn = self.conn.lock().expect("lock db");
         let track_id: Option<i64> = conn
             .query_row(
                 "SELECT id FROM tracks WHERE feed_id = ?1 AND item_guid = ?2 LIMIT 1",
@@ -2911,7 +2932,7 @@ fn render_inspector_body(
         }
         InspectorDetail::Feed(feed) => render_discover_feed_inspector(frame, feed, app, cx),
         InspectorDetail::Track(track_context) => {
-            render_discover_track_inspector(frame, track_context, cx)
+            render_discover_track_inspector(frame, track_context, app, cx)
         }
         InspectorDetail::Publisher(publisher) => render_publisher_inspector(publisher, app, cx),
     }
@@ -3111,7 +3132,7 @@ fn render_discover_feed_inspector(
             Some(artist.as_str()),
             cx,
         ))
-        .child(render_action_row(frame, &BTreeMap::new(), cx))
+        .child(render_action_row(frame, &BTreeMap::new(), app, cx))
         .child(render_detail_grid(rows))
         .when(feed.description.is_some(), |el| {
             el.child(render_collapsed_text_section(
@@ -3120,15 +3141,16 @@ fn render_discover_feed_inspector(
             ))
         })
         .when(!tracks.is_empty(), |el| {
-            let feed_subscribed = frame.local_subscription.unwrap_or(false);
             let playlists = app.playlists.clone();
             let open_guid = frame.add_to_playlist_open_track_guid.clone();
             let feed_guid = frame.entity_id.clone();
-            let feed_context = if feed_subscribed {
-                Some((feed_guid.as_str(), open_guid.as_deref(), playlists.as_slice()))
-            } else {
-                None
-            };
+            let feed_url = feed.feed_url.clone();
+            let feed_context = Some((
+                feed_guid.as_str(),
+                feed_url.as_deref(),
+                open_guid.as_deref(),
+                playlists.as_slice(),
+            ));
             el.child(render_track_list_section(
                 "Tracks",
                 format!(
@@ -3237,6 +3259,7 @@ fn podroll_section(
 fn render_discover_track_inspector(
     frame: &InspectorFrame,
     track_context: &TrackContext,
+    app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let track = &track_context.track;
@@ -3258,7 +3281,7 @@ fn render_discover_track_inspector(
         .flex_col()
         .gap(spacing::LG)
         .child(render_track_header(frame, track, cx))
-        .child(render_action_row(frame, &BTreeMap::new(), cx))
+        .child(render_action_row(frame, &BTreeMap::new(), app, cx))
         .child(render_detail_grid(rows))
         .when(track.description.is_some(), |el| {
             el.child(render_collapsed_text_section(
@@ -3267,104 +3290,6 @@ fn render_discover_track_inspector(
             ))
         })
         .child(render_lazy_sections(frame, cx))
-        .into_any_element()
-}
-
-fn render_track_inspector(
-    frame: &InspectorFrame,
-    track_context: &TrackContext,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    match &frame.tag_compare {
-        LazyPanel::Loaded(result) => render_track_window(frame, track_context, Some(result), cx),
-        LazyPanel::Loading | LazyPanel::Empty(_) | LazyPanel::Hidden => {
-            render_track_window(frame, track_context, None, cx)
-        }
-    }
-}
-
-fn render_track_left_column(
-    frame: &InspectorFrame,
-    track: &Track,
-    pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::MD)
-        .child(render_track_header(frame, track, cx))
-        .child(render_action_row(frame, pending_id3_edits, cx))
-        .into_any_element()
-}
-
-fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
-    match &frame.tag_compare {
-        LazyPanel::Loaded(_) => div().into_any_element(),
-        LazyPanel::Loading => render_loading("Downloading and reading embedded metadata..."),
-        LazyPanel::Empty(label) => render_loading(label),
-        LazyPanel::Hidden => div().into_any_element(),
-    }
-}
-
-fn render_track_window(
-    frame: &InspectorFrame,
-    track_context: &TrackContext,
-    result: Option<&TagCompareResult>,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let track = &track_context.track;
-    let show_id3_panel = !matches!(frame.tag_compare, LazyPanel::Hidden);
-    let show_musicbrainz_panel = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
-    let columns: u16 = 1 + u16::from(show_id3_panel) + u16::from(show_musicbrainz_panel);
-    let rows = track_metadata_rows_for_frame(frame, track_context, result);
-    let pending_id3_edits = auto_populated_pending_id3_edits(
-        &rows,
-        &frame.pending_id3_edits,
-        &frame.suppressed_auto_id3_edits,
-        result.and_then(|r| r.format),
-    );
-
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::LG)
-        .child(
-            div()
-                .grid()
-                .grid_cols(columns)
-                .gap(spacing::XL)
-                .items_start()
-                .child(render_track_left_column(
-                    frame,
-                    track,
-                    &pending_id3_edits,
-                    cx,
-                ))
-                .when(show_id3_panel, |el| {
-                    el.child(if let Some(result) = result {
-                        render_file_header(result, cx)
-                    } else {
-                        render_track_compare_panel(frame)
-                    })
-                })
-                .when(show_musicbrainz_panel, |el| {
-                    el.child(render_musicbrainz_panel(frame, cx))
-                }),
-        )
-        .child(render_track_metadata_grid(
-            rows,
-            show_id3_panel,
-            show_musicbrainz_panel,
-            &pending_id3_edits,
-            &frame.expanded_metadata_cells,
-            result.and_then(|r| r.file_image.clone()),
-            result
-                .and_then(|r| r.format)
-                .map(|f| f.display_label())
-                .unwrap_or("Tags"),
-            cx,
-        ))
         .into_any_element()
 }
 
@@ -3488,33 +3413,55 @@ fn subscription_button_label(frame: &InspectorFrame) -> String {
 
 fn render_add_to_playlist_panel_search(
     frame: &InspectorFrame,
+    app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let app = cx.entity();
-    let playlists = app.read(cx).playlists.clone();
+    let playlists = app.playlists.clone();
 
     enum Target {
         Track(i64),
-        Feed(String),
+        TrackPending {
+            feed_url: Option<String>,
+            feed_guid: String,
+            track_guid: String,
+        },
+        Feed {
+            feed_url: Option<String>,
+            feed_guid: String,
+        },
     }
 
     let target: Option<Target> = match (&frame.detail, frame.entity_type.as_str()) {
         (InspectorDetail::Track(track_context), _) => {
-            if let Ok(conn) = app.read(cx).conn.lock() {
+            let track = &track_context.track;
+            let local_id = if let Ok(conn) = app.conn.lock() {
                 db::find_track_id(
                     &conn,
-                    track_context.track.feed_url.as_deref(),
-                    track_context.track.track_guid.as_deref(),
-                    track_context.track.enclosure_url.as_deref(),
+                    track.feed_url.as_deref(),
+                    track.track_guid.as_deref(),
+                    track.enclosure_url.as_deref(),
                 )
                 .ok()
                 .flatten()
-                .map(Target::Track)
             } else {
                 None
+            };
+            match local_id {
+                Some(id) => Some(Target::Track(id)),
+                None => match (track.feed_guid.clone(), track.track_guid.clone()) {
+                    (Some(fg), Some(tg)) => Some(Target::TrackPending {
+                        feed_url: track.feed_url.clone(),
+                        feed_guid: fg,
+                        track_guid: tg,
+                    }),
+                    _ => None,
+                },
             }
         }
-        (InspectorDetail::Feed(_), "feed") => Some(Target::Feed(frame.entity_id.clone())),
+        (InspectorDetail::Feed(feed), "feed") => Some(Target::Feed {
+            feed_url: feed.feed_url.clone(),
+            feed_guid: frame.entity_id.clone(),
+        }),
         _ => None,
     };
 
@@ -3549,7 +3496,22 @@ fn render_add_to_playlist_panel_search(
         let label = format!("{} ({})", p.name, p.track_count);
         let target_for_click = match &target {
             Target::Track(id) => Target::Track(*id),
-            Target::Feed(guid) => Target::Feed(guid.clone()),
+            Target::TrackPending {
+                feed_url,
+                feed_guid,
+                track_guid,
+            } => Target::TrackPending {
+                feed_url: feed_url.clone(),
+                feed_guid: feed_guid.clone(),
+                track_guid: track_guid.clone(),
+            },
+            Target::Feed {
+                feed_url,
+                feed_guid,
+            } => Target::Feed {
+                feed_url: feed_url.clone(),
+                feed_guid: feed_guid.clone(),
+            },
         };
         panel = panel.child(
             metadata_action_button(&label).on_click(cx.listener(
@@ -3561,8 +3523,29 @@ fn render_add_to_playlist_panel_search(
                         Target::Track(track_id) => {
                             this.add_track_to_playlist(*track_id, playlist_id, cx);
                         }
-                        Target::Feed(feed_guid) => {
-                            this.add_feed_to_playlist(feed_guid, playlist_id, cx);
+                        Target::TrackPending {
+                            feed_url,
+                            feed_guid,
+                            track_guid,
+                        } => {
+                            this.add_search_track_to_playlist(
+                                feed_guid,
+                                feed_url.as_deref(),
+                                track_guid,
+                                playlist_id,
+                                cx,
+                            );
+                        }
+                        Target::Feed {
+                            feed_url,
+                            feed_guid,
+                        } => {
+                            this.add_feed_to_playlist(
+                                feed_guid,
+                                feed_url.as_deref(),
+                                playlist_id,
+                                cx,
+                            );
                         }
                     }
                 },
@@ -5369,13 +5352,18 @@ fn render_track_list_section(
     heading: &str,
     note: String,
     tracks: Vec<Track>,
-    feed_context: Option<(&str, Option<&str>, &[db::Playlist])>,
+    feed_context: Option<(&str, Option<&str>, Option<&str>, &[db::Playlist])>,
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let (feed_guid, open_guid, playlists) = match feed_context {
-        Some((g, open, pls)) => (Some(g.to_string()), open.map(|s| s.to_string()), pls.to_vec()),
-        None => (None, None, Vec::new()),
+    let (feed_guid, feed_url, open_guid, playlists) = match feed_context {
+        Some((g, url, open, pls)) => (
+            Some(g.to_string()),
+            url.map(|s| s.to_string()),
+            open.map(|s| s.to_string()),
+            pls.to_vec(),
+        ),
+        None => (None, None, None, Vec::new()),
     };
 
     div()
@@ -5402,6 +5390,7 @@ fn render_track_list_section(
                         track,
                         thumb,
                         feed_guid.as_deref(),
+                        feed_url.as_deref(),
                         open_guid.as_deref(),
                         &playlists,
                         cx,
@@ -5416,6 +5405,7 @@ fn render_track_row(
     track: Track,
     thumbnail: Option<Arc<Image>>,
     feed_guid: Option<&str>,
+    feed_url: Option<&str>,
     open_guid: Option<&str>,
     playlists: &[db::Playlist],
     cx: &mut Context<SearchApp>,
@@ -5509,8 +5499,10 @@ fn render_track_row(
     if popup_open {
         let feed_guid_str = feed_guid_owned.clone().unwrap_or_default();
         let track_guid_str = guid.clone();
+        let feed_url_str = feed_url.map(|s| s.to_string());
         let popup = render_row_playlist_popup(
             &feed_guid_str,
+            feed_url_str.as_deref(),
             &track_guid_str,
             playlists,
             cx,
@@ -5528,6 +5520,7 @@ fn render_track_row(
 
 fn render_row_playlist_popup(
     feed_guid: &str,
+    feed_url: Option<&str>,
     track_guid: &str,
     playlists: &[db::Playlist],
     cx: &mut Context<SearchApp>,
@@ -5559,6 +5552,7 @@ fn render_row_playlist_popup(
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
         let feed_guid_owned = feed_guid.to_string();
+        let feed_url_owned = feed_url.map(|s| s.to_string());
         let track_guid_owned = track_guid.to_string();
         panel = panel.child(
             metadata_action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
@@ -5567,6 +5561,7 @@ fn render_row_playlist_popup(
                 }
                 this.add_search_track_to_playlist(
                     &feed_guid_owned,
+                    feed_url_owned.as_deref(),
                     &track_guid_owned,
                     playlist_id,
                     cx,
