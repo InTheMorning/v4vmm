@@ -38,17 +38,19 @@ use crate::track_compare::{download_track, select_audio_enclosure, DownloadedTra
 // Types
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LibraryTab {
-    Library,
-    Cached,
-}
 
 #[derive(Clone, Debug)]
 enum LibraryDetail {
     None,
     Album(AlbumNode),
     Track(Box<InspectorFrame>),
+    Playlist(PlaylistDetail),
+}
+
+#[derive(Clone, Debug)]
+struct PlaylistDetail {
+    playlist: db::Playlist,
+    tracks: Vec<TrackRow>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -79,6 +81,7 @@ struct InspectorFrame {
     tag_compare: LazyPanel<TagCompareResult>,
     musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     musicbrainz_selected: usize,
+    add_to_playlist_open: bool,
 }
 
 impl InspectorFrame {
@@ -106,6 +109,7 @@ impl InspectorFrame {
             tag_compare: LazyPanel::Hidden,
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
+            add_to_playlist_open: false,
         }
     }
 }
@@ -126,23 +130,23 @@ struct StagedMusicBrainzLookup {
 }
 
 #[derive(Clone, Debug)]
-struct ArtistNode {
-    name: String,
-    albums: Vec<AlbumNode>,
+pub(crate) struct ArtistNode {
+    pub(crate) name: String,
+    pub(crate) albums: Vec<AlbumNode>,
 }
 
 #[derive(Clone, Debug)]
-struct AlbumNode {
-    name: String,
-    feed_id: Option<i64>,
-    feed_url: Option<String>,
-    image_href: Option<String>,
-    tracks: Vec<TrackRow>,
+pub(crate) struct AlbumNode {
+    pub(crate) name: String,
+    pub(crate) feed_id: Option<i64>,
+    pub(crate) feed_url: Option<String>,
+    pub(crate) image_href: Option<String>,
+    pub(crate) tracks: Vec<TrackRow>,
 }
 
 #[derive(Clone, Debug, Default)]
-struct LibraryTree {
-    artists: Vec<ArtistNode>,
+pub(crate) struct LibraryTree {
+    pub(crate) artists: Vec<ArtistNode>,
 }
 
 #[derive(Clone, Debug)]
@@ -161,9 +165,7 @@ pub struct LibraryApp {
     conn: Arc<Mutex<Connection>>,
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
-    tab: LibraryTab,
     tree: LibraryTree,
-    cached_tree: LibraryTree,
     expanded_artists: HashSet<String>,
     expanded_albums: HashSet<(String, String)>,
     selected_id: Option<i64>,
@@ -179,6 +181,39 @@ pub struct LibraryApp {
     _search_sub: gpui::Subscription,
     feed_update_state: FeedUpdateState,
     in_flight_feed_checks: HashSet<i64>,
+    playlists: Vec<db::Playlist>,
+    selected_playlist_id: Option<i64>,
+    playlist_tracks: Vec<TrackRow>,
+    creating_playlist: bool,
+    new_playlist_input: Entity<InputState>,
+    playlists_expanded: bool,
+    playlist_sort: PlaylistSort,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum PlaylistSort {
+    #[default]
+    Name,
+    RecentlyUpdated,
+    TrackCount,
+}
+
+impl PlaylistSort {
+    fn next(self) -> Self {
+        match self {
+            PlaylistSort::Name => PlaylistSort::RecentlyUpdated,
+            PlaylistSort::RecentlyUpdated => PlaylistSort::TrackCount,
+            PlaylistSort::TrackCount => PlaylistSort::Name,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            PlaylistSort::Name => "A–Z",
+            PlaylistSort::RecentlyUpdated => "Recent",
+            PlaylistSort::TrackCount => "Size",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -227,13 +262,14 @@ impl LibraryApp {
             InputState::new(window, cx).placeholder("Search your library...")
         });
         let search_sub = cx.subscribe(&search_input, Self::on_search_event);
+        let new_playlist_input = cx.new(|cx: &mut Context<InputState>| {
+            InputState::new(window, cx).placeholder("New playlist name…")
+        });
         let mut app = Self {
             conn,
             cache,
             musicindex_endpoint,
-            tab: LibraryTab::Library,
             tree: LibraryTree::default(),
-            cached_tree: LibraryTree::default(),
             expanded_artists: HashSet::new(),
             expanded_albums: HashSet::new(),
             selected_id: None,
@@ -249,6 +285,13 @@ impl LibraryApp {
             _search_sub: search_sub,
             feed_update_state: FeedUpdateState::default(),
             in_flight_feed_checks: HashSet::new(),
+            playlists: Vec::new(),
+            selected_playlist_id: None,
+            playlist_tracks: Vec::new(),
+            creating_playlist: false,
+            playlist_sort: PlaylistSort::default(),
+            new_playlist_input,
+            playlists_expanded: true,
         };
         app.reload();
         app
@@ -344,40 +387,182 @@ impl LibraryApp {
 
     fn reload(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match self.tab {
-            LibraryTab::Library => match db::library_tracks(&conn) {
-                Ok(rows) => {
-                    let count = rows.len();
-                    self.tree = build_tree(&rows, &conn);
-                    self.status =
-                        format!("{count} library track{}", if count == 1 { "" } else { "s" });
-                }
-                Err(err) => {
-                    self.status = format!("Error: {err:#}");
-                }
-            },
-            LibraryTab::Cached => match db::cached_tracks(&conn) {
-                Ok(rows) => {
-                    let count = rows.len();
-                    self.cached_tree = build_tree(&rows, &conn);
-                    self.status =
-                        format!("{count} cached file{}", if count == 1 { "" } else { "s" });
-                }
-                Err(err) => {
-                    self.status = format!("Error: {err:#}");
-                }
-            },
+        match db::library_tracks(&conn) {
+            Ok(rows) => {
+                let count = rows.len();
+                self.tree = build_tree(&rows, &conn);
+                self.status =
+                    format!("{count} library track{}", if count == 1 { "" } else { "s" });
+            }
+            Err(err) => {
+                self.status = format!("Error: {err:#}");
+            }
         }
+        drop(conn);
+        self.reload_playlists();
         self.selected_id = None;
         self.detail = LibraryDetail::None;
         self.mb_status.clear();
     }
 
-    fn list_is_empty(&self) -> bool {
-        match self.tab {
-            LibraryTab::Library => self.tree.artists.is_empty(),
-            LibraryTab::Cached => self.cached_tree.artists.is_empty(),
+    fn reload_playlists(&mut self) {
+        let conn = self.conn.lock().expect("lock db");
+        match db::playlists_list(&conn) {
+            Ok(mut list) => {
+                self.sort_playlists(&mut list);
+                self.playlists = list;
+            }
+            Err(err) => self.status = format!("Error loading playlists: {err:#}"),
         }
+    }
+
+    fn sort_playlists(&self, list: &mut [db::Playlist]) {
+        match self.playlist_sort {
+            PlaylistSort::Name => {
+                list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            }
+            PlaylistSort::RecentlyUpdated => {
+                list.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            }
+            PlaylistSort::TrackCount => {
+                list.sort_by(|a, b| b.track_count.cmp(&a.track_count));
+            }
+        }
+    }
+
+    fn cycle_playlist_sort(&mut self, cx: &mut Context<Self>) {
+        self.playlist_sort = self.playlist_sort.next();
+        let mut list = std::mem::take(&mut self.playlists);
+        self.sort_playlists(&mut list);
+        self.playlists = list;
+        cx.notify();
+    }
+
+    fn select_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
+        self.selected_id = None;
+        self.selected_playlist_id = Some(id);
+        let conn = self.conn.lock().expect("lock db");
+        let playlist = self.playlists.iter().find(|p| p.id == id).cloned();
+        let tracks = db::playlist_tracks(&conn, id).unwrap_or_default();
+        drop(conn);
+        if let Some(playlist) = playlist {
+            self.detail = LibraryDetail::Playlist(PlaylistDetail { playlist, tracks: tracks.clone() });
+            self.playlist_tracks = tracks;
+        }
+        cx.notify();
+    }
+
+    fn create_playlist(&mut self, cx: &mut Context<Self>) {
+        let name = self.new_playlist_input.read(cx).value().to_string();
+        let name = name.trim();
+        if name.is_empty() {
+            return;
+        }
+        let conn = self.conn.lock().expect("lock db");
+        match db::playlist_create(&conn, name) {
+            Ok(id) => {
+                drop(conn);
+                self.creating_playlist = false;
+                self.reload_playlists();
+                self.select_playlist(id, cx);
+            }
+            Err(err) => self.status = format!("Error creating playlist: {err:#}"),
+        }
+        cx.notify();
+    }
+
+    #[allow(dead_code)]
+    fn rename_playlist(&mut self, id: i64, new_name: String, cx: &mut Context<Self>) {
+        let trimmed = new_name.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let conn = self.conn.lock().expect("lock db");
+        if let Err(err) = db::playlist_rename(&conn, id, trimmed) {
+            self.status = format!("Error renaming: {err:#}");
+            return;
+        }
+        drop(conn);
+        self.reload_playlists();
+        if self.selected_playlist_id == Some(id) {
+            self.select_playlist(id, cx);
+        }
+        cx.notify();
+    }
+
+    fn delete_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
+        let conn = self.conn.lock().expect("lock db");
+        if let Err(err) = db::playlist_delete(&conn, id) {
+            self.status = format!("Error deleting: {err:#}");
+            return;
+        }
+        drop(conn);
+        if self.selected_playlist_id == Some(id) {
+            self.selected_playlist_id = None;
+            self.detail = LibraryDetail::None;
+        }
+        self.reload_playlists();
+        cx.notify();
+    }
+
+    fn remove_playlist_track_at(
+        &mut self,
+        playlist_id: i64,
+        position: i64,
+        cx: &mut Context<Self>,
+    ) {
+        let mut conn = self.conn.lock().expect("lock db");
+        if let Err(err) = db::playlist_remove_at(&mut conn, playlist_id, position) {
+            self.status = format!("Error removing track: {err:#}");
+            return;
+        }
+        drop(conn);
+        self.reload_playlists();
+        if self.selected_playlist_id == Some(playlist_id) {
+            self.select_playlist(playlist_id, cx);
+        }
+        cx.notify();
+    }
+
+    fn move_playlist_track(
+        &mut self,
+        playlist_id: i64,
+        from: i64,
+        to: i64,
+        cx: &mut Context<Self>,
+    ) {
+        if from == to {
+            return;
+        }
+        let mut conn = self.conn.lock().expect("lock db");
+        if let Err(err) = db::playlist_reorder(&mut conn, playlist_id, from, to) {
+            self.status = format!("Error reordering: {err:#}");
+            return;
+        }
+        drop(conn);
+        if self.selected_playlist_id == Some(playlist_id) {
+            self.select_playlist(playlist_id, cx);
+        }
+        cx.notify();
+    }
+
+    fn add_track_to_playlist(&mut self, track_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
+        let conn = self.conn.lock().expect("lock db");
+        match db::playlist_append(&conn, playlist_id, track_id) {
+            Ok(()) => {
+                let name = self
+                    .playlists
+                    .iter()
+                    .find(|p| p.id == playlist_id)
+                    .map(|p| p.name.clone())
+                    .unwrap_or_default();
+                self.status = format!("Added to {name}");
+            }
+            Err(err) => self.status = format!("Error adding to playlist: {err:#}"),
+        }
+        drop(conn);
+        self.reload_playlists();
+        cx.notify();
     }
 
     fn thumbnail_for_url(
@@ -789,7 +974,7 @@ impl LibraryApp {
     fn selected_track_frame_mut(&mut self) -> Option<&mut InspectorFrame> {
         match &mut self.detail {
             LibraryDetail::Track(frame) => Some(frame),
-            LibraryDetail::None | LibraryDetail::Album(_) => None,
+            LibraryDetail::None | LibraryDetail::Album(_) | LibraryDetail::Playlist(_) => None,
         }
     }
 
@@ -1136,51 +1321,6 @@ impl LibraryApp {
         }
     }
 
-    fn delete_cached_file(&mut self, path: String) {
-        if let Err(err) = std::fs::remove_file(&path) {
-            if err.kind() != std::io::ErrorKind::NotFound {
-                self.status = format!("Error deleting file: {err:#}");
-                return;
-            }
-        }
-        cleanup_empty_parents(std::path::Path::new(&path));
-        let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = db::delete_local_file(&conn, &path) {
-            self.status = format!("Error: {err:#}");
-            return;
-        }
-        drop(conn);
-        self.reload();
-    }
-
-    fn delete_all_cached(&mut self) {
-        let paths: Vec<String> = self
-            .cached_tree
-            .artists
-            .iter()
-            .flat_map(|a| &a.albums)
-            .flat_map(|a| &a.tracks)
-            .filter_map(|t| t.local_path.clone())
-            .collect();
-        for path in &paths {
-            if let Err(err) = std::fs::remove_file(path) {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    self.status = format!("Error deleting {path}: {err:#}");
-                    return;
-                }
-            }
-            cleanup_empty_parents(std::path::Path::new(path));
-        }
-        let conn = self.conn.lock().expect("lock db");
-        for path in &paths {
-            if let Err(err) = db::delete_local_file(&conn, path) {
-                self.status = format!("Error: {err:#}");
-                return;
-            }
-        }
-        drop(conn);
-        self.reload();
-    }
 
     #[allow(dead_code)]
     fn musicbrainz_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
@@ -1692,7 +1832,7 @@ async fn musicbrainz_feed_per_track(
     .ok();
 }
 
-fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree {
+pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree {
     let mut artist_map: BTreeMap<String, BTreeMap<String, Vec<TrackRow>>> = BTreeMap::new();
     for track in tracks {
         let artist = track
@@ -1799,7 +1939,7 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
     LibraryTree { artists }
 }
 
-fn cleanup_empty_parents(path: &std::path::Path) {
+pub(crate) fn cleanup_empty_parents(path: &std::path::Path) {
     let music_dir = config::config_path()
         .ok()
         .and_then(|p| config::load_config(&p).ok())
@@ -2189,15 +2329,10 @@ impl Render for LibraryApp {
             color::text_muted()
         };
 
-        let is_cached_tab = self.tab == LibraryTab::Cached;
-
         // Collect image URLs from tree, then fetch thumbnails (avoids borrow conflict).
         let urls: Vec<String> = {
-            let tree = match self.tab {
-                LibraryTab::Library => &self.tree,
-                LibraryTab::Cached => &self.cached_tree,
-            };
-            tree.artists
+            self.tree
+                .artists
                 .iter()
                 .flat_map(|a| &a.albums)
                 .flat_map(|album| {
@@ -2224,10 +2359,7 @@ impl Render for LibraryApp {
             }
         }
 
-        let base_tree = match self.tab {
-            LibraryTab::Library => &self.tree,
-            LibraryTab::Cached => &self.cached_tree,
-        };
+        let base_tree = &self.tree;
         let query = self.search_query.trim();
         let has_query = !query.is_empty();
         let filtered_tree = if has_query {
@@ -2254,22 +2386,182 @@ impl Render for LibraryApp {
         } else {
             (self.expanded_artists.clone(), self.expanded_albums.clone())
         };
-        let left_items: Vec<AnyElement> = render_tree(
+        let tree_items: Vec<AnyElement> = render_tree(
             &filtered_tree,
             &expanded_artists,
             &expanded_albums,
             self.selected_id,
-            is_cached_tab,
             &album_thumbs,
             cx,
         );
         let filtered_empty = filtered_tree.artists.is_empty();
+
+        let playlists = self.playlists.clone();
+        let selected_playlist_id = self.selected_playlist_id;
+        let creating_playlist = self.creating_playlist;
+        let playlists_expanded = self.playlists_expanded;
+        let mut left_items: Vec<AnyElement> = Vec::new();
+
+        let playlist_arrow = if playlists_expanded {
+            "\u{25BC}"
+        } else {
+            "\u{25B6}"
+        };
+        left_items.push(
+            div()
+                .id("playlists-header")
+                .px(spacing::SM)
+                .py(spacing::XS)
+                .rounded(spacing::XS)
+                .cursor_pointer()
+                .hover(|el| el.bg(color::bg_surface_hi()))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.playlists_expanded = !this.playlists_expanded;
+                    cx.notify();
+                }))
+                .flex()
+                .flex_row()
+                .justify_between()
+                .items_center()
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap(spacing::XS)
+                        .items_baseline()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(color::text_muted())
+                                .w(spacing::MD)
+                                .child(SharedString::from(playlist_arrow)),
+                        )
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(color::text_primary())
+                                .child("Playlists"),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .gap(spacing::XS)
+                        .items_center()
+                        .child(
+                            Button::new("playlists-sort")
+                                .label(self.playlist_sort.label())
+                                .ghost()
+                                .with_size(Size::XSmall)
+                                .text_color(color::text_muted())
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.cycle_playlist_sort(cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("playlists-add")
+                                .label("+")
+                                .ghost()
+                                .with_size(Size::XSmall)
+                                .text_color(color::text_primary())
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.creating_playlist = !this.creating_playlist;
+                                    cx.notify();
+                                })),
+                        ),
+                )
+                .into_any_element(),
+        );
+
+        if playlists_expanded {
+            for playlist in &playlists {
+                let is_selected = selected_playlist_id == Some(playlist.id);
+                let playlist_id = playlist.id;
+                let playlist_name = playlist.name.clone();
+                let track_count = playlist.track_count;
+
+                left_items.push(
+                    div()
+                        .id(SharedString::from(format!("playlist-{}", playlist.id)))
+                        .pl(spacing::LG + spacing::XS)
+                        .pr(spacing::SM)
+                        .py(spacing::XXS)
+                        .rounded(spacing::XS)
+                        .cursor_pointer()
+                        .when(is_selected, |el| el.bg(color::bg_selected()))
+                        .when(is_selected, |el| el.border_l_2().border_color(color::accent()))
+                        .when(!is_selected, |el| el.hover(|e| e.bg(color::bg_surface_hi())))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.select_playlist(playlist_id, cx);
+                        }))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(if is_selected {
+                                            color::accent()
+                                        } else {
+                                            color::text_primary()
+                                        })
+                                        .child(SharedString::from(playlist_name.clone())),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(color::text_muted())
+                                        .child(SharedString::from(format!("({track_count})")))
+                                ),
+                        )
+                        .into_any_element(),
+                );
+            }
+
+            if creating_playlist {
+                left_items.push(
+                    div()
+                        .id("playlist-new-input")
+                        .pl(spacing::LG + spacing::XS)
+                        .pr(spacing::SM)
+                        .py(spacing::XXS)
+                        .flex()
+                        .flex_row()
+                        .gap(spacing::XS)
+                        .items_center()
+                        .child(
+                            Input::new(&self.new_playlist_input)
+                                .cleanable(false)
+                                .with_size(Size::Small)
+                        )
+                        .child(
+                            Button::new("playlist-add-btn")
+                                .label("Add")
+                                .primary()
+                                .with_size(Size::XSmall)
+                                .text_color(rgb(0xffffff))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.create_playlist(cx);
+                                })),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+
+        left_items.extend(tree_items);
 
         let detail_pane = render_detail(
             &self.detail,
             self.busy_track,
             &self.mb_status,
             &album_thumbs,
+            &self.playlists,
             cx,
         );
 
@@ -2281,46 +2573,6 @@ impl Render for LibraryApp {
             .flex()
             .flex_col()
             .overflow_hidden()
-            // Tab bar
-            .child(
-                div()
-                    .bg(color::bg_surface())
-                    .border_b_1()
-                    .border_color(color::border_subtle())
-                    .px(spacing::MD)
-                    .py(spacing::XS)
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(spacing::SM)
-                    .child(render_tab_button(
-                        "Library",
-                        LibraryTab::Library,
-                        self.tab,
-                        cx,
-                    ))
-                    .child(render_tab_button(
-                        "Cached",
-                        LibraryTab::Cached,
-                        self.tab,
-                        cx,
-                    ))
-                    .child(
-                        div().flex_1().child(
-                            div().text_right().child(
-                                Button::new("lib-refresh")
-                                    .label("Refresh")
-                                    .ghost()
-                                    .with_size(Size::XSmall)
-                                    .text_color(rgb(0xffffff))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.reload();
-                                        cx.notify();
-                                    })),
-                            ),
-                        ),
-                    ),
-            )
             // Two panes
             .child(
                 div()
@@ -2375,7 +2627,6 @@ impl Render for LibraryApp {
                                 let phase = self.feed_update_state.phase.clone();
                                 let stale_count = self.feed_update_state.stale.len();
                                 let feed_status = self.feed_update_state.status_message.clone();
-                                let show_feed_controls = self.tab == LibraryTab::Library;
                                 div()
                                     .flex()
                                     .flex_row()
@@ -2406,30 +2657,28 @@ impl Render for LibraryApp {
                                                 )
                                             }),
                                     )
-                                    .when(show_feed_controls, |el| {
-                                        el.child(if has_stale {
-                                            Button::new("apply-feed-updates")
-                                                .label(format!("Apply updates ({stale_count})"))
-                                                .primary()
-                                                .with_size(Size::XSmall)
-                                                .text_color(rgb(0xffffff))
-                                                .disabled(phase != FeedUpdatePhase::Idle)
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.apply_all_feed_updates(cx);
-                                                }))
-                                        } else {
-                                            Button::new("check-all-feeds")
-                                                .label(if phase == FeedUpdatePhase::Checking {
-                                                    "Checking..."
-                                                } else {
-                                                    "Check all feeds"
-                                                })
-                                                .with_size(Size::XSmall)
-                                                .disabled(phase != FeedUpdatePhase::Idle)
-                                                .on_click(cx.listener(|this, _, _, cx| {
-                                                    this.check_all_feeds(cx);
-                                                }))
-                                        })
+                                    .child(if has_stale {
+                                        Button::new("apply-feed-updates")
+                                            .label(format!("Apply updates ({stale_count})"))
+                                            .primary()
+                                            .with_size(Size::XSmall)
+                                            .text_color(rgb(0xffffff))
+                                            .disabled(phase != FeedUpdatePhase::Idle)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.apply_all_feed_updates(cx);
+                                            }))
+                                    } else {
+                                        Button::new("check-all-feeds")
+                                            .label(if phase == FeedUpdatePhase::Checking {
+                                                "Checking..."
+                                            } else {
+                                                "Check all feeds"
+                                            })
+                                            .with_size(Size::XSmall)
+                                            .disabled(phase != FeedUpdatePhase::Idle)
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.check_all_feeds(cx);
+                                            }))
                                     })
                             })
                             .child(
@@ -2445,47 +2694,15 @@ impl Render for LibraryApp {
                                             .gap(spacing::XXS)
                                             .children(left_items)
                                             .when(
-                                                is_cached_tab
-                                                    && !self.list_is_empty()
-                                                    && !has_query,
-                                                |el| {
-                                                    el.child(
-                                                        div().pt(spacing::SM).child(
-                                                            Button::new("delete-all-cached")
-                                                                .label("Delete All Cached")
-                                                                .danger()
-                                                                .with_size(Size::XSmall)
-                                                                .text_color(rgb(0xffffff))
-                                                                .on_click(cx.listener(
-                                                                    |this, _, _, cx| {
-                                                                        this.delete_all_cached();
-                                                                        cx.notify();
-                                                                    },
-                                                                )),
-                                                        ),
-                                                    )
-                                                },
-                                            )
-                                            .when(
                                                 filtered_empty
                                                     && !self.status.starts_with("Error:"),
                                                 |el| {
-                                                    let label = if has_query {
-                                                        "No matches"
-                                                    } else {
-                                                        match self.tab {
-                                                            LibraryTab::Library => {
-                                                                "No library tracks yet"
-                                                            }
-                                                            LibraryTab::Cached => "No cached files",
-                                                        }
-                                                    };
                                                     el.child(
                                                         div()
                                                             .text_center()
                                                             .p(spacing::XXL + spacing::LG)
                                                             .text_color(color::text_muted())
-                                                            .child(div().mt(spacing::SM).child(label)),
+                                                            .child(div().mt(spacing::SM).child("No library tracks yet")),
                                                     )
                                                 },
                                             ),
@@ -2510,38 +2727,11 @@ impl Render for LibraryApp {
 // Rendering helpers
 // ---------------------------------------------------------------------------
 
-fn render_tab_button(
-    label: &'static str,
-    tab: LibraryTab,
-    active: LibraryTab,
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let is_active = tab == active;
-    let mut btn = Button::new(SharedString::from(format!("lib-tab-{label}")))
-        .label(label)
-        .with_size(Size::Small);
-
-    if is_active {
-        btn = btn.primary();
-    } else {
-        btn = btn.ghost();
-    }
-
-    btn.text_color(rgb(0xffffff))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.tab = tab;
-            this.reload();
-            cx.notify();
-        }))
-        .into_any_element()
-}
-
-fn render_tree(
+pub(crate) fn render_tree(
     tree: &LibraryTree,
     expanded_artists: &HashSet<String>,
     expanded_albums: &HashSet<(String, String)>,
     selected_id: Option<i64>,
-    is_cached: bool,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     cx: &mut Context<LibraryApp>,
 ) -> Vec<AnyElement> {
@@ -2673,7 +2863,6 @@ fn render_tree(
 
                 if album_expanded {
                     for track in &album.tracks {
-                        let track_clone_a = track.clone();
                         let track_clone_b = track.clone();
                         let is_selected = selected_id == Some(track.id);
                         let title = track
@@ -2703,72 +2892,30 @@ fn render_tree(
                             .when(is_selected, |el| el.border_l_2().border_color(color::accent()))
                             .hover(|el| el.bg(color::bg_surface_hi()));
 
-                        if is_cached {
-                            let path_for_delete = track.local_path.clone().unwrap_or_default();
-                            row = row
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.select_track(&track_clone_a, cx);
-                                    cx.notify();
-                                }))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(spacing::XS)
-                                        .child(render_album_thumb(track_thumb_image.as_ref(), 24.0))
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .text_xs()
-                                                .text_color(if is_selected {
-                                                    color::accent()
-                                                } else {
-                                                    color::text_primary()
-                                                })
-                                                .child(SharedString::from(format!("{num}{title}"))),
-                                        )
-                                        .child(
-                                            Button::new(SharedString::from(format!(
-                                                "del-tree-{}",
-                                                track.id
-                                            )))
-                                            .label("Delete")
-                                            .danger()
-                                            .with_size(Size::XSmall)
-                                            .text_color(rgb(0xffffff))
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.delete_cached_file(path_for_delete.clone());
-                                                cx.notify();
-                                            })),
-                                        ),
-                                );
-                        } else {
-                            row = row
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.select_track(&track_clone_b, cx);
-                                    cx.notify();
-                                }))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(spacing::XS)
-                                        .child(render_album_thumb(track_thumb_image.as_ref(), 24.0))
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .text_xs()
-                                                .text_color(if is_selected {
-                                                    color::accent()
-                                                } else {
-                                                    color::text_primary()
-                                                })
-                                                .child(SharedString::from(format!("{num}{title}"))),
-                                        ),
-                                );
-                        }
+                        row = row
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.select_track(&track_clone_b, cx);
+                                cx.notify();
+                            }))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap(spacing::XS)
+                                    .child(render_album_thumb(track_thumb_image.as_ref(), 24.0))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .text_xs()
+                                            .text_color(if is_selected {
+                                                color::accent()
+                                            } else {
+                                                color::text_primary()
+                                            })
+                                            .child(SharedString::from(format!("{num}{title}"))),
+                                    ),
+                            );
 
                         items.push(row.into_any_element());
                     }
@@ -2784,6 +2931,7 @@ fn render_detail(
     busy_track: Option<i64>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -2804,7 +2952,9 @@ fn render_detail(
             render_album_detail(album, busy_track, mb_status, album_thumbs, cx)
         }
 
-        LibraryDetail::Track(frame) => render_track_detail(frame, cx),
+        LibraryDetail::Track(frame) => render_track_detail(frame, playlists, cx),
+
+        LibraryDetail::Playlist(detail) => render_playlist_detail(detail, album_thumbs, cx),
     }
 }
 
@@ -3013,7 +3163,223 @@ fn render_album_detail(
         .into_any_element()
 }
 
-fn render_track_detail(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {
+fn render_playlist_detail(
+    detail: &PlaylistDetail,
+    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let playlist_id = detail.playlist.id;
+    let playlist_name = detail.playlist.name.clone();
+    let track_count = detail.tracks.len();
+    let total_duration_secs: i64 = detail.tracks.iter().filter_map(|t| t.duration_seconds).sum();
+    let duration_str = if total_duration_secs > 0 {
+        let mins = total_duration_secs / 60;
+        let secs = total_duration_secs % 60;
+        if mins >= 60 {
+            format!("{}h {}m", mins / 60, mins % 60)
+        } else {
+            format!("{mins}:{secs:02}")
+        }
+    } else {
+        String::new()
+    };
+
+    let track_rows: Vec<AnyElement> = if detail.tracks.is_empty() {
+        vec![div()
+            .text_center()
+            .p(spacing::XXL)
+            .text_color(color::text_muted())
+            .child("Empty — add tracks from the library or search")
+            .into_any_element()]
+    } else {
+        detail
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(idx, track)| {
+                let track_for_select = track.clone();
+                let track_id = track.id;
+                let position = idx as i64;
+                let last_position = (track_count - 1) as i64;
+                let pl_id = playlist_id;
+                let track_title = track
+                    .track_title
+                    .as_deref()
+                    .unwrap_or("[untitled]")
+                    .to_string();
+                let artist = track
+                    .artist_name
+                    .as_deref()
+                    .unwrap_or("Unknown")
+                    .to_string();
+                let dur = track
+                    .duration_seconds
+                    .map(|s| format!("{}:{:02}", s / 60, s % 60))
+                    .unwrap_or_default();
+                let track_thumb_image = track
+                    .track_image_href
+                    .as_ref()
+                    .or(track.album_image_href.as_ref())
+                    .and_then(|url| album_thumbs.get(url.as_str()))
+                    .and_then(|opt| opt.clone());
+
+                let up_btn = Button::new(SharedString::from(format!(
+                    "playlist-up-{pl_id}-{position}"
+                )))
+                .label("▲")
+                .ghost()
+                .with_size(Size::Small)
+                .disabled(position == 0)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.move_playlist_track(pl_id, position, position - 1, cx);
+                }));
+
+                let down_btn = Button::new(SharedString::from(format!(
+                    "playlist-down-{pl_id}-{position}"
+                )))
+                .label("▼")
+                .ghost()
+                .with_size(Size::Small)
+                .disabled(position == last_position)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.move_playlist_track(pl_id, position, position + 1, cx);
+                }));
+
+                let remove_btn = Button::new(SharedString::from(format!(
+                    "playlist-remove-{pl_id}-{position}"
+                )))
+                .label("✕")
+                .ghost()
+                .danger()
+                .with_size(Size::Small)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.remove_playlist_track_at(pl_id, position, cx);
+                }));
+
+                div()
+                    .id(SharedString::from(format!("playlist-track-{track_id}-{position}")))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(spacing::SM)
+                    .px(spacing::SM)
+                    .py(spacing::XS)
+                    .rounded(radius::SM)
+                    .hover(|el| el.bg(color::bg_surface_hi()))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!(
+                                "playlist-row-body-{pl_id}-{position}"
+                            )))
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(spacing::SM)
+                            .flex_1()
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.select_track(&track_for_select, cx);
+                                cx.notify();
+                            }))
+                            .child(
+                                div()
+                                    .w(px(32.0))
+                                    .text_xs()
+                                    .text_color(color::text_muted())
+                                    .child(SharedString::from(format!("{}.", idx + 1))),
+                            )
+                            .child(render_album_thumb(track_thumb_image.as_ref(), 24.0))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(color::text_primary())
+                                            .child(SharedString::from(track_title)),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(color::text_muted())
+                                            .child(SharedString::from(artist)),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(color::text_muted())
+                                    .w(px(48.0))
+                                    .child(SharedString::from(dur)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(spacing::XS)
+                            .child(up_btn)
+                            .child(down_btn)
+                            .child(remove_btn),
+                    )
+                    .into_any_element()
+            })
+            .collect()
+    };
+
+    let mut detail_rows = vec![("Tracks".to_string(), format!("{track_count}"))];
+    if !duration_str.is_empty() {
+        detail_rows.push(("Duration".to_string(), duration_str));
+    }
+
+    let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
+    let playlist_for_rename = playlist_id;
+    buttons = buttons.child(
+        Button::new(SharedString::from(format!("playlist-rename-{playlist_id}")))
+            .label("Rename")
+            .ghost()
+            .with_size(Size::Small)
+            .on_click(cx.listener(move |_this, _, _, cx| {
+                // TODO Stage 3: implement inline rename modal/input
+                cx.notify();
+            })),
+    );
+    buttons = buttons.child(
+        Button::new(SharedString::from(format!("playlist-delete-{playlist_id}")))
+            .label("Delete")
+            .danger()
+            .with_size(Size::Small)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.delete_playlist(playlist_for_rename, cx);
+            })),
+    );
+
+    div()
+        .id("playlist-detail-scroll")
+        .size_full()
+        .overflow_y_scroll()
+        .p(spacing::LG)
+        .flex()
+        .flex_col()
+        .gap(spacing::MD)
+        .child(render_detail_header(
+            "playlist",
+            &playlist_name,
+            None,
+            None,
+        ))
+        .child(render_detail_grid(detail_rows))
+        .child(buttons)
+        .child(div().flex().flex_col().gap(spacing::XXS).children(track_rows))
+        .into_any_element()
+}
+
+fn render_track_detail(
+    frame: &InspectorFrame,
+    playlists: &[db::Playlist],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
     let context = track_row_to_track_context(&frame.track);
     let context = frame.source_context.as_ref().unwrap_or(&context);
     let result = match &frame.tag_compare {
@@ -3025,7 +3391,7 @@ fn render_track_detail(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> 
         .size_full()
         .overflow_y_scroll()
         .p(spacing::LG)
-        .child(render_track_window(frame, context, result, cx))
+        .child(render_track_window(frame, context, result, playlists, cx))
         .into_any_element()
 }
 
@@ -3033,6 +3399,7 @@ fn render_track_window(
     frame: &InspectorFrame,
     track_context: &TrackContext,
     result: Option<&TagCompareResult>,
+    playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let show_id3_panel = !matches!(frame.tag_compare, LazyPanel::Hidden);
@@ -3064,6 +3431,7 @@ fn render_track_window(
                     frame,
                     &track_context.track,
                     &pending_id3_edits,
+                    playlists,
                     cx,
                 ))
                 .when(show_id3_panel, |el| {
@@ -3097,6 +3465,7 @@ fn render_track_left_column(
     frame: &InspectorFrame,
     track: &Track,
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     div()
@@ -3104,7 +3473,7 @@ fn render_track_left_column(
         .flex_col()
         .gap(spacing::MD)
         .child(render_track_header(frame, track))
-        .child(render_action_row(frame, pending_id3_edits, cx))
+        .child(render_action_row(frame, pending_id3_edits, playlists, cx))
         .into_any_element()
 }
 
@@ -3134,6 +3503,7 @@ fn render_track_header(frame: &InspectorFrame, track: &Track) -> AnyElement {
 fn render_action_row(
     frame: &InspectorFrame,
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
@@ -3151,6 +3521,18 @@ fn render_action_row(
                     this.toggle_local_subscription(cx);
                 })),
         )
+        .child(
+            metadata_action_button("Add to playlist ▾")
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(frame) = this.selected_track_frame_mut() {
+                        frame.add_to_playlist_open = !frame.add_to_playlist_open;
+                    }
+                    cx.notify();
+                })),
+        )
+        .when(frame.add_to_playlist_open, |el| {
+            el.child(render_add_to_playlist_panel(frame, playlists, cx))
+        })
         .when_some(frame.subscription_message.clone(), |el, message| {
             el.child(
                 div()
@@ -3269,6 +3651,53 @@ fn subscription_button_label(frame: &InspectorFrame) -> String {
     } else {
         "Subscribe Track".into()
     }
+}
+
+fn render_add_to_playlist_panel(
+    frame: &InspectorFrame,
+    playlists: &[db::Playlist],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let track_id = frame.entity_id;
+
+    let mut panel = div()
+        .border_1()
+        .border_color(color::border_subtle())
+        .rounded(radius::SM)
+        .bg(color::bg_surface())
+        .p(spacing::SM)
+        .gap(spacing::XS)
+        .flex()
+        .flex_col();
+
+    if playlists.is_empty() {
+        panel = panel.child(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .text_color(color::text_muted())
+                .child(SharedString::from(
+                    "No playlists yet — create one from the sidebar.",
+                )),
+        );
+        return panel.into_any_element();
+    }
+
+    for p in playlists {
+        let playlist_id = p.id;
+        let label = format!("{} ({})", p.name, p.track_count);
+        panel = panel.child(
+            metadata_action_button(&label).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    if let Some(frame) = this.selected_track_frame_mut() {
+                        frame.add_to_playlist_open = false;
+                    }
+                    this.add_track_to_playlist(track_id, playlist_id, cx);
+                },
+            )),
+        );
+    }
+
+    panel.into_any_element()
 }
 
 fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -> AnyElement {
@@ -4634,7 +5063,7 @@ fn hoverable_thumb(
         .into_any_element()
 }
 
-fn render_album_thumb(image: Option<&Arc<Image>>, size: f32) -> AnyElement {
+pub(crate) fn render_album_thumb(image: Option<&Arc<Image>>, size: f32) -> AnyElement {
     if let Some(img_data) = image {
         div()
             .w(px(size))

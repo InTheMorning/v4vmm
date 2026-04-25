@@ -91,6 +91,8 @@ struct InspectorFrame {
     musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     musicbrainz_selected: usize,
     podroll: LazyPanel<Vec<Feed>>,
+    add_to_playlist_open: bool,
+    add_to_playlist_open_track_guid: Option<String>,
 }
 
 impl InspectorFrame {
@@ -118,6 +120,8 @@ impl InspectorFrame {
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
             podroll: LazyPanel::Hidden,
+            add_to_playlist_open: false,
+            add_to_playlist_open_track_guid: None,
         }
     }
 }
@@ -199,6 +203,7 @@ pub struct SearchApp {
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
+    playlists: Vec<db::Playlist>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,7 +261,9 @@ impl SearchApp {
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
             list_focus: cx.focus_handle(),
+            playlists: Vec::new(),
         };
+        this.load_playlists();
         this.load_recent_feeds(false, cx);
         this
     }
@@ -1201,6 +1208,123 @@ impl SearchApp {
             },
         )
         .detach();
+    }
+
+    fn load_playlists(&mut self) {
+        let conn = self.conn.lock().expect("lock db");
+        match db::playlists_list(&conn) {
+            Ok(list) => self.playlists = list,
+            Err(err) => self.status = format!("Error loading playlists: {err:#}"),
+        }
+    }
+
+    fn add_feed_to_playlist(
+        &mut self,
+        feed_guid: &str,
+        playlist_id: i64,
+        cx: &mut Context<Self>,
+    ) {
+        let conn = self.conn.lock().expect("lock db");
+        let feed_id = match db::find_feed_id_by_guid(&conn, feed_guid) {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                self.status = "Subscribe to this feed first".into();
+                return;
+            }
+            Err(err) => {
+                self.status = format!("Error finding feed: {err:#}");
+                return;
+            }
+        };
+        let tracks = match db::feed_tracks(&conn, feed_id) {
+            Ok(t) => t,
+            Err(err) => {
+                self.status = format!("Error loading feed tracks: {err:#}");
+                return;
+            }
+        };
+        let mut appended = 0usize;
+        for track in &tracks {
+            if db::playlist_append(&conn, playlist_id, track.id).is_ok() {
+                appended += 1;
+            }
+        }
+        let name = self
+            .playlists
+            .iter()
+            .find(|p| p.id == playlist_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+        self.status = format!("Added {appended} tracks to {name}");
+        drop(conn);
+        self.load_playlists();
+        cx.notify();
+    }
+
+    fn add_search_track_to_playlist(
+        &mut self,
+        feed_guid: &str,
+        track_guid: &str,
+        playlist_id: i64,
+        cx: &mut Context<Self>,
+    ) {
+        let conn = self.conn.lock().expect("lock db");
+        let feed_id = match db::find_feed_id_by_guid(&conn, feed_guid) {
+            Ok(Some(id)) => id,
+            Ok(None) => {
+                self.status = "Subscribe to this feed first".into();
+                return;
+            }
+            Err(err) => {
+                self.status = format!("Error finding feed: {err:#}");
+                return;
+            }
+        };
+        let track_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM tracks WHERE feed_id = ?1 AND item_guid = ?2 LIMIT 1",
+                rusqlite::params![feed_id, track_guid],
+                |row| row.get(0),
+            )
+            .ok();
+        let Some(track_id) = track_id else {
+            self.status = "Track not in local library".into();
+            return;
+        };
+        match db::playlist_append(&conn, playlist_id, track_id) {
+            Ok(()) => {
+                let name = self
+                    .playlists
+                    .iter()
+                    .find(|p| p.id == playlist_id)
+                    .map(|p| p.name.clone())
+                    .unwrap_or_default();
+                self.status = format!("Added to {name}");
+            }
+            Err(err) => self.status = format!("Error adding to playlist: {err:#}"),
+        }
+        drop(conn);
+        self.load_playlists();
+        cx.notify();
+    }
+
+    fn add_track_to_playlist(&mut self, track_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
+        let conn = self.conn.lock().expect("lock db");
+        match db::playlist_append(&conn, playlist_id, track_id) {
+            Ok(()) => {
+                let name = self
+                    .playlists
+                    .iter()
+                    .find(|p| p.id == playlist_id)
+                    .map(|p| p.name.clone())
+                    .unwrap_or_default();
+                self.status = format!("Added to {name}");
+            }
+            Err(err) => self.status = format!("Error adding to playlist: {err:#}"),
+        }
+        drop(conn);
+        self.load_playlists();
+        cx.notify();
     }
 
     fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
@@ -2996,6 +3120,15 @@ fn render_discover_feed_inspector(
             ))
         })
         .when(!tracks.is_empty(), |el| {
+            let feed_subscribed = frame.local_subscription.unwrap_or(false);
+            let playlists = app.playlists.clone();
+            let open_guid = frame.add_to_playlist_open_track_guid.clone();
+            let feed_guid = frame.entity_id.clone();
+            let feed_context = if feed_subscribed {
+                Some((feed_guid.as_str(), open_guid.as_deref(), playlists.as_slice()))
+            } else {
+                None
+            };
             el.child(render_track_list_section(
                 "Tracks",
                 format!(
@@ -3008,6 +3141,7 @@ fn render_discover_feed_inspector(
                     }
                 ),
                 tracks,
+                feed_context,
                 app,
                 cx,
             ))
@@ -3277,6 +3411,7 @@ fn render_publisher_inspector(
 fn render_action_row(
     frame: &InspectorFrame,
     _pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
+    app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     if !matches!(frame.entity_type.as_str(), "feed" | "track") {
@@ -3295,6 +3430,24 @@ fn render_action_row(
                     this.toggle_local_subscription(cx);
                 })),
         )
+        .child({
+            let label = if frame.entity_type == "feed" {
+                "Add feed to playlist ▾"
+            } else {
+                "Add to playlist ▾"
+            };
+            metadata_action_button(label)
+                .disabled(frame.subscription_busy)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    if let Some(frame) = this.inspector_stack.last_mut() {
+                        frame.add_to_playlist_open = !frame.add_to_playlist_open;
+                    }
+                    cx.notify();
+                }))
+        })
+        .when(frame.add_to_playlist_open, |el| {
+            el.child(render_add_to_playlist_panel_search(frame, app, cx))
+        })
         .when_some(frame.subscription_message.clone(), |el, message| {
             el.child(
                 div()
@@ -3331,6 +3484,93 @@ fn subscription_button_label(frame: &InspectorFrame) -> String {
     } else {
         format!("Subscribe {noun}")
     }
+}
+
+fn render_add_to_playlist_panel_search(
+    frame: &InspectorFrame,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let app = cx.entity();
+    let playlists = app.read(cx).playlists.clone();
+
+    enum Target {
+        Track(i64),
+        Feed(String),
+    }
+
+    let target: Option<Target> = match (&frame.detail, frame.entity_type.as_str()) {
+        (InspectorDetail::Track(track_context), _) => {
+            if let Ok(conn) = app.read(cx).conn.lock() {
+                db::find_track_id(
+                    &conn,
+                    track_context.track.feed_url.as_deref(),
+                    track_context.track.track_guid.as_deref(),
+                    track_context.track.enclosure_url.as_deref(),
+                )
+                .ok()
+                .flatten()
+                .map(Target::Track)
+            } else {
+                None
+            }
+        }
+        (InspectorDetail::Feed(_), "feed") => Some(Target::Feed(frame.entity_id.clone())),
+        _ => None,
+    };
+
+    let Some(target) = target else {
+        return div().into_any_element();
+    };
+
+    let mut panel = div()
+        .border_1()
+        .border_color(color::border_subtle())
+        .rounded(radius::SM)
+        .bg(color::bg_surface())
+        .p(spacing::SM)
+        .gap(spacing::XS)
+        .flex()
+        .flex_col();
+
+    if playlists.is_empty() {
+        panel = panel.child(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .text_color(color::text_muted())
+                .child(SharedString::from(
+                    "No playlists yet — create one from the Library tab.",
+                )),
+        );
+        return panel.into_any_element();
+    }
+
+    for p in &playlists {
+        let playlist_id = p.id;
+        let label = format!("{} ({})", p.name, p.track_count);
+        let target_for_click = match &target {
+            Target::Track(id) => Target::Track(*id),
+            Target::Feed(guid) => Target::Feed(guid.clone()),
+        };
+        panel = panel.child(
+            metadata_action_button(&label).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    if let Some(frame) = this.inspector_stack.last_mut() {
+                        frame.add_to_playlist_open = false;
+                    }
+                    match &target_for_click {
+                        Target::Track(track_id) => {
+                            this.add_track_to_playlist(*track_id, playlist_id, cx);
+                        }
+                        Target::Feed(feed_guid) => {
+                            this.add_feed_to_playlist(feed_guid, playlist_id, cx);
+                        }
+                    }
+                },
+            )),
+        );
+    }
+
+    panel.into_any_element()
 }
 
 fn render_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
@@ -5129,9 +5369,15 @@ fn render_track_list_section(
     heading: &str,
     note: String,
     tracks: Vec<Track>,
+    feed_context: Option<(&str, Option<&str>, &[db::Playlist])>,
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
+    let (feed_guid, open_guid, playlists) = match feed_context {
+        Some((g, open, pls)) => (Some(g.to_string()), open.map(|s| s.to_string()), pls.to_vec()),
+        None => (None, None, Vec::new()),
+    };
+
     div()
         .flex()
         .flex_col()
@@ -5152,7 +5398,14 @@ fn render_track_list_section(
                 .into_iter()
                 .map(|track| {
                     let thumb = app.thumbnail_for_url(track.image_url.as_deref(), cx);
-                    render_track_row(track, thumb, cx)
+                    render_track_row(
+                        track,
+                        thumb,
+                        feed_guid.as_deref(),
+                        open_guid.as_deref(),
+                        &playlists,
+                        cx,
+                    )
                 })
                 .collect::<Vec<_>>(),
         )
@@ -5162,6 +5415,9 @@ fn render_track_list_section(
 fn render_track_row(
     track: Track,
     thumbnail: Option<Arc<Image>>,
+    feed_guid: Option<&str>,
+    open_guid: Option<&str>,
+    playlists: &[db::Playlist],
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let guid = track.track_guid.clone().unwrap_or_default();
@@ -5172,7 +5428,12 @@ fn render_track_row(
     let play_button_id = SharedString::from(format!("track-row-play:{guid}"));
     let guid_for_click = guid.clone();
     let title_for_click = title.clone();
-    div()
+    let feed_guid_owned = feed_guid.map(|s| s.to_string());
+    let popup_open = feed_guid.is_some()
+        && !guid.is_empty()
+        && open_guid.map(|s| s == guid.as_str()).unwrap_or(false);
+
+    let mut row = div()
         .id(SharedString::from(format!("track-row:{guid}")))
         .flex()
         .flex_row()
@@ -5214,13 +5475,107 @@ fn render_track_row(
                         SharedString::from(fmt_dur(duration_secs.unwrap_or_default())),
                     ))
                 }),
-        )
-        .child(render_play_icon_button_with_id(
-            play_button_id,
-            audio_url,
+        );
+
+    if feed_guid_owned.is_some() && !guid.is_empty() {
+        let guid_for_toggle = guid.clone();
+        row = row.child(
+            Button::new(SharedString::from(format!("track-row-add:{guid}")))
+                .label("+")
+                .ghost()
+                .with_size(Size::XSmall)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(frame) = this.inspector_stack.last_mut() {
+                        if frame.add_to_playlist_open_track_guid.as_deref()
+                            == Some(guid_for_toggle.as_str())
+                        {
+                            frame.add_to_playlist_open_track_guid = None;
+                        } else {
+                            frame.add_to_playlist_open_track_guid =
+                                Some(guid_for_toggle.clone());
+                        }
+                    }
+                    cx.notify();
+                })),
+        );
+    }
+
+    row = row.child(render_play_icon_button_with_id(
+        play_button_id,
+        audio_url,
+        cx,
+    ));
+
+    if popup_open {
+        let feed_guid_str = feed_guid_owned.clone().unwrap_or_default();
+        let track_guid_str = guid.clone();
+        let popup = render_row_playlist_popup(
+            &feed_guid_str,
+            &track_guid_str,
+            playlists,
             cx,
-        ))
-        .into_any_element()
+        );
+        return div()
+            .flex()
+            .flex_col()
+            .child(row)
+            .child(popup)
+            .into_any_element();
+    }
+
+    row.into_any_element()
+}
+
+fn render_row_playlist_popup(
+    feed_guid: &str,
+    track_guid: &str,
+    playlists: &[db::Playlist],
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let mut panel = div()
+        .ml(px(48.0))
+        .border_1()
+        .border_color(color::border_subtle())
+        .rounded(radius::SM)
+        .bg(color::bg_surface())
+        .p(spacing::SM)
+        .gap(spacing::XS)
+        .flex()
+        .flex_col();
+
+    if playlists.is_empty() {
+        panel = panel.child(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .text_color(color::text_muted())
+                .child(SharedString::from(
+                    "No playlists yet — create one from the Library tab.",
+                )),
+        );
+        return panel.into_any_element();
+    }
+
+    for p in playlists {
+        let playlist_id = p.id;
+        let label = format!("{} ({})", p.name, p.track_count);
+        let feed_guid_owned = feed_guid.to_string();
+        let track_guid_owned = track_guid.to_string();
+        panel = panel.child(
+            metadata_action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    frame.add_to_playlist_open_track_guid = None;
+                }
+                this.add_search_track_to_playlist(
+                    &feed_guid_owned,
+                    &track_guid_owned,
+                    playlist_id,
+                    cx,
+                );
+            })),
+        );
+    }
+
+    panel.into_any_element()
 }
 
 fn render_feed_header(
