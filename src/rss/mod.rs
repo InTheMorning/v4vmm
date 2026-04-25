@@ -3,6 +3,7 @@ mod helpers;
 mod subscribe;
 
 pub use enrich::{
-    enrich_track_from_feed_rss, fetch_track_enrichment_from_feed, RssTrackEnrichment,
+    enrich_track_from_feed_rss, fetch_feed_podroll, fetch_track_enrichment_from_feed, PodrollEntry,
+    RssTrackEnrichment,
 };
 pub use subscribe::subscribe_feed;

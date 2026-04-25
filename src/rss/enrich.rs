@@ -4,8 +4,49 @@ use anyhow::{Context, Result};
 use rss::extension::{Extension, ExtensionMap};
 use rss::{Channel, Item};
 
-use super::helpers::find_ext_attr;
+use super::helpers::{find_ext, find_ext_attr};
 use crate::api::{Feed, SourceEntityId, SourceEntityLink, Track};
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PodrollEntry {
+    pub feed_guid: Option<String>,
+    pub feed_url: Option<String>,
+}
+
+pub fn fetch_feed_podroll(feed_url: &str) -> Result<Vec<PodrollEntry>> {
+    let body = reqwest::blocking::Client::new()
+        .get(feed_url)
+        .send()
+        .with_context(|| format!("GET {feed_url}"))?
+        .error_for_status()
+        .with_context(|| format!("HTTP error for {feed_url}"))?
+        .bytes()
+        .with_context(|| format!("read body {feed_url}"))?;
+    let channel = Channel::read_from(Cursor::new(body)).context("parse RSS")?;
+    Ok(podroll_entries(channel.extensions()))
+}
+
+fn podroll_entries(exts: &ExtensionMap) -> Vec<PodrollEntry> {
+    let Some(podroll) = find_ext(exts, "podcast", "podroll") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (name, list) in &podroll.children {
+        if name != "remoteItem" {
+            continue;
+        }
+        for child in list {
+            let entry = PodrollEntry {
+                feed_guid: child.attrs.get("feedGuid").cloned(),
+                feed_url: child.attrs.get("feedUrl").cloned(),
+            };
+            if entry.feed_guid.is_some() || entry.feed_url.is_some() {
+                out.push(entry);
+            }
+        }
+    }
+    out
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RssTrackEnrichment {

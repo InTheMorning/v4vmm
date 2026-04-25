@@ -90,6 +90,7 @@ struct InspectorFrame {
     tag_compare: LazyPanel<TagCompareResult>,
     musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     musicbrainz_selected: usize,
+    podroll: LazyPanel<Vec<Feed>>,
 }
 
 impl InspectorFrame {
@@ -116,6 +117,7 @@ impl InspectorFrame {
             tag_compare: LazyPanel::Hidden,
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
+            podroll: LazyPanel::Hidden,
         }
     }
 }
@@ -663,11 +665,58 @@ impl SearchApp {
                                         frame.image = image;
                                         frame.local_subscription = local_subscription;
                                         frame.subscription_message = None;
+                                        if let InspectorDetail::Feed(feed) = &frame.detail {
+                                            if let Some(feed_url) =
+                                                feed.feed_url.clone().filter(|s| !s.is_empty())
+                                            {
+                                                frame.podroll = LazyPanel::Loading;
+                                                this.load_podroll(
+                                                    entity_id.clone(),
+                                                    feed_url,
+                                                    cx,
+                                                );
+                                            }
+                                        }
                                     }
                                     Err(error) => {
                                         frame.detail = InspectorDetail::Error(error.to_string());
                                     }
                                 }
+                            }
+                        }
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn load_podroll(
+        &mut self,
+        feed_guid: String,
+        feed_url: String,
+        cx: &mut Context<Self>,
+    ) {
+        let client = self.api_client();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { resolve_podroll_feeds(&client, &feed_url) })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == "feed" && frame.entity_id == feed_guid {
+                                frame.podroll = match result {
+                                    Ok(feeds) if feeds.is_empty() => LazyPanel::Hidden,
+                                    Ok(feeds) => LazyPanel::Loaded(feeds),
+                                    Err(_) => LazyPanel::Hidden,
+                                };
                             }
                         }
                         cx.notify();
@@ -1955,6 +2004,33 @@ fn fetch_inspector_detail(
     }
 }
 
+fn resolve_podroll_feeds(client: &Client, feed_url: &str) -> Result<Vec<Feed>> {
+    let entries = rss::fetch_feed_podroll(feed_url)?;
+    let mut feeds: Vec<Feed> = Vec::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for entry in entries {
+        let guid = entry.feed_guid.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let key = guid
+            .map(str::to_string)
+            .or_else(|| entry.feed_url.clone())
+            .unwrap_or_default();
+        if key.is_empty() || !seen.insert(key) {
+            continue;
+        }
+        let fetched = guid.and_then(|g| client.fetch_feed(g, None).ok());
+        let feed = match fetched {
+            Some(f) => f,
+            None => Feed {
+                feed_guid: entry.feed_guid.clone(),
+                feed_url: entry.feed_url.clone(),
+                ..Feed::default()
+            },
+        };
+        feeds.push(feed);
+    }
+    Ok(feeds)
+}
+
 fn hydrate_feed_track_play_urls(client: &Client, feed: &mut Feed) {
     let Some(tracks) = feed.tracks.as_mut() else {
         return;
@@ -2927,8 +3003,92 @@ fn render_discover_feed_inspector(
                 cx,
             ))
         })
+        .when_some(podroll_section(frame, app, cx), |el, section| el.child(section))
         .child(render_lazy_sections(frame, cx))
         .into_any_element()
+}
+
+fn podroll_section(
+    frame: &InspectorFrame,
+    app: &mut SearchApp,
+    cx: &mut Context<SearchApp>,
+) -> Option<AnyElement> {
+    let feeds = match &frame.podroll {
+        LazyPanel::Loaded(feeds) if !feeds.is_empty() => feeds.clone(),
+        _ => return None,
+    };
+
+    let mut tiles: Vec<AnyElement> = Vec::with_capacity(feeds.len());
+    for feed in feeds {
+        let guid = match feed.feed_guid.clone() {
+            Some(guid) if !guid.trim().is_empty() => guid,
+            _ => continue,
+        };
+        let title = feed_title(&feed);
+        let click_title = title.clone();
+        let click_guid = guid.clone();
+        let thumb = app.thumbnail_for_url(feed.image_url.as_deref(), cx);
+        let tile = div()
+            .id(SharedString::from(format!("podroll-tile:{guid}")))
+            .flex_shrink_0()
+            .w(px(140.0))
+            .flex()
+            .flex_col()
+            .gap(spacing::SM)
+            .p(spacing::XS)
+            .rounded(radius::MD)
+            .cursor_pointer()
+            .hover(|el| el.bg(color::bg_surface()))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                this.push_inspector(
+                    "feed".into(),
+                    click_guid.clone(),
+                    click_title.clone(),
+                    cx,
+                );
+            }))
+            .child(render_thumb(thumb.as_ref(), "feed", 128.0, true))
+            .child(
+                div()
+                    .text_size(typography::SIZE_CAPTION)
+                    .font_weight(FontWeight::MEDIUM)
+                    .line_height(px(15.0))
+                    .child(truncated(title)),
+            )
+            .into_any_element();
+        tiles.push(tile);
+    }
+
+    if tiles.is_empty() {
+        return None;
+    }
+
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap(spacing::SM)
+            .child(
+                div()
+                    .text_size(typography::SIZE_HEADLINE)
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Podroll"),
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!(
+                        "podroll-scroll:{}",
+                        frame.entity_id
+                    )))
+                    .flex()
+                    .flex_row()
+                    .gap(spacing::MD)
+                    .overflow_x_scroll()
+                    .pb(spacing::XS)
+                    .children(tiles),
+            )
+            .into_any_element(),
+    )
 }
 
 fn render_discover_track_inspector(
