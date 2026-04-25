@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -14,6 +14,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_component::spinner::Spinner;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable, Root, Sizable, Size};
 use reqwest::blocking::Client as ReqwestClient;
@@ -188,6 +189,7 @@ pub struct SearchApp {
     selected_key: Option<String>,
     inspector_stack: Vec<InspectorFrame>,
     inspector_origin: Option<InspectorOrigin>,
+    in_flight_tracks: HashSet<String>,
     recent_feeds: Vec<Feed>,
     recent_cursor: Option<String>,
     recent_has_more: bool,
@@ -206,6 +208,15 @@ enum InspectorOrigin {
     Recents,
     Search,
 }
+
+/// Events emitted by [`SearchApp`] to notify peer components (e.g. the
+/// library tab) that local library state has changed and they should refresh.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchAppEvent {
+    LibraryMutated,
+}
+
+impl gpui::EventEmitter<SearchAppEvent> for SearchApp {}
 
 const TYPE_LABELS: &[&str] = &["All", "Artist", "Feed", "Track", "Publisher"];
 const TYPE_VALUES: &[Option<&str>] = &[
@@ -245,6 +256,7 @@ impl SearchApp {
             selected_key: None,
             inspector_stack: Vec::new(),
             inspector_origin: None,
+            in_flight_tracks: HashSet::new(),
             recent_feeds: Vec::new(),
             recent_cursor: None,
             recent_has_more: false,
@@ -1039,6 +1051,111 @@ impl SearchApp {
         }
     }
 
+    /// Re-query `local_subscription` for every frame in the inspector stack so
+    /// the inspector header reflects DB changes triggered by sibling actions
+    /// (per-row download/remove buttons, etc.).
+    fn refresh_inspector_subscription_state(&mut self, _cx: &mut Context<Self>) {
+        if self.inspector_stack.is_empty() {
+            return;
+        }
+        let snapshots: Vec<Option<bool>> = self
+            .inspector_stack
+            .iter()
+            .map(|frame| local_subscription_for_detail(&self.conn, &frame.detail).ok().flatten())
+            .collect();
+        for (frame, snap) in self.inspector_stack.iter_mut().zip(snapshots) {
+            frame.local_subscription = snap;
+        }
+    }
+
+    fn download_track_row(
+        &mut self,
+        track: Track,
+        feed: Option<Feed>,
+        cx: &mut Context<Self>,
+    ) {
+        let key = track_row_key(&track);
+        if key.is_empty() || !self.in_flight_tracks.insert(key.clone()) {
+            return;
+        }
+        let request = SearchSubscribeRequest::Track(
+            Box::new(TrackContext {
+                track: track.clone(),
+                feed,
+            }),
+            Vec::new(),
+            self.musicindex_endpoint.clone(),
+            false,
+        );
+        let conn = Arc::clone(&self.conn);
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { subscribe_search_request(conn, request) })
+                    .await;
+
+                this.update(cx, move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                    this.in_flight_tracks.remove(&key);
+                    match result {
+                        Ok(outcome) => {
+                            this.status = outcome.message;
+                            this.refresh_inspector_subscription_state(cx);
+                            cx.emit(SearchAppEvent::LibraryMutated);
+                        }
+                        Err(error) => this.status = format!("Download error: {error:#}"),
+                    }
+                    cx.notify();
+                })
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn remove_track_row(&mut self, track: Track, feed: Option<Feed>, cx: &mut Context<Self>) {
+        let key = track_row_key(&track);
+        if key.is_empty() || !self.in_flight_tracks.insert(key.clone()) {
+            return;
+        }
+        let request = SearchUnsubscribeRequest::Track {
+            feed_url: track
+                .feed_url
+                .clone()
+                .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone())),
+            item_guid: track.track_guid.clone(),
+            enclosure_url: track.enclosure_url.clone(),
+        };
+        let conn = Arc::clone(&self.conn);
+        cx.notify();
+
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { unsubscribe_search_request(conn, request) })
+                    .await;
+
+                this.update(cx, move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                    this.in_flight_tracks.remove(&key);
+                    match result {
+                        Ok(message) => {
+                            this.status = message;
+                            this.refresh_inspector_subscription_state(cx);
+                            cx.emit(SearchAppEvent::LibraryMutated);
+                        }
+                        Err(error) => this.status = format!("Remove error: {error:#}"),
+                    }
+                    cx.notify();
+                })
+                .ok();
+            },
+        )
+        .detach();
+    }
+
     fn subscribe_current(&mut self, cx: &mut Context<Self>) {
         let Some(frame) = self.inspector_stack.last_mut() else {
             return;
@@ -1081,6 +1198,7 @@ impl SearchApp {
                     Box::new((**track_context).clone()),
                     edits,
                     musicindex_endpoint,
+                    true,
                 )
             }
             InspectorDetail::Loading(_)
@@ -1104,6 +1222,7 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        let mut library_mutated = false;
                         if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.subscription_busy = false;
@@ -1117,6 +1236,7 @@ impl SearchApp {
                                             frame.suppressed_auto_id3_edits.clear();
                                             frame.id3_apply_error = None;
                                         }
+                                        library_mutated = true;
                                     }
                                     Err(error) => {
                                         frame.subscription_message =
@@ -1124,6 +1244,10 @@ impl SearchApp {
                                     }
                                 }
                             }
+                        }
+                        if library_mutated {
+                            this.refresh_inspector_subscription_state(cx);
+                            cx.emit(SearchAppEvent::LibraryMutated);
                         }
                         cx.notify();
                     },
@@ -1179,6 +1303,7 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        let mut library_mutated = false;
                         if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.subscription_busy = false;
@@ -1186,6 +1311,7 @@ impl SearchApp {
                                     Ok(message) => {
                                         frame.local_subscription = Some(false);
                                         frame.subscription_message = Some(message);
+                                        library_mutated = true;
                                     }
                                     Err(error) => {
                                         frame.subscription_message =
@@ -1193,6 +1319,10 @@ impl SearchApp {
                                     }
                                 }
                             }
+                        }
+                        if library_mutated {
+                            this.refresh_inspector_subscription_state(cx);
+                            cx.emit(SearchAppEvent::LibraryMutated);
                         }
                         cx.notify();
                     },
@@ -2194,7 +2324,7 @@ fn compare_downloaded_track_path(
 
 enum SearchSubscribeRequest {
     Feed(Box<Feed>, String),
-    Track(Box<TrackContext>, Vec<Id3v24Edit>, String),
+    Track(Box<TrackContext>, Vec<Id3v24Edit>, String, bool),
 }
 
 enum SearchUnsubscribeRequest {
@@ -2221,8 +2351,8 @@ fn subscribe_search_request(
         SearchSubscribeRequest::Feed(feed, musicindex_endpoint) => {
             subscribe_feed_from_search(conn, *feed, musicindex_endpoint)
         }
-        SearchSubscribeRequest::Track(track_context, edits, musicindex_endpoint) => {
-            subscribe_track_from_search(conn, *track_context, edits, musicindex_endpoint)
+        SearchSubscribeRequest::Track(track_context, edits, musicindex_endpoint, mark_feed_subscribed) => {
+            subscribe_track_from_search(conn, *track_context, edits, musicindex_endpoint, mark_feed_subscribed)
         }
     }
 }
@@ -2359,6 +2489,7 @@ fn subscribe_track_from_search(
     track_context: TrackContext,
     edits: Vec<Id3v24Edit>,
     musicindex_endpoint: String,
+    mark_feed_subscribed: bool,
 ) -> Result<SearchSubscribeOutcome> {
     let mut feed = track_context.feed;
     let mut track = track_with_feed_defaults(track_context.track.clone(), feed.as_ref());
@@ -2372,15 +2503,27 @@ fn subscribe_track_from_search(
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
 
+    let prior_subscribed = {
+        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+        db::feed_is_subscribed_by_url(&db, &feed_url).unwrap_or(false)
+    };
+
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         rss::subscribe_feed(&cfg, &mut db, &feed_url, &musicindex_endpoint)?;
+        if !mark_feed_subscribed && !prior_subscribed {
+            // `rss::subscribe_feed` always sets is_subscribed = 1; revert until
+            // we know the per-track download succeeded. We'll reconcile below.
+            db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
+        }
     }
 
     let client = ReqwestClient::new();
     let prepared = prepare_track_for_subscription(&cfg, &client, &track).inspect_err(|_| {
-        if let Ok(db) = conn.lock() {
-            let _ = db::set_feed_subscribed_by_url(&db, &feed_url, false);
+        if mark_feed_subscribed && !prior_subscribed {
+            if let Ok(db) = conn.lock() {
+                let _ = db::set_feed_subscribed_by_url(&db, &feed_url, false);
+            }
         }
     })?;
     let working_path = prepared.working_path().to_path_buf();
@@ -2404,6 +2547,10 @@ fn subscribe_track_from_search(
             &path,
             file_size,
         )?;
+        if !mark_feed_subscribed {
+            // Per-track download: derive feed subscription from track state.
+            db::reconcile_feed_subscription_by_url(&db, &feed_url)?;
+        }
     }
 
     let refreshed_context = TrackContext { track, feed };
@@ -2448,6 +2595,11 @@ fn unsubscribe_search_request(
                 enclosure_url.as_deref(),
                 false,
             )?;
+            if let Some(feed_url) = feed_url.as_deref() {
+                // Removing one track means the feed is no longer fully
+                // subscribed; reconcile to keep state coherent.
+                db::reconcile_feed_subscription_by_url(&db, feed_url)?;
+            }
             Ok("Removed track".into())
         }
     }
@@ -3008,6 +3160,7 @@ fn render_discover_feed_inspector(
                     }
                 ),
                 tracks,
+                Some(feed.clone()),
                 app,
                 cx,
             ))
@@ -5129,9 +5282,31 @@ fn render_track_list_section(
     heading: &str,
     note: String,
     tracks: Vec<Track>,
+    feed: Option<Feed>,
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
+    let downloaded: Vec<bool> = {
+        let db = app.conn.lock().ok();
+        tracks
+            .iter()
+            .map(|track| {
+                db.as_ref()
+                    .and_then(|db| {
+                        db::track_is_in_library_by_match(
+                            db,
+                            track.feed_url.as_deref().or_else(|| {
+                                feed.as_ref().and_then(|f| f.feed_url.as_deref())
+                            }),
+                            track.track_guid.as_deref(),
+                            track.enclosure_url.as_deref(),
+                        )
+                        .ok()
+                    })
+                    .unwrap_or(false)
+            })
+            .collect()
+    };
     div()
         .flex()
         .flex_col()
@@ -5150,9 +5325,12 @@ fn render_track_list_section(
         .children(
             tracks
                 .into_iter()
-                .map(|track| {
+                .zip(downloaded)
+                .map(|(track, is_downloaded)| {
+                    let key = track_row_key(&track);
+                    let is_in_flight = !key.is_empty() && app.in_flight_tracks.contains(&key);
                     let thumb = app.thumbnail_for_url(track.image_url.as_deref(), cx);
-                    render_track_row(track, thumb, cx)
+                    render_track_row(track, thumb, feed.clone(), is_downloaded, is_in_flight, cx)
                 })
                 .collect::<Vec<_>>(),
         )
@@ -5162,6 +5340,9 @@ fn render_track_list_section(
 fn render_track_row(
     track: Track,
     thumbnail: Option<Arc<Image>>,
+    feed: Option<Feed>,
+    is_downloaded: bool,
+    is_in_flight: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let guid = track.track_guid.clone().unwrap_or_default();
@@ -5215,6 +5396,13 @@ fn render_track_row(
                     ))
                 }),
         )
+        .child(render_track_download_button(
+            track.clone(),
+            feed,
+            is_downloaded,
+            is_in_flight,
+            cx,
+        ))
         .child(render_play_icon_button_with_id(
             play_button_id,
             audio_url,
@@ -5422,6 +5610,89 @@ fn render_play_icon_button_with_id(
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
             if let Some(url) = &click_url {
                 let _ = open::that(url);
+            }
+        }))
+        .into_any_element()
+}
+
+fn track_row_key(track: &Track) -> String {
+    track
+        .enclosure_url
+        .clone()
+        .or_else(|| track.track_guid.clone())
+        .unwrap_or_default()
+}
+
+fn render_track_download_button(
+    track: Track,
+    feed: Option<Feed>,
+    is_downloaded: bool,
+    is_in_flight: bool,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let key = track_row_key(&track);
+
+    if is_in_flight {
+        let tip: SharedString = if is_downloaded {
+            "Removing...".into()
+        } else {
+            "Downloading...".into()
+        };
+        return div()
+            .id(SharedString::from(format!("track-row-download-spin:{key}")))
+            .w(px(18.0))
+            .h(px(18.0))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(radius::SM)
+            .border_1()
+            .border_color(color::accent())
+            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .child(
+                Spinner::new()
+                    .with_size(Size::XSmall)
+                    .color(color::accent().into()),
+            )
+            .into_any_element();
+    }
+
+    let id = SharedString::from(format!("track-row-download:{key}"));
+    let label = if is_downloaded { "🗑" } else { "⬇" };
+    let tooltip = if is_downloaded {
+        "Remove from library"
+    } else {
+        "Download track"
+    };
+    let border = if is_downloaded {
+        color::status_danger()
+    } else {
+        color::accent()
+    };
+    let disabled = track.enclosure_url.is_none();
+    let track_for_click = track.clone();
+    let feed_for_click = feed.clone();
+
+    Button::new(id)
+        .label(label)
+        .with_size(Size::XSmall)
+        .compact()
+        .ghost()
+        .w(px(18.0))
+        .h(px(18.0))
+        .px(px(0.0))
+        .py(px(0.0))
+        .text_color(rgb(0xffffff))
+        .rounded(radius::SM)
+        .border_1()
+        .border_color(border)
+        .tooltip(tooltip)
+        .disabled(disabled)
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            if is_downloaded {
+                this.remove_track_row(track_for_click.clone(), feed_for_click.clone(), cx);
+            } else {
+                this.download_track_row(track_for_click.clone(), feed_for_click.clone(), cx);
             }
         }))
         .into_any_element()

@@ -13,7 +13,7 @@ use crate::config;
 use crate::db;
 use crate::library::LibraryApp;
 use crate::media::ImageCache;
-use crate::search::SearchApp;
+use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::theme::color;
 use crate::ui::theme::spacing;
 use crate::ui::theme::typography;
@@ -60,6 +60,7 @@ pub struct TopApp {
     library_tab_focus: gpui::FocusHandle,
     discover_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
+    _search_sub: gpui::Subscription,
 }
 
 impl TopApp {
@@ -82,6 +83,15 @@ impl TopApp {
         let library = cx.new(|cx| {
             LibraryApp::new(conn, library_cache, musicindex_endpoint.clone(), window, cx)
         });
+        let library_for_sub = library.clone();
+        let search_sub = cx.subscribe(
+            &search,
+            move |_this: &mut Self, _search, event: &SearchAppEvent, cx| match event {
+                SearchAppEvent::LibraryMutated => {
+                    library_for_sub.update(cx, |lib, cx| lib.refresh(cx));
+                }
+            },
+        );
         let endpoint_default = musicindex_endpoint.clone();
         let endpoint_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx)
@@ -116,6 +126,7 @@ impl TopApp {
             library_tab_focus: cx.focus_handle(),
             discover_tab_focus: cx.focus_handle(),
             settings_tab_focus: cx.focus_handle(),
+            _search_sub: search_sub,
         }
     }
 

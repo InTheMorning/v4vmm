@@ -422,7 +422,28 @@ pub fn unsubscribe_feed_tracks(conn: &Connection, feed_id: i64) -> Result<()> {
         [feed_id],
     )
     .context("unsubscribe_feed_tracks")?;
-    Ok(())
+    Ok(())}
+
+/// Recompute and persist `feeds.is_subscribed` for the given feed URL based on
+/// per-track library state: subscribed iff every track of the feed is in the
+/// library (and the feed has at least one track).
+pub fn reconcile_feed_subscription_by_url(conn: &Connection, feed_url: &str) -> Result<bool> {
+    let counts: Option<(i64, i64)> = conn
+        .query_row(
+            "SELECT
+                 COUNT(*) AS total,
+                 COALESCE(SUM(CASE WHEN t.is_in_library = 1 THEN 1 ELSE 0 END), 0) AS in_library
+             FROM feeds f
+             LEFT JOIN tracks t ON t.feed_id = f.id
+             WHERE f.feed_url = ?1",
+            [feed_url],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .optional()
+        .context("reconcile_feed_subscription_by_url counts")?;
+    let subscribed = matches!(counts, Some((total, in_library)) if total > 0 && in_library == total);
+    set_feed_subscribed_by_url(conn, feed_url, subscribed)?;
+    Ok(subscribed)
 }
 
 pub fn delete_local_file(conn: &Connection, local_file_path: &str) -> Result<()> {
