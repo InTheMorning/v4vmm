@@ -8,10 +8,11 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
 use gpui_component::{Root, Sizable, Size};
+use rusqlite::Connection;
 
 use crate::config;
 use crate::db;
-use crate::library::LibraryApp;
+use crate::library::{LibraryApp, LibraryTree, build_tree, cleanup_empty_parents};
 use crate::media::ImageCache;
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::theme::color;
@@ -61,6 +62,8 @@ pub struct TopApp {
     discover_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
     _search_sub: gpui::Subscription,
+    conn: Arc<Mutex<Connection>>,
+    cached_tree: LibraryTree,
 }
 
 impl TopApp {
@@ -81,7 +84,7 @@ impl TopApp {
         let search =
             cx.new(|cx| SearchApp::new(search_conn, search_cache, search_endpoint, window, cx));
         let library = cx.new(|cx| {
-            LibraryApp::new(conn, library_cache, musicindex_endpoint.clone(), window, cx)
+            LibraryApp::new(conn.clone(), library_cache, musicindex_endpoint.clone(), window, cx)
         });
         let library_for_sub = library.clone();
         let search_sub = cx.subscribe(
@@ -127,6 +130,8 @@ impl TopApp {
             discover_tab_focus: cx.focus_handle(),
             settings_tab_focus: cx.focus_handle(),
             _search_sub: search_sub,
+            conn,
+            cached_tree: LibraryTree::default(),
         }
     }
 
@@ -176,9 +181,65 @@ impl TopApp {
         }
         cx.notify();
     }
-}
 
-use rusqlite::Connection;
+    fn reload_cached(&mut self) {
+        let conn = self.conn.lock().expect("lock db");
+        match db::cached_tracks(&conn) {
+            Ok(rows) => {
+                self.cached_tree = build_tree(&rows, &conn);
+            }
+            Err(err) => {
+                self.settings_status = format!("Error loading cached: {err:#}");
+            }
+        }
+    }
+
+    fn delete_cached_file(&mut self, path: String) {
+        if let Err(err) = std::fs::remove_file(&path) {
+            if err.kind() != std::io::ErrorKind::NotFound {
+                self.settings_status = format!("Error deleting file: {err:#}");
+                return;
+            }
+        }
+        cleanup_empty_parents(std::path::Path::new(&path));
+        let conn = self.conn.lock().expect("lock db");
+        if let Err(err) = db::delete_local_file(&conn, &path) {
+            self.settings_status = format!("Error: {err:#}");
+            return;
+        }
+        drop(conn);
+        self.reload_cached();
+    }
+
+    fn delete_all_cached(&mut self) {
+        let paths: Vec<String> = self
+            .cached_tree
+            .artists
+            .iter()
+            .flat_map(|a| &a.albums)
+            .flat_map(|a| &a.tracks)
+            .filter_map(|t| t.local_path.clone())
+            .collect();
+        for path in &paths {
+            if let Err(err) = std::fs::remove_file(path) {
+                if err.kind() != std::io::ErrorKind::NotFound {
+                    self.settings_status = format!("Error deleting {path}: {err:#}");
+                    return;
+                }
+            }
+            cleanup_empty_parents(std::path::Path::new(path));
+        }
+        let conn = self.conn.lock().expect("lock db");
+        for path in &paths {
+            if let Err(err) = db::delete_local_file(&conn, path) {
+                self.settings_status = format!("Error: {err:#}");
+                return;
+            }
+        }
+        drop(conn);
+        self.reload_cached();
+    }
+}
 
 impl Render for TopApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -311,6 +372,8 @@ impl Render for TopApp {
 }
 
 fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {
+    app.reload_cached();
+
     let endpoint_input = app.endpoint_input.clone();
     let music_dir_input = app.music_dir_input.clone();
     let flac_path_input = app.flac_path_input.clone();
@@ -320,6 +383,12 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
     } else {
         color::text_muted()
     };
+
+    let cached_count = app.cached_tree.artists.iter()
+        .flat_map(|a| &a.albums)
+        .flat_map(|a| &a.tracks)
+        .count();
+    let cached_is_empty = cached_count == 0;
 
     div()
         .id("settings-scroll")
@@ -439,6 +508,89 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             .text_xs()
                             .text_color(status_color)
                             .child(SharedString::from(status)),
+                    )
+                })
+                .child(div().border_t_1().border_color(color::border_subtle()))
+                .child(
+                    typography::type_caption_strong(div())
+                        .text_color(color::text_muted())
+                        .child(format!("Cached files ({})", cached_count)),
+                )
+                .when(!cached_is_empty, |el| {
+                    let cached_tree = &app.cached_tree;
+                    let mut cached_items = Vec::new();
+                    for artist in &cached_tree.artists {
+                        cached_items.push(
+                            div()
+                                .text_sm()
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(color::text_primary())
+                                .child(SharedString::from(artist.name.clone()))
+                                .into_any_element()
+                        );
+                        for album in &artist.albums {
+                            for track in &album.tracks {
+                                let title = track.track_title.as_deref().unwrap_or("[untitled]");
+                                let path_clone = track.local_path.clone().unwrap_or_default();
+                                cached_items.push(
+                                    div()
+                                        .pl(spacing::MD)
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(spacing::XS)
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .text_xs()
+                                                .text_color(color::text_primary())
+                                                .child(SharedString::from(title.to_string()))
+                                        )
+                                        .child(
+                                            Button::new(SharedString::from(format!("del-cached-{}", track.id)))
+                                                .label("Delete")
+                                                .danger()
+                                                .with_size(Size::XSmall)
+                                                .text_color(rgb(0xffffff))
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.delete_cached_file(path_clone.clone());
+                                                    cx.notify();
+                                                }))
+                                        )
+                                        .into_any_element()
+                                );
+                            }
+                        }
+                    }
+                    el.child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(spacing::XXS)
+                            .children(cached_items)
+                    )
+                })
+                .when(!cached_is_empty, |el| {
+                    el.child(
+                        div().pt(spacing::SM).child(
+                            Button::new("delete-all-cached-settings")
+                                .label("Delete All Cached")
+                                .danger()
+                                .with_size(Size::XSmall)
+                                .text_color(rgb(0xffffff))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.delete_all_cached();
+                                    cx.notify();
+                                })),
+                        )
+                    )
+                })
+                .when(cached_is_empty, |el| {
+                    el.child(
+                        div()
+                            .text_xs()
+                            .text_color(color::text_muted())
+                            .child("No cached files"),
                     )
                 }),
         )
