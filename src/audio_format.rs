@@ -143,37 +143,116 @@ pub fn flac_cli_available(override_path: Option<&Path>) -> bool {
     })
 }
 
-/// Re-encode a WAV file to FLAC in place (output alongside the input with the
-/// `.flac` extension, removing the original WAV). Returns the new path on
-/// success. Fails if the `flac` CLI is not installed or the encode fails.
+/// Re-encode a WAV file to FLAC in place. Tries the `flac` CLI first (reference
+/// encoder, preserves bit depth when compatible). Falls back to `ffmpeg` on
+/// `$PATH` when `flac` rejects the input — notably 32-bit float WAV, which
+/// the `flac` CLI does not accept but `ffmpeg` can downmix to s16. Removes the
+/// original WAV on success. Returns the new path on success.
 pub fn transcode_wav_to_flac(
     wav_path: &Path,
     binary_override: Option<&Path>,
 ) -> Result<std::path::PathBuf> {
-    if !flac_cli_available(binary_override) {
-        anyhow::bail!("flac CLI is not installed");
+    if !flac_cli_available(binary_override) && !ffmpeg_cli_available() {
+        anyhow::bail!("neither `flac` nor `ffmpeg` CLI is available");
     }
-    let binary = flac_binary(binary_override);
+
     let flac_path = wav_path.with_extension("flac");
-    let status = Command::new(&binary)
+
+    let flac_err = if flac_cli_available(binary_override) {
+        match run_flac_encode(wav_path, &flac_path, binary_override) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(wav_path);
+                return Ok(flac_path);
+            }
+            Err(err) => Some(err),
+        }
+    } else {
+        None
+    };
+
+    if ffmpeg_cli_available() {
+        match run_ffmpeg_encode(wav_path, &flac_path) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(wav_path);
+                return Ok(flac_path);
+            }
+            Err(ffmpeg_err) => match flac_err {
+                Some(flac_err) => anyhow::bail!(
+                    "flac encode failed ({flac_err:#}); ffmpeg fallback also failed ({ffmpeg_err:#})"
+                ),
+                None => return Err(ffmpeg_err),
+            },
+        }
+    }
+
+    match flac_err {
+        Some(err) => Err(err),
+        None => anyhow::bail!("no transcoder available"),
+    }
+}
+
+fn run_flac_encode(
+    wav_path: &Path,
+    flac_path: &Path,
+    binary_override: Option<&Path>,
+) -> Result<()> {
+    let binary = flac_binary(binary_override);
+    let output = Command::new(&binary)
         .arg("--best")
         .arg("--silent")
         .arg("--totally-silent")
-        .arg("--delete-input-file")
         .arg("-f")
         .arg("-o")
-        .arg(&flac_path)
+        .arg(flac_path)
         .arg(wav_path)
-        .status()
+        .output()
         .with_context(|| format!("invoke flac for {}", wav_path.display()))?;
-    if !status.success() {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
         anyhow::bail!(
-            "flac failed (status {:?}) for {}",
-            status.code(),
-            wav_path.display()
+            "flac failed (status {:?}): {}",
+            output.status.code(),
+            stderr.trim()
         );
     }
-    Ok(flac_path)
+    Ok(())
+}
+
+fn ffmpeg_cli_available() -> bool {
+    static PROBE: OnceLock<bool> = OnceLock::new();
+    *PROBE.get_or_init(|| {
+        Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false)
+    })
+}
+
+fn run_ffmpeg_encode(wav_path: &Path, flac_path: &Path) -> Result<()> {
+    let output = Command::new("ffmpeg")
+        .arg("-y")
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-i")
+        .arg(wav_path)
+        .arg("-sample_fmt")
+        .arg("s16")
+        .arg("-compression_level")
+        .arg("12")
+        .arg(flac_path)
+        .output()
+        .with_context(|| format!("invoke ffmpeg for {}", wav_path.display()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!(
+            "ffmpeg failed (status {:?}): {}",
+            output.status.code(),
+            stderr.trim()
+        );
+    }
+    Ok(())
 }
 
 fn classify_ogg(bytes: &[u8]) -> AudioFormat {
