@@ -1431,8 +1431,15 @@ fn subscribe_library_track(
         .filter(|p| !p.is_empty())
         .map(std::path::PathBuf::from)
         .filter(|p| p.exists());
-    let (path, format_warning) = if let Some(buf) = existing {
-        (crate::track_compare::ensure_taggable_local_path(&cfg, &buf), None)
+    enum PreparedTrack {
+        Existing { path: PathBuf },
+        Downloaded(DownloadedTrack),
+    }
+
+    let prepared = if let Some(buf) = existing {
+        PreparedTrack::Existing {
+            path: crate::track_compare::ensure_taggable_local_path(&cfg, &buf),
+        }
     } else if let Some(enclosure) = select_audio_enclosure(&api_track) {
         let candidate = crate::track_compare::local_track_path(
             &cfg,
@@ -1440,52 +1447,52 @@ fn subscribe_library_track(
             enclosure.format.canonical_extension(),
         );
         if candidate.exists() {
-            (
-                crate::track_compare::ensure_taggable_local_path(&cfg, &candidate),
-                None,
-            )
+            PreparedTrack::Existing {
+                path: crate::track_compare::ensure_taggable_local_path(&cfg, &candidate),
+            }
         } else {
-            let DownloadedTrack {
-                path,
-                format_warning,
-                ..
-            } = download_track(&cfg, &ReqwestClient::new(), &api_track)?;
-            (path, format_warning)
+            PreparedTrack::Downloaded(download_track(&cfg, &ReqwestClient::new(), &api_track)?)
         }
     } else {
-        let DownloadedTrack {
-            path,
-            format_warning,
-            ..
-        } = download_track(&cfg, &ReqwestClient::new(), &api_track)?;
-        (path, format_warning)
+        PreparedTrack::Downloaded(download_track(&cfg, &ReqwestClient::new(), &api_track)?)
     };
-    let file_size = std::fs::metadata(&path)
-        .ok()
-        .and_then(|metadata| metadata.len().try_into().ok());
-    let db = conn
-        .lock()
-        .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-    db::mark_track_downloaded(&db, track.id, &path, file_size)?;
-    drop(db);
 
-    // Apply ID3 edits from RSS/musicindex metadata
+    // Apply tags on the staged path *before* promoting the file into
+    // music_dir, so a tag-write failure leaves no half-written file behind.
     let track_context = TrackContext {
         track: api_track,
         feed: None,
     };
     let edits = id3_edits_for_track_context(&track_context);
+    let format_warning = match &prepared {
+        PreparedTrack::Existing { .. } => None,
+        PreparedTrack::Downloaded(downloaded) => downloaded.format_warning.clone(),
+    };
+    let working_path = match &prepared {
+        PreparedTrack::Existing { path } => path.clone(),
+        PreparedTrack::Downloaded(downloaded) => downloaded.path.clone(),
+    };
     if !edits.is_empty() {
-        // Only attempt tag writes on formats we can tag today.
-        match write_id3v24_edits(&path, &edits) {
-            Ok(_) => {}
-            Err(err) => {
-                eprintln!("skip tag write for {}: {err:#}", path.display());
-            }
+        if let Err(err) = write_id3v24_edits(&working_path, &edits) {
+            eprintln!("skip tag write for {}: {err:#}", working_path.display());
         }
     }
+
+    let final_path = match prepared {
+        PreparedTrack::Existing { path } => path,
+        PreparedTrack::Downloaded(downloaded) => downloaded.finalize()?,
+    };
+    let file_size = std::fs::metadata(&final_path)
+        .ok()
+        .and_then(|metadata| metadata.len().try_into().ok());
+    let db = conn
+        .lock()
+        .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+    db::mark_track_downloaded(&db, track.id, &final_path, file_size)?;
+    drop(db);
+
     Ok(SubscribedTrackOutcome {
-        path,
+        path: final_path,
         format_warning,
     })
 }

@@ -2049,10 +2049,24 @@ fn download_and_compare_track(
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
-    let path = resolve_track_path(&cfg, &client.client, &track, force_download)?;
+    // Try the existing local file first unless the caller asked us to redownload.
+    if !force_download {
+        if let Some(enclosure) = select_audio_enclosure(&track) {
+            let candidate = local_track_path(&cfg, &track, enclosure.format.canonical_extension());
+            if candidate.exists() {
+                let path =
+                    crate::track_compare::ensure_taggable_local_path(&cfg, &candidate);
+                let track_context = TrackContext { track, feed };
+                return compare_downloaded_track_path(&path, &track_context);
+            }
+        }
+    }
+    // No local file (or caller asked for a fresh fetch). Download into the
+    // staging area, read tags, then let the staged file get cleaned up — we
+    // never wanted to touch music_dir for a comparison-only flow.
+    let downloaded = download_track(&cfg, &client.client, &track)?;
     let track_context = TrackContext { track, feed };
-
-    compare_downloaded_track_path(&path, &track_context)
+    compare_downloaded_track_path(&downloaded.path, &track_context)
 }
 
 fn enrich_track_context_from_rss(track: &mut Track, feed: Option<&mut Feed>) {
@@ -2152,6 +2166,7 @@ fn subscribe_feed_from_search(
     let mut downloaded = 0usize;
     let mut applied_edits = 0usize;
     let mut skipped = 0usize;
+    let track_count = feed.tracks.as_ref().map_or(0, |t| t.len());
     for track in feed.tracks.clone().unwrap_or_default() {
         let mut track = track_with_feed_defaults(track, Some(&feed));
         if let Some(track_guid) = track.track_guid.as_deref() {
@@ -2171,29 +2186,69 @@ fn subscribe_feed_from_search(
             feed: Some(context_feed),
         };
         let edits = id3_edits_for_track_context(&track_context);
-        match download_track_for_subscription(&cfg, &client, &track) {
-            Ok((path, file_size)) => {
+        match prepare_track_for_subscription(&cfg, &client, &track) {
+            Ok(prepared) => {
+                let working_path = prepared.working_path().to_path_buf();
                 if !edits.is_empty() {
-                    write_id3v24_edits(&path, &edits)?;
-                    applied_edits += edits.len();
+                    if let Err(err) = write_id3v24_edits(&working_path, &edits) {
+                        eprintln!(
+                            "skip tag write for {}: {err:#}",
+                            working_path.display()
+                        );
+                    } else {
+                        applied_edits += edits.len();
+                    }
                 }
-                let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-                let marked = db::mark_track_downloaded_by_match(
-                    &db,
-                    track.feed_url.as_deref().or(Some(feed_url.as_str())),
-                    track.track_guid.as_deref(),
-                    track.enclosure_url.as_deref(),
-                    &path,
-                    file_size,
-                )?;
-                if marked {
-                    downloaded += 1;
-                } else {
-                    skipped += 1;
+                match prepared.finalize() {
+                    Ok(final_path) => {
+                        let file_size = std::fs::metadata(&final_path)
+                            .ok()
+                            .and_then(|m| m.len().try_into().ok());
+                        let db = conn
+                            .lock()
+                            .map_err(|_| anyhow!("database lock poisoned"))?;
+                        let marked = db::mark_track_downloaded_by_match(
+                            &db,
+                            track.feed_url.as_deref().or(Some(feed_url.as_str())),
+                            track.track_guid.as_deref(),
+                            track.enclosure_url.as_deref(),
+                            &final_path,
+                            file_size,
+                        )?;
+                        if marked {
+                            downloaded += 1;
+                        } else {
+                            skipped += 1;
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "finalize {} failed: {err:#}",
+                            working_path.display()
+                        );
+                        skipped += 1;
+                    }
                 }
             }
-            Err(_) => skipped += 1,
+            Err(err) => {
+                eprintln!(
+                    "skip {}: {err:#}",
+                    track.title.as_deref().unwrap_or("(untitled)")
+                );
+                skipped += 1;
+            }
         }
+    }
+
+    // If the feed had tracks but none made it to the library, revert the
+    // is_subscribed flag so the UI doesn't show a half-bound feed.
+    if track_count > 0 && downloaded == 0 {
+        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+        db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
+        return Err(anyhow!(
+            "Subscribed feed had {track_count} track{} but none could be downloaded/tagged; reverted subscription",
+            plural(track_count)
+        ));
     }
 
     let message = if skipped == 0 {
@@ -2238,10 +2293,21 @@ fn subscribe_track_from_search(
     }
 
     let client = ReqwestClient::new();
-    let (path, file_size) = download_track_for_subscription(&cfg, &client, &track)?;
+    let prepared = prepare_track_for_subscription(&cfg, &client, &track).inspect_err(|_| {
+        if let Ok(db) = conn.lock() {
+            let _ = db::set_feed_subscribed_by_url(&db, &feed_url, false);
+        }
+    })?;
+    let working_path = prepared.working_path().to_path_buf();
     if !edits.is_empty() {
-        write_id3v24_edits(&path, &edits)?;
+        if let Err(err) = write_id3v24_edits(&working_path, &edits) {
+            eprintln!("skip tag write for {}: {err:#}", working_path.display());
+        }
     }
+    let path = prepared.finalize()?;
+    let file_size = std::fs::metadata(&path)
+        .ok()
+        .and_then(|m| m.len().try_into().ok());
 
     {
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
@@ -2335,34 +2401,46 @@ fn local_subscription_for_detail(
     }
 }
 
-fn download_track_for_subscription(
-    cfg: &config::Config,
-    client: &ReqwestClient,
-    track: &Track,
-) -> Result<(PathBuf, Option<i64>)> {
-    let path = resolve_track_path(cfg, client, track, false)?;
-    let file_size = std::fs::metadata(&path)
-        .ok()
-        .and_then(|metadata| metadata.len().try_into().ok());
-    Ok((path, file_size))
+/// A staged track ready for tag-write, then finalize to land it under
+/// `music_dir`. The "Existing" variant covers files we already have on disk
+/// (no staging needed); finalize is a no-op for that case.
+enum PreparedSubscriptionTrack {
+    Existing(PathBuf),
+    Staged(crate::track_compare::DownloadedTrack),
 }
 
-fn resolve_track_path(
+impl PreparedSubscriptionTrack {
+    fn working_path(&self) -> &Path {
+        match self {
+            PreparedSubscriptionTrack::Existing(p) => p.as_path(),
+            PreparedSubscriptionTrack::Staged(d) => d.path.as_path(),
+        }
+    }
+
+    fn finalize(self) -> Result<PathBuf> {
+        match self {
+            PreparedSubscriptionTrack::Existing(p) => Ok(p),
+            PreparedSubscriptionTrack::Staged(d) => d.finalize(),
+        }
+    }
+}
+
+fn prepare_track_for_subscription(
     cfg: &config::Config,
     client: &ReqwestClient,
     track: &Track,
-    force_download: bool,
-) -> Result<PathBuf> {
-    if !force_download {
-        if let Some(enclosure) = select_audio_enclosure(track) {
-            let candidate =
-                local_track_path(cfg, track, enclosure.format.canonical_extension());
-            if candidate.exists() {
-                return Ok(crate::track_compare::ensure_taggable_local_path(cfg, &candidate));
-            }
+) -> Result<PreparedSubscriptionTrack> {
+    if let Some(enclosure) = select_audio_enclosure(track) {
+        let candidate = local_track_path(cfg, track, enclosure.format.canonical_extension());
+        if candidate.exists() {
+            return Ok(PreparedSubscriptionTrack::Existing(
+                crate::track_compare::ensure_taggable_local_path(cfg, &candidate),
+            ));
         }
     }
-    Ok(download_track(cfg, client, track)?.path)
+    Ok(PreparedSubscriptionTrack::Staged(download_track(
+        cfg, client, track,
+    )?))
 }
 
 fn track_with_feed_defaults(track: Track, feed: Option<&Feed>) -> Track {
