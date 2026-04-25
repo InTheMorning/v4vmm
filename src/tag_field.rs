@@ -171,6 +171,61 @@ impl TagFieldId {
             other => format!("{other:?}"),
         }
     }
+
+    /// Map a container-native free-form key back to the logical field it
+    /// represents so non-ID3 formats can round-trip through the compare UI.
+    ///
+    /// Examples:
+    /// - Vorbis `ARTISTWEBPAGE` -> `WOAR`
+    /// - MP4 freeform `----:com.apple.iTunes:WOAR` -> `WOAR`
+    /// - Vorbis `V4V_PUBLISHER` -> `TXXX:V4V_PUBLISHER`
+    pub fn from_storage_key_name(name: &str) -> Option<Self> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let trimmed = trimmed
+            .strip_prefix("----:com.apple.iTunes:")
+            .unwrap_or(trimmed);
+        let upper = trimmed.to_ascii_uppercase();
+
+        let url_kind = match upper.as_str() {
+            "ARTISTWEBPAGE" => Some(UrlKind::OfficialArtist),
+            "PUBLISHERWEBPAGE" => Some(UrlKind::Publisher),
+            "AUDIOFILEWEBPAGE" => Some(UrlKind::OfficialAudio),
+            "AUDIOSOURCEWEBPAGE" => Some(UrlKind::Source),
+            "COMMERCIALINFOURL" => Some(UrlKind::Commercial),
+            "COPYRIGHTURL" => Some(UrlKind::Copyright),
+            "RADIOSTATIONWEBPAGE" => Some(UrlKind::RadioStation),
+            "PAYMENTWEBPAGE" => Some(UrlKind::Payment),
+            _ => None,
+        };
+        if let Some(kind) = url_kind {
+            return Some(Self::Url(kind));
+        }
+
+        match upper.as_str() {
+            "TITLE" => Some(Self::Title),
+            "ARTIST" => Some(Self::Artist),
+            "ALBUMARTIST" => Some(Self::AlbumArtist),
+            "ALBUM" => Some(Self::Album),
+            "TRACKNUMBER" => Some(Self::TrackNumber),
+            "TRACKTOTAL" | "TOTALTRACKS" => Some(Self::TotalTracks),
+            "DISCNUMBER" => Some(Self::DiscNumber),
+            "DATE" => Some(Self::Date),
+            "COMPOSER" => Some(Self::Composer),
+            "GENRE" => Some(Self::Genre),
+            "ORGANIZATION" => Some(Self::Publisher),
+            "ISRC" => Some(Self::Isrc),
+            "COMMENT" => Some(Self::Comment),
+            "LYRICS" => Some(Self::Lyrics),
+            _ if upper.len() == 4 && upper.chars().all(|ch| ch.is_ascii_alphanumeric()) => {
+                Some(Self::from_id3_label(trimmed))
+            }
+            _ => Some(Self::Custom(trimmed.to_string())),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -214,5 +269,25 @@ mod tests {
         assert_eq!(TagFieldId::Title.mp4_atom(), Some("©nam"));
         assert_eq!(TagFieldId::AlbumArtist.mp4_atom(), Some("aART"));
         assert_eq!(TagFieldId::Id3Raw("PCST".into()).mp4_atom(), None);
+    }
+
+    #[test]
+    fn storage_key_names_map_back_to_logical_fields() {
+        assert_eq!(
+            TagFieldId::from_storage_key_name("ARTISTWEBPAGE"),
+            Some(TagFieldId::Url(UrlKind::OfficialArtist))
+        );
+        assert_eq!(
+            TagFieldId::from_storage_key_name("----:com.apple.iTunes:WOAR"),
+            Some(TagFieldId::Url(UrlKind::OfficialArtist))
+        );
+        assert_eq!(
+            TagFieldId::from_storage_key_name("TRACKTOTAL"),
+            Some(TagFieldId::TotalTracks)
+        );
+        assert_eq!(
+            TagFieldId::from_storage_key_name("V4V_PUBLISHER"),
+            Some(TagFieldId::Custom("V4V_PUBLISHER".into()))
+        );
     }
 }

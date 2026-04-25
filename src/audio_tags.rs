@@ -119,6 +119,8 @@ fn read_lofty_tags(path: &Path) -> Result<AudioTags> {
         data: pic.data().to_vec(),
     });
 
+    add_lofty_compare_aliases(&mut fields, artwork.as_ref());
+
     Ok(AudioTags {
         title,
         artist,
@@ -132,11 +134,98 @@ fn read_lofty_tags(path: &Path) -> Result<AudioTags> {
     })
 }
 
+fn add_lofty_compare_aliases(fields: &mut Vec<Id3Field>, artwork: Option<&EmbeddedArtwork>) {
+    if let Some(comment) = first_field_value(fields, "COMM") {
+        push_alias_field(fields, "COMM:MusicIndex Description", comment);
+    }
+
+    if let Some(transcript) = first_field_value(fields, "USLT")
+        .or_else(|| first_field_value(fields, "SYLT"))
+    {
+        push_alias_field(fields, "USLT:MusicIndex Transcript", transcript.clone());
+        push_alias_field(fields, "SYLT:MusicIndex Transcript", transcript);
+    }
+
+    if let Some(artwork) = artwork {
+        let summary = if artwork.description.trim().is_empty() {
+            format!(
+                "{} ({}, {} bytes)",
+                artwork.picture_type,
+                artwork.mime_type,
+                artwork.data.len()
+            )
+        } else {
+            format!(
+                "{}: {} ({}, {} bytes)",
+                artwork.description,
+                artwork.picture_type,
+                artwork.mime_type,
+                artwork.data.len()
+            )
+        };
+        push_alias_field(fields, "APIC", summary);
+    }
+}
+
+fn push_alias_field(fields: &mut Vec<Id3Field>, frame_id: &str, value: String) {
+    if fields.iter().any(|field| field.frame_id == frame_id) {
+        return;
+    }
+    fields.push(Id3Field {
+        frame_id: frame_id.to_string(),
+        value,
+    });
+}
+
+fn first_field_value(fields: &[Id3Field], frame_base: &str) -> Option<String> {
+    fields.iter().find_map(|field| {
+        field
+            .frame_id
+            .split(':')
+            .next()
+            .is_some_and(|base| base == frame_base)
+            .then(|| field.value.clone())
+    })
+}
+
+/// Map a lofty `ItemKey` (Vorbis Comment / MP4 atom / etc.) onto the
+/// equivalent ID3v2.4 frame label so the metadata comparator — which speaks
+/// ID3 frame IDs natively — can match values regardless of source container.
+///
+/// Without this, FLAC/OGG/MP4 reads emit Debug strings like `"TrackTitle"`
+/// that no comparator row recognises, making every populated field look
+/// like an unapplied pending edit.
 fn lofty_item_label(key: &lofty::prelude::ItemKey) -> String {
     use lofty::prelude::ItemKey;
+    use lofty::tag::TagType;
+    use crate::tag_field::TagFieldId;
     match key {
-        ItemKey::Unknown(name) => name.clone(),
-        other => format!("{other:?}"),
+        ItemKey::Unknown(name) => TagFieldId::from_storage_key_name(name)
+            .map(|field| match field {
+                TagFieldId::Custom(desc) => format!("TXXX:{desc}"),
+                TagFieldId::Url(kind) => kind.to_id3().to_string(),
+                TagFieldId::Title => "TIT2".into(),
+                TagFieldId::Artist => "TPE1".into(),
+                TagFieldId::AlbumArtist => "TPE2".into(),
+                TagFieldId::Album => "TALB".into(),
+                TagFieldId::TrackNumber | TagFieldId::TotalTracks => "TRCK".into(),
+                TagFieldId::DiscNumber => "TPOS".into(),
+                TagFieldId::Date => "TDRC".into(),
+                TagFieldId::Composer => "TCOM".into(),
+                TagFieldId::Genre => "TCON".into(),
+                TagFieldId::Publisher => "TPUB".into(),
+                TagFieldId::Isrc => "TSRC".into(),
+                TagFieldId::Comment => "COMM".into(),
+                TagFieldId::Lyrics => "USLT".into(),
+                TagFieldId::Id3Text(label)
+                | TagFieldId::Id3Url(label)
+                | TagFieldId::Id3Raw(label) => label,
+            })
+            .unwrap_or_else(|| format!("TXXX:{name}")),
+        other => other
+            .map_key(TagType::Id3v2, false)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("{other:?}")),
     }
 }
 
@@ -845,10 +934,12 @@ mod tests {
 
     use id3::frame::{ExtendedText, Picture, PictureType};
     use id3::{Frame, Tag, TagLike};
+    use lofty::prelude::ItemKey;
 
     use super::{
-        audio_tags_from_id3, id3v24_edit_label_is_writable, normalize_frame_descriptor,
-        read_audio_tags, write_id3v24_edits, AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
+        add_lofty_compare_aliases, audio_tags_from_id3, id3v24_edit_label_is_writable,
+        lofty_item_label, normalize_frame_descriptor, read_audio_tags, write_id3v24_edits,
+        AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
     };
 
     #[test]
@@ -936,6 +1027,42 @@ mod tests {
             read_audio_tags(temp.path()).expect("read blank tags"),
             AudioTags::default()
         );
+    }
+
+    #[test]
+    fn lofty_unknown_artist_webpage_maps_back_to_woar() {
+        assert_eq!(lofty_item_label(&ItemKey::Unknown("ARTISTWEBPAGE".into())), "WOAR");
+        assert_eq!(
+            lofty_item_label(&ItemKey::Unknown("----:com.apple.iTunes:WOAR".into())),
+            "WOAR"
+        );
+    }
+
+    #[test]
+    fn lofty_aliases_fill_descriptor_and_artwork_presence_gaps() {
+        let mut fields = vec![
+            Id3Field {
+                frame_id: "COMM".into(),
+                value: "MusicIndex description".into(),
+            },
+            Id3Field {
+                frame_id: "USLT".into(),
+                value: "Embedded transcript".into(),
+            },
+        ];
+        let artwork = EmbeddedArtwork {
+            mime_type: "image/jpeg".into(),
+            picture_type: "CoverFront".into(),
+            description: "front cover".into(),
+            data: vec![1, 2, 3],
+        };
+
+        add_lofty_compare_aliases(&mut fields, Some(&artwork));
+
+        assert!(fields.iter().any(|field| field.frame_id == "COMM:MusicIndex Description"));
+        assert!(fields.iter().any(|field| field.frame_id == "USLT:MusicIndex Transcript"));
+        assert!(fields.iter().any(|field| field.frame_id == "SYLT:MusicIndex Transcript"));
+        assert!(fields.iter().any(|field| field.frame_id == "APIC"));
     }
 
     #[test]
