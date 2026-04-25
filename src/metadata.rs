@@ -66,6 +66,7 @@ pub struct TagCompareResult {
     pub value_routes: Vec<PaymentRoute>,
     pub id3_fields: Vec<Id3Field>,
     pub total_tracks: Option<String>,
+    pub format: Option<crate::audio_format::AudioFormat>,
 }
 
 #[derive(Clone, Debug)]
@@ -563,14 +564,32 @@ pub fn add_woar_id3_urls(
 }
 
 pub fn embedded_url(value: &str) -> Option<String> {
-    let start = value.find("https://").or_else(|| value.find("http://"))?;
-    let url = value[start..]
-        .split_whitespace()
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches([')', ',', ';'])
-        .to_string();
-    (!url.is_empty()).then_some(url)
+    if let Some(start) = value.find("https://").or_else(|| value.find("http://")) {
+        let url = value[start..]
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches([')', ',', ';'])
+            .to_string();
+        if !url.is_empty() {
+            return Some(url);
+        }
+    }
+    // RSS sometimes lists URLs without a scheme (e.g. "www.example.com"). The
+    // WOAR auto-populator wraps those as `download for free (url, forward): www…`,
+    // so on read-back we still want to recover the raw host so it matches the
+    // RSS-supplied value when the wrapped frame is the only thing in the file.
+    if let Some((_, rest)) = value.split_once(": ") {
+        let candidate = rest
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches([')', ',', ';']);
+        if candidate.starts_with("www.") {
+            return Some(candidate.to_string());
+        }
+    }
+    None
 }
 
 pub fn row_contains_multiple_urls(row: &AlignedCompareRow) -> bool {
@@ -595,7 +614,44 @@ pub fn auto_populated_pending_id3_edits(
     rows: &[MetadataGridRow],
     explicit: &BTreeMap<String, PendingId3Edit>,
     suppressed: &BTreeSet<String>,
+    format: Option<crate::audio_format::AudioFormat>,
 ) -> BTreeMap<String, PendingId3Edit> {
+    use crate::audio_format::AudioFormat;
+    let non_mp3 = matches!(format, Some(f) if f != AudioFormat::Mp3);
+    let target_for = |frame: &str| -> String {
+        if let Some(format) = format.filter(|f| *f != AudioFormat::Mp3) {
+            if let Some(dest) = frame_destination_for_format(frame, format) {
+                return dest;
+            }
+        }
+        pending_id3_target_key(frame)
+    };
+    let frame_writable_in_format = |frame: &str| -> bool {
+        match format {
+            Some(format) if format != AudioFormat::Mp3 => {
+                frame_destination_for_format(frame, format).is_some()
+            }
+            _ => true,
+        }
+    };
+
+    // Pre-pass: which destinations does the file already populate? On non-MP3
+    // formats sibling frames collapse onto the same destination (TYER → DATE,
+    // shared with TDRC), so once one is filled we shouldn't auto-stage the
+    // other from the same source.
+    let mut populated_destinations: BTreeSet<String> = BTreeSet::new();
+    if non_mp3 {
+        for row in rows {
+            if let MetadataGridRow::Data(row) = row {
+                if normalized_compare_value(row.id3_value.as_deref()).is_some() {
+                    if let Some(frame) = row.id3_frame.as_deref() {
+                        populated_destinations.insert(target_for(frame));
+                    }
+                }
+            }
+        }
+    }
+
     let mut pending = explicit.clone();
     for row in rows {
         let MetadataGridRow::Data(row) = row else {
@@ -613,12 +669,19 @@ pub fn auto_populated_pending_id3_edits(
         if !id3v24_drag_copy_frame_is_writable(frame) {
             continue;
         }
+        if !frame_writable_in_format(frame) {
+            continue;
+        }
+        let dest = target_for(frame);
+        if non_mp3 && populated_destinations.contains(&dest) {
+            continue;
+        }
         let Some((source, source_value)) = auto_id3_source_value(row) else {
             continue;
         };
         let existing_value = pending
             .values()
-            .find(|edit| pending_id3_target_key(&edit.frame) == pending_id3_target_key(frame))
+            .find(|edit| target_for(&edit.frame) == dest)
             .map(|edit| edit.value.as_str())
             .or(row.id3_value.as_deref());
         let Some(value) = format_source_value_for_id3v24(
@@ -630,6 +693,15 @@ pub fn auto_populated_pending_id3_edits(
         ) else {
             continue;
         };
+        // Aliased frames (TYER + TDRC → DATE on Vorbis) would otherwise both
+        // stage the same value; keep only the first.
+        if non_mp3
+            && pending
+                .values()
+                .any(|edit| target_for(&edit.frame) == dest && edit.frame != frame)
+        {
+            continue;
+        }
         update_matching_pending_target_values(&mut pending, frame, &value);
         pending.insert(
             row.row_id.clone(),
@@ -2062,6 +2134,34 @@ pub fn pending_id3_target_key(frame_label: &str) -> String {
             format!("{frame_id}:{descriptor}")
         }
         _ => frame_id,
+    }
+}
+
+/// Where a given ID3 frame would land in `format`'s tag scheme.
+///
+/// Returns `None` if the format has no destination — the caller should not
+/// auto-stage an edit it can't persist (e.g. TIPL/TMCL/TLEN on Vorbis).
+///
+/// MP4 always returns `Some` because we fall back to a freeform `----:`
+/// atom for any unknown ID3 frame.
+pub fn frame_destination_for_format(
+    frame_label: &str,
+    format: crate::audio_format::AudioFormat,
+) -> Option<String> {
+    use crate::audio_format::AudioFormat;
+    use crate::tag_field::TagFieldId;
+
+    let field = TagFieldId::from_id3_label(frame_label);
+    match format {
+        AudioFormat::Mp3 => Some(pending_id3_target_key(frame_label)),
+        AudioFormat::Flac | AudioFormat::OggVorbis | AudioFormat::OggOpus => field.vorbis_key(),
+        AudioFormat::Mp4 => Some(
+            field
+                .mp4_atom()
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("----:com.apple.iTunes:{}", frame_label)),
+        ),
+        AudioFormat::Wav => None,
     }
 }
 

@@ -950,6 +950,7 @@ impl SearchApp {
             &rows,
             &frame.pending_id3_edits,
             &frame.suppressed_auto_id3_edits,
+            result.format,
         );
         if pending_id3_edits.is_empty() {
             return;
@@ -1060,6 +1061,7 @@ impl SearchApp {
                         &rows,
                         &frame.pending_id3_edits,
                         &frame.suppressed_auto_id3_edits,
+                        result.format,
                     );
                     let conflicts = pending_id3_conflict_descriptions(&pending);
                     if !conflicts.is_empty() {
@@ -1075,7 +1077,11 @@ impl SearchApp {
                 } else {
                     Vec::new()
                 };
-                SearchSubscribeRequest::Track(Box::new((**track_context).clone()), edits)
+                SearchSubscribeRequest::Track(
+                    Box::new((**track_context).clone()),
+                    edits,
+                    musicindex_endpoint,
+                )
             }
             InspectorDetail::Loading(_)
             | InspectorDetail::Error(_)
@@ -2164,7 +2170,8 @@ fn compare_downloaded_track_path(
     let file_image = tags.artwork.as_ref().and_then(image_from_artwork);
     let track = &track_context.track;
     let mut rows = compare_track_rows(track, track_context.feed.as_ref(), &tags);
-    if let Ok(detected) = crate::audio_format::AudioFormat::detect_from_file(path) {
+    let detected = crate::audio_format::AudioFormat::detect_from_file(path).ok();
+    if let Some(detected) = detected {
         crate::metadata::push_compare_row(
             &mut rows,
             "File format",
@@ -2181,12 +2188,13 @@ fn compare_downloaded_track_path(
         value_routes: track.payment_routes.clone().unwrap_or_default(),
         total_tracks: tags.total_tracks.clone(),
         id3_fields: tags.fields,
+        format: detected,
     })
 }
 
 enum SearchSubscribeRequest {
     Feed(Box<Feed>, String),
-    Track(Box<TrackContext>, Vec<Id3v24Edit>),
+    Track(Box<TrackContext>, Vec<Id3v24Edit>, String),
 }
 
 enum SearchUnsubscribeRequest {
@@ -2213,8 +2221,8 @@ fn subscribe_search_request(
         SearchSubscribeRequest::Feed(feed, musicindex_endpoint) => {
             subscribe_feed_from_search(conn, *feed, musicindex_endpoint)
         }
-        SearchSubscribeRequest::Track(track_context, edits) => {
-            subscribe_track_from_search(conn, *track_context, edits)
+        SearchSubscribeRequest::Track(track_context, edits, musicindex_endpoint) => {
+            subscribe_track_from_search(conn, *track_context, edits, musicindex_endpoint)
         }
     }
 }
@@ -2234,7 +2242,7 @@ fn subscribe_feed_from_search(
 
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        rss::subscribe_feed(&cfg, &mut db, &feed_url)?;
+        rss::subscribe_feed(&cfg, &mut db, &feed_url, &musicindex_endpoint)?;
     }
 
     let client = ReqwestClient::new();
@@ -2350,6 +2358,7 @@ fn subscribe_track_from_search(
     conn: Arc<Mutex<Connection>>,
     track_context: TrackContext,
     edits: Vec<Id3v24Edit>,
+    musicindex_endpoint: String,
 ) -> Result<SearchSubscribeOutcome> {
     let mut feed = track_context.feed;
     let mut track = track_with_feed_defaults(track_context.track.clone(), feed.as_ref());
@@ -2365,7 +2374,7 @@ fn subscribe_track_from_search(
 
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        rss::subscribe_feed(&cfg, &mut db, &feed_url)?;
+        rss::subscribe_feed(&cfg, &mut db, &feed_url, &musicindex_endpoint)?;
     }
 
     let client = ReqwestClient::new();
@@ -2412,7 +2421,7 @@ fn subscribe_track_from_search(
 
 pub fn id3_edits_for_track_context(track_context: &TrackContext) -> Vec<Id3v24Edit> {
     let rows = expand_woar_metadata_rows(track_metadata_rows(track_context, None, false));
-    let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new());
+    let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
     pending_id3_edits_for_apply(&pending)
 }
 
@@ -3179,6 +3188,7 @@ fn render_track_window(
         &rows,
         &frame.pending_id3_edits,
         &frame.suppressed_auto_id3_edits,
+        result.and_then(|r| r.format),
     );
 
     div()
@@ -3215,6 +3225,10 @@ fn render_track_window(
             &pending_id3_edits,
             &frame.expanded_metadata_cells,
             result.and_then(|r| r.file_image.clone()),
+            result
+                .and_then(|r| r.format)
+                .map(|f| f.display_label())
+                .unwrap_or("Tags"),
             cx,
         ))
         .into_any_element()
@@ -3734,6 +3748,7 @@ fn render_track_metadata_grid(
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     expanded_metadata_cells: &BTreeSet<String>,
     file_image: Option<Arc<Image>>,
+    tag_column_label: &str,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     render_metadata_grid(
@@ -3743,6 +3758,7 @@ fn render_track_metadata_grid(
         pending_id3_edits,
         expanded_metadata_cells,
         file_image,
+        tag_column_label,
         cx,
     )
 }
@@ -3754,13 +3770,14 @@ fn render_metadata_grid(
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     expanded_metadata_cells: &BTreeSet<String>,
     file_image: Option<Arc<Image>>,
+    tag_column_label: &str,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let mut cells: Vec<AnyElement> = Vec::new();
     let columns = 1 + u16::from(show_id3) + u16::from(show_musicbrainz);
     cells.push(metadata_heading_cell("RSS", 96.0));
     if show_id3 {
-        cells.push(metadata_heading_cell("ID3", 12.0));
+        cells.push(metadata_heading_cell(tag_column_label, 12.0));
     }
     if show_musicbrainz {
         cells.push(metadata_heading_cell("MusicBrainz", 12.0));
@@ -4207,6 +4224,7 @@ fn selected_musicbrainz_candidate<'a>(
 }
 
 fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) -> AnyElement {
+    let embedded_label = embedded_tag_label(result);
     div()
         .flex()
         .flex_row()
@@ -4238,7 +4256,7 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
                                 .px(spacing::SM)
                                 .py(spacing::XXS)
                                 .rounded(radius::SM)
-                                .child("Embedded id3"),
+                                .child(SharedString::from(embedded_label.clone())),
                         )
                         .child(metadata_action_button("Re-read").on_click(cx.listener(
                             |this, _, _, cx| {
@@ -4276,7 +4294,14 @@ fn id3_header_title(result: &TagCompareResult) -> String {
         .find(|row| row.field == "Title")
         .and_then(|row| row.tag_value.clone())
         .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| "Embedded id3".into())
+        .unwrap_or_else(|| embedded_tag_label(result))
+}
+
+fn embedded_tag_label(result: &TagCompareResult) -> String {
+    result
+        .format
+        .map(|format| format!("Embedded {}", format.display_label()))
+        .unwrap_or_else(|| "Embedded tags".into())
 }
 
 fn muted_line(value: &str) -> AnyElement {
@@ -6416,6 +6441,7 @@ mod tests {
             contributors: Vec::new(),
             value_routes: Vec::new(),
             total_tracks: None,
+            format: None,
             id3_fields: vec![
                 Id3Field {
                     frame_id: "TIT2".into(),
@@ -6456,6 +6482,7 @@ mod tests {
             contributors: Vec::new(),
             value_routes: Vec::new(),
             total_tracks: None,
+            format: None,
             id3_fields: vec![Id3Field {
                 frame_id: "TXXX:MusicIndex Value Routes".into(),
                 value: r#"[{"recipient_name":"Alice","split":1.0}]"#.into(),
@@ -6495,6 +6522,7 @@ mod tests {
             contributors: Vec::new(),
             value_routes: Vec::new(),
             total_tracks: None,
+            format: None,
             id3_fields: vec![
                 Id3Field {
                     frame_id: "TBPM".into(),
@@ -6575,6 +6603,7 @@ mod tests {
             contributors: Vec::new(),
             value_routes: Vec::new(),
             total_tracks: None,
+            format: None,
             id3_fields: vec![
                 Id3Field {
                     frame_id: "TIT2".into(),
@@ -6688,6 +6717,7 @@ mod tests {
             ],
             value_routes: Vec::new(),
             total_tracks: None,
+            format: None,
             id3_fields: vec![
                 Id3Field {
                     frame_id: "TXXX:MUSICIANCREDITS".into(),
@@ -6851,6 +6881,7 @@ mod tests {
             contributors: Vec::new(),
             value_routes: Vec::new(),
             total_tracks: None,
+            format: None,
             id3_fields: vec![Id3Field {
                 frame_id: "TSRC".into(),
                 value: "USRC17607839".into(),
@@ -7070,7 +7101,7 @@ mod tests {
             )),
         ];
 
-        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new());
+        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
         assert_eq!(pending.len(), 3);
         assert_eq!(pending["title"].value, "RSS Song");
         assert_eq!(pending["title"].source, MetadataColumn::Rss);
@@ -7107,7 +7138,7 @@ mod tests {
             )),
         ];
 
-        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new());
+        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
         assert_eq!(pending["track"].value, "4/10");
         assert_eq!(pending["total-tracks"].value, "4/10");
         assert!(
@@ -7133,7 +7164,7 @@ mod tests {
 
         let expanded = expand_woar_metadata_rows(rows);
         let pending =
-            auto_populated_pending_id3_edits(&expanded, &BTreeMap::new(), &BTreeSet::new());
+            auto_populated_pending_id3_edits(&expanded, &BTreeMap::new(), &BTreeSet::new(), None);
         assert_eq!(pending.len(), 2);
         assert_eq!(
             pending["compare:website"].value,
@@ -7180,7 +7211,7 @@ mod tests {
         assert_eq!(row.id3_status, ComparisonStatus::Match);
 
         let pending =
-            auto_populated_pending_id3_edits(&expanded, &BTreeMap::new(), &BTreeSet::new());
+            auto_populated_pending_id3_edits(&expanded, &BTreeMap::new(), &BTreeSet::new(), None);
         assert!(
             pending.is_empty(),
             "matching wrapped WOAR should not stage a duplicate website"
@@ -7385,6 +7416,7 @@ mod tests {
             ],
             value_routes: Vec::new(),
             total_tracks: None,
+            format: None,
             id3_fields: vec![Id3Field {
                 frame_id: "TMCL".into(),
                 value: "Hey Citizen - vocals / vocals:DuhLaurien / vocals: Mary KateUltra".into(),
@@ -7424,6 +7456,7 @@ mod tests {
             contributors: Vec::new(),
             value_routes: Vec::new(),
             total_tracks: None,
+            format: None,
             id3_fields: vec![Id3Field {
                 frame_id: "USLT:MusicIndex Transcript".into(),
                 value: "line one\nline two".into(),
@@ -7476,7 +7509,7 @@ mod tests {
         ))];
         let suppressed = BTreeSet::from(["title".to_string()]);
 
-        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &suppressed);
+        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &suppressed, None);
         assert!(pending.is_empty());
     }
 
@@ -7520,6 +7553,7 @@ mod tests {
             contributors: Vec::new(),
             value_routes: Vec::new(),
             total_tracks: None,
+            format: None,
             id3_fields: vec![
                 Id3Field {
                     frame_id: "TXXX:MusicIndex Track Guid".into(),

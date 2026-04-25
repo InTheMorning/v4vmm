@@ -641,7 +641,7 @@ impl LibraryApp {
                     });
                     if !id3_errors.is_empty() {
                         parts.push(format!(
-                            "ID3 write errors ({}): {}",
+                            "Tag write errors ({}): {}",
                             id3_errors.len(),
                             id3_errors.join("; ")
                         ));
@@ -845,6 +845,7 @@ impl LibraryApp {
             &rows,
             &frame.pending_id3_edits,
             &frame.suppressed_auto_id3_edits,
+            result.format,
         );
         if pending_id3_edits.is_empty() {
             return;
@@ -3038,11 +3039,12 @@ fn render_track_window(
     let show_musicbrainz_panel = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
     let columns = 1 + u16::from(show_id3_panel) + u16::from(show_musicbrainz_panel);
     let rows = track_metadata_rows_for_frame(frame, track_context, result);
-    let pending_id3_edits = if result.is_some() {
+    let pending_id3_edits = if let Some(result) = result {
         auto_populated_pending_id3_edits(
             &rows,
             &frame.pending_id3_edits,
             &frame.suppressed_auto_id3_edits,
+            result.format,
         )
     } else {
         frame.pending_id3_edits.clone()
@@ -3082,6 +3084,10 @@ fn render_track_window(
             &pending_id3_edits,
             &frame.expanded_metadata_cells,
             result.and_then(|r| r.file_image.clone()),
+            result
+                .and_then(|r| r.format)
+                .map(|f| f.display_label())
+                .unwrap_or("Tags"),
             cx,
         ))
         .into_any_element()
@@ -3189,9 +3195,9 @@ fn render_action_row(
                 let count = pending_id3_edits.len();
                 let conflict_text = pending_conflicts.join("; ");
                 let label = if frame.applying_id3_edits {
-                    "Applying ID3...".to_string()
+                    "Applying tags...".to_string()
                 } else {
-                    format!("Apply ID3 ({count})")
+                    format!("Apply tags ({count})")
                 };
                 el.child(
                     div()
@@ -3201,7 +3207,7 @@ fn render_action_row(
                         .gap(spacing::XS)
                         .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(
                             SharedString::from(format!(
-                                "{count} staged ID3 edit{}",
+                                "{count} staged tag edit{}",
                                 if count == 1 { "" } else { "s" }
                             )),
                         ))
@@ -3227,7 +3233,7 @@ fn render_action_row(
                         .when(
                             !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty(),
                             |el| {
-                                el.child(metadata_action_button("Discard ID3").on_click(
+                                el.child(metadata_action_button("Discard staged").on_click(
                                     cx.listener(|this, _, _, cx| {
                                         this.clear_pending_id3_edits(cx);
                                     }),
@@ -3266,6 +3272,7 @@ fn subscription_button_label(frame: &InspectorFrame) -> String {
 }
 
 fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -> AnyElement {
+    let embedded_label = embedded_tag_label(result);
     div()
         .flex()
         .flex_row()
@@ -3297,7 +3304,7 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -
                                 .px(spacing::XS)
                                 .py(spacing::XXS)
                                 .rounded(radius::SM)
-                                .child("Embedded ID3"),
+                                .child(SharedString::from(embedded_label.clone())),
                         )
                         .child(metadata_action_button("Re-read").on_click(cx.listener(
                             |this, _, _, cx| {
@@ -3336,7 +3343,14 @@ fn id3_header_title(result: &TagCompareResult) -> String {
         .find(|row| row.field == "Title")
         .and_then(|row| row.tag_value.clone())
         .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| "Embedded ID3".into())
+        .unwrap_or_else(|| embedded_tag_label(result))
+}
+
+fn embedded_tag_label(result: &TagCompareResult) -> String {
+    result
+        .format
+        .map(|format| format!("Embedded {}", format.display_label()))
+        .unwrap_or_else(|| "Embedded tags".into())
 }
 
 fn render_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {
@@ -3564,13 +3578,14 @@ fn render_track_metadata_grid(
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     expanded_metadata_cells: &BTreeSet<String>,
     file_image: Option<Arc<Image>>,
+    tag_column_label: &str,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let mut cells: Vec<AnyElement> = Vec::new();
     let columns = 1 + u16::from(show_id3) + u16::from(show_musicbrainz);
     cells.push(metadata_heading_cell("RSS", 96.0));
     if show_id3 {
-        cells.push(metadata_heading_cell("ID3", 12.0));
+        cells.push(metadata_heading_cell(tag_column_label, 12.0));
     }
     if show_musicbrainz {
         cells.push(metadata_heading_cell("MusicBrainz", 12.0));
@@ -4474,7 +4489,8 @@ fn compare_downloaded_track_path(
     });
     let track = &track_context.track;
     let mut rows = crate::metadata::compare_track_rows(track, track_context.feed.as_ref(), &tags);
-    if let Ok(detected) = crate::audio_format::AudioFormat::detect_from_file(path) {
+    let detected = crate::audio_format::AudioFormat::detect_from_file(path).ok();
+    if let Some(detected) = detected {
         crate::metadata::push_compare_row(
             &mut rows,
             "File format",
@@ -4490,6 +4506,7 @@ fn compare_downloaded_track_path(
         value_routes: track.payment_routes.clone().unwrap_or_default(),
         total_tracks: tags.total_tracks.clone(),
         id3_fields: tags.fields,
+        format: detected,
     })
 }
 

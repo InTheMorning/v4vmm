@@ -271,6 +271,7 @@ fn write_lofty_edits(
     tag_type: lofty::tag::TagType,
 ) -> Result<usize> {
     use lofty::file::{AudioFile, TaggedFileExt};
+    use lofty::picture::{MimeType, Picture, PictureType};
     use lofty::prelude::{Accessor, ItemKey};
     use lofty::probe::Probe;
     use lofty::tag::{ItemValue, Tag as LoftyTag, TagItem};
@@ -288,6 +289,28 @@ fn write_lofty_edits(
 
     let mut applied = 0usize;
     for edit in edits {
+        // Artwork lands as a Picture rather than a text item.
+        if edit.frame_label.starts_with("APIC") {
+            match read_picture_reference(&edit.value) {
+                Ok((mime, data)) => {
+                    tag.push_picture(Picture::new_unchecked(
+                        PictureType::CoverFront,
+                        Some(MimeType::from_str(&mime)),
+                        None,
+                        data,
+                    ));
+                    applied += 1;
+                }
+                Err(err) => {
+                    eprintln!(
+                        "skip artwork edit for {}: {err:#}",
+                        path.display()
+                    );
+                }
+            }
+            continue;
+        }
+
         let field = TagFieldId::from_id3_label(&edit.frame_label);
         let inserted = match tag_type {
             lofty::tag::TagType::VorbisComments => {
@@ -295,14 +318,16 @@ fn write_lofty_edits(
                     Some(k) => k,
                     None => continue,
                 };
-                let item_key = ItemKey::Unknown(key);
-                let item = TagItem::new(item_key, ItemValue::Text(edit.value.clone()));
-                tag.push(item);
+                // `Tag::push` rejects `ItemKey::Unknown` because re_map fails
+                // for keys without a built-in mapping. push_unchecked bypasses
+                // that and the merge step preserves the raw vorbis key.
+                tag.push_unchecked(TagItem::new(
+                    ItemKey::Unknown(key),
+                    ItemValue::Text(edit.value.clone()),
+                ));
                 true
             }
             lofty::tag::TagType::Mp4Ilst => {
-                // Prefer the accessor for core fields; fall back to a freeform
-                // ---- atom for anything without a stock ilst atom.
                 let handled = match &field {
                     TagFieldId::Title => {
                         Accessor::set_title(&mut tag, edit.value.clone());
@@ -336,9 +361,10 @@ fn write_lofty_edits(
                         }
                         _ => format!("----:com.apple.iTunes:{}", edit.frame_label),
                     };
-                    let item_key = ItemKey::Unknown(ns_key);
-                    let item = TagItem::new(item_key, ItemValue::Text(edit.value.clone()));
-                    tag.push(item);
+                    tag.push_unchecked(TagItem::new(
+                        ItemKey::Unknown(ns_key),
+                        ItemValue::Text(edit.value.clone()),
+                    ));
                 }
                 true
             }

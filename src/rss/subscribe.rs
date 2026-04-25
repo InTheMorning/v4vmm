@@ -5,9 +5,16 @@ use rusqlite::Connection;
 use std::io::Cursor;
 
 use super::helpers::*;
+use crate::api::Client as MusicIndexClient;
 use crate::config::Config;
+use crate::db;
 
-pub fn subscribe_feed(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> Result<()> {
+pub fn subscribe_feed(
+    _cfg: &Config,
+    conn: &mut Connection,
+    feed_url: &str,
+    musicindex_endpoint: &str,
+) -> Result<()> {
     // --- fetch ---
     let body = reqwest::blocking::Client::new()
         .get(feed_url)
@@ -126,6 +133,23 @@ pub fn subscribe_feed(_cfg: &Config, conn: &mut Connection, feed_url: &str) -> R
             |row| row.get(0),
         )
         .context("lookup feed_id")?;
+
+    // Best-effort: capture MusicIndex feed `updated_at` so freshly-subscribed
+    // feeds aren't immediately marked stale by the auto-update checker.
+    if let Some(guid) = feed_guid.as_deref() {
+        let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
+        match client.fetch_feed(guid, None) {
+            Ok(api_feed) => {
+                if let Some(updated_at) = api_feed.updated_at {
+                    if let Err(err) = db::set_feed_musicindex_updated_at(conn, feed_id, updated_at)
+                    {
+                        eprintln!("set baseline musicindex_updated_at: {err:#}");
+                    }
+                }
+            }
+            Err(err) => eprintln!("fetch MusicIndex feed for baseline updated_at: {err:#}"),
+        }
+    }
 
     // --- tracks: upsert all items in one transaction ---
     let tx = conn.transaction().context("begin transaction")?;
