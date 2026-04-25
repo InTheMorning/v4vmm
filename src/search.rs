@@ -1090,7 +1090,7 @@ impl SearchApp {
         };
 
         frame.subscription_busy = true;
-        frame.subscription_message = Some("Subscribing...".into());
+        frame.subscription_message = Some("Downloading...".into());
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -1120,7 +1120,7 @@ impl SearchApp {
                                     }
                                     Err(error) => {
                                         frame.subscription_message =
-                                            Some(format!("Subscribe error: {error:#}"));
+                                            Some(format!("Download error: {error:#}"));
                                     }
                                 }
                             }
@@ -1165,7 +1165,7 @@ impl SearchApp {
         };
 
         frame.subscription_busy = true;
-        frame.subscription_message = Some("Unsubscribing...".into());
+        frame.subscription_message = Some("Removing...".into());
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -1189,7 +1189,7 @@ impl SearchApp {
                                     }
                                     Err(error) => {
                                         frame.subscription_message =
-                                            Some(format!("Unsubscribe error: {error:#}"));
+                                            Some(format!("Remove error: {error:#}"));
                                     }
                                 }
                             }
@@ -2330,20 +2330,20 @@ fn subscribe_feed_from_search(
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
         return Err(anyhow!(
-            "Subscribed feed had {track_count} track{} but none could be downloaded/tagged; reverted subscription",
+            "Downloaded feed had {track_count} track{} but none could be downloaded/tagged; reverted download",
             plural(track_count)
         ));
     }
 
     let message = if skipped == 0 {
         format!(
-            "Subscribed feed; downloaded {downloaded} track{}, applied {applied_edits} ID3 edit{}",
+            "Downloaded feed; downloaded {downloaded} track{}, applied {applied_edits} ID3 edit{}",
             plural(downloaded),
             plural(applied_edits)
         )
     } else {
         format!(
-            "Subscribed feed; downloaded {downloaded} track{}, applied {applied_edits} ID3 edit{}, skipped {skipped}",
+            "Downloaded feed; downloaded {downloaded} track{}, applied {applied_edits} ID3 edit{}, skipped {skipped}",
             plural(downloaded),
             plural(applied_edits)
         )
@@ -2414,7 +2414,7 @@ fn subscribe_track_from_search(
         format!(", applied {} ID3 edit{}", edits.len(), plural(edits.len()))
     };
     Ok(SearchSubscribeOutcome {
-        message: format!("Subscribed track{edit_text}"),
+        message: format!("Downloaded track{edit_text}"),
         compare: Some(compare),
     })
 }
@@ -2434,7 +2434,7 @@ fn unsubscribe_search_request(
         SearchUnsubscribeRequest::Feed { feed_url } => {
             let feed_url = feed_url.ok_or_else(|| anyhow!("feed has no RSS URL"))?;
             db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
-            Ok("Unsubscribed feed".into())
+            Ok("Removed feed".into())
         }
         SearchUnsubscribeRequest::Track {
             feed_url,
@@ -2448,7 +2448,7 @@ fn unsubscribe_search_request(
                 enclosure_url.as_deref(),
                 false,
             )?;
-            Ok("Unsubscribed track".into())
+            Ok("Removed track".into())
         }
     }
 }
@@ -3315,9 +3315,9 @@ fn render_action_row(
 fn subscription_button_label(frame: &InspectorFrame) -> String {
     if frame.subscription_busy {
         return if frame.local_subscription.unwrap_or(false) {
-            "Unsubscribing...".into()
+            "Removing...".into()
         } else {
-            "Subscribing...".into()
+            "Downloading...".into()
         };
     }
 
@@ -3327,9 +3327,9 @@ fn subscription_button_label(frame: &InspectorFrame) -> String {
         "Track"
     };
     if frame.local_subscription.unwrap_or(false) {
-        format!("Unsubscribe {noun}")
+        format!("Remove {noun}")
     } else {
-        format!("Subscribe {noun}")
+        format!("Download {noun}")
     }
 }
 
