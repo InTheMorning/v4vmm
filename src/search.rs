@@ -6,10 +6,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{anyhow, Result};
 use gpui::{
-    div, img, prelude::*, px, rgb, size, AnyElement, App, Application, Bounds, ClickEvent, Context,
-    Entity, FontWeight, Image, ImageFormat, InteractiveElement, IntoElement, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels, Point, Render, SharedString,
-    Styled, Window, WindowBounds, WindowOptions,
+    div, img, prelude::*, px, rgb, size, AnyElement, App, Application, Bounds, ClickEvent,
+    ClipboardItem, Context, Entity, FontWeight, Image, ImageFormat, InteractiveElement,
+    IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels,
+    Point, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -4360,12 +4360,7 @@ fn expandable_tag_cell(
                             .h(px(200.0))
                             .rounded(radius::MD)
                             .overflow_hidden()
-                            .child(
-                                img(image.clone())
-                                    .w(px(200.0))
-                                    .h(px(200.0))
-                                    .object_fit(ObjectFit::Cover),
-                            ),
+                            .child(artwork_img(image.clone(), 200.0)),
                     )
                     .into_any_element()
             } else {
@@ -5051,6 +5046,7 @@ fn render_feed_header(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let rss_url = feed_rss_url(feed);
+    let npub = feed_nostr(feed);
     div()
         .flex()
         .flex_row()
@@ -5095,8 +5091,12 @@ fn render_feed_header(
                     div()
                         .mt(spacing::SM)
                         .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(spacing::SM)
                         .justify_start()
-                        .child(render_rss_icon_button(rss_url, cx)),
+                        .child(render_rss_icon_button(rss_url, cx))
+                        .child(render_nostr_icon_button(npub, "feed", cx)),
                 ),
         )
         .into_any_element()
@@ -5150,6 +5150,61 @@ fn rss_icon_image() -> Arc<Image> {
 <circle cx="5" cy="13" r="1.7" fill="#ffffff"/>
 <path d="M4 9.4A4.6 4.6 0 0 1 8.6 14" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
 <path d="M4 5.2A8.8 8.8 0 0 1 12.8 14" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+</svg>"##
+                .to_vec(),
+        ))
+    }))
+}
+
+fn render_nostr_icon_button(
+    npub: Option<String>,
+    scope: &str,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let id = SharedString::from(match npub.as_deref() {
+        Some(n) => format!("{scope}-nostr:{n}"),
+        None => format!("{scope}-nostr:missing"),
+    });
+    let tooltip = npub
+        .as_ref()
+        .map_or_else(|| "No nostr identity".into(), |n| format!("Copy npub: {n}"));
+    let click_npub = npub.clone();
+
+    div()
+        .id(id)
+        .w(px(18.0))
+        .h(px(18.0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(radius::SM)
+        .overflow_hidden()
+        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .when(npub.is_some(), |el| el.cursor_pointer())
+        .when(npub.is_none(), |el| el.opacity(0.45))
+        .child(
+            img(nostr_icon_image())
+                .w(px(14.0))
+                .h(px(14.0))
+                .object_fit(ObjectFit::Contain),
+        )
+        .on_click(cx.listener(move |_this, _: &ClickEvent, _window, cx| {
+            if let Some(npub) = &click_npub {
+                cx.write_to_clipboard(ClipboardItem::new_string(npub.clone()));
+            }
+        }))
+        .into_any_element()
+}
+
+fn nostr_icon_image() -> Arc<Image> {
+    static NOSTR_ICON: OnceLock<Arc<Image>> = OnceLock::new();
+
+    Arc::clone(NOSTR_ICON.get_or_init(|| {
+        Arc::new(Image::from_bytes(
+            ImageFormat::Svg,
+            br##"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
+<rect width="18" height="18" rx="4" fill="#8e30eb"/>
+<path d="M10.8 2.5l-5 7.5h3.4l-1 5.5 5-7.5h-3.4z" fill="#ffffff"/>
 </svg>"##
                 .to_vec(),
         ))
@@ -5310,6 +5365,7 @@ fn render_track_header(
     let feed_title_label = track.feed_title.clone();
     let feed_url = track.feed_url.clone().or_else(|| track.feed_guid.clone());
     let audio_url = track_play_url(track);
+    let npub = track_nostr(track);
 
     div()
         .flex()
@@ -5348,6 +5404,7 @@ fn render_track_header(
                     feed_title_label,
                     feed_url,
                     audio_url,
+                    npub,
                     cx,
                 )),
         )
@@ -5359,6 +5416,7 @@ fn render_track_header_subtitle(
     feed_title: Option<String>,
     feed_url: Option<String>,
     audio_url: Option<String>,
+    npub: Option<String>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     div()
@@ -5381,6 +5439,9 @@ fn render_track_header_subtitle(
             audio_url,
             cx,
         ))
+        .when(npub.is_some(), |el| {
+            el.child(render_nostr_icon_button(npub, "track", cx))
+        })
         .into_any_element()
 }
 
@@ -5475,6 +5536,19 @@ fn render_detail_grid_elements(rows: Vec<DetailRow>) -> AnyElement {
         .into_any_element()
 }
 
+fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
+    let base = img(image.clone())
+        .w(px(size))
+        .h(px(size))
+        .object_fit(ObjectFit::Cover);
+    if image.format == ImageFormat::Gif {
+        base.id(SharedString::from(format!("anim-thumb:{}", image.id())))
+            .into_any_element()
+    } else {
+        base.into_any_element()
+    }
+}
+
 fn render_thumb(
     image_data: Option<&Arc<Image>>,
     entity_type: &str,
@@ -5489,12 +5563,7 @@ fn render_thumb(
             .rounded(px(radius))
             .overflow_hidden()
             .flex_shrink_0()
-            .child(
-                img(image.clone())
-                    .w(px(size))
-                    .h(px(size))
-                    .object_fit(ObjectFit::Cover),
-            )
+            .child(artwork_img(image.clone(), size))
             .into_any_element()
     } else {
         div()
@@ -5556,12 +5625,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                     .overflow_hidden()
                     .flex_shrink_0()
                     .when_some(thumbnail, |el, image| {
-                        el.child(
-                            img(image)
-                                .w(px(152.0))
-                                .h(px(152.0))
-                                .object_fit(ObjectFit::Cover),
-                        )
+                        el.child(artwork_img(image, 152.0))
                     })
                     .when(image_url.is_none(), |el| {
                         el.bg(color::border_subtle())

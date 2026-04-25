@@ -4340,6 +4340,19 @@ fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
         .into_any_element()
 }
 
+fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
+    let base = img(image.clone())
+        .w(px(size))
+        .h(px(size))
+        .object_fit(ObjectFit::Cover);
+    if image.format == ImageFormat::Gif {
+        base.id(SharedString::from(format!("anim-thumb:{}", image.id())))
+            .into_any_element()
+    } else {
+        base.into_any_element()
+    }
+}
+
 fn render_thumb(
     image_data: Option<&Arc<Image>>,
     entity_type: &str,
@@ -4354,12 +4367,7 @@ fn render_thumb(
             .rounded(radius)
             .overflow_hidden()
             .flex_shrink_0()
-            .child(
-                img(image.clone())
-                    .w(px(size))
-                    .h(px(size))
-                    .object_fit(ObjectFit::Cover),
-            )
+            .child(artwork_img(image.clone(), size))
             .into_any_element()
     } else {
         div()
@@ -4617,12 +4625,7 @@ fn render_album_thumb(image: Option<&Arc<Image>>, size: f32) -> AnyElement {
             .rounded(radius::SM)
             .overflow_hidden()
             .flex_shrink_0()
-            .child(
-                img(img_data.clone())
-                    .w(px(size))
-                    .h(px(size))
-                    .object_fit(ObjectFit::Cover),
-            )
+            .child(artwork_img(img_data.clone(), size))
             .into_any_element()
     } else {
         div()
