@@ -11,6 +11,7 @@ pub mod media;
 pub mod metadata;
 pub mod musicbrainz;
 pub mod playback;
+pub mod playlist_service;
 pub mod rss;
 pub mod search;
 pub mod sources;

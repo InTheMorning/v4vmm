@@ -31,6 +31,7 @@ use crate::metadata::{
 use crate::musicbrainz::{
     lookup_recordings, lookup_releases, LookupMetadata, MusicBrainzCandidate, MusicBrainzLookup,
 };
+use crate::playlist_service;
 use crate::search::id3_edits_for_track_context;
 use crate::track_compare::{download_track, select_audio_enclosure, DownloadedTrack};
 use crate::ui_common::{
@@ -424,7 +425,7 @@ impl LibraryApp {
 
     fn reload_playlists(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match db::playlists_list(&conn) {
+        match playlist_service::list(&conn) {
             Ok(mut list) => {
                 self.sort_playlists(&mut list);
                 self.playlists = list;
@@ -460,7 +461,7 @@ impl LibraryApp {
         self.selected_playlist_id = Some(id);
         let conn = self.conn.lock().expect("lock db");
         let playlist = self.playlists.iter().find(|p| p.id == id).cloned();
-        let tracks = db::playlist_tracks(&conn, id).unwrap_or_default();
+        let tracks = playlist_service::tracks(&conn, id).unwrap_or_default();
         drop(conn);
         if let Some(playlist) = playlist {
             self.detail = LibraryDetail::Playlist(PlaylistDetail {
@@ -479,7 +480,7 @@ impl LibraryApp {
             return;
         }
         let conn = self.conn.lock().expect("lock db");
-        match db::playlist_create(&conn, name) {
+        match playlist_service::create(&conn, name) {
             Ok(id) => {
                 drop(conn);
                 self.creating_playlist = false;
@@ -498,7 +499,7 @@ impl LibraryApp {
             return;
         }
         let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = db::playlist_rename(&conn, id, trimmed) {
+        if let Err(err) = playlist_service::rename(&conn, id, trimmed) {
             self.status = format!("Error renaming: {err:#}");
             return;
         }
@@ -512,7 +513,7 @@ impl LibraryApp {
 
     fn delete_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
         let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = db::playlist_delete(&conn, id) {
+        if let Err(err) = playlist_service::delete(&conn, id) {
             self.status = format!("Error deleting: {err:#}");
             return;
         }
@@ -532,7 +533,7 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         let mut conn = self.conn.lock().expect("lock db");
-        if let Err(err) = db::playlist_remove_at(&mut conn, playlist_id, position) {
+        if let Err(err) = playlist_service::remove_track_at(&mut conn, playlist_id, position) {
             self.status = format!("Error removing track: {err:#}");
             return;
         }
@@ -555,7 +556,7 @@ impl LibraryApp {
             return;
         }
         let mut conn = self.conn.lock().expect("lock db");
-        if let Err(err) = db::playlist_reorder(&mut conn, playlist_id, from, to) {
+        if let Err(err) = playlist_service::reorder(&mut conn, playlist_id, from, to) {
             self.status = format!("Error reordering: {err:#}");
             return;
         }
@@ -568,7 +569,7 @@ impl LibraryApp {
 
     fn add_track_to_playlist(&mut self, track_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
         let conn = self.conn.lock().expect("lock db");
-        match db::playlist_append(&conn, playlist_id, track_id) {
+        match playlist_service::append_track(&conn, playlist_id, track_id) {
             Ok(()) => {
                 let name = self
                     .playlists
@@ -597,7 +598,7 @@ impl LibraryApp {
         };
         let mut appended = 0usize;
         for track in &tracks {
-            if db::playlist_append(&conn, playlist_id, track.id).is_ok() {
+            if playlist_service::append_track(&conn, playlist_id, track.id).is_ok() {
                 appended += 1;
             }
         }

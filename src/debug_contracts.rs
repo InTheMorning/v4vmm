@@ -4,7 +4,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 use serde::Serialize;
 
-use crate::{db, track_identity};
+use crate::{db, playlist_service, track_identity};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct PlaylistSummary {
@@ -58,11 +58,11 @@ pub struct TrackIdentityDebug {
 }
 
 pub fn playlists(conn: &Connection) -> Result<Vec<PlaylistSummary>> {
-    db::playlists_list(conn).map(|rows| rows.into_iter().map(Into::into).collect())
+    playlist_service::list(conn).map(|rows| rows.into_iter().map(Into::into).collect())
 }
 
 pub fn playlist_tracks(conn: &Connection, playlist_id: i64) -> Result<Vec<TrackSummary>> {
-    db::playlist_tracks(conn, playlist_id).map(track_summaries)
+    playlist_service::tracks(conn, playlist_id).map(track_summaries)
 }
 
 pub fn library_tracks(conn: &Connection) -> Result<Vec<TrackSummary>> {
@@ -212,8 +212,8 @@ mod tests {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
         let track_id = create_track(&conn, feed_id)?;
-        let playlist_id = db::playlist_create(&conn, "Debug")?;
-        db::playlist_append(&conn, playlist_id, track_id)?;
+        let playlist_id = playlist_service::create(&conn, "Debug")?;
+        playlist_service::append_track(&conn, playlist_id, track_id)?;
 
         let playlist_rows = playlists(&conn)?;
         let playlist_track_rows = playlist_tracks(&conn, playlist_id)?;

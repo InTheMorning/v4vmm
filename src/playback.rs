@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
-use crate::{db, track_identity};
+use crate::{db, playlist_service, track_identity};
 
 pub const DEFAULT_SESSION_ID: &str = "default";
 
@@ -56,13 +56,14 @@ pub fn dry_run_playlist_at(
         playlist_position >= 0,
         "playlist position cannot be negative"
     );
-    let (track_id, position) = db::playlist_track_at(conn, playlist_id, playlist_position)?
-        .with_context(|| {
-            format!("playlist {playlist_id} has no track at position {playlist_position}")
-        })?;
-    let source = track_identity::local_track_identity(conn, track_id)?;
-    let session = preview_session_row(session_id, track_id, Some(playlist_id), Some(position));
-    update_from_parts(&session, source)
+    let selection = playlist_service::select_track_at(conn, playlist_id, playlist_position)?;
+    let session = preview_session_row(
+        session_id,
+        selection.track_id,
+        Some(selection.playlist_id),
+        Some(selection.position),
+    );
+    update_from_parts(&session, selection.identity)
 }
 
 pub fn set_track(conn: &Connection, track_id: i64, session_id: &str) -> Result<NowPlayingUpdate> {

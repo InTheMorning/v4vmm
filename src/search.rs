@@ -29,6 +29,7 @@ use crate::db;
 use crate::media::ImageCache;
 use crate::metadata::*;
 use crate::musicbrainz::{lookup_recordings, LookupMetadata, MusicBrainzCandidate};
+use crate::playlist_service;
 use crate::rss;
 use crate::track_compare::{
     download_track, local_track_path, select_audio_enclosure, ComparisonStatus,
@@ -1353,7 +1354,7 @@ impl SearchApp {
 
     fn load_playlists(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match db::playlists_list(&conn) {
+        match playlist_service::list(&conn) {
             Ok(list) => self.playlists = list,
             Err(err) => self.status = format!("Error loading playlists: {err:#}"),
         }
@@ -1409,7 +1410,7 @@ impl SearchApp {
         };
         let mut appended = 0usize;
         for track in &tracks {
-            if db::playlist_append(&conn, playlist_id, track.id).is_ok() {
+            if playlist_service::append_track(&conn, playlist_id, track.id).is_ok() {
                 appended += 1;
             }
         }
@@ -1453,7 +1454,7 @@ impl SearchApp {
             self.status = "Track not in local library".into();
             return;
         };
-        match db::playlist_append(&conn, playlist_id, track_id) {
+        match playlist_service::append_track(&conn, playlist_id, track_id) {
             Ok(()) => {
                 let name = self
                     .playlists
@@ -1482,7 +1483,7 @@ impl SearchApp {
 
     fn add_track_to_playlist(&mut self, track_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
         let conn = self.conn.lock().expect("lock db");
-        match db::playlist_append(&conn, playlist_id, track_id) {
+        match playlist_service::append_track(&conn, playlist_id, track_id) {
             Ok(()) => {
                 let name = self
                     .playlists
