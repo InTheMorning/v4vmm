@@ -18,4 +18,5 @@ pub mod ui_artist;
 pub mod ui_common;
 pub mod ui_context;
 pub mod ui_feed;
+pub mod ui_track;
 pub mod views;

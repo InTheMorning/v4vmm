@@ -5521,6 +5521,10 @@ pub(crate) fn render_track_list_section(
         .into_any_element()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "stage 4 keeps the legacy Discover row wrapper stable while delegating"
+)]
 fn render_track_row(
     track: Track,
     thumbnail: Option<Arc<Image>>,
@@ -5533,120 +5537,19 @@ fn render_track_row(
     playlists: &[db::Playlist],
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let guid = track.track_guid.clone().unwrap_or_default();
-    let title = track_title(&track);
-    let track_number = track.track_number;
-    let duration_secs = track.duration_secs;
-    let audio_url = track_play_url(&track);
-    let play_button_id = SharedString::from(format!("track-row-play:{guid}"));
-    let guid_for_click = guid.clone();
-    let title_for_click = title.clone();
-    let feed_guid_owned = feed_guid.map(|s| s.to_string());
-    let popup_open = feed_guid.is_some()
-        && !guid.is_empty()
-        && open_guid.map(|s| s == guid.as_str()).unwrap_or(false);
-
-    let mut row = div()
-        .id(SharedString::from(format!("track-row:{guid}")))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(spacing::SM)
-        .px(spacing::XS)
-        .py(spacing::XS)
-        .rounded(radius::SM)
-        .child(
-            div()
-                .id(SharedString::from(format!("track-row-open:{guid}")))
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(spacing::SM)
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    this.push_inspector(
-                        "track".into(),
-                        guid_for_click.clone(),
-                        title_for_click.clone(),
-                        cx,
-                    );
-                }))
-                .child(
-                    div()
-                        .w(px(24.0))
-                        .text_right()
-                        .text_color(color::text_muted())
-                        .text_size(typography::SIZE_MICRO)
-                        .child(track_number.map_or_else(|| "·".into(), |n| n.to_string())),
-                )
-                .child(render_thumb(thumbnail.as_ref(), "track", 28.0, false))
-                .child(truncated(title).flex_1())
-                .when(duration_secs.is_some(), |el| {
-                    el.child(div().text_color(color::text_muted()).text_size(typography::SIZE_MICRO).child(
-                        SharedString::from(fmt_dur(duration_secs.unwrap_or_default())),
-                    ))
-                }),
-        );
-
-    row = row.child(render_track_download_button(
-        track.clone(),
+    crate::ui_track::render_track_row(
+        track,
+        thumbnail,
         feed,
         is_downloaded,
         is_in_flight,
+        feed_guid,
+        feed_url,
+        open_guid,
+        playlists,
+        crate::ui_track::TrackRowMode::Discover,
         cx,
-    ));
-
-    if feed_guid_owned.is_some() && !guid.is_empty() {
-        let guid_for_toggle = guid.clone();
-        row = row.child(
-            Button::new(SharedString::from(format!("track-row-add:{guid}")))
-                .label("+")
-                .ghost()
-                .with_size(Size::XSmall)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(frame) = this.inspector_stack.last_mut() {
-                        if frame.add_to_playlist_open_track_guid.as_deref()
-                            == Some(guid_for_toggle.as_str())
-                        {
-                            frame.add_to_playlist_open_track_guid = None;
-                        } else {
-                            frame.add_to_playlist_open_track_guid =
-                                Some(guid_for_toggle.clone());
-                        }
-                    }
-                    cx.notify();
-                })),
-        );
-    }
-
-    row = row.child(render_play_icon_button_with_id(
-        play_button_id,
-        audio_url,
-        cx,
-    ));
-
-    if popup_open {
-        let feed_guid_str = feed_guid_owned.clone().unwrap_or_default();
-        let track_guid_str = guid.clone();
-        let feed_url_str = feed_url.map(|s| s.to_string());
-        let popup = render_row_playlist_popup(
-            &feed_guid_str,
-            feed_url_str.as_deref(),
-            &track_guid_str,
-            playlists,
-            cx,
-        );
-        return div()
-            .flex()
-            .flex_col()
-            .child(row)
-            .child(popup)
-            .into_any_element();
-    }
-
-    row.into_any_element()
+    )
 }
 
 pub(crate) fn render_row_playlist_popup(
