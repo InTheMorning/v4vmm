@@ -7,6 +7,7 @@ pub mod config;
 pub mod db;
 pub mod debug_contracts;
 pub mod library;
+pub mod library_service;
 pub mod media;
 pub mod metadata;
 pub mod musicbrainz;

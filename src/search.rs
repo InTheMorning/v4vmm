@@ -26,6 +26,7 @@ use crate::audio_tags::Id3Field;
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3v24Edit};
 use crate::config;
 use crate::db;
+use crate::library_service;
 use crate::media::ImageCache;
 use crate::metadata::*;
 use crate::musicbrainz::{lookup_recordings, LookupMetadata, MusicBrainzCandidate};
@@ -2605,7 +2606,7 @@ fn subscribe_feed_from_search(
                             .ok()
                             .and_then(|m| m.len().try_into().ok());
                         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-                        let marked = db::mark_track_downloaded_by_match(
+                        let marked = library_service::mark_track_downloaded_by_match(
                             &db,
                             track.feed_url.as_deref().or(Some(feed_url.as_str())),
                             track.track_guid.as_deref(),
@@ -2720,7 +2721,7 @@ fn subscribe_track_from_search(
 
     {
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        db::mark_track_downloaded_by_match(
+        library_service::mark_track_downloaded_by_match(
             &db,
             Some(feed_url.as_str()),
             track.track_guid.as_deref(),
@@ -2769,7 +2770,7 @@ fn unsubscribe_search_request(
             item_guid,
             enclosure_url,
         } => {
-            db::set_track_in_library_by_match(
+            library_service::set_track_in_library_by_match(
                 &db,
                 feed_url.as_deref(),
                 item_guid.as_deref(),
@@ -2804,7 +2805,7 @@ fn local_subscription_for_detail(
                     .as_ref()
                     .and_then(|feed| feed.feed_url.as_deref())
             });
-            db::track_is_in_library_by_match(
+            library_service::track_is_in_library_by_match(
                 &db,
                 feed_url,
                 track_context.track.track_guid.as_deref(),
@@ -3502,7 +3503,7 @@ fn render_add_to_playlist_panel_search(
         (InspectorDetail::Track(track_context), _) => {
             let track = &track_context.track;
             let local_id = if let Ok(conn) = app.conn.lock() {
-                db::find_track_id(
+                library_service::find_track_id(
                     &conn,
                     track.feed_url.as_deref(),
                     track.track_guid.as_deref(),
@@ -5451,7 +5452,7 @@ pub(crate) fn render_track_list_section(
             .map(|track| {
                 db.as_ref()
                     .and_then(|db| {
-                        db::track_is_in_library_by_match(
+                        library_service::track_is_in_library_by_match(
                             db,
                             track
                                 .feed_url

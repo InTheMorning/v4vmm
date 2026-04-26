@@ -20,6 +20,7 @@ use crate::api::{Client as MusicIndexClient, Feed, SourceEntityLink, Track};
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, Id3v24Edit};
 use crate::config;
 use crate::db::{self, TrackRow};
+use crate::library_service;
 use crate::media::ImageCache;
 use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
@@ -406,7 +407,7 @@ impl LibraryApp {
 
     fn reload(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match db::library_tracks(&conn) {
+        match library_service::library_tracks(&conn) {
             Ok(rows) => {
                 let count = rows.len();
                 self.tree = build_tree(&rows, &conn);
@@ -985,7 +986,7 @@ impl LibraryApp {
 
     fn remove_track(&mut self, track_id: i64) {
         let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = db::set_track_in_library(&conn, track_id, false) {
+        if let Err(err) = library_service::set_track_in_library(&conn, track_id, false) {
             self.status = format!("Error: {err:#}");
             return;
         }
@@ -1196,7 +1197,7 @@ impl LibraryApp {
 
         let result = {
             let db = self.conn.lock().expect("lock db");
-            db::set_track_in_library(&db, track_id, subscribe)
+            library_service::set_track_in_library(&db, track_id, subscribe)
         };
         if let Some(frame) = self.selected_track_frame_mut() {
             if frame.entity_id == track_id {
@@ -1698,7 +1699,7 @@ fn subscribe_library_track(
     let db = conn
         .lock()
         .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-    db::mark_track_downloaded(&db, track.id, &final_path, file_size)?;
+    library_service::mark_track_downloaded(&db, track.id, &final_path, file_size)?;
     drop(db);
 
     Ok(SubscribedTrackOutcome {
@@ -2342,7 +2343,7 @@ fn apply_feed_updates(
         let db = conn
             .lock()
             .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-        db::library_tracks_for_feed(&db, stale.feed_id)?
+        library_service::tracks_for_feed(&db, stale.feed_id)?
     };
     let mut outcome = FeedApplyOutcome {
         tracks_updated: 0,

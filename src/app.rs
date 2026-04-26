@@ -13,6 +13,7 @@ use rusqlite::Connection;
 use crate::config;
 use crate::db;
 use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryTree};
+use crate::library_service;
 use crate::media::ImageCache;
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::theme::color;
@@ -193,7 +194,7 @@ impl TopApp {
 
     fn reload_cached(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match db::cached_tracks(&conn) {
+        match library_service::cached_tracks(&conn) {
             Ok(rows) => {
                 self.cached_tree = build_tree(&rows, &conn);
             }
@@ -212,7 +213,7 @@ impl TopApp {
         }
         cleanup_empty_parents(std::path::Path::new(&path));
         let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = db::delete_local_file(&conn, &path) {
+        if let Err(err) = library_service::delete_local_file(&conn, &path) {
             self.settings_status = format!("Error: {err:#}");
             return;
         }
@@ -240,7 +241,7 @@ impl TopApp {
         }
         let conn = self.conn.lock().expect("lock db");
         for path in &paths {
-            if let Err(err) = db::delete_local_file(&conn, path) {
+            if let Err(err) = library_service::delete_local_file(&conn, path) {
                 self.settings_status = format!("Error: {err:#}");
                 return;
             }

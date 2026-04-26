@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::api;
 use crate::db;
+use crate::library_service;
 use crate::views::{ArtistRef, ArtistView, FeedRef, FeedView, TrackRef, TrackView};
 
 #[derive(Clone, Copy, Debug)]
@@ -109,7 +110,7 @@ impl MetadataSource for LocalSource {
             _ => return Err(anyhow!("LocalSource only handles Local refs")),
         };
         let conn = self.conn.lock().map_err(|e| anyhow!("conn lock: {e}"))?;
-        let rows = db::library_tracks(&conn)?;
+        let rows = library_service::library_tracks(&conn)?;
         let filtered: Vec<_> = rows
             .into_iter()
             .filter(|t| {
@@ -200,7 +201,7 @@ impl MetadataSource for LocalSource {
             _ => return Err(anyhow!("LocalSource only handles Local refs")),
         };
         let conn = self.conn.lock().map_err(|e| anyhow!("conn lock: {e}"))?;
-        let rows = db::library_tracks(&conn)?;
+        let rows = library_service::library_tracks(&conn)?;
         let mut by_feed: std::collections::BTreeMap<i64, Vec<db::TrackRow>> = Default::default();
         for t in rows {
             if t.album_artist_name.as_deref() == Some(&name)
