@@ -147,6 +147,26 @@ Replace search.rs:5586 body with a dispatch into `ui_track::render_track_row` in
 ### Stage 5 — Add Library Artist view + reuse Feed view
 Add `db::artist_feeds_by_name`. Library tree click on an artist node opens `render_artist_view` with `ViewContext::Library`. Replace `render_album_detail` (library.rs:3004) with `render_feed_view` in Library mode. Library track rows now show compare + MB badges via `TrackRowMode::Library`. The three duplicated playlist-add panels (library.rs:3265, 3306, 3837) collapse into one `render_add_to_playlist_panel` from `ui_common`.
 
+> **Note (deferred):** Stage 5 as originally written assumed the shared
+> `ui_artist`/`ui_feed`/`ui_track` render fns could be called directly from
+> `LibraryApp`. They cannot — every shared fn is currently typed on
+> `&mut SearchApp` / `Context<SearchApp>`, and Library has its own
+> `InspectorFrame`, `LazyPanel`, and `MbTrackStatus`. Full unification
+> requires an `InspectorHost` trait that both apps implement, plus
+> generic render fns over `H: InspectorHost + Render` ("option 1"). That
+> trait-based unification is **deferred** to a later stage.
+>
+> What stage 5 actually delivers ("option 2"): **visual** unification only.
+> Library keeps its own dispatchers and click handlers, but rewrites
+> them to (a) build `ArtistView`/`FeedView`/`TrackView` from local data
+> via the existing `*::from_local` constructors, and (b) compose layout
+> using the app-agnostic `ui_common` helpers (`render_thumb`,
+> `render_detail_header`, `render_detail_grid`, `metadata_action_button`,
+> `section_heading`, `optional_row`, `truncated`, `badge_text`,
+> `type_color`). Library track rows still render their compare/MB
+> affordances inline. Result: Library and Discover look identical;
+> code paths remain parallel until trait-based unification lands.
+
 ### Stage 6 — Feed-level Download-all / Remove-all + derived subscription
 Add `db::feed_download_status`. Render the new action button in the shared `render_feed_view`. After each per-track download/removal in either tab, call `db::reconcile_feed_subscription_by_url`. Remove the legacy Subscribe/Unsubscribe buttons in Discover (search.rs:3224 area) and Library (library.rs:3204). Add a confirm prompt before "Remove all" since it is destructive.
 

@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 use gpui::{
-    div, img, prelude::*, px, rgb, AnyElement, Context, Entity, FontWeight, Image, ImageFormat,
-    InteractiveElement, IntoElement, ObjectFit, Render, SharedString, Styled, Window,
+    div, prelude::*, px, rgb, AnyElement, Context, Entity, FontWeight, Image, ImageFormat,
+    InteractiveElement, IntoElement, Render, SharedString, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -33,6 +33,11 @@ use crate::musicbrainz::{
 };
 use crate::search::id3_edits_for_track_context;
 use crate::track_compare::{download_track, select_audio_enclosure, DownloadedTrack};
+use crate::ui_common::{
+    artwork_img, badge_text, compare_value_line_elements, metadata_action_button,
+    render_detail_grid, render_detail_header, render_thumb, type_color,
+};
+use crate::views::FeedView;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,9 +46,16 @@ use crate::track_compare::{download_track, select_audio_enclosure, DownloadedTra
 #[derive(Clone, Debug)]
 enum LibraryDetail {
     None,
+    Artist(LibraryArtistDetail),
     Album(AlbumNode),
     Track(Box<InspectorFrame>),
     Playlist(PlaylistDetail),
+}
+
+#[derive(Clone, Debug)]
+struct LibraryArtistDetail {
+    name: String,
+    tracks: Vec<TrackRow>,
 }
 
 #[derive(Clone, Debug)]
@@ -245,7 +257,7 @@ use crate::ui::theme::color;
 use crate::ui::theme::radius;
 use crate::ui::theme::spacing;
 use crate::ui::theme::typography;
-use crate::ui::theme::{badges, glyphs, layout};
+use crate::ui::theme::{glyphs, layout};
 
 // ---------------------------------------------------------------------------
 // LibraryApp
@@ -670,6 +682,24 @@ impl LibraryApp {
         }
     }
 
+    fn select_artist(&mut self, name: &str, _cx: &mut Context<Self>) {
+        // Find all tracks matching this artist name
+        let mut tracks = Vec::new();
+        for artist_node in &self.tree.artists {
+            if artist_node.name == name {
+                for album in &artist_node.albums {
+                    tracks.extend(album.tracks.clone());
+                }
+                break;
+            }
+        }
+        self.selected_id = None;
+        self.detail = LibraryDetail::Artist(LibraryArtistDetail {
+            name: name.to_string(),
+            tracks,
+        });
+    }
+
     fn check_feed_on_view(&mut self, feed_id: i64, cx: &mut Context<Self>) {
         if self.feed_update_state.phase == FeedUpdatePhase::Applying
             || self
@@ -1010,7 +1040,7 @@ impl LibraryApp {
     fn selected_track_frame_mut(&mut self) -> Option<&mut InspectorFrame> {
         match &mut self.detail {
             LibraryDetail::Track(frame) => Some(frame),
-            LibraryDetail::None | LibraryDetail::Album(_) | LibraryDetail::Playlist(_) => None,
+            LibraryDetail::None | LibraryDetail::Artist(_) | LibraryDetail::Album(_) | LibraryDetail::Playlist(_) => None,
         }
     }
 
@@ -2801,6 +2831,7 @@ pub(crate) fn render_tree(
                 .hover(|el| el.bg(color::bg_surface_hi()))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.toggle_artist(&artist_name);
+                    this.select_artist(&artist_name, cx);
                     cx.notify();
                 }))
                 .child(
@@ -2998,6 +3029,13 @@ fn render_detail(
             )
             .into_any_element(),
 
+        LibraryDetail::Artist(artist) => render_library_artist_detail(
+            artist,
+            album_thumbs,
+            playlists,
+            cx,
+        ),
+
         LibraryDetail::Album(album) => render_album_detail(
             album,
             busy_track,
@@ -3015,6 +3053,144 @@ fn render_detail(
     }
 }
 
+fn render_library_artist_detail(
+    detail: &LibraryArtistDetail,
+    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    _playlists: &[db::Playlist],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    // Build ArtistView from local data
+    use crate::views::ArtistView;
+    let artist_view = ArtistView::from_local_rows(&detail.name, &detail.tracks);
+
+    // Group tracks by feed to show feeds as rows
+    let mut feed_map: BTreeMap<i64, (Option<String>, Vec<TrackRow>)> = BTreeMap::new();
+    for track in &detail.tracks {
+        feed_map
+            .entry(track.feed_id)
+            .or_insert_with(|| (track.feed_title.clone(), Vec::new()))
+            .1
+            .push(track.clone());
+    }
+
+    let feed_rows: Vec<AnyElement> = feed_map
+        .iter()
+        .map(|(_, (feed_title, tracks))| {
+            let feed_name = feed_title.clone().unwrap_or_else(|| "Untitled Feed".to_string());
+            let first_track = tracks.first();
+            let thumb_url = first_track.and_then(|t| {
+                t.album_image_href
+                    .clone()
+                    .or_else(|| t.track_image_href.clone())
+            });
+            let thumb_image = thumb_url
+                .as_ref()
+                .and_then(|url| album_thumbs.get(url.as_str()))
+                .and_then(|opt| opt.clone());
+            let feed_name_for_click = feed_name.clone();
+            let track_count = tracks.len();
+
+            div()
+                .id(SharedString::from(format!("artist-feed-{}", feed_name)))
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(spacing::SM)
+                .px(spacing::SM)
+                .py(spacing::XS)
+                .rounded(radius::SM)
+                .hover(|el| el.bg(color::bg_surface_hi()))
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    // Find the feed in the tree and select it
+                    let feed_name_to_match = feed_name_for_click.clone();
+                    let tree_artists = this.tree.artists.clone();
+                    for artist_node in &tree_artists {
+                        for album in &artist_node.albums {
+                            if album.name == feed_name_to_match {
+                                this.select_album(album, cx);
+                                cx.notify();
+                                return;
+                            }
+                        }
+                    }
+                }))
+                .child(
+                    render_thumb(
+                        thumb_image.as_ref(),
+                        "feed",
+                        28.0,
+                        false,
+                    ),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(spacing::XXS)
+                        .child(
+                            div()
+                                .text_size(typography::SIZE_MICRO)
+                                .font_weight(FontWeight::MEDIUM)
+                                .truncate()
+                                .child(SharedString::from(feed_name.clone())),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(color::text_muted())
+                                .child(SharedString::from(format!("{} tracks", track_count))),
+                        ),
+                )
+                .into_any_element()
+        })
+        .collect();
+
+    div()
+        .id("artist-detail-scroll")
+        .size_full()
+        .overflow_y_scroll()
+        .p(spacing::LG)
+        .flex()
+        .flex_col()
+        .gap(spacing::LG)
+        .child(render_detail_header(
+            "artist",
+            &artist_view.name.clone().unwrap_or_else(|| "Unknown".to_string()),
+            None,
+            None,
+        ))
+        .child({
+            let mut rows = vec![
+                ("Albums".to_string(), feed_map.len().to_string()),
+                (
+                    "Tracks".to_string(),
+                    format!(
+                        "{} track{}",
+                        detail.tracks.len(),
+                        if detail.tracks.len() == 1 { "" } else { "s" }
+                    ),
+                ),
+            ];
+            // Add download count if any tracks are downloaded
+            let downloaded = detail.tracks.iter().filter(|t| t.local_path.is_some()).count();
+            if downloaded > 0 {
+                rows.push(("Downloaded".to_string(), downloaded.to_string()));
+            }
+            render_detail_grid(rows)
+        })
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(spacing::XXS)
+                .children(feed_rows),
+        )
+        .into_any_element()
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "album detail rendering still threads explicit UI controls during rollout"
@@ -3029,154 +3205,43 @@ fn render_album_detail(
     add_open_track: Option<i64>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let title = &album.name;
-    let feed_id = album.feed_id;
+    // Build FeedView from local album data via synthesized FeedRow
+    let feed_row = db::FeedRow {
+        id: album.feed_id.unwrap_or(0),
+        feed_url: album.feed_url.clone().unwrap_or_default(),
+        feed_guid: None,
+        title: Some(album.name.clone()),
+        description: None,
+        album_image_href: album.image_href.clone(),
+        is_subscribed: false, // Library view, not used
+    };
+    let feed_view = FeedView::from_local(feed_row, album.tracks.clone());
+
     let thumb_image = album
         .image_href
         .as_ref()
         .and_then(|url| album_thumbs.get(url.as_str()))
         .and_then(|opt| opt.clone());
 
+    // Render track rows with library-specific affordances
     let track_rows: Vec<AnyElement> = album
         .tracks
         .iter()
         .map(|track| {
-            let track_for_click = track.clone();
-            let track_for_select = track.clone();
-            let track_id = track.id;
-            let in_library = track.is_in_library;
-            let is_busy = busy_track == Some(track_id);
-            let popup_open = add_open_track == Some(track_id);
-            let track_title = track
-                .track_title
-                .as_deref()
-                .unwrap_or("[untitled]")
-                .to_string();
-            let num_str = track
-                .track_number
-                .map(|n| format!("{n}. "))
-                .unwrap_or_default();
-            let dur = track
-                .duration_seconds
-                .map(|s| format!("  ({}:{:02})", s / 60, s % 60))
-                .unwrap_or_default();
-            let mb = mb_status.get(&track_id);
-            let mb_text = match mb {
-                Some(MbTrackStatus::Pending) => Some("MB: pending"),
-                Some(MbTrackStatus::Processing) => Some("MB: looking up..."),
-                Some(MbTrackStatus::Done(0)) => Some("MB: no missing fields"),
-                Some(MbTrackStatus::Done(_)) => Some("MB: done"),
-                Some(MbTrackStatus::Skipped(_)) => Some("MB: skipped"),
-                None => None,
-            };
-
-            let row = div()
-                .id(SharedString::from(format!("album-track-{track_id}")))
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(spacing::SM)
-                .px(spacing::SM)
-                .py(spacing::XS)
-                .rounded(radius::SM)
-                .hover(|el| el.bg(color::bg_surface_hi()))
-                .child(
-                    div()
-                        .id(SharedString::from(format!("album-track-select-{track_id}")))
-                        .flex_1()
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.select_track(&track_for_select, cx);
-                            cx.notify();
-                        }))
-                        .child(SharedString::from(format!("{num_str}{track_title}{dur}")))
-                        .when(mb_text.is_some(), |el| {
-                            let color = match mb {
-                                Some(MbTrackStatus::Done(n)) if *n > 0 => color::status_success(),
-                                Some(MbTrackStatus::Skipped(_)) => color::status_danger(),
-                                Some(MbTrackStatus::Processing) => color::status_warning(),
-                                _ => color::text_muted(),
-                            };
-                            el.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(color)
-                                    .child(SharedString::from(mb_text.unwrap().to_string())),
-                            )
-                        }),
-                )
-                .child(
-                    Button::new(SharedString::from(format!("lib-toggle-{track_id}")))
-                        .label(if is_busy {
-                            "Subscribing..."
-                        } else if in_library {
-                            "Unsubscribe"
-                        } else {
-                            "Subscribe"
-                        })
-                        .with_size(Size::XSmall)
-                        .when(in_library, |btn| btn.primary())
-                        .when(!in_library, |btn| btn.ghost())
-                        .text_color(rgb(0xffffff))
-                        .disabled(is_busy)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if in_library {
-                                this.remove_track(track_id);
-                            } else {
-                                this.subscribe_track(track_for_click.clone(), cx);
-                            }
-                            cx.notify();
-                        })),
-                )
-                .when(track.local_path.is_some(), |el| {
-                    el.child(
-                        div()
-                            .text_xs()
-                            .text_color(color::status_success())
-                            .child("dl'd"),
-                    )
-                })
-                .child(
-                    Button::new(SharedString::from(format!("album-track-add-{track_id}")))
-                        .label(if popup_open { "Add ▴" } else { "Add ▾" })
-                        .ghost()
-                        .with_size(Size::XSmall)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.album_add_open_track =
-                                if this.album_add_open_track == Some(track_id) {
-                                    None
-                                } else {
-                                    Some(track_id)
-                                };
-                            cx.notify();
-                        })),
-                );
-
-            if popup_open {
-                let popup = render_album_track_add_panel(track_id, playlists, cx);
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(spacing::XXS)
-                    .child(row)
-                    .child(popup)
-                    .into_any_element()
-            } else {
-                row.into_any_element()
-            }
+            render_library_track_row(
+                track,
+                mb_status,
+                busy_track,
+                add_open_track,
+                playlists,
+                cx,
+            )
         })
         .collect();
 
-    // Compute album metadata.
-    let artist = album
-        .tracks
-        .iter()
-        .find_map(|t| {
-            t.album_artist_name
-                .clone()
-                .or_else(|| t.artist_name.clone())
-        })
-        .unwrap_or_else(|| "Unknown Artist".to_string());
+    // Compute metadata grid from feed_view
+    let artist = feed_view.artist.clone().unwrap_or_else(|| "Unknown Artist".to_string());
+    let track_count = album.tracks.len();
     let total_duration_secs: i64 = album.tracks.iter().filter_map(|t| t.duration_seconds).sum();
     let duration_str = if total_duration_secs > 0 {
         let mins = total_duration_secs / 60;
@@ -3194,7 +3259,7 @@ fn render_album_detail(
         .iter()
         .filter(|t| t.local_path.is_some())
         .count();
-    let track_count = album.tracks.len();
+
     let mut detail_rows = vec![
         ("Artist".to_string(), artist.clone()),
         (
@@ -3212,12 +3277,13 @@ fn render_album_detail(
         detail_rows.push(("Downloaded".to_string(), downloaded.to_string()));
     }
 
-    // Buttons row.
+    // Library-specific action buttons
     let has_active_mb = mb_status
         .values()
         .any(|s| matches!(s, MbTrackStatus::Pending | MbTrackStatus::Processing));
     let album_for_mb = album.clone();
     let feed_url = album.feed_url.clone();
+    let feed_id = album.feed_id;
     let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
     buttons = buttons.child(render_rss_icon_link(
         &format!("album-{}", album.feed_id.unwrap_or(0)),
@@ -3261,6 +3327,7 @@ fn render_album_detail(
         None
     };
 
+    // Unified layout with app-agnostic ui_common helpers
     let mut container = div()
         .id("album-detail-scroll")
         .size_full()
@@ -3268,10 +3335,10 @@ fn render_album_detail(
         .p(spacing::LG)
         .flex()
         .flex_col()
-        .gap(spacing::MD)
+        .gap(spacing::LG)
         .child(render_detail_header(
             "feed",
-            title,
+            &feed_view.title.clone().unwrap_or_else(|| "Untitled".into()),
             Some(artist.as_str()),
             thumb_image.as_ref(),
         ))
@@ -3289,6 +3356,139 @@ fn render_album_detail(
                 .children(track_rows),
         )
         .into_any_element()
+}
+
+fn render_library_track_row(
+    track: &TrackRow,
+    mb_status: &BTreeMap<i64, MbTrackStatus>,
+    busy_track: Option<i64>,
+    add_open_track: Option<i64>,
+    playlists: &[db::Playlist],
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let track_for_click = track.clone();
+    let track_for_select = track.clone();
+    let track_id = track.id;
+    let in_library = track.is_in_library;
+    let is_busy = busy_track == Some(track_id);
+    let popup_open = add_open_track == Some(track_id);
+    let track_title = track
+        .track_title
+        .as_deref()
+        .unwrap_or("[untitled]")
+        .to_string();
+    let num_str = track
+        .track_number
+        .map(|n| format!("{n}. "))
+        .unwrap_or_default();
+    let dur = track
+        .duration_seconds
+        .map(|s| format!("  ({}:{:02})", s / 60, s % 60))
+        .unwrap_or_default();
+    let mb = mb_status.get(&track_id);
+    let mb_text = match mb {
+        Some(MbTrackStatus::Pending) => Some("MB: pending"),
+        Some(MbTrackStatus::Processing) => Some("MB: looking up..."),
+        Some(MbTrackStatus::Done(0)) => Some("MB: no missing fields"),
+        Some(MbTrackStatus::Done(_)) => Some("MB: done"),
+        Some(MbTrackStatus::Skipped(_)) => Some("MB: skipped"),
+        None => None,
+    };
+
+    let row = div()
+        .id(SharedString::from(format!("album-track-{track_id}")))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(spacing::SM)
+        .px(spacing::SM)
+        .py(spacing::XS)
+        .rounded(radius::SM)
+        .hover(|el| el.bg(color::bg_surface_hi()))
+        .child(
+            div()
+                .id(SharedString::from(format!("album-track-select-{track_id}")))
+                .flex_1()
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_track(&track_for_select, cx);
+                    cx.notify();
+                }))
+                .child(SharedString::from(format!("{num_str}{track_title}{dur}")))
+                .when(mb_text.is_some(), |el| {
+                    let color = match mb {
+                        Some(MbTrackStatus::Done(n)) if *n > 0 => color::status_success(),
+                        Some(MbTrackStatus::Skipped(_)) => color::status_danger(),
+                        Some(MbTrackStatus::Processing) => color::status_warning(),
+                        _ => color::text_muted(),
+                    };
+                    el.child(
+                        div()
+                            .text_xs()
+                            .text_color(color)
+                            .child(SharedString::from(mb_text.unwrap().to_string())),
+                    )
+                }),
+        )
+        .child(
+            Button::new(SharedString::from(format!("lib-toggle-{track_id}")))
+                .label(if is_busy {
+                    "Subscribing..."
+                } else if in_library {
+                    "Unsubscribe"
+                } else {
+                    "Subscribe"
+                })
+                .with_size(Size::XSmall)
+                .when(in_library, |btn| btn.primary())
+                .when(!in_library, |btn| btn.ghost())
+                .text_color(rgb(0xffffff))
+                .disabled(is_busy)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if in_library {
+                        this.remove_track(track_id);
+                    } else {
+                        this.subscribe_track(track_for_click.clone(), cx);
+                    }
+                    cx.notify();
+                })),
+        )
+        .when(track.local_path.is_some(), |el| {
+            el.child(
+                div()
+                    .text_xs()
+                    .text_color(color::status_success())
+                    .child("dl'd"),
+            )
+        })
+        .child(
+            Button::new(SharedString::from(format!("album-track-add-{track_id}")))
+                .label(if popup_open { "Add ▴" } else { "Add ▾" })
+                .ghost()
+                .with_size(Size::XSmall)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.album_add_open_track =
+                        if this.album_add_open_track == Some(track_id) {
+                            None
+                        } else {
+                            Some(track_id)
+                        };
+                    cx.notify();
+                })),
+        );
+
+    if popup_open {
+        let popup = render_album_track_add_panel(track_id, playlists, cx);
+        div()
+            .flex()
+            .flex_col()
+            .gap(spacing::XXS)
+            .child(row)
+            .child(popup)
+            .into_any_element()
+    } else {
+        row.into_any_element()
+    }
 }
 
 fn render_album_track_add_panel(
@@ -4824,32 +5024,6 @@ fn compare_tag_cell(
         .into_any_element()
 }
 
-fn compare_value_line_elements(value: &str, max_lines: usize) -> Vec<AnyElement> {
-    let mut lines = value.lines().collect::<Vec<_>>();
-    if lines.is_empty() {
-        lines.push("");
-    }
-    let truncated = lines.len() > max_lines;
-    lines
-        .into_iter()
-        .take(max_lines)
-        .enumerate()
-        .map(|(index, line)| {
-            let line = if truncated && index + 1 == max_lines {
-                "..."
-            } else if line.is_empty() {
-                " "
-            } else {
-                line
-            };
-            div()
-                .truncate()
-                .child(SharedString::from(line.to_string()))
-                .into_any_element()
-        })
-        .collect()
-}
-
 fn id3_frame_color(frame_id: &str) -> gpui::Rgba {
     match id3_frame_base(frame_id) {
         "SYLT" | "USLT" | "APIC" => rgb(0x3ac4c4),
@@ -4937,136 +5111,6 @@ fn source_cell_color(
     }
 }
 
-fn render_detail_header(
-    entity_type: &str,
-    title: &str,
-    subtitle: Option<&str>,
-    image: Option<&Arc<Image>>,
-) -> AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::LG)
-        .child(render_thumb(image, entity_type, 80.0, true))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_size(typography::SIZE_MICRO)
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(badge_text(entity_type))
-                        .bg(type_color(entity_type))
-                        .px(spacing::XS)
-                        .py(spacing::XXS)
-                        .rounded(radius::SM)
-                        .mb(spacing::XS)
-                        .child(SharedString::from(entity_type.to_string())),
-                )
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(px(23.0))
-                        .child(SharedString::from(title.to_string())),
-                )
-                .when_some(subtitle.map(str::to_owned), |el, sub| {
-                    el.child(
-                        div()
-                            .mt(spacing::XS)
-                            .text_size(typography::SIZE_HEADLINE)
-                            .font_weight(FontWeight::MEDIUM)
-                            .line_height(px(20.0))
-                            .text_color(color::text_muted())
-                            .child(SharedString::from(sub)),
-                    )
-                }),
-        )
-        .into_any_element()
-}
-
-fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::XS)
-        .children(rows.into_iter().map(|(key, value)| {
-            div()
-                .flex()
-                .flex_row()
-                .items_start()
-                .gap(spacing::MD)
-                .child(
-                    div()
-                        .w(px(124.0))
-                        .flex_shrink_0()
-                        .text_color(color::text_muted())
-                        .whitespace_nowrap()
-                        .text_size(typography::SIZE_MICRO)
-                        .child(SharedString::from(key)),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(typography::SIZE_MICRO)
-                        .line_height(px(17.0))
-                        .flex()
-                        .flex_col()
-                        .children(compare_value_line_elements(&value, 6)),
-                )
-                .into_any_element()
-        }))
-        .into_any_element()
-}
-
-fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
-    let base = img(image.clone())
-        .w(px(size))
-        .h(px(size))
-        .object_fit(ObjectFit::Cover);
-    if image.format == ImageFormat::Gif {
-        base.id(SharedString::from(format!("anim-thumb:{}", image.id())))
-            .into_any_element()
-    } else {
-        base.into_any_element()
-    }
-}
-
-fn render_thumb(
-    image_data: Option<&Arc<Image>>,
-    entity_type: &str,
-    size: f32,
-    large: bool,
-) -> AnyElement {
-    let radius = if large { radius::MD } else { radius::SM };
-    if let Some(image) = image_data {
-        div()
-            .w(px(size))
-            .h(px(size))
-            .rounded(radius)
-            .overflow_hidden()
-            .flex_shrink_0()
-            .child(artwork_img(image.clone(), size))
-            .into_any_element()
-    } else {
-        div()
-            .w(px(size))
-            .h(px(size))
-            .rounded(radius)
-            .bg(color::border_subtle())
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(px(if large { 28.0 } else { 14.0 }))
-            .flex_shrink_0()
-            .child(type_emoji(entity_type))
-            .into_any_element()
-    }
-}
-
 fn render_loading(message: &str) -> AnyElement {
     div()
         .text_color(color::text_muted())
@@ -5108,37 +5152,12 @@ fn render_clickable_section_heading(label: &str, collapsed: bool) -> gpui::State
         )
 }
 
-fn metadata_action_button(label: &str) -> Button {
-    Button::new(SharedString::from(format!("metadata-action:{label}")))
-        .label(SharedString::from(label.to_string()))
-        .with_size(Size::XSmall)
-        .compact()
-        .ghost()
-        .text_color(rgb(0xffffff))
-        .text_size(typography::SIZE_MICRO)
-        .rounded(radius::SM)
-        .border_1()
-        .border_color(color::accent())
-}
-
 fn muted_line(value: &str) -> AnyElement {
     div()
         .text_color(color::text_muted())
         .text_size(typography::SIZE_MICRO)
         .child(SharedString::from(value.to_string()))
         .into_any_element()
-}
-
-fn type_color(entity_type: &str) -> gpui::Rgba {
-    badges::type_color(entity_type)
-}
-
-fn badge_text(entity_type: &str) -> gpui::Rgba {
-    badges::text_color(entity_type)
-}
-
-fn type_emoji(entity_type: &str) -> &'static str {
-    badges::emoji(entity_type)
 }
 
 fn compare_downloaded_track_path(
