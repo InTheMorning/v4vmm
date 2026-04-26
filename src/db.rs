@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension};
 
 use crate::config::Config;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct FeedRow {
     pub id: i64,
     pub feed_url: String,
@@ -17,7 +17,7 @@ pub struct FeedRow {
     pub is_subscribed: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TrackRow {
     pub id: i64,
     pub feed_id: i64,
@@ -112,9 +112,11 @@ pub fn subscribed_feeds_for_stale_check(conn: &Connection) -> Result<Vec<FeedSta
 }
 
 pub fn feed_url_by_id(conn: &Connection, feed_id: i64) -> Result<Option<String>> {
-    conn.query_row("SELECT feed_url FROM feeds WHERE id = ?1", [feed_id], |row| {
-        row.get::<_, String>(0)
-    })
+    conn.query_row(
+        "SELECT feed_url FROM feeds WHERE id = ?1",
+        [feed_id],
+        |row| row.get::<_, String>(0),
+    )
     .optional()
     .context("query feed_url_by_id")
 }
@@ -442,7 +444,8 @@ pub fn unsubscribe_feed_tracks(conn: &Connection, feed_id: i64) -> Result<()> {
         [feed_id],
     )
     .context("unsubscribe_feed_tracks")?;
-    Ok(())}
+    Ok(())
+}
 
 /// Recompute and persist `feeds.is_subscribed` for the given feed URL based on
 /// per-track library state: subscribed iff every track of the feed is in the
@@ -461,7 +464,8 @@ pub fn reconcile_feed_subscription_by_url(conn: &Connection, feed_url: &str) -> 
         )
         .optional()
         .context("reconcile_feed_subscription_by_url counts")?;
-    let subscribed = matches!(counts, Some((total, in_library)) if total > 0 && in_library == total);
+    let subscribed =
+        matches!(counts, Some((total, in_library)) if total > 0 && in_library == total);
     set_feed_subscribed_by_url(conn, feed_url, subscribed)?;
     Ok(subscribed)
 }
@@ -498,7 +502,7 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
     })
 }
 
-fn transcript_url_from_extra_json(extra_json: Option<&str>) -> Option<String> {
+pub fn transcript_url_from_extra_json(extra_json: Option<&str>) -> Option<String> {
     let extra_json = extra_json?;
     let value = serde_json::from_str::<serde_json::Value>(extra_json).ok()?;
     value
@@ -564,7 +568,11 @@ pub fn playlist_rename(conn: &Connection, playlist_id: i64, new_name: &str) -> R
     Ok(())
 }
 
-pub fn playlist_set_description(conn: &Connection, playlist_id: i64, desc: Option<&str>) -> Result<()> {
+pub fn playlist_set_description(
+    conn: &Connection,
+    playlist_id: i64,
+    desc: Option<&str>,
+) -> Result<()> {
     conn.execute(
         "UPDATE playlists SET description = ?1, updated_at = strftime('%s','now') WHERE id = ?2",
         rusqlite::params![desc, playlist_id],
@@ -575,8 +583,11 @@ pub fn playlist_set_description(conn: &Connection, playlist_id: i64, desc: Optio
 }
 
 pub fn playlist_delete(conn: &Connection, playlist_id: i64) -> Result<()> {
-    conn.execute("DELETE FROM playlists WHERE id = ?1", rusqlite::params![playlist_id])
-        .context("delete playlist")?;
+    conn.execute(
+        "DELETE FROM playlists WHERE id = ?1",
+        rusqlite::params![playlist_id],
+    )
+    .context("delete playlist")?;
 
     Ok(())
 }
@@ -862,7 +873,10 @@ mod tests {
 
     fn create_test_track(conn: &Connection, feed_id: i64) -> Result<i64> {
         static COUNTER: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
-        let guid = format!("guid-{}", COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+        let guid = format!(
+            "guid-{}",
+            COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
         conn.execute(
             "INSERT INTO tracks (feed_id, item_guid, track_title) VALUES (?1, ?2, ?3)",
             rusqlite::params![feed_id, guid, "Test Track"],

@@ -33,6 +33,11 @@ use crate::rss;
 use crate::track_compare::{
     download_track, local_track_path, select_audio_enclosure, ComparisonStatus,
 };
+use crate::ui_common::{
+    artwork_img, badge_text, compare_value_line_elements, metadata_action_button, optional_row,
+    render_detail_grid, render_detail_header, render_thumb, section_heading, truncated,
+    truncated_muted, type_color, type_emoji,
+};
 
 #[derive(Clone, Debug)]
 struct ResultRow {
@@ -42,7 +47,7 @@ struct ResultRow {
 }
 
 #[derive(Clone, Debug)]
-enum InspectorDetail {
+pub(crate) enum InspectorDetail {
     Loading(String),
     Error(String),
     Artist(Box<ArtistContext>),
@@ -52,7 +57,7 @@ enum InspectorDetail {
 }
 
 #[derive(Clone, Debug)]
-struct ArtistContext {
+pub(crate) struct ArtistContext {
     artist: Artist,
     tracks: Vec<Track>,
     feeds: Vec<Feed>,
@@ -60,7 +65,7 @@ struct ArtistContext {
 }
 
 #[derive(Clone, Debug, Default)]
-enum LazyPanel<T> {
+pub(crate) enum LazyPanel<T> {
     #[default]
     Hidden,
     Loading,
@@ -69,31 +74,31 @@ enum LazyPanel<T> {
 }
 
 #[derive(Clone, Debug)]
-struct InspectorFrame {
-    entity_type: String,
-    entity_id: String,
-    title: String,
-    detail: InspectorDetail,
-    image: Option<Arc<Image>>,
-    contributors: LazyPanel<Vec<Contributor>>,
-    contributors_collapsed: bool,
-    value_routes: LazyPanel<Vec<PaymentRoute>>,
-    value_routes_collapsed: bool,
-    expanded_id3_frame_groups: BTreeSet<String>,
-    expanded_metadata_cells: BTreeSet<String>,
-    pending_id3_edits: BTreeMap<String, PendingId3Edit>,
-    suppressed_auto_id3_edits: BTreeSet<String>,
-    applying_id3_edits: bool,
-    id3_apply_error: Option<String>,
-    local_subscription: Option<bool>,
-    subscription_busy: bool,
-    subscription_message: Option<String>,
-    tag_compare: LazyPanel<TagCompareResult>,
-    musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
-    musicbrainz_selected: usize,
-    podroll: LazyPanel<Vec<Feed>>,
-    add_to_playlist_open: bool,
-    add_to_playlist_open_track_guid: Option<String>,
+pub(crate) struct InspectorFrame {
+    pub entity_type: String,
+    pub entity_id: String,
+    pub title: String,
+    pub detail: InspectorDetail,
+    pub image: Option<Arc<Image>>,
+    pub contributors: LazyPanel<Vec<Contributor>>,
+    pub contributors_collapsed: bool,
+    pub value_routes: LazyPanel<Vec<PaymentRoute>>,
+    pub value_routes_collapsed: bool,
+    pub expanded_id3_frame_groups: BTreeSet<String>,
+    pub expanded_metadata_cells: BTreeSet<String>,
+    pub pending_id3_edits: BTreeMap<String, PendingId3Edit>,
+    pub suppressed_auto_id3_edits: BTreeSet<String>,
+    pub applying_id3_edits: bool,
+    pub id3_apply_error: Option<String>,
+    pub local_subscription: Option<bool>,
+    pub subscription_busy: bool,
+    pub subscription_message: Option<String>,
+    pub tag_compare: LazyPanel<TagCompareResult>,
+    pub musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
+    pub musicbrainz_selected: usize,
+    pub podroll: LazyPanel<Vec<Feed>>,
+    pub add_to_playlist_open: bool,
+    pub add_to_playlist_open_track_guid: Option<String>,
 }
 
 impl InspectorFrame {
@@ -125,11 +130,6 @@ impl InspectorFrame {
             add_to_playlist_open_track_guid: None,
         }
     }
-}
-
-struct DetailRow {
-    key: String,
-    value: AnyElement,
 }
 
 struct MetadataDragPreview {
@@ -205,7 +205,7 @@ pub struct SearchApp {
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
-    playlists: Vec<db::Playlist>,
+    pub(crate) playlists: Vec<db::Playlist>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -222,6 +222,13 @@ pub enum SearchAppEvent {
 }
 
 impl gpui::EventEmitter<SearchAppEvent> for SearchApp {}
+
+type FeedTrackListContext<'a> = (
+    &'a str,
+    Option<&'a str>,
+    Option<&'a str>,
+    &'a [db::Playlist],
+);
 
 const TYPE_LABELS: &[&str] = &["All", "Artist", "Feed", "Track", "Publisher"];
 const TYPE_VALUES: &[Option<&str>] = &[
@@ -377,10 +384,9 @@ impl SearchApp {
             return;
         }
         let current_key = self.selected_key.as_deref();
-        let current_idx = self
-            .results
-            .iter()
-            .position(|r| Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string()));
+        let current_idx = self.results.iter().position(|r| {
+            Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string())
+        });
         let next_idx = match current_idx {
             Some(idx) if idx > 0 => idx - 1,
             _ => 0,
@@ -398,10 +404,9 @@ impl SearchApp {
             return;
         }
         let current_key = self.selected_key.as_deref();
-        let current_idx = self
-            .results
-            .iter()
-            .position(|r| Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string()));
+        let current_idx = self.results.iter().position(|r| {
+            Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string())
+        });
         let next_idx = match current_idx {
             Some(idx) if idx + 1 < self.results.len() => idx + 1,
             Some(idx) => idx,
@@ -610,7 +615,7 @@ impl SearchApp {
         self.load_inspector("feed".into(), feed_guid, title, false, cx);
     }
 
-    fn push_inspector(
+    pub(crate) fn push_inspector(
         &mut self,
         entity_type: String,
         entity_id: String,
@@ -689,11 +694,7 @@ impl SearchApp {
                                                 feed.feed_url.clone().filter(|s| !s.is_empty())
                                             {
                                                 frame.podroll = LazyPanel::Loading;
-                                                this.load_podroll(
-                                                    entity_id.clone(),
-                                                    feed_url,
-                                                    cx,
-                                                );
+                                                this.load_podroll(entity_id.clone(), feed_url, cx);
                                             }
                                         }
                                     }
@@ -712,12 +713,7 @@ impl SearchApp {
         .detach();
     }
 
-    fn load_podroll(
-        &mut self,
-        feed_guid: String,
-        feed_url: String,
-        cx: &mut Context<Self>,
-    ) {
+    fn load_podroll(&mut self, feed_guid: String, feed_url: String, cx: &mut Context<Self>) {
         let client = self.api_client();
         cx.spawn(
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
@@ -1068,14 +1064,18 @@ impl SearchApp {
         let snapshots: Vec<Option<bool>> = self
             .inspector_stack
             .iter()
-            .map(|frame| local_subscription_for_detail(&self.conn, &frame.detail).ok().flatten())
+            .map(|frame| {
+                local_subscription_for_detail(&self.conn, &frame.detail)
+                    .ok()
+                    .flatten()
+            })
             .collect();
         for (frame, snap) in self.inspector_stack.iter_mut().zip(snapshots) {
             frame.local_subscription = snap;
         }
     }
 
-    fn download_track_row(
+    pub(crate) fn download_track_row(
         &mut self,
         track: Track,
         feed: Option<Feed>,
@@ -1104,25 +1104,33 @@ impl SearchApp {
                     .spawn(async move { subscribe_search_request(conn, request) })
                     .await;
 
-                this.update(cx, move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                    this.in_flight_tracks.remove(&key);
-                    match result {
-                        Ok(outcome) => {
-                            this.status = outcome.message;
-                            this.refresh_inspector_subscription_state(cx);
-                            cx.emit(SearchAppEvent::LibraryMutated);
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        this.in_flight_tracks.remove(&key);
+                        match result {
+                            Ok(outcome) => {
+                                this.status = outcome.message;
+                                this.refresh_inspector_subscription_state(cx);
+                                cx.emit(SearchAppEvent::LibraryMutated);
+                            }
+                            Err(error) => this.status = format!("Download error: {error:#}"),
                         }
-                        Err(error) => this.status = format!("Download error: {error:#}"),
-                    }
-                    cx.notify();
-                })
+                        cx.notify();
+                    },
+                )
                 .ok();
             },
         )
         .detach();
     }
 
-    fn remove_track_row(&mut self, track: Track, feed: Option<Feed>, cx: &mut Context<Self>) {
+    pub(crate) fn remove_track_row(
+        &mut self,
+        track: Track,
+        feed: Option<Feed>,
+        cx: &mut Context<Self>,
+    ) {
         let key = track_row_key(&track);
         if key.is_empty() || !self.in_flight_tracks.insert(key.clone()) {
             return;
@@ -1145,18 +1153,21 @@ impl SearchApp {
                     .spawn(async move { unsubscribe_search_request(conn, request) })
                     .await;
 
-                this.update(cx, move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                    this.in_flight_tracks.remove(&key);
-                    match result {
-                        Ok(message) => {
-                            this.status = message;
-                            this.refresh_inspector_subscription_state(cx);
-                            cx.emit(SearchAppEvent::LibraryMutated);
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        this.in_flight_tracks.remove(&key);
+                        match result {
+                            Ok(message) => {
+                                this.status = message;
+                                this.refresh_inspector_subscription_state(cx);
+                                cx.emit(SearchAppEvent::LibraryMutated);
+                            }
+                            Err(error) => this.status = format!("Remove error: {error:#}"),
                         }
-                        Err(error) => this.status = format!("Remove error: {error:#}"),
-                    }
-                    cx.notify();
-                })
+                        cx.notify();
+                    },
+                )
                 .ok();
             },
         )
@@ -1359,8 +1370,8 @@ impl SearchApp {
                 return Ok(id);
             }
         }
-        let url = feed_url
-            .ok_or_else(|| anyhow::anyhow!("feed URL unknown; cannot auto-subscribe"))?;
+        let url =
+            feed_url.ok_or_else(|| anyhow::anyhow!("feed URL unknown; cannot auto-subscribe"))?;
         let cfg_path = config::config_path()?;
         let cfg = config::load_config(&cfg_path)?;
         config::ensure_dirs(&cfg)?;
@@ -1414,7 +1425,7 @@ impl SearchApp {
         cx.notify();
     }
 
-    fn add_search_track_to_playlist(
+    pub(crate) fn add_search_track_to_playlist(
         &mut self,
         feed_guid: &str,
         feed_url: Option<&str>,
@@ -1457,6 +1468,16 @@ impl SearchApp {
         drop(conn);
         self.load_playlists();
         cx.notify();
+    }
+
+    pub(crate) fn toggle_add_to_playlist_track_guid(&mut self, track_guid: &str) {
+        if let Some(frame) = self.inspector_stack.last_mut() {
+            if frame.add_to_playlist_open_track_guid.as_deref() == Some(track_guid) {
+                frame.add_to_playlist_open_track_guid = None;
+            } else {
+                frame.add_to_playlist_open_track_guid = Some(track_guid.to_string());
+            }
+        }
     }
 
     fn add_track_to_playlist(&mut self, track_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
@@ -1669,7 +1690,13 @@ impl Render for SearchApp {
             .map(|row| {
                 let image_url = result_image_url(row);
                 let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
-                render_result_item(row, selected_key.as_deref(), thumbnail.as_ref(), list_focused, cx)
+                render_result_item(
+                    row,
+                    selected_key.as_deref(),
+                    thumbnail.as_ref(),
+                    list_focused,
+                    cx,
+                )
             })
             .collect();
         let type_filters: Vec<AnyElement> = TYPE_LABELS
@@ -1824,7 +1851,9 @@ impl Render for SearchApp {
                                                         .text_color(color::text_muted())
                                                         .child(div().text_2xl().child("🔍"))
                                                         .child(
-                                                            div().mt(spacing::SM).child("No results"),
+                                                            div()
+                                                                .mt(spacing::SM)
+                                                                .child("No results"),
                                                         ),
                                                 )
                                             })
@@ -1836,7 +1865,9 @@ impl Render for SearchApp {
                                                         .text_color(color::text_muted())
                                                         .child(div().text_2xl().child("🔍"))
                                                         .child(
-                                                            div().mt(spacing::SM).child("No results"),
+                                                            div()
+                                                                .mt(spacing::SM)
+                                                                .child("No results"),
                                                         ),
                                                 )
                                             })
@@ -2060,8 +2091,7 @@ fn enrich_artist_rows(client: &Client, rows: &mut [ResultRow]) {
         if artist_name.is_empty() {
             continue;
         }
-        let Ok(response) =
-            client.fetch_tracks_by_artist(&artist_name, Some(PAGE_LIMIT * 2), None)
+        let Ok(response) = client.fetch_tracks_by_artist(&artist_name, Some(PAGE_LIMIT * 2), None)
         else {
             continue;
         };
@@ -2186,7 +2216,8 @@ fn fetch_inspector_detail(
             let mut feeds: Vec<Feed> = Vec::with_capacity(feed_order.len());
             for guid in &feed_order {
                 let fetched = client.fetch_feed(guid, None).ok();
-                let artist_tracks_in_feed = artist_track_count_by_feed.get(guid).copied().unwrap_or(0);
+                let artist_tracks_in_feed =
+                    artist_track_count_by_feed.get(guid).copied().unwrap_or(0);
                 let feed = match fetched {
                     Some(mut f) => {
                         f.episode_count = Some(artist_tracks_in_feed);
@@ -2212,9 +2243,9 @@ fn fetch_inspector_detail(
                 .iter()
                 .find_map(|f| nonempty_url(f.image_url.as_deref()).map(str::to_string))
                 .or_else(|| {
-                    tracks
-                        .iter()
-                        .find_map(|track| nonempty_url(track.image_url.as_deref()).map(str::to_string))
+                    tracks.iter().find_map(|track| {
+                        nonempty_url(track.image_url.as_deref()).map(str::to_string)
+                    })
                 });
             let image = image_url
                 .as_deref()
@@ -2290,7 +2321,11 @@ fn resolve_podroll_feeds(client: &Client, feed_url: &str) -> Result<Vec<Feed>> {
     let mut feeds: Vec<Feed> = Vec::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
     for entry in entries {
-        let guid = entry.feed_guid.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let guid = entry
+            .feed_guid
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         let key = guid
             .map(str::to_string)
             .or_else(|| entry.feed_url.clone())
@@ -2350,7 +2385,7 @@ fn feed_rss_url(feed: &Feed) -> Option<String> {
     nonempty_url(feed.feed_url.as_deref()).map(str::to_string)
 }
 
-fn track_play_url(track: &Track) -> Option<String> {
+pub(crate) fn track_play_url(track: &Track) -> Option<String> {
     nonempty_url(track.enclosure_url.as_deref())
         .map(str::to_string)
         .or_else(|| {
@@ -2411,8 +2446,7 @@ fn download_and_compare_track(
         if let Some(enclosure) = select_audio_enclosure(&track) {
             let candidate = local_track_path(&cfg, &track, enclosure.format.canonical_extension());
             if candidate.exists() {
-                let path =
-                    crate::track_compare::ensure_taggable_local_path(&cfg, &candidate);
+                let path = crate::track_compare::ensure_taggable_local_path(&cfg, &candidate);
                 let track_context = TrackContext { track, feed };
                 return compare_downloaded_track_path(&path, &track_context);
             }
@@ -2496,9 +2530,18 @@ fn subscribe_search_request(
         SearchSubscribeRequest::Feed(feed, musicindex_endpoint) => {
             subscribe_feed_from_search(conn, *feed, musicindex_endpoint)
         }
-        SearchSubscribeRequest::Track(track_context, edits, musicindex_endpoint, mark_feed_subscribed) => {
-            subscribe_track_from_search(conn, *track_context, edits, musicindex_endpoint, mark_feed_subscribed)
-        }
+        SearchSubscribeRequest::Track(
+            track_context,
+            edits,
+            musicindex_endpoint,
+            mark_feed_subscribed,
+        ) => subscribe_track_from_search(
+            conn,
+            *track_context,
+            edits,
+            musicindex_endpoint,
+            mark_feed_subscribed,
+        ),
     }
 }
 
@@ -2550,10 +2593,7 @@ fn subscribe_feed_from_search(
                 let working_path = prepared.working_path().to_path_buf();
                 if !edits.is_empty() {
                     if let Err(err) = write_id3v24_edits(&working_path, &edits) {
-                        eprintln!(
-                            "skip tag write for {}: {err:#}",
-                            working_path.display()
-                        );
+                        eprintln!("skip tag write for {}: {err:#}", working_path.display());
                     } else {
                         applied_edits += edits.len();
                     }
@@ -2563,9 +2603,7 @@ fn subscribe_feed_from_search(
                         let file_size = std::fs::metadata(&final_path)
                             .ok()
                             .and_then(|m| m.len().try_into().ok());
-                        let db = conn
-                            .lock()
-                            .map_err(|_| anyhow!("database lock poisoned"))?;
+                        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
                         let marked = db::mark_track_downloaded_by_match(
                             &db,
                             track.feed_url.as_deref().or(Some(feed_url.as_str())),
@@ -2581,10 +2619,7 @@ fn subscribe_feed_from_search(
                         }
                     }
                     Err(err) => {
-                        eprintln!(
-                            "finalize {} failed: {err:#}",
-                            working_path.display()
-                        );
+                        eprintln!("finalize {} failed: {err:#}", working_path.display());
                         skipped += 1;
                     }
                 }
@@ -2995,7 +3030,11 @@ fn render_result_item(
                     el.child(truncated_muted(line2).text_size(typography::SIZE_MICRO))
                 })
                 .when(!line3.is_empty(), |el| {
-                    el.child(truncated_muted(line3).text_size(typography::SIZE_MICRO).opacity(0.7))
+                    el.child(
+                        truncated_muted(line3)
+                            .text_size(typography::SIZE_MICRO)
+                            .opacity(0.7),
+                    )
                 }),
         )
         .child(
@@ -3096,62 +3135,22 @@ fn render_artist_inspector(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let title = artist_context
-        .artist
-        .name
-        .clone()
-        .or_else(|| artist_context.artist.artist_id.clone())
-        .unwrap_or_else(|| frame.title.clone());
-    
-    // ... rest of logic stays same ...
-    let feeds = artist_context.feeds.clone();
-    let unique_releases = feeds.len();
+    let view = crate::views::ArtistView::from_api(artist_context.artist.clone());
     let track_count = artist_context
         .artist
         .track_count
         .unwrap_or(artist_context.tracks.len() as i32);
-    let mut rows = vec![
-        (
-            "Tracks".to_string(),
-            format!(
-                "{track_count}{}",
-                if artist_context.has_more_tracks {
-                    "+"
-                } else {
-                    ""
-                }
-            ),
-        ),
-        ("Feeds".to_string(), unique_releases.to_string()),
-    ];
-    optional_row(
-        &mut rows,
-        "Sort Name",
-        artist_context.artist.sort_name.clone(),
-    );
-    optional_row(&mut rows, "Area", artist_context.artist.area.clone());
-    optional_row(
-        &mut rows,
-        "Active",
-        artist_active_years(&artist_context.artist),
-    );
-    optional_row(&mut rows, "Website", artist_context.artist.url.clone());
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::LG)
-        .child(render_detail_header(
-            "artist",
-            &title,
-            Some("Feeds with tracks by this artist"),
-            frame.image.as_ref(),
-        ))
-        .child(render_detail_grid(rows))
-        .when(!feeds.is_empty(), |el| {
-            el.child(render_feed_list_section("Feeds", feeds, app, cx))
-        })
-        .into_any_element()
+    crate::ui_artist::render_artist_view(
+        &view,
+        &artist_context.feeds,
+        frame.image.as_ref(),
+        &crate::ui_context::ViewContext::Discover,
+        artist_context.has_more_tracks,
+        Some(track_count),
+        app,
+        cx,
+    )
 }
 
 fn artist_feeds_from_tracks(tracks: &[Track]) -> Vec<Feed> {
@@ -3227,101 +3226,20 @@ fn render_discover_feed_inspector(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let title = feed_title(feed);
-    let artist = feed
-        .release_artist
-        .clone()
-        .unwrap_or_else(|| "Unknown".into());
-    let mut rows = vec![
-        (
-            "Release Kind".to_string(),
-            feed.release_kind
-                .clone()
-                .unwrap_or_else(|| "Unknown".into()),
-        ),
-        (
-            "Publisher".to_string(),
-            feed.publisher_text
-                .clone()
-                .unwrap_or_else(|| "Unknown".into()),
-        ),
-    ];
-    optional_row(
-        &mut rows,
-        "Release Date",
-        feed.release_date.and_then(fmt_date),
-    );
-    optional_row(&mut rows, "Language", feed.language.clone());
-    if feed.explicit == Some(true) {
-        rows.push(("Explicit".into(), "Yes".into()));
-    }
-    optional_row(
-        &mut rows,
-        "Tracks",
-        feed.episode_count.map(|n| n.to_string()),
-    );
-
-    let mut tracks = feed.tracks.clone().unwrap_or_default();
-    tracks.sort_by(|a, b| {
-        let a_num = a.track_number.unwrap_or(i32::MAX);
-        let b_num = b.track_number.unwrap_or(i32::MAX);
-        a_num.cmp(&b_num).then_with(|| {
-            b.pub_date
-                .unwrap_or_default()
-                .cmp(&a.pub_date.unwrap_or_default())
-        })
-    });
-    let total_secs: i32 = tracks.iter().filter_map(|track| track.duration_secs).sum();
+    let view = crate::views::FeedView::from_api(feed.clone());
+    let tracks = feed.tracks.clone().unwrap_or_default();
+    let ctx = crate::ui_context::ViewContext::Discover;
 
     div()
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(render_feed_header(
-            frame,
-            feed,
-            &title,
-            Some(artist.as_str()),
-            cx,
+        .child(crate::ui_feed::render_feed_view(
+            &view, &tracks, &ctx, frame, app, cx,
         ))
-        .child(render_action_row(frame, &BTreeMap::new(), app, cx))
-        .child(render_detail_grid(rows))
-        .when(feed.description.is_some(), |el| {
-            el.child(render_collapsed_text_section(
-                "Description",
-                feed.description.clone().unwrap_or_default(),
-            ))
+        .when_some(podroll_section(frame, app, cx), |el, section| {
+            el.child(section)
         })
-        .when(!tracks.is_empty(), |el| {
-            let playlists = app.playlists.clone();
-            let open_guid = frame.add_to_playlist_open_track_guid.clone();
-            let feed_guid = frame.entity_id.clone();
-            let feed_url = feed.feed_url.clone();
-            let feed_context = Some((
-                feed_guid.as_str(),
-                feed_url.as_deref(),
-                open_guid.as_deref(),
-                playlists.as_slice(),
-            ));
-            el.child(render_track_list_section(
-                "Tracks",
-                format!(
-                    "{} total{}",
-                    tracks.len(),
-                    if total_secs > 0 {
-                        format!(" · {}", fmt_runtime(total_secs))
-                    } else {
-                        String::new()
-                    }
-                ),
-                tracks,
-                Some(feed.clone()),
-                feed_context,
-                app,
-                cx,
-            ))
-        })
-        .when_some(podroll_section(frame, app, cx), |el, section| el.child(section))
         .child(render_lazy_sections(frame, cx))
         .into_any_element()
 }
@@ -3358,12 +3276,7 @@ fn podroll_section(
             .cursor_pointer()
             .hover(|el| el.bg(color::bg_surface()))
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.push_inspector(
-                    "feed".into(),
-                    click_guid.clone(),
-                    click_title.clone(),
-                    cx,
-                );
+                this.push_inspector("feed".into(), click_guid.clone(), click_title.clone(), cx);
             }))
             .child(render_thumb(thumb.as_ref(), "feed", 128.0, true))
             .child(
@@ -3486,7 +3399,7 @@ fn render_publisher_inspector(
         .into_any_element()
 }
 
-fn render_action_row(
+pub(crate) fn render_action_row(
     frame: &InspectorFrame,
     _pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     app: &mut SearchApp,
@@ -3666,44 +3579,37 @@ fn render_add_to_playlist_panel_search(
                 feed_guid: feed_guid.clone(),
             },
         };
-        panel = panel.child(
-            metadata_action_button(&label).on_click(cx.listener(
-                move |this, _, _, cx| {
-                    if let Some(frame) = this.inspector_stack.last_mut() {
-                        frame.add_to_playlist_open = false;
+        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
+            move |this, _, _, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    frame.add_to_playlist_open = false;
+                }
+                match &target_for_click {
+                    Target::Track(track_id) => {
+                        this.add_track_to_playlist(*track_id, playlist_id, cx);
                     }
-                    match &target_for_click {
-                        Target::Track(track_id) => {
-                            this.add_track_to_playlist(*track_id, playlist_id, cx);
-                        }
-                        Target::TrackPending {
-                            feed_url,
+                    Target::TrackPending {
+                        feed_url,
+                        feed_guid,
+                        track_guid,
+                    } => {
+                        this.add_search_track_to_playlist(
                             feed_guid,
+                            feed_url.as_deref(),
                             track_guid,
-                        } => {
-                            this.add_search_track_to_playlist(
-                                feed_guid,
-                                feed_url.as_deref(),
-                                track_guid,
-                                playlist_id,
-                                cx,
-                            );
-                        }
-                        Target::Feed {
-                            feed_url,
-                            feed_guid,
-                        } => {
-                            this.add_feed_to_playlist(
-                                feed_guid,
-                                feed_url.as_deref(),
-                                playlist_id,
-                                cx,
-                            );
-                        }
+                            playlist_id,
+                            cx,
+                        );
                     }
-                },
-            )),
-        );
+                    Target::Feed {
+                        feed_url,
+                        feed_guid,
+                    } => {
+                        this.add_feed_to_playlist(feed_guid, feed_url.as_deref(), playlist_id, cx);
+                    }
+                }
+            },
+        )));
     }
 
     panel.into_any_element()
@@ -4117,6 +4023,10 @@ fn track_metadata_rows_for_frame(
     expand_woar_metadata_rows(rows)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "metadata grid needs explicit column state and edit state inputs"
+)]
 fn render_track_metadata_grid(
     rows: Vec<MetadataGridRow>,
     show_id3: bool,
@@ -4139,6 +4049,10 @@ fn render_track_metadata_grid(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "search metadata grid still renders from explicit staged inputs"
+)]
 fn render_metadata_grid(
     rows: Vec<MetadataGridRow>,
     show_id3: bool,
@@ -4220,7 +4134,8 @@ fn metadata_rss_cell(
 ) -> AnyElement {
     let value = row.rss_value.as_deref().unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
-    let (color_opt, glyph) = source_cell_color_and_glyph(pending, MetadataColumn::Rss, row.rss_value.as_deref());
+    let (color_opt, glyph) =
+        source_cell_color_and_glyph(pending, MetadataColumn::Rss, row.rss_value.as_deref());
     let value_color = color_opt.unwrap_or_else(color::text_primary);
     let display_value = if !glyph.is_empty() {
         display_with_glyph(glyph, &display_value)
@@ -4378,7 +4293,10 @@ fn metadata_musicbrainz_cell(
     let (musicbrainz_color, glyph) = if let (Some(color), glyph) = (color_opt, glyph) {
         (color, glyph)
     } else {
-        (comparison_status_color(&row.musicbrainz_status), comparison_status_glyph(&row.musicbrainz_status))
+        (
+            comparison_status_color(&row.musicbrainz_status),
+            comparison_status_glyph(&row.musicbrainz_status),
+        )
     };
     let value = row.musicbrainz_value.as_deref().unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
@@ -4770,7 +4688,12 @@ fn expandable_cell(
                     .flex()
                     .flex_row()
                     .gap(spacing::XS)
-                    .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph)),
+                    .child(
+                        div()
+                            .text_size(typography::SIZE_MICRO)
+                            .text_color(color::text_muted())
+                            .child(glyph),
+                    ),
             )
             .children(value_routes_tree_elements(
                 raw_value,
@@ -4806,7 +4729,12 @@ fn expandable_cell(
                         .flex()
                         .flex_row()
                         .gap(spacing::XS)
-                        .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
+                        .child(
+                            div()
+                                .text_size(typography::SIZE_MICRO)
+                                .text_color(color::text_muted())
+                                .child(glyph),
+                        )
                         .child(
                             div()
                                 .text_color(color::accent())
@@ -4827,7 +4755,12 @@ fn expandable_cell(
                     .flex_row()
                     .gap(spacing::XS)
                     .items_start()
-                    .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
+                    .child(
+                        div()
+                            .text_size(typography::SIZE_MICRO)
+                            .text_color(color::text_muted())
+                            .child(glyph),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -4844,7 +4777,12 @@ fn expandable_cell(
                     .flex_row()
                     .gap(spacing::XS)
                     .items_start()
-                    .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
+                    .child(
+                        div()
+                            .text_size(typography::SIZE_MICRO)
+                            .text_color(color::text_muted())
+                            .child(glyph),
+                    )
                     .child(
                         div()
                             .flex_1()
@@ -4862,7 +4800,12 @@ fn expandable_cell(
                 .flex()
                 .flex_row()
                 .gap(spacing::XS)
-                .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
+                .child(
+                    div()
+                        .text_size(typography::SIZE_MICRO)
+                        .text_color(color::text_muted())
+                        .child(glyph),
+                )
                 .child(
                     div()
                         .text_color(color::accent())
@@ -4968,7 +4911,12 @@ fn expandable_tag_cell(
             .flex()
             .flex_row()
             .gap(spacing::XS)
-            .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
+            .child(
+                div()
+                    .text_size(typography::SIZE_MICRO)
+                    .text_color(color::text_muted())
+                    .child(glyph),
+            )
             .child(
                 div()
                     .text_color(color::accent())
@@ -5006,7 +4954,12 @@ fn expandable_tag_cell(
                             .line_height(px(16.0))
                             .child(SharedString::from(frame_id_owned.unwrap_or_default())),
                     )
-                    .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph)),
+                    .child(
+                        div()
+                            .text_size(typography::SIZE_MICRO)
+                            .text_color(color::text_muted())
+                            .child(glyph),
+                    ),
             )
             .child(
                 div()
@@ -5084,7 +5037,11 @@ fn json_object_element(value: &serde_json::Value, color: gpui::Rgba, depth: usiz
                 match val {
                     serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
                         container = container
-                            .child(div().text_color(color::text_muted()).child(SharedString::from(key_str)))
+                            .child(
+                                div()
+                                    .text_color(color::text_muted())
+                                    .child(SharedString::from(key_str)),
+                            )
                             .child(json_object_element(val, color, depth + 1));
                     }
                     _ => {
@@ -5265,7 +5222,9 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let mut value_cell = div().text_size(typography::SIZE_MICRO).line_height(px(16.0));
+    let mut value_cell = div()
+        .text_size(typography::SIZE_MICRO)
+        .line_height(px(16.0));
     if let Some(color) = color {
         value_cell = value_cell.text_color(color);
     }
@@ -5295,32 +5254,6 @@ fn compare_tag_cell(
                 .children(compare_value_line_elements(value, 4)),
         )
         .into_any_element()
-}
-
-fn compare_value_line_elements(value: &str, max_lines: usize) -> Vec<AnyElement> {
-    let mut lines = value.lines().collect::<Vec<_>>();
-    if lines.is_empty() {
-        lines.push("");
-    }
-    let truncated = lines.len() > max_lines;
-    lines
-        .into_iter()
-        .take(max_lines)
-        .enumerate()
-        .map(|(index, line)| {
-            let line = if truncated && index + 1 == max_lines {
-                "..."
-            } else if line.is_empty() {
-                " "
-            } else {
-                line
-            };
-            div()
-                .truncate()
-                .child(SharedString::from(line.to_string()))
-                .into_any_element()
-        })
-        .collect::<Vec<_>>()
 }
 
 fn id3_frame_version_color(frame_id: &str) -> gpui::Rgba {
@@ -5501,12 +5434,12 @@ fn id3_cell_status_color(row: &AlignedCompareRow) -> gpui::Rgba {
     comparison_status_color(&row.id3_status)
 }
 
-fn render_track_list_section(
+pub(crate) fn render_track_list_section(
     heading: &str,
     note: String,
     tracks: Vec<Track>,
     feed: Option<Feed>,
-    feed_context: Option<(&str, Option<&str>, Option<&str>, &[db::Playlist])>,
+    feed_context: Option<FeedTrackListContext<'_>>,
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
@@ -5519,9 +5452,10 @@ fn render_track_list_section(
                     .and_then(|db| {
                         db::track_is_in_library_by_match(
                             db,
-                            track.feed_url.as_deref().or_else(|| {
-                                feed.as_ref().and_then(|f| f.feed_url.as_deref())
-                            }),
+                            track
+                                .feed_url
+                                .as_deref()
+                                .or_else(|| feed.as_ref().and_then(|f| f.feed_url.as_deref())),
                             track.track_guid.as_deref(),
                             track.enclosure_url.as_deref(),
                         )
@@ -5541,7 +5475,6 @@ fn render_track_list_section(
         None => (None, None, None, Vec::new()),
     };
 
-
     div()
         .flex()
         .flex_col()
@@ -5554,7 +5487,12 @@ fn render_track_list_section(
                 .justify_between()
                 .child(section_heading(heading))
                 .when(!note.is_empty(), |el| {
-                    el.child(div().text_color(color::text_muted()).text_size(typography::SIZE_MICRO).child(note))
+                    el.child(
+                        div()
+                            .text_color(color::text_muted())
+                            .text_size(typography::SIZE_MICRO)
+                            .child(note),
+                    )
                 }),
         )
         .children(
@@ -5711,7 +5649,7 @@ fn render_track_row(
     row.into_any_element()
 }
 
-fn render_row_playlist_popup(
+pub(crate) fn render_row_playlist_popup(
     feed_guid: &str,
     feed_url: Option<&str>,
     track_guid: &str,
@@ -5747,8 +5685,8 @@ fn render_row_playlist_popup(
         let feed_guid_owned = feed_guid.to_string();
         let feed_url_owned = feed_url.map(|s| s.to_string());
         let track_guid_owned = track_guid.to_string();
-        panel = panel.child(
-            metadata_action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
+            move |this, _, _, cx| {
                 if let Some(frame) = this.inspector_stack.last_mut() {
                     frame.add_to_playlist_open_track_guid = None;
                 }
@@ -5759,14 +5697,14 @@ fn render_row_playlist_popup(
                     playlist_id,
                     cx,
                 );
-            })),
-        );
+            },
+        )));
     }
 
     panel.into_any_element()
 }
 
-fn render_feed_header(
+pub(crate) fn render_feed_header(
     frame: &InspectorFrame,
     feed: &Feed,
     title: &str,
@@ -5939,7 +5877,7 @@ fn nostr_icon_image() -> Arc<Image> {
     }))
 }
 
-fn render_play_icon_button_with_id(
+pub(crate) fn render_play_icon_button_with_id(
     id: SharedString,
     url: Option<String>,
     cx: &mut Context<SearchApp>,
@@ -5978,7 +5916,7 @@ fn track_row_key(track: &Track) -> String {
         .unwrap_or_default()
 }
 
-fn render_track_download_button(
+pub(crate) fn render_track_download_button(
     track: Track,
     feed: Option<Feed>,
     is_downloaded: bool,
@@ -6053,7 +5991,7 @@ fn render_track_download_button(
         .into_any_element()
 }
 
-fn render_feed_list_section(
+pub(crate) fn render_feed_list_section(
     heading: &str,
     feeds: Vec<Feed>,
     app: &mut SearchApp,
@@ -6117,50 +6055,6 @@ fn render_feed_list_section(
         .into_any_element()
 }
 
-fn render_detail_header(
-    entity_type: &str,
-    title: &str,
-    subtitle: Option<&str>,
-    image: Option<&Arc<Image>>,
-) -> AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::LG)
-        .child(render_thumb(image, entity_type, 80.0, true))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_size(typography::SIZE_MICRO)
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(badge_text(entity_type))
-                        .bg(type_color(entity_type))
-                        .px(spacing::SM)
-                        .py(spacing::XXS)
-                        .rounded(radius::SM)
-                        .mb(spacing::SM)
-                        .child(SharedString::from(entity_type.to_string())),
-                )
-                .child(
-                    typography::type_title(div())
-                        .child(SharedString::from(title.to_string())),
-                )
-                .when_some(subtitle.map(str::to_owned), |el, sub| {
-                    el.child(
-                        typography::type_body(div())
-                            .mt(spacing::XS)
-                            .text_color(color::text_muted())
-                            .child(SharedString::from(sub)),
-                    )
-                }),
-        )
-        .into_any_element()
-}
-
 fn render_track_header(
     frame: &InspectorFrame,
     track: &Track,
@@ -6200,10 +6094,7 @@ fn render_track_header(
                         .mb(spacing::SM)
                         .child("track"),
                 )
-                .child(
-                    typography::type_title(div())
-                        .child(SharedString::from(title)),
-                )
+                .child(typography::type_title(div()).child(SharedString::from(title)))
                 .child(
                     typography::type_headline(div())
                         .mt(spacing::XS)
@@ -6256,24 +6147,7 @@ fn render_track_header_subtitle(
         .into_any_element()
 }
 
-fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
-    render_detail_grid_elements(
-        rows.into_iter()
-            .map(|(key, value)| DetailRow {
-                key,
-                value: div()
-                    .text_size(typography::SIZE_MICRO)
-                    .line_height(px(17.0))
-                    .flex()
-                    .flex_col()
-                    .children(compare_value_line_elements(&value, 6))
-                    .into_any_element(),
-            })
-            .collect(),
-    )
-}
-
-fn render_collapsed_text_section(label: &str, value: String) -> AnyElement {
+pub(crate) fn render_collapsed_text_section(label: &str, value: String) -> AnyElement {
     div()
         .border_1()
         .border_color(color::border_subtle())
@@ -6321,77 +6195,6 @@ fn render_feed_link_value(
         .into_any_element()
 }
 
-fn render_detail_grid_elements(rows: Vec<DetailRow>) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::XS)
-        .children(rows.into_iter().map(|row| {
-            div()
-                .flex()
-                .flex_row()
-                .items_start()
-                .gap(spacing::MD)
-                .child(
-                    div()
-                        .w(px(124.0))
-                        .flex_shrink_0()
-                        .text_color(color::text_muted())
-                        .whitespace_nowrap()
-                        .text_size(typography::SIZE_MICRO)
-                        .child(SharedString::from(row.key)),
-                )
-                .child(div().flex_1().min_w_0().child(row.value))
-                .into_any_element()
-        }))
-        .into_any_element()
-}
-
-fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
-    let base = img(image.clone())
-        .w(px(size))
-        .h(px(size))
-        .object_fit(ObjectFit::Cover);
-    if image.format == ImageFormat::Gif {
-        base.id(SharedString::from(format!("anim-thumb:{}", image.id())))
-            .into_any_element()
-    } else {
-        base.into_any_element()
-    }
-}
-
-fn render_thumb(
-    image_data: Option<&Arc<Image>>,
-    entity_type: &str,
-    size: f32,
-    large: bool,
-) -> AnyElement {
-    let radius = if large { 6.0 } else { 4.0 };
-    if let Some(image) = image_data {
-        div()
-            .w(px(size))
-            .h(px(size))
-            .rounded(px(radius))
-            .overflow_hidden()
-            .flex_shrink_0()
-            .child(artwork_img(image.clone(), size))
-            .into_any_element()
-    } else {
-        div()
-            .w(px(size))
-            .h(px(size))
-            .rounded(px(radius))
-            .bg(color::border_subtle())
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(if large { px(28.0) } else { typography::SIZE_BODY })
-            .flex_shrink_0()
-            .child(type_emoji(entity_type))
-            .into_any_element()
-    }
-}
-
 fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -> AnyElement {
     let feeds = app.recent_feeds.clone();
     let status = app.recent_status.clone();
@@ -6435,9 +6238,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                     .rounded(radius::MD)
                     .overflow_hidden()
                     .flex_shrink_0()
-                    .when_some(thumbnail, |el, image| {
-                        el.child(artwork_img(image, 152.0))
-                    })
+                    .when_some(thumbnail, |el, image| el.child(artwork_img(image, 152.0)))
                     .when(image_url.is_none(), |el| {
                         el.bg(color::border_subtle())
                             .flex()
@@ -6540,15 +6341,6 @@ fn render_loading(message: &str) -> AnyElement {
         .into_any_element()
 }
 
-fn section_heading(label: &str) -> AnyElement {
-    div()
-        .text_size(typography::SIZE_MICRO)
-        .font_weight(FontWeight::BOLD)
-        .text_color(color::text_muted())
-        .child(SharedString::from(label.to_string()))
-        .into_any_element()
-}
-
 fn render_clickable_section_heading(label: &str, collapsed: bool) -> gpui::Stateful<gpui::Div> {
     let state = if collapsed { "show" } else { "hide" };
     let glyph = if collapsed { ">" } else { "v" };
@@ -6592,39 +6384,6 @@ fn group_heading(label: String) -> AnyElement {
         .into_any_element()
 }
 
-fn metadata_action_button(label: &str) -> Button {
-    Button::new(SharedString::from(format!("metadata-action:{label}")))
-        .label(SharedString::from(label.to_string()))
-        .with_size(Size::XSmall)
-        .compact()
-        .ghost()
-        .text_color(rgb(0xffffff))
-        .text_size(typography::SIZE_MICRO)
-        .rounded(radius::SM)
-        .border_1()
-        .border_color(color::accent())
-}
-
-fn truncated(text: String) -> gpui::Div {
-    div()
-        .min_w_0()
-        .truncate()
-        .text_size(typography::SIZE_MICRO)
-        .child(SharedString::from(text))
-}
-
-fn truncated_muted(text: String) -> gpui::Div {
-    truncated(text).text_color(color::text_muted())
-}
-
-fn optional_row(rows: &mut Vec<(String, String)>, key: &str, value: Option<String>) {
-    if let Some(value) = value {
-        if !value.is_empty() {
-            rows.push((key.into(), value));
-        }
-    }
-}
-
 fn result_lines(row: &ResultRow) -> (String, String, String, Option<String>) {
     match &row.detail {
         Some(EntityDetail::Artist(artist)) => {
@@ -6636,10 +6395,7 @@ fn result_lines(row: &ResultRow) -> (String, String, String, Option<String>) {
                 ));
             }
             if let Some(count) = artist.feed_count {
-                parts.push(format!(
-                    "{count} feed{}",
-                    if count == 1 { "" } else { "s" }
-                ));
+                parts.push(format!("{count} feed{}", if count == 1 { "" } else { "s" }));
             }
             let line3 = artist
                 .area
@@ -6738,7 +6494,7 @@ fn feed_title(feed: &Feed) -> String {
         .unwrap_or_else(|| "Untitled".into())
 }
 
-fn track_title(track: &Track) -> String {
+pub(crate) fn track_title(track: &Track) -> String {
     track
         .title
         .clone()
@@ -6747,7 +6503,7 @@ fn track_title(track: &Track) -> String {
         .unwrap_or_else(|| "Untitled".into())
 }
 
-fn fmt_dur(secs: i32) -> String {
+pub(crate) fn fmt_dur(secs: i32) -> String {
     format!("{}:{:02}", secs / 60, secs % 60)
 }
 
@@ -6767,7 +6523,7 @@ fn join_values(values: &[String]) -> Option<String> {
     }
 }
 
-fn fmt_runtime(total_secs: i32) -> String {
+pub(crate) fn fmt_runtime(total_secs: i32) -> String {
     let hours = total_secs / 3600;
     let minutes = (total_secs % 3600) / 60;
     if hours > 0 {
@@ -6777,31 +6533,11 @@ fn fmt_runtime(total_secs: i32) -> String {
     }
 }
 
-fn fmt_date(ts: i64) -> Option<String> {
+pub(crate) fn fmt_date(ts: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.format("%b %-d, %Y").to_string())
 }
 
-use crate::ui::theme::{color, spacing, typography, radius, glyphs, badges};
-
-fn type_color(entity_type: &str) -> gpui::Rgba {
-    badges::type_color(entity_type)
-}
-
-fn badge_text(entity_type: &str) -> gpui::Rgba {
-    match entity_type {
-        // Dark text on bright badges for WCAG AA contrast
-        "artist" => rgb(0x111318),
-        _ => badges::text_color(entity_type),
-    }
-}
-
-fn type_emoji(entity_type: &str) -> &'static str {
-    match entity_type {
-        "artist" => "🎤",
-        "release" => "💿",
-        _ => badges::emoji(entity_type),
-    }
-}
+use crate::ui::theme::{color, glyphs, radius, spacing, typography};
 
 pub fn run_search_app() {
     let app = Application::new().with_assets(gpui_component_assets::Assets);
@@ -7727,7 +7463,8 @@ mod tests {
             )),
         ];
 
-        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
+        let pending =
+            auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
         assert_eq!(pending.len(), 3);
         assert_eq!(pending["title"].value, "RSS Song");
         assert_eq!(pending["title"].source, MetadataColumn::Rss);
@@ -7764,7 +7501,8 @@ mod tests {
             )),
         ];
 
-        let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
+        let pending =
+            auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
         assert_eq!(pending["track"].value, "4/10");
         assert_eq!(pending["total-tracks"].value, "4/10");
         assert!(
