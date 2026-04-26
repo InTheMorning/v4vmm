@@ -1040,7 +1040,10 @@ impl LibraryApp {
     fn selected_track_frame_mut(&mut self) -> Option<&mut InspectorFrame> {
         match &mut self.detail {
             LibraryDetail::Track(frame) => Some(frame),
-            LibraryDetail::None | LibraryDetail::Artist(_) | LibraryDetail::Album(_) | LibraryDetail::Playlist(_) => None,
+            LibraryDetail::None
+            | LibraryDetail::Artist(_)
+            | LibraryDetail::Album(_)
+            | LibraryDetail::Playlist(_) => None,
         }
     }
 
@@ -3029,12 +3032,9 @@ fn render_detail(
             )
             .into_any_element(),
 
-        LibraryDetail::Artist(artist) => render_library_artist_detail(
-            artist,
-            album_thumbs,
-            playlists,
-            cx,
-        ),
+        LibraryDetail::Artist(artist) => {
+            render_library_artist_detail(artist, album_thumbs, playlists, cx)
+        }
 
         LibraryDetail::Album(album) => render_album_detail(
             album,
@@ -3076,7 +3076,9 @@ fn render_library_artist_detail(
     let feed_rows: Vec<AnyElement> = feed_map
         .iter()
         .map(|(_, (feed_title, tracks))| {
-            let feed_name = feed_title.clone().unwrap_or_else(|| "Untitled Feed".to_string());
+            let feed_name = feed_title
+                .clone()
+                .unwrap_or_else(|| "Untitled Feed".to_string());
             let first_track = tracks.first();
             let thumb_url = first_track.and_then(|t| {
                 t.album_image_href
@@ -3115,14 +3117,7 @@ fn render_library_artist_detail(
                         }
                     }
                 }))
-                .child(
-                    render_thumb(
-                        thumb_image.as_ref(),
-                        "feed",
-                        28.0,
-                        false,
-                    ),
-                )
+                .child(render_thumb(thumb_image.as_ref(), "feed", 28.0, false))
                 .child(
                     div()
                         .flex_1()
@@ -3158,7 +3153,10 @@ fn render_library_artist_detail(
         .gap(spacing::LG)
         .child(render_detail_header(
             "artist",
-            &artist_view.name.clone().unwrap_or_else(|| "Unknown".to_string()),
+            &artist_view
+                .name
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string()),
             None,
             None,
         ))
@@ -3175,7 +3173,11 @@ fn render_library_artist_detail(
                 ),
             ];
             // Add download count if any tracks are downloaded
-            let downloaded = detail.tracks.iter().filter(|t| t.local_path.is_some()).count();
+            let downloaded = detail
+                .tracks
+                .iter()
+                .filter(|t| t.local_path.is_some())
+                .count();
             if downloaded > 0 {
                 rows.push(("Downloaded".to_string(), downloaded.to_string()));
             }
@@ -3228,19 +3230,15 @@ fn render_album_detail(
         .tracks
         .iter()
         .map(|track| {
-            render_library_track_row(
-                track,
-                mb_status,
-                busy_track,
-                add_open_track,
-                playlists,
-                cx,
-            )
+            render_library_track_row(track, mb_status, busy_track, add_open_track, playlists, cx)
         })
         .collect();
 
     // Compute metadata grid from feed_view
-    let artist = feed_view.artist.clone().unwrap_or_else(|| "Unknown Artist".to_string());
+    let artist = feed_view
+        .artist
+        .clone()
+        .unwrap_or_else(|| "Unknown Artist".to_string());
     let track_count = album.tracks.len();
     let total_duration_secs: i64 = album.tracks.iter().filter_map(|t| t.duration_seconds).sum();
     let duration_str = if total_duration_secs > 0 {
@@ -3467,12 +3465,11 @@ fn render_library_track_row(
                 .ghost()
                 .with_size(Size::XSmall)
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.album_add_open_track =
-                        if this.album_add_open_track == Some(track_id) {
-                            None
-                        } else {
-                            Some(track_id)
-                        };
+                    this.album_add_open_track = if this.album_add_open_track == Some(track_id) {
+                        None
+                    } else {
+                        Some(track_id)
+                    };
                     cx.notify();
                 })),
         );

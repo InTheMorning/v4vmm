@@ -122,6 +122,44 @@ The status line reports:
 - any file-level ID3 write failures
 - any feed-level failures
 
+## Playback Session CLI Workflow
+
+The Phase 2 CLI prepares the now-playing contract without introducing a player
+backend. `PlaybackSession` is the authoritative state; player adapters added
+later should report position and state into this model rather than define
+metadata identity themselves.
+
+### Preview A Playlist Row
+
+Use dry-run to inspect the JSON that a playlist row would produce:
+
+```bash
+v4vmm playlist play --dry-run <playlist-id>
+v4vmm playlist play --dry-run <playlist-id> --position <zero-based-position>
+```
+
+Dry-run validates that the selected track has a local file binding and a feed
+GUID. It prints `NowPlayingUpdate` JSON with `sequence` set to `0` and does not
+write `playback_sessions`.
+
+### Set And Update The Current Session
+
+Use playback commands when a track should become the current session state:
+
+```bash
+v4vmm playback set-track <track-id>
+v4vmm playback position <ms>
+v4vmm playback stop
+v4vmm now-playing --json
+```
+
+`set-track` validates the same source facts as dry-run, then persists the
+default playback session. `position` updates the current position in
+milliseconds. `stop` marks the session stopped; after stop,
+`now-playing --json` reports no current playback session.
+
+Every persisted state change increments the session `sequence`.
+
 ## State Model
 
 The UI uses three related states that are worth keeping distinct:
@@ -129,3 +167,4 @@ The UI uses three related states that are worth keeping distinct:
 - `subscribed feed`: the feed is tracked locally and participates in feed refresh checks
 - `in library`: a track is part of the managed library view
 - `cached file`: a local file exists on disk, whether or not the track is still marked in-library
+- `playback session`: the CLI-visible canonical now-playing state derived from local track/feed facts

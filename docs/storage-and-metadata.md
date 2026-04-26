@@ -35,6 +35,22 @@ Stores the file system link between a downloaded path and a track row, plus size
 
 That separation lets the app keep feed history and track metadata even when a local file has been deleted.
 
+### `playback_sessions`
+
+Stores the canonical Phase 2 now-playing session state used by the CLI:
+
+- session id
+- monotonic sequence
+- current local track id
+- optional playlist id and zero-based playlist position
+- RFC3339 `started_at`
+- `position_ms`
+- state such as `playing` or `stopped`
+
+The session row keeps identity in local database terms. The public
+`NowPlayingUpdate` JSON is assembled from this row plus the related feed, track,
+and local file facts.
+
 ## File Layout
 
 Downloaded audio is written under the configured music root:
@@ -129,5 +145,6 @@ In practice that means:
 
 - search-side download and compare logic still follows an MP3-oriented path
 - embedded metadata editing is ID3v2.4-only
+- playback session commands prepare now-playing state but do not play audio
 - there is no fingerprint lookup or automatic recording identification from audio content
 - file deletion is explicit from the library UI; unsubscribe alone does not remove files from disk

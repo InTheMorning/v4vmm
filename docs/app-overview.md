@@ -7,6 +7,10 @@
 - direct RSS fetch and parse for subscriptions and enrichment
 - local file download plus embedded metadata inspection
 
+It also exposes a small non-UI CLI for Phase 2 playback-session work. The CLI
+does not play audio yet; it assembles and updates canonical now-playing state
+from local database facts.
+
 ## Main Tabs
 
 ### Library
@@ -40,6 +44,26 @@ The settings screen currently manages only the values that matter to the app run
 - `Music directory`
 
 Saving settings updates the app state immediately and persists the values in `config.toml`.
+
+## CLI Surface
+
+Running `v4vmm` with no arguments starts the desktop UI.
+
+Phase 2 now-playing commands use the configured local SQLite database and the
+default playback session:
+
+```bash
+v4vmm now-playing --json
+v4vmm playlist play --dry-run <playlist-id>
+v4vmm playlist play --dry-run <playlist-id> --position <zero-based-position>
+v4vmm playback set-track <track-id>
+v4vmm playback position <ms>
+v4vmm playback stop
+```
+
+`playlist play --dry-run` is a preview command. It validates the selected
+playlist row and prints the `NowPlayingUpdate` JSON without mutating playback
+session state.
 
 ## Runtime Dependencies
 
@@ -86,7 +110,7 @@ The metadata workflows are narrower than the download layer:
 
 These are outside the current tool boundary:
 
-- full playback and queue management
+- full audio playback, player adapters, and queue automation
 - acoustic fingerprinting or Picard-style scan workflows
 - broad multi-format embedded tag editing parity
 - hidden metadata inference from filenames or guessed album structure
