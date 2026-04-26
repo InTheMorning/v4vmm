@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use gpui::{
-    div, img, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, Image,
-    ImageFormat, KeyDownEvent, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, img, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, Image, ImageFormat,
+    KeyDownEvent, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
@@ -12,20 +12,19 @@ use rusqlite::Connection;
 
 use crate::config;
 use crate::db;
-use crate::library::{LibraryApp, LibraryTree, build_tree, cleanup_empty_parents};
+use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryTree};
 use crate::media::ImageCache;
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::theme::color;
-use crate::ui::theme::spacing;
-use crate::ui::theme::typography;
 use crate::ui::theme::layout;
 #[allow(unused_imports)]
 use crate::ui::theme::radius;
+use crate::ui::theme::spacing;
+use crate::ui::theme::typography;
 
 // ---------------------------------------------------------------------------
 // Color helpers (same palette)
 // ---------------------------------------------------------------------------
-
 
 fn app_logo() -> Arc<Image> {
     Arc::new(Image::from_bytes(
@@ -67,6 +66,10 @@ pub struct TopApp {
 }
 
 impl TopApp {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "top-level app bootstrap still wires shared state explicitly"
+    )]
     fn new(
         conn: Arc<Mutex<Connection>>,
         image_cache: Arc<ImageCache>,
@@ -84,7 +87,13 @@ impl TopApp {
         let search =
             cx.new(|cx| SearchApp::new(search_conn, search_cache, search_endpoint, window, cx));
         let library = cx.new(|cx| {
-            LibraryApp::new(conn.clone(), library_cache, musicindex_endpoint.clone(), window, cx)
+            LibraryApp::new(
+                conn.clone(),
+                library_cache,
+                musicindex_endpoint.clone(),
+                window,
+                cx,
+            )
         });
         let library_for_sub = library.clone();
         let search_sub = cx.subscribe(
@@ -257,16 +266,27 @@ impl Render for TopApp {
 
                 if modifiers.platform {
                     match key {
-                        "1" => { this.tab = AppTab::Library; cx.notify(); }
-                        "2" => { this.tab = AppTab::Discover; cx.notify(); }
-                        "3" => { this.tab = AppTab::Settings; cx.notify(); }
-                        "f" => {
-                            match this.tab {
-                                AppTab::Library => this.library.update(cx, |lib, cx| lib.focus_search(window, cx)),
-                                AppTab::Discover => this.search.update(cx, |s, cx| s.focus_search(window, cx)),
-                                _ => {}
-                            }
+                        "1" => {
+                            this.tab = AppTab::Library;
+                            cx.notify();
                         }
+                        "2" => {
+                            this.tab = AppTab::Discover;
+                            cx.notify();
+                        }
+                        "3" => {
+                            this.tab = AppTab::Settings;
+                            cx.notify();
+                        }
+                        "f" => match this.tab {
+                            AppTab::Library => this
+                                .library
+                                .update(cx, |lib, cx| lib.focus_search(window, cx)),
+                            AppTab::Discover => {
+                                this.search.update(cx, |s, cx| s.focus_search(window, cx))
+                            }
+                            _ => {}
+                        },
                         "r" => {
                             if this.tab == AppTab::Library {
                                 this.library.update(cx, |lib, cx| lib.refresh(cx));
@@ -276,34 +296,28 @@ impl Render for TopApp {
                     }
                 } else {
                     match key {
-                        "escape" => {
-                            match this.tab {
-                                AppTab::Library => this.library.update(cx, |lib, cx| lib.pop_inspector(cx)),
-                                AppTab::Discover => this.search.update(cx, |s, cx| s.pop_inspector(cx)),
-                                _ => {}
+                        "escape" => match this.tab {
+                            AppTab::Library => {
+                                this.library.update(cx, |lib, cx| lib.pop_inspector(cx))
                             }
-                        }
-                        "up" => {
-                            match this.tab {
-                                AppTab::Library => this.library.update(cx, |lib, cx| lib.move_up(cx)),
-                                AppTab::Discover => this.search.update(cx, |s, cx| s.move_up(cx)),
-                                _ => {}
-                            }
-                        }
-                        "down" => {
-                            match this.tab {
-                                AppTab::Library => this.library.update(cx, |lib, cx| lib.move_down(cx)),
-                                AppTab::Discover => this.search.update(cx, |s, cx| s.move_down(cx)),
-                                _ => {}
-                            }
-                        }
-                        "enter" => {
-                            match this.tab {
-                                AppTab::Library => this.library.update(cx, |lib, cx| lib.confirm(cx)),
-                                AppTab::Discover => this.search.update(cx, |s, cx| s.confirm(cx)),
-                                _ => {}
-                            }
-                        }
+                            AppTab::Discover => this.search.update(cx, |s, cx| s.pop_inspector(cx)),
+                            _ => {}
+                        },
+                        "up" => match this.tab {
+                            AppTab::Library => this.library.update(cx, |lib, cx| lib.move_up(cx)),
+                            AppTab::Discover => this.search.update(cx, |s, cx| s.move_up(cx)),
+                            _ => {}
+                        },
+                        "down" => match this.tab {
+                            AppTab::Library => this.library.update(cx, |lib, cx| lib.move_down(cx)),
+                            AppTab::Discover => this.search.update(cx, |s, cx| s.move_down(cx)),
+                            _ => {}
+                        },
+                        "enter" => match this.tab {
+                            AppTab::Library => this.library.update(cx, |lib, cx| lib.confirm(cx)),
+                            AppTab::Discover => this.search.update(cx, |s, cx| s.confirm(cx)),
+                            _ => {}
+                        },
                         _ => {}
                     }
                 }
@@ -348,9 +362,30 @@ impl Render for TopApp {
                                     .child("V4V Music Manager"),
                             ),
                     )
-                    .child(render_app_tab("Library", AppTab::Library, self.tab, &self.library_tab_focus, _window, cx))
-                    .child(render_app_tab("Discover", AppTab::Discover, self.tab, &self.discover_tab_focus, _window, cx))
-                    .child(render_app_tab("Settings", AppTab::Settings, self.tab, &self.settings_tab_focus, _window, cx)),
+                    .child(render_app_tab(
+                        "Library",
+                        AppTab::Library,
+                        self.tab,
+                        &self.library_tab_focus,
+                        _window,
+                        cx,
+                    ))
+                    .child(render_app_tab(
+                        "Discover",
+                        AppTab::Discover,
+                        self.tab,
+                        &self.discover_tab_focus,
+                        _window,
+                        cx,
+                    ))
+                    .child(render_app_tab(
+                        "Settings",
+                        AppTab::Settings,
+                        self.tab,
+                        &self.settings_tab_focus,
+                        _window,
+                        cx,
+                    )),
             )
             // Active tab content
             .child(
@@ -384,7 +419,10 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
         color::text_muted()
     };
 
-    let cached_count = app.cached_tree.artists.iter()
+    let cached_count = app
+        .cached_tree
+        .artists
+        .iter()
         .flat_map(|a| &a.albums)
         .flat_map(|a| &a.tracks)
         .count();
@@ -633,10 +671,7 @@ fn render_app_tab(
         .when(is_focused, |el| {
             el.border_2().border_color(color::focus_ring())
         })
-        .child(
-            typography::type_body(div())
-                .child(label)
-        )
+        .child(typography::type_body(div()).child(label))
         .into_any_element()
 }
 
@@ -667,7 +702,6 @@ pub fn run_app() {
         let image_cache = ImageCache::new(http, thumbnail_cache_dir);
 
         cx.open_window(
-
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,

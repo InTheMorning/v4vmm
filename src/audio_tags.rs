@@ -139,8 +139,8 @@ fn add_lofty_compare_aliases(fields: &mut Vec<Id3Field>, artwork: Option<&Embedd
         push_alias_field(fields, "COMM:MusicIndex Description", comment);
     }
 
-    if let Some(transcript) = first_field_value(fields, "USLT")
-        .or_else(|| first_field_value(fields, "SYLT"))
+    if let Some(transcript) =
+        first_field_value(fields, "USLT").or_else(|| first_field_value(fields, "SYLT"))
     {
         push_alias_field(fields, "USLT:MusicIndex Transcript", transcript.clone());
         push_alias_field(fields, "SYLT:MusicIndex Transcript", transcript);
@@ -196,9 +196,9 @@ fn first_field_value(fields: &[Id3Field], frame_base: &str) -> Option<String> {
 /// that no comparator row recognises, making every populated field look
 /// like an unapplied pending edit.
 fn lofty_item_label(key: &lofty::prelude::ItemKey) -> String {
+    use crate::tag_field::TagFieldId;
     use lofty::prelude::ItemKey;
     use lofty::tag::TagType;
-    use crate::tag_field::TagFieldId;
     match key {
         ItemKey::Unknown(name) => TagFieldId::from_storage_key_name(name)
             .map(|field| match field {
@@ -302,10 +302,7 @@ fn write_lofty_edits(
                     applied += 1;
                 }
                 Err(err) => {
-                    eprintln!(
-                        "skip artwork edit for {}: {err:#}",
-                        path.display()
-                    );
+                    eprintln!("skip artwork edit for {}: {err:#}", path.display());
                 }
             }
             continue;
@@ -1057,7 +1054,10 @@ mod tests {
 
     #[test]
     fn lofty_unknown_artist_webpage_maps_back_to_woar() {
-        assert_eq!(lofty_item_label(&ItemKey::Unknown("ARTISTWEBPAGE".into())), "WOAR");
+        assert_eq!(
+            lofty_item_label(&ItemKey::Unknown("ARTISTWEBPAGE".into())),
+            "WOAR"
+        );
         assert_eq!(
             lofty_item_label(&ItemKey::Unknown("----:com.apple.iTunes:WOAR".into())),
             "WOAR"
@@ -1085,9 +1085,15 @@ mod tests {
 
         add_lofty_compare_aliases(&mut fields, Some(&artwork));
 
-        assert!(fields.iter().any(|field| field.frame_id == "COMM:MusicIndex Description"));
-        assert!(fields.iter().any(|field| field.frame_id == "USLT:MusicIndex Transcript"));
-        assert!(fields.iter().any(|field| field.frame_id == "SYLT:MusicIndex Transcript"));
+        assert!(fields
+            .iter()
+            .any(|field| field.frame_id == "COMM:MusicIndex Description"));
+        assert!(fields
+            .iter()
+            .any(|field| field.frame_id == "USLT:MusicIndex Transcript"));
+        assert!(fields
+            .iter()
+            .any(|field| field.frame_id == "SYLT:MusicIndex Transcript"));
         assert!(fields.iter().any(|field| field.frame_id == "APIC"));
     }
 

@@ -38,7 +38,6 @@ use crate::track_compare::{download_track, select_audio_enclosure, DownloadedTra
 // Types
 // ---------------------------------------------------------------------------
 
-
 #[derive(Clone, Debug)]
 enum LibraryDetail {
     None,
@@ -241,12 +240,12 @@ pub struct StaleFeed {
     pub new_updated_at: i64,
 }
 
+use crate::ui::render_rss_icon_link;
 use crate::ui::theme::color;
+use crate::ui::theme::radius;
 use crate::ui::theme::spacing;
 use crate::ui::theme::typography;
-use crate::ui::theme::radius;
-use crate::ui::theme::{layout, badges, glyphs};
-use crate::ui::render_rss_icon_link;
+use crate::ui::theme::{badges, glyphs, layout};
 
 // ---------------------------------------------------------------------------
 // LibraryApp
@@ -339,7 +338,9 @@ impl LibraryApp {
 
     pub fn move_up(&mut self, cx: &mut Context<Self>) {
         let items = self.focusable_items();
-        if items.is_empty() { return; }
+        if items.is_empty() {
+            return;
+        }
         let current_idx = items.iter().position(|&id| Some(id) == self.selected_id);
         let next_idx = match current_idx {
             Some(idx) if idx > 0 => idx - 1,
@@ -352,7 +353,9 @@ impl LibraryApp {
 
     pub fn move_down(&mut self, cx: &mut Context<Self>) {
         let items = self.focusable_items();
-        if items.is_empty() { return; }
+        if items.is_empty() {
+            return;
+        }
         let current_idx = items.iter().position(|&id| Some(id) == self.selected_id);
         let next_idx = match current_idx {
             Some(idx) if idx + 1 < items.len() => idx + 1,
@@ -377,11 +380,10 @@ impl LibraryApp {
     }
 
     fn focusable_items(&self) -> Vec<i64> {
-        let items = Vec::new();
         // Traverse filtered_tree based on expanded states
         // This is tricky because filtered_tree is computed in render.
         // I should probably compute it in a separate method.
-        items
+        Vec::new()
     }
 
     pub fn set_musicindex_endpoint(&mut self, endpoint: String, cx: &mut Context<Self>) {
@@ -395,8 +397,7 @@ impl LibraryApp {
             Ok(rows) => {
                 let count = rows.len();
                 self.tree = build_tree(&rows, &conn);
-                self.status =
-                    format!("{count} library track{}", if count == 1 { "" } else { "s" });
+                self.status = format!("{count} library track{}", if count == 1 { "" } else { "s" });
             }
             Err(err) => {
                 self.status = format!("Error: {err:#}");
@@ -450,7 +451,10 @@ impl LibraryApp {
         let tracks = db::playlist_tracks(&conn, id).unwrap_or_default();
         drop(conn);
         if let Some(playlist) = playlist {
-            self.detail = LibraryDetail::Playlist(PlaylistDetail { playlist, tracks: tracks.clone() });
+            self.detail = LibraryDetail::Playlist(PlaylistDetail {
+                playlist,
+                tracks: tracks.clone(),
+            });
             self.playlist_tracks = tracks;
         }
         cx.notify();
@@ -1352,7 +1356,6 @@ impl LibraryApp {
             }
         }
     }
-
 
     #[allow(dead_code)]
     fn musicbrainz_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
@@ -2522,8 +2525,12 @@ impl Render for LibraryApp {
                         .rounded(spacing::XS)
                         .cursor_pointer()
                         .when(is_selected, |el| el.bg(color::bg_selected()))
-                        .when(is_selected, |el| el.border_l_2().border_color(color::accent()))
-                        .when(!is_selected, |el| el.hover(|e| e.bg(color::bg_surface_hi())))
+                        .when(is_selected, |el| {
+                            el.border_l_2().border_color(color::accent())
+                        })
+                        .when(!is_selected, |el| {
+                            el.hover(|e| e.bg(color::bg_surface_hi()))
+                        })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.select_playlist(playlist_id, cx);
                         }))
@@ -2548,7 +2555,7 @@ impl Render for LibraryApp {
                                     div()
                                         .text_xs()
                                         .text_color(color::text_muted())
-                                        .child(SharedString::from(format!("({track_count})")))
+                                        .child(SharedString::from(format!("({track_count})"))),
                                 ),
                         )
                         .into_any_element(),
@@ -2569,7 +2576,7 @@ impl Render for LibraryApp {
                         .child(
                             Input::new(&self.new_playlist_input)
                                 .cleanable(false)
-                                .with_size(Size::Small)
+                                .with_size(Size::Small),
                         )
                         .child(
                             Button::new("playlist-add-btn")
@@ -2736,7 +2743,11 @@ impl Render for LibraryApp {
                                                             .text_center()
                                                             .p(spacing::XXL + spacing::LG)
                                                             .text_color(color::text_muted())
-                                                            .child(div().mt(spacing::SM).child("No library tracks yet")),
+                                                            .child(
+                                                                div()
+                                                                    .mt(spacing::SM)
+                                                                    .child("No library tracks yet"),
+                                                            ),
                                                     )
                                                 },
                                             ),
@@ -2811,15 +2822,12 @@ pub(crate) fn render_tree(
                                 .text_color(color::text_primary())
                                 .child(SharedString::from(artist.name.clone())),
                         )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(color::text_muted())
-                                .child(SharedString::from(format!(
-                                    "({album_count} album{})",
-                                    if album_count == 1 { "" } else { "s" }
-                                ))),
-                        ),
+                        .child(div().text_xs().text_color(color::text_muted()).child(
+                            SharedString::from(format!(
+                                "({album_count} album{})",
+                                if album_count == 1 { "" } else { "s" }
+                            )),
+                        )),
                 )
                 .into_any_element(),
         );
@@ -2923,7 +2931,9 @@ pub(crate) fn render_tree(
                             .rounded(spacing::XS)
                             .cursor_pointer()
                             .when(is_selected, |el| el.bg(color::bg_selected()))
-                            .when(is_selected, |el| el.border_l_2().border_color(color::accent()))
+                            .when(is_selected, |el| {
+                                el.border_l_2().border_color(color::accent())
+                            })
                             .hover(|el| el.bg(color::bg_surface_hi()));
 
                         row = row
@@ -2960,6 +2970,10 @@ pub(crate) fn render_tree(
     items
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "library detail rendering still passes explicit staged UI state"
+)]
 fn render_detail(
     detail: &LibraryDetail,
     busy_track: Option<i64>,
@@ -3001,6 +3015,10 @@ fn render_detail(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "album detail rendering still threads explicit UI controls during rollout"
+)]
 fn render_album_detail(
     album: &AlbumNode,
     busy_track: Option<i64>,
@@ -3111,7 +3129,12 @@ fn render_album_detail(
                         })),
                 )
                 .when(track.local_path.is_some(), |el| {
-                    el.child(div().text_xs().text_color(color::status_success()).child("dl'd"))
+                    el.child(
+                        div()
+                            .text_xs()
+                            .text_color(color::status_success())
+                            .child("dl'd"),
+                    )
                 })
                 .child(
                     Button::new(SharedString::from(format!("album-track-add-{track_id}")))
@@ -3258,7 +3281,13 @@ fn render_album_detail(
         container = container.child(panel);
     }
     container
-        .child(div().flex().flex_col().gap(spacing::XXS).children(track_rows))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(spacing::XXS)
+                .children(track_rows),
+        )
         .into_any_element()
 }
 
@@ -3292,12 +3321,12 @@ fn render_album_track_add_panel(
     for p in playlists {
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(
-            metadata_action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
+            move |this, _, _, cx| {
                 this.album_add_open_track = None;
                 this.add_track_to_playlist(track_id, playlist_id, cx);
-            })),
-        );
+            },
+        )));
     }
 
     panel.into_any_element()
@@ -3333,12 +3362,12 @@ fn render_album_feed_add_panel(
     for p in playlists {
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(
-            metadata_action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
+            move |this, _, _, cx| {
                 this.album_add_open_feed = false;
                 this.add_album_to_playlist(feed_id, playlist_id, cx);
-            })),
-        );
+            },
+        )));
     }
 
     panel.into_any_element()
@@ -3352,7 +3381,11 @@ fn render_playlist_detail(
     let playlist_id = detail.playlist.id;
     let playlist_name = detail.playlist.name.clone();
     let track_count = detail.tracks.len();
-    let total_duration_secs: i64 = detail.tracks.iter().filter_map(|t| t.duration_seconds).sum();
+    let total_duration_secs: i64 = detail
+        .tracks
+        .iter()
+        .filter_map(|t| t.duration_seconds)
+        .sum();
     let duration_str = if total_duration_secs > 0 {
         let mins = total_duration_secs / 60;
         let secs = total_duration_secs % 60;
@@ -3438,7 +3471,9 @@ fn render_playlist_detail(
                 }));
 
                 div()
-                    .id(SharedString::from(format!("playlist-track-{track_id}-{position}")))
+                    .id(SharedString::from(format!(
+                        "playlist-track-{track_id}-{position}"
+                    )))
                     .flex()
                     .flex_row()
                     .items_center()
@@ -3544,15 +3579,16 @@ fn render_playlist_detail(
         .flex()
         .flex_col()
         .gap(spacing::MD)
-        .child(render_detail_header(
-            "playlist",
-            &playlist_name,
-            None,
-            None,
-        ))
+        .child(render_detail_header("playlist", &playlist_name, None, None))
         .child(render_detail_grid(detail_rows))
         .child(buttons)
-        .child(div().flex().flex_col().gap(spacing::XXS).children(track_rows))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(spacing::XXS)
+                .children(track_rows),
+        )
         .into_any_element()
 }
 
@@ -3703,13 +3739,12 @@ fn render_action_row(
                 })),
         )
         .child(
-            metadata_action_button("Add to playlist ▾")
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(frame) = this.selected_track_frame_mut() {
-                        frame.add_to_playlist_open = !frame.add_to_playlist_open;
-                    }
-                    cx.notify();
-                })),
+            metadata_action_button("Add to playlist ▾").on_click(cx.listener(|this, _, _, cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    frame.add_to_playlist_open = !frame.add_to_playlist_open;
+                }
+                cx.notify();
+            })),
         )
         .when(frame.add_to_playlist_open, |el| {
             el.child(render_add_to_playlist_panel(frame, playlists, cx))
@@ -3768,12 +3803,15 @@ fn render_action_row(
                         .flex_col()
                         .items_start()
                         .gap(spacing::XS)
-                        .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(
-                            SharedString::from(format!(
-                                "{count} staged tag edit{}",
-                                if count == 1 { "" } else { "s" }
-                            )),
-                        ))
+                        .child(
+                            div()
+                                .text_size(typography::SIZE_MICRO)
+                                .text_color(color::text_muted())
+                                .child(SharedString::from(format!(
+                                    "{count} staged tag edit{}",
+                                    if count == 1 { "" } else { "s" }
+                                ))),
+                        )
                         .child(
                             metadata_action_button(&label)
                                 .disabled(frame.applying_id3_edits || has_pending_conflicts)
@@ -3866,16 +3904,14 @@ fn render_add_to_playlist_panel(
     for p in playlists {
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(
-            metadata_action_button(&label).on_click(cx.listener(
-                move |this, _, _, cx| {
-                    if let Some(frame) = this.selected_track_frame_mut() {
-                        frame.add_to_playlist_open = false;
-                    }
-                    this.add_track_to_playlist(track_id, playlist_id, cx);
-                },
-            )),
-        );
+        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
+            move |this, _, _, cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    frame.add_to_playlist_open = false;
+                }
+                this.add_track_to_playlist(track_id, playlist_id, cx);
+            },
+        )));
     }
 
     panel.into_any_element()
@@ -3944,7 +3980,6 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -
         )
         .into_any_element()
 }
-
 
 fn id3_header_title(result: &TagCompareResult) -> String {
     result
@@ -4181,6 +4216,10 @@ fn track_metadata_rows_for_frame(
     expand_woar_metadata_rows(rows)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "metadata grid needs explicit column state and edit state inputs"
+)]
 fn render_track_metadata_grid(
     rows: Vec<MetadataGridRow>,
     show_id3: bool,
@@ -4387,8 +4426,12 @@ fn metadata_musicbrainz_cell(
     .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status));
     let value = row.musicbrainz_value.as_deref().unwrap_or("");
     let base_display = display_metadata_value(&row.field, value);
-    let glyph = pending_source_glyph(pending, MetadataColumn::MusicBrainz, row.musicbrainz_value.as_deref())
-        .or_else(|| comparison_status_glyph(&row.musicbrainz_status));
+    let glyph = pending_source_glyph(
+        pending,
+        MetadataColumn::MusicBrainz,
+        row.musicbrainz_value.as_deref(),
+    )
+    .or_else(|| comparison_status_glyph(&row.musicbrainz_status));
     let display_value = display_with_glyph(glyph, &base_display);
     div()
         .pl(spacing::MD)
@@ -4447,7 +4490,12 @@ fn metadata_value_cell(
                     .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
                         this.toggle_metadata_cell(header_key.clone(), cx);
                     }))
-                    .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph)),
+                    .child(
+                        div()
+                            .text_size(typography::SIZE_MICRO)
+                            .text_color(color::text_muted())
+                            .child(glyph),
+                    ),
             )
             .child(div().flex().flex_col().children(value_routes_tree_elements(
                 raw_value,
@@ -4481,7 +4529,12 @@ fn metadata_value_cell(
         .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _window, cx| {
             this.toggle_metadata_cell(cell_key.clone(), cx);
         }))
-        .child(div().text_size(typography::SIZE_MICRO).text_color(color::text_muted()).child(glyph))
+        .child(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .text_color(color::text_muted())
+                .child(glyph),
+        )
         .child(div().flex_1().min_w_0().child(content))
         .into_any_element()
 }
@@ -4740,7 +4793,9 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let mut value_cell = div().text_size(typography::SIZE_MICRO).line_height(px(16.0));
+    let mut value_cell = div()
+        .text_size(typography::SIZE_MICRO)
+        .line_height(px(16.0));
     if let Some(color) = color {
         value_cell = value_cell.text_color(color);
     }
@@ -4813,7 +4868,9 @@ fn comparison_status_color(status: &crate::track_compare::ComparisonStatus) -> g
     }
 }
 
-fn comparison_status_glyph(status: &crate::track_compare::ComparisonStatus) -> Option<&'static str> {
+fn comparison_status_glyph(
+    status: &crate::track_compare::ComparisonStatus,
+) -> Option<&'static str> {
     match status {
         crate::track_compare::ComparisonStatus::Match => Some(glyphs::DIFF_MATCH),
         crate::track_compare::ComparisonStatus::Different => Some(glyphs::DIFF_DIFFERENT),

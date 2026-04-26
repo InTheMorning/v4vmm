@@ -320,9 +320,13 @@ extra = "keep"
         )
         .expect("write config");
 
-        let (endpoint, music_dir, flac_path) =
-            save_app_settings(&cfg_path, "api.musicindex.org/", "~/V4Vmusic", "/usr/bin/flac")
-                .expect("save");
+        let (endpoint, music_dir, flac_path) = save_app_settings(
+            &cfg_path,
+            "api.musicindex.org/",
+            "~/V4Vmusic",
+            "/usr/bin/flac",
+        )
+        .expect("save");
         let raw = fs::read_to_string(&cfg_path).expect("read config");
         let table = raw.parse::<toml::Table>().expect("parse TOML");
 

@@ -97,7 +97,9 @@ impl TagFieldId {
             "TSRC" => Self::Isrc,
             "COMM" => Self::Comment,
             "USLT" => Self::Lyrics,
-            "TXXX" => desc.map(Self::Custom).unwrap_or_else(|| Self::Id3Text("TXXX".into())),
+            "TXXX" => desc
+                .map(Self::Custom)
+                .unwrap_or_else(|| Self::Id3Text("TXXX".into())),
             other if other.starts_with('W') => {
                 if let Some(kind) = UrlKind::from_id3(other) {
                     Self::Url(kind)
@@ -263,7 +265,9 @@ mod tests {
     fn vorbis_and_mp4_keys_cover_common_fields() {
         assert_eq!(TagFieldId::Title.vorbis_key().as_deref(), Some("TITLE"));
         assert_eq!(
-            TagFieldId::Custom("V4V_PUBLISHER".into()).vorbis_key().as_deref(),
+            TagFieldId::Custom("V4V_PUBLISHER".into())
+                .vorbis_key()
+                .as_deref(),
             Some("V4V_PUBLISHER")
         );
         assert_eq!(TagFieldId::Title.mp4_atom(), Some("©nam"));

@@ -45,9 +45,8 @@ impl DownloadedTrack {
     pub fn finalize(mut self) -> Result<PathBuf> {
         if self.path != self.final_path {
             if let Some(parent) = self.final_path.parent() {
-                fs::create_dir_all(parent).with_context(|| {
-                    format!("create final directory {}", parent.display())
-                })?;
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("create final directory {}", parent.display()))?;
             }
             fs::rename(&self.path, &self.final_path).with_context(|| {
                 format!(
@@ -235,9 +234,9 @@ pub fn download_track(
         renamed_name.push(detected_format.canonical_extension());
         let renamed = staging_dir.join(&renamed_name);
         if renamed != staged {
-            if let Err(err) = fs::rename(&staged, &renamed).with_context(|| {
-                format!("rename {} -> {}", staged.display(), renamed.display())
-            }) {
+            if let Err(err) = fs::rename(&staged, &renamed)
+                .with_context(|| format!("rename {} -> {}", staged.display(), renamed.display()))
+            {
                 return Err(cleanup_on_err(err));
             }
         }

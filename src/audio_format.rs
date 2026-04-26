@@ -18,7 +18,12 @@ pub enum AudioFormat {
 
 impl AudioFormat {
     pub fn from_declared_mime(mime: &str) -> Option<Self> {
-        let norm = mime.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+        let norm = mime
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
         match norm.as_str() {
             "audio/mpeg" | "audio/mp3" | "audio/mpeg3" | "audio/x-mpeg-3" => Some(Self::Mp3),
             "audio/flac" | "audio/x-flac" => Some(Self::Flac),
@@ -367,7 +372,10 @@ mod tests {
         page[26] = 1;
         page.push(8);
         page.extend_from_slice(b"OpusHead");
-        assert_eq!(AudioFormat::detect_from_bytes(&page), Some(AudioFormat::OggOpus));
+        assert_eq!(
+            AudioFormat::detect_from_bytes(&page),
+            Some(AudioFormat::OggOpus)
+        );
 
         let mut page = vec![0u8; 27];
         page[0..4].copy_from_slice(b"OggS");
