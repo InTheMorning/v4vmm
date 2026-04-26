@@ -160,6 +160,21 @@ milliseconds. `stop` marks the session stopped; after stop,
 
 Every persisted state change increments the session `sequence`.
 
+## CLI Debug Workflow
+
+The CLI exposes structured JSON inspection commands for backend state. These
+commands are intended for debugging, scripts, and future UI contract checks.
+
+```bash
+v4vmm playlists list --json
+v4vmm playlist tracks <playlist-id> --json
+v4vmm library tracks --json
+v4vmm track inspect <track-id> --json
+```
+
+`track inspect` uses the canonical local track identity service. It requires a
+local file binding and feed GUID, matching the now-playing identity rules.
+
 ## State Model
 
 The UI uses three related states that are worth keeping distinct:

@@ -2,8 +2,9 @@
 
 use anyhow::{anyhow, Context, Result};
 use rusqlite::Connection;
+use serde::Serialize;
 
-use crate::{config, db, playback};
+use crate::{config, db, debug_contracts, playback};
 
 pub fn run(args: &[String]) -> Result<()> {
     match args {
@@ -12,6 +13,26 @@ pub fn run(args: &[String]) -> Result<()> {
             Ok(())
         }
         [command, flag] if command == "now-playing" && flag == "--json" => print_now_playing(),
+        [section, command, flag]
+            if section == "playlists" && command == "list" && flag == "--json" =>
+        {
+            print_playlists()
+        }
+        [section, command, playlist_id, flag]
+            if section == "playlist" && command == "tracks" && flag == "--json" =>
+        {
+            print_playlist_tracks(parse_i64("playlist id", playlist_id)?)
+        }
+        [section, command, flag]
+            if section == "library" && command == "tracks" && flag == "--json" =>
+        {
+            print_library_tracks()
+        }
+        [section, command, track_id, flag]
+            if section == "track" && command == "inspect" && flag == "--json" =>
+        {
+            print_track_inspect(parse_i64("track id", track_id)?)
+        }
         [section, command, flag, playlist_id]
             if section == "playlist" && command == "play" && flag == "--dry-run" =>
         {
@@ -53,6 +74,30 @@ fn print_now_playing() -> Result<()> {
     print_json(&update)
 }
 
+fn print_playlists() -> Result<()> {
+    let conn = open_configured_db()?;
+    let rows = debug_contracts::playlists(&conn)?;
+    print_json(&rows)
+}
+
+fn print_playlist_tracks(playlist_id: i64) -> Result<()> {
+    let conn = open_configured_db()?;
+    let rows = debug_contracts::playlist_tracks(&conn, playlist_id)?;
+    print_json(&rows)
+}
+
+fn print_library_tracks() -> Result<()> {
+    let conn = open_configured_db()?;
+    let rows = debug_contracts::library_tracks(&conn)?;
+    print_json(&rows)
+}
+
+fn print_track_inspect(track_id: i64) -> Result<()> {
+    let conn = open_configured_db()?;
+    let row = debug_contracts::track_inspect(&conn, track_id)?;
+    print_json(&row)
+}
+
 fn dry_run_playlist(playlist_id: i64, playlist_position: i64) -> Result<()> {
     anyhow::ensure!(
         playlist_position >= 0,
@@ -90,8 +135,8 @@ fn stop_playback() -> Result<()> {
     Ok(())
 }
 
-fn print_json(update: &playback::NowPlayingUpdate) -> Result<()> {
-    let json = serde_json::to_string_pretty(update).context("serialize now-playing JSON")?;
+fn print_json<T: Serialize>(value: &T) -> Result<()> {
+    let json = serde_json::to_string_pretty(value).context("serialize JSON")?;
     println!("{json}");
     Ok(())
 }
@@ -116,6 +161,10 @@ fn help_text() -> &'static str {
     "Usage:
   v4vmm
   v4vmm now-playing --json
+  v4vmm playlists list --json
+  v4vmm playlist tracks <playlist-id> --json
+  v4vmm library tracks --json
+  v4vmm track inspect <track-id> --json
   v4vmm playlist play --dry-run <playlist-id>
   v4vmm playlist play --dry-run <playlist-id> --position <zero-based-position>
   v4vmm playback set-track <track-id>

@@ -54,6 +54,10 @@ default playback session:
 
 ```bash
 v4vmm now-playing --json
+v4vmm playlists list --json
+v4vmm playlist tracks <playlist-id> --json
+v4vmm library tracks --json
+v4vmm track inspect <track-id> --json
 v4vmm playlist play --dry-run <playlist-id>
 v4vmm playlist play --dry-run <playlist-id> --position <zero-based-position>
 v4vmm playback set-track <track-id>

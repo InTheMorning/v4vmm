@@ -5,6 +5,7 @@ pub mod audio_tags;
 pub mod cli;
 pub mod config;
 pub mod db;
+pub mod debug_contracts;
 pub mod library;
 pub mod media;
 pub mod metadata;
