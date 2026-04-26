@@ -35,6 +35,13 @@ Stores the file system link between a downloaded path and a track row, plus size
 
 That separation lets the app keep feed history and track metadata even when a local file has been deleted.
 
+### `schema_migrations`
+
+Records applied schema migrations by monotonically increasing version. Fresh
+databases still start from the inline schema initializer, then run the same
+migration registry as existing databases so additive changes are recorded and
+idempotent.
+
 ### `playback_sessions`
 
 Stores the canonical Phase 2 now-playing session state used by the CLI:

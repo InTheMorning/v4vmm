@@ -154,6 +154,7 @@ mod tests {
         let conn = Connection::open_in_memory()?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         db::init_schema(&conn)?;
+        db::migrate_schema(&conn)?;
         Ok(conn)
     }
 

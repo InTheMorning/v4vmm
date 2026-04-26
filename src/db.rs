@@ -884,10 +884,77 @@ pub fn open_db(cfg: &Config) -> Result<Connection> {
     Ok(conn)
 }
 
-fn migrate_schema(conn: &Connection) -> Result<()> {
-    add_column_if_missing(conn, "feeds", "musicindex_updated_at", "INTEGER")?;
-    add_column_if_missing(conn, "tracks", "enclosure_type", "TEXT")?;
+struct Migration {
+    version: i64,
+    name: &'static str,
+    apply: fn(&Connection) -> Result<()>,
+}
+
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "feeds_musicindex_updated_at",
+        apply: migration_feeds_musicindex_updated_at,
+    },
+    Migration {
+        version: 2,
+        name: "tracks_enclosure_type",
+        apply: migration_tracks_enclosure_type,
+    },
+];
+
+pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
+    ensure_schema_migrations_table(conn)?;
+    for migration in MIGRATIONS {
+        if migration_applied(conn, migration.version)? {
+            continue;
+        }
+        (migration.apply)(conn)
+            .with_context(|| format!("apply migration {} {}", migration.version, migration.name))?;
+        record_migration(conn, migration.version, migration.name)?;
+    }
     Ok(())
+}
+
+fn ensure_schema_migrations_table(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+        [],
+    )
+    .context("create schema_migrations table")?;
+    Ok(())
+}
+
+fn migration_applied(conn: &Connection, version: i64) -> Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM schema_migrations WHERE version = ?1",
+        rusqlite::params![version],
+        |_| Ok(()),
+    )
+    .optional()
+    .with_context(|| format!("query schema migration {version}"))
+    .map(|value| value.is_some())
+}
+
+fn record_migration(conn: &Connection, version: i64, name: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO schema_migrations (version, name) VALUES (?1, ?2)",
+        rusqlite::params![version, name],
+    )
+    .with_context(|| format!("record schema migration {version} {name}"))?;
+    Ok(())
+}
+
+fn migration_feeds_musicindex_updated_at(conn: &Connection) -> Result<()> {
+    add_column_if_missing(conn, "feeds", "musicindex_updated_at", "INTEGER")
+}
+
+fn migration_tracks_enclosure_type(conn: &Connection) -> Result<()> {
+    add_column_if_missing(conn, "tracks", "enclosure_type", "TEXT")
 }
 
 fn add_column_if_missing(
@@ -1031,7 +1098,32 @@ mod tests {
         let conn = Connection::open_in_memory()?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         init_schema(&conn)?;
+        migrate_schema(&conn)?;
         Ok(conn)
+    }
+
+    fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+        let mut stmt = conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .with_context(|| format!("prepare table_info for {table}"))?;
+        let has_column = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .with_context(|| format!("query table_info for {table}"))?
+            .filter_map(Result::ok)
+            .any(|name| name.eq_ignore_ascii_case(column));
+        Ok(has_column)
+    }
+
+    fn applied_migration_versions(conn: &Connection) -> Result<Vec<i64>> {
+        let mut stmt = conn
+            .prepare("SELECT version FROM schema_migrations ORDER BY version")
+            .context("prepare applied_migration_versions")?;
+        let versions = stmt
+            .query_map([], |row| row.get::<_, i64>(0))
+            .context("query applied_migration_versions")?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("collect applied_migration_versions")?;
+        Ok(versions)
     }
 
     fn create_test_feed(conn: &Connection) -> Result<i64> {
@@ -1053,6 +1145,71 @@ mod tests {
             rusqlite::params![feed_id, guid, "Test Track"],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    #[test]
+    fn test_migrations_record_versions_on_fresh_schema() -> Result<()> {
+        let conn = setup_test_db()?;
+
+        assert!(
+            table_has_column(&conn, "feeds", "musicindex_updated_at")?,
+            "fresh schema should include feeds.musicindex_updated_at"
+        );
+        assert!(
+            table_has_column(&conn, "tracks", "enclosure_type")?,
+            "fresh schema should include tracks.enclosure_type"
+        );
+        assert_eq!(
+            applied_migration_versions(&conn)?,
+            vec![1, 2],
+            "fresh schema should record all registry migrations"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_migrations_update_legacy_schema() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch(
+            r#"
+            CREATE TABLE feeds (
+                id INTEGER PRIMARY KEY,
+                feed_url TEXT NOT NULL UNIQUE,
+                feed_guid TEXT NULL,
+                title TEXT NULL
+            );
+
+            CREATE TABLE tracks (
+                id INTEGER PRIMARY KEY,
+                feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+                item_guid TEXT NOT NULL,
+                enclosure_url TEXT NULL,
+                track_title TEXT NULL,
+                UNIQUE(feed_id, item_guid)
+            );
+            "#,
+        )
+        .context("create legacy schema")?;
+
+        migrate_schema(&conn)?;
+        migrate_schema(&conn)?;
+
+        assert!(
+            table_has_column(&conn, "feeds", "musicindex_updated_at")?,
+            "migration should add feeds.musicindex_updated_at"
+        );
+        assert!(
+            table_has_column(&conn, "tracks", "enclosure_type")?,
+            "migration should add tracks.enclosure_type"
+        );
+        assert_eq!(
+            applied_migration_versions(&conn)?,
+            vec![1, 2],
+            "migration registry should be idempotent"
+        );
+
+        Ok(())
     }
 
     #[test]
