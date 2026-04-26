@@ -51,20 +51,6 @@ pub struct Playlist {
 }
 
 #[derive(Clone, Debug)]
-pub struct NowPlayingSource {
-    pub local_track_id: i64,
-    pub feed_guid: String,
-    pub item_guid: String,
-    pub title: String,
-    pub artist: String,
-    pub album: Option<String>,
-    pub image: Option<String>,
-    pub duration_ms: Option<u64>,
-    pub value_block: serde_json::Value,
-    pub raw_extra_json: serde_json::Value,
-}
-
-#[derive(Clone, Debug)]
 pub struct PlaybackSessionRow {
     pub session_id: String,
     pub sequence: u64,
@@ -539,17 +525,6 @@ pub fn transcript_url_from_extra_json(extra_json: Option<&str>) -> Option<String
         .map(ToOwned::to_owned)
 }
 
-fn parse_json_value(
-    raw: Option<&str>,
-    default: serde_json::Value,
-    label: &str,
-) -> Result<serde_json::Value> {
-    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Ok(default);
-    };
-    serde_json::from_str(raw).with_context(|| format!("parse {label}"))
-}
-
 fn playback_session_from_sql(row: &rusqlite::Row) -> rusqlite::Result<PlaybackSessionRow> {
     let sequence = row.get::<_, i64>(1)?;
     let position_ms = row.get::<_, i64>(6)?;
@@ -785,92 +760,6 @@ pub fn playlist_track_at(
     )
     .optional()
     .context("query playlist track at position")
-}
-
-pub fn now_playing_source_for_track(conn: &Connection, track_id: i64) -> Result<NowPlayingSource> {
-    let row = conn
-        .query_row(
-            "SELECT t.id, f.feed_guid, t.item_guid, t.track_title, t.artist_name,
-                    t.album_artist_name, t.album_title, t.track_image_href,
-                    f.album_image_href, t.duration_seconds, t.item_value_json,
-                    f.podcast_value_json, t.extra_json
-             FROM tracks t
-             JOIN feeds f ON f.id = t.feed_id
-             JOIN local_files lf ON lf.track_id = t.id
-             WHERE t.id = ?1
-             ORDER BY lf.id
-             LIMIT 1",
-            rusqlite::params![track_id],
-            |row| {
-                Ok((
-                    row.get::<_, i64>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                    row.get::<_, Option<String>>(4)?,
-                    row.get::<_, Option<String>>(5)?,
-                    row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<String>>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<i64>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                    row.get::<_, Option<String>>(11)?,
-                    row.get::<_, String>(12)?,
-                ))
-            },
-        )
-        .optional()
-        .context("query now playing source")?;
-
-    let Some((
-        local_track_id,
-        feed_guid,
-        item_guid,
-        title,
-        artist,
-        album_artist,
-        album,
-        track_image,
-        album_image,
-        duration_seconds,
-        item_value_json,
-        feed_value_json,
-        raw_extra_json,
-    )) = row
-    else {
-        anyhow::bail!("track {track_id} is not bound to a local file");
-    };
-
-    let feed_guid = feed_guid
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .with_context(|| format!("track {track_id} has no feed GUID"))?;
-    let duration_ms = duration_seconds
-        .filter(|value| *value >= 0)
-        .map(|value| value as u64 * 1000);
-    let value_block = parse_json_value(
-        item_value_json.as_deref().or(feed_value_json.as_deref()),
-        serde_json::Value::Null,
-        "value block",
-    )?;
-    let raw_extra_json = parse_json_value(
-        Some(raw_extra_json.as_str()),
-        serde_json::json!({}),
-        "track extra_json",
-    )?;
-
-    Ok(NowPlayingSource {
-        local_track_id,
-        feed_guid,
-        item_guid,
-        title: title.unwrap_or_default(),
-        artist: artist.or(album_artist).unwrap_or_default(),
-        album,
-        image: track_image.or(album_image),
-        duration_ms,
-        value_block,
-        raw_extra_json,
-    })
 }
 
 pub fn set_playback_session_track(

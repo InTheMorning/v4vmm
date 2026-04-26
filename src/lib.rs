@@ -15,6 +15,7 @@ pub mod search;
 pub mod sources;
 pub mod tag_field;
 pub mod track_compare;
+pub mod track_identity;
 pub mod ui;
 pub mod ui_artist;
 pub mod ui_common;
