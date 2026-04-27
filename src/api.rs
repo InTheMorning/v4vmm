@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use reqwest::blocking::Client as ReqwestClient;
+use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
@@ -306,6 +307,18 @@ pub struct Source {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveMetadataPublishRequest {
+    pub event_id: String,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveMetadataPublishResponse {
+    pub event_id: String,
+    pub accepted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EntityDetail {
     Artist(Artist),
     Release(Release),
@@ -489,6 +502,15 @@ impl Client {
         })
     }
 
+    pub fn publish_live_metadata(
+        &self,
+        event_id: &str,
+        request: &LiveMetadataPublishRequest,
+    ) -> Result<LiveMetadataPublishResponse> {
+        validate_live_metadata_request(event_id, request)?;
+        self.post_json(&["v1", "liveitems", event_id, "metadata"], request)
+    }
+
     fn fetch_wrapped<T>(&self, path_segments: &[&str]) -> Result<T>
     where
         T: DeserializeOwned,
@@ -514,6 +536,20 @@ impl Client {
     {
         let url = self.build_url(path_segments, query)?;
         let response = self.client.get(url).send()?.error_for_status()?;
+        Ok(response.json()?)
+    }
+
+    fn post_json<T, B>(&self, path_segments: &[&str], body: &B) -> Result<T>
+    where
+        T: DeserializeOwned,
+        B: Serialize,
+    {
+        let url = self.build_url(path_segments, &[])?;
+        let response = self.client.post(url).json(body).send()?;
+        if response.status() == StatusCode::NO_CONTENT {
+            return Err(anyhow!("live metadata publish returned no content"));
+        }
+        let response = response.error_for_status()?;
         Ok(response.json()?)
     }
 
@@ -569,9 +605,39 @@ fn sanitize_api_query_value(value: &str) -> String {
         .join(" ")
 }
 
+fn validate_live_metadata_request(
+    event_id: &str,
+    request: &LiveMetadataPublishRequest,
+) -> Result<()> {
+    validate_live_metadata_event_id("path event_id", event_id)?;
+    validate_live_metadata_event_id("request event_id", &request.event_id)?;
+    if event_id != request.event_id {
+        return Err(anyhow!(
+            "live metadata event_id mismatch: path {event_id:?}, body {:?}",
+            request.event_id
+        ));
+    }
+    Ok(())
+}
+
+fn validate_live_metadata_event_id(label: &str, value: &str) -> Result<()> {
+    let sanitized = sanitize_api_query_value(value);
+    if sanitized.is_empty() {
+        return Err(anyhow!("live metadata {label} is empty"));
+    }
+    if sanitized != value {
+        return Err(anyhow!(
+            "live metadata {label} contains invalid whitespace or control bytes"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Client, Contributor, Feed, PaymentRoute, SourceEntityId, Track};
+    use super::{
+        Client, Contributor, Feed, LiveMetadataPublishRequest, PaymentRoute, SourceEntityId, Track,
+    };
 
     #[test]
     fn build_url_sanitizes_metadata_path_segments_and_query_values() {
@@ -633,5 +699,49 @@ mod tests {
         assert_eq!(hydrated.source_ids.as_ref().map(Vec::len), Some(1));
         assert_eq!(hydrated.source_contributors.as_ref().map(Vec::len), Some(1));
         assert_eq!(hydrated.payment_routes.as_ref().map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn live_metadata_publish_url_uses_event_id_as_routing_key() {
+        let client = Client::new();
+        let url = client
+            .build_url(&["v1", "liveitems", "event/one", "metadata"], &[])
+            .expect("url");
+
+        let segments = url
+            .path_segments()
+            .expect("path segments")
+            .collect::<Vec<_>>();
+        assert_eq!(segments, vec!["v1", "liveitems", "event%2Fone", "metadata"]);
+    }
+
+    #[test]
+    fn live_metadata_request_requires_matching_event_id() {
+        let request = LiveMetadataPublishRequest {
+            event_id: "event-two".into(),
+            metadata: serde_json::json!({"title": "Song"}),
+        };
+
+        let error = super::validate_live_metadata_request("event-one", &request)
+            .expect_err("mismatched event ids should fail");
+        assert!(
+            error.to_string().contains("event_id mismatch"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn live_metadata_request_rejects_collapsed_event_id() {
+        let request = LiveMetadataPublishRequest {
+            event_id: "event one".into(),
+            metadata: serde_json::json!({"title": "Song"}),
+        };
+
+        let error = super::validate_live_metadata_request("event\none", &request)
+            .expect_err("collapsed path event id should fail");
+        assert!(
+            error.to_string().contains("invalid whitespace"),
+            "unexpected error: {error}"
+        );
     }
 }
