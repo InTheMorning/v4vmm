@@ -30,9 +30,9 @@ There is also a `Cached` sub-view for downloaded files that still exist locally 
 
 This is the MusicIndex browser.
 
-- Searches across artists, feeds, tracks, and publishers.
+- Searches across artists, feeds, and tracks.
 - Shows recent feeds when there is no active query.
-- Opens inspectors for artists, feeds, tracks, and publishers.
+- Opens inspectors for artists, feeds, tracks, and linked publishers.
 - Can subscribe or unsubscribe feeds and tracks from the search side.
 - Uses MusicIndex detail responses for contributors, value routes, source links, source ids, release claims, and enclosure choices.
 

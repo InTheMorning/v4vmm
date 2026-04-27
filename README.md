@@ -4,7 +4,7 @@
 
 The current tool is not a generic roadmap project or a future media player shell. It is a desktop operator app that already does four concrete jobs:
 
-- discover artists, feeds, tracks, and publishers from MusicIndex
+- discover artists, feeds, and tracks from MusicIndex
 - subscribe feeds by pulling their RSS into a local SQLite database
 - download track files into a managed library under `music_dir/artists/...`
 - compare and update embedded metadata on local files, with optional MusicBrainz-assisted staging

@@ -8,7 +8,7 @@ The `Discover` tab is the entry point for browsing MusicIndex.
 
 - Enter a query to search MusicIndex entities.
 - Leave the query empty to browse recent feeds.
-- Open inspectors for artists, feeds, tracks, and publishers.
+- Open inspectors for artists, feeds, tracks, and publishers linked from feeds or tracks.
 - Feed and track inspectors surface source metadata, contributors, and value routes when available.
 
 ### Subscribe A Feed

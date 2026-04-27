@@ -37,8 +37,8 @@ use crate::track_compare::{
 };
 use crate::ui_common::{
     artwork_img, badge_text, compare_value_line_elements, metadata_action_button, optional_row,
-    render_detail_grid, render_detail_header, render_thumb, section_heading, truncated,
-    truncated_muted, type_color, type_emoji,
+    render_detail_grid, render_detail_grid_elements, render_detail_header, render_thumb,
+    section_heading, truncated, truncated_muted, type_color, type_emoji, DetailRow,
 };
 
 #[derive(Clone, Debug)]
@@ -232,14 +232,8 @@ type FeedTrackListContext<'a> = (
     &'a [db::Playlist],
 );
 
-const TYPE_LABELS: &[&str] = &["All", "Artist", "Feed", "Track", "Publisher"];
-const TYPE_VALUES: &[Option<&str>] = &[
-    None,
-    Some("artist"),
-    Some("feed"),
-    Some("track"),
-    Some("publisher"),
-];
+const TYPE_LABELS: &[&str] = &["All", "Artist", "Feed", "Track"];
+const TYPE_VALUES: &[Option<&str>] = &[None, Some("artist"), Some("feed"), Some("track")];
 
 impl SearchApp {
     pub fn new(
@@ -250,8 +244,7 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) -> Self {
         let input = cx.new(|cx: &mut Context<InputState>| {
-            InputState::new(window, cx)
-                .placeholder("Discover artists, feeds, tracks, publishers...")
+            InputState::new(window, cx).placeholder("Discover artists, feeds, and tracks...")
         });
         let input_sub = cx.subscribe(&input, Self::on_input_event);
 
@@ -1928,25 +1921,11 @@ fn fetch_search_batch(
         return fetch_artist_search_batch(client, query, cursor, fuzzy);
     }
 
-    if entity_type == Some("publisher") {
-        let response = client.search_publishers(query, Some(PAGE_LIMIT), fuzzy)?;
-        let rows = response
-            .data
-            .into_iter()
-            .map(|publisher| {
-                let entity_id = publisher.publisher_text.clone().unwrap_or_default();
-                ResultRow {
-                    entity_type: "publisher".into(),
-                    entity_id,
-                    detail: Some(EntityDetail::Publisher(publisher)),
-                }
-            })
-            .collect();
-
+    if entity_type.is_some_and(|kind| !search_result_type_is_visible(kind)) {
         return Ok(SearchBatch {
-            rows,
-            has_more: response.pagination.has_more,
-            cursor: response.pagination.cursor,
+            rows: Vec::new(),
+            has_more: false,
+            cursor: None,
         });
     }
 
@@ -1955,6 +1934,7 @@ fn fetch_search_batch(
         .data
         .iter()
         .map(|hit| search_hit_to_result_row(client, hit))
+        .filter(|row| search_result_type_is_visible(&row.entity_type))
         .collect();
     if entity_type.is_none() {
         let mut artist_rows = artist_rows_from_result_rows(&rows, Some(query));
@@ -1991,6 +1971,10 @@ fn fetch_artist_search_batch(
         has_more: response.pagination.has_more,
         cursor: response.pagination.cursor,
     })
+}
+
+fn search_result_type_is_visible(entity_type: &str) -> bool {
+    matches!(entity_type, "artist" | "feed" | "track")
 }
 
 fn search_hit_to_result_row(client: &Client, hit: &SearchResult) -> ResultRow {
@@ -2419,6 +2403,21 @@ fn first_source_enclosure_url(enclosures: &[SourceEnclosure]) -> Option<String> 
 
 fn nonempty_url(url: Option<&str>) -> Option<&str> {
     url.map(str::trim).filter(|url| !url.is_empty())
+}
+
+pub(crate) fn detail_rows_from_strings(rows: Vec<(String, String)>) -> Vec<DetailRow> {
+    rows.into_iter()
+        .map(|(key, value)| DetailRow {
+            key,
+            value: div()
+                .text_size(typography::SIZE_MICRO)
+                .line_height(px(17.0))
+                .flex()
+                .flex_col()
+                .children(compare_value_line_elements(&value, 6))
+                .into_any_element(),
+        })
+        .collect()
 }
 
 fn download_and_compare_track(
@@ -3331,18 +3330,39 @@ fn render_discover_track_inspector(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let track = &track_context.track;
-    let mut rows = vec![(
-        "Release".to_string(),
-        track.feed_title.clone().unwrap_or_else(|| "Unknown".into()),
-    )];
+    let mut rows = vec![DetailRow {
+        key: "Release".to_string(),
+        value: div()
+            .text_size(typography::SIZE_MICRO)
+            .line_height(px(17.0))
+            .child(SharedString::from(
+                track.feed_title.clone().unwrap_or_else(|| "Unknown".into()),
+            ))
+            .into_any_element(),
+    }];
+    let mut scalar_rows = Vec::new();
     optional_row(
-        &mut rows,
+        &mut scalar_rows,
         "Track #",
         track.track_number.map(|number| number.to_string()),
     );
-    optional_row(&mut rows, "Duration", track.duration_secs.map(fmt_dur));
-    optional_row(&mut rows, "Release Date", track.pub_date.and_then(fmt_date));
-    optional_row(&mut rows, "Publisher", track.publisher_text.clone());
+    optional_row(
+        &mut scalar_rows,
+        "Duration",
+        track.duration_secs.map(fmt_dur),
+    );
+    optional_row(
+        &mut scalar_rows,
+        "Release Date",
+        track.pub_date.and_then(fmt_date),
+    );
+    rows.extend(detail_rows_from_strings(scalar_rows));
+    if let Some(publisher) = nonempty_url(track.publisher_text.as_deref()).map(str::to_string) {
+        rows.push(DetailRow {
+            key: "Publisher".into(),
+            value: render_publisher_link_value(publisher, cx),
+        });
+    }
 
     div()
         .flex()
@@ -3350,7 +3370,7 @@ fn render_discover_track_inspector(
         .gap(spacing::LG)
         .child(render_track_header(frame, track, cx))
         .child(render_action_row(frame, &BTreeMap::new(), app, cx))
-        .child(render_detail_grid(rows))
+        .child(render_detail_grid_elements(rows))
         .when(track.description.is_some(), |el| {
             el.child(render_collapsed_text_section(
                 "Description",
@@ -6100,6 +6120,36 @@ fn render_feed_link_value(
         .into_any_element()
 }
 
+pub(crate) fn render_publisher_link_value(
+    publisher_text: String,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let publisher_text = publisher_text.trim().to_string();
+    let tooltip = format!("Open publisher: {publisher_text}");
+    let title = publisher_text.clone();
+    let click_title = title.clone();
+    div()
+        .id(SharedString::from(format!(
+            "publisher-link:{publisher_text}"
+        )))
+        .cursor_pointer()
+        .text_color(color::accent())
+        .text_size(typography::SIZE_MICRO)
+        .line_height(px(17.0))
+        .truncate()
+        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.push_inspector(
+                "publisher".into(),
+                publisher_text.clone(),
+                click_title.clone(),
+                cx,
+            );
+        }))
+        .child(SharedString::from(title))
+        .into_any_element()
+}
+
 fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -> AnyElement {
     let feeds = app.recent_feeds.clone();
     let status = app.recent_status.clone();
@@ -6493,11 +6543,11 @@ mod tests {
         format_drag_value_for_id3v24, id3_frame_group_key, id3_frame_version,
         merge_track_play_fields, metadata_data_row, metadata_drag_value, metadata_field_group_key,
         musicbrainz_remainder_rows, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
-        pending_id3_target_key, should_show_inspector_back, track_metadata_rows, track_play_url,
-        unused_id3v24_frames_for_group, AlignedCompareRow, Artist, EntityDetail, Feed,
-        Id3FrameVersion, MetadataColumn, MetadataGridRow, PendingId3Edit, ResultRow,
-        SourceEnclosure, SourceEntityId, SourceEntityLink, TagCompareResult, Track, TrackContext,
-        ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
+        pending_id3_target_key, search_result_type_is_visible, should_show_inspector_back,
+        track_metadata_rows, track_play_url, unused_id3v24_frames_for_group, AlignedCompareRow,
+        Artist, EntityDetail, Feed, Id3FrameVersion, MetadataColumn, MetadataGridRow,
+        PendingId3Edit, ResultRow, SourceEnclosure, SourceEntityId, SourceEntityLink,
+        TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
     use crate::metadata::{
@@ -6520,6 +6570,26 @@ mod tests {
         assert!(
             should_show_inspector_back(2),
             "nested inspector frames should keep showing Back"
+        );
+    }
+
+    #[test]
+    fn search_results_are_limited_to_artist_feed_and_track() {
+        assert!(
+            search_result_type_is_visible("artist"),
+            "artist results should remain searchable"
+        );
+        assert!(
+            search_result_type_is_visible("feed"),
+            "feed results should remain searchable"
+        );
+        assert!(
+            search_result_type_is_visible("track"),
+            "track results should remain searchable"
+        );
+        assert!(
+            !search_result_type_is_visible("publisher"),
+            "publisher results should only be opened from feed or track links"
         );
     }
 

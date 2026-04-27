@@ -1,9 +1,10 @@
 use crate::api::{Feed, Track};
 use crate::search::{
-    fmt_date, fmt_runtime, render_action_row, render_collapsed_text_section, render_feed_header,
+    detail_rows_from_strings, fmt_date, fmt_runtime, render_action_row,
+    render_collapsed_text_section, render_feed_header, render_publisher_link_value,
     render_track_list_section, InspectorFrame, SearchApp,
 };
-use crate::ui_common::{optional_row, render_detail_grid};
+use crate::ui_common::{optional_row, render_detail_grid_elements, DetailRow};
 use crate::ui_context::ViewContext;
 use crate::views::FeedView;
 use gpui::{div, prelude::*, AnyElement, Context};
@@ -22,34 +23,45 @@ pub(crate) fn render_feed_view(
     let title = view.title.clone().unwrap_or_else(|| "Unknown Feed".into());
     let artist = view.artist.clone().unwrap_or_else(|| "Unknown".into());
 
-    let mut rows = vec![
-        (
-            "Release Kind".to_string(),
-            view.release_kind
-                .clone()
-                .unwrap_or_else(|| "Unknown".into()),
-        ),
-        (
-            "Publisher".to_string(),
-            view.publisher_text
-                .clone()
-                .unwrap_or_else(|| "Unknown".into()),
-        ),
-    ];
+    let mut scalar_rows = vec![(
+        "Release Kind".to_string(),
+        view.release_kind
+            .clone()
+            .unwrap_or_else(|| "Unknown".into()),
+    )];
     optional_row(
-        &mut rows,
+        &mut scalar_rows,
         "Release Date",
         view.release_date.and_then(fmt_date),
     );
-    optional_row(&mut rows, "Language", view.language.clone());
+    optional_row(&mut scalar_rows, "Language", view.language.clone());
     if view.explicit == Some(true) {
-        rows.push(("Explicit".into(), "Yes".into()));
+        scalar_rows.push(("Explicit".into(), "Yes".into()));
     }
     optional_row(
-        &mut rows,
+        &mut scalar_rows,
         "Tracks",
         view.episode_count.map(|n| n.to_string()),
     );
+    let mut rows = detail_rows_from_strings(scalar_rows);
+    if let Some(publisher) = view
+        .publisher_text
+        .as_deref()
+        .map(str::trim)
+        .filter(|publisher| !publisher.is_empty())
+    {
+        rows.insert(
+            1,
+            DetailRow {
+                key: "Publisher".into(),
+                value: render_publisher_link_value(publisher.to_string(), cx),
+            },
+        );
+    } else {
+        let mut publisher_rows =
+            detail_rows_from_strings(vec![("Publisher".into(), "Unknown".into())]);
+        rows.insert(1, publisher_rows.remove(0));
+    }
 
     let mut sorted_tracks = tracks.to_vec();
     sorted_tracks.sort_by(|a, b| {
@@ -77,7 +89,7 @@ pub(crate) fn render_feed_view(
             cx,
         ))
         .child(render_action_row(frame, &BTreeMap::new(), app, cx))
-        .child(render_detail_grid(rows))
+        .child(render_detail_grid_elements(rows))
         .when(view.description.is_some(), |el| {
             el.child(render_collapsed_text_section(
                 "Description",
