@@ -1,7 +1,7 @@
 // src/config.rs
 use anyhow::{anyhow, Context, Result};
 use directories::{BaseDirs, ProjectDirs};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -23,6 +23,60 @@ pub struct Config {
     /// WAV downloads are left untagged.
     #[serde(default)]
     pub flac_path: Option<PathBuf>,
+
+    /// Playback backend configuration. Missing config defaults to no playback
+    /// driver so existing configs keep loading unchanged.
+    #[serde(default)]
+    pub playback: PlaybackConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct PlaybackConfig {
+    #[serde(default, deserialize_with = "deserialize_playback_driver")]
+    pub driver: PlaybackDriver,
+
+    #[serde(default)]
+    pub mpv_path: Option<PathBuf>,
+}
+
+impl Default for PlaybackConfig {
+    fn default() -> Self {
+        Self {
+            driver: PlaybackDriver::Null,
+            mpv_path: None,
+        }
+    }
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackDriver {
+    #[default]
+    Null,
+    Mpv,
+}
+
+fn deserialize_playback_driver<'de, D>(
+    deserializer: D,
+) -> std::result::Result<PlaybackDriver, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let driver = String::deserialize(deserializer)?;
+    match driver.as_str() {
+        "null" => Ok(PlaybackDriver::Null),
+        "mpv" => Ok(PlaybackDriver::Mpv),
+        other => Err(serde::de::Error::custom(format!(
+            "unknown playback driver {other:?}; expected \"null\" or \"mpv\""
+        ))),
+    }
+}
+
+fn parse_playback_config(raw: &str) -> Result<PlaybackConfig> {
+    let table = raw.parse::<toml::Table>().context("parse TOML")?;
+    match table.get("playback") {
+        Some(value) => value.clone().try_into().context("parse playback config"),
+        None => Ok(PlaybackConfig::default()),
+    }
 }
 
 /// Determine the config path.
@@ -57,6 +111,8 @@ pub fn load_config(cfg_path: &Path) -> Result<Config> {
     let raw = fs::read_to_string(cfg_path)
         .with_context(|| format!("read config {}", cfg_path.display()))?;
 
+    let _playback = parse_playback_config(&raw)
+        .with_context(|| format!("parse playback config {}", cfg_path.display()))?;
     let cfg: Config =
         toml::from_str(&raw).with_context(|| format!("parse TOML {}", cfg_path.display()))?;
 
@@ -235,6 +291,12 @@ musicindex_endpoint = "{}"
 # `brew install flac`). Without it, WAV downloads are kept as WAV and are not
 # tagged.
 # flac_path = "/usr/bin/flac"
+
+# Playback backend. The default "null" driver disables playback.
+# Uncomment to use mpv; leave mpv_path unset to resolve `mpv` via $PATH.
+# [playback]
+# driver = "mpv"
+# mpv_path = "/usr/bin/mpv"
 "#,
         music_dir.display(),
         db_path.display(),
@@ -302,6 +364,67 @@ mod tests {
         assert!(
             normalize_music_dir(" \t ").is_err(),
             "blank music directory should be rejected"
+        );
+    }
+
+    #[test]
+    fn load_config_defaults_missing_playback_to_null_driver() {
+        let cfg = parse_playback_config(
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+"#,
+        )
+        .expect("parse playback config");
+
+        assert_eq!(cfg.driver, PlaybackDriver::Null);
+        assert_eq!(cfg.mpv_path, None);
+    }
+
+    #[test]
+    fn load_config_parses_mpv_playback_config() {
+        let cfg = parse_playback_config(
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[playback]
+driver = "mpv"
+mpv_path = "/usr/bin/mpv"
+"#,
+        )
+        .expect("parse playback config");
+
+        assert_eq!(cfg.driver, PlaybackDriver::Mpv);
+        assert_eq!(cfg.mpv_path, Some(PathBuf::from("/usr/bin/mpv")));
+    }
+
+    #[test]
+    fn load_config_rejects_unknown_playback_driver() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[playback]
+driver = "vlc"
+"#,
+        )
+        .expect("write config");
+
+        let error = load_config(&cfg_path).expect_err("unknown driver should fail");
+        let message = format!("{error:#}");
+
+        assert!(
+            message.contains("unknown playback driver \"vlc\""),
+            "unexpected error: {message}"
+        );
+        assert!(
+            message.contains("expected \"null\" or \"mpv\""),
+            "unexpected error: {message}"
         );
     }
 

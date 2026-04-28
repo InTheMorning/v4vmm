@@ -16,6 +16,9 @@ use crate::db;
 use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryTree};
 use crate::library_service;
 use crate::media::ImageCache;
+use crate::playback;
+use crate::playback_driver::ConfiguredPlaybackDriver;
+use crate::playback_owner::PlaybackOwner;
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::theme::color;
 use crate::ui::theme::layout;
@@ -63,6 +66,7 @@ pub struct TopApp {
     discover_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
     _search_sub: gpui::Subscription,
+    _playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
     conn: Arc<Mutex<Connection>>,
     cached_tree: LibraryTree,
 }
@@ -79,6 +83,7 @@ impl TopApp {
         musicindex_endpoint: String,
         music_dir: PathBuf,
         flac_path: Option<PathBuf>,
+        playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -141,6 +146,7 @@ impl TopApp {
             discover_tab_focus: cx.focus_handle(),
             settings_tab_focus: cx.focus_handle(),
             _search_sub: search_sub,
+            _playback_owner: playback_owner,
             conn,
             cached_tree: LibraryTree::default(),
         }
@@ -695,6 +701,9 @@ pub fn run_app() {
         config::ensure_dirs(&cfg).expect("ensure dirs");
         let conn = db::open_db(&cfg).expect("open db");
         let conn = Arc::new(Mutex::new(conn));
+        let playback_driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)
+            .expect("configure playback driver");
+        let playback_owner = PlaybackOwner::new(playback_driver, playback::DEFAULT_SESSION_ID);
 
         let thumbnail_cache_dir = cfg_path
             .parent()
@@ -722,6 +731,7 @@ pub fn run_app() {
                             musicindex_endpoint,
                             cfg.music_dir,
                             cfg.flac_path,
+                            playback_owner,
                             window,
                             cx,
                         )

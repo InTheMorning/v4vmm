@@ -17,7 +17,7 @@ pub struct NullDriverState {
     pub stopped: bool,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct NullDriver {
     state: Mutex<NullDriverState>,
 }

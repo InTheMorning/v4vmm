@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+use crate::playback_driver::DriverStatus;
 use crate::{db, playlist_service, track_identity};
 
 pub const DEFAULT_SESSION_ID: &str = "default";
@@ -106,6 +107,43 @@ pub fn update_position(
     let session = db::update_playback_session_position(conn, session_id, position_ms)?;
     let source = track_identity::local_track_identity(conn, session.local_track_id)?;
     update_from_parts(&session, source)
+}
+
+pub fn update_paused(
+    conn: &Connection,
+    paused: bool,
+    session_id: &str,
+) -> Result<NowPlayingUpdate> {
+    let session = db::update_playback_session_paused(conn, session_id, paused)?;
+    let source = track_identity::local_track_identity(conn, session.local_track_id)?;
+    update_from_parts(&session, source)
+}
+
+pub fn reconcile_driver_status(
+    conn: &Connection,
+    status: &DriverStatus,
+    session_id: &str,
+) -> Result<Option<NowPlayingUpdate>> {
+    if let Some(error) = &status.error {
+        anyhow::bail!("playback driver error: {error}");
+    }
+    if status.eof {
+        return skip_next(conn, session_id).map(Some);
+    }
+    let Some(session) = db::reconcile_playback_session_driver_status(
+        conn,
+        session_id,
+        status.position_ms,
+        status.paused,
+    )?
+    else {
+        return Ok(None);
+    };
+    if session.state == "stopped" {
+        return Ok(None);
+    }
+    let source = track_identity::local_track_identity(conn, session.local_track_id)?;
+    update_from_parts(&session, source).map(Some)
 }
 
 pub fn stop(conn: &Connection, session_id: &str) -> Result<db::PlaybackSessionRow> {
@@ -355,6 +393,69 @@ mod tests {
         assert_eq!(current.sequence, 2);
         assert_eq!(current.position_ms, 42_000);
         assert_eq!(current.feed_guid, "feed-guid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn paused_session_still_emits_now_playing() -> Result<()> {
+        let conn = setup_test_db()?;
+        let (_, track_id) = create_playlist_track(&conn, Some("feed-guid"))?;
+
+        set_track(&conn, track_id, DEFAULT_SESSION_ID)?;
+        let paused = update_paused(&conn, true, DEFAULT_SESSION_ID)?;
+        let row = db::playback_session(&conn, DEFAULT_SESSION_ID)?.expect("session");
+        let current = now_playing_update(&conn, DEFAULT_SESSION_ID)?.expect("current session");
+
+        assert_eq!(paused.sequence, 2);
+        assert_eq!(row.state, "paused");
+        assert_eq!(current.local_track_id, track_id);
+
+        Ok(())
+    }
+
+    #[test]
+    fn reconcile_driver_status_updates_position_and_pause_state() -> Result<()> {
+        let conn = setup_test_db()?;
+        let (_, track_id) = create_playlist_track(&conn, Some("feed-guid"))?;
+
+        set_track(&conn, track_id, DEFAULT_SESSION_ID)?;
+        let status = DriverStatus {
+            position_ms: 7_000,
+            paused: true,
+            eof: false,
+            error: None,
+        };
+        let update =
+            reconcile_driver_status(&conn, &status, DEFAULT_SESSION_ID)?.expect("reconciled");
+        let row = db::playback_session(&conn, DEFAULT_SESSION_ID)?.expect("session");
+
+        assert_eq!(update.position_ms, 7_000);
+        assert_eq!(row.state, "paused");
+        assert_eq!(row.sequence, 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn reconcile_eof_uses_playlist_advance_path() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn, Some("feed-guid"))?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
+        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let playlist_id = db::playlist_create(&conn, "Phase 2")?;
+        db::playlist_append(&conn, playlist_id, first_track_id)?;
+        db::playlist_append(&conn, playlist_id, second_track_id)?;
+
+        play_playlist_at(&conn, playlist_id, 0, DEFAULT_SESSION_ID)?;
+        let status = DriverStatus {
+            eof: true,
+            ..DriverStatus::default()
+        };
+        let update = reconcile_driver_status(&conn, &status, DEFAULT_SESSION_ID)?.expect("next");
+
+        assert_eq!(update.local_track_id, second_track_id);
+        assert_eq!(update.sequence, 2);
 
         Ok(())
     }

@@ -13,14 +13,28 @@ metadata. ADR 0020 then accepted a simulated transport so relay smoke tests
 could exercise the session without an audio backend.
 
 With Phase 2 playlist playback in place, the next step is a real audio driver
-so the same CLI and session model can drive an actual player. mpv is a strong
-first target: it plays every relevant container, it has a stable JSON IPC
-protocol, and it ships on every host the project already runs on.
+so the same session model can drive an actual player. mpv is a strong first
+target: it plays every relevant container, it has a stable JSON IPC protocol,
+and it ships on every host the project already runs on.
 
 ## Decision
 
-Introduce a `PlaybackDriver` trait and an mpv-backed implementation that talks
-to a long-lived `mpv --idle` subprocess over a Unix-domain JSON IPC socket.
+Introduce a `PlaybackDriver` trait and an mpv-backed implementation for a
+long-running playback owner. The owner is the desktop/TUI app, or a future
+playback daemon, not a one-shot CLI command.
+
+One-shot CLI commands continue to operate in session-only mode unless a later
+ADR defines daemon/RPC control. In that mode `playlist play`, `playback next`,
+`playback previous`, `playback stop`, and `playback position` preserve ADR 0020:
+they update `playback_sessions` synchronously, return JSON from the database
+write, and do not start or control an audio process.
+
+Live-driver mode exists only inside the long-running owner. Commands routed to
+that owner call the driver, then reconcile observed driver state back into
+`playback_sessions`. `playback position <ms>` sends `seek` to the driver and
+persists the accepted target position immediately; later polls may correct
+drift. `playback next` and EOF both use the same playlist advancement service.
+`playback stop` stops the driver when live, then marks the session stopped.
 
 ### Trait
 
@@ -41,10 +55,24 @@ pub struct DriverStatus {
 }
 ```
 
-A `NullDriver` keeps the ADR 0020 simulated behavior and remains the default
-when no audio backend is configured. The `MpvDriver` becomes opt-in via a
-config flag (`playback.driver = "mpv"`) and the existing CLI surface gains
-no required arguments.
+A `NullDriver` keeps the ADR 0020 simulated behavior and remains the default.
+The `MpvDriver` is opt-in for the long-running owner only, and the existing CLI
+surface gains no required arguments.
+
+### Config
+
+Playback config is represented as:
+
+```toml
+[playback]
+driver = "null" # "null" or "mpv"
+mpv_path = "mpv" # optional; defaults to PATH
+```
+
+Missing `[playback]` defaults to `driver = "null"`. Unknown drivers are config
+errors. `mpv_path` is optional, and mpv availability is checked lazily when live
+playback starts, not while reading config. Generated default config should
+include commented playback settings.
 
 ### IPC over libmpv
 
@@ -55,14 +83,42 @@ debuggable from a shell with `socat`, and matches the CLI-first ethos of ADR
 0017. libmpv FFI remains a future option if property polling latency becomes a
 problem.
 
+### IPC contract
+
+- Every mpv command uses a monotonically increasing `request_id`.
+- Socket writes are serialized through a mutex or single actor.
+- A reader loop drains all mpv messages and routes replies and events by type.
+- Command calls wait for the matching `request_id` response with a bounded
+  timeout; timeout or socket disconnect returns an explicit driver error.
+- Async property events update cached driver status, and `poll()` returns that
+  cache rather than consuming arbitrary socket messages.
+- Observed mpv properties include `time-pos` and `pause`; position is normalized
+  to milliseconds at the driver boundary.
+- EOF is detected from mpv events or EOF-relevant properties and is
+  edge-triggered so one observation advances the playlist at most once.
+
 ### Lifecycle
 
-- The driver is a singleton tied to the default session id.
+- The driver singleton is owned by the long-running playback process and tied
+  to the default session id.
 - mpv spawns lazily on the first `load` call and is reused across tracks.
-- The driver owns the subprocess handle and kills mpv on `Drop` so app exit
-  does not leave orphans.
+- One-shot CLI invocations do not create a reusable driver or imply mpv
+  ownership across process boundaries.
+- The driver owns the subprocess handle. Normal shutdown uses an explicit
+  shutdown path; `Drop` performs best-effort cleanup.
 - A health check (`player ping` debug command, ADR 0017 style) confirms the
   socket is reachable before the first load.
+
+### Socket and process hygiene
+
+- The IPC socket lives under a private per-user runtime or temp directory.
+- Socket names include the process id or a random suffix.
+- Directory permissions are owner-only where the platform allows it.
+- Stale socket paths are removed before startup only after checking that they
+  are not active.
+- Startup waits for socket readiness with a bounded timeout.
+- Shutdown first asks mpv to terminate, then kills the child after timeout.
+- Cleanup removes the socket path on normal shutdown and best-effort `Drop`.
 
 ### Position reconciliation
 
@@ -73,8 +129,20 @@ problem.
   stored track and seeks to `position_ms`.
 - On EOF the driver reports `eof = true`; the playback layer calls the
   existing `playback next` path, so playlist advance logic stays in one place.
-- Manual `playback position <ms>` CLI calls go through the driver's `seek`
-  and the database update happens on the next poll tick.
+- Manual live `playback position <ms>` calls go through the driver's `seek` and
+  persist the accepted target immediately; later polls correct drift.
+
+### Pause state
+
+`playback_sessions.state` supports `playing`, `paused`, and `stopped`.
+`DriverStatus.paused = true` reconciles the session to `paused`.
+`DriverStatus.paused = false` reconciles the session to `playing` unless EOF or
+stop handling has taken precedence. Stopped sessions still produce no
+`now-playing --json` result.
+
+Pause is persisted as session state, but metadata identity remains owned by
+`PlaybackSession` and local database facts. Adding `paused` directly to
+`NowPlayingUpdate` is deferred until a consumer needs it.
 
 ### Stream URLs
 
@@ -88,7 +156,6 @@ gating, caching, and value-block accounting can be designed together.
 - Relay tests can keep using `NullDriver` so ADR 0020 behavior is preserved.
 - A new `playback_driver` module gives future drivers (libmpv, MPRIS, web
   player) a single seam to implement.
-- mpv lifecycle is now part of app shutdown — the TUI must drop the driver
-  before exit so the subprocess is reaped.
+- mpv lifecycle is part of long-running owner shutdown, not one-shot CLI exit.
 - Stream playback and gapless transitions are explicitly out of scope and
   tracked for a later ADR.

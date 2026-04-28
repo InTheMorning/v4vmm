@@ -122,12 +122,17 @@ The status line reports:
 - any file-level ID3 write failures
 - any feed-level failures
 
-## Playback Session CLI Workflow
+## Playback Session Workflow
 
-The Phase 2 CLI prepares the now-playing contract without introducing a player
-backend. `PlaybackSession` is the authoritative state; player adapters added
-later should report position and state into this model rather than define
-metadata identity themselves.
+`PlaybackSession` is the authoritative now-playing state. Player adapters report
+transport facts such as position and pause state into this model; they do not
+define metadata identity.
+
+### Session-Only CLI Mode
+
+The one-shot CLI preserves ADR 0020 simulated playback behavior. Commands write
+`playback_sessions` synchronously, JSON reflects the database write
+immediately, and no audio process is started or controlled.
 
 ### Preview A Playlist Row
 
@@ -145,7 +150,7 @@ write `playback_sessions`.
 ### Simulate Playlist Playback
 
 Use `playlist play` without `--dry-run` to persist the selected playlist row as
-the default playback session. This does not launch or control an audio player.
+the default playback session.
 
 ```bash
 v4vmm playlist play <playlist-id>
@@ -178,6 +183,41 @@ milliseconds. `stop` marks the session stopped; after stop,
 `now-playing --json` reports no current playback session.
 
 Every persisted state change increments the session `sequence`.
+
+### Live-Driver Mode
+
+Live playback is owned by a long-running desktop/TUI process, or a future
+playback daemon. One-shot CLI commands do not spawn, poll, reuse, or cleanly
+drop mpv across separate invocations unless a later daemon/RPC workflow defines
+that boundary.
+
+When `playback.driver = "mpv"` is enabled for the long-running owner:
+
+- the owner creates one `MpvDriver` for the default session
+- mpv starts lazily on first load and is reused across tracks
+- commands routed to the owner call the driver, then reconcile observed state
+  back into `playback_sessions`
+- `playback position <ms>` seeks the driver and persists the accepted target
+  immediately; later polls may correct drift
+- `playback next` and EOF use the same playlist advancement service
+- `playback stop` stops the driver when live, then marks the session stopped
+- pause is persisted as session state: `playing`, `paused`, or `stopped`
+
+The mpv IPC socket is private to the current user, uses a process-specific or
+randomized path, waits for readiness with a bounded timeout, and is removed on
+normal shutdown. The owner should shut mpv down gracefully before killing it
+after timeout; `Drop` is only best-effort cleanup.
+
+Playback config defaults to session-only behavior:
+
+```toml
+[playback]
+driver = "null" # "null" or "mpv"
+mpv_path = "mpv" # optional; defaults to PATH
+```
+
+Missing `[playback]` uses `driver = "null"`. Unknown drivers fail config
+validation. mpv availability is checked when live playback starts.
 
 ### Test The Live Relay
 

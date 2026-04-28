@@ -13,6 +13,7 @@ pub mod metadata;
 pub mod musicbrainz;
 pub mod playback;
 pub mod playback_driver;
+pub mod playback_owner;
 pub mod playlist_service;
 pub mod rss;
 pub mod search;

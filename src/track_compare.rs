@@ -533,7 +533,7 @@ mod tests {
     use crate::api::{SourceEnclosure, Track};
     use crate::audio_format::AudioFormat;
     use crate::audio_tags::AudioTags;
-    use crate::config::Config;
+    use crate::config::{Config, PlaybackConfig};
 
     fn track() -> Track {
         Track {
@@ -616,6 +616,7 @@ mod tests {
             music_dir: "/tmp/v4vmm-test".into(),
             db_path: "/tmp/v4vmm-test.sqlite".into(),
             flac_path: None,
+            playback: PlaybackConfig::default(),
         };
 
         assert_eq!(
@@ -634,6 +635,7 @@ mod tests {
             music_dir: "/tmp/v4vmm-test".into(),
             db_path: "/tmp/v4vmm-test.sqlite".into(),
             flac_path: None,
+            playback: PlaybackConfig::default(),
         };
         let mut track = track();
         track.track_artist = Some("CON".into());
@@ -656,6 +658,7 @@ mod tests {
             music_dir: "/tmp/v4vmm-test".into(),
             db_path: "/tmp/v4vmm-test.sqlite".into(),
             flac_path: None,
+            playback: PlaybackConfig::default(),
         };
         let mut track = track();
         track.track_artist = Some("Artist\tName".into());
@@ -751,6 +754,7 @@ mod tests {
             music_dir: temp.path().join("music"),
             db_path: temp.path().join("db.sqlite"),
             flac_path: None,
+            playback: PlaybackConfig::default(),
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));

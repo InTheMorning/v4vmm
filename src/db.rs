@@ -851,6 +851,54 @@ pub fn update_playback_session_position(
     playback_session(conn, session_id)?.context("playback session missing after position update")
 }
 
+pub fn update_playback_session_paused(
+    conn: &Connection,
+    session_id: &str,
+    paused: bool,
+) -> Result<PlaybackSessionRow> {
+    let session_id = session_id.trim();
+    anyhow::ensure!(!session_id.is_empty(), "session id cannot be empty");
+    let state = if paused { "paused" } else { "playing" };
+    let changed = conn
+        .execute(
+            "UPDATE playback_sessions
+             SET sequence = sequence + 1,
+                 state = ?1,
+                 updated_at = datetime('now')
+             WHERE session_id = ?2
+               AND state != 'stopped'",
+            rusqlite::params![state, session_id],
+        )
+        .context("update playback session pause state")?;
+    anyhow::ensure!(changed > 0, "no active playback session {session_id:?}");
+    playback_session(conn, session_id)?.context("playback session missing after pause update")
+}
+
+pub fn reconcile_playback_session_driver_status(
+    conn: &Connection,
+    session_id: &str,
+    position_ms: u64,
+    paused: bool,
+) -> Result<Option<PlaybackSessionRow>> {
+    let session_id = session_id.trim();
+    anyhow::ensure!(!session_id.is_empty(), "session id cannot be empty");
+    let position_ms = i64::try_from(position_ms).context("position_ms is too large")?;
+    let state = if paused { "paused" } else { "playing" };
+    conn.execute(
+        "UPDATE playback_sessions
+         SET sequence = sequence + 1,
+             position_ms = ?1,
+             state = ?2,
+             updated_at = datetime('now')
+         WHERE session_id = ?3
+           AND state != 'stopped'
+           AND (position_ms != ?1 OR state != ?2)",
+        rusqlite::params![position_ms, state, session_id],
+    )
+    .context("reconcile playback session driver status")?;
+    playback_session(conn, session_id)
+}
+
 pub fn stop_playback_session(conn: &Connection, session_id: &str) -> Result<PlaybackSessionRow> {
     let session_id = session_id.trim();
     anyhow::ensure!(!session_id.is_empty(), "session id cannot be empty");
