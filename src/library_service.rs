@@ -73,6 +73,10 @@ pub fn delete_local_file(conn: &Connection, local_file_path: &str) -> Result<()>
     db::delete_local_file(conn, local_file_path)
 }
 
+pub fn track_row_by_id(conn: &Connection, track_id: i64) -> Result<Option<db::TrackRow>> {
+    db::track_row_by_id(conn, track_id)
+}
+
 pub fn find_track_id(
     conn: &Connection,
     feed_url: Option<&str>,

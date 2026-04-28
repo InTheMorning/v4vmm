@@ -26,6 +26,7 @@ use crate::audio_tags::Id3Field;
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3v24Edit};
 use crate::config;
 use crate::db;
+use crate::library::subscribe_then_append_to_playlist;
 use crate::library_service;
 use crate::media::ImageCache;
 use crate::metadata::*;
@@ -1394,30 +1395,23 @@ impl SearchApp {
                 return;
             }
         };
-        let conn = self.conn.lock().expect("lock db");
-        let tracks = match db::feed_tracks(&conn, feed_id) {
-            Ok(t) => t,
-            Err(err) => {
-                self.status = format!("Error loading feed tracks: {err:#}");
-                return;
+        let track_ids: Vec<i64> = {
+            let conn = self.conn.lock().expect("lock db");
+            match db::feed_tracks(&conn, feed_id) {
+                Ok(t) => t.into_iter().map(|row| row.id).collect(),
+                Err(err) => {
+                    self.status = format!("Error loading feed tracks: {err:#}");
+                    cx.notify();
+                    return;
+                }
             }
         };
-        let mut appended = 0usize;
-        for track in &tracks {
-            if playlist_service::append_track(&conn, playlist_id, track.id).is_ok() {
-                appended += 1;
-            }
+        if track_ids.is_empty() {
+            self.status = "Feed has no tracks".into();
+            cx.notify();
+            return;
         }
-        let name = self
-            .playlists
-            .iter()
-            .find(|p| p.id == playlist_id)
-            .map(|p| p.name.clone())
-            .unwrap_or_default();
-        self.status = format!("Added {appended} tracks to {name}");
-        drop(conn);
-        self.load_playlists();
-        cx.notify();
+        self.spawn_subscribe_then_append(playlist_id, track_ids, cx);
     }
 
     pub(crate) fn add_search_track_to_playlist(
@@ -1436,33 +1430,21 @@ impl SearchApp {
                 return;
             }
         };
-        let conn = self.conn.lock().expect("lock db");
-        let track_id: Option<i64> = conn
-            .query_row(
+        let track_id: Option<i64> = {
+            let conn = self.conn.lock().expect("lock db");
+            conn.query_row(
                 "SELECT id FROM tracks WHERE feed_id = ?1 AND item_guid = ?2 LIMIT 1",
                 rusqlite::params![feed_id, track_guid],
                 |row| row.get(0),
             )
-            .ok();
+            .ok()
+        };
         let Some(track_id) = track_id else {
             self.status = "Track not in local library".into();
+            cx.notify();
             return;
         };
-        match playlist_service::append_track(&conn, playlist_id, track_id) {
-            Ok(()) => {
-                let name = self
-                    .playlists
-                    .iter()
-                    .find(|p| p.id == playlist_id)
-                    .map(|p| p.name.clone())
-                    .unwrap_or_default();
-                self.status = format!("Added to {name}");
-            }
-            Err(err) => self.status = format!("Error adding to playlist: {err:#}"),
-        }
-        drop(conn);
-        self.load_playlists();
-        cx.notify();
+        self.spawn_subscribe_then_append(playlist_id, vec![track_id], cx);
     }
 
     pub(crate) fn toggle_add_to_playlist_track_guid(&mut self, track_guid: &str) {
@@ -1476,22 +1458,73 @@ impl SearchApp {
     }
 
     fn add_track_to_playlist(&mut self, track_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match playlist_service::append_track(&conn, playlist_id, track_id) {
-            Ok(()) => {
-                let name = self
-                    .playlists
-                    .iter()
-                    .find(|p| p.id == playlist_id)
-                    .map(|p| p.name.clone())
-                    .unwrap_or_default();
-                self.status = format!("Added to {name}");
-            }
-            Err(err) => self.status = format!("Error adding to playlist: {err:#}"),
-        }
-        drop(conn);
-        self.load_playlists();
+        self.spawn_subscribe_then_append(playlist_id, vec![track_id], cx);
+    }
+
+    fn spawn_subscribe_then_append(
+        &mut self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+        cx: &mut Context<Self>,
+    ) {
+        let total = track_ids.len();
+        let playlist_name = self
+            .playlists
+            .iter()
+            .find(|p| p.id == playlist_id)
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
+        self.status = format!(
+            "Downloading {total} track{}...",
+            if total == 1 { "" } else { "s" }
+        );
         cx.notify();
+
+        let conn = Arc::clone(&self.conn);
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        subscribe_then_append_to_playlist(conn, playlist_id, track_ids)
+                    })
+                    .await;
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        match result {
+                            Ok(outcome) => {
+                                let mut msg = format!(
+                                    "Added {} of {} to {playlist_name}",
+                                    outcome.appended, total
+                                );
+                                if outcome.downloaded > 0 {
+                                    msg.push_str(&format!(
+                                        " (downloaded {})",
+                                        outcome.downloaded
+                                    ));
+                                }
+                                if !outcome.failed.is_empty() {
+                                    msg.push_str(&format!(
+                                        "; {} failed",
+                                        outcome.failed.len()
+                                    ));
+                                }
+                                this.status = msg;
+                            }
+                            Err(err) => {
+                                this.status = format!("Error adding to playlist: {err:#}");
+                            }
+                        }
+                        this.load_playlists();
+                        cx.emit(SearchAppEvent::LibraryMutated);
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
     }
 
     fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {

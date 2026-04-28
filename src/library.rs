@@ -579,22 +579,7 @@ impl LibraryApp {
     }
 
     fn add_track_to_playlist(&mut self, track_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match playlist_service::append_track(&conn, playlist_id, track_id) {
-            Ok(()) => {
-                let name = self
-                    .playlists
-                    .iter()
-                    .find(|p| p.id == playlist_id)
-                    .map(|p| p.name.clone())
-                    .unwrap_or_default();
-                self.status = format!("Added to {name}");
-            }
-            Err(err) => self.status = format!("Error adding to playlist: {err:#}"),
-        }
-        drop(conn);
-        self.reload_playlists();
-        cx.notify();
+        self.spawn_subscribe_then_append(playlist_id, vec![track_id], cx);
     }
 
     fn add_album_to_playlist(&mut self, feed_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
@@ -607,22 +592,79 @@ impl LibraryApp {
                 return;
             }
         };
-        let mut appended = 0usize;
-        for track in &tracks {
-            if playlist_service::append_track(&conn, playlist_id, track.id).is_ok() {
-                appended += 1;
-            }
+        drop(conn);
+        let track_ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
+        if track_ids.is_empty() {
+            self.status = "Album has no tracks".into();
+            cx.notify();
+            return;
         }
-        let name = self
+        self.spawn_subscribe_then_append(playlist_id, track_ids, cx);
+    }
+
+    fn spawn_subscribe_then_append(
+        &mut self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+        cx: &mut Context<Self>,
+    ) {
+        let total = track_ids.len();
+        let playlist_name = self
             .playlists
             .iter()
             .find(|p| p.id == playlist_id)
             .map(|p| p.name.clone())
             .unwrap_or_default();
-        self.status = format!("Added {appended} tracks to {name}");
-        drop(conn);
-        self.reload_playlists();
+        self.status = format!(
+            "Downloading {total} track{}...",
+            if total == 1 { "" } else { "s" }
+        );
         cx.notify();
+
+        let conn = Arc::clone(&self.conn);
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        subscribe_then_append_to_playlist(conn, playlist_id, track_ids)
+                    })
+                    .await;
+                this.update(
+                    cx,
+                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
+                        match result {
+                            Ok(outcome) => {
+                                let mut msg = format!(
+                                    "Added {} of {} to {playlist_name}",
+                                    outcome.appended, total
+                                );
+                                if outcome.downloaded > 0 {
+                                    msg.push_str(&format!(
+                                        " (downloaded {})",
+                                        outcome.downloaded
+                                    ));
+                                }
+                                if !outcome.failed.is_empty() {
+                                    msg.push_str(&format!(
+                                        "; {} failed",
+                                        outcome.failed.len()
+                                    ));
+                                }
+                                this.status = msg;
+                            }
+                            Err(err) => {
+                                this.status = format!("Error adding to playlist: {err:#}");
+                            }
+                        }
+                        this.reload_playlists();
+                        cx.notify();
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
     }
 
     fn thumbnail_for_url(
@@ -1638,7 +1680,7 @@ pub struct SubscribedTrackOutcome {
     pub format_warning: Option<String>,
 }
 
-fn subscribe_library_track(
+pub(crate) fn subscribe_library_track(
     conn: Arc<Mutex<Connection>>,
     track: TrackRow,
 ) -> anyhow::Result<SubscribedTrackOutcome> {
@@ -1716,6 +1758,82 @@ fn subscribe_library_track(
         path: final_path,
         format_warning,
     })
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct AppendToPlaylistOutcome {
+    pub appended: usize,
+    pub downloaded: usize,
+    pub already_in_library: usize,
+    pub failed: Vec<String>,
+}
+
+/// Ensure each track is downloaded and marked in-library, then append to the
+/// playlist. Tracks that are already downloaded (local file present and
+/// `is_in_library = 1`) are not re-downloaded. Tracks whose download fails are
+/// skipped and reported in `failed`.
+///
+/// Blocking — must be called from a background executor.
+pub(crate) fn subscribe_then_append_to_playlist(
+    conn: Arc<Mutex<Connection>>,
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+) -> anyhow::Result<AppendToPlaylistOutcome> {
+    let mut outcome = AppendToPlaylistOutcome::default();
+    for track_id in track_ids {
+        let track = {
+            let db = conn
+                .lock()
+                .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+            library_service::track_row_by_id(&db, track_id)?
+        };
+        let Some(track) = track else {
+            outcome
+                .failed
+                .push(format!("track {track_id} not found"));
+            continue;
+        };
+
+        let already_local = track.is_in_library
+            && track
+                .local_path
+                .as_deref()
+                .map(|p| !p.is_empty() && std::path::Path::new(p).exists())
+                .unwrap_or(false);
+
+        if already_local {
+            outcome.already_in_library += 1;
+        } else {
+            let title = track
+                .track_title
+                .clone()
+                .unwrap_or_else(|| track.item_guid.clone());
+            match subscribe_library_track(Arc::clone(&conn), track.clone()) {
+                Ok(_) => outcome.downloaded += 1,
+                Err(err) => {
+                    outcome
+                        .failed
+                        .push(format!("{title}: {err:#}"));
+                    continue;
+                }
+            }
+        }
+
+        let db = conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+        match playlist_service::append_track(&db, playlist_id, track.id) {
+            Ok(()) => outcome.appended += 1,
+            Err(err) => outcome.failed.push(format!(
+                "append {}: {err:#}",
+                track
+                    .track_title
+                    .as_deref()
+                    .unwrap_or(track.item_guid.as_str())
+            )),
+        }
+    }
+    Ok(outcome)
 }
 
 #[allow(dead_code)]

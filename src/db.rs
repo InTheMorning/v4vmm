@@ -212,6 +212,29 @@ pub fn feed_tracks(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
     Ok(rows)
 }
 
+pub fn track_row_by_id(conn: &Connection, track_id: i64) -> Result<Option<TrackRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
+                    t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
+                    t.enclosure_url, t.enclosure_type, t.track_image_href,
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+             FROM tracks t
+             JOIN feeds f ON f.id = t.feed_id
+             LEFT JOIN local_files lf ON lf.track_id = t.id
+             WHERE t.id = ?1",
+        )
+        .context("prepare track_row_by_id")?;
+
+    let mut rows = stmt
+        .query_map([track_id], track_row_from_sql)
+        .context("query track_row_by_id")?;
+    match rows.next() {
+        Some(row) => Ok(Some(row.context("read track_row_by_id")?)),
+        None => Ok(None),
+    }
+}
+
 pub fn library_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
     let mut stmt = conn
         .prepare(
