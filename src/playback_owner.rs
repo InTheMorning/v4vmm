@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 use crate::playback_driver::{DriverStatus, PlaybackDriver};
-use crate::{db, playback, track_identity};
+use crate::{db, playback, playlist_service, track_identity};
 
 #[derive(Clone, Debug)]
 pub enum PollOutcome {
@@ -56,6 +56,20 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             return Ok(update);
         }
         playback::update_position(conn, start_ms, &self.session_id)
+    }
+
+    pub fn play_playlist_at(
+        &mut self,
+        conn: &Connection,
+        playlist_id: i64,
+        playlist_position: i64,
+    ) -> Result<playback::NowPlayingUpdate> {
+        let selection = playlist_service::select_track_at(conn, playlist_id, playlist_position)?;
+        self.driver
+            .load(Path::new(&selection.identity.local_path), 0)?;
+        self.eof_armed = true;
+        self.loaded_track_id = Some(selection.track_id);
+        playback::play_playlist_at(conn, playlist_id, playlist_position, &self.session_id)
     }
 
     pub fn load_current_session(&mut self, conn: &Connection) -> Result<Option<DriverStatus>> {
@@ -233,6 +247,28 @@ mod tests {
 
         assert_eq!(row.state, "paused");
         assert!(owner.driver().snapshot().paused);
+        Ok(())
+    }
+
+    #[test]
+    fn owner_play_playlist_at_loads_driver_and_preserves_playlist_context() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
+        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let playlist_id = db::playlist_create(&conn, "Phase 2")?;
+        db::playlist_append(&conn, playlist_id, first_track_id)?;
+        db::playlist_append(&conn, playlist_id, second_track_id)?;
+        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+
+        let update = owner.play_playlist_at(&conn, playlist_id, 1)?;
+        let row = db::playback_session(&conn, playback::DEFAULT_SESSION_ID)?.expect("session");
+        let snap = owner.driver().snapshot();
+
+        assert_eq!(update.local_track_id, second_track_id);
+        assert_eq!(row.playlist_id, Some(playlist_id));
+        assert_eq!(row.playlist_position, Some(1));
+        assert_eq!(snap.loaded_path, Some(PathBuf::from("/tmp/second.mp3")));
         Ok(())
     }
 

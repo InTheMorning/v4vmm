@@ -66,6 +66,16 @@ struct PlaylistDetail {
     tracks: Vec<TrackRow>,
 }
 
+#[derive(Clone, Debug)]
+pub enum LibraryAppEvent {
+    PlayPlaylistAt {
+        playlist_id: i64,
+        playlist_position: i64,
+    },
+}
+
+impl gpui::EventEmitter<LibraryAppEvent> for LibraryApp {}
+
 #[derive(Clone, Debug, Default)]
 enum LazyPanel<T> {
     #[default]
@@ -3615,6 +3625,7 @@ fn render_playlist_detail(
                 let position = idx as i64;
                 let last_position = (track_count - 1) as i64;
                 let pl_id = playlist_id;
+                let can_play = track.local_path.is_some();
                 let track_title = track
                     .track_title
                     .as_deref()
@@ -3667,6 +3678,20 @@ fn render_playlist_detail(
                 .with_size(Size::Small)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.remove_playlist_track_at(pl_id, position, cx);
+                }));
+
+                let play_btn = Button::new(SharedString::from(format!(
+                    "playlist-play-{pl_id}-{position}"
+                )))
+                .label("▶")
+                .ghost()
+                .with_size(Size::Small)
+                .disabled(!can_play)
+                .on_click(cx.listener(move |_this, _, _, cx| {
+                    cx.emit(LibraryAppEvent::PlayPlaylistAt {
+                        playlist_id: pl_id,
+                        playlist_position: position,
+                    });
                 }));
 
                 div()
@@ -3734,6 +3759,7 @@ fn render_playlist_detail(
                             .flex_row()
                             .items_center()
                             .gap(spacing::XS)
+                            .child(play_btn)
                             .child(up_btn)
                             .child(down_btn)
                             .child(remove_btn),

@@ -13,7 +13,7 @@ use rusqlite::Connection;
 
 use crate::config;
 use crate::db;
-use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryTree};
+use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryAppEvent, LibraryTree};
 use crate::library_service;
 use crate::media::ImageCache;
 use crate::playback;
@@ -66,6 +66,7 @@ pub struct TopApp {
     discover_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
     _search_sub: gpui::Subscription,
+    _library_sub: gpui::Subscription,
     playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
     conn: Arc<Mutex<Connection>>,
     cached_tree: LibraryTree,
@@ -111,6 +112,15 @@ impl TopApp {
                 }
             },
         );
+        let library_sub = cx.subscribe(
+            &library,
+            move |this: &mut Self, _library, event: &LibraryAppEvent, cx| match event {
+                LibraryAppEvent::PlayPlaylistAt {
+                    playlist_id,
+                    playlist_position,
+                } => this.play_playlist_at(*playlist_id, *playlist_position, cx),
+            },
+        );
         let endpoint_default = musicindex_endpoint.clone();
         let endpoint_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx)
@@ -146,6 +156,7 @@ impl TopApp {
             discover_tab_focus: cx.focus_handle(),
             settings_tab_focus: cx.focus_handle(),
             _search_sub: search_sub,
+            _library_sub: library_sub,
             playback_owner,
             conn,
             cached_tree: LibraryTree::default(),
@@ -192,6 +203,27 @@ impl TopApp {
                 self.settings_status = format!("Playback error: {error:#}");
             }
         }
+    }
+
+    fn play_playlist_at(
+        &mut self,
+        playlist_id: i64,
+        playlist_position: i64,
+        cx: &mut Context<Self>,
+    ) {
+        let conn = self.conn.lock().expect("lock db");
+        match self
+            .playback_owner
+            .play_playlist_at(&conn, playlist_id, playlist_position)
+        {
+            Ok(update) => {
+                self.settings_status = format!("Playing {}", update.title);
+            }
+            Err(error) => {
+                self.settings_status = format!("Playback error: {error:#}");
+            }
+        }
+        cx.notify();
     }
 
     fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
