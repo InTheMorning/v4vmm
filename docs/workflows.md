@@ -160,6 +160,25 @@ milliseconds. `stop` marks the session stopped; after stop,
 
 Every persisted state change increments the session `sequence`.
 
+### Test The Live Relay
+
+The live item commands use the configured `musicindex_endpoint`, defaulting to
+`https://api.musicindex.org`. Add `--endpoint <url>` to any command when testing
+a local relay.
+
+```bash
+v4vmm liveitem health
+v4vmm liveitem create --json
+v4vmm liveitem publish-now-playing <event-id> --dry-run
+v4vmm liveitem publish-now-playing <event-id> --token <broadcaster-token>
+v4vmm liveitem publish <event-id> --metadata-json '{"title":"Test"}' --token <broadcaster-token>
+v4vmm liveitem latest <event-id> --json
+```
+
+Publish commands also accept `MUSICINDEX_LIVEITEM_TOKEN` instead of `--token`.
+`publish-now-playing` sends the current canonical `NowPlayingUpdate` as the
+relay metadata payload; it does not infer source identity from strings.
+
 ## CLI Debug Workflow
 
 The CLI exposes structured JSON inspection commands for backend state. These

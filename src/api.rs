@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::Client as ReqwestClient;
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
@@ -307,6 +307,14 @@ pub struct Source {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveItemCreateResponse {
+    pub event_id: String,
+    pub broadcaster_token: String,
+    pub metadata_url: String,
+    pub events_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveMetadataPublishRequest {
     pub event_id: String,
     pub metadata: serde_json::Value,
@@ -316,6 +324,15 @@ pub struct LiveMetadataPublishRequest {
 pub struct LiveMetadataPublishResponse {
     pub event_id: String,
     pub accepted: bool,
+    pub seq: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveMetadataSnapshot {
+    pub event_id: String,
+    pub seq: u64,
+    pub updated_at: String,
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -502,6 +519,19 @@ impl Client {
         })
     }
 
+    pub fn health(&self) -> Result<String> {
+        self.get_text(&["health"], &[])
+    }
+
+    pub fn create_live_item(&self) -> Result<LiveItemCreateResponse> {
+        self.post_json(&["v1", "liveitems"], &serde_json::json!({}))
+    }
+
+    pub fn fetch_live_metadata(&self, event_id: &str) -> Result<LiveMetadataSnapshot> {
+        validate_live_metadata_event_id("path event_id", event_id)?;
+        self.get_json(&["v1", "liveitems", event_id, "metadata"], &[])
+    }
+
     pub fn publish_live_metadata(
         &self,
         event_id: &str,
@@ -509,6 +539,21 @@ impl Client {
     ) -> Result<LiveMetadataPublishResponse> {
         validate_live_metadata_request(event_id, request)?;
         self.post_json(&["v1", "liveitems", event_id, "metadata"], request)
+    }
+
+    pub fn publish_live_metadata_with_token(
+        &self,
+        event_id: &str,
+        token: &str,
+        request: &LiveMetadataPublishRequest,
+    ) -> Result<LiveMetadataPublishResponse> {
+        validate_live_metadata_request(event_id, request)?;
+        validate_bearer_token(token)?;
+        self.post_json_with_bearer(
+            &["v1", "liveitems", event_id, "metadata"],
+            request,
+            Some(token),
+        )
     }
 
     fn fetch_wrapped<T>(&self, path_segments: &[&str]) -> Result<T>
@@ -535,8 +580,14 @@ impl Client {
         T: DeserializeOwned,
     {
         let url = self.build_url(path_segments, query)?;
-        let response = self.client.get(url).send()?.error_for_status()?;
-        Ok(response.json()?)
+        let response = self.client.get(url).send()?;
+        response_json(response, "GET")
+    }
+
+    fn get_text(&self, path_segments: &[&str], query: &[(&str, String)]) -> Result<String> {
+        let url = self.build_url(path_segments, query)?;
+        let response = self.client.get(url).send()?;
+        response_text(response, "GET")
     }
 
     fn post_json<T, B>(&self, path_segments: &[&str], body: &B) -> Result<T>
@@ -544,13 +595,26 @@ impl Client {
         T: DeserializeOwned,
         B: Serialize,
     {
+        self.post_json_with_bearer(path_segments, body, None)
+    }
+
+    fn post_json_with_bearer<T, B>(
+        &self,
+        path_segments: &[&str],
+        body: &B,
+        bearer_token: Option<&str>,
+    ) -> Result<T>
+    where
+        T: DeserializeOwned,
+        B: Serialize,
+    {
         let url = self.build_url(path_segments, &[])?;
-        let response = self.client.post(url).json(body).send()?;
-        if response.status() == StatusCode::NO_CONTENT {
-            return Err(anyhow!("live metadata publish returned no content"));
+        let mut request = self.client.post(url).json(body);
+        if let Some(token) = bearer_token {
+            request = request.bearer_auth(token);
         }
-        let response = response.error_for_status()?;
-        Ok(response.json()?)
+        let response = request.send()?;
+        response_json(response, "POST")
     }
 
     fn build_url(&self, path_segments: &[&str], query: &[(&str, String)]) -> Result<reqwest::Url> {
@@ -620,6 +684,16 @@ fn validate_live_metadata_request(
     Ok(())
 }
 
+fn validate_bearer_token(token: &str) -> Result<()> {
+    if token.trim().is_empty() {
+        return Err(anyhow!("live metadata bearer token is empty"));
+    }
+    if token.chars().any(|ch| ch == '\0' || ch.is_control()) {
+        return Err(anyhow!("live metadata bearer token contains control bytes"));
+    }
+    Ok(())
+}
+
 fn validate_live_metadata_event_id(label: &str, value: &str) -> Result<()> {
     let sanitized = sanitize_api_query_value(value);
     if sanitized.is_empty() {
@@ -631,6 +705,35 @@ fn validate_live_metadata_event_id(label: &str, value: &str) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+fn response_json<T>(response: reqwest::blocking::Response, method: &str) -> Result<T>
+where
+    T: DeserializeOwned,
+{
+    let status = response.status();
+    if status == StatusCode::NO_CONTENT {
+        return Err(anyhow!("{method} returned no content"));
+    }
+    let body = response_text_with_status(response, method, status)?;
+    serde_json::from_str(&body).with_context(|| format!("decode {method} JSON response"))
+}
+
+fn response_text(response: reqwest::blocking::Response, method: &str) -> Result<String> {
+    let status = response.status();
+    response_text_with_status(response, method, status)
+}
+
+fn response_text_with_status(
+    response: reqwest::blocking::Response,
+    method: &str,
+    status: StatusCode,
+) -> Result<String> {
+    let body = response.text()?;
+    if !status.is_success() {
+        return Err(anyhow!("{method} failed with HTTP {status}: {body}"));
+    }
+    Ok(body)
 }
 
 #[cfg(test)]
