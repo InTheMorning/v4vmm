@@ -105,11 +105,35 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         playback::update_paused(conn, paused, &self.session_id)
     }
 
+    pub fn skip_next(&mut self, conn: &Connection) -> Result<playback::NowPlayingUpdate> {
+        let update = playback::skip_next(conn, &self.session_id)?;
+        self.load_update_track(conn, &update)?;
+        Ok(update)
+    }
+
+    pub fn skip_previous(&mut self, conn: &Connection) -> Result<playback::NowPlayingUpdate> {
+        let update = playback::skip_previous(conn, &self.session_id)?;
+        self.load_update_track(conn, &update)?;
+        Ok(update)
+    }
+
     pub fn stop(&mut self, conn: &Connection) -> Result<db::PlaybackSessionRow> {
         self.driver.stop()?;
         self.eof_armed = false;
         self.loaded_track_id = None;
         playback::stop(conn, &self.session_id)
+    }
+
+    fn load_update_track(
+        &mut self,
+        conn: &Connection,
+        update: &playback::NowPlayingUpdate,
+    ) -> Result<()> {
+        let identity = track_identity::local_track_identity(conn, update.local_track_id)?;
+        self.driver.load(Path::new(&identity.local_path), 0)?;
+        self.loaded_track_id = Some(update.local_track_id);
+        self.eof_armed = true;
+        Ok(())
     }
 
     pub fn poll(&mut self, conn: &Connection) -> Result<PollOutcome> {
@@ -268,6 +292,26 @@ mod tests {
         assert_eq!(update.local_track_id, second_track_id);
         assert_eq!(row.playlist_id, Some(playlist_id));
         assert_eq!(row.playlist_position, Some(1));
+        assert_eq!(snap.loaded_path, Some(PathBuf::from("/tmp/second.mp3")));
+        Ok(())
+    }
+
+    #[test]
+    fn owner_skip_next_loads_advanced_track() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
+        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let playlist_id = db::playlist_create(&conn, "Phase 2")?;
+        db::playlist_append(&conn, playlist_id, first_track_id)?;
+        db::playlist_append(&conn, playlist_id, second_track_id)?;
+        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+        owner.play_playlist_at(&conn, playlist_id, 0)?;
+
+        let update = owner.skip_next(&conn)?;
+        let snap = owner.driver().snapshot();
+
+        assert_eq!(update.local_track_id, second_track_id);
         assert_eq!(snap.loaded_path, Some(PathBuf::from("/tmp/second.mp3")));
         Ok(())
     }

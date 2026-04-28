@@ -8,6 +8,7 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
+use gpui_component::Disableable;
 use gpui_component::{Root, Sizable, Size};
 use rusqlite::Connection;
 
@@ -70,6 +71,13 @@ pub struct TopApp {
     playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
     conn: Arc<Mutex<Connection>>,
     cached_tree: LibraryTree,
+}
+
+#[derive(Clone, Debug, Default)]
+struct PlaybackBarState {
+    active: bool,
+    paused: bool,
+    title: String,
 }
 
 impl TopApp {
@@ -226,6 +234,79 @@ impl TopApp {
         cx.notify();
     }
 
+    fn skip_playback_next(&mut self, cx: &mut Context<Self>) {
+        let conn = self.conn.lock().expect("lock db");
+        match self.playback_owner.skip_next(&conn) {
+            Ok(update) => {
+                self.settings_status = format!("Playing {}", update.title);
+            }
+            Err(error) => {
+                self.settings_status = format!("Playback error: {error:#}");
+            }
+        }
+        cx.notify();
+    }
+
+    fn skip_playback_previous(&mut self, cx: &mut Context<Self>) {
+        let conn = self.conn.lock().expect("lock db");
+        match self.playback_owner.skip_previous(&conn) {
+            Ok(update) => {
+                self.settings_status = format!("Playing {}", update.title);
+            }
+            Err(error) => {
+                self.settings_status = format!("Playback error: {error:#}");
+            }
+        }
+        cx.notify();
+    }
+
+    fn set_playback_paused(&mut self, paused: bool, cx: &mut Context<Self>) {
+        let conn = self.conn.lock().expect("lock db");
+        match self.playback_owner.pause(&conn, paused) {
+            Ok(update) => {
+                let verb = if paused { "Paused" } else { "Playing" };
+                self.settings_status = format!("{verb} {}", update.title);
+            }
+            Err(error) => {
+                self.settings_status = format!("Playback error: {error:#}");
+            }
+        }
+        cx.notify();
+    }
+
+    fn stop_playback_owner(&mut self, cx: &mut Context<Self>) {
+        let conn = self.conn.lock().expect("lock db");
+        match self.playback_owner.stop(&conn) {
+            Ok(_) => {
+                self.settings_status = "Playback stopped".to_string();
+            }
+            Err(error) => {
+                self.settings_status = format!("Playback error: {error:#}");
+            }
+        }
+        cx.notify();
+    }
+
+    fn playback_bar_state(&self) -> PlaybackBarState {
+        let conn = self.conn.lock().expect("lock db");
+        let Ok(Some(session)) = db::playback_session(&conn, playback::DEFAULT_SESSION_ID) else {
+            return PlaybackBarState::default();
+        };
+        if session.state == "stopped" {
+            return PlaybackBarState::default();
+        }
+        let title = playback::now_playing_update(&conn, playback::DEFAULT_SESSION_ID)
+            .ok()
+            .flatten()
+            .map(|update| update.title)
+            .unwrap_or_else(|| "Current track".to_string());
+        PlaybackBarState {
+            active: true,
+            paused: session.state == "paused",
+            title,
+        }
+    }
+
     fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let endpoint = self.endpoint_input.read(cx).value().to_string();
         let music_dir = self.music_dir_input.read(cx).value().to_string();
@@ -334,6 +415,7 @@ impl TopApp {
 
 impl Render for TopApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let playback_controls = render_playback_controls(self, cx);
         div()
             .size_full()
             .bg(color::bg_canvas())
@@ -467,7 +549,9 @@ impl Render for TopApp {
                         &self.settings_tab_focus,
                         _window,
                         cx,
-                    )),
+                    ))
+                    .child(div().flex_1())
+                    .child(playback_controls),
             )
             // Active tab content
             .child(
@@ -713,6 +797,73 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             .child("No cached files"),
                     )
                 }),
+        )
+        .into_any_element()
+}
+
+fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {
+    let state = app.playback_bar_state();
+    let title = if state.active {
+        state.title
+    } else {
+        "Not playing".to_string()
+    };
+    let toggle_label = if state.paused { "▶" } else { "⏸" };
+    let toggle_paused = !state.paused;
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(spacing::XS)
+        .min_w(px(280.0))
+        .max_w(px(420.0))
+        .child(
+            typography::type_caption(div())
+                .text_color(color::text_muted())
+                .truncate()
+                .flex_1()
+                .child(SharedString::from(title)),
+        )
+        .child(
+            Button::new("playback-prev")
+                .label("⏮")
+                .ghost()
+                .with_size(Size::XSmall)
+                .disabled(!state.active)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.skip_playback_previous(cx);
+                })),
+        )
+        .child(
+            Button::new("playback-toggle")
+                .label(toggle_label)
+                .ghost()
+                .with_size(Size::XSmall)
+                .disabled(!state.active)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.set_playback_paused(toggle_paused, cx);
+                })),
+        )
+        .child(
+            Button::new("playback-next")
+                .label("⏭")
+                .ghost()
+                .with_size(Size::XSmall)
+                .disabled(!state.active)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.skip_playback_next(cx);
+                })),
+        )
+        .child(
+            Button::new("playback-stop")
+                .label("⏹")
+                .ghost()
+                .with_size(Size::XSmall)
+                .disabled(!state.active)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.stop_playback_owner(cx);
+                })),
         )
         .into_any_element()
 }

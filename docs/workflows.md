@@ -203,6 +203,8 @@ When `playback.driver = "mpv"` is enabled for the long-running owner:
 - the owner creates one `MpvDriver` for the default session
 - mpv starts lazily on first load and is reused across tracks
 - playlist row play actions in the desktop library route through the owner
+- the desktop transport controls route previous, pause/resume, next, and stop
+  through the same owner
 - commands routed to the owner call the driver, then reconcile observed state
   back into `playback_sessions`
 - `playback position <ms>` seeks the driver and persists the accepted target
