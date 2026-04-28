@@ -12,7 +12,7 @@ pub fn run(args: &[String]) -> Result<()> {
             print_help();
             Ok(())
         }
-        [command, flag] if command == "now-playing" && flag == "--json" => print_now_playing(),
+        [command, rest @ ..] if command == "now-playing" => print_now_playing(rest),
         [section, command, rest @ ..] if section == "liveitem" && command == "health" => {
             check_liveitem_health(rest)
         }
@@ -52,21 +52,8 @@ pub fn run(args: &[String]) -> Result<()> {
         {
             print_track_inspect(parse_i64("track id", track_id)?)
         }
-        [section, command, flag, playlist_id]
-            if section == "playlist" && command == "play" && flag == "--dry-run" =>
-        {
-            dry_run_playlist(parse_i64("playlist id", playlist_id)?, 0)
-        }
-        [section, command, flag, playlist_id, position_flag, position]
-            if section == "playlist"
-                && command == "play"
-                && flag == "--dry-run"
-                && position_flag == "--position" =>
-        {
-            dry_run_playlist(
-                parse_i64("playlist id", playlist_id)?,
-                parse_i64("playlist position", position)?,
-            )
+        [section, command, rest @ ..] if section == "playlist" && command == "play" => {
+            play_playlist(rest)
         }
         [section, command, track_id] if section == "playback" && command == "set-track" => {
             set_track(parse_i64("track id", track_id)?)
@@ -74,6 +61,8 @@ pub fn run(args: &[String]) -> Result<()> {
         [section, command, position_ms] if section == "playback" && command == "position" => {
             update_position(parse_u64("position ms", position_ms)?)
         }
+        [section, command] if section == "playback" && command == "next" => skip_next(),
+        [section, command] if section == "playback" && command == "previous" => skip_previous(),
         [section, command] if section == "playback" && command == "stop" => stop_playback(),
         _ => Err(anyhow!("unsupported command\n\n{}", help_text())),
     }
@@ -97,7 +86,8 @@ fn configured_musicindex_client(endpoint: Option<&str>) -> Result<api::Client> {
     Ok(api::Client::new_with_base_url(base_url))
 }
 
-fn print_now_playing() -> Result<()> {
+fn print_now_playing(args: &[String]) -> Result<()> {
+    parse_now_playing_options(args)?;
     let conn = open_configured_db()?;
     let update = playback::now_playing_update(&conn, playback::DEFAULT_SESSION_ID)?
         .context("no current playback session")?;
@@ -129,8 +119,16 @@ fn print_liveitem_latest(event_id: &str, args: &[String]) -> Result<()> {
     options.ensure_unused(&["--token", "--metadata-json", "--dry-run"])?;
 
     let client = configured_musicindex_client(options.endpoint.as_deref())?;
-    let response = client.fetch_live_metadata(event_id)?;
-    print_json(&response)
+    if let Some(response) = client.fetch_live_metadata_optional(event_id)? {
+        return print_json(&response);
+    }
+
+    print_json(&LiveMetadataMissing {
+        event_id,
+        found: false,
+        error: "metadata_not_found",
+        message: "no metadata has been published for this live item yet",
+    })
 }
 
 fn publish_liveitem_metadata(event_id: &str, args: &[String]) -> Result<()> {
@@ -194,18 +192,24 @@ fn print_track_inspect(track_id: i64) -> Result<()> {
     print_json(&row)
 }
 
-fn dry_run_playlist(playlist_id: i64, playlist_position: i64) -> Result<()> {
-    anyhow::ensure!(
-        playlist_position >= 0,
-        "playlist position cannot be negative"
-    );
+fn play_playlist(args: &[String]) -> Result<()> {
+    let options = parse_playlist_play_options(args)?;
     let conn = open_configured_db()?;
-    let update = playback::dry_run_playlist_at(
-        &conn,
-        playlist_id,
-        playlist_position,
-        playback::DEFAULT_SESSION_ID,
-    )?;
+    let update = if options.dry_run {
+        playback::dry_run_playlist_at(
+            &conn,
+            options.playlist_id,
+            options.position,
+            playback::DEFAULT_SESSION_ID,
+        )?
+    } else {
+        playback::play_playlist_at(
+            &conn,
+            options.playlist_id,
+            options.position,
+            playback::DEFAULT_SESSION_ID,
+        )?
+    };
     print_json(&update)
 }
 
@@ -218,6 +222,18 @@ fn set_track(track_id: i64) -> Result<()> {
 fn update_position(position_ms: u64) -> Result<()> {
     let conn = open_configured_db()?;
     let update = playback::update_position(&conn, position_ms, playback::DEFAULT_SESSION_ID)?;
+    print_json(&update)
+}
+
+fn skip_next() -> Result<()> {
+    let conn = open_configured_db()?;
+    let update = playback::skip_next(&conn, playback::DEFAULT_SESSION_ID)?;
+    print_json(&update)
+}
+
+fn skip_previous() -> Result<()> {
+    let conn = open_configured_db()?;
+    let update = playback::skip_previous(&conn, playback::DEFAULT_SESSION_ID)?;
     print_json(&update)
 }
 
@@ -256,6 +272,26 @@ struct LiveOptions {
     endpoint: Option<String>,
     token: Option<String>,
     metadata_json: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct NowPlayingOptions {
+    json: bool,
+}
+
+#[derive(Debug)]
+struct PlaylistPlayOptions {
+    playlist_id: i64,
+    position: i64,
+    dry_run: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct LiveMetadataMissing<'a> {
+    event_id: &'a str,
+    found: bool,
+    error: &'static str,
+    message: &'static str,
 }
 
 impl LiveOptions {
@@ -332,6 +368,60 @@ fn parse_live_options(args: &[String]) -> Result<LiveOptions> {
     Ok(options)
 }
 
+fn parse_now_playing_options(args: &[String]) -> Result<NowPlayingOptions> {
+    let mut options = NowPlayingOptions::default();
+    for arg in args {
+        match arg.as_str() {
+            "--json" => {
+                anyhow::ensure!(!options.json, "duplicate --json");
+                options.json = true;
+            }
+            flag => return Err(anyhow!("unsupported now-playing option {flag:?}")),
+        }
+    }
+    anyhow::ensure!(options.json, "now-playing requires --json");
+    Ok(options)
+}
+
+fn parse_playlist_play_options(args: &[String]) -> Result<PlaylistPlayOptions> {
+    let mut dry_run = false;
+    let mut position = 0;
+    let mut position_seen = false;
+    let mut playlist_id = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--dry-run" => {
+                anyhow::ensure!(!dry_run, "duplicate --dry-run");
+                dry_run = true;
+                index += 1;
+            }
+            "--position" => {
+                let value = option_value(args, index, "--position")?;
+                anyhow::ensure!(!position_seen, "duplicate --position");
+                position = parse_i64("playlist position", value)?;
+                position_seen = true;
+                index += 2;
+            }
+            value if value.starts_with("--") => {
+                return Err(anyhow!("unsupported playlist play option {value:?}"));
+            }
+            value => {
+                anyhow::ensure!(playlist_id.is_none(), "duplicate playlist id");
+                playlist_id = Some(parse_i64("playlist id", value)?);
+                index += 1;
+            }
+        }
+    }
+    let playlist_id = playlist_id.context("playlist play requires <playlist-id>")?;
+    anyhow::ensure!(position >= 0, "playlist position cannot be negative");
+    Ok(PlaylistPlayOptions {
+        playlist_id,
+        position,
+        dry_run,
+    })
+}
+
 fn option_value<'a>(args: &'a [String], index: usize, flag: &str) -> Result<&'a str> {
     let value = args
         .get(index + 1)
@@ -358,13 +448,16 @@ fn help_text() -> &'static str {
   v4vmm playlist tracks <playlist-id> --json
   v4vmm library tracks --json
   v4vmm track inspect <track-id> --json
-  v4vmm playlist play --dry-run <playlist-id>
-  v4vmm playlist play --dry-run <playlist-id> --position <zero-based-position>
+  v4vmm playlist play <playlist-id> [--position <zero-based-position>]
+  v4vmm playlist play <playlist-id> --dry-run [--position <zero-based-position>]
   v4vmm playback set-track <track-id>
   v4vmm playback position <ms>
+  v4vmm playback next
+  v4vmm playback previous
   v4vmm playback stop
 
 No arguments starts the desktop UI. Phase 2 commands use the configured local
-SQLite database and the default playback session. liveitem publish commands can
-read the broadcaster token from MUSICINDEX_LIVEITEM_TOKEN."
+SQLite database and the default playback session. playlist play simulates
+playback state without controlling an audio player. liveitem publish commands
+can read the broadcaster token from MUSICINDEX_LIVEITEM_TOKEN."
 }

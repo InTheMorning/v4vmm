@@ -311,7 +311,11 @@ pub struct LiveItemCreateResponse {
     pub event_id: String,
     pub broadcaster_token: String,
     pub metadata_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_value_url: Option<String>,
     pub events_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socket_io_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -532,6 +536,23 @@ impl Client {
         self.get_json(&["v1", "liveitems", event_id, "metadata"], &[])
     }
 
+    pub fn fetch_live_metadata_optional(
+        &self,
+        event_id: &str,
+    ) -> Result<Option<LiveMetadataSnapshot>> {
+        validate_live_metadata_event_id("path event_id", event_id)?;
+        let url = self.build_url(&["v1", "liveitems", event_id, "metadata"], &[])?;
+        let response = self.client.get(url).send()?;
+        if response.status() == StatusCode::NOT_FOUND {
+            let body = response.text()?;
+            if response_error_matches(&body, "metadata_not_found") {
+                return Ok(None);
+            }
+            return Err(anyhow!("GET failed with HTTP 404 Not Found: {body}"));
+        }
+        response_json(response, "GET").map(Some)
+    }
+
     pub fn publish_live_metadata(
         &self,
         event_id: &str,
@@ -734,6 +755,19 @@ fn response_text_with_status(
         return Err(anyhow!("{method} failed with HTTP {status}: {body}"));
     }
     Ok(body)
+}
+
+fn response_error_matches(body: &str, expected: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        })
+        .as_deref()
+        == Some(expected)
 }
 
 #[cfg(test)]

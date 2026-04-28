@@ -66,8 +66,36 @@ pub fn dry_run_playlist_at(
     update_from_parts(&session, selection.identity)
 }
 
+pub fn play_playlist_at(
+    conn: &Connection,
+    playlist_id: i64,
+    playlist_position: i64,
+    session_id: &str,
+) -> Result<NowPlayingUpdate> {
+    anyhow::ensure!(
+        playlist_position >= 0,
+        "playlist position cannot be negative"
+    );
+    let selection = playlist_service::select_track_at(conn, playlist_id, playlist_position)?;
+    set_track_with_source(
+        conn,
+        selection.track_id,
+        Some(selection.playlist_id),
+        Some(selection.position),
+        session_id,
+    )
+}
+
 pub fn set_track(conn: &Connection, track_id: i64, session_id: &str) -> Result<NowPlayingUpdate> {
     set_track_with_source(conn, track_id, None, None, session_id)
+}
+
+pub fn skip_next(conn: &Connection, session_id: &str) -> Result<NowPlayingUpdate> {
+    skip_by(conn, session_id, 1)
+}
+
+pub fn skip_previous(conn: &Connection, session_id: &str) -> Result<NowPlayingUpdate> {
+    skip_by(conn, session_id, -1)
 }
 
 pub fn update_position(
@@ -82,6 +110,29 @@ pub fn update_position(
 
 pub fn stop(conn: &Connection, session_id: &str) -> Result<db::PlaybackSessionRow> {
     db::stop_playback_session(conn, session_id)
+}
+
+fn skip_by(conn: &Connection, session_id: &str, delta: i64) -> Result<NowPlayingUpdate> {
+    let session = db::playback_session(conn, session_id)?
+        .with_context(|| format!("no playback session {session_id:?}"))?;
+    anyhow::ensure!(
+        session.state != "stopped",
+        "playback session {session_id:?} is stopped"
+    );
+    let playlist_id = session
+        .playlist_id
+        .context("current playback session is not tied to a playlist")?;
+    let playlist_position = session
+        .playlist_position
+        .context("current playback session has no playlist position")?;
+    let next_position = playlist_position
+        .checked_add(delta)
+        .context("playlist position overflow")?;
+    anyhow::ensure!(
+        next_position >= 0,
+        "already at the beginning of playlist {playlist_id}"
+    );
+    play_playlist_at(conn, playlist_id, next_position, session_id)
 }
 
 fn set_track_with_source(
@@ -247,6 +298,45 @@ mod tests {
 
         assert_eq!(update.local_track_id, second_track_id);
         assert_eq!(update.item_guid, "second-guid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn play_playlist_persists_now_playing_session() -> Result<()> {
+        let conn = setup_test_db()?;
+        let (playlist_id, track_id) = create_playlist_track(&conn, Some("feed-guid"))?;
+
+        let update = play_playlist_at(&conn, playlist_id, 0, DEFAULT_SESSION_ID)?;
+        let current = now_playing_update(&conn, DEFAULT_SESSION_ID)?.expect("current session");
+
+        assert_eq!(update.sequence, 1);
+        assert_eq!(update.local_track_id, track_id);
+        assert_eq!(current.local_track_id, track_id);
+        assert_eq!(current.sequence, 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn skip_next_and_previous_move_within_playlist() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn, Some("feed-guid"))?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
+        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let playlist_id = db::playlist_create(&conn, "Phase 2")?;
+        db::playlist_append(&conn, playlist_id, first_track_id)?;
+        db::playlist_append(&conn, playlist_id, second_track_id)?;
+
+        let first = play_playlist_at(&conn, playlist_id, 0, DEFAULT_SESSION_ID)?;
+        let second = skip_next(&conn, DEFAULT_SESSION_ID)?;
+        let previous = skip_previous(&conn, DEFAULT_SESSION_ID)?;
+
+        assert_eq!(first.local_track_id, first_track_id);
+        assert_eq!(second.local_track_id, second_track_id);
+        assert_eq!(second.sequence, 2);
+        assert_eq!(previous.local_track_id, first_track_id);
+        assert_eq!(previous.sequence, 3);
 
         Ok(())
     }

@@ -724,9 +724,13 @@ pub fn run_app() {
                         cx,
                     )
                 });
-                cx.new(|cx| Root::new(view, window, cx))
+                let root = cx.new(|cx| Root::new(view, window, cx));
+                window.refresh();
+                root
             },
         )
         .expect("failed to open window");
+        cx.activate(true);
+        cx.refresh_windows();
     });
 }

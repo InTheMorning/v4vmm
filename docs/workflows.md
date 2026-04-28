@@ -134,17 +134,36 @@ metadata identity themselves.
 Use dry-run to inspect the JSON that a playlist row would produce:
 
 ```bash
-v4vmm playlist play --dry-run <playlist-id>
-v4vmm playlist play --dry-run <playlist-id> --position <zero-based-position>
+v4vmm playlist play <playlist-id> --dry-run
+v4vmm playlist play <playlist-id> --dry-run --position <zero-based-position>
 ```
 
 Dry-run validates that the selected track has a local file binding and a feed
 GUID. It prints `NowPlayingUpdate` JSON with `sequence` set to `0` and does not
 write `playback_sessions`.
 
+### Simulate Playlist Playback
+
+Use `playlist play` without `--dry-run` to persist the selected playlist row as
+the default playback session. This does not launch or control an audio player.
+
+```bash
+v4vmm playlist play <playlist-id>
+v4vmm playlist play <playlist-id> --position <zero-based-position>
+v4vmm playback next
+v4vmm playback previous
+v4vmm playback stop
+v4vmm now-playing --json
+```
+
+`next` and `previous` move inside the playlist stored on the current playback
+session. They fail when the current session was set to a loose track instead of
+a playlist row, or when the requested playlist position does not exist.
+
 ### Set And Update The Current Session
 
-Use playback commands when a track should become the current session state:
+Use lower-level playback commands when a loose track should become the current
+session state:
 
 ```bash
 v4vmm playback set-track <track-id>
