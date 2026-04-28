@@ -115,7 +115,7 @@ fn render_discover_track_row(
                         .text_size(typography::SIZE_MICRO)
                         .child(track_number.map_or_else(|| "·".into(), |n| n.to_string())),
                 )
-                .child(render_thumb(thumbnail.as_ref(), "track", 28.0, false))
+                .child(render_thumb(thumbnail.clone(), "track", 28.0, false))
                 .child(truncated(title).flex_1())
                 .when(duration_secs.is_some(), |el| {
                     el.child(

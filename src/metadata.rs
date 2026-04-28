@@ -1,7 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
-
-use gpui::{Image, SharedString};
 
 use crate::api::*;
 use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field, Id3v24Edit};
@@ -52,6 +49,12 @@ pub const ID3V24_FRAME_GROUPS: &[(&str, &str)] = &[
 // Types
 
 #[derive(Clone, Debug)]
+pub struct ImageBytes {
+    pub data: Vec<u8>,
+    pub mime_type: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct TrackContext {
     pub track: Track,
     pub feed: Option<Feed>,
@@ -61,7 +64,7 @@ pub struct TrackContext {
 pub struct TagCompareResult {
     pub path: String,
     pub rows: Vec<ComparisonRow>,
-    pub file_image: Option<Arc<Image>>,
+    pub file_image: Option<ImageBytes>,
     pub contributors: Vec<Contributor>,
     pub value_routes: Vec<PaymentRoute>,
     pub id3_fields: Vec<Id3Field>,
@@ -72,7 +75,7 @@ pub struct TagCompareResult {
 #[derive(Clone, Debug)]
 pub struct MusicBrainzLookupResult {
     pub lookup: MusicBrainzLookup,
-    pub image: Option<Arc<Image>>,
+    pub image: Option<ImageBytes>,
 }
 
 #[derive(Clone, Debug)]
@@ -397,16 +400,12 @@ pub fn musicbrainz_release_summary(candidate: &MusicBrainzCandidate) -> String {
     value
 }
 
-pub fn musicbrainz_release_option_label(candidate: &MusicBrainzCandidate) -> SharedString {
+pub fn musicbrainz_release_option_label(candidate: &MusicBrainzCandidate) -> String {
     let release = candidate
         .release_title
         .clone()
         .unwrap_or_else(|| candidate.title.clone());
-    SharedString::from(format!(
-        "{} - {}",
-        musicbrainz_release_summary(candidate),
-        release
-    ))
+    format!("{} - {}", musicbrainz_release_summary(candidate), release)
 }
 
 pub fn musicbrainz_subtitle(

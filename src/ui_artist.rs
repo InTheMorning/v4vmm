@@ -10,10 +10,10 @@ use std::sync::Arc;
     clippy::too_many_arguments,
     reason = "shared artist view still accepts explicit discover-stage state"
 )]
-pub(crate) fn render_artist_view(
+pub fn render_artist_view(
     view: &ArtistView,
     feeds: &[Feed],
-    image: Option<&Arc<gpui::Image>>,
+    image: Option<Arc<gpui::Image>>,
     _ctx: &ViewContext,
     has_more_tracks: bool,
     track_count_override: Option<i32>,

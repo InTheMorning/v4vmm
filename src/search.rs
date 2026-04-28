@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{anyhow, Result};
@@ -9,7 +9,7 @@ use gpui::{
     div, img, prelude::*, px, rgb, size, AnyElement, App, Application, Bounds, ClickEvent,
     ClipboardItem, Context, Entity, FontWeight, Image, ImageFormat, InteractiveElement,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels,
-    Point, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    Point, Render, Rgba, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -17,28 +17,29 @@ use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::spinner::Spinner;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable, Root, Sizable, Size};
-use reqwest::blocking::Client as ReqwestClient;
 use rusqlite::Connection;
 
 use crate::api::*;
 #[cfg(test)]
 use crate::audio_tags::Id3Field;
-use crate::audio_tags::{read_audio_tags, write_id3v24_edits, EmbeddedArtwork, Id3v24Edit};
+use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
 use crate::config;
 use crate::db;
-use crate::library::subscribe_then_append_to_playlist;
+use crate::feed_service;
 use crate::library_service;
-use crate::media::ImageCache;
+use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::*;
-use crate::musicbrainz::{lookup_recordings, LookupMetadata, MusicBrainzCandidate};
+use crate::musicbrainz::MusicBrainzCandidate;
 use crate::playlist_service;
 use crate::rss;
-use crate::track_compare::{
-    download_track, local_track_path, select_audio_enclosure, ComparisonStatus,
+use crate::subscribe_service::{
+    self, compare_downloaded_track_path, download_image, enrich_track_context_from_rss,
+    SubscribeTrackRequest,
 };
+use crate::track_compare::ComparisonStatus;
 use crate::ui_common::{
     artwork_img, badge_text, compare_value_line_elements, metadata_action_button, optional_row,
-    render_detail_grid, render_detail_grid_elements, render_detail_header, render_thumb,
+    plural, render_detail_grid, render_detail_grid_elements, render_detail_header, render_thumb,
     section_heading, truncated, truncated_muted, type_color, type_emoji, DetailRow,
 };
 
@@ -1097,7 +1098,7 @@ impl SearchApp {
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { subscribe_search_request(conn, request) })
+                    .spawn(async move { run_search_subscribe(conn, request) })
                     .await;
 
                 this.update(
@@ -1230,7 +1231,7 @@ impl SearchApp {
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { subscribe_search_request(conn, request) })
+                    .spawn(async move { run_search_subscribe(conn, request) })
                     .await;
 
                 this.update(
@@ -1360,24 +1361,7 @@ impl SearchApp {
         feed_guid: &str,
         feed_url: Option<&str>,
     ) -> anyhow::Result<i64> {
-        {
-            let conn = self.conn.lock().expect("lock db");
-            if let Some(id) = db::find_feed_id_by_guid(&conn, feed_guid)? {
-                return Ok(id);
-            }
-        }
-        let url =
-            feed_url.ok_or_else(|| anyhow::anyhow!("feed URL unknown; cannot auto-subscribe"))?;
-        let cfg_path = config::config_path()?;
-        let cfg = config::load_config(&cfg_path)?;
-        config::ensure_dirs(&cfg)?;
-        {
-            let mut conn = self.conn.lock().expect("lock db");
-            rss::subscribe_feed(&cfg, &mut conn, url, &self.musicindex_endpoint)?;
-        }
-        let conn = self.conn.lock().expect("lock db");
-        db::find_feed_id_by_guid(&conn, feed_guid)?
-            .ok_or_else(|| anyhow::anyhow!("subscribe completed but feed not found"))
+        feed_service::ensure_feed_in_db(&self.conn, feed_guid, feed_url, &self.musicindex_endpoint)
     }
 
     fn add_feed_to_playlist(
@@ -1486,7 +1470,11 @@ impl SearchApp {
                 let result = cx
                     .background_executor()
                     .spawn(async move {
-                        subscribe_then_append_to_playlist(conn, playlist_id, track_ids)
+                        library_service::subscribe_then_append_to_playlist(
+                            conn,
+                            playlist_id,
+                            track_ids,
+                        )
                     })
                     .await;
                 this.update(
@@ -1499,16 +1487,10 @@ impl SearchApp {
                                     outcome.appended, total
                                 );
                                 if outcome.downloaded > 0 {
-                                    msg.push_str(&format!(
-                                        " (downloaded {})",
-                                        outcome.downloaded
-                                    ));
+                                    msg.push_str(&format!(" (downloaded {})", outcome.downloaded));
                                 }
                                 if !outcome.failed.is_empty() {
-                                    msg.push_str(&format!(
-                                        "; {} failed",
-                                        outcome.failed.len()
-                                    ));
+                                    msg.push_str(&format!("; {} failed", outcome.failed.len()));
                                 }
                                 this.status = msg;
                             }
@@ -1721,7 +1703,7 @@ impl Render for SearchApp {
                 render_result_item(
                     row,
                     selected_key.as_deref(),
-                    thumbnail.as_ref(),
+                    thumbnail.clone(),
                     list_focused,
                     cx,
                 )
@@ -2268,7 +2250,8 @@ fn fetch_inspector_detail(
                 });
             let image = image_url
                 .as_deref()
-                .and_then(|url| download_image(&client.client, url));
+                .and_then(|url| download_image(&client.client, url))
+                .map(image_from_bytes);
             let artist = Artist {
                 name: Some(entity_id.to_string()),
                 image_url,
@@ -2297,7 +2280,8 @@ fn fetch_inspector_detail(
             let image = feed
                 .image_url
                 .as_deref()
-                .and_then(|url| download_image(&client.client, url));
+                .and_then(|url| download_image(&client.client, url))
+                .map(image_from_bytes);
             Ok((InspectorDetail::Feed(Box::new(feed)), image))
         }
         "track" => {
@@ -2321,7 +2305,8 @@ fn fetch_inspector_detail(
             let image = track
                 .image_url
                 .as_deref()
-                .and_then(|url| download_image(&client.client, url));
+                .and_then(|url| download_image(&client.client, url))
+                .map(image_from_bytes);
             Ok((
                 InspectorDetail::Track(Box::new(TrackContext { track, feed })),
                 image,
@@ -2458,81 +2443,7 @@ fn download_and_compare_track(
     entity_id: &str,
     force_download: bool,
 ) -> Result<TagCompareResult> {
-    let mut track = client.fetch_track(
-        entity_id,
-        Some("source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes"),
-    )?;
-    let mut feed = match track.feed_guid.as_deref() {
-        Some(feed_guid) => client
-            .fetch_feed(
-                feed_guid,
-                Some("tracks,source_enclosures,source_links,source_ids,source_release_claims"),
-            )
-            .ok(),
-        None => None,
-    };
-    enrich_track_context_from_rss(&mut track, feed.as_mut());
-    let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
-    // Try the existing local file first unless the caller asked us to redownload.
-    if !force_download {
-        if let Some(enclosure) = select_audio_enclosure(&track) {
-            let candidate = local_track_path(&cfg, &track, enclosure.format.canonical_extension());
-            if candidate.exists() {
-                let path = crate::track_compare::ensure_taggable_local_path(&cfg, &candidate);
-                let track_context = TrackContext { track, feed };
-                return compare_downloaded_track_path(&path, &track_context);
-            }
-        }
-    }
-    // No local file (or caller asked for a fresh fetch). Download into the
-    // staging area, read tags, then let the staged file get cleaned up — we
-    // never wanted to touch music_dir for a comparison-only flow.
-    let downloaded = download_track(&cfg, &client.client, &track)?;
-    let track_context = TrackContext { track, feed };
-    compare_downloaded_track_path(&downloaded.path, &track_context)
-}
-
-fn enrich_track_context_from_rss(track: &mut Track, feed: Option<&mut Feed>) {
-    let feed_url = track
-        .feed_url
-        .clone()
-        .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone()));
-    let Some(feed_url) = feed_url else {
-        return;
-    };
-    let _ = rss::enrich_track_from_feed_rss(track, feed, &feed_url);
-}
-
-fn compare_downloaded_track_path(
-    path: &Path,
-    track_context: &TrackContext,
-) -> Result<TagCompareResult> {
-    let tags = read_audio_tags(path)?;
-    let file_image = tags.artwork.as_ref().and_then(image_from_artwork);
-    let track = &track_context.track;
-    let mut rows = compare_track_rows(track, track_context.feed.as_ref(), &tags);
-    let detected = crate::audio_format::AudioFormat::detect_from_file(path).ok();
-    if let Some(detected) = detected {
-        crate::metadata::push_compare_row(
-            &mut rows,
-            "File format",
-            None,
-            Some(detected.display_label().to_string()),
-        );
-    }
-
-    Ok(TagCompareResult {
-        path: path.display().to_string(),
-        rows,
-        file_image,
-        contributors: track.source_contributors.clone().unwrap_or_default(),
-        value_routes: track.payment_routes.clone().unwrap_or_default(),
-        total_tracks: tags.total_tracks.clone(),
-        id3_fields: tags.fields,
-        format: detected,
-    })
+    subscribe_service::download_and_compare_track(client, entity_id, force_download)
 }
 
 enum SearchSubscribeRequest {
@@ -2556,234 +2467,73 @@ struct SearchSubscribeOutcome {
     compare: Option<TagCompareResult>,
 }
 
-fn subscribe_search_request(
+fn run_search_subscribe(
     conn: Arc<Mutex<Connection>>,
     request: SearchSubscribeRequest,
 ) -> Result<SearchSubscribeOutcome> {
     match request {
         SearchSubscribeRequest::Feed(feed, musicindex_endpoint) => {
-            subscribe_feed_from_search(conn, *feed, musicindex_endpoint)
+            let outcome = subscribe_service::subscribe_feed(
+                conn,
+                subscribe_service::SubscribeFeedRequest {
+                    feed: *feed,
+                    musicindex_endpoint,
+                },
+            )?;
+            let message = if outcome.skipped == 0 {
+                format!(
+                    "Downloaded feed; downloaded {} track{}, applied {} ID3 edit{}",
+                    outcome.downloaded,
+                    plural(outcome.downloaded),
+                    outcome.applied_edits,
+                    plural(outcome.applied_edits)
+                )
+            } else {
+                format!(
+                    "Downloaded feed; downloaded {} track{}, applied {} ID3 edit{}, skipped {}",
+                    outcome.downloaded,
+                    plural(outcome.downloaded),
+                    outcome.applied_edits,
+                    plural(outcome.applied_edits),
+                    outcome.skipped
+                )
+            };
+            Ok(SearchSubscribeOutcome {
+                message,
+                compare: None,
+            })
         }
         SearchSubscribeRequest::Track(
             track_context,
             edits,
             musicindex_endpoint,
             mark_feed_subscribed,
-        ) => subscribe_track_from_search(
-            conn,
-            *track_context,
-            edits,
-            musicindex_endpoint,
-            mark_feed_subscribed,
-        ),
-    }
-}
-
-fn subscribe_feed_from_search(
-    conn: Arc<Mutex<Connection>>,
-    feed: Feed,
-    musicindex_endpoint: String,
-) -> Result<SearchSubscribeOutcome> {
-    let feed_url = feed
-        .feed_url
-        .clone()
-        .ok_or_else(|| anyhow!("feed has no RSS URL"))?;
-    let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
-
-    {
-        let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        rss::subscribe_feed(&cfg, &mut db, &feed_url, &musicindex_endpoint)?;
-    }
-
-    let client = ReqwestClient::new();
-    let api_client = Client::new_with_base_url(musicindex_endpoint);
-    let mut downloaded = 0usize;
-    let mut applied_edits = 0usize;
-    let mut skipped = 0usize;
-    let track_count = feed.tracks.as_ref().map_or(0, |t| t.len());
-    for track in feed.tracks.clone().unwrap_or_default() {
-        let mut track = track_with_feed_defaults(track, Some(&feed));
-        if let Some(track_guid) = track.track_guid.as_deref() {
-            if let Ok(hydrated) = api_client.fetch_track(
-                track_guid,
-                Some(
-                    "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
-                ),
-            ) {
-                track = track_with_feed_defaults(hydrated, Some(&feed));
-            }
-        }
-        let mut context_feed = feed.clone();
-        enrich_track_context_from_rss(&mut track, Some(&mut context_feed));
-        let track_context = TrackContext {
-            track: track.clone(),
-            feed: Some(context_feed),
-        };
-        let edits = id3_edits_for_track_context(&track_context);
-        match prepare_track_for_subscription(&cfg, &client, &track) {
-            Ok(prepared) => {
-                let working_path = prepared.working_path().to_path_buf();
-                if !edits.is_empty() {
-                    if let Err(err) = write_id3v24_edits(&working_path, &edits) {
-                        eprintln!("skip tag write for {}: {err:#}", working_path.display());
-                    } else {
-                        applied_edits += edits.len();
-                    }
-                }
-                match prepared.finalize() {
-                    Ok(final_path) => {
-                        let file_size = std::fs::metadata(&final_path)
-                            .ok()
-                            .and_then(|m| m.len().try_into().ok());
-                        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-                        let marked = library_service::mark_track_downloaded_by_match(
-                            &db,
-                            track.feed_url.as_deref().or(Some(feed_url.as_str())),
-                            track.track_guid.as_deref(),
-                            track.enclosure_url.as_deref(),
-                            &final_path,
-                            file_size,
-                        )?;
-                        if marked {
-                            downloaded += 1;
-                        } else {
-                            skipped += 1;
-                        }
-                    }
-                    Err(err) => {
-                        eprintln!("finalize {} failed: {err:#}", working_path.display());
-                        skipped += 1;
-                    }
-                }
-            }
-            Err(err) => {
-                eprintln!(
-                    "skip {}: {err:#}",
-                    track.title.as_deref().unwrap_or("(untitled)")
-                );
-                skipped += 1;
-            }
+        ) => {
+            let outcome = subscribe_service::subscribe_track(
+                conn,
+                SubscribeTrackRequest::SearchTrack {
+                    track_context,
+                    edits,
+                    musicindex_endpoint,
+                    mark_feed_subscribed,
+                    return_tag_compare: true,
+                },
+            )?;
+            let edit_text = if outcome.applied_edits == 0 {
+                String::new()
+            } else {
+                format!(
+                    ", applied {} ID3 edit{}",
+                    outcome.applied_edits,
+                    plural(outcome.applied_edits)
+                )
+            };
+            Ok(SearchSubscribeOutcome {
+                message: format!("Downloaded track{edit_text}"),
+                compare: outcome.compare,
+            })
         }
     }
-
-    // If the feed had tracks but none made it to the library, revert the
-    // is_subscribed flag so the UI doesn't show a half-bound feed.
-    if track_count > 0 && downloaded == 0 {
-        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
-        return Err(anyhow!(
-            "Downloaded feed had {track_count} track{} but none could be downloaded/tagged; reverted download",
-            plural(track_count)
-        ));
-    }
-
-    let message = if skipped == 0 {
-        format!(
-            "Downloaded feed; downloaded {downloaded} track{}, applied {applied_edits} ID3 edit{}",
-            plural(downloaded),
-            plural(applied_edits)
-        )
-    } else {
-        format!(
-            "Downloaded feed; downloaded {downloaded} track{}, applied {applied_edits} ID3 edit{}, skipped {skipped}",
-            plural(downloaded),
-            plural(applied_edits)
-        )
-    };
-    Ok(SearchSubscribeOutcome {
-        message,
-        compare: None,
-    })
-}
-
-fn subscribe_track_from_search(
-    conn: Arc<Mutex<Connection>>,
-    track_context: TrackContext,
-    edits: Vec<Id3v24Edit>,
-    musicindex_endpoint: String,
-    mark_feed_subscribed: bool,
-) -> Result<SearchSubscribeOutcome> {
-    let mut feed = track_context.feed;
-    let mut track = track_with_feed_defaults(track_context.track.clone(), feed.as_ref());
-    enrich_track_context_from_rss(&mut track, feed.as_mut());
-    let feed_url = track
-        .feed_url
-        .clone()
-        .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone()))
-        .ok_or_else(|| anyhow!("track has no RSS feed URL"))?;
-    let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
-
-    let prior_subscribed = {
-        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        db::feed_is_subscribed_by_url(&db, &feed_url).unwrap_or(false)
-    };
-
-    {
-        let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        rss::subscribe_feed(&cfg, &mut db, &feed_url, &musicindex_endpoint)?;
-        if !mark_feed_subscribed && !prior_subscribed {
-            // `rss::subscribe_feed` always sets is_subscribed = 1; revert until
-            // we know the per-track download succeeded. We'll reconcile below.
-            db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
-        }
-    }
-
-    let client = ReqwestClient::new();
-    let prepared = prepare_track_for_subscription(&cfg, &client, &track).inspect_err(|_| {
-        if mark_feed_subscribed && !prior_subscribed {
-            if let Ok(db) = conn.lock() {
-                let _ = db::set_feed_subscribed_by_url(&db, &feed_url, false);
-            }
-        }
-    })?;
-    let working_path = prepared.working_path().to_path_buf();
-    if !edits.is_empty() {
-        if let Err(err) = write_id3v24_edits(&working_path, &edits) {
-            eprintln!("skip tag write for {}: {err:#}", working_path.display());
-        }
-    }
-    let path = prepared.finalize()?;
-    let file_size = std::fs::metadata(&path)
-        .ok()
-        .and_then(|m| m.len().try_into().ok());
-
-    {
-        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        library_service::mark_track_downloaded_by_match(
-            &db,
-            Some(feed_url.as_str()),
-            track.track_guid.as_deref(),
-            track.enclosure_url.as_deref(),
-            &path,
-            file_size,
-        )?;
-        if !mark_feed_subscribed {
-            // Per-track download: derive feed subscription from track state.
-            db::reconcile_feed_subscription_by_url(&db, &feed_url)?;
-        }
-    }
-
-    let refreshed_context = TrackContext { track, feed };
-    let compare = compare_downloaded_track_path(&path, &refreshed_context)?;
-    let edit_text = if edits.is_empty() {
-        String::new()
-    } else {
-        format!(", applied {} ID3 edit{}", edits.len(), plural(edits.len()))
-    };
-    Ok(SearchSubscribeOutcome {
-        message: format!("Downloaded track{edit_text}"),
-        compare: Some(compare),
-    })
-}
-
-pub fn id3_edits_for_track_context(track_context: &TrackContext) -> Vec<Id3v24Edit> {
-    let rows = expand_woar_metadata_rows(track_metadata_rows(track_context, None, false));
-    let pending = auto_populated_pending_id3_edits(&rows, &BTreeMap::new(), &BTreeSet::new(), None);
-    pending_id3_edits_for_apply(&pending)
 }
 
 fn unsubscribe_search_request(
@@ -2852,135 +2602,8 @@ fn local_subscription_for_detail(
     }
 }
 
-/// A staged track ready for tag-write, then finalize to land it under
-/// `music_dir`. The "Existing" variant covers files we already have on disk
-/// (no staging needed); finalize is a no-op for that case.
-enum PreparedSubscriptionTrack {
-    Existing(PathBuf),
-    Staged(crate::track_compare::DownloadedTrack),
-}
-
-impl PreparedSubscriptionTrack {
-    fn working_path(&self) -> &Path {
-        match self {
-            PreparedSubscriptionTrack::Existing(p) => p.as_path(),
-            PreparedSubscriptionTrack::Staged(d) => d.path.as_path(),
-        }
-    }
-
-    fn finalize(self) -> Result<PathBuf> {
-        match self {
-            PreparedSubscriptionTrack::Existing(p) => Ok(p),
-            PreparedSubscriptionTrack::Staged(d) => d.finalize(),
-        }
-    }
-}
-
-fn prepare_track_for_subscription(
-    cfg: &config::Config,
-    client: &ReqwestClient,
-    track: &Track,
-) -> Result<PreparedSubscriptionTrack> {
-    if let Some(enclosure) = select_audio_enclosure(track) {
-        let candidate = local_track_path(cfg, track, enclosure.format.canonical_extension());
-        if candidate.exists() {
-            return Ok(PreparedSubscriptionTrack::Existing(
-                crate::track_compare::ensure_taggable_local_path(cfg, &candidate),
-            ));
-        }
-    }
-    Ok(PreparedSubscriptionTrack::Staged(download_track(
-        cfg, client, track,
-    )?))
-}
-
-fn track_with_feed_defaults(track: Track, feed: Option<&Feed>) -> Track {
-    crate::api::track_with_feed_defaults(track, feed)
-}
-
-fn plural(count: usize) -> &'static str {
-    if count == 1 {
-        ""
-    } else {
-        "s"
-    }
-}
-
 fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBrainzLookupResult> {
-    let track = client.fetch_track(entity_id, Some("source_enclosures"))?;
-    let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
-    let downloaded = download_track(&cfg, &client.client, &track)?;
-    let tags = read_audio_tags(&downloaded.path)?;
-    let metadata = musicbrainz_lookup_metadata(&track, &tags);
-    let musicbrainz_client = ReqwestClient::builder()
-        .user_agent(format!(
-            "v4vmm/{} (MusicBrainz metadata lookup)",
-            env!("CARGO_PKG_VERSION")
-        ))
-        .build()?;
-    let lookup = lookup_recordings(&musicbrainz_client, &metadata, 5)?;
-
-    let image = lookup
-        .candidates
-        .first()
-        .and_then(|c| c.release_id.as_deref())
-        .and_then(|release_id| {
-            let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
-            download_image(&musicbrainz_client, &url)
-        });
-
-    Ok(MusicBrainzLookupResult { lookup, image })
-}
-
-fn musicbrainz_lookup_metadata(
-    track: &Track,
-    tags: &crate::audio_tags::AudioTags,
-) -> LookupMetadata {
-    LookupMetadata {
-        title: tags
-            .title
-            .clone()
-            .or_else(|| track.title.clone())
-            .or_else(|| track.name.clone()),
-        artist: tags.artist.clone().or_else(|| track.track_artist.clone()),
-        album: tags.album.clone().or_else(|| track.feed_title.clone()),
-        track_number: tags
-            .track_number
-            .clone()
-            .or_else(|| track.track_number.map(|number| number.to_string())),
-        total_tracks: None,
-        duration_secs: track.duration_secs.map(i64::from),
-        isrc: tags
-            .custom
-            .get("ISRC")
-            .cloned()
-            .or_else(|| tags.custom.get("isrc").cloned()),
-    }
-}
-
-fn download_image(client: &ReqwestClient, url: &str) -> Option<Arc<Image>> {
-    let response = client.get(url).send().ok()?.error_for_status().ok()?;
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-    let format = ImageFormat::from_mime_type(content_type).unwrap_or(ImageFormat::Jpeg);
-    let bytes = response.bytes().ok()?.to_vec();
-    if bytes.is_empty() {
-        return None;
-    }
-    Some(Arc::new(Image::from_bytes(format, bytes)))
-}
-
-fn image_from_artwork(artwork: &EmbeddedArtwork) -> Option<Arc<Image>> {
-    if artwork.data.is_empty() {
-        return None;
-    }
-    let format = ImageFormat::from_mime_type(&artwork.mime_type).unwrap_or(ImageFormat::Jpeg);
-    Some(Arc::new(Image::from_bytes(format, artwork.data.clone())))
+    subscribe_service::lookup_musicbrainz_track(client, entity_id)
 }
 
 fn render_filter_button(
@@ -3011,7 +2634,7 @@ fn render_filter_button(
 fn render_result_item(
     row: &ResultRow,
     selected_key: Option<&str>,
-    thumbnail: Option<&Arc<Image>>,
+    thumbnail: Option<Arc<Image>>,
     list_focused: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
@@ -3178,7 +2801,7 @@ fn render_artist_inspector(
     crate::ui_artist::render_artist_view(
         &view,
         &artist_context.feeds,
-        frame.image.as_ref(),
+        frame.image.clone(),
         &crate::ui_context::ViewContext::Discover,
         artist_context.has_more_tracks,
         Some(track_count),
@@ -3312,7 +2935,7 @@ fn podroll_section(
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 this.push_inspector("feed".into(), click_guid.clone(), click_title.clone(), cx);
             }))
-            .child(render_thumb(thumb.as_ref(), "feed", 128.0, true))
+            .child(render_thumb(thumb.clone(), "feed", 128.0, true))
             .child(
                 div()
                     .text_size(typography::SIZE_CAPTION)
@@ -3896,7 +3519,15 @@ fn render_musicbrainz_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(result.image.as_ref(), "track", 80.0, true))
+        .child(render_thumb(
+            result
+                .image
+                .as_ref()
+                .map(|img| image_from_bytes(img.clone())),
+            "track",
+            80.0,
+            true,
+        ))
         .child(
             div()
                 .flex_1()
@@ -3970,13 +3601,15 @@ fn render_musicbrainz_title_bar(
                 |menu, (idx, candidate)| {
                     let app = app.clone();
                     menu.item(
-                        PopupMenuItem::new(musicbrainz_release_option_label(candidate))
-                            .checked(idx == selected_idx)
-                            .on_click(move |_, _, cx| {
-                                let _ = app.update(cx, |this, cx| {
-                                    this.select_musicbrainz_candidate(idx, cx);
-                                });
-                            }),
+                        PopupMenuItem::new(SharedString::from(musicbrainz_release_option_label(
+                            candidate,
+                        )))
+                        .checked(idx == selected_idx)
+                        .on_click(move |_, _, cx| {
+                            let _ = app.update(cx, |this, cx| {
+                                this.select_musicbrainz_candidate(idx, cx);
+                            });
+                        }),
                     )
                 },
             )
@@ -4009,18 +3642,6 @@ fn musicbrainz_release_summary(candidate: &MusicBrainzCandidate) -> String {
         value.push_str(&format!(" ({date})"));
     }
     value
-}
-
-fn musicbrainz_release_option_label(candidate: &MusicBrainzCandidate) -> SharedString {
-    let release = candidate
-        .release_title
-        .clone()
-        .unwrap_or_else(|| candidate.title.clone());
-    SharedString::from(format!(
-        "{} - {}",
-        musicbrainz_release_summary(candidate),
-        release
-    ))
 }
 
 fn musicbrainz_subtitle(
@@ -4150,7 +3771,7 @@ fn render_metadata_grid(
                         pending,
                         id3_expanded,
                         expanded_metadata_cells,
-                        file_image.as_ref(),
+                        file_image.clone(),
                         cx,
                     ));
                 }
@@ -4258,7 +3879,7 @@ fn metadata_id3_cell(
     pending: Option<&PendingId3Edit>,
     expanded: bool,
     expanded_cells: &BTreeSet<String>,
-    file_image: Option<&Arc<Image>>,
+    file_image: Option<Arc<Image>>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let frame = pending
@@ -4580,7 +4201,10 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
         .items_start()
         .gap(spacing::LG)
         .child(render_thumb(
-            result.file_image.as_ref(),
+            result
+                .file_image
+                .as_ref()
+                .map(|img| image_from_bytes(img.clone())),
             "track",
             80.0,
             true,
@@ -4703,8 +4327,8 @@ struct ExpandableCellParams<'a> {
 struct ExpandableTagCellParams<'a> {
     base: ExpandableCellParams<'a>,
     frame_id: Option<&'a str>,
-    frame_color: Option<gpui::Rgba>,
-    file_image: Option<&'a Arc<Image>>,
+    frame_color: Option<Rgba>,
+    file_image: Option<Arc<Image>>,
 }
 
 fn expandable_cell(
@@ -5676,7 +5300,7 @@ pub(crate) fn render_feed_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(frame.image.as_ref(), "feed", 80.0, true))
+        .child(render_thumb(frame.image.clone(), "feed", 80.0, true))
         .child(
             div()
                 .flex_1()
@@ -5977,7 +5601,7 @@ pub(crate) fn render_feed_list_section(
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
                 }))
-                .child(render_thumb(thumb.as_ref(), "feed", 128.0, true))
+                .child(render_thumb(thumb.clone(), "feed", 128.0, true))
                 .child(
                     div()
                         .text_size(typography::SIZE_CAPTION)
@@ -6035,7 +5659,7 @@ fn render_track_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(frame.image.as_ref(), "track", 80.0, true))
+        .child(render_thumb(frame.image.clone(), "track", 80.0, true))
         .child(
             div()
                 .flex_1()
@@ -7634,7 +7258,7 @@ mod tests {
             feed: None,
         };
 
-        let edits = super::id3_edits_for_track_context(&context);
+        let edits = crate::metadata_service::id3_edits_for_track_context(&context);
         assert!(edits.iter().any(|edit| {
             edit.frame_label == "SYLT:MusicIndex Transcript"
                 && edit.value == "https://example.com/song.srt"
@@ -7660,7 +7284,7 @@ mod tests {
             feed: None,
         };
 
-        let edits = super::id3_edits_for_track_context(&context);
+        let edits = crate::metadata_service::id3_edits_for_track_context(&context);
         assert!(edits.iter().any(|edit| {
             edit.frame_label == "TXXX:RSS Nostr Handle" && edit.value == "npub1track"
         }));
@@ -7678,7 +7302,7 @@ mod tests {
             feed: None,
         };
 
-        let edits = super::id3_edits_for_track_context(&context);
+        let edits = crate::metadata_service::id3_edits_for_track_context(&context);
         assert!(edits.iter().any(|edit| {
             edit.frame_label == "TXXX:MusicIndex Track Guid" && edit.value == "track-guid"
         }));

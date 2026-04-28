@@ -1,11 +1,22 @@
 //! Non-UI library and local-file state service boundary.
 
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
 use crate::db;
+use crate::playlist_service;
+use crate::subscribe_service::{self};
+
+#[derive(Default, Debug, Clone)]
+pub struct AppendToPlaylistOutcome {
+    pub appended: usize,
+    pub downloaded: usize,
+    pub already_in_library: usize,
+    pub failed: Vec<String>,
+}
 
 pub fn library_tracks(conn: &Connection) -> Result<Vec<db::TrackRow>> {
     db::library_tracks(conn)
@@ -17,6 +28,19 @@ pub fn tracks_for_feed(conn: &Connection, feed_id: i64) -> Result<Vec<db::TrackR
 
 pub fn cached_tracks(conn: &Connection) -> Result<Vec<db::TrackRow>> {
     db::cached_tracks(conn)
+}
+
+pub fn track_row_by_id(conn: &Connection, track_id: i64) -> Result<Option<db::TrackRow>> {
+    db::track_row_by_id(conn, track_id)
+}
+
+pub fn find_track_id(
+    conn: &Connection,
+    feed_url: Option<&str>,
+    item_guid: Option<&str>,
+    enclosure_url: Option<&str>,
+) -> Result<Option<i64>> {
+    db::find_track_id(conn, feed_url, item_guid, enclosure_url)
 }
 
 pub fn set_track_in_library(conn: &Connection, track_id: i64, in_library: bool) -> Result<()> {
@@ -73,17 +97,63 @@ pub fn delete_local_file(conn: &Connection, local_file_path: &str) -> Result<()>
     db::delete_local_file(conn, local_file_path)
 }
 
-pub fn track_row_by_id(conn: &Connection, track_id: i64) -> Result<Option<db::TrackRow>> {
-    db::track_row_by_id(conn, track_id)
-}
+pub fn subscribe_then_append_to_playlist(
+    conn: Arc<Mutex<Connection>>,
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+) -> Result<AppendToPlaylistOutcome> {
+    let mut outcome = AppendToPlaylistOutcome::default();
+    for track_id in track_ids {
+        let track = {
+            let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+            db::track_row_by_id(&db, track_id)?
+        };
+        let Some(track) = track else {
+            outcome.failed.push(format!("track {track_id} not found"));
+            continue;
+        };
 
-pub fn find_track_id(
-    conn: &Connection,
-    feed_url: Option<&str>,
-    item_guid: Option<&str>,
-    enclosure_url: Option<&str>,
-) -> Result<Option<i64>> {
-    db::find_track_id(conn, feed_url, item_guid, enclosure_url)
+        let already_local = track.is_in_library
+            && track
+                .local_path
+                .as_deref()
+                .map(|p| !p.is_empty() && std::path::Path::new(p).exists())
+                .unwrap_or(false);
+
+        if already_local {
+            outcome.already_in_library += 1;
+        } else {
+            let title = track
+                .track_title
+                .clone()
+                .unwrap_or_else(|| track.item_guid.clone());
+            match subscribe_service::subscribe_track(
+                Arc::clone(&conn),
+                subscribe_service::SubscribeTrackRequest::LibraryTrack {
+                    track: Box::new(track.clone()),
+                },
+            ) {
+                Ok(_) => outcome.downloaded += 1,
+                Err(err) => {
+                    outcome.failed.push(format!("{title}: {err:#}"));
+                    continue;
+                }
+            }
+        }
+
+        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+        match playlist_service::append_track(&db, playlist_id, track.id) {
+            Ok(()) => outcome.appended += 1,
+            Err(err) => outcome.failed.push(format!(
+                "append {}: {err:#}",
+                track
+                    .track_title
+                    .as_deref()
+                    .unwrap_or(track.item_guid.as_str())
+            )),
+        }
+    }
+    Ok(outcome)
 }
 
 #[cfg(test)]

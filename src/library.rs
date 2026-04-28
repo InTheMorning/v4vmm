@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 use gpui::{
-    div, prelude::*, px, rgb, AnyElement, Context, Entity, FontWeight, Image, ImageFormat,
-    InteractiveElement, IntoElement, Render, SharedString, Styled, Window,
+    div, prelude::*, px, rgb, AnyElement, Context, Entity, FontWeight, Image, InteractiveElement,
+    IntoElement, Render, SharedString, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -16,25 +16,24 @@ use gpui_component::Sizable;
 use gpui_component::Size;
 use reqwest::blocking::Client as ReqwestClient;
 
-use crate::api::{Client as MusicIndexClient, Feed, SourceEntityLink, Track};
-use crate::audio_tags::{read_audio_tags, write_id3v24_edits, Id3v24Edit};
+use crate::api::Track;
+use crate::audio_tags::write_id3v24_edits;
 use crate::config;
 use crate::db::{self, TrackRow};
+use crate::feed_service::{self, track_row_to_track_context, StagedMusicBrainzLookup};
 use crate::library_service;
-use crate::media::ImageCache;
+use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
     expand_woar_metadata_rows, expanded_metadata_display_value, id3_frame_base,
-    metadata_field_is_expandable, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
-    summarize_contributor_value, track_metadata_rows, AlignedCompareRow, MetadataColumn,
-    MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
+    metadata_field_is_expandable, musicbrainz_release_option_label,
+    pending_id3_conflict_descriptions, pending_id3_edits_for_apply, summarize_contributor_value,
+    track_metadata_rows, AlignedCompareRow, MetadataColumn, MetadataGridRow,
+    MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
 };
-use crate::musicbrainz::{
-    lookup_recordings, lookup_releases, LookupMetadata, MusicBrainzCandidate, MusicBrainzLookup,
-};
+use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
 use crate::playlist_service;
-use crate::search::id3_edits_for_track_context;
-use crate::track_compare::{download_track, select_audio_enclosure, DownloadedTrack};
+use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui_common::{
     artwork_img, badge_text, compare_value_line_elements, metadata_action_button,
     render_detail_grid, render_detail_header, render_thumb, type_color,
@@ -147,12 +146,6 @@ enum MbTrackStatus {
 }
 
 #[derive(Clone, Debug)]
-struct StagedMusicBrainzLookup {
-    lookup: MusicBrainzLookupResult,
-    edit_count: usize,
-}
-
-#[derive(Clone, Debug)]
 pub(crate) struct ArtistNode {
     pub(crate) name: String,
     pub(crate) albums: Vec<AlbumNode>,
@@ -245,7 +238,7 @@ impl PlaylistSort {
 pub struct FeedUpdateState {
     pub phase: FeedUpdatePhase,
     pub status_message: Option<String>,
-    pub stale: Vec<StaleFeed>,
+    pub stale: Vec<feed_service::StaleFeed>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -254,14 +247,6 @@ pub enum FeedUpdatePhase {
     Idle,
     Checking,
     Applying,
-}
-
-#[derive(Clone, Debug)]
-pub struct StaleFeed {
-    pub feed_id: i64,
-    pub feed_guid: String,
-    pub title: Option<String>,
-    pub new_updated_at: i64,
 }
 
 use crate::ui::render_rss_icon_link;
@@ -627,7 +612,11 @@ impl LibraryApp {
                 let result = cx
                     .background_executor()
                     .spawn(async move {
-                        subscribe_then_append_to_playlist(conn, playlist_id, track_ids)
+                        library_service::subscribe_then_append_to_playlist(
+                            conn,
+                            playlist_id,
+                            track_ids,
+                        )
                     })
                     .await;
                 this.update(
@@ -640,16 +629,10 @@ impl LibraryApp {
                                     outcome.appended, total
                                 );
                                 if outcome.downloaded > 0 {
-                                    msg.push_str(&format!(
-                                        " (downloaded {})",
-                                        outcome.downloaded
-                                    ));
+                                    msg.push_str(&format!(" (downloaded {})", outcome.downloaded));
                                 }
                                 if !outcome.failed.is_empty() {
-                                    msg.push_str(&format!(
-                                        "; {} failed",
-                                        outcome.failed.len()
-                                    ));
+                                    msg.push_str(&format!("; {} failed", outcome.failed.len()));
                                 }
                                 this.status = msg;
                             }
@@ -771,10 +754,12 @@ impl LibraryApp {
         cx.notify();
         cx.spawn(
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let stale = cx
-                    .background_executor()
-                    .spawn(async move { check_feed_staleness(&conn, &endpoint, feed_id) })
-                    .await;
+                let stale =
+                    cx.background_executor()
+                        .spawn(async move {
+                            feed_service::check_feed_staleness(&conn, &endpoint, feed_id)
+                        })
+                        .await;
                 let _ = this.update(cx, move |this, cx| {
                     this.in_flight_feed_checks.remove(&feed_id);
                     match stale {
@@ -860,7 +845,8 @@ impl LibraryApp {
                     .spawn(async move {
                         let mut stale = Vec::new();
                         for feed in feeds {
-                            if let Ok(Some(entry)) = check_feed_staleness(&conn, &endpoint, feed.id)
+                            if let Ok(Some(entry)) =
+                                feed_service::check_feed_staleness(&conn, &endpoint, feed.id)
                             {
                                 stale.push(entry);
                             }
@@ -916,7 +902,7 @@ impl LibraryApp {
                         let mut id3_errors: Vec<String> = Vec::new();
                         let mut feed_errors: Vec<String> = Vec::new();
                         for entry in &stale {
-                            match apply_feed_updates(&conn, &endpoint, entry) {
+                            match feed_service::apply_feed_updates(&conn, &endpoint, entry) {
                                 Ok(outcome) => {
                                     total_tracks += outcome.tracks_updated;
                                     total_edits += outcome.edits_written;
@@ -987,7 +973,9 @@ impl LibraryApp {
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { fetch_library_track_context(&track, &musicindex_endpoint) })
+                    .spawn(async move {
+                        feed_service::fetch_library_track_context(&track, &musicindex_endpoint)
+                    })
                     .await;
 
                 this.update(
@@ -1060,7 +1048,14 @@ impl LibraryApp {
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
                     .background_executor()
-                    .spawn(async move { subscribe_library_track(conn, track) })
+                    .spawn(async move {
+                        subscribe_service::subscribe_track(
+                            conn,
+                            SubscribeTrackRequest::LibraryTrack {
+                                track: Box::new(track),
+                            },
+                        )
+                    })
                     .await;
 
                 this.update(
@@ -1182,7 +1177,7 @@ impl LibraryApp {
                     .background_executor()
                     .spawn(async move {
                         write_id3v24_edits(&path, &edits)?;
-                        compare_downloaded_track_path(&path, &track_context)
+                        subscribe_service::compare_downloaded_track_path(&path, &track_context)
                     })
                     .await;
 
@@ -1675,218 +1670,12 @@ impl LibraryApp {
     }
 }
 
-pub struct SubscribedTrackOutcome {
-    pub path: std::path::PathBuf,
-    pub format_warning: Option<String>,
-}
-
-pub(crate) fn subscribe_library_track(
-    conn: Arc<Mutex<Connection>>,
-    track: TrackRow,
-) -> anyhow::Result<SubscribedTrackOutcome> {
-    let cfg_path = config::config_path()?;
-    let cfg = config::load_config(&cfg_path)?;
-    config::ensure_dirs(&cfg)?;
-    let api_track = track_row_to_api_track(&track);
-    let existing = track
-        .local_path
-        .as_deref()
-        .filter(|p| !p.is_empty())
-        .map(std::path::PathBuf::from)
-        .filter(|p| p.exists());
-    enum PreparedTrack {
-        Existing { path: PathBuf },
-        Downloaded(DownloadedTrack),
-    }
-
-    let prepared = if let Some(buf) = existing {
-        PreparedTrack::Existing {
-            path: crate::track_compare::ensure_taggable_local_path(&cfg, &buf),
-        }
-    } else if let Some(enclosure) = select_audio_enclosure(&api_track) {
-        let candidate = crate::track_compare::local_track_path(
-            &cfg,
-            &api_track,
-            enclosure.format.canonical_extension(),
-        );
-        if candidate.exists() {
-            PreparedTrack::Existing {
-                path: crate::track_compare::ensure_taggable_local_path(&cfg, &candidate),
-            }
-        } else {
-            PreparedTrack::Downloaded(download_track(&cfg, &ReqwestClient::new(), &api_track)?)
-        }
-    } else {
-        PreparedTrack::Downloaded(download_track(&cfg, &ReqwestClient::new(), &api_track)?)
-    };
-
-    // Apply tags on the staged path *before* promoting the file into
-    // music_dir, so a tag-write failure leaves no half-written file behind.
-    let track_context = TrackContext {
-        track: api_track,
-        feed: None,
-    };
-    let edits = id3_edits_for_track_context(&track_context);
-    let format_warning = match &prepared {
-        PreparedTrack::Existing { .. } => None,
-        PreparedTrack::Downloaded(downloaded) => downloaded.format_warning.clone(),
-    };
-    let working_path = match &prepared {
-        PreparedTrack::Existing { path } => path.clone(),
-        PreparedTrack::Downloaded(downloaded) => downloaded.path.clone(),
-    };
-    if !edits.is_empty() {
-        if let Err(err) = write_id3v24_edits(&working_path, &edits) {
-            eprintln!("skip tag write for {}: {err:#}", working_path.display());
-        }
-    }
-
-    let final_path = match prepared {
-        PreparedTrack::Existing { path } => path,
-        PreparedTrack::Downloaded(downloaded) => downloaded.finalize()?,
-    };
-    let file_size = std::fs::metadata(&final_path)
-        .ok()
-        .and_then(|metadata| metadata.len().try_into().ok());
-    let db = conn
-        .lock()
-        .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-    library_service::mark_track_downloaded(&db, track.id, &final_path, file_size)?;
-    drop(db);
-
-    Ok(SubscribedTrackOutcome {
-        path: final_path,
-        format_warning,
-    })
-}
-
-#[derive(Default, Debug, Clone)]
-pub struct AppendToPlaylistOutcome {
-    pub appended: usize,
-    pub downloaded: usize,
-    pub already_in_library: usize,
-    pub failed: Vec<String>,
-}
-
-/// Ensure each track is downloaded and marked in-library, then append to the
-/// playlist. Tracks that are already downloaded (local file present and
-/// `is_in_library = 1`) are not re-downloaded. Tracks whose download fails are
-/// skipped and reported in `failed`.
-///
-/// Blocking — must be called from a background executor.
-pub(crate) fn subscribe_then_append_to_playlist(
-    conn: Arc<Mutex<Connection>>,
-    playlist_id: i64,
-    track_ids: Vec<i64>,
-) -> anyhow::Result<AppendToPlaylistOutcome> {
-    let mut outcome = AppendToPlaylistOutcome::default();
-    for track_id in track_ids {
-        let track = {
-            let db = conn
-                .lock()
-                .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-            library_service::track_row_by_id(&db, track_id)?
-        };
-        let Some(track) = track else {
-            outcome
-                .failed
-                .push(format!("track {track_id} not found"));
-            continue;
-        };
-
-        let already_local = track.is_in_library
-            && track
-                .local_path
-                .as_deref()
-                .map(|p| !p.is_empty() && std::path::Path::new(p).exists())
-                .unwrap_or(false);
-
-        if already_local {
-            outcome.already_in_library += 1;
-        } else {
-            let title = track
-                .track_title
-                .clone()
-                .unwrap_or_else(|| track.item_guid.clone());
-            match subscribe_library_track(Arc::clone(&conn), track.clone()) {
-                Ok(_) => outcome.downloaded += 1,
-                Err(err) => {
-                    outcome
-                        .failed
-                        .push(format!("{title}: {err:#}"));
-                    continue;
-                }
-            }
-        }
-
-        let db = conn
-            .lock()
-            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-        match playlist_service::append_track(&db, playlist_id, track.id) {
-            Ok(()) => outcome.appended += 1,
-            Err(err) => outcome.failed.push(format!(
-                "append {}: {err:#}",
-                track
-                    .track_title
-                    .as_deref()
-                    .unwrap_or(track.item_guid.as_str())
-            )),
-        }
-    }
-    Ok(outcome)
-}
-
 #[allow(dead_code)]
 fn lookup_musicbrainz_stage_for_track(
     _conn: Arc<Mutex<Connection>>,
     track: &TrackRow,
 ) -> anyhow::Result<StagedMusicBrainzLookup> {
-    let path = track
-        .local_path
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("no local file"))?;
-    let tags = read_audio_tags(std::path::Path::new(path))?;
-
-    let api_track = track_row_to_api_track(track);
-    let metadata = LookupMetadata {
-        title: tags.title.clone().or_else(|| api_track.title.clone()),
-        artist: tags
-            .artist
-            .clone()
-            .or_else(|| api_track.track_artist.clone()),
-        album: tags.album.clone().or_else(|| api_track.feed_title.clone()),
-        track_number: tags
-            .track_number
-            .clone()
-            .or_else(|| api_track.track_number.map(|n| n.to_string())),
-        total_tracks: None,
-        duration_secs: api_track.duration_secs.map(i64::from),
-        isrc: tags
-            .custom
-            .get("ISRC")
-            .cloned()
-            .or_else(|| tags.custom.get("isrc").cloned()),
-    };
-
-    let mb_client = ReqwestClient::builder()
-        .user_agent(format!(
-            "v4vmm/{} (MusicBrainz metadata lookup)",
-            env!("CARGO_PKG_VERSION")
-        ))
-        .build()?;
-    let lookup = lookup_recordings(&mb_client, &metadata, 3)?;
-    let candidate = lookup
-        .candidates
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("no MusicBrainz results"))?;
-
-    Ok(StagedMusicBrainzLookup {
-        edit_count: mb_edits_for_missing_fields(&tags, candidate).len(),
-        lookup: MusicBrainzLookupResult {
-            lookup,
-            image: None,
-        },
-    })
+    feed_service::lookup_musicbrainz_stage_for_track(track)
 }
 
 #[allow(dead_code)]
@@ -1933,21 +1722,7 @@ fn stage_candidate_for_track(
     track: &TrackRow,
     candidate: &MusicBrainzCandidate,
 ) -> anyhow::Result<StagedMusicBrainzLookup> {
-    let path = track
-        .local_path
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("no local file"))?;
-    let tags = read_audio_tags(std::path::Path::new(path))?;
-    Ok(StagedMusicBrainzLookup {
-        edit_count: mb_edits_for_missing_fields(&tags, candidate).len(),
-        lookup: MusicBrainzLookupResult {
-            lookup: MusicBrainzLookup {
-                query: "batch release lookup".into(),
-                candidates: vec![candidate.clone()],
-            },
-            image: None,
-        },
-    })
+    feed_service::stage_candidate_for_track(track, candidate)
 }
 
 #[allow(dead_code)]
@@ -2157,361 +1932,6 @@ pub(crate) fn cleanup_empty_parents(path: &std::path::Path) {
             break;
         }
     }
-}
-
-#[allow(dead_code)]
-fn mb_edits_for_missing_fields(
-    tags: &crate::audio_tags::AudioTags,
-    candidate: &MusicBrainzCandidate,
-) -> Vec<Id3v24Edit> {
-    let mut edits = Vec::new();
-
-    // Build TRCK as "pos/total" when both available.
-    let trck_value = match (candidate.track_position, candidate.total_tracks) {
-        (Some(pos), Some(total)) => Some(format!("{pos}/{total}")),
-        _ => candidate.track_number.clone(),
-    };
-
-    // Standard text frames: (frame_label, existing_check, mb_value)
-    let checks: Vec<(&str, bool, Option<String>)> = vec![
-        ("TIT2", tags.title.is_some(), Some(candidate.title.clone())),
-        ("TPE1", tags.artist.is_some(), candidate.artist.clone()),
-        (
-            "TALB",
-            tags.album.is_some(),
-            candidate.release_title.clone(),
-        ),
-        ("TRCK", tags.track_number.is_some(), trck_value),
-        ("TDRC", tags.date.is_some(), candidate.release_date.clone()),
-        (
-            "TPUB",
-            tag_has_frame(tags, "TPUB"),
-            candidate.labels.first().cloned(),
-        ),
-        (
-            "TSRC",
-            tag_has_frame(tags, "TSRC"),
-            candidate.isrcs.first().cloned(),
-        ),
-        (
-            "TMED",
-            tag_has_frame(tags, "TMED"),
-            candidate.format.clone(),
-        ),
-        (
-            "TPOS",
-            tag_has_frame(tags, "TPOS"),
-            candidate.medium_position.map(|p| p.to_string()),
-        ),
-        (
-            "TSST",
-            tag_has_frame(tags, "TSST"),
-            candidate.medium_title.clone(),
-        ),
-        (
-            "TLEN",
-            tag_has_frame(tags, "TLEN"),
-            candidate.track_length_ms.map(|ms| ms.to_string()),
-        ),
-        // TXXX frames
-        (
-            "TXXX:MusicBrainz Album Id",
-            tags.custom.contains_key("MusicBrainz Album Id"),
-            candidate.release_id.clone(),
-        ),
-        (
-            "TXXX:MusicBrainz Release Group Id",
-            tags.custom.contains_key("MusicBrainz Release Group Id"),
-            candidate.release_group_id.clone(),
-        ),
-        (
-            "TXXX:BARCODE",
-            tags.custom.contains_key("BARCODE"),
-            candidate.release_barcode.clone(),
-        ),
-        // UFID for MusicBrainz recording ID
-        (
-            "UFID:http://musicbrainz.org",
-            tag_has_frame(tags, "UFID"),
-            if candidate.recording_id.is_empty() {
-                None
-            } else {
-                Some(candidate.recording_id.clone())
-            },
-        ),
-    ];
-
-    for (frame_label, has_existing, mb_value) in checks {
-        if has_existing {
-            continue;
-        }
-        if let Some(value) = mb_value {
-            if !value.is_empty() {
-                edits.push(Id3v24Edit {
-                    frame_label: frame_label.to_string(),
-                    value,
-                });
-            }
-        }
-    }
-    edits
-}
-
-#[allow(dead_code)]
-fn tag_has_frame(tags: &crate::audio_tags::AudioTags, frame_id: &str) -> bool {
-    tags.fields.iter().any(|f| f.frame_id == frame_id)
-}
-
-fn track_row_to_api_track(track: &TrackRow) -> Track {
-    Track {
-        track_guid: Some(track.item_guid.clone()),
-        feed_guid: track.feed_guid.clone(),
-        feed_title: track.feed_title.clone(),
-        title: track.track_title.clone(),
-        duration_secs: track
-            .duration_seconds
-            .and_then(|seconds| seconds.try_into().ok()),
-        track_number: track.track_number.and_then(|number| number.try_into().ok()),
-        enclosure_url: track.enclosure_url.clone(),
-        enclosure_type: track.enclosure_type.clone(),
-        image_url: track.track_image_href.clone(),
-        track_artist: track.artist_name.clone(),
-        source_links: track.transcript_url.as_ref().map(|url| {
-            vec![SourceEntityLink {
-                entity_type: Some("track".into()),
-                entity_id: Some(track.item_guid.clone()),
-                link_type: Some("transcript".into()),
-                url: Some(url.clone()),
-                source: Some("rss".into()),
-                extraction_path: Some("podcast:transcript@url".into()),
-                ..Default::default()
-            }]
-        }),
-        ..Default::default()
-    }
-}
-
-fn track_row_to_feed(track: &TrackRow) -> Feed {
-    Feed {
-        feed_guid: track.feed_guid.clone(),
-        title: track.feed_title.clone(),
-        image_url: track.album_image_href.clone(),
-        ..Default::default()
-    }
-}
-
-fn track_defaults(mut track: Track, defaults: &Track) -> Track {
-    if track.track_guid.is_none() {
-        track.track_guid = defaults.track_guid.clone();
-    }
-    if track.feed_guid.is_none() {
-        track.feed_guid = defaults.feed_guid.clone();
-    }
-    if track.feed_title.is_none() {
-        track.feed_title = defaults.feed_title.clone();
-    }
-    if track.title.is_none() {
-        track.title = defaults.title.clone();
-    }
-    if track.duration_secs.is_none() {
-        track.duration_secs = defaults.duration_secs;
-    }
-    if track.track_number.is_none() {
-        track.track_number = defaults.track_number;
-    }
-    if track.enclosure_url.is_none() {
-        track.enclosure_url = defaults.enclosure_url.clone();
-    }
-    if track.image_url.is_none() {
-        track.image_url = defaults.image_url.clone();
-    }
-    if track.track_artist.is_none() {
-        track.track_artist = defaults.track_artist.clone();
-    }
-    if track.description.is_none() {
-        track.description = defaults.description.clone();
-    }
-    if track.publisher_text.is_none() {
-        track.publisher_text = defaults.publisher_text.clone();
-    }
-    if track.source_contributors.is_none() {
-        track.source_contributors = defaults.source_contributors.clone();
-    }
-    if track.source_links.is_none() {
-        track.source_links = defaults.source_links.clone();
-    }
-    if track.source_ids.is_none() {
-        track.source_ids = defaults.source_ids.clone();
-    }
-    if track.source_release_claims.is_none() {
-        track.source_release_claims = defaults.source_release_claims.clone();
-    }
-    if track.payment_routes.is_none() {
-        track.payment_routes = defaults.payment_routes.clone();
-    }
-    track
-}
-
-fn feed_defaults(mut feed: Feed, defaults: &Feed) -> Feed {
-    if feed.feed_guid.is_none() {
-        feed.feed_guid = defaults.feed_guid.clone();
-    }
-    if feed.title.is_none() {
-        feed.title = defaults.title.clone();
-    }
-    if feed.name.is_none() {
-        feed.name = defaults.name.clone();
-    }
-    if feed.feed_url.is_none() {
-        feed.feed_url = defaults.feed_url.clone();
-    }
-    if feed.image_url.is_none() {
-        feed.image_url = defaults.image_url.clone();
-    }
-    feed
-}
-
-fn merge_track_context_from_detail(
-    track_row: &TrackRow,
-    fetched_track: Option<Track>,
-    fetched_feed: Option<Feed>,
-) -> TrackContext {
-    let local_track = track_row_to_api_track(track_row);
-    let local_feed = track_row_to_feed(track_row);
-    let feed = feed_defaults(
-        fetched_feed.unwrap_or_else(|| local_feed.clone()),
-        &local_feed,
-    );
-    let track = crate::api::track_with_feed_defaults(
-        track_defaults(
-            fetched_track.unwrap_or_else(|| local_track.clone()),
-            &local_track,
-        ),
-        Some(&feed),
-    );
-    TrackContext {
-        track,
-        feed: Some(feed),
-    }
-}
-
-fn fetch_library_track_context(
-    track: &TrackRow,
-    musicindex_endpoint: &str,
-) -> anyhow::Result<TrackContext> {
-    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
-    let include =
-        Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
-    let fetched_track = client.fetch_track(&track.item_guid, include).ok();
-    let feed_guid = fetched_track
-        .as_ref()
-        .and_then(|track| track.feed_guid.as_deref())
-        .or(track.feed_guid.as_deref());
-    let fetched_feed = feed_guid.and_then(|feed_guid| client.fetch_feed(feed_guid, include).ok());
-    if fetched_track.is_none() && fetched_feed.is_none() {
-        return Err(anyhow::anyhow!("MusicIndex metadata unavailable"));
-    }
-    Ok(merge_track_context_from_detail(
-        track,
-        fetched_track,
-        fetched_feed,
-    ))
-}
-
-// ---------------------------------------------------------------------------
-// Feed update checking / auto-apply
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug)]
-pub struct FeedApplyOutcome {
-    pub tracks_updated: usize,
-    pub edits_written: usize,
-    pub id3_errors: Vec<String>,
-}
-
-fn check_feed_staleness(
-    conn: &Arc<Mutex<Connection>>,
-    musicindex_endpoint: &str,
-    feed_id: i64,
-) -> anyhow::Result<Option<StaleFeed>> {
-    let stored = {
-        let db = conn
-            .lock()
-            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-        db::feed_stale_check_row(&db, feed_id)?
-    };
-    let Some(stored) = stored else {
-        return Ok(None);
-    };
-    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
-    let api_feed = client.fetch_feed(&stored.feed_guid, None)?;
-    let Some(api_updated_at) = api_feed.updated_at else {
-        return Ok(None);
-    };
-    if stored
-        .musicindex_updated_at
-        .is_some_and(|stored_at| stored_at >= api_updated_at)
-    {
-        return Ok(None);
-    }
-    Ok(Some(StaleFeed {
-        feed_id,
-        feed_guid: stored.feed_guid,
-        title: stored.title,
-        new_updated_at: api_updated_at,
-    }))
-}
-
-fn apply_feed_updates(
-    conn: &Arc<Mutex<Connection>>,
-    musicindex_endpoint: &str,
-    stale: &StaleFeed,
-) -> anyhow::Result<FeedApplyOutcome> {
-    let tracks = {
-        let db = conn
-            .lock()
-            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-        library_service::tracks_for_feed(&db, stale.feed_id)?
-    };
-    let mut outcome = FeedApplyOutcome {
-        tracks_updated: 0,
-        edits_written: 0,
-        id3_errors: Vec::new(),
-    };
-    for track in &tracks {
-        let Some(local_path) = track.local_path.clone() else {
-            continue;
-        };
-        let Ok(context) = fetch_library_track_context(track, musicindex_endpoint) else {
-            continue;
-        };
-        let edits = id3_edits_for_track_context(&context);
-        if edits.is_empty() {
-            continue;
-        }
-        match write_id3v24_edits(Path::new(&local_path), &edits) {
-            Ok(written) => {
-                if written > 0 {
-                    outcome.tracks_updated += 1;
-                    outcome.edits_written += written;
-                }
-            }
-            Err(error) => {
-                let label = track
-                    .track_title
-                    .clone()
-                    .unwrap_or_else(|| local_path.clone());
-                outcome.id3_errors.push(format!("{label}: {error:#}"));
-            }
-        }
-    }
-    {
-        let db = conn
-            .lock()
-            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-        db::set_feed_musicindex_updated_at(&db, stale.feed_id, stale.new_updated_at)?;
-    }
-    Ok(outcome)
 }
 
 // ---------------------------------------------------------------------------
@@ -3047,7 +2467,7 @@ pub(crate) fn render_tree(
                                 )
                                 .child(hoverable_thumb(
                                     thumb_url.clone(),
-                                    thumb_image.as_ref(),
+                                    thumb_image.clone(),
                                     34.0,
                                     cx,
                                 ))
@@ -3111,7 +2531,7 @@ pub(crate) fn render_tree(
                                     .flex_row()
                                     .items_center()
                                     .gap(spacing::XS)
-                                    .child(render_album_thumb(track_thumb_image.as_ref(), 24.0))
+                                    .child(render_album_thumb(track_thumb_image.clone(), 24.0))
                                     .child(
                                         div()
                                             .flex_1()
@@ -3247,7 +2667,7 @@ fn render_library_artist_detail(
                         }
                     }
                 }))
-                .child(render_thumb(thumb_image.as_ref(), "feed", 28.0, false))
+                .child(render_thumb(thumb_image.clone(), "feed", 28.0, false))
                 .child(
                     div()
                         .flex_1()
@@ -3468,7 +2888,7 @@ fn render_album_detail(
             "feed",
             &feed_view.title.clone().unwrap_or_else(|| "Untitled".into()),
             Some(artist.as_str()),
-            thumb_image.as_ref(),
+            thumb_image.clone(),
         ))
         .child(render_detail_grid(detail_rows))
         .child(buttons);
@@ -3846,7 +3266,7 @@ fn render_playlist_detail(
                                     .text_color(color::text_muted())
                                     .child(SharedString::from(format!("{}.", idx + 1))),
                             )
-                            .child(render_album_thumb(track_thumb_image.as_ref(), 24.0))
+                            .child(render_album_thumb(track_thumb_image.clone(), 24.0))
                             .child(
                                 div()
                                     .flex_1()
@@ -4011,7 +3431,11 @@ fn render_track_window(
             show_musicbrainz_panel,
             &pending_id3_edits,
             &frame.expanded_metadata_cells,
-            result.and_then(|r| r.file_image.clone()),
+            result.and_then(|r| {
+                r.file_image
+                    .as_ref()
+                    .map(|img| image_from_bytes(img.clone()))
+            }),
             result
                 .and_then(|r| r.format)
                 .map(|f| f.display_label())
@@ -4057,7 +3481,7 @@ fn render_track_header(frame: &InspectorFrame, track: &Track) -> AnyElement {
         .clone()
         .or_else(|| track.release_artist.clone())
         .unwrap_or_else(|| "Unknown".into());
-    render_detail_header("track", &title, Some(artist.as_str()), frame.image.as_ref())
+    render_detail_header("track", &title, Some(artist.as_str()), frame.image.clone())
 }
 
 fn render_action_row(
@@ -4268,7 +3692,10 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -
         .items_start()
         .gap(spacing::LG)
         .child(render_thumb(
-            result.file_image.as_ref(),
+            result
+                .file_image
+                .as_ref()
+                .map(|img| image_from_bytes(img.clone())),
             "track",
             80.0,
             true,
@@ -4378,7 +3805,15 @@ fn render_musicbrainz_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(result.image.as_ref(), "track", 80.0, true))
+        .child(render_thumb(
+            result
+                .image
+                .as_ref()
+                .map(|img| image_from_bytes(img.clone())),
+            "track",
+            80.0,
+            true,
+        ))
         .child(
             div()
                 .flex_1()
@@ -4440,8 +3875,8 @@ fn render_musicbrainz_title_bar(
                 |menu, (idx, candidate)| {
                     let app = app.clone();
                     menu.item(
-                        gpui_component::menu::PopupMenuItem::new(musicbrainz_release_option_label(
-                            candidate,
+                        gpui_component::menu::PopupMenuItem::new(SharedString::from(
+                            musicbrainz_release_option_label(candidate),
                         ))
                         .checked(idx == selected_idx)
                         .on_click(move |_, _, cx| {
@@ -4479,18 +3914,6 @@ fn musicbrainz_release_summary(candidate: &MusicBrainzCandidate) -> String {
         value.push_str(&format!(" ({date})"));
     }
     value
-}
-
-fn musicbrainz_release_option_label(candidate: &MusicBrainzCandidate) -> SharedString {
-    let release = candidate
-        .release_title
-        .clone()
-        .unwrap_or_else(|| candidate.title.clone());
-    SharedString::from(format!(
-        "{} - {}",
-        musicbrainz_release_summary(candidate),
-        release
-    ))
 }
 
 fn musicbrainz_subtitle(
@@ -4943,7 +4366,7 @@ fn expanded_metadata_value(
                 .flex_col()
                 .gap(spacing::XS)
                 .child(SharedString::from(display_value.to_string()))
-                .child(render_thumb(Some(image), "track", 160.0, true))
+                .child(render_thumb(Some(image.clone()), "track", 160.0, true))
                 .into_any_element();
         }
     }
@@ -5303,42 +4726,6 @@ fn muted_line(value: &str) -> AnyElement {
         .into_any_element()
 }
 
-fn compare_downloaded_track_path(
-    path: &Path,
-    track_context: &TrackContext,
-) -> anyhow::Result<TagCompareResult> {
-    let tags = read_audio_tags(path)?;
-    let file_image = tags.artwork.as_ref().and_then(|art| {
-        if art.data.is_empty() {
-            None
-        } else {
-            let format = ImageFormat::from_mime_type(&art.mime_type).unwrap_or(ImageFormat::Jpeg);
-            Some(Arc::new(Image::from_bytes(format, art.data.clone())))
-        }
-    });
-    let track = &track_context.track;
-    let mut rows = crate::metadata::compare_track_rows(track, track_context.feed.as_ref(), &tags);
-    let detected = crate::audio_format::AudioFormat::detect_from_file(path).ok();
-    if let Some(detected) = detected {
-        crate::metadata::push_compare_row(
-            &mut rows,
-            "File format",
-            None,
-            Some(detected.display_label().to_string()),
-        );
-    }
-    Ok(TagCompareResult {
-        path: path.display().to_string(),
-        rows,
-        file_image,
-        contributors: track.source_contributors.clone().unwrap_or_default(),
-        value_routes: track.payment_routes.clone().unwrap_or_default(),
-        total_tracks: tags.total_tracks.clone(),
-        id3_fields: tags.fields,
-        format: detected,
-    })
-}
-
 fn compare_library_track(
     track: &TrackRow,
     musicindex_endpoint: &str,
@@ -5347,9 +4734,9 @@ fn compare_library_track(
         .local_path
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
-    let context = fetch_library_track_context(track, musicindex_endpoint)
+    let context = feed_service::fetch_library_track_context(track, musicindex_endpoint)
         .unwrap_or_else(|_| track_row_to_track_context(track));
-    let tag_compare = compare_downloaded_track_path(Path::new(path), &context)?;
+    let tag_compare = subscribe_service::compare_downloaded_track_path(Path::new(path), &context)?;
     Ok(LibraryTrackCompare {
         tag_compare,
         track_context: context,
@@ -5358,67 +4745,9 @@ fn compare_library_track(
 
 fn lookup_musicbrainz_library_track(
     track: &TrackRow,
-    cache: Arc<ImageCache>,
+    _cache: Arc<ImageCache>,
 ) -> anyhow::Result<MusicBrainzLookupResult> {
-    let path = track
-        .local_path
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
-    let tags = read_audio_tags(Path::new(path))?;
-    let context = track_row_to_track_context(track);
-    let metadata = musicbrainz_lookup_metadata(&context.track, &tags);
-    let musicbrainz_client = ReqwestClient::builder()
-        .user_agent(format!(
-            "v4vmm/{} (MusicBrainz metadata lookup)",
-            env!("CARGO_PKG_VERSION")
-        ))
-        .build()?;
-    let lookup = lookup_recordings(&musicbrainz_client, &metadata, 5)?;
-    let image = lookup
-        .candidates
-        .first()
-        .and_then(|candidate| candidate.release_id.as_deref())
-        .and_then(|release_id| {
-            let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
-            cache.fetch_blocking(&url)
-        });
-    Ok(MusicBrainzLookupResult { lookup, image })
-}
-
-fn musicbrainz_lookup_metadata(
-    track: &Track,
-    tags: &crate::audio_tags::AudioTags,
-) -> LookupMetadata {
-    LookupMetadata {
-        title: tags
-            .title
-            .clone()
-            .or_else(|| track.title.clone())
-            .or_else(|| track.name.clone()),
-        artist: tags.artist.clone().or_else(|| track.track_artist.clone()),
-        album: tags.album.clone().or_else(|| track.feed_title.clone()),
-        track_number: tags
-            .track_number
-            .clone()
-            .or_else(|| track.track_number.map(|number| number.to_string())),
-        total_tracks: None,
-        duration_secs: track.duration_secs.map(i64::from),
-        isrc: tags
-            .custom
-            .get("ISRC")
-            .cloned()
-            .or_else(|| tags.custom.get("isrc").cloned()),
-    }
-}
-
-fn track_row_to_track_context(track: &TrackRow) -> TrackContext {
-    let feed = track_row_to_feed(track);
-    let api_track =
-        crate::api::track_with_feed_defaults(track_row_to_api_track(track), Some(&feed));
-    TrackContext {
-        track: api_track,
-        feed: Some(feed),
-    }
+    feed_service::lookup_musicbrainz_library_track(track)
 }
 
 fn track_title(track: &Track) -> String {
@@ -5437,7 +4766,7 @@ fn fmt_dur(secs: i32) -> String {
 
 fn hoverable_thumb(
     url: Option<String>,
-    image: Option<&Arc<Image>>,
+    image: Option<Arc<Image>>,
     size: f32,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -5463,7 +4792,7 @@ fn hoverable_thumb(
         .into_any_element()
 }
 
-pub(crate) fn render_album_thumb(image: Option<&Arc<Image>>, size: f32) -> AnyElement {
+pub(crate) fn render_album_thumb(image: Option<Arc<Image>>, size: f32) -> AnyElement {
     if let Some(img_data) = image {
         div()
             .w(px(size))
@@ -5471,7 +4800,7 @@ pub(crate) fn render_album_thumb(image: Option<&Arc<Image>>, size: f32) -> AnyEl
             .rounded(radius::SM)
             .overflow_hidden()
             .flex_shrink_0()
-            .child(artwork_img(img_data.clone(), size))
+            .child(artwork_img(img_data, size))
             .into_any_element()
     } else {
         div()
@@ -5486,113 +4815,5 @@ pub(crate) fn render_album_thumb(image: Option<&Arc<Image>>, size: f32) -> AnyEl
             .flex_shrink_0()
             .child("\u{1F3B5}")
             .into_any_element()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{merge_track_context_from_detail, track_row_to_track_context, TrackRow};
-    use crate::api::{Contributor, Feed, PaymentRoute, SourceEntityId, Track};
-    use crate::search::id3_edits_for_track_context;
-
-    #[test]
-    fn library_track_context_preserves_feed_guid_for_id3_provenance() {
-        let track = TrackRow {
-            id: 1,
-            feed_id: 2,
-            feed_guid: Some("feed-guid".into()),
-            item_guid: "track-guid".into(),
-            track_title: Some("Song".into()),
-            artist_name: None,
-            album_title: None,
-            album_artist_name: None,
-            track_number: None,
-            disc_number: None,
-            duration_seconds: None,
-            enclosure_url: None,
-            enclosure_type: None,
-            track_image_href: None,
-            is_in_library: true,
-            feed_title: Some("Feed".into()),
-            album_image_href: None,
-            local_path: None,
-            transcript_url: None,
-        };
-
-        let context = track_row_to_track_context(&track);
-        let edits = id3_edits_for_track_context(&context);
-
-        assert!(edits.iter().any(|edit| {
-            edit.frame_label == "TXXX:MusicIndex Feed Guid" && edit.value == "feed-guid"
-        }));
-    }
-
-    #[test]
-    fn library_track_context_inherits_feed_level_musicindex_metadata() {
-        let track_row = TrackRow {
-            id: 1,
-            feed_id: 2,
-            feed_guid: Some("feed-guid".into()),
-            item_guid: "track-guid".into(),
-            track_title: Some("Song".into()),
-            artist_name: Some("Artist".into()),
-            album_title: None,
-            album_artist_name: None,
-            track_number: Some(4),
-            disc_number: None,
-            duration_seconds: Some(223),
-            enclosure_url: Some("https://example.test/track.mp3".into()),
-            enclosure_type: None,
-            track_image_href: None,
-            is_in_library: true,
-            feed_title: Some("Feed".into()),
-            album_image_href: None,
-            local_path: None,
-            transcript_url: None,
-        };
-        let track = Track {
-            track_guid: Some("track-guid".into()),
-            feed_guid: Some("feed-guid".into()),
-            title: Some("Song".into()),
-            ..Default::default()
-        };
-        let feed = Feed {
-            feed_guid: Some("feed-guid".into()),
-            title: Some("Feed".into()),
-            publisher_text: Some("HeyCitizen".into()),
-            description: Some("Feed description".into()),
-            source_ids: Some(vec![SourceEntityId {
-                scheme: Some("nostr_npub".into()),
-                value: Some("npub1heycitizen".into()),
-                ..Default::default()
-            }]),
-            source_contributors: Some(vec![Contributor {
-                name: Some("HeyCitizen".into()),
-                role: Some("musician".into()),
-                ..Default::default()
-            }]),
-            payment_routes: Some(vec![PaymentRoute {
-                recipient_name: Some("HeyCitizen".into()),
-                split: Some(100.0),
-                ..Default::default()
-            }]),
-            ..Default::default()
-        };
-
-        let context = merge_track_context_from_detail(&track_row, Some(track), Some(feed));
-        assert_eq!(context.track.publisher_text.as_deref(), Some("HeyCitizen"));
-        assert_eq!(
-            context.track.source_contributors.as_ref().map(Vec::len),
-            Some(1)
-        );
-        assert_eq!(context.track.source_ids.as_ref().map(Vec::len), Some(1));
-        assert_eq!(context.track.payment_routes.as_ref().map(Vec::len), Some(1));
-        assert_eq!(
-            context
-                .feed
-                .as_ref()
-                .and_then(|feed| feed.description.as_deref()),
-            Some("Feed description")
-        );
     }
 }

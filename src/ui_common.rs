@@ -26,7 +26,7 @@ pub fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
 }
 
 pub fn render_thumb(
-    image_data: Option<&Arc<Image>>,
+    image_data: Option<Arc<Image>>,
     entity_type: &str,
     size: f32,
     large: bool,
@@ -39,7 +39,7 @@ pub fn render_thumb(
             .rounded(px(radius))
             .overflow_hidden()
             .flex_shrink_0()
-            .child(artwork_img(image.clone(), size))
+            .child(artwork_img(image, size))
             .into_any_element()
     } else {
         div()
@@ -65,7 +65,7 @@ pub fn render_detail_header(
     entity_type: &str,
     title: &str,
     subtitle: Option<&str>,
-    image: Option<&Arc<Image>>,
+    image: Option<Arc<Image>>,
 ) -> AnyElement {
     div()
         .flex()
@@ -230,5 +230,13 @@ pub fn type_emoji(entity_type: &str) -> &'static str {
         "artist" => "🎤",
         "release" => "💿",
         _ => badges::emoji(entity_type),
+    }
+}
+
+pub fn plural(count: usize) -> &'static str {
+    if count == 1 {
+        ""
+    } else {
+        "s"
     }
 }
