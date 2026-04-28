@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use gpui::{
     div, img, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, Image, ImageFormat,
@@ -702,35 +703,72 @@ pub fn run_app() {
         let http = reqwest::blocking::Client::new();
         let image_cache = ImageCache::new(http, thumbnail_cache_dir);
 
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(1120.0), px(760.0)),
-                    cx,
-                ))),
-                ..Default::default()
-            },
-            |window, cx| {
-                let view = cx.new(|cx| {
-                    TopApp::new(
-                        conn,
-                        image_cache,
-                        cfg_path,
-                        musicindex_endpoint,
-                        cfg.music_dir,
-                        cfg.flac_path,
-                        window,
+        let window_handle = cx
+            .open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                        None,
+                        size(px(1120.0), px(760.0)),
                         cx,
-                    )
-                });
-                let root = cx.new(|cx| Root::new(view, window, cx));
+                    ))),
+                    ..Default::default()
+                },
+                |window, cx| {
+                    let view = cx.new(|cx| {
+                        TopApp::new(
+                            conn,
+                            image_cache,
+                            cfg_path,
+                            musicindex_endpoint,
+                            cfg.music_dir,
+                            cfg.flac_path,
+                            window,
+                            cx,
+                        )
+                    });
+                    let root = cx.new(|cx| Root::new(view, window, cx));
+                    window.refresh();
+                    root
+                },
+            )
+            .expect("failed to open window");
+        let window_handle = gpui::AnyWindowHandle::from(window_handle);
+        window_handle
+            .update(cx, |_, window, cx| {
+                window.activate_window();
                 window.refresh();
-                root
-            },
-        )
-        .expect("failed to open window");
+                cx.refresh_windows();
+            })
+            .expect("activate initial window");
         cx.activate(true);
         cx.refresh_windows();
+        cx.defer(move |cx| {
+            let _ = window_handle.update(cx, |_, window, cx| {
+                window.activate_window();
+                window.refresh();
+                cx.refresh_windows();
+            });
+            cx.activate(true);
+            cx.refresh_windows();
+        });
+        cx.spawn(async move |cx: &mut gpui::AsyncApp| {
+            cx.background_executor()
+                .timer(Duration::from_millis(16))
+                .await;
+            let _ = cx.update(|cx| {
+                let _ = window_handle.update(cx, |_, window, cx| {
+                    window.activate_window();
+                    window.refresh();
+                    cx.refresh_windows();
+                });
+                cx.activate(true);
+                cx.refresh_windows();
+            });
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
+            let _ = cx.refresh();
+        })
+        .detach();
     });
 }
