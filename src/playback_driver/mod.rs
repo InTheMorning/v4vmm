@@ -60,6 +60,22 @@ impl ConfiguredPlaybackDriver {
             }
         }
     }
+
+    pub fn ping(&self) -> Result<()> {
+        match self {
+            Self::Null(_) => Ok(()),
+            #[cfg(unix)]
+            Self::Mpv(driver) => driver.ping(),
+        }
+    }
+
+    pub fn is_live_driver(&self) -> bool {
+        match self {
+            Self::Null(_) => false,
+            #[cfg(unix)]
+            Self::Mpv(_) => true,
+        }
+    }
 }
 
 impl PlaybackDriver for ConfiguredPlaybackDriver {

@@ -25,9 +25,10 @@ playback daemon, not a one-shot CLI command.
 
 One-shot CLI commands continue to operate in session-only mode unless a later
 ADR defines daemon/RPC control. In that mode `playlist play`, `playback next`,
-`playback previous`, `playback stop`, and `playback position` preserve ADR 0020:
-they update `playback_sessions` synchronously, return JSON from the database
-write, and do not start or control an audio process.
+`playback previous`, `playback pause`, `playback resume`, `playback stop`, and
+`playback position` preserve ADR 0020: they update `playback_sessions`
+synchronously, return JSON from the database write, and do not start or control
+an audio process.
 
 Live-driver mode exists only inside the long-running owner. Commands routed to
 that owner call the driver, then reconcile observed driver state back into
@@ -107,7 +108,8 @@ problem.
 - The driver owns the subprocess handle. Normal shutdown uses an explicit
   shutdown path; `Drop` performs best-effort cleanup.
 - A health check (`player ping` debug command, ADR 0017 style) confirms the
-  socket is reachable before the first load.
+  configured backend is reachable. With `driver = "mpv"`, it starts mpv
+  briefly, verifies IPC, and shuts it down when the command exits.
 
 ### Socket and process hygiene
 

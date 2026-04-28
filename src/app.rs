@@ -18,7 +18,7 @@ use crate::library_service;
 use crate::media::ImageCache;
 use crate::playback;
 use crate::playback_driver::ConfiguredPlaybackDriver;
-use crate::playback_owner::PlaybackOwner;
+use crate::playback_owner::{PlaybackOwner, PollOutcome};
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::theme::color;
 use crate::ui::theme::layout;
@@ -66,7 +66,7 @@ pub struct TopApp {
     discover_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
     _search_sub: gpui::Subscription,
-    _playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
+    playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
     conn: Arc<Mutex<Connection>>,
     cached_tree: LibraryTree,
 }
@@ -146,9 +146,51 @@ impl TopApp {
             discover_tab_focus: cx.focus_handle(),
             settings_tab_focus: cx.focus_handle(),
             _search_sub: search_sub,
-            _playback_owner: playback_owner,
+            playback_owner,
             conn,
             cached_tree: LibraryTree::default(),
+        }
+    }
+
+    fn maybe_start_playback_polling(&mut self, cx: &mut Context<Self>) {
+        if !self.playback_owner.driver().is_live_driver() {
+            return;
+        }
+        {
+            let conn = self.conn.lock().expect("lock db");
+            if let Err(error) = self.playback_owner.load_current_session(&conn) {
+                self.settings_status = format!("Playback error: {error:#}");
+            }
+        }
+        cx.spawn(
+            async move |this: gpui::WeakEntity<TopApp>, cx: &mut gpui::AsyncApp| loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(1_000))
+                    .await;
+                if this
+                    .update(cx, |this, cx| {
+                        this.poll_playback_owner();
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            },
+        )
+        .detach();
+    }
+
+    fn poll_playback_owner(&mut self) {
+        let conn = self.conn.lock().expect("lock db");
+        match self.playback_owner.poll(&conn) {
+            Ok(PollOutcome::NoSession | PollOutcome::Reconciled(None)) => {}
+            Ok(PollOutcome::Reconciled(Some(_)) | PollOutcome::Advanced(_)) => {
+                self.settings_status.clear();
+            }
+            Err(error) => {
+                self.settings_status = format!("Playback error: {error:#}");
+            }
         }
     }
 
@@ -724,7 +766,7 @@ pub fn run_app() {
                 },
                 |window, cx| {
                     let view = cx.new(|cx| {
-                        TopApp::new(
+                        let mut app = TopApp::new(
                             conn,
                             image_cache,
                             cfg_path,
@@ -734,7 +776,9 @@ pub fn run_app() {
                             playback_owner,
                             window,
                             cx,
-                        )
+                        );
+                        app.maybe_start_playback_polling(cx);
+                        app
                     });
                     let root = cx.new(|cx| Root::new(view, window, cx));
                     window.refresh();

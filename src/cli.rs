@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use rusqlite::Connection;
 use serde::Serialize;
 
+use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::{api, config, db, debug_contracts, playback};
 
 pub fn run(args: &[String]) -> Result<()> {
@@ -47,6 +48,7 @@ pub fn run(args: &[String]) -> Result<()> {
         {
             print_library_tracks()
         }
+        [section, command] if section == "player" && command == "ping" => ping_player(),
         [section, command, track_id, flag]
             if section == "track" && command == "inspect" && flag == "--json" =>
         {
@@ -63,6 +65,8 @@ pub fn run(args: &[String]) -> Result<()> {
         }
         [section, command] if section == "playback" && command == "next" => skip_next(),
         [section, command] if section == "playback" && command == "previous" => skip_previous(),
+        [section, command] if section == "playback" && command == "pause" => pause_playback(true),
+        [section, command] if section == "playback" && command == "resume" => pause_playback(false),
         [section, command] if section == "playback" && command == "stop" => stop_playback(),
         _ => Err(anyhow!("unsupported command\n\n{}", help_text())),
     }
@@ -192,6 +196,15 @@ fn print_track_inspect(track_id: i64) -> Result<()> {
     print_json(&row)
 }
 
+fn ping_player() -> Result<()> {
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
+    let driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)?;
+    driver.ping()?;
+    println!("ok {}", cfg.playback.driver.as_str());
+    Ok(())
+}
+
 fn play_playlist(args: &[String]) -> Result<()> {
     let options = parse_playlist_play_options(args)?;
     let conn = open_configured_db()?;
@@ -222,6 +235,12 @@ fn set_track(track_id: i64) -> Result<()> {
 fn update_position(position_ms: u64) -> Result<()> {
     let conn = open_configured_db()?;
     let update = playback::update_position(&conn, position_ms, playback::DEFAULT_SESSION_ID)?;
+    print_json(&update)
+}
+
+fn pause_playback(paused: bool) -> Result<()> {
+    let conn = open_configured_db()?;
+    let update = playback::update_paused(&conn, paused, playback::DEFAULT_SESSION_ID)?;
     print_json(&update)
 }
 
@@ -447,6 +466,7 @@ fn help_text() -> &'static str {
   v4vmm playlists list --json
   v4vmm playlist tracks <playlist-id> --json
   v4vmm library tracks --json
+  v4vmm player ping
   v4vmm track inspect <track-id> --json
   v4vmm playlist play <playlist-id> [--position <zero-based-position>]
   v4vmm playlist play <playlist-id> --dry-run [--position <zero-based-position>]
@@ -454,6 +474,8 @@ fn help_text() -> &'static str {
   v4vmm playback position <ms>
   v4vmm playback next
   v4vmm playback previous
+  v4vmm playback pause
+  v4vmm playback resume
   v4vmm playback stop
 
 No arguments starts the desktop UI. Phase 2 commands use the configured local

@@ -157,6 +157,8 @@ v4vmm playlist play <playlist-id>
 v4vmm playlist play <playlist-id> --position <zero-based-position>
 v4vmm playback next
 v4vmm playback previous
+v4vmm playback pause
+v4vmm playback resume
 v4vmm playback stop
 v4vmm now-playing --json
 ```
@@ -164,6 +166,8 @@ v4vmm now-playing --json
 `next` and `previous` move inside the playlist stored on the current playback
 session. They fail when the current session was set to a loose track instead of
 a playlist row, or when the requested playlist position does not exist.
+`pause` and `resume` update the session state without changing metadata
+identity.
 
 ### Set And Update The Current Session
 
@@ -173,13 +177,16 @@ session state:
 ```bash
 v4vmm playback set-track <track-id>
 v4vmm playback position <ms>
+v4vmm playback pause
+v4vmm playback resume
 v4vmm playback stop
 v4vmm now-playing --json
 ```
 
 `set-track` validates the same source facts as dry-run, then persists the
 default playback session. `position` updates the current position in
-milliseconds. `stop` marks the session stopped; after stop,
+milliseconds. `pause` and `resume` set `playback_sessions.state` to `paused` or
+`playing`. `stop` marks the session stopped; after stop,
 `now-playing --json` reports no current playback session.
 
 Every persisted state change increments the session `sequence`.
@@ -207,6 +214,12 @@ The mpv IPC socket is private to the current user, uses a process-specific or
 randomized path, waits for readiness with a bounded timeout, and is removed on
 normal shutdown. The owner should shut mpv down gracefully before killing it
 after timeout; `Drop` is only best-effort cleanup.
+
+Use the player ping debug command to validate the configured backend:
+
+```bash
+v4vmm player ping
+```
 
 Playback config defaults to session-only behavior:
 

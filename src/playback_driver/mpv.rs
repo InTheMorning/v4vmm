@@ -363,7 +363,167 @@ fn default_runtime_dir() -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use std::thread;
+
     use super::*;
+
+    fn test_state(stream: UnixStream) -> MpvState {
+        MpvState {
+            child: None,
+            socket_path: None,
+            stream: Some(BufReader::new(stream)),
+            next_request_id: 1,
+            status: DriverStatus::default(),
+        }
+    }
+
+    fn test_driver() -> MpvDriver {
+        MpvDriver {
+            mpv_path: PathBuf::from("mpv"),
+            runtime_dir: std::env::temp_dir(),
+            inner: Mutex::new(MpvState {
+                child: None,
+                socket_path: None,
+                stream: None,
+                next_request_id: 1,
+                status: DriverStatus::default(),
+            }),
+        }
+    }
+
+    fn write_message(stream: &mut BufReader<UnixStream>, message: Value) -> Result<()> {
+        let line = serde_json::to_vec(&message).context("serialize fake mpv message")?;
+        stream
+            .get_mut()
+            .write_all(&line)
+            .context("write fake mpv message")?;
+        stream
+            .get_mut()
+            .write_all(b"\n")
+            .context("write fake mpv newline")?;
+        stream.get_mut().flush().context("flush fake mpv message")
+    }
+
+    fn read_request(stream: &mut BufReader<UnixStream>) -> Result<Value> {
+        let mut line = String::new();
+        stream
+            .read_line(&mut line)
+            .context("read fake mpv request")?;
+        serde_json::from_str(line.trim_end()).context("parse fake mpv request")
+    }
+
+    fn run_fake_peer(
+        peer: UnixStream,
+        scenario: impl FnOnce(&mut BufReader<UnixStream>) -> Result<()> + Send + 'static,
+    ) -> thread::JoinHandle<Result<()>> {
+        thread::spawn(move || {
+            let mut stream = BufReader::new(peer);
+            scenario(&mut stream)
+        })
+    }
+
+    fn join_fake_peer(handle: thread::JoinHandle<Result<()>>) -> Result<()> {
+        handle.join().map_err(|payload| {
+            if let Some(message) = payload.downcast_ref::<&str>() {
+                anyhow!("fake mpv peer panicked: {message}")
+            } else if let Some(message) = payload.downcast_ref::<String>() {
+                anyhow!("fake mpv peer panicked: {message}")
+            } else {
+                anyhow!("fake mpv peer panicked")
+            }
+        })?
+    }
+
+    #[test]
+    fn command_writes_monotonically_increasing_request_ids() -> Result<()> {
+        let (driver_stream, peer_stream) = UnixStream::pair().context("create fake IPC pair")?;
+        let driver = test_driver();
+        let mut state = test_state(driver_stream);
+        let peer = run_fake_peer(peer_stream, |stream| {
+            let first = read_request(stream)?;
+            assert_eq!(first["command"], json!(["get_property", "time-pos"]));
+            assert_eq!(first["request_id"], 1);
+            write_message(stream, json!({"request_id": 1, "error": "success"}))?;
+
+            let second = read_request(stream)?;
+            assert_eq!(second["command"], json!(["get_property", "pause"]));
+            assert_eq!(second["request_id"], 2);
+            write_message(stream, json!({"request_id": 2, "error": "success"}))
+        });
+
+        driver.command(&mut state, json!(["get_property", "time-pos"]))?;
+        driver.command(&mut state, json!(["get_property", "pause"]))?;
+        join_fake_peer(peer)?;
+
+        assert_eq!(state.next_request_id, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn command_ignores_interleaved_events_and_returns_matching_data() -> Result<()> {
+        let (driver_stream, peer_stream) = UnixStream::pair().context("create fake IPC pair")?;
+        let driver = test_driver();
+        let mut state = test_state(driver_stream);
+        let peer = run_fake_peer(peer_stream, |stream| {
+            let request = read_request(stream)?;
+            assert_eq!(request["request_id"], 1);
+            write_message(
+                stream,
+                json!({
+                    "event": "property-change",
+                    "name": "time-pos",
+                    "data": 4.2
+                }),
+            )?;
+            write_message(
+                stream,
+                json!({
+                    "event": "property-change",
+                    "name": "pause",
+                    "data": true
+                }),
+            )?;
+            write_message(stream, json!({"request_id": 99, "error": "success"}))?;
+            write_message(
+                stream,
+                json!({"request_id": 1, "error": "success", "data": "ok"}),
+            )
+        });
+
+        let data = driver.command(&mut state, json!(["get_property", "path"]))?;
+        join_fake_peer(peer)?;
+
+        assert_eq!(data, Some(json!("ok")));
+        assert_eq!(state.status.position_ms, 4_200);
+        assert!(state.status.paused);
+        Ok(())
+    }
+
+    #[test]
+    fn command_reports_mpv_error_response() -> Result<()> {
+        let (driver_stream, peer_stream) = UnixStream::pair().context("create fake IPC pair")?;
+        let driver = test_driver();
+        let mut state = test_state(driver_stream);
+        let peer = run_fake_peer(peer_stream, |stream| {
+            let request = read_request(stream)?;
+            assert_eq!(request["request_id"], 1);
+            write_message(
+                stream,
+                json!({"request_id": 1, "error": "property unavailable"}),
+            )
+        });
+
+        let error = driver
+            .command(&mut state, json!(["get_property", "missing"]))
+            .expect_err("mpv error response should fail command");
+        join_fake_peer(peer)?;
+
+        assert_eq!(
+            error.to_string(),
+            "mpv command failed: property unavailable"
+        );
+        Ok(())
+    }
 
     #[test]
     fn property_events_update_cached_status() {

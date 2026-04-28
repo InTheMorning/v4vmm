@@ -24,6 +24,7 @@ pub struct PlaybackOwner<D> {
     driver: D,
     session_id: String,
     eof_armed: bool,
+    loaded_track_id: Option<i64>,
 }
 
 impl<D: PlaybackDriver> PlaybackOwner<D> {
@@ -32,6 +33,7 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             driver,
             session_id: session_id.into(),
             eof_armed: true,
+            loaded_track_id: None,
         }
     }
 
@@ -48,6 +50,7 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
     ) -> Result<playback::NowPlayingUpdate> {
         self.driver.load(path, start_ms)?;
         self.eof_armed = true;
+        self.loaded_track_id = Some(track_id);
         let update = playback::set_track(conn, track_id, &self.session_id)?;
         if start_ms == 0 {
             return Ok(update);
@@ -60,6 +63,7 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             return Ok(None);
         };
         if session.state == "stopped" {
+            self.loaded_track_id = None;
             return Ok(None);
         }
         let identity = track_identity::local_track_identity(conn, session.local_track_id)?;
@@ -69,6 +73,7 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             self.driver.pause(true)?;
         }
         self.eof_armed = true;
+        self.loaded_track_id = Some(session.local_track_id);
         self.driver.poll().map(Some)
     }
 
@@ -89,12 +94,33 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
     pub fn stop(&mut self, conn: &Connection) -> Result<db::PlaybackSessionRow> {
         self.driver.stop()?;
         self.eof_armed = false;
+        self.loaded_track_id = None;
         playback::stop(conn, &self.session_id)
     }
 
     pub fn poll(&mut self, conn: &Connection) -> Result<PollOutcome> {
-        if db::playback_session(conn, &self.session_id)?.is_none() {
+        let Some(session) = db::playback_session(conn, &self.session_id)? else {
+            if self.loaded_track_id.take().is_some() {
+                self.driver.stop()?;
+            }
             return Ok(PollOutcome::NoSession);
+        };
+        if session.state == "stopped" {
+            if self.loaded_track_id.take().is_some() {
+                self.driver.stop()?;
+            }
+            return Ok(PollOutcome::Reconciled(None));
+        }
+        if self.loaded_track_id != Some(session.local_track_id) {
+            let identity = track_identity::local_track_identity(conn, session.local_track_id)?;
+            self.driver
+                .load(Path::new(&identity.local_path), session.position_ms)?;
+            if session.state == "paused" {
+                self.driver.pause(true)?;
+            }
+            self.loaded_track_id = Some(session.local_track_id);
+            return playback::now_playing_update(conn, &self.session_id)
+                .map(PollOutcome::Reconciled);
         }
         let status = self.driver.poll()?;
         if let Some(error) = &status.error {
@@ -109,6 +135,7 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
                 .context("advance playlist after driver EOF")?;
             let identity = track_identity::local_track_identity(conn, update.local_track_id)?;
             self.driver.load(Path::new(&identity.local_path), 0)?;
+            self.loaded_track_id = Some(update.local_track_id);
             self.eof_armed = true;
             return Ok(PollOutcome::Advanced(update));
         }
@@ -223,6 +250,41 @@ mod tests {
 
         assert_eq!(snap.loaded_path, Some(PathBuf::from("/tmp/track.mp3")));
         assert_eq!(snap.position_ms, 9_000);
+        Ok(())
+    }
+
+    #[test]
+    fn owner_poll_loads_new_active_session_before_reconciling() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        let track_id = create_track(&conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        playback::set_track(&conn, track_id, playback::DEFAULT_SESSION_ID)?;
+        playback::update_position(&conn, 5_000, playback::DEFAULT_SESSION_ID)?;
+        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+
+        let outcome = owner.poll(&conn)?;
+        let snap = owner.driver().snapshot();
+
+        assert!(matches!(outcome, PollOutcome::Reconciled(Some(_))));
+        assert_eq!(snap.loaded_path, Some(PathBuf::from("/tmp/track.mp3")));
+        assert_eq!(snap.position_ms, 5_000);
+        Ok(())
+    }
+
+    #[test]
+    fn owner_poll_stops_driver_when_session_is_stopped() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        let track_id = create_track(&conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        playback::set_track(&conn, track_id, playback::DEFAULT_SESSION_ID)?;
+        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+        owner.load_current_session(&conn)?;
+        playback::stop(&conn, playback::DEFAULT_SESSION_ID)?;
+
+        let outcome = owner.poll(&conn)?;
+
+        assert!(matches!(outcome, PollOutcome::Reconciled(None)));
+        assert!(owner.driver().snapshot().stopped);
         Ok(())
     }
 }

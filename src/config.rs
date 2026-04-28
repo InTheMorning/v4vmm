@@ -55,6 +55,15 @@ pub enum PlaybackDriver {
     Mpv,
 }
 
+impl PlaybackDriver {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Null => "null",
+            Self::Mpv => "mpv",
+        }
+    }
+}
+
 fn deserialize_playback_driver<'de, D>(
     deserializer: D,
 ) -> std::result::Result<PlaybackDriver, D::Error>
