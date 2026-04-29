@@ -214,7 +214,9 @@ Shipped view-models:
   typed state transitions for library item selection, playlist selection,
   playlist creation visibility, and album add-to-playlist pickers.
 - `view_models::library::LibraryViewModel` operation-state methods —
-  typed transitions for status text, busy track, and hovered thumbnail URL.
+  typed transitions for status text, busy track, hovered thumbnail URL,
+  library reload summaries, playlist CRUD failures, and album-track-load
+  empty/error states.
 - `view_models::library::{PlaylistAppendIntent, PlaylistAppendOutcome}` —
   pure command intent and result-count data for playlist append operations;
   `LibraryViewModel` prepares the intent and owns the progress, success,

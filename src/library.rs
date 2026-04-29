@@ -318,10 +318,7 @@ impl LibraryApp {
             Ok(rows) => {
                 let count = rows.len();
                 self.vm.replace_tree(build_tree(&rows, &conn));
-                self.vm.set_status(format!(
-                    "{count} library track{}",
-                    if count == 1 { "" } else { "s" }
-                ));
+                self.vm.finish_library_reload(count);
             }
             Err(err) => {
                 self.vm.set_error_status(err);
@@ -338,9 +335,7 @@ impl LibraryApp {
         let conn = self.conn.lock().expect("lock db");
         match playlist_service::list(&conn) {
             Ok(list) => self.vm.replace_playlists(list),
-            Err(err) => self
-                .vm
-                .set_status(format!("Error loading playlists: {err:#}")),
+            Err(err) => self.vm.fail_playlist_load(err),
         }
     }
 
@@ -380,9 +375,7 @@ impl LibraryApp {
                 self.reload_playlists();
                 self.select_playlist(id, cx);
             }
-            Err(err) => self
-                .vm
-                .set_status(format!("Error creating playlist: {err:#}")),
+            Err(err) => self.vm.fail_playlist_create(err),
         }
         cx.notify();
     }
@@ -395,7 +388,7 @@ impl LibraryApp {
         }
         let conn = self.conn.lock().expect("lock db");
         if let Err(err) = playlist_service::rename(&conn, id, trimmed) {
-            self.vm.set_status(format!("Error renaming: {err:#}"));
+            self.vm.fail_playlist_rename(err);
             return;
         }
         drop(conn);
@@ -409,7 +402,7 @@ impl LibraryApp {
     fn delete_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
         let conn = self.conn.lock().expect("lock db");
         if let Err(err) = playlist_service::delete(&conn, id) {
-            self.vm.set_status(format!("Error deleting: {err:#}"));
+            self.vm.fail_playlist_delete(err);
             return;
         }
         drop(conn);
@@ -428,7 +421,7 @@ impl LibraryApp {
     ) {
         let mut conn = self.conn.lock().expect("lock db");
         if let Err(err) = playlist_service::remove_track_at(&mut conn, playlist_id, position) {
-            self.vm.set_status(format!("Error removing track: {err:#}"));
+            self.vm.fail_playlist_track_remove(err);
             return;
         }
         drop(conn);
@@ -451,7 +444,7 @@ impl LibraryApp {
         }
         let mut conn = self.conn.lock().expect("lock db");
         if let Err(err) = playlist_service::reorder(&mut conn, playlist_id, from, to) {
-            self.vm.set_status(format!("Error reordering: {err:#}"));
+            self.vm.fail_playlist_track_reorder(err);
             return;
         }
         drop(conn);
@@ -472,8 +465,7 @@ impl LibraryApp {
         let tracks = match db::feed_tracks(&conn, feed_id) {
             Ok(t) => t,
             Err(err) => {
-                self.vm
-                    .set_status(format!("Error loading album tracks: {err:#}"));
+                self.vm.fail_album_tracks_load(err);
                 cx.notify();
                 return;
             }
@@ -481,7 +473,7 @@ impl LibraryApp {
         drop(conn);
         let track_ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
         if track_ids.is_empty() {
-            self.vm.set_status("Album has no tracks");
+            self.vm.set_album_has_no_tracks();
             cx.notify();
             return;
         }

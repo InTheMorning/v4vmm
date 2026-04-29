@@ -65,7 +65,9 @@ The projection view-model layer is partially migrated:
   transitions through methods, reducing direct screen mutation of those
   fields.
 - `LibraryViewModel` also owns status text, busy track, and hovered
-  thumbnail transitions through accessors / mutators.
+  thumbnail transitions through accessors / mutators. It now also owns
+  library reload summaries, playlist CRUD failure text, and album-track-load
+  empty/error state.
 - The migrated `LibraryViewModel` state is private to the VM; `library.rs`
   now reads it through accessors/projections and writes it through typed
   transition methods.

@@ -328,6 +328,10 @@ impl LibraryViewModel {
         self.snapshot.tree = tree;
     }
 
+    pub(crate) fn finish_library_reload(&mut self, track_count: usize) {
+        self.status = format!("{track_count} library track{}", plural(track_count));
+    }
+
     #[must_use]
     pub(crate) fn tree_projection(&self) -> LibraryTreeProjection {
         let query = self.search_query.trim();
@@ -373,6 +377,10 @@ impl LibraryViewModel {
         self.snapshot.playlists = playlists;
     }
 
+    pub(crate) fn fail_playlist_load(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error loading playlists: {error:#}");
+    }
+
     pub(crate) fn sort_loaded_playlists(&mut self) {
         Self::sort_playlists_by(self.playlist_sort, &mut self.snapshot.playlists);
     }
@@ -414,6 +422,34 @@ impl LibraryViewModel {
 
     pub(crate) fn replace_playlist_tracks(&mut self, tracks: Vec<TrackRow>) {
         self.snapshot.playlist_tracks = tracks;
+    }
+
+    pub(crate) fn fail_playlist_create(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error creating playlist: {error:#}");
+    }
+
+    pub(crate) fn fail_playlist_rename(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error renaming: {error:#}");
+    }
+
+    pub(crate) fn fail_playlist_delete(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error deleting: {error:#}");
+    }
+
+    pub(crate) fn fail_playlist_track_remove(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error removing track: {error:#}");
+    }
+
+    pub(crate) fn fail_playlist_track_reorder(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error reordering: {error:#}");
+    }
+
+    pub(crate) fn fail_album_tracks_load(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error loading album tracks: {error:#}");
+    }
+
+    pub(crate) fn set_album_has_no_tracks(&mut self) {
+        self.status = "Album has no tracks".into();
     }
 
     #[must_use]
@@ -2132,6 +2168,45 @@ mod tests {
 
         assert_eq!(vm.snapshot.playlist_tracks.len(), 1);
         assert_eq!(vm.snapshot.playlist_tracks[0].id, 42);
+    }
+
+    #[test]
+    fn library_view_model_library_reload_status_pluralizes_track_count() {
+        let mut vm = LibraryViewModel::new();
+
+        vm.finish_library_reload(1);
+        assert_eq!(vm.status(), "1 library track");
+
+        vm.finish_library_reload(2);
+        assert_eq!(vm.status(), "2 library tracks");
+    }
+
+    #[test]
+    fn library_view_model_playlist_failures_format_status_text() {
+        let mut vm = LibraryViewModel::new();
+
+        vm.fail_playlist_load("db");
+        assert_eq!(vm.status(), "Error loading playlists: db");
+        vm.fail_playlist_create("exists");
+        assert_eq!(vm.status(), "Error creating playlist: exists");
+        vm.fail_playlist_rename("bad");
+        assert_eq!(vm.status(), "Error renaming: bad");
+        vm.fail_playlist_delete("missing");
+        assert_eq!(vm.status(), "Error deleting: missing");
+        vm.fail_playlist_track_remove("locked");
+        assert_eq!(vm.status(), "Error removing track: locked");
+        vm.fail_playlist_track_reorder("position");
+        assert_eq!(vm.status(), "Error reordering: position");
+    }
+
+    #[test]
+    fn library_view_model_album_track_load_status_helpers_format_text() {
+        let mut vm = LibraryViewModel::new();
+
+        vm.fail_album_tracks_load("db");
+        assert_eq!(vm.status(), "Error loading album tracks: db");
+        vm.set_album_has_no_tracks();
+        assert_eq!(vm.status(), "Album has no tracks");
     }
 
     #[test]
