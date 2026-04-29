@@ -1,3 +1,4 @@
+pub mod composites;
 pub mod contrast;
 pub mod playlist_popover;
 pub mod primitives;

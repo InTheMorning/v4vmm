@@ -1,6 +1,7 @@
 use crate::api::Feed;
 use crate::search::{render_feed_list_section, SearchApp};
-use crate::ui_common::{optional_row, render_detail_grid, render_detail_header};
+use crate::ui::composites::{DetailGrid, DetailHeader, DetailRow, EntityKind};
+use crate::ui::tokens::Spacing;
 use crate::ui_context::ViewContext;
 use crate::views::ArtistView;
 use gpui::{div, prelude::*, AnyElement, Context};
@@ -20,8 +21,6 @@ pub fn render_artist_view(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    use crate::ui::theme::spacing;
-
     let title = view.name.clone().unwrap_or_else(|| "Unknown Artist".into());
     let display_track_count = track_count_override.or(view.track_count).unwrap_or(0);
     let track_count_str = format!(
@@ -30,30 +29,28 @@ pub fn render_artist_view(
         if has_more_tracks { "+" } else { "" }
     );
 
-    let mut rows = vec![
-        ("Tracks".to_string(), track_count_str),
-        ("Feeds".to_string(), feeds.len().to_string()),
-    ];
-    optional_row(&mut rows, "Sort Name", view.sort_name.clone());
-    optional_row(&mut rows, "Area", view.area.clone());
-    optional_row(
+    let mut rows: Vec<DetailRow> = Vec::new();
+    rows.push(DetailRow::text("Tracks", track_count_str, 1));
+    rows.push(DetailRow::text("Feeds", feeds.len().to_string(), 1));
+    push_optional(&mut rows, "Sort Name", view.sort_name.clone());
+    push_optional(&mut rows, "Area", view.area.clone());
+    push_optional(
         &mut rows,
         "Active",
         artist_active_years(view.begin_year, view.end_year),
     );
-    optional_row(&mut rows, "Website", view.url.clone());
+    push_optional(&mut rows, "Website", view.url.clone());
 
     div()
         .flex()
         .flex_col()
-        .gap(spacing::LG)
-        .child(render_detail_header(
-            "artist",
-            &title,
-            Some("Feeds with tracks by this artist"),
-            image,
-        ))
-        .child(render_detail_grid(rows))
+        .gap(Spacing::LG.scaled(cx))
+        .child(
+            DetailHeader::new(EntityKind::Artist, title)
+                .subtitle("Feeds with tracks by this artist")
+                .image(image),
+        )
+        .child(DetailGrid::new(rows))
         .when(!feeds.is_empty(), |el| {
             el.child(render_feed_list_section("Feeds", feeds.to_vec(), app, cx))
         })
@@ -66,5 +63,13 @@ fn artist_active_years(begin_year: Option<i32>, end_year: Option<i32>) -> Option
         (Some(begin), None) => Some(format!("{begin}-")),
         (None, Some(end)) => Some(format!("until {end}")),
         (None, None) => None,
+    }
+}
+
+fn push_optional(rows: &mut Vec<DetailRow>, key: &'static str, value: Option<String>) {
+    if let Some(value) = value {
+        if !value.is_empty() {
+            rows.push(DetailRow::text(key, value, 6));
+        }
     }
 }
