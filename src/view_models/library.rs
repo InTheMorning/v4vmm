@@ -1,7 +1,7 @@
 //! Library screen view-models.
 //!
 //! Pure projections of [`db::TrackRow`] + library-screen-owned state
-//! (`MbTrackStatus`) into the strings the library inspector and album
+//! ([`MbTrackStatus`]) into the strings the library inspector and album
 //! detail rows render. Same layer rules as [`super`]: no GPUI imports,
 //! no service mutation; constructed fresh each render.
 //!
@@ -9,11 +9,28 @@
 //! its projection ([`LibraryTrackRowVm`]) lives here. Future entries
 //! (artist node summary, playlist row, `MusicBrainz` panel header) will
 //! join as `library.rs` is whittled down.
+//!
+//! Per ADR 0023, this layer must not import screen modules. The
+//! per-track `MusicBrainz` lookup state therefore lives here as
+//! [`MbTrackStatus`]; the library screen depends on the view-model for
+//! the type, not the other way around.
 
 #![warn(clippy::pedantic)]
 
+use std::collections::BTreeMap;
+
 use crate::db::TrackRow;
-use crate::library::MbTrackStatus;
+
+/// Per-track `MusicBrainz` lookup state owned by the library screen and
+/// projected into display by [`LibraryTrackRowVm`].
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub(crate) enum MbTrackStatus {
+    Pending,
+    Processing,
+    Done(usize),
+    Skipped(String),
+}
 
 /// Display-ready projection of a [`TrackRow`] in the library album
 /// detail listing.
@@ -107,6 +124,126 @@ impl<'a> LibraryTrackRowVm<'a> {
             MbTrackStatus::Processing => Some(MbStatusKind::Warning),
             _ => Some(MbStatusKind::Muted),
         }
+    }
+}
+
+/// Display-ready projection of a feed-row inside the library artist
+/// detail. The screen looks up the actual thumbnail image by `thumb_url`
+/// and wires the click handler by `feed_id`; the VM only carries plain
+/// data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ArtistFeedSummaryVm {
+    pub(crate) feed_id: i64,
+    pub(crate) feed_name: String,
+    pub(crate) thumb_url: Option<String>,
+    pub(crate) track_count: usize,
+}
+
+/// Display-ready projection of a library artist detail panel.
+///
+/// Borrow-only — constructed fresh each render and dropped before the
+/// element tree is painted. The VM groups tracks by feed and applies the
+/// "Untitled Feed" / "Unknown" fallbacks the legacy renderer used.
+pub(crate) struct LibraryArtistDetailVm<'a> {
+    name: &'a str,
+    tracks: &'a [TrackRow],
+}
+
+impl<'a> LibraryArtistDetailVm<'a> {
+    #[must_use]
+    pub(crate) fn new(name: &'a str, tracks: &'a [TrackRow]) -> Self {
+        Self { name, tracks }
+    }
+
+    /// Artist name with the legacy `"Unknown"` fallback applied when
+    /// empty.
+    #[must_use]
+    pub(crate) fn artist_name_or_unknown(&self) -> String {
+        if self.name.is_empty() {
+            "Unknown".to_string()
+        } else {
+            self.name.to_string()
+        }
+    }
+
+    /// Number of distinct feeds (== albums) under this artist.
+    #[must_use]
+    pub(crate) fn album_count(&self) -> usize {
+        let mut feeds = std::collections::BTreeSet::new();
+        for t in self.tracks {
+            feeds.insert(t.feed_id);
+        }
+        feeds.len()
+    }
+
+    /// Total track count.
+    #[must_use]
+    pub(crate) fn track_count(&self) -> usize {
+        self.tracks.len()
+    }
+
+    /// Number of tracks that have been downloaded to disk.
+    #[must_use]
+    pub(crate) fn downloaded_count(&self) -> usize {
+        self.tracks
+            .iter()
+            .filter(|t| t.local_path.is_some())
+            .count()
+    }
+
+    /// Detail-grid rows in display order: `Albums`, `Tracks` (with
+    /// pluralised count), and `Downloaded` (only when at least one track
+    /// is downloaded).
+    #[must_use]
+    pub(crate) fn detail_rows(&self) -> Vec<(String, String)> {
+        let mut rows = vec![
+            ("Albums".to_string(), self.album_count().to_string()),
+            (
+                "Tracks".to_string(),
+                format!(
+                    "{} track{}",
+                    self.track_count(),
+                    if self.track_count() == 1 { "" } else { "s" }
+                ),
+            ),
+        ];
+        let downloaded = self.downloaded_count();
+        if downloaded > 0 {
+            rows.push(("Downloaded".to_string(), downloaded.to_string()));
+        }
+        rows
+    }
+
+    /// One [`ArtistFeedSummaryVm`] per distinct feed, ordered by
+    /// `feed_id` (matches `BTreeMap` iteration of the legacy renderer).
+    #[must_use]
+    pub(crate) fn feed_summaries(&self) -> Vec<ArtistFeedSummaryVm> {
+        let mut feed_map: BTreeMap<i64, (Option<String>, Vec<&TrackRow>)> = BTreeMap::new();
+        for track in self.tracks {
+            feed_map
+                .entry(track.feed_id)
+                .or_insert_with(|| (track.feed_title.clone(), Vec::new()))
+                .1
+                .push(track);
+        }
+        feed_map
+            .into_iter()
+            .map(|(feed_id, (feed_title, tracks))| {
+                let feed_name = feed_title.unwrap_or_else(|| "Untitled Feed".to_string());
+                let first = tracks.first();
+                let thumb_url = first.and_then(|t| {
+                    t.album_image_href
+                        .clone()
+                        .or_else(|| t.track_image_href.clone())
+                });
+                ArtistFeedSummaryVm {
+                    feed_id,
+                    feed_name,
+                    thumb_url,
+                    track_count: tracks.len(),
+                }
+            })
+            .collect()
     }
 }
 
@@ -243,5 +380,91 @@ mod tests {
             Some(MbStatusKind::Muted)
         );
         assert_eq!(LibraryTrackRowVm::new(&r, None).mb_status_kind(), None);
+    }
+
+    fn track_for_feed(feed_id: i64, feed_title: Option<&str>) -> TrackRow {
+        let mut r = row();
+        r.feed_id = feed_id;
+        r.feed_title = feed_title.map(str::to_string);
+        r
+    }
+
+    #[test]
+    fn artist_detail_vm_falls_back_to_unknown_for_empty_name() {
+        let vm = LibraryArtistDetailVm::new("", &[]);
+        assert_eq!(vm.artist_name_or_unknown(), "Unknown");
+        let vm = LibraryArtistDetailVm::new("Aphex", &[]);
+        assert_eq!(vm.artist_name_or_unknown(), "Aphex");
+    }
+
+    #[test]
+    fn artist_detail_vm_counts_distinct_feeds_as_albums() {
+        let tracks = vec![
+            track_for_feed(1, Some("A")),
+            track_for_feed(1, Some("A")),
+            track_for_feed(2, Some("B")),
+        ];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        assert_eq!(vm.album_count(), 2);
+        assert_eq!(vm.track_count(), 3);
+    }
+
+    #[test]
+    fn artist_detail_vm_omits_downloaded_row_when_zero() {
+        let tracks = vec![track_for_feed(1, Some("A"))];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        let rows = vm.detail_rows();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], ("Albums".into(), "1".into()));
+        assert_eq!(rows[1], ("Tracks".into(), "1 track".into()));
+    }
+
+    #[test]
+    fn artist_detail_vm_pluralises_track_count_above_one() {
+        let tracks = [track_for_feed(1, Some("A")), track_for_feed(1, Some("A"))];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        let rows = vm.detail_rows();
+        assert_eq!(rows[1], ("Tracks".into(), "2 tracks".into()));
+    }
+
+    #[test]
+    fn artist_detail_vm_includes_downloaded_row_when_any_local_path_present() {
+        let mut t1 = track_for_feed(1, Some("A"));
+        t1.local_path = Some("/x".into());
+        let t2 = track_for_feed(1, Some("A"));
+        let tracks = [t1, t2];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        let rows = vm.detail_rows();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[2], ("Downloaded".into(), "1".into()));
+    }
+
+    #[test]
+    fn artist_detail_vm_feed_summaries_apply_untitled_fallback_and_track_counts() {
+        let mut t1 = track_for_feed(1, None);
+        t1.album_image_href = Some("img-1".into());
+        let t2 = track_for_feed(1, None);
+        let t3 = track_for_feed(2, Some("Real"));
+        let tracks = [t1, t2, t3];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        let summaries = vm.feed_summaries();
+        assert_eq!(summaries.len(), 2);
+        assert_eq!(summaries[0].feed_id, 1);
+        assert_eq!(summaries[0].feed_name, "Untitled Feed");
+        assert_eq!(summaries[0].thumb_url.as_deref(), Some("img-1"));
+        assert_eq!(summaries[0].track_count, 2);
+        assert_eq!(summaries[1].feed_id, 2);
+        assert_eq!(summaries[1].feed_name, "Real");
+        assert_eq!(summaries[1].track_count, 1);
+    }
+
+    #[test]
+    fn artist_detail_vm_thumb_url_falls_back_to_track_image_href() {
+        let mut t = track_for_feed(1, Some("A"));
+        t.track_image_href = Some("track-img".into());
+        let tracks = [t];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        let summaries = vm.feed_summaries();
+        assert_eq!(summaries[0].thumb_url.as_deref(), Some("track-img"));
     }
 }

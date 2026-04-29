@@ -41,7 +41,9 @@ use crate::ui::primitives::{Image as ImagePrimitive, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius};
-use crate::view_models::library::{LibraryTrackRowVm, MbStatusKind};
+use crate::view_models::library::{
+    LibraryArtistDetailVm, LibraryTrackRowVm, MbStatusKind, MbTrackStatus,
+};
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
 
@@ -139,15 +141,6 @@ impl InspectorFrame {
             add_to_playlist_open: false,
         }
     }
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-pub(crate) enum MbTrackStatus {
-    Pending,
-    Processing,
-    Done(usize),
-    Skipped(String),
 }
 
 #[derive(Clone, Debug)]
@@ -2614,41 +2607,24 @@ fn render_library_artist_detail(
     _playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    // Build ArtistView from local data
-    use crate::views::ArtistView;
-    let artist_view = ArtistView::from_local_rows(&detail.name, &detail.tracks);
+    let vm = LibraryArtistDetailVm::new(&detail.name, &detail.tracks);
 
-    // Group tracks by feed to show feeds as rows
-    let mut feed_map: BTreeMap<i64, (Option<String>, Vec<TrackRow>)> = BTreeMap::new();
-    for track in &detail.tracks {
-        feed_map
-            .entry(track.feed_id)
-            .or_insert_with(|| (track.feed_title.clone(), Vec::new()))
-            .1
-            .push(track.clone());
-    }
-
-    let feed_rows: Vec<AnyElement> = feed_map
-        .iter()
-        .map(|(_, (feed_title, tracks))| {
-            let feed_name = feed_title
-                .clone()
-                .unwrap_or_else(|| "Untitled Feed".to_string());
-            let first_track = tracks.first();
-            let thumb_url = first_track.and_then(|t| {
-                t.album_image_href
-                    .clone()
-                    .or_else(|| t.track_image_href.clone())
-            });
-            let thumb_image = thumb_url
+    let feed_rows: Vec<AnyElement> = vm
+        .feed_summaries()
+        .into_iter()
+        .map(|summary| {
+            let thumb_image = summary
+                .thumb_url
                 .as_ref()
                 .and_then(|url| album_thumbs.get(url.as_str()))
                 .and_then(|opt| opt.clone());
-            let feed_name_for_click = feed_name.clone();
-            let track_count = tracks.len();
+            let feed_name_for_click = summary.feed_name.clone();
 
             div()
-                .id(SharedString::from(format!("artist-feed-{}", feed_name)))
+                .id(SharedString::from(format!(
+                    "artist-feed-{}",
+                    summary.feed_name
+                )))
                 .flex()
                 .flex_row()
                 .items_center()
@@ -2659,7 +2635,6 @@ fn render_library_artist_detail(
                 .hover(|el| el.bg(color::bg_surface_hi()))
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    // Find the feed in the tree and select it
                     let feed_name_to_match = feed_name_for_click.clone();
                     let tree_artists = this.tree.artists.clone();
                     for artist_node in &tree_artists {
@@ -2674,7 +2649,7 @@ fn render_library_artist_detail(
                 }))
                 .child(
                     Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(28.0, false))
-                        .image(thumb_image.clone()),
+                        .image(thumb_image),
                 )
                 .child(
                     div()
@@ -2688,14 +2663,11 @@ fn render_library_artist_detail(
                                 .text_size(typography::SIZE_MICRO)
                                 .font_weight(FontWeight::MEDIUM)
                                 .truncate()
-                                .child(SharedString::from(feed_name.clone())),
+                                .child(SharedString::from(summary.feed_name.clone())),
                         )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(color::text_muted())
-                                .child(SharedString::from(format!("{} tracks", track_count))),
-                        ),
+                        .child(div().text_xs().text_color(color::text_muted()).child(
+                            SharedString::from(format!("{} tracks", summary.track_count)),
+                        )),
                 )
                 .into_any_element()
         })
@@ -2711,38 +2683,14 @@ fn render_library_artist_detail(
         .gap(spacing::LG)
         .child(DetailHeader::new(
             EntityKind::Artist,
-            artist_view
-                .name
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string()),
+            vm.artist_name_or_unknown(),
         ))
-        .child({
-            let mut rows = vec![
-                ("Albums".to_string(), feed_map.len().to_string()),
-                (
-                    "Tracks".to_string(),
-                    format!(
-                        "{} track{}",
-                        detail.tracks.len(),
-                        if detail.tracks.len() == 1 { "" } else { "s" }
-                    ),
-                ),
-            ];
-            // Add download count if any tracks are downloaded
-            let downloaded = detail
-                .tracks
-                .iter()
-                .filter(|t| t.local_path.is_some())
-                .count();
-            if downloaded > 0 {
-                rows.push(("Downloaded".to_string(), downloaded.to_string()));
-            }
-            DetailGrid::new(
-                rows.into_iter()
-                    .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
-                    .collect::<Vec<_>>(),
-            )
-        })
+        .child(DetailGrid::new(
+            vm.detail_rows()
+                .into_iter()
+                .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                .collect::<Vec<_>>(),
+        ))
         .child(
             div()
                 .flex()
