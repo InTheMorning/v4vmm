@@ -42,7 +42,7 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius};
 use crate::view_models::library::{
-    LibraryArtistDetailVm, LibraryTrackRowVm, MbStatusKind, MbTrackStatus,
+    LibraryArtistDetailVm, LibraryTrackRowVm, MbStatusKind, MbTrackStatus, PlaylistDetailVm,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
@@ -3073,64 +3073,33 @@ fn render_playlist_detail(
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let playlist_id = detail.playlist.id;
-    let playlist_name = detail.playlist.name.clone();
-    let track_count = detail.tracks.len();
-    let total_duration_secs: i64 = detail
-        .tracks
-        .iter()
-        .filter_map(|t| t.duration_seconds)
-        .sum();
-    let duration_str = if total_duration_secs > 0 {
-        let mins = total_duration_secs / 60;
-        let secs = total_duration_secs % 60;
-        if mins >= 60 {
-            format!("{}h {}m", mins / 60, mins % 60)
-        } else {
-            format!("{mins}:{secs:02}")
-        }
-    } else {
-        String::new()
-    };
+    let vm = PlaylistDetailVm::new(&detail.playlist, &detail.tracks);
+    let playlist_id = vm.playlist_id();
+    let playlist_name = vm.name().to_string();
 
-    let track_rows: Vec<AnyElement> = if detail.tracks.is_empty() {
+    let track_rows: Vec<AnyElement> = if vm.is_empty() {
         vec![div()
             .text_center()
             .p(spacing::XXL)
             .text_color(color::text_muted())
-            .child("Empty — add tracks from the library or search")
+            .child(vm.empty_message())
             .into_any_element()]
     } else {
-        detail
-            .tracks
-            .iter()
-            .enumerate()
-            .map(|(idx, track)| {
-                let track_for_select = track.clone();
-                let track_id = track.id;
-                let position = idx as i64;
-                let last_position = (track_count - 1) as i64;
+        vm.track_rows()
+            .into_iter()
+            .map(|row| {
+                let track_for_select = row.track().clone();
+                let track_id = row.track_id();
+                let position = row.position() as i64;
                 let pl_id = playlist_id;
-                let can_play = track.local_path.is_some();
-                let track_title = track
-                    .track_title
-                    .as_deref()
-                    .unwrap_or("[untitled]")
-                    .to_string();
-                let artist = track
-                    .artist_name
-                    .as_deref()
-                    .unwrap_or("Unknown")
-                    .to_string();
-                let dur = track
-                    .duration_seconds
-                    .map(|s| format!("{}:{:02}", s / 60, s % 60))
-                    .unwrap_or_default();
-                let track_thumb_image = track
-                    .track_image_href
-                    .as_ref()
-                    .or(track.album_image_href.as_ref())
-                    .and_then(|url| album_thumbs.get(url.as_str()))
+                let can_play = row.can_play();
+                let track_title = row.title();
+                let artist = row.artist();
+                let dur = row.duration_label();
+                let position_label = row.position_label();
+                let track_thumb_image = row
+                    .thumb_url()
+                    .and_then(|url| album_thumbs.get(url))
                     .and_then(|opt| opt.clone());
 
                 let up_btn = Button::new(SharedString::from(format!(
@@ -3139,7 +3108,7 @@ fn render_playlist_detail(
                 .label("▲")
                 .ghost()
                 .scaled(Size::Small, cx)
-                .disabled(position == 0)
+                .disabled(!row.can_move_up())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position - 1, cx);
                 }));
@@ -3150,7 +3119,7 @@ fn render_playlist_detail(
                 .label("▼")
                 .ghost()
                 .scaled(Size::Small, cx)
-                .disabled(position == last_position)
+                .disabled(!row.can_move_down())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position + 1, cx);
                 }));
@@ -3212,7 +3181,7 @@ fn render_playlist_detail(
                                     .w(px(32.0))
                                     .text_xs()
                                     .text_color(color::text_muted())
-                                    .child(SharedString::from(format!("{}.", idx + 1))),
+                                    .child(SharedString::from(position_label)),
                             )
                             .child(render_album_thumb(track_thumb_image.clone(), 24.0))
                             .child(
@@ -3255,10 +3224,7 @@ fn render_playlist_detail(
             .collect()
     };
 
-    let mut detail_rows = vec![("Tracks".to_string(), format!("{track_count}"))];
-    if !duration_str.is_empty() {
-        detail_rows.push(("Duration".to_string(), duration_str));
-    }
+    let detail_rows = vm.detail_rows();
 
     let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
     let playlist_for_rename = playlist_id;

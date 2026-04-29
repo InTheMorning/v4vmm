@@ -19,7 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::db::TrackRow;
+use crate::db::{self, TrackRow};
 
 /// Per-track `MusicBrainz` lookup state owned by the library screen and
 /// projected into display by [`LibraryTrackRowVm`].
@@ -247,6 +247,193 @@ impl<'a> LibraryArtistDetailVm<'a> {
     }
 }
 
+/// Display-ready projection of a single row inside a playlist detail
+/// listing. The screen owns the click handlers and button rendering;
+/// the VM owns text fallbacks, duration formatting, and the
+/// move-up/move-down enable rules.
+pub(crate) struct PlaylistTrackRowVm<'a> {
+    track: &'a TrackRow,
+    position: usize,
+    last_position: usize,
+}
+
+impl PlaylistTrackRowVm<'_> {
+    #[must_use]
+    pub(crate) fn track(&self) -> &TrackRow {
+        self.track
+    }
+
+    #[must_use]
+    pub(crate) fn track_id(&self) -> i64 {
+        self.track.id
+    }
+
+    #[must_use]
+    pub(crate) fn position(&self) -> usize {
+        self.position
+    }
+
+    /// `"{n}."` where `n` is the 1-indexed position.
+    #[must_use]
+    pub(crate) fn position_label(&self) -> String {
+        format!("{}.", self.position + 1)
+    }
+
+    /// Title with the legacy `"[untitled]"` fallback.
+    #[must_use]
+    pub(crate) fn title(&self) -> String {
+        self.track
+            .track_title
+            .as_deref()
+            .unwrap_or("[untitled]")
+            .to_string()
+    }
+
+    /// Artist with the legacy `"Unknown"` fallback.
+    #[must_use]
+    pub(crate) fn artist(&self) -> String {
+        self.track
+            .artist_name
+            .as_deref()
+            .unwrap_or("Unknown")
+            .to_string()
+    }
+
+    /// `"M:SS"` formatted duration, or `""` when the track has none.
+    #[must_use]
+    pub(crate) fn duration_label(&self) -> String {
+        self.track
+            .duration_seconds
+            .map(|s| format!("{}:{:02}", s / 60, s % 60))
+            .unwrap_or_default()
+    }
+
+    /// Preferred thumbnail URL — `track_image_href` first, then
+    /// `album_image_href`. Matches the legacy renderer's lookup order.
+    #[must_use]
+    pub(crate) fn thumb_url(&self) -> Option<&str> {
+        self.track
+            .track_image_href
+            .as_deref()
+            .or(self.track.album_image_href.as_deref())
+    }
+
+    /// `true` when the track has a local file and can be played.
+    #[must_use]
+    pub(crate) fn can_play(&self) -> bool {
+        self.track.local_path.is_some()
+    }
+
+    #[must_use]
+    pub(crate) fn can_move_up(&self) -> bool {
+        self.position > 0
+    }
+
+    #[must_use]
+    pub(crate) fn can_move_down(&self) -> bool {
+        self.position < self.last_position
+    }
+}
+
+/// Display-ready projection of a playlist detail panel.
+///
+/// Borrow-only — constructed fresh each render and dropped before the
+/// element tree is painted. The VM owns the duration roll-up,
+/// detail-row composition, and per-track projections.
+pub(crate) struct PlaylistDetailVm<'a> {
+    playlist: &'a db::Playlist,
+    tracks: &'a [TrackRow],
+}
+
+impl<'a> PlaylistDetailVm<'a> {
+    #[must_use]
+    pub(crate) fn new(playlist: &'a db::Playlist, tracks: &'a [TrackRow]) -> Self {
+        Self { playlist, tracks }
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_id(&self) -> i64 {
+        self.playlist.id
+    }
+
+    #[must_use]
+    pub(crate) fn name(&self) -> &str {
+        &self.playlist.name
+    }
+
+    #[must_use]
+    pub(crate) fn track_count(&self) -> usize {
+        self.tracks.len()
+    }
+
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.tracks.is_empty()
+    }
+
+    /// Sum of all track durations in seconds.
+    #[must_use]
+    pub(crate) fn total_duration_seconds(&self) -> i64 {
+        self.tracks.iter().filter_map(|t| t.duration_seconds).sum()
+    }
+
+    /// `"M:SS"` for short playlists, `"Hh Mm"` once total runtime
+    /// crosses an hour, or `None` when the total is zero (no track
+    /// has a known duration). Matches the legacy renderer exactly.
+    #[must_use]
+    pub(crate) fn total_duration_label(&self) -> Option<String> {
+        let total = self.total_duration_seconds();
+        if total <= 0 {
+            return None;
+        }
+        let mins = total / 60;
+        let secs = total % 60;
+        Some(if mins >= 60 {
+            format!("{}h {}m", mins / 60, mins % 60)
+        } else {
+            format!("{mins}:{secs:02}")
+        })
+    }
+
+    /// Detail-grid rows in display order: `Tracks` always, plus
+    /// `Duration` when there is a non-zero total runtime.
+    #[must_use]
+    pub(crate) fn detail_rows(&self) -> Vec<(String, String)> {
+        let mut rows = vec![("Tracks".to_string(), self.track_count().to_string())];
+        if let Some(label) = self.total_duration_label() {
+            rows.push(("Duration".to_string(), label));
+        }
+        rows
+    }
+
+    /// Empty-state message rendered in place of the track list.
+    #[expect(
+        clippy::unused_self,
+        reason = "kept as a method for API symmetry with the other accessors"
+    )]
+    #[must_use]
+    pub(crate) fn empty_message(&self) -> &'static str {
+        "Empty — add tracks from the library or search"
+    }
+
+    /// One [`PlaylistTrackRowVm`] per track, in stored order. Returns
+    /// an empty vec when the playlist has no tracks (callers can use
+    /// [`Self::is_empty`] to branch on the empty-state message).
+    #[must_use]
+    pub(crate) fn track_rows(&self) -> Vec<PlaylistTrackRowVm<'a>> {
+        let last_position = self.tracks.len().saturating_sub(1);
+        self.tracks
+            .iter()
+            .enumerate()
+            .map(|(position, track)| PlaylistTrackRowVm {
+                track,
+                position,
+                last_position,
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -466,5 +653,126 @@ mod tests {
         let vm = LibraryArtistDetailVm::new("Artist", &tracks);
         let summaries = vm.feed_summaries();
         assert_eq!(summaries[0].thumb_url.as_deref(), Some("track-img"));
+    }
+
+    fn playlist(name: &str) -> db::Playlist {
+        db::Playlist {
+            id: 1,
+            name: name.into(),
+            description: None,
+            track_count: 0,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    #[test]
+    fn playlist_detail_vm_reports_empty_state() {
+        let pl = playlist("Mix");
+        let vm = PlaylistDetailVm::new(&pl, &[]);
+        assert!(vm.is_empty());
+        assert_eq!(vm.track_count(), 0);
+        assert_eq!(vm.total_duration_seconds(), 0);
+        assert_eq!(vm.total_duration_label(), None);
+        assert_eq!(vm.detail_rows(), vec![("Tracks".into(), "0".into())]);
+    }
+
+    #[test]
+    fn playlist_detail_vm_total_duration_uses_minutes_below_an_hour() {
+        let pl = playlist("Mix");
+        let mut t1 = row();
+        t1.duration_seconds = Some(125); // 2:05
+        let mut t2 = row();
+        t2.duration_seconds = Some(180); // 3:00
+        let tracks = [t1, t2];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        assert_eq!(vm.total_duration_seconds(), 305);
+        assert_eq!(vm.total_duration_label().as_deref(), Some("5:05"));
+    }
+
+    #[test]
+    fn playlist_detail_vm_total_duration_switches_to_hours_after_60_minutes() {
+        let pl = playlist("Mix");
+        let mut t = row();
+        // 1h 23m == 4980 sec
+        t.duration_seconds = Some(4980);
+        let tracks = [t];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        assert_eq!(vm.total_duration_label().as_deref(), Some("1h 23m"));
+    }
+
+    #[test]
+    fn playlist_detail_vm_total_duration_is_none_when_no_track_has_seconds() {
+        let pl = playlist("Mix");
+        let tracks = [row(), row()];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        assert_eq!(vm.total_duration_label(), None);
+        assert_eq!(vm.detail_rows().len(), 1);
+    }
+
+    #[test]
+    fn playlist_detail_vm_detail_rows_include_duration_when_known() {
+        let pl = playlist("Mix");
+        let mut t = row();
+        t.duration_seconds = Some(60);
+        let tracks = [t];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let rows = vm.detail_rows();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], ("Tracks".into(), "1".into()));
+        assert_eq!(rows[1], ("Duration".into(), "1:00".into()));
+    }
+
+    #[test]
+    fn playlist_track_row_vm_applies_title_and_artist_fallbacks() {
+        let pl = playlist("Mix");
+        let tracks = [row()];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let rows = vm.track_rows();
+        assert_eq!(rows[0].title(), "[untitled]");
+        assert_eq!(rows[0].artist(), "Unknown");
+        assert_eq!(rows[0].duration_label(), "");
+        assert_eq!(rows[0].position_label(), "1.");
+    }
+
+    #[test]
+    fn playlist_track_row_vm_can_play_follows_local_path() {
+        let pl = playlist("Mix");
+        let mut t = row();
+        t.local_path = Some("/x".into());
+        let tracks = [t, row()];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let rows = vm.track_rows();
+        assert!(rows[0].can_play());
+        assert!(!rows[1].can_play());
+    }
+
+    #[test]
+    fn playlist_track_row_vm_move_enable_rules_at_boundaries() {
+        let pl = playlist("Mix");
+        let tracks = [row(), row(), row()];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let rows = vm.track_rows();
+        assert!(!rows[0].can_move_up());
+        assert!(rows[0].can_move_down());
+        assert!(rows[1].can_move_up());
+        assert!(rows[1].can_move_down());
+        assert!(rows[2].can_move_up());
+        assert!(!rows[2].can_move_down());
+    }
+
+    #[test]
+    fn playlist_track_row_vm_thumb_prefers_track_image_then_album_image() {
+        let pl = playlist("Mix");
+        let mut t1 = row();
+        t1.track_image_href = Some("track".into());
+        t1.album_image_href = Some("album".into());
+        let mut t2 = row();
+        t2.album_image_href = Some("album-only".into());
+        let tracks = [t1, t2];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let rows = vm.track_rows();
+        assert_eq!(rows[0].thumb_url(), Some("track"));
+        assert_eq!(rows[1].thumb_url(), Some("album-only"));
     }
 }
