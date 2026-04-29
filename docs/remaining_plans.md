@@ -61,6 +61,9 @@ The projection view-model layer is partially migrated:
 - `view_models::library::PlaylistSidebarVm` owns playlist sidebar header and
   row projection. The playlist sidebar now renders rows through `ListRow` /
   `Label` instead of raw row chrome.
+- `LibraryViewModel` now owns selection and album add-to-playlist picker
+  transitions through methods, reducing direct screen mutation of those
+  fields.
 
 ## Remaining Work
 
@@ -69,8 +72,8 @@ The projection view-model layer is partially migrated:
 - `library-view-model`: continue thinning `LibraryViewModel` now that
   `LibrarySnapshot` owns the pure snapshot fields and
   `LibraryTreeProjection` / `PlaylistSidebarVm` own sidebar projections.
-  Next moves: hide remaining direct selection and picker field mutation
-  behind methods, and expose typed command intent for service dispatch.
+  Next moves: hide remaining status / busy / hover mutation behind methods,
+  then expose typed command intent for service dispatch.
 - `search-view-model`: create `SearchViewModel` for discover/search state,
   result grouping, inspector frame state, recent-feed state, and display-ready
   result rows. `ResultRow` / `ResultRowVm` now own the former `result_lines` /

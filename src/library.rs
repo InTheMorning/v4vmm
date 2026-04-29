@@ -258,7 +258,9 @@ impl LibraryApp {
         if items.is_empty() {
             return;
         }
-        let current_idx = items.iter().position(|&id| Some(id) == self.vm.selected_id);
+        let current_idx = items
+            .iter()
+            .position(|&id| Some(id) == self.vm.selected_id());
         let next_idx = match current_idx {
             Some(idx) if idx > 0 => idx - 1,
             _ => 0,
@@ -273,7 +275,9 @@ impl LibraryApp {
         if items.is_empty() {
             return;
         }
-        let current_idx = items.iter().position(|&id| Some(id) == self.vm.selected_id);
+        let current_idx = items
+            .iter()
+            .position(|&id| Some(id) == self.vm.selected_id());
         let next_idx = match current_idx {
             Some(idx) if idx + 1 < items.len() => idx + 1,
             Some(idx) => idx,
@@ -292,7 +296,7 @@ impl LibraryApp {
         // Need to find if it's an album or track to call appropriate method
         // This is a bit complex with current structure.
         // I'll simplify: just update selected_id and reload detail.
-        self.vm.selected_id = Some(id);
+        self.vm.select_library_item(id);
         // ... need to find the item to know what detail to show ...
     }
 
@@ -323,7 +327,7 @@ impl LibraryApp {
         }
         drop(conn);
         self.reload_playlists();
-        self.vm.selected_id = None;
+        self.vm.clear_library_selection();
         self.detail = LibraryDetail::None;
         self.vm.clear_mb_status();
     }
@@ -343,8 +347,7 @@ impl LibraryApp {
     }
 
     fn select_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
-        self.vm.selected_id = None;
-        self.vm.selected_playlist_id = Some(id);
+        self.vm.select_playlist(id);
         let conn = self.conn.lock().expect("lock db");
         let playlist = self.vm.playlist_by_id(id);
         let tracks = playlist_service::tracks(&conn, id).unwrap_or_default();
@@ -369,7 +372,7 @@ impl LibraryApp {
         match playlist_service::create(&conn, name) {
             Ok(id) => {
                 drop(conn);
-                self.vm.creating_playlist = false;
+                self.vm.close_creating_playlist();
                 self.reload_playlists();
                 self.select_playlist(id, cx);
             }
@@ -391,7 +394,7 @@ impl LibraryApp {
         }
         drop(conn);
         self.reload_playlists();
-        if self.vm.selected_playlist_id == Some(id) {
+        if self.vm.is_playlist_selected(id) {
             self.select_playlist(id, cx);
         }
         cx.notify();
@@ -404,8 +407,7 @@ impl LibraryApp {
             return;
         }
         drop(conn);
-        if self.vm.selected_playlist_id == Some(id) {
-            self.vm.selected_playlist_id = None;
+        if self.vm.clear_playlist_selection_if(id) {
             self.detail = LibraryDetail::None;
         }
         self.reload_playlists();
@@ -425,7 +427,7 @@ impl LibraryApp {
         }
         drop(conn);
         self.reload_playlists();
-        if self.vm.selected_playlist_id == Some(playlist_id) {
+        if self.vm.is_playlist_selected(playlist_id) {
             self.select_playlist(playlist_id, cx);
         }
         cx.notify();
@@ -447,7 +449,7 @@ impl LibraryApp {
             return;
         }
         drop(conn);
-        if self.vm.selected_playlist_id == Some(playlist_id) {
+        if self.vm.is_playlist_selected(playlist_id) {
             self.select_playlist(playlist_id, cx);
         }
         cx.notify();
@@ -601,7 +603,11 @@ impl LibraryApp {
     }
 
     fn select_album(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
-        self.vm.selected_id = album.feed_id;
+        if let Some(feed_id) = album.feed_id {
+            self.vm.select_library_item(feed_id);
+        } else {
+            self.vm.clear_library_selection();
+        }
         self.detail = LibraryDetail::Album(album.clone());
         if let Some(feed_id) = album.feed_id {
             self.check_feed_on_view(feed_id, cx);
@@ -619,7 +625,7 @@ impl LibraryApp {
                 break;
             }
         }
-        self.vm.selected_id = None;
+        self.vm.clear_library_selection();
         self.detail = LibraryDetail::Artist(LibraryArtistDetail {
             name: name.to_string(),
             tracks,
@@ -775,7 +781,7 @@ impl LibraryApp {
     }
 
     fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
-        self.vm.selected_id = Some(track.id);
+        self.vm.select_library_item(track.id);
         let image = track
             .track_image_href
             .as_deref()
@@ -1754,7 +1760,7 @@ impl Render for LibraryApp {
             &tree_projection.tree,
             &tree_projection.expanded_artists,
             &tree_projection.expanded_albums,
-            self.vm.selected_id,
+            self.vm.selected_id(),
             &album_thumbs,
             cx,
         );
@@ -1902,8 +1908,8 @@ impl Render for LibraryApp {
             self.vm.mb_status(),
             &album_thumbs,
             self.vm.playlists(),
-            self.vm.album_add_open_feed,
-            self.vm.album_add_open_track,
+            self.vm.album_feed_picker_open(),
+            self.vm.album_track_picker_open(),
             cx,
         );
 
@@ -2493,7 +2499,7 @@ fn render_album_detail(
         buttons = buttons.child(
             action_button(vm.add_to_playlist_label(add_open_feed), cx).on_click(cx.listener(
                 move |this, _, _, cx| {
-                    this.vm.album_add_open_feed = !this.vm.album_add_open_feed;
+                    this.vm.toggle_album_feed_picker();
                     let _ = fid;
                     cx.notify();
                 },
@@ -2632,12 +2638,7 @@ fn render_library_track_row(
                 .ghost()
                 .scaled(Size::XSmall, cx)
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.vm.album_add_open_track = if this.vm.album_add_open_track == Some(track_id)
-                    {
-                        None
-                    } else {
-                        Some(track_id)
-                    };
+                    this.vm.toggle_album_track_picker(track_id);
                     cx.notify();
                 })),
         );
@@ -2688,7 +2689,7 @@ fn render_album_track_add_panel(
         let label = format!("{} ({})", p.name, p.track_count);
         panel = panel.child(action_button(&label, cx).on_click(cx.listener(
             move |this, _, _, cx| {
-                this.vm.album_add_open_track = None;
+                this.vm.close_album_track_picker();
                 this.add_track_to_playlist(track_id, playlist_id, cx);
             },
         )));
@@ -2729,7 +2730,7 @@ fn render_album_feed_add_panel(
         let label = format!("{} ({})", p.name, p.track_count);
         panel = panel.child(action_button(&label, cx).on_click(cx.listener(
             move |this, _, _, cx| {
-                this.vm.album_add_open_feed = false;
+                this.vm.close_album_feed_picker();
                 this.add_album_to_playlist(feed_id, playlist_id, cx);
             },
         )));

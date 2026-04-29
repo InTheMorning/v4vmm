@@ -350,6 +350,80 @@ impl LibraryViewModel {
     }
 
     #[must_use]
+    pub(crate) fn selected_id(&self) -> Option<i64> {
+        self.selected_id
+    }
+
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "screen migration uses playlist selection helpers before this accessor"
+        )
+    )]
+    pub(crate) fn selected_playlist_id(&self) -> Option<i64> {
+        self.selected_playlist_id
+    }
+
+    pub(crate) fn select_library_item(&mut self, id: i64) {
+        self.selected_id = Some(id);
+        self.selected_playlist_id = None;
+    }
+
+    pub(crate) fn clear_library_selection(&mut self) {
+        self.selected_id = None;
+    }
+
+    pub(crate) fn select_playlist(&mut self, playlist_id: i64) {
+        self.selected_id = None;
+        self.selected_playlist_id = Some(playlist_id);
+    }
+
+    pub(crate) fn clear_playlist_selection_if(&mut self, playlist_id: i64) -> bool {
+        if self.selected_playlist_id == Some(playlist_id) {
+            self.selected_playlist_id = None;
+            return true;
+        }
+        false
+    }
+
+    #[must_use]
+    pub(crate) fn is_playlist_selected(&self, playlist_id: i64) -> bool {
+        self.selected_playlist_id == Some(playlist_id)
+    }
+
+    #[must_use]
+    pub(crate) fn album_feed_picker_open(&self) -> bool {
+        self.album_add_open_feed
+    }
+
+    #[must_use]
+    pub(crate) fn album_track_picker_open(&self) -> Option<i64> {
+        self.album_add_open_track
+    }
+
+    pub(crate) fn toggle_album_feed_picker(&mut self) {
+        self.album_add_open_feed = !self.album_add_open_feed;
+    }
+
+    pub(crate) fn close_album_feed_picker(&mut self) {
+        self.album_add_open_feed = false;
+    }
+
+    pub(crate) fn toggle_album_track_picker(&mut self, track_id: i64) {
+        self.album_add_open_track = if self.album_add_open_track == Some(track_id) {
+            None
+        } else {
+            Some(track_id)
+        };
+    }
+
+    pub(crate) fn close_album_track_picker(&mut self) {
+        self.album_add_open_track = None;
+    }
+
+    #[must_use]
     pub(crate) fn mb_status(&self) -> &BTreeMap<i64, MbTrackStatus> {
         &self.snapshot.mb_status
     }
@@ -496,6 +570,10 @@ impl LibraryViewModel {
 
     pub(crate) fn toggle_creating_playlist(&mut self) {
         self.creating_playlist = !self.creating_playlist;
+    }
+
+    pub(crate) fn close_creating_playlist(&mut self) {
+        self.creating_playlist = false;
     }
 
     /// Toggle the expansion state of an artist node by name.
@@ -1831,6 +1909,10 @@ mod tests {
         assert!(!vm.playlist_sidebar().creating_playlist);
         vm.toggle_creating_playlist();
         assert!(vm.playlist_sidebar().creating_playlist);
+        vm.close_creating_playlist();
+        assert!(!vm.playlist_sidebar().creating_playlist);
+        vm.toggle_creating_playlist();
+        assert!(vm.playlist_sidebar().creating_playlist);
         vm.toggle_creating_playlist();
         assert!(!vm.playlist_sidebar().creating_playlist);
     }
@@ -1845,6 +1927,57 @@ mod tests {
 
         assert_eq!(vm.snapshot.playlist_tracks.len(), 1);
         assert_eq!(vm.snapshot.playlist_tracks[0].id, 42);
+    }
+
+    #[test]
+    fn library_view_model_selection_methods_keep_sidebar_and_tree_exclusive() {
+        let mut vm = LibraryViewModel::new();
+        vm.select_playlist(7);
+        assert_eq!(vm.selected_id(), None);
+        assert_eq!(vm.selected_playlist_id(), Some(7));
+        assert!(vm.is_playlist_selected(7));
+
+        vm.select_library_item(42);
+        assert_eq!(vm.selected_id(), Some(42));
+        assert_eq!(vm.selected_playlist_id(), None);
+
+        vm.clear_library_selection();
+        assert_eq!(vm.selected_id(), None);
+    }
+
+    #[test]
+    fn library_view_model_clears_matching_playlist_selection_only() {
+        let mut vm = LibraryViewModel::new();
+        vm.select_playlist(7);
+
+        assert!(!vm.clear_playlist_selection_if(8));
+        assert_eq!(vm.selected_playlist_id(), Some(7));
+        assert!(vm.clear_playlist_selection_if(7));
+        assert_eq!(vm.selected_playlist_id(), None);
+    }
+
+    #[test]
+    fn library_view_model_album_feed_picker_toggles_and_closes() {
+        let mut vm = LibraryViewModel::new();
+        assert!(!vm.album_feed_picker_open());
+        vm.toggle_album_feed_picker();
+        assert!(vm.album_feed_picker_open());
+        vm.close_album_feed_picker();
+        assert!(!vm.album_feed_picker_open());
+    }
+
+    #[test]
+    fn library_view_model_album_track_picker_toggles_by_track_id() {
+        let mut vm = LibraryViewModel::new();
+        assert_eq!(vm.album_track_picker_open(), None);
+        vm.toggle_album_track_picker(10);
+        assert_eq!(vm.album_track_picker_open(), Some(10));
+        vm.toggle_album_track_picker(10);
+        assert_eq!(vm.album_track_picker_open(), None);
+        vm.toggle_album_track_picker(20);
+        assert_eq!(vm.album_track_picker_open(), Some(20));
+        vm.close_album_track_picker();
+        assert_eq!(vm.album_track_picker_open(), None);
     }
 
     #[test]
