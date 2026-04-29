@@ -6191,20 +6191,6 @@ fn join_values(values: &[String]) -> Option<String> {
     }
 }
 
-pub(crate) fn fmt_runtime(total_secs: i32) -> String {
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    if hours > 0 {
-        format!("{hours} h {minutes} min")
-    } else {
-        format!("{minutes} min")
-    }
-}
-
-pub(crate) fn fmt_date(ts: i64) -> Option<String> {
-    chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.format("%b %-d, %Y").to_string())
-}
-
 use crate::ui::theme::{color, glyphs, radius, spacing, typography};
 
 pub fn run_search_app() {

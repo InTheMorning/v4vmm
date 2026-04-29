@@ -59,3 +59,5 @@
 //! display invariant. New VMs should copy that shape exactly.
 
 pub mod artist;
+pub mod feed;
+pub mod format;
