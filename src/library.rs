@@ -34,10 +34,11 @@ use crate::metadata::{
 use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
 use crate::playlist_service;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
-use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
+use crate::ui::composites::{
+    DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind, Thumbnail, ThumbnailSize,
+};
 use crate::ui_common::{
-    artwork_img, badge_text, compare_value_line_elements, metadata_action_button,
-    render_detail_grid, render_detail_header, type_color,
+    artwork_img, badge_text, compare_value_line_elements, metadata_action_button, type_color,
 };
 use crate::views::FeedView;
 
@@ -2705,14 +2706,12 @@ fn render_library_artist_detail(
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(render_detail_header(
-            "artist",
-            &artist_view
+        .child(DetailHeader::new(
+            EntityKind::Artist,
+            artist_view
                 .name
                 .clone()
                 .unwrap_or_else(|| "Unknown".to_string()),
-            None,
-            None,
         ))
         .child({
             let mut rows = vec![
@@ -2735,7 +2734,11 @@ fn render_library_artist_detail(
             if downloaded > 0 {
                 rows.push(("Downloaded".to_string(), downloaded.to_string()));
             }
-            render_detail_grid(rows)
+            DetailGrid::new(
+                rows.into_iter()
+                    .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                    .collect::<Vec<_>>(),
+            )
         })
         .child(
             div()
@@ -2888,13 +2891,20 @@ fn render_album_detail(
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(render_detail_header(
-            "feed",
-            &feed_view.title.clone().unwrap_or_else(|| "Untitled".into()),
-            Some(artist.as_str()),
-            thumb_image.clone(),
+        .child(
+            DetailHeader::new(
+                EntityKind::Feed,
+                feed_view.title.clone().unwrap_or_else(|| "Untitled".into()),
+            )
+            .subtitle(artist.as_str().to_string())
+            .image(thumb_image.clone()),
+        )
+        .child(DetailGrid::new(
+            detail_rows
+                .into_iter()
+                .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                .collect::<Vec<_>>(),
         ))
-        .child(render_detail_grid(detail_rows))
         .child(buttons);
     if let Some(panel) = feed_popup {
         container = container.child(panel);
@@ -3346,8 +3356,13 @@ fn render_playlist_detail(
         .flex()
         .flex_col()
         .gap(spacing::MD)
-        .child(render_detail_header("playlist", &playlist_name, None, None))
-        .child(render_detail_grid(detail_rows))
+        .child(DetailHeader::new(EntityKind::Playlist, &playlist_name))
+        .child(DetailGrid::new(
+            detail_rows
+                .into_iter()
+                .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                .collect::<Vec<_>>(),
+        ))
         .child(buttons)
         .child(
             div()
@@ -3485,7 +3500,10 @@ fn render_track_header(frame: &InspectorFrame, track: &Track) -> AnyElement {
         .clone()
         .or_else(|| track.release_artist.clone())
         .unwrap_or_else(|| "Unknown".into());
-    render_detail_header("track", &title, Some(artist.as_str()), frame.image.clone())
+    DetailHeader::new(EntityKind::Track, title)
+        .subtitle(artist.as_str().to_string())
+        .image(frame.image.clone())
+        .into_any_element()
 }
 
 fn render_action_row(

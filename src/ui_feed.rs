@@ -4,9 +4,10 @@ use crate::search::{
     render_collapsed_text_section, render_feed_header, render_publisher_link_value,
     render_track_list_section, InspectorFrame, SearchApp,
 };
+use crate::ui::composites::DetailGrid;
 use crate::ui::primitives::VStack;
 use crate::ui::tokens::Spacing;
-use crate::ui_common::{optional_row, render_detail_grid_elements, DetailRow};
+use crate::ui_common::{optional_row, DetailRow};
 use crate::ui_context::ViewContext;
 use crate::views::FeedView;
 use gpui::{prelude::*, AnyElement, Context};
@@ -88,7 +89,9 @@ pub(crate) fn render_feed_view(
             cx,
         ))
         .child(render_action_row(frame, &BTreeMap::new(), app, cx))
-        .child(render_detail_grid_elements(rows));
+        .child(DetailGrid::new(
+            rows.into_iter().map(Into::into).collect::<Vec<_>>(),
+        ));
 
     if let Some(description) = view.description.clone() {
         stack = stack.child(render_collapsed_text_section("Description", description));

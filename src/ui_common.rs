@@ -10,7 +10,7 @@
 //! scale-aware automatically — without each call site having to thread `cx`
 //! through.
 
-use crate::ui::composites::{DetailGrid, DetailRow as CompositeDetailRow, EntityKind};
+use crate::ui::composites::DetailRow as CompositeDetailRow;
 use crate::ui::theme::{badges, color, radius, spacing, typography};
 use gpui::{
     div, img, prelude::*, px, AnyElement, Div, FontWeight, Image, ImageFormat, IntoElement,
@@ -48,36 +48,6 @@ pub fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
     } else {
         base.into_any_element()
     }
-}
-
-/// Detail header — preserves the legacy positional API but delegates to
-/// the [`crate::ui::composites::DetailHeader`] composite.
-pub fn render_detail_header(
-    entity_type: &str,
-    title: &str,
-    subtitle: Option<&str>,
-    image: Option<Arc<Image>>,
-) -> AnyElement {
-    let kind = EntityKind::from_legacy_str(entity_type);
-    let header = crate::ui::composites::DetailHeader::new(kind, title.to_string()).image(image);
-    if let Some(sub) = subtitle {
-        header.subtitle(sub.to_string()).into_any_element()
-    } else {
-        header.into_any_element()
-    }
-}
-
-pub fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
-    let composite_rows: Vec<CompositeDetailRow> = rows
-        .into_iter()
-        .map(|(key, value)| CompositeDetailRow::text(key, value, 6))
-        .collect();
-    DetailGrid::new(composite_rows).into_any_element()
-}
-
-pub fn render_detail_grid_elements(rows: Vec<DetailRow>) -> AnyElement {
-    let composite_rows: Vec<CompositeDetailRow> = rows.into_iter().map(Into::into).collect();
-    DetailGrid::new(composite_rows).into_any_element()
 }
 
 pub fn compare_value_line_elements(value: &str, max_lines: usize) -> Vec<AnyElement> {

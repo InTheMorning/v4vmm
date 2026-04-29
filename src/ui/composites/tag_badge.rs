@@ -26,6 +26,7 @@ pub enum EntityKind {
     Publisher,
     Release,
     Recording,
+    Playlist,
     /// Unknown / generic — uses the `Accent` token.
     Generic,
 }
@@ -43,6 +44,7 @@ impl EntityKind {
             "publisher" => Self::Publisher,
             "release" => Self::Release,
             "recording" => Self::Recording,
+            "playlist" => Self::Playlist,
             _ => Self::Generic,
         }
     }
@@ -56,6 +58,7 @@ impl EntityKind {
             Self::Publisher => "publisher",
             Self::Release => "release",
             Self::Recording => "recording",
+            Self::Playlist => "playlist",
             Self::Generic => "item",
         }
     }
@@ -71,6 +74,7 @@ impl EntityKind {
             Self::Track => "\u{1F3B6}",                     // 🎶
             Self::Publisher => "\u{1F3E2}",                 // 🏢
             Self::Release => "\u{1F4BF}",                   // 💿
+            Self::Playlist => "\u{1F4DD}",                  // 📝
             Self::Recording | Self::Generic => "\u{1F3B5}", // 🎵
         }
     }
@@ -84,7 +88,7 @@ impl EntityKind {
         match self {
             Self::Artist => SemanticColor::Success,
             Self::Feed => SemanticColor::Warning,
-            Self::Track => SemanticColor::Info,
+            Self::Track | Self::Playlist => SemanticColor::Info,
             Self::Publisher => SemanticColor::Danger,
             Self::Release | Self::Recording => SemanticColor::Accent,
             Self::Generic => SemanticColor::SystemFill,
@@ -96,7 +100,7 @@ impl EntityKind {
         match self {
             Self::Artist => SemanticColor::OnSuccess,
             Self::Feed => SemanticColor::OnWarning,
-            Self::Track => SemanticColor::OnInfo,
+            Self::Track | Self::Playlist => SemanticColor::OnInfo,
             Self::Publisher => SemanticColor::OnDanger,
             Self::Release | Self::Recording => SemanticColor::OnAccent,
             Self::Generic => SemanticColor::Label,

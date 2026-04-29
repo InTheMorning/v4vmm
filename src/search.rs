@@ -37,11 +37,12 @@ use crate::subscribe_service::{
     SubscribeTrackRequest,
 };
 use crate::track_compare::ComparisonStatus;
-use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
+use crate::ui::composites::{
+    DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind, Thumbnail, ThumbnailSize,
+};
 use crate::ui_common::{
     artwork_img, badge_text, compare_value_line_elements, metadata_action_button, optional_row,
-    plural, render_detail_grid, render_detail_grid_elements, render_detail_header, section_heading,
-    truncated, truncated_muted, type_color, type_emoji, DetailRow,
+    plural, section_heading, truncated, truncated_muted, type_color, type_emoji, DetailRow,
 };
 
 #[derive(Clone, Debug)]
@@ -3060,7 +3061,9 @@ fn render_discover_track_inspector(
         .gap(spacing::LG)
         .child(render_track_header(frame, track, cx))
         .child(render_action_row(frame, &BTreeMap::new(), app, cx))
-        .child(render_detail_grid_elements(rows))
+        .child(DetailGrid::new(
+            rows.into_iter().map(Into::into).collect::<Vec<_>>(),
+        ))
         .when(track.description.is_some(), |el| {
             el.child(render_collapsed_text_section(
                 "Description",
@@ -3103,8 +3106,12 @@ fn render_publisher_inspector(
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(render_detail_header("publisher", &title, None, None))
-        .child(render_detail_grid(rows))
+        .child(DetailHeader::new(EntityKind::Publisher, &title))
+        .child(DetailGrid::new(
+            rows.into_iter()
+                .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                .collect::<Vec<_>>(),
+        ))
         .when(!feeds.is_empty(), |el| {
             el.child(render_feed_list_section("Feeds", feeds, app, cx))
         })
