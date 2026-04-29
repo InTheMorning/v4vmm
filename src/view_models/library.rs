@@ -135,6 +135,48 @@ pub(crate) struct PlaylistSidebarRowVm {
     pub(crate) selected: bool,
 }
 
+/// Pure command intent for appending one or more library tracks to a playlist.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistAppendIntent {
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+    playlist_name: String,
+}
+
+impl PlaylistAppendIntent {
+    #[must_use]
+    pub(crate) fn playlist_id(&self) -> i64 {
+        self.playlist_id
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_name(&self) -> &str {
+        &self.playlist_name
+    }
+
+    #[must_use]
+    pub(crate) fn total_tracks(&self) -> usize {
+        self.track_ids.len()
+    }
+
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept for intent tests and future command-adapter assertions"
+        )
+    )]
+    pub(crate) fn track_ids(&self) -> &[i64] {
+        &self.track_ids
+    }
+
+    #[must_use]
+    pub(crate) fn into_track_ids(self) -> Vec<i64> {
+        self.track_ids
+    }
+}
+
 /// Snapshot of the multi-feed update workflow exposed by
 /// `feed_service`. Owned by the library view-model; the screen reads
 /// `phase` to decide whether to show progress vs. results.
@@ -208,23 +250,23 @@ pub(crate) struct LibraryViewModel {
     // Render impl. None of these carry GPUI types.
     snapshot: LibrarySnapshot,
     // Sidebar expansion + sort.
-    pub(crate) expanded_artists: HashSet<String>,
-    pub(crate) expanded_albums: HashSet<(String, String)>,
-    pub(crate) playlists_expanded: bool,
-    pub(crate) playlist_sort: PlaylistSort,
+    expanded_artists: HashSet<String>,
+    expanded_albums: HashSet<(String, String)>,
+    playlists_expanded: bool,
+    playlist_sort: PlaylistSort,
     // Selection / focus.
-    pub(crate) selected_id: Option<i64>,
-    pub(crate) selected_playlist_id: Option<i64>,
-    pub(crate) hovered_thumb_url: Option<String>,
+    selected_id: Option<i64>,
+    selected_playlist_id: Option<i64>,
+    hovered_thumb_url: Option<String>,
     // Operation state.
-    pub(crate) busy_track: Option<i64>,
-    pub(crate) status: String,
+    busy_track: Option<i64>,
+    status: String,
     // Search + playlist creation.
-    pub(crate) search_query: String,
-    pub(crate) creating_playlist: bool,
+    search_query: String,
+    creating_playlist: bool,
     // Album-detail "Add to playlist" picker toggles.
-    pub(crate) album_add_open_feed: bool,
-    pub(crate) album_add_open_track: Option<i64>,
+    album_add_open_feed: bool,
+    album_add_open_track: Option<i64>,
 }
 
 impl LibraryViewModel {
@@ -350,6 +392,31 @@ impl LibraryViewModel {
     }
 
     #[must_use]
+    pub(crate) fn begin_playlist_append(
+        &mut self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Option<PlaylistAppendIntent> {
+        if track_ids.is_empty() {
+            return None;
+        }
+        let playlist_name = self
+            .playlist_by_id(playlist_id)
+            .map(|playlist| playlist.name)
+            .unwrap_or_default();
+        self.status = format!(
+            "Downloading {} track{}...",
+            track_ids.len(),
+            plural(track_ids.len())
+        );
+        Some(PlaylistAppendIntent {
+            playlist_id,
+            track_ids,
+            playlist_name,
+        })
+    }
+
+    #[must_use]
     pub(crate) fn selected_id(&self) -> Option<i64> {
         self.selected_id
     }
@@ -364,6 +431,63 @@ impl LibraryViewModel {
     )]
     pub(crate) fn selected_playlist_id(&self) -> Option<i64> {
         self.selected_playlist_id
+    }
+
+    #[must_use]
+    pub(crate) fn hovered_thumb_url(&self) -> Option<&str> {
+        self.hovered_thumb_url.as_deref()
+    }
+
+    pub(crate) fn set_hovered_thumb_url(&mut self, url: Option<String>) -> bool {
+        if self.hovered_thumb_url == url {
+            return false;
+        }
+        self.hovered_thumb_url = url;
+        true
+    }
+
+    #[must_use]
+    pub(crate) fn busy_track(&self) -> Option<i64> {
+        self.busy_track
+    }
+
+    #[must_use]
+    pub(crate) fn has_busy_track(&self) -> bool {
+        self.busy_track.is_some()
+    }
+
+    pub(crate) fn begin_busy_track(&mut self, track_id: i64, status: impl Into<String>) {
+        self.busy_track = Some(track_id);
+        self.status = status.into();
+    }
+
+    pub(crate) fn clear_busy_track(&mut self) {
+        self.busy_track = None;
+    }
+
+    #[must_use]
+    pub(crate) fn status(&self) -> &str {
+        &self.status
+    }
+
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept as a focused state accessor for search-field migration tests"
+        )
+    )]
+    pub(crate) fn search_query(&self) -> &str {
+        &self.search_query
+    }
+
+    pub(crate) fn set_status(&mut self, status: impl Into<String>) {
+        self.status = status.into();
+    }
+
+    pub(crate) fn set_error_status(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error: {error:#}");
     }
 
     pub(crate) fn select_library_item(&mut self, id: i64) {
@@ -622,17 +746,26 @@ impl LibraryViewModel {
     }
 
     // Both lookups are exercised by the unit tests below but not yet
-    // by the legacy renderer (which still clones the whole expansion
-    // set). The `#[cfg_attr(not(test), allow(dead_code))]` suppresses
-    // the lib-only warning until the screen migrates to the
-    // accessors.
-    #[cfg_attr(not(test), allow(dead_code))]
+    // by the legacy renderer (which still uses `LibraryTreeProjection`).
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept as focused expansion predicates for future tree rendering"
+        )
+    )]
     #[must_use]
     pub(crate) fn is_artist_expanded(&self, name: &str) -> bool {
         self.expanded_artists.contains(name)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept as focused expansion predicates for future tree rendering"
+        )
+    )]
     #[must_use]
     pub(crate) fn is_album_expanded(&self, artist: &str, album: &str) -> bool {
         self.expanded_albums
@@ -1742,7 +1875,6 @@ mod tests {
 
         let projection = vm.tree_projection();
 
-        assert_eq!(vm.search_query, "cliff");
         assert_eq!(projection.tree.artists.len(), 1);
         assert_eq!(projection.tree.artists[0].name, "Aphex Twin");
         assert_eq!(projection.tree.artists[0].albums.len(), 1);
@@ -1774,12 +1906,12 @@ mod tests {
     #[test]
     fn library_view_model_apply_search_query_clears_track_selection() {
         let mut vm = LibraryViewModel::new();
-        vm.selected_id = Some(99);
+        vm.select_library_item(99);
 
         vm.apply_search_query("aphex");
 
-        assert_eq!(vm.selected_id, None);
-        assert_eq!(vm.search_query, "aphex");
+        assert_eq!(vm.selected_id(), None);
+        assert_eq!(vm.search_query(), "aphex");
     }
 
     #[test]
@@ -1807,23 +1939,23 @@ mod tests {
     #[test]
     fn library_view_model_toggle_playlists_expanded_flips_flag() {
         let mut vm = LibraryViewModel::new();
-        assert!(vm.playlists_expanded);
+        assert!(vm.playlist_sidebar().expanded);
         vm.toggle_playlists_expanded();
-        assert!(!vm.playlists_expanded);
+        assert!(!vm.playlist_sidebar().expanded);
         vm.toggle_playlists_expanded();
-        assert!(vm.playlists_expanded);
+        assert!(vm.playlist_sidebar().expanded);
     }
 
     #[test]
     fn library_view_model_cycle_playlist_sort_advances_through_three_states() {
         let mut vm = LibraryViewModel::new();
-        assert_eq!(vm.playlist_sort, PlaylistSort::Name);
+        assert_eq!(vm.playlist_sort_label(), "A–Z");
         vm.cycle_playlist_sort();
-        assert_eq!(vm.playlist_sort, PlaylistSort::RecentlyUpdated);
+        assert_eq!(vm.playlist_sort_label(), "Recent");
         vm.cycle_playlist_sort();
-        assert_eq!(vm.playlist_sort, PlaylistSort::TrackCount);
+        assert_eq!(vm.playlist_sort_label(), "Size");
         vm.cycle_playlist_sort();
-        assert_eq!(vm.playlist_sort, PlaylistSort::Name);
+        assert_eq!(vm.playlist_sort_label(), "A–Z");
     }
 
     #[test]
@@ -1873,8 +2005,8 @@ mod tests {
         let mut zed = playlist("zed");
         zed.id = 20;
         zed.track_count = 9;
-        vm.selected_playlist_id = Some(20);
-        vm.creating_playlist = true;
+        vm.select_playlist(20);
+        vm.toggle_creating_playlist();
 
         vm.replace_playlists(vec![zed, alpha]);
         let sidebar = vm.playlist_sidebar();
@@ -1930,6 +2062,33 @@ mod tests {
     }
 
     #[test]
+    fn library_view_model_playlist_append_intent_sets_status_and_playlist_name() {
+        let mut vm = LibraryViewModel::new();
+        let mut playlist = playlist("Focus");
+        playlist.id = 12;
+        vm.replace_playlists(vec![playlist]);
+
+        let intent = vm
+            .begin_playlist_append(12, vec![7, 8])
+            .expect("non-empty track ids should build an append intent");
+
+        assert_eq!(intent.playlist_id(), 12);
+        assert_eq!(intent.playlist_name(), "Focus");
+        assert_eq!(intent.total_tracks(), 2);
+        assert_eq!(intent.track_ids(), &[7, 8]);
+        assert_eq!(vm.status(), "Downloading 2 tracks...");
+    }
+
+    #[test]
+    fn library_view_model_playlist_append_ignores_empty_track_ids() {
+        let mut vm = LibraryViewModel::new();
+        vm.set_status("Ready");
+
+        assert!(vm.begin_playlist_append(12, Vec::new()).is_none());
+        assert_eq!(vm.status(), "Ready");
+    }
+
+    #[test]
     fn library_view_model_selection_methods_keep_sidebar_and_tree_exclusive() {
         let mut vm = LibraryViewModel::new();
         vm.select_playlist(7);
@@ -1978,6 +2137,42 @@ mod tests {
         assert_eq!(vm.album_track_picker_open(), Some(20));
         vm.close_album_track_picker();
         assert_eq!(vm.album_track_picker_open(), None);
+    }
+
+    #[test]
+    fn library_view_model_hovered_thumb_reports_only_changes() {
+        let mut vm = LibraryViewModel::new();
+        assert_eq!(vm.hovered_thumb_url(), None);
+        assert!(vm.set_hovered_thumb_url(Some("img".into())));
+        assert_eq!(vm.hovered_thumb_url(), Some("img"));
+        assert!(!vm.set_hovered_thumb_url(Some("img".into())));
+        assert!(vm.set_hovered_thumb_url(None));
+        assert_eq!(vm.hovered_thumb_url(), None);
+    }
+
+    #[test]
+    fn library_view_model_busy_track_and_status_transition_together() {
+        let mut vm = LibraryViewModel::new();
+        assert!(!vm.has_busy_track());
+        assert_eq!(vm.busy_track(), None);
+
+        vm.begin_busy_track(42, "Subscribing track...");
+
+        assert!(vm.has_busy_track());
+        assert_eq!(vm.busy_track(), Some(42));
+        assert_eq!(vm.status(), "Subscribing track...");
+
+        vm.clear_busy_track();
+        assert_eq!(vm.busy_track(), None);
+    }
+
+    #[test]
+    fn library_view_model_status_helpers_set_plain_and_error_text() {
+        let mut vm = LibraryViewModel::new();
+        vm.set_status("Ready");
+        assert_eq!(vm.status(), "Ready");
+        vm.set_error_status("broken");
+        assert_eq!(vm.status(), "Error: broken");
     }
 
     #[test]

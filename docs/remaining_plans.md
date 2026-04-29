@@ -64,6 +64,14 @@ The projection view-model layer is partially migrated:
 - `LibraryViewModel` now owns selection and album add-to-playlist picker
   transitions through methods, reducing direct screen mutation of those
   fields.
+- `LibraryViewModel` also owns status text, busy track, and hovered
+  thumbnail transitions through accessors / mutators.
+- The migrated `LibraryViewModel` state is private to the VM; `library.rs`
+  now reads it through accessors/projections and writes it through typed
+  transition methods.
+- `PlaylistAppendIntent` is the first small command-intent value for the
+  library screen. The VM prepares the playlist id, track ids, playlist name,
+  and progress status; the screen still performs the DB/service dispatch.
 
 ## Remaining Work
 
@@ -72,8 +80,9 @@ The projection view-model layer is partially migrated:
 - `library-view-model`: continue thinning `LibraryViewModel` now that
   `LibrarySnapshot` owns the pure snapshot fields and
   `LibraryTreeProjection` / `PlaylistSidebarVm` own sidebar projections.
-  Next moves: hide remaining status / busy / hover mutation behind methods,
-  then expose typed command intent for service dispatch.
+  Next moves: continue introducing focused command-intent values where they
+  remove service-dispatch setup from `library.rs`, then move result-status
+  formatting for those commands into the VM.
 - `search-view-model`: create `SearchViewModel` for discover/search state,
   result grouping, inspector frame state, recent-feed state, and display-ready
   result rows. `ResultRow` / `ResultRowVm` now own the former `result_lines` /
