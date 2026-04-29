@@ -30,4 +30,5 @@ pub mod ui_common;
 pub mod ui_context;
 pub mod ui_feed;
 pub mod ui_track;
+pub mod view_models;
 pub mod views;
