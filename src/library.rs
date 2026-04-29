@@ -41,6 +41,7 @@ use crate::ui::primitives::{Image as ImagePrimitive, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius};
+use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
 
 // ---------------------------------------------------------------------------
@@ -3493,7 +3494,7 @@ fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
 
 fn render_track_header(frame: &InspectorFrame, track: &Track) -> AnyElement {
     let title = if frame.title.is_empty() {
-        track_title(track)
+        TrackVm::new(track).title()
     } else {
         frame.title.clone()
     };
@@ -4744,20 +4745,6 @@ fn lookup_musicbrainz_library_track(
     _cache: Arc<ImageCache>,
 ) -> anyhow::Result<MusicBrainzLookupResult> {
     feed_service::lookup_musicbrainz_library_track(track)
-}
-
-fn track_title(track: &Track) -> String {
-    track
-        .title
-        .clone()
-        .or_else(|| track.name.clone())
-        .or_else(|| track.track_guid.clone())
-        .unwrap_or_else(|| "Untitled".into())
-}
-
-#[allow(dead_code)]
-fn fmt_dur(secs: i32) -> String {
-    format!("{}:{:02}", secs / 60, secs % 60)
 }
 
 fn hoverable_thumb(
