@@ -4,14 +4,12 @@ use gpui::{div, prelude::*, px, AnyElement, ClickEvent, Context, Image, SharedSt
 
 use crate::api::{Feed, Track};
 use crate::db;
-use crate::search::{
-    fmt_dur, render_play_icon_button_with_id, render_track_download_button, track_play_url,
-    track_title, SearchApp,
-};
+use crate::search::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
 use crate::ui::composites::{EntityKind, ListRow, Thumbnail, ThumbnailSize};
 use crate::ui::playlist_popover::AddToPlaylistPopover;
 use crate::ui::text::truncated;
 use crate::ui::theme::{color, typography};
+use crate::view_models::track::TrackVm;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TrackRowMode {
@@ -65,11 +63,12 @@ fn render_discover_track_row(
     playlists: &[db::Playlist],
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let guid = track.track_guid.clone().unwrap_or_default();
-    let title = track_title(&track);
-    let track_number = track.track_number;
-    let duration_secs = track.duration_secs;
-    let audio_url = track_play_url(&track);
+    let vm = TrackVm::new(&track);
+    let guid = vm.guid();
+    let title = vm.title();
+    let track_number_label = vm.track_number_label();
+    let duration_display = vm.duration_display();
+    let audio_url = vm.play_url();
     let play_button_id = SharedString::from(format!("track-row-play:{guid}"));
     let guid_for_click = guid.clone();
     let title_for_click = title.clone();
@@ -99,7 +98,7 @@ fn render_discover_track_row(
                     .text_right()
                     .text_color(color::text_muted())
                     .text_size(typography::SIZE_MICRO)
-                    .child(track_number.map_or_else(|| "·".into(), |n| n.to_string())),
+                    .child(track_number_label),
             )
             .child(
                 Thumbnail::new(
@@ -109,14 +108,12 @@ fn render_discover_track_row(
                 .image(thumbnail.clone()),
             )
             .child(truncated(title).flex_1())
-            .when(duration_secs.is_some(), |el| {
+            .when_some(duration_display, |el, dur| {
                 el.child(
                     div()
                         .text_color(color::text_muted())
                         .text_size(typography::SIZE_MICRO)
-                        .child(SharedString::from(fmt_dur(
-                            duration_secs.unwrap_or_default(),
-                        ))),
+                        .child(SharedString::from(dur)),
                 )
             })
             .into_any_element(),

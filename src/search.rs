@@ -49,6 +49,7 @@ use crate::ui::text::{compare_value_line_elements, truncated, truncated_muted};
 use crate::ui::theme::badges;
 use crate::ui::tokens::Radius;
 use crate::view_models::format::{optional_row, plural};
+use crate::view_models::track::TrackVm;
 
 #[derive(Clone, Debug)]
 struct ResultRow {
@@ -2389,7 +2390,7 @@ fn hydrate_feed_track_play_urls(client: &Client, feed: &mut Feed) {
 
     for track in tracks
         .iter_mut()
-        .filter(|track| track_play_url(track).is_none())
+        .filter(|track| TrackVm::new(track).play_url().is_none())
     {
         let Some(track_guid) = nonempty_url(track.track_guid.as_deref()).map(str::to_string) else {
             continue;
@@ -2418,36 +2419,6 @@ fn merge_track_play_fields(track: &mut Track, hydrated: Track) {
 
 fn feed_rss_url(feed: &Feed) -> Option<String> {
     nonempty_url(feed.feed_url.as_deref()).map(str::to_string)
-}
-
-pub(crate) fn track_play_url(track: &Track) -> Option<String> {
-    nonempty_url(track.enclosure_url.as_deref())
-        .map(str::to_string)
-        .or_else(|| {
-            track
-                .source_enclosures
-                .as_deref()
-                .and_then(primary_source_enclosure_url)
-        })
-        .or_else(|| {
-            track
-                .source_enclosures
-                .as_deref()
-                .and_then(first_source_enclosure_url)
-        })
-}
-
-fn primary_source_enclosure_url(enclosures: &[SourceEnclosure]) -> Option<String> {
-    enclosures
-        .iter()
-        .filter(|enclosure| enclosure.is_primary.unwrap_or(false))
-        .find_map(|enclosure| nonempty_url(enclosure.url.as_deref()).map(str::to_string))
-}
-
-fn first_source_enclosure_url(enclosures: &[SourceEnclosure]) -> Option<String> {
-    enclosures
-        .iter()
-        .find_map(|enclosure| nonempty_url(enclosure.url.as_deref()).map(str::to_string))
 }
 
 fn nonempty_url(url: Option<&str>) -> Option<&str> {
@@ -3045,7 +3016,7 @@ fn render_discover_track_inspector(
     optional_row(
         &mut scalar_rows,
         "Duration",
-        track.duration_secs.map(fmt_dur),
+        track.duration_secs.map(crate::view_models::track::fmt_dur),
     );
     optional_row(
         &mut scalar_rows,
@@ -5689,7 +5660,8 @@ fn render_track_header(
     track: &Track,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let title = track_title(track);
+    let vm = TrackVm::new(track);
+    let title = vm.title();
     let artist = track
         .track_artist
         .clone()
@@ -5698,7 +5670,7 @@ fn render_track_header(
     let feed_guid = track.feed_guid.clone();
     let feed_title_label = track.feed_title.clone();
     let feed_url = track.feed_url.clone().or_else(|| track.feed_guid.clone());
-    let audio_url = track_play_url(track);
+    let audio_url = vm.play_url();
     let npub = track_nostr(track);
 
     div()
@@ -6069,8 +6041,8 @@ fn result_lines(row: &ResultRow) -> (String, String, String, Option<String>) {
             )
         }
         Some(EntityDetail::Track(track)) => {
-            let duration = track.duration_secs.map(fmt_dur);
-            let line1 = [Some(track_title(track)), duration]
+            let vm = TrackVm::new(track);
+            let line1 = [Some(vm.title()), vm.duration_display()]
                 .into_iter()
                 .flatten()
                 .filter(|part| !part.is_empty())
@@ -6136,23 +6108,10 @@ fn feed_title(feed: &Feed) -> String {
         .unwrap_or_else(|| "Untitled".into())
 }
 
-pub(crate) fn track_title(track: &Track) -> String {
-    track
-        .title
-        .clone()
-        .or_else(|| track.name.clone())
-        .or_else(|| track.track_guid.clone())
-        .unwrap_or_else(|| "Untitled".into())
-}
-
-pub(crate) fn fmt_dur(secs: i32) -> String {
-    format!("{}:{:02}", secs / 60, secs % 60)
-}
-
 #[cfg(test)]
 #[allow(dead_code)]
 fn fmt_ms(ms: i64) -> String {
-    fmt_dur((ms / 1000).try_into().unwrap_or(i32::MAX))
+    crate::view_models::track::fmt_dur((ms / 1000).try_into().unwrap_or(i32::MAX))
 }
 
 #[cfg(test)]
@@ -6228,10 +6187,10 @@ mod tests {
         merge_track_play_fields, metadata_data_row, metadata_drag_value, metadata_field_group_key,
         musicbrainz_remainder_rows, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
         pending_id3_target_key, search_result_type_is_visible, should_show_inspector_back,
-        track_metadata_rows, track_play_url, unused_id3v24_frames_for_group, AlignedCompareRow,
-        Artist, EntityDetail, Feed, Id3FrameVersion, MetadataColumn, MetadataGridRow,
-        PendingId3Edit, ResultRow, SourceEnclosure, SourceEntityId, SourceEntityLink,
-        TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
+        track_metadata_rows, unused_id3v24_frames_for_group, AlignedCompareRow, Artist,
+        EntityDetail, Feed, Id3FrameVersion, MetadataColumn, MetadataGridRow, PendingId3Edit,
+        ResultRow, SourceEnclosure, SourceEntityId, SourceEntityLink, TagCompareResult, Track,
+        TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
     use crate::metadata::{
@@ -6293,7 +6252,9 @@ mod tests {
             ..Track::default()
         };
         assert_eq!(
-            track_play_url(&direct_track).as_deref(),
+            crate::view_models::track::TrackVm::new(&direct_track)
+                .play_url()
+                .as_deref(),
             Some("https://example.test/audio.mp3")
         );
 
@@ -6313,7 +6274,9 @@ mod tests {
             ..Track::default()
         };
         assert_eq!(
-            track_play_url(&source_track).as_deref(),
+            crate::view_models::track::TrackVm::new(&source_track)
+                .play_url()
+                .as_deref(),
             Some("https://example.test/primary.mp3")
         );
     }

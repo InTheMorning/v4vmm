@@ -61,3 +61,4 @@
 pub mod artist;
 pub mod feed;
 pub mod format;
+pub mod track;
