@@ -12,7 +12,6 @@ use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::DropdownMenu as _;
 use gpui_component::Disableable;
-use gpui_component::Sizable;
 use gpui_component::Size;
 use reqwest::blocking::Client as ReqwestClient;
 
@@ -39,6 +38,7 @@ use crate::ui::composites::{
     Thumbnail, ThumbnailSize,
 };
 use crate::ui::primitives::Image as ImagePrimitive;
+use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::Radius;
 use crate::ui_common::{badge_text, compare_value_line_elements, type_color};
 use crate::views::FeedView;
@@ -2074,7 +2074,7 @@ impl Render for LibraryApp {
                             Button::new("playlists-sort")
                                 .label(self.playlist_sort.label())
                                 .ghost()
-                                .with_size(Size::XSmall)
+                                .scaled(Size::XSmall, cx)
                                 .text_color(color::text_muted())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.cycle_playlist_sort(cx);
@@ -2084,7 +2084,7 @@ impl Render for LibraryApp {
                             Button::new("playlists-add")
                                 .label("+")
                                 .ghost()
-                                .with_size(Size::XSmall)
+                                .scaled(Size::XSmall, cx)
                                 .text_color(color::text_primary())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.creating_playlist = !this.creating_playlist;
@@ -2162,13 +2162,13 @@ impl Render for LibraryApp {
                         .child(
                             Input::new(&self.new_playlist_input)
                                 .cleanable(false)
-                                .with_size(Size::Small),
+                                .scaled(Size::Small, cx),
                         )
                         .child(
                             Button::new("playlist-add-btn")
                                 .label("Add")
                                 .primary()
-                                .with_size(Size::XSmall)
+                                .scaled(Size::XSmall, cx)
                                 .text_color(rgb(0xffffff))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.create_playlist(cx);
@@ -2236,13 +2236,13 @@ impl Render for LibraryApp {
                                     .child(
                                         Input::new(&self.search_input)
                                             .cleanable(true)
-                                            .with_size(Size::Small),
+                                            .scaled(Size::Small, cx),
                                     )
                                     .child(
                                         Button::new("lib-search-btn")
                                             .label("Search")
                                             .primary()
-                                            .with_size(Size::Small)
+                                            .scaled(Size::Small, cx)
                                             .text_color(rgb(0xffffff))
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.apply_search(cx);
@@ -2288,7 +2288,7 @@ impl Render for LibraryApp {
                                         Button::new("apply-feed-updates")
                                             .label(format!("Apply updates ({stale_count})"))
                                             .primary()
-                                            .with_size(Size::XSmall)
+                                            .scaled(Size::XSmall, cx)
                                             .text_color(rgb(0xffffff))
                                             .disabled(phase != FeedUpdatePhase::Idle)
                                             .on_click(cx.listener(|this, _, _, cx| {
@@ -2301,7 +2301,7 @@ impl Render for LibraryApp {
                                             } else {
                                                 "Check all feeds"
                                             })
-                                            .with_size(Size::XSmall)
+                                            .scaled(Size::XSmall, cx)
                                             .disabled(phase != FeedUpdatePhase::Idle)
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.check_all_feeds(cx);
@@ -2846,17 +2846,15 @@ fn render_album_detail(
         feed_url,
     ));
     if let Some(fid) = feed_id {
-        buttons = buttons.child(
-            action_button("Unsubscribe Feed")
-                .danger()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.unsubscribe_feed(fid);
-                    cx.notify();
-                })),
-        );
+        buttons = buttons.child(action_button("Unsubscribe Feed", cx).danger().on_click(
+            cx.listener(move |this, _, _, cx| {
+                this.unsubscribe_feed(fid);
+                cx.notify();
+            }),
+        ));
     }
     buttons = buttons.child(
-        action_button("MusicBrainz")
+        action_button("MusicBrainz", cx)
             .disabled(has_active_mb)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.musicbrainz_feed(album_for_mb.clone(), cx);
@@ -2864,11 +2862,14 @@ fn render_album_detail(
     );
     if let Some(fid) = feed_id {
         buttons = buttons.child(
-            action_button(if add_open_feed {
-                "Add album to playlist ▴"
-            } else {
-                "Add album to playlist ▾"
-            })
+            action_button(
+                if add_open_feed {
+                    "Add album to playlist ▴"
+                } else {
+                    "Add album to playlist ▾"
+                },
+                cx,
+            )
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.album_add_open_feed = !this.album_add_open_feed;
                 let _ = fid;
@@ -3002,7 +3003,7 @@ fn render_library_track_row(
                 } else {
                     "Subscribe"
                 })
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .when(in_library, |btn| btn.primary())
                 .when(!in_library, |btn| btn.ghost())
                 .text_color(rgb(0xffffff))
@@ -3028,7 +3029,7 @@ fn render_library_track_row(
             Button::new(SharedString::from(format!("album-track-add-{track_id}")))
                 .label(if popup_open { "Add ▴" } else { "Add ▾" })
                 .ghost()
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.album_add_open_track = if this.album_add_open_track == Some(track_id) {
                         None
@@ -3083,12 +3084,12 @@ fn render_album_track_add_panel(
     for p in playlists {
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(
-            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
+            move |this, _, _, cx| {
                 this.album_add_open_track = None;
                 this.add_track_to_playlist(track_id, playlist_id, cx);
-            })),
-        );
+            },
+        )));
     }
 
     panel.into_any_element()
@@ -3124,12 +3125,12 @@ fn render_album_feed_add_panel(
     for p in playlists {
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(
-            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
+            move |this, _, _, cx| {
                 this.album_add_open_feed = false;
                 this.add_album_to_playlist(feed_id, playlist_id, cx);
-            })),
-        );
+            },
+        )));
     }
 
     panel.into_any_element()
@@ -3205,7 +3206,7 @@ fn render_playlist_detail(
                 )))
                 .label("▲")
                 .ghost()
-                .with_size(Size::Small)
+                .scaled(Size::Small, cx)
                 .disabled(position == 0)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position - 1, cx);
@@ -3216,7 +3217,7 @@ fn render_playlist_detail(
                 )))
                 .label("▼")
                 .ghost()
-                .with_size(Size::Small)
+                .scaled(Size::Small, cx)
                 .disabled(position == last_position)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position + 1, cx);
@@ -3228,7 +3229,7 @@ fn render_playlist_detail(
                 .label("✕")
                 .ghost()
                 .danger()
-                .with_size(Size::Small)
+                .scaled(Size::Small, cx)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.remove_playlist_track_at(pl_id, position, cx);
                 }));
@@ -3238,7 +3239,7 @@ fn render_playlist_detail(
                 )))
                 .label("▶")
                 .ghost()
-                .with_size(Size::Small)
+                .scaled(Size::Small, cx)
                 .disabled(!can_play)
                 .on_click(cx.listener(move |_this, _, _, cx| {
                     cx.emit(LibraryAppEvent::PlayPlaylistAt {
@@ -3333,7 +3334,7 @@ fn render_playlist_detail(
         Button::new(SharedString::from(format!("playlist-rename-{playlist_id}")))
             .label("Rename")
             .ghost()
-            .with_size(Size::Small)
+            .scaled(Size::Small, cx)
             .on_click(cx.listener(move |_this, _, _, cx| {
                 // TODO Stage 3: implement inline rename modal/input
                 cx.notify();
@@ -3343,7 +3344,7 @@ fn render_playlist_detail(
         Button::new(SharedString::from(format!("playlist-delete-{playlist_id}")))
             .label("Delete")
             .danger()
-            .with_size(Size::Small)
+            .scaled(Size::Small, cx)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.delete_playlist(playlist_for_rename, cx);
             })),
@@ -3522,14 +3523,14 @@ fn render_action_row(
         .items_start()
         .gap(spacing::XS)
         .child(
-            action_button(&subscription_button_label(frame))
+            action_button(&subscription_button_label(frame), cx)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_local_subscription(cx);
                 })),
         )
         .child(
-            action_button("Add to playlist ▾").on_click(cx.listener(|this, _, _, cx| {
+            action_button("Add to playlist ▾", cx).on_click(cx.listener(|this, _, _, cx| {
                 if let Some(frame) = this.selected_track_frame_mut() {
                     frame.add_to_playlist_open = !frame.add_to_playlist_open;
                 }
@@ -3555,22 +3556,28 @@ fn render_action_row(
         })
         .when(frame.track.local_path.is_some(), |el| {
             el.child(
-                action_button(match frame.tag_compare {
-                    LazyPanel::Loaded(_) => "Hide Compare",
-                    LazyPanel::Loading => "Reading ID3...",
-                    LazyPanel::Empty(_) | LazyPanel::Hidden => "Compare ID3",
-                })
+                action_button(
+                    match frame.tag_compare {
+                        LazyPanel::Loaded(_) => "Hide Compare",
+                        LazyPanel::Loading => "Reading ID3...",
+                        LazyPanel::Empty(_) | LazyPanel::Hidden => "Compare ID3",
+                    },
+                    cx,
+                )
                 .disabled(matches!(frame.tag_compare, LazyPanel::Loading))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_tag_compare(cx);
                 })),
             )
             .child(
-                action_button(match frame.musicbrainz_lookup {
-                    LazyPanel::Loaded(_) => "Hide MusicBrainz",
-                    LazyPanel::Loading => "Searching MusicBrainz...",
-                    LazyPanel::Empty(_) | LazyPanel::Hidden => "MusicBrainz",
-                })
+                action_button(
+                    match frame.musicbrainz_lookup {
+                        LazyPanel::Loaded(_) => "Hide MusicBrainz",
+                        LazyPanel::Loading => "Searching MusicBrainz...",
+                        LazyPanel::Empty(_) | LazyPanel::Hidden => "MusicBrainz",
+                    },
+                    cx,
+                )
                 .disabled(matches!(frame.musicbrainz_lookup, LazyPanel::Loading))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_musicbrainz_lookup(cx);
@@ -3603,7 +3610,7 @@ fn render_action_row(
                                 ))),
                         )
                         .child(
-                            action_button(&label)
+                            action_button(&label, cx)
                                 .disabled(frame.applying_id3_edits || has_pending_conflicts)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.apply_pending_id3_edits(cx);
@@ -3624,7 +3631,7 @@ fn render_action_row(
                         .when(
                             !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty(),
                             |el| {
-                                el.child(action_button("Discard staged").on_click(cx.listener(
+                                el.child(action_button("Discard staged", cx).on_click(cx.listener(
                                     |this, _, _, cx| {
                                         this.clear_pending_id3_edits(cx);
                                     },
@@ -3694,14 +3701,14 @@ fn render_add_to_playlist_panel(
     for p in playlists {
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(
-            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
+            move |this, _, _, cx| {
                 if let Some(frame) = this.selected_track_frame_mut() {
                     frame.add_to_playlist_open = false;
                 }
                 this.add_track_to_playlist(track_id, playlist_id, cx);
-            })),
-        );
+            },
+        )));
     }
 
     panel.into_any_element()
@@ -3744,12 +3751,12 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -
                                 .rounded(radius::SM)
                                 .child(SharedString::from(embedded_label.clone())),
                         )
-                        .child(
-                            action_button("Re-read").on_click(cx.listener(|this, _, _, cx| {
+                        .child(action_button("Re-read", cx).on_click(cx.listener(
+                            |this, _, _, cx| {
                                 this.reread_tag_compare(cx);
-                            })),
-                        )
-                        .child(action_button("Re-download").on_click(cx.listener(
+                            },
+                        )))
+                        .child(action_button("Re-download", cx).on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.redownload_tag_compare(cx);
                             },
@@ -3875,7 +3882,7 @@ fn render_musicbrainz_title_bar(
 
     Button::new("musicbrainz-release-picker")
         .label(SharedString::from(format!("MusicBrainz: {label}")))
-        .with_size(Size::XSmall)
+        .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
         .w_full()

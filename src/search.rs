@@ -16,7 +16,7 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::spinner::Spinner;
 use gpui_component::tooltip::Tooltip;
-use gpui_component::{Disableable, Root, Sizable, Size};
+use gpui_component::{Disableable, Root, Size};
 use rusqlite::Connection;
 
 use crate::api::*;
@@ -42,6 +42,7 @@ use crate::ui::composites::{
     Thumbnail, ThumbnailSize,
 };
 use crate::ui::primitives::{Image as ImagePrimitive, ImageSize};
+use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::Radius;
 use crate::ui_common::{
     badge_text, compare_value_line_elements, optional_row, plural, section_heading, truncated,
@@ -1815,7 +1816,7 @@ impl Render for SearchApp {
                                     .child(
                                         Input::new(&active_input)
                                             .cleanable(true)
-                                            .with_size(Size::Small),
+                                            .scaled(Size::Small, cx),
                                     )
                                     .child(
                                         div()
@@ -1835,7 +1836,7 @@ impl Render for SearchApp {
                                                 Button::new("search-btn")
                                                     .label(search_label)
                                                     .primary()
-                                                    .with_size(Size::Small)
+                                                    .scaled(Size::Small, cx)
                                                     .text_color(rgb(0xffffff))
                                                     .loading(is_loading)
                                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -1849,7 +1850,7 @@ impl Render for SearchApp {
                                                     } else {
                                                         "Fuzzy: Off"
                                                     })
-                                                    .with_size(Size::Small)
+                                                    .scaled(Size::Small, cx)
                                                     .when(self.fuzzy_search, |button| {
                                                         button.primary()
                                                     })
@@ -1915,7 +1916,7 @@ impl Render for SearchApp {
                                                     Button::new("load-more")
                                                         .label("Load more")
                                                         .ghost()
-                                                        .with_size(Size::Small)
+                                                        .scaled(Size::Small, cx)
                                                         .text_color(rgb(0xffffff))
                                                         .on_click(cx.listener(|this, _, _, cx| {
                                                             this.do_search(true, cx);
@@ -2643,7 +2644,7 @@ fn render_filter_button(
 ) -> AnyElement {
     Button::new(("type-filter", idx))
         .label(SharedString::from(label.to_string()))
-        .with_size(Size::Small)
+        .scaled(Size::Small, cx)
         .when(selected, |button| button.primary())
         .when(!selected, |button| button.ghost())
         .text_color(rgb(0xffffff))
@@ -2778,7 +2779,7 @@ fn render_inspector(
                         Button::new("inspector-back")
                             .label("← Back")
                             .ghost()
-                            .with_size(Size::Small)
+                            .scaled(Size::Small, cx)
                             .text_color(rgb(0xffffff))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.inspector_back(cx);
@@ -3137,7 +3138,7 @@ pub(crate) fn render_action_row(
         .items_start()
         .gap(spacing::XS)
         .child(
-            action_button(&subscription_button_label(frame))
+            action_button(&subscription_button_label(frame), cx)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_local_subscription(cx);
@@ -3149,7 +3150,7 @@ pub(crate) fn render_action_row(
             } else {
                 "Add to playlist ▾"
             };
-            action_button(label)
+            action_button(label, cx)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     if let Some(frame) = this.inspector_stack.last_mut() {
@@ -3301,8 +3302,8 @@ fn render_add_to_playlist_panel_search(
                 feed_guid: feed_guid.clone(),
             },
         };
-        panel = panel.child(
-            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
+            move |this, _, _, cx| {
                 if let Some(frame) = this.inspector_stack.last_mut() {
                     frame.add_to_playlist_open = false;
                 }
@@ -3330,8 +3331,8 @@ fn render_add_to_playlist_panel_search(
                         this.add_feed_to_playlist(feed_guid, feed_url.as_deref(), playlist_id, cx);
                     }
                 }
-            })),
-        );
+            },
+        )));
     }
 
     panel.into_any_element()
@@ -3607,7 +3608,7 @@ fn render_musicbrainz_title_bar(
     );
     let trigger = Button::new("musicbrainz-release-picker")
         .label(SharedString::from(format!("MusicBrainz: {label}")))
-        .with_size(Size::XSmall)
+        .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
         .w_full()
@@ -4273,12 +4274,12 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
                                 .rounded(radius::SM)
                                 .child(SharedString::from(embedded_label.clone())),
                         )
-                        .child(
-                            action_button("Re-read").on_click(cx.listener(|this, _, _, cx| {
+                        .child(action_button("Re-read", cx).on_click(cx.listener(
+                            |this, _, _, cx| {
                                 this.reread_tag_compare(cx);
-                            })),
-                        )
-                        .child(action_button("Re-download").on_click(cx.listener(
+                            },
+                        )))
+                        .child(action_button("Re-download", cx).on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.redownload_tag_compare(cx);
                             },
@@ -5306,8 +5307,8 @@ pub(crate) fn render_row_playlist_popup(
         let feed_guid_owned = feed_guid.to_string();
         let feed_url_owned = feed_url.map(|s| s.to_string());
         let track_guid_owned = track_guid.to_string();
-        panel = panel.child(
-            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
+        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
+            move |this, _, _, cx| {
                 if let Some(frame) = this.inspector_stack.last_mut() {
                     frame.add_to_playlist_open_track_guid = None;
                 }
@@ -5318,8 +5319,8 @@ pub(crate) fn render_row_playlist_popup(
                     playlist_id,
                     cx,
                 );
-            })),
-        );
+            },
+        )));
     }
 
     panel.into_any_element()
@@ -5511,7 +5512,7 @@ pub(crate) fn render_play_icon_button_with_id(
 
     Button::new(id)
         .label("▶")
-        .with_size(Size::XSmall)
+        .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
         .w(px(18.0))
@@ -5568,7 +5569,7 @@ pub(crate) fn render_track_download_button(
             .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
             .child(
                 Spinner::new()
-                    .with_size(Size::XSmall)
+                    .scaled(Size::XSmall, cx)
                     .color(color::accent().into()),
             )
             .into_any_element();
@@ -5592,7 +5593,7 @@ pub(crate) fn render_track_download_button(
 
     Button::new(id)
         .label(label)
-        .with_size(Size::XSmall)
+        .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
         .w(px(18.0))
@@ -5973,7 +5974,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                     Button::new("recent-load-more")
                         .label("Load more")
                         .ghost()
-                        .with_size(Size::Small)
+                        .scaled(Size::Small, cx)
                         .text_color(rgb(0xffffff))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.load_recent_feeds(true, cx);

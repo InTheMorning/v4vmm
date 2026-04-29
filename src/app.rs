@@ -9,7 +9,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
 use gpui_component::Disableable;
-use gpui_component::{Root, Sizable, Size};
+use gpui_component::{Root, Size};
 use rusqlite::Connection;
 
 use crate::config;
@@ -21,6 +21,7 @@ use crate::playback;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
 use crate::search::{SearchApp, SearchAppEvent};
+use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::color;
 use crate::ui::theme::layout;
 #[allow(unused_imports)]
@@ -662,7 +663,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                 .child(
                     Input::new(&endpoint_input)
                         .cleanable(true)
-                        .with_size(Size::Small),
+                        .scaled(Size::Small, cx),
                 )
                 .child(
                     typography::type_caption(div())
@@ -677,7 +678,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                 .child(
                     Input::new(&music_dir_input)
                         .cleanable(true)
-                        .with_size(Size::Small),
+                        .scaled(Size::Small, cx),
                 )
                 .child(
                     typography::type_caption(div())
@@ -692,7 +693,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                 .child(
                     Input::new(&flac_path_input)
                         .cleanable(true)
-                        .with_size(Size::Small),
+                        .scaled(Size::Small, cx),
                 )
                 .child(
                     typography::type_caption(div())
@@ -724,7 +725,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             Button::new("settings-save")
                                 .label("Save")
                                 .primary()
-                                .with_size(Size::Small)
+                                .scaled(Size::Small, cx)
                                 .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.save_settings(window, cx);
@@ -734,7 +735,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             Button::new("settings-default")
                                 .label("Use Defaults")
                                 .ghost()
-                                .with_size(Size::Small)
+                                .scaled(Size::Small, cx)
                                 .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.endpoint_input.update(cx, |input, cx| {
@@ -811,7 +812,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                             Button::new(SharedString::from(format!("del-cached-{}", track.id)))
                                                 .label("Delete")
                                                 .danger()
-                                                .with_size(Size::XSmall)
+                                                .scaled(Size::XSmall, cx)
                                                 .text_color(color::text_on_accent())
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     this.delete_cached_file(path_clone.clone());
@@ -837,7 +838,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             Button::new("delete-all-cached-settings")
                                 .label("Delete All Cached")
                                 .danger()
-                                .with_size(Size::XSmall)
+                                .scaled(Size::XSmall, cx)
                                 .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.delete_all_cached();
@@ -886,7 +887,7 @@ fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::Any
             Button::new("playback-prev")
                 .label("⏮")
                 .ghost()
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .disabled(!state.active)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.skip_playback_previous(cx);
@@ -896,7 +897,7 @@ fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::Any
             Button::new("playback-toggle")
                 .label(toggle_label)
                 .ghost()
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .disabled(!state.active)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.set_playback_paused(toggle_paused, cx);
@@ -906,7 +907,7 @@ fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::Any
             Button::new("playback-next")
                 .label("⏭")
                 .ghost()
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .disabled(!state.active)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.skip_playback_next(cx);
@@ -916,7 +917,7 @@ fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::Any
             Button::new("playback-stop")
                 .label("⏹")
                 .ghost()
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .disabled(!state.active)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.stop_playback_owner(cx);
