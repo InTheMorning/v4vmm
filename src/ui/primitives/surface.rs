@@ -33,7 +33,7 @@ pub struct Surface {
     elevation: SurfaceElevation,
     padding: Spacing,
     radius: Radius,
-    appearance: Appearance,
+    appearance: Option<Appearance>,
     children: Vec<AnyElement>,
 }
 
@@ -47,7 +47,7 @@ impl Surface {
             elevation,
             padding: Spacing::MD,
             radius,
-            appearance: Appearance::Dark,
+            appearance: None,
             children: Vec::new(),
         }
     }
@@ -63,7 +63,7 @@ impl Surface {
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
-        self.appearance = appearance;
+        self.appearance = Some(appearance);
         self
     }
 }
@@ -75,7 +75,8 @@ impl ParentElement for Surface {
 }
 
 impl RenderOnce for Surface {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let bg = match self.elevation {
             SurfaceElevation::Sunken | SurfaceElevation::Raised => {
                 SemanticColor::SecondarySystemBackground
@@ -87,7 +88,6 @@ impl RenderOnce for Surface {
             SurfaceElevation::Raised | SurfaceElevation::Floating => SemanticColor::OpaqueSeparator,
         };
 
-        let appearance = self.appearance;
         let mut el: Div = div()
             .bg(bg.resolve(appearance))
             .border_1()

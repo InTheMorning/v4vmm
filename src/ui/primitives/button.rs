@@ -60,7 +60,7 @@ pub struct Button {
     label: Option<SharedString>,
     leading_glyph: Option<SharedString>,
     on_click: Option<ClickHandler>,
-    appearance: Appearance,
+    appearance: Option<Appearance>,
     full_width: bool,
     disabled: bool,
     selected: bool,
@@ -75,7 +75,7 @@ impl Button {
             label: None,
             leading_glyph: None,
             on_click: None,
-            appearance: Appearance::Dark,
+            appearance: None,
             full_width: false,
             disabled: false,
             selected: false,
@@ -121,7 +121,7 @@ impl Button {
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
-        self.appearance = appearance;
+        self.appearance = Some(appearance);
         self
     }
 
@@ -171,8 +171,8 @@ impl Button {
 }
 
 impl RenderOnce for Button {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance;
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let height = self.height();
         let pad = self.px_inset().px();
         let font = self.font_size().px();

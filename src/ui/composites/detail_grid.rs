@@ -76,19 +76,19 @@ fn compare_value_lines(value: &str, max_lines: usize) -> Vec<String> {
 #[must_use]
 pub struct DetailGrid {
     rows: Vec<DetailRow>,
-    appearance: Appearance,
+    appearance: Option<Appearance>,
 }
 
 impl DetailGrid {
     pub fn new(rows: Vec<DetailRow>) -> Self {
         Self {
             rows,
-            appearance: Appearance::Dark,
+            appearance: None,
         }
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
-        self.appearance = appearance;
+        self.appearance = Some(appearance);
         self
     }
 }
@@ -99,7 +99,7 @@ const KEY_COL_BASE: f32 = 124.0;
 
 impl RenderOnce for DetailGrid {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance;
+        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let key_color = SemanticColor::SecondaryLabel.resolve(appearance);
         let mult = ScaleFactor::current(cx).multiplier();
         let key_width = gpui::px(KEY_COL_BASE * mult);

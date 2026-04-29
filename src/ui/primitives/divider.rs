@@ -19,7 +19,7 @@ pub enum DividerOrientation {
 #[must_use]
 pub struct Divider {
     orientation: DividerOrientation,
-    appearance: Appearance,
+    appearance: Option<Appearance>,
     strong: bool,
 }
 
@@ -35,7 +35,7 @@ impl Divider {
     fn with_orientation(orientation: DividerOrientation) -> Self {
         Self {
             orientation,
-            appearance: Appearance::Dark,
+            appearance: None,
             strong: false,
         }
     }
@@ -47,19 +47,20 @@ impl Divider {
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
-        self.appearance = appearance;
+        self.appearance = Some(appearance);
         self
     }
 }
 
 impl RenderOnce for Divider {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let token = if self.strong {
             SemanticColor::OpaqueSeparator
         } else {
             SemanticColor::Separator
         };
-        let color = token.resolve(self.appearance);
+        let color = token.resolve(appearance);
         match self.orientation {
             DividerOrientation::Horizontal => div().w_full().h(px(1.0)).bg(color),
             DividerOrientation::Vertical => div().h_full().w(px(1.0)).bg(color),

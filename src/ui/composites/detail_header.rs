@@ -23,7 +23,7 @@ pub struct DetailHeader {
     title: SharedString,
     subtitle: Option<SharedString>,
     image: Option<Arc<Image>>,
-    appearance: Appearance,
+    appearance: Option<Appearance>,
 }
 
 impl DetailHeader {
@@ -33,7 +33,7 @@ impl DetailHeader {
             title: title.into(),
             subtitle: None,
             image: None,
-            appearance: Appearance::Dark,
+            appearance: None,
         }
     }
 
@@ -48,14 +48,14 @@ impl DetailHeader {
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
-        self.appearance = appearance;
+        self.appearance = Some(appearance);
         self
     }
 }
 
 impl RenderOnce for DetailHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance;
+        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let title_color = SemanticColor::Label.resolve(appearance);
         let subtitle_color = SemanticColor::SecondaryLabel.resolve(appearance);
 

@@ -104,7 +104,7 @@ pub struct Popover {
     id: ElementId,
     placement: PopoverPlacement,
     alignment: PopoverAlignment,
-    appearance: Appearance,
+    appearance: Option<Appearance>,
     surface_padding: Spacing,
     trigger: Option<TriggerInjector>,
     content: Option<ContentBuilder>,
@@ -120,7 +120,7 @@ impl Popover {
             id: id.into(),
             placement: PopoverPlacement::default(),
             alignment: PopoverAlignment::default(),
-            appearance: Appearance::Dark,
+            appearance: None,
             surface_padding: Spacing::XS,
             trigger: None,
             content: None,
@@ -142,7 +142,7 @@ impl Popover {
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
-        self.appearance = appearance;
+        self.appearance = Some(appearance);
         self
     }
 
@@ -207,10 +207,10 @@ const ARROW_WIDTH_TOKEN: Spacing = Spacing::LG;
 const ARROW_HEIGHT_TOKEN: Spacing = Spacing::SM;
 
 impl RenderOnce for Popover {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let placement = self.placement;
         let alignment = self.alignment;
-        let appearance = self.appearance;
+        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let surface_padding = self.surface_padding;
         let content_builder = self.content;
         let arrow_color = SemanticColor::TertiarySystemBackground.resolve(appearance);

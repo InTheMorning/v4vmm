@@ -33,7 +33,7 @@ pub struct Label {
     text: SharedString,
     variant: LabelVariant,
     color: Option<SemanticColor>,
-    appearance: Appearance,
+    appearance: Option<Appearance>,
 }
 
 impl Label {
@@ -42,7 +42,7 @@ impl Label {
             text: text.into(),
             variant: LabelVariant::Body,
             color: None,
-            appearance: Appearance::Dark,
+            appearance: None,
         }
     }
 
@@ -57,13 +57,14 @@ impl Label {
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
-        self.appearance = appearance;
+        self.appearance = Some(appearance);
         self
     }
 }
 
 impl RenderOnce for Label {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let (size, weight, default_color) = match self.variant {
             LabelVariant::Title => (FontSize::Title2, FontWeight::SEMIBOLD, SemanticColor::Label),
             LabelVariant::Headline => (
@@ -87,7 +88,7 @@ impl RenderOnce for Label {
         div()
             .text_size(size.px())
             .font_weight(weight)
-            .text_color(color.resolve(self.appearance))
+            .text_color(color.resolve(appearance))
             .child(self.text)
     }
 }

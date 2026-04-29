@@ -121,7 +121,7 @@ pub struct TagBadge {
     /// Optional override for the displayed label (defaults to
     /// [`EntityKind::label`]).
     label: Option<SharedString>,
-    appearance: Appearance,
+    appearance: Option<Appearance>,
 }
 
 impl TagBadge {
@@ -129,7 +129,7 @@ impl TagBadge {
         Self {
             kind,
             label: None,
-            appearance: Appearance::Dark,
+            appearance: None,
         }
     }
 
@@ -139,15 +139,16 @@ impl TagBadge {
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
-        self.appearance = appearance;
+        self.appearance = Some(appearance);
         self
     }
 }
 
 impl RenderOnce for TagBadge {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let bg = self.kind.fill_token().resolve(self.appearance);
-        let fg = self.kind.on_fill_token().resolve(self.appearance);
+        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
+        let bg = self.kind.fill_token().resolve(appearance);
+        let fg = self.kind.on_fill_token().resolve(appearance);
         let label = self
             .label
             .unwrap_or_else(|| SharedString::from(self.kind.label()));
