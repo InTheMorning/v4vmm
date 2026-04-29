@@ -37,8 +37,10 @@ use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind, Thumbnail, ThumbnailSize,
 };
+use crate::ui::primitives::Image as ImagePrimitive;
+use crate::ui::tokens::Radius;
 use crate::ui_common::{
-    artwork_img, badge_text, compare_value_line_elements, metadata_action_button, type_color,
+    badge_text, compare_value_line_elements, metadata_action_button, type_color,
 };
 use crate::views::FeedView;
 
@@ -4820,13 +4822,9 @@ fn hoverable_thumb(
 
 pub(crate) fn render_album_thumb(image: Option<Arc<Image>>, size: f32) -> AnyElement {
     if let Some(img_data) = image {
-        div()
-            .w(px(size))
-            .h(px(size))
-            .rounded(radius::SM)
-            .overflow_hidden()
-            .flex_shrink_0()
-            .child(artwork_img(img_data, size))
+        ImagePrimitive::new(img_data)
+            .dimension(px(size))
+            .radius(Radius::SM)
             .into_any_element()
     } else {
         div()

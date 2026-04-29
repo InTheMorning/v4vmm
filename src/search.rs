@@ -40,9 +40,11 @@ use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind, Thumbnail, ThumbnailSize,
 };
+use crate::ui::primitives::{Image as ImagePrimitive, ImageSize};
+use crate::ui::tokens::Radius;
 use crate::ui_common::{
-    artwork_img, badge_text, compare_value_line_elements, metadata_action_button, optional_row,
-    plural, section_heading, truncated, truncated_muted, type_color, type_emoji, DetailRow,
+    badge_text, compare_value_line_elements, metadata_action_button, optional_row, plural,
+    section_heading, truncated, truncated_muted, type_color, type_emoji, DetailRow,
 };
 
 #[derive(Clone, Debug)]
@@ -4577,12 +4579,9 @@ fn expandable_tag_cell(
                             .child(SharedString::from(display_value.to_string())),
                     )
                     .child(
-                        div()
-                            .w(px(200.0))
-                            .h(px(200.0))
-                            .rounded(radius::MD)
-                            .overflow_hidden()
-                            .child(artwork_img(image.clone(), 200.0)),
+                        ImagePrimitive::new(image.clone())
+                            .size(ImageSize::XXl)
+                            .radius(Radius::MD),
                     )
                     .into_any_element()
             } else {
@@ -5898,7 +5897,13 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                     .rounded(radius::MD)
                     .overflow_hidden()
                     .flex_shrink_0()
-                    .when_some(thumbnail, |el, image| el.child(artwork_img(image, 152.0)))
+                    .when_some(thumbnail, |el, image| {
+                        el.child(
+                            ImagePrimitive::new(image)
+                                .dimension(px(152.0))
+                                .radius(Radius::MD),
+                        )
+                    })
                     .when(image_url.is_none(), |el| {
                         el.bg(color::border_subtle())
                             .flex()

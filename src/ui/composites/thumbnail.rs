@@ -10,10 +10,10 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, img, prelude::*, App, Image, ImageFormat, IntoElement, ObjectFit, ParentElement, Pixels,
-    RenderOnce, SharedString, Styled, Window,
+    div, App, Image, IntoElement, ParentElement, Pixels, RenderOnce, SharedString, Styled, Window,
 };
 
+use crate::ui::primitives::Image as ImagePrimitive;
 use crate::ui::tokens::{FontSize, Radius, ScaleFactor, SemanticColor};
 
 use super::tag_badge::EntityKind;
@@ -102,36 +102,28 @@ impl Thumbnail {
 impl RenderOnce for Thumbnail {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let dim = self.size.scaled(cx);
-        let radius = self.size.radius().scaled(cx);
-
-        let base = div()
-            .w(dim)
-            .h(dim)
-            .rounded(radius)
-            .overflow_hidden()
-            .flex_shrink_0();
+        let radius = self.size.radius();
 
         if let Some(image) = self.image {
-            let inner = img(image.clone())
+            ImagePrimitive::new(image)
+                .dimension(dim)
+                .radius(radius)
+                .into_any_element()
+        } else {
+            let radius_px = radius.scaled(cx);
+            div()
                 .w(dim)
                 .h(dim)
-                .object_fit(ObjectFit::Cover);
-            let inner = if image.format == ImageFormat::Gif {
-                // Animated GIFs need a stable id to drive frame ticking.
-                inner
-                    .id(SharedString::from(format!("anim-thumb:{}", image.id())))
-                    .into_any_element()
-            } else {
-                inner.into_any_element()
-            };
-            base.child(inner)
-        } else {
-            base.bg(SemanticColor::SystemFill.resolve(crate::ui::tokens::Appearance::current(cx)))
+                .rounded(radius_px)
+                .overflow_hidden()
+                .flex_shrink_0()
+                .bg(SemanticColor::SystemFill.resolve(crate::ui::tokens::Appearance::current(cx)))
                 .flex()
                 .items_center()
                 .justify_center()
                 .text_size(self.size.fallback_font().scaled(cx))
                 .child(SharedString::from(self.kind.emoji()))
+                .into_any_element()
         }
     }
 }

@@ -12,13 +12,9 @@
 
 use crate::ui::composites::DetailRow as CompositeDetailRow;
 use crate::ui::theme::{badges, color, radius, spacing, typography};
-use gpui::{
-    div, img, prelude::*, px, AnyElement, Div, FontWeight, Image, ImageFormat, IntoElement,
-    ObjectFit, ParentElement, SharedString, Styled,
-};
+use gpui::{div, AnyElement, Div, FontWeight, IntoElement, ParentElement, SharedString, Styled};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{Sizable, Size};
-use std::sync::Arc;
 
 /// Legacy detail row shape — the value is a pre-rendered `AnyElement` so
 /// callers can build rich content. Kept identical to the original shape
@@ -34,19 +30,6 @@ impl From<DetailRow> for CompositeDetailRow {
             key: SharedString::from(row.key),
             value: row.value,
         }
-    }
-}
-
-pub fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
-    let base = img(image.clone())
-        .w(px(size))
-        .h(px(size))
-        .object_fit(ObjectFit::Cover);
-    if image.format == ImageFormat::Gif {
-        base.id(SharedString::from(format!("anim-thumb:{}", image.id())))
-            .into_any_element()
-    } else {
-        base.into_any_element()
     }
 }
 

@@ -22,6 +22,7 @@
 
 pub mod button;
 pub mod divider;
+pub mod image;
 pub mod label;
 pub mod popover;
 pub mod stack;
@@ -29,6 +30,7 @@ pub mod surface;
 
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use divider::Divider;
+pub use image::{Image, ImageSize};
 pub use label::{Label, LabelVariant};
 pub use popover::{Popover, PopoverAlignment, PopoverPlacement};
 pub use stack::{HStack, Spacer, StackAlignment, VStack, ZStack};
