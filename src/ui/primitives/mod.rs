@@ -25,6 +25,7 @@ pub mod divider;
 pub mod image;
 pub mod label;
 pub mod popover;
+pub mod section_header;
 pub mod stack;
 pub mod surface;
 
@@ -33,5 +34,6 @@ pub use divider::Divider;
 pub use image::{Image, ImageSize};
 pub use label::{Label, LabelVariant};
 pub use popover::{Popover, PopoverAlignment, PopoverPlacement};
+pub use section_header::SectionHeader;
 pub use stack::{HStack, Spacer, StackAlignment, VStack, ZStack};
 pub use surface::{Surface, SurfaceElevation};

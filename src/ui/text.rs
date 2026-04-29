@@ -1,6 +1,6 @@
 //! Token-driven text helpers — small one-line text element builders
-//! used across screens (truncated lists, section labels, multi-line
-//! compare rows). Lifted out of the deprecated `ui_common` module.
+//! used across screens (truncated lists, multi-line compare rows).
+//! Lifted out of the deprecated `ui_common` module.
 //!
 //! ## Status — transitional
 //!
@@ -8,20 +8,23 @@
 //! every existing call site chains Div modifiers
 //! (`.font_weight(...)`, `.text_size(...)`, `.flex_1()`,
 //! `.text_color(...)`) onto the result. Promoting them to proper
-//! SwiftUI-style primitives (`Label::caption(text).truncated()`,
-//! `SectionHeader::new(label)`, `MultilineText::new(value).max_lines(n)`)
-//! is the right end state — borrowing the SwiftUI `Text(...)`
-//! `.lineLimit(n)` and `Section { ... } header: { ... }` shapes — but
+//! SwiftUI-style primitives — `Label::caption(text).truncated()`,
+//! `MultilineText::new(value).max_lines(n)` — is the right end
+//! state, borrowing the `SwiftUI` `Text(...).lineLimit(n)` shape, but
 //! it requires rewriting every chaining call site. That work is
-//! tracked as the `swiftui-text-primitives` todo and lands during the
-//! `screen-search` / `screen-library` migration.
+//! tracked as the `swiftui-text-primitives` todo and lands during
+//! the `screen-search` / `screen-library` migration.
+//!
+//! `SectionHeader` (the `SwiftUI` `Section { ... } header: { ... }`
+//! shape) has already moved to
+//! [`crate::ui::primitives::SectionHeader`].
 //!
 //! Until then: do not add new callers. Use [`crate::ui::primitives`]
 //! for any new text rendering.
 
 #![warn(clippy::pedantic)]
 
-use gpui::{div, AnyElement, Div, FontWeight, IntoElement, ParentElement, SharedString, Styled};
+use gpui::{div, AnyElement, Div, IntoElement, ParentElement, SharedString, Styled};
 
 use crate::ui::theme::{color, typography};
 
@@ -41,18 +44,6 @@ pub fn truncated(text: String) -> Div {
 #[must_use]
 pub fn truncated_muted(text: String) -> Div {
     truncated(text).text_color(color::text_muted())
-}
-
-/// Bold, micro-sized, muted-color section heading. Used as the title
-/// strip above feed / track / playlist list sections.
-#[must_use]
-pub fn section_heading(label: &str) -> AnyElement {
-    div()
-        .text_size(typography::SIZE_MICRO)
-        .font_weight(FontWeight::BOLD)
-        .text_color(color::text_muted())
-        .child(SharedString::from(label.to_string()))
-        .into_any_element()
 }
 
 /// Build the per-line truncated `AnyElement`s for a multi-line value

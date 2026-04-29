@@ -42,9 +42,10 @@ use crate::ui::composites::{
     Thumbnail, ThumbnailSize,
 };
 use crate::ui::detail_row::DetailRow;
+use crate::ui::primitives::SectionHeader;
 use crate::ui::primitives::{Image as ImagePrimitive, ImageSize};
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::text::{compare_value_line_elements, section_heading, truncated, truncated_muted};
+use crate::ui::text::{compare_value_line_elements, truncated, truncated_muted};
 use crate::ui::theme::badges;
 use crate::ui::tokens::Radius;
 use crate::view_models::format::{optional_row, plural};
@@ -5204,7 +5205,7 @@ pub(crate) fn render_track_list_section(
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .child(section_heading(heading))
+                .child(SectionHeader::new(heading.to_string()))
                 .when(!note.is_empty(), |el| {
                     el.child(
                         div()
@@ -5671,7 +5672,7 @@ pub(crate) fn render_feed_list_section(
         .flex()
         .flex_col()
         .gap(spacing::SM)
-        .child(section_heading(heading))
+        .child(SectionHeader::new(heading.to_string()))
         .child(
             div()
                 .flex()
@@ -6009,36 +6010,10 @@ fn render_loading(message: &str) -> AnyElement {
 }
 
 fn render_clickable_section_heading(label: &str, collapsed: bool) -> gpui::Stateful<gpui::Div> {
-    let state = if collapsed { "show" } else { "hide" };
-    let glyph = if collapsed { ">" } else { "v" };
-
     div()
         .id(SharedString::from(format!("section-heading:{label}")))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(spacing::SM)
         .cursor_pointer()
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .font_weight(FontWeight::BOLD)
-                .text_color(color::text_muted())
-                .child(glyph),
-        )
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .font_weight(FontWeight::BOLD)
-                .text_color(color::text_muted())
-                .child(SharedString::from(label.to_string())),
-        )
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(color::text_muted())
-                .child(SharedString::from(state.to_string())),
-        )
+        .child(SectionHeader::new(label.to_string()).disclosure(collapsed))
 }
 
 fn group_heading(label: String) -> AnyElement {
