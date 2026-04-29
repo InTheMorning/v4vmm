@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted — partially implemented
+Accepted — design-system foundation implemented; screen view-model migration ongoing
 
 ## Context
 
@@ -44,10 +44,17 @@ ideal architecture, view-models hold read snapshots, local UI state, and
 service-command intent while remaining GPUI-free.
 
 PR #5 (`feat/design-tokens-and-primitives`, merged at f2548a0) implemented
-the design-system foundation and the first projection-style view-models. It
-did not complete the ideal architecture: `library.rs` and `search.rs` still
-own most screen state and still contain direct service dispatch, raw layout
-literals, and several color literals. The remaining migration is tracked in
+the design-system foundation and the first projection-style view-models.
+Follow-up local commits on `master` extended that work: `ui_common.rs` is
+gone, `DisclosureGroup` and `ActionButton` shipped, `Environment` is the
+default appearance/scale accessor for primitives and composites, and
+`view_models::library` now owns the `MusicBrainz` row status type plus
+artist-detail and playlist-detail projections.
+
+The ideal architecture is still not complete. `library.rs` and `search.rs`
+continue to own most screen state and still contain direct service dispatch,
+raw layout literals, and several color literals. `search.rs` has no dedicated
+screen view-model yet. The remaining migration is tracked in
 `docs/remaining_plans.md`.
 
 This ADR records the decision behind that work and the rules that govern
@@ -153,8 +160,9 @@ screen. ADR 0023 permits two shapes, because the migration is incremental:
 
 1. **Projection VMs** — borrow-only structs constructed during render to
    format already-loaded data into display-ready strings and semantic
-   buckets. This is the shape used by `ArtistVm`, `FeedVm`, `TrackVm`, and
-   `LibraryTrackRowVm` today.
+   buckets. This is the shape used by `ArtistVm`, `FeedVm`, `TrackVm`,
+   `LibraryTrackRowVm`, `LibraryArtistDetailVm`, and `PlaylistDetailVm`
+   today.
 2. **Screen VMs** — stateful models that own read snapshots, local UI state
    (selection, filters, what is expanded), and command intent for a screen.
    This is the target shape described in `docs/architecture-diagrams.md` and
@@ -190,9 +198,20 @@ Shipped view-models:
   sorted tracks / runtime / detail entries.
 - `view_models::track::TrackVm` — title with fallback, runtime suffix,
   composed labels, identity helpers.
+- `view_models::search::ResultRowVm` — Discover result-row projection
+  (three-line display text and image URL selection).
+- `view_models::library::MbTrackStatus` — screen-independent
+  `MusicBrainz` lookup state used by the library screen.
 - `view_models::library::LibraryTrackRowVm` — album-detail row
   projection (number prefix, title fallback, `M:SS` suffix, MB status
   semantic-kind bucket).
+- `view_models::library::LibraryArtistDetailVm` — artist detail
+  projection (artist fallback, album / track / downloaded counts, feed
+  summaries).
+- `view_models::library::PlaylistDetailVm` and
+  `PlaylistTrackRowVm` — playlist detail projection (duration roll-up,
+  empty-state text, per-row labels, thumbnails, play/move affordance
+  enablement).
 
 ### Layer 5 — Screens
 
@@ -201,10 +220,17 @@ forward user interactions as command intent. In the final shape, screens do
 not own workflow state, do not call services directly, and do not build
 display strings inline.
 
-After PR #5, `ui_artist.rs`, `ui_feed.rs`, and the discover row of
-`ui_track.rs` are bound to projection VMs. `library.rs` and `search.rs`
-remain large and partially migrated; binding them to stateful screen VMs is
-tracked in `docs/remaining_plans.md` (Tracks E and G).
+After PR #5 and follow-up local commits, `ui_artist.rs`, `ui_feed.rs`, and
+the discover row of `ui_track.rs` are bound to projection VMs. `library.rs`
+uses `LibraryTrackRowVm`, `LibraryArtistDetailVm`, `PlaylistDetailVm`, and
+`TrackVm` in several detail slices. `search.rs` uses `TrackVm`,
+`ResultRowVm`, and shared format helpers, and its contributor / value-route /
+frame sections use `DisclosureGroup`.
+
+`library.rs` and `search.rs` remain large and partially migrated. They still
+own screen state, call services directly, and contain remaining raw `px(...)`
+and `rgb(...)` literals. Binding them to stateful screen VMs is tracked in
+`docs/remaining_plans.md`.
 
 ### Cross-cutting bridges
 
@@ -257,17 +283,18 @@ tracked in `docs/remaining_plans.md` (Tracks E and G).
   behavior exists in multiple projections. They should collapse where the
   target layer dependency allows it. Service-side formatting must not depend
   on `view_models`.
-- `view_models::library` currently depends on `library::MbTrackStatus`,
-  which violates this ADR's final import rule. That status type must move to
-  a domain-safe module, or the view-model must accept a screen-independent
-  status projection before `view-model-library` is considered complete.
+- `library.rs` still owns `BTreeMap<i64, MbTrackStatus>` and passes it into
+  projection VMs. That is acceptable for the current projection-VM stage
+  because the type lives in `view_models::library`, but the final
+  `LibraryViewModel` should own the map with the rest of the library screen
+  state.
 - Several `gpui_component` widgets do not expose appearance through
   `Environment` and require explicit `.appearance()` modifier calls.
   This is acceptable but inconsistent with the rest of the primitive
   layer.
-- Some primitives still have hardcoded `Appearance::Dark` defaults that
-  predate the `Environment` bundle. The `env-component-defaults` task
-  in the remaining plan removes them.
+- Some legacy screen code still installs or assumes dark appearance at the
+  app boundary. Primitive and composite render paths now resolve default
+  appearance through `Appearance::current(cx)`.
 
 ### Neutral
 
@@ -326,16 +353,18 @@ already true at merge of PR #5; others are explicitly tracked in
       directories with the rules in `view_models/mod.rs` documented.
 - [x] `ui_common.rs` is removed; its responsibilities split between
       `ui::detail_row`, `ui::composites::*`, and `view_models::format`.
-- [x] Projection VMs `ArtistVm`, `FeedVm`, `TrackVm`, `LibraryTrackRowVm` exist with
-      unit tests that pin display invariants.
+- [x] Projection VMs `ArtistVm`, `FeedVm`, `TrackVm`,
+      `ResultRowVm`, `LibraryTrackRowVm`, `LibraryArtistDetailVm`, and
+      `PlaylistDetailVm` exist with unit tests that pin display
+      invariants.
 - [x] User-driven `ScaleFactor` flows through both primitives and
       `gpui_component` widgets.
 - [ ] `view-model-library` and `view-model-search` extracted; library
       and search screens bound to their VMs.
-- [ ] `view_models/*` has no imports from screen modules, including
+- [x] `view_models/*` has no imports from screen modules, including
       `library`, `search`, `app`, and `ui_*`.
-- [ ] No primitive defaults `Appearance::Dark` hardcoded; all read from
-      `Environment`.
+- [x] No primitive/composite render defaults hardcode `Appearance::Dark`;
+      they read from `Appearance::current(cx)` / `Environment`.
 - [ ] Final audit (`audit-token-usage`): zero `rgb()` / `px(<number>)`
       literals in screen modules outside `tokens.rs`, `theme.rs`,
       primitives, and composites.
@@ -348,6 +377,5 @@ already true at merge of PR #5; others are explicitly tracked in
 - ADR 0022 — UI-Agnostic Core Extraction (south-side companion).
 - `docs/architecture-diagrams.md` — current and target architecture
   diagrams.
-- `docs/remaining_plans.md` — outstanding migration work (Tracks E, F,
-  G, D).
+- `docs/remaining_plans.md` — outstanding migration work (Tracks E, G, D).
 - PR #5 (commit f2548a0) — implementation.

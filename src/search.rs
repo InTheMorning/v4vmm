@@ -48,6 +48,7 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
+use crate::view_models::search::ResultRowVm;
 use crate::view_models::track::TrackVm;
 
 #[derive(Clone, Debug)]
@@ -397,7 +398,7 @@ impl SearchApp {
         if let Some(row) = self.results.get(next_idx) {
             let entity_type = row.entity_type.clone();
             let entity_id = row.entity_id.clone();
-            let (title, _, _, _) = result_lines(row);
+            let title = result_display(row).line1;
             self.select_result(entity_type, entity_id, title, cx);
         }
     }
@@ -418,7 +419,7 @@ impl SearchApp {
         if let Some(row) = self.results.get(next_idx) {
             let entity_type = row.entity_type.clone();
             let entity_id = row.entity_id.clone();
-            let (title, _, _, _) = result_lines(row);
+            let title = result_display(row).line1;
             self.select_result(entity_type, entity_id, title, cx);
         }
     }
@@ -1728,7 +1729,7 @@ impl Render for SearchApp {
         let results: Vec<AnyElement> = rows
             .iter()
             .map(|row| {
-                let image_url = result_image_url(row);
+                let image_url = result_display(row).image_url;
                 let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
                 render_result_item(
                     row,
@@ -2636,7 +2637,10 @@ fn render_result_item(
     list_focused: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let (line1, line2, line3, _image_url) = result_lines(row);
+    let display = result_display(row);
+    let line1 = display.line1;
+    let line2 = display.line2;
+    let line3 = display.line3;
     let is_selected = selected_key == Some(entity_key(&row.entity_type, &row.entity_id).as_str());
     let entity_type = row.entity_type.clone();
     let entity_id = row.entity_id.clone();
@@ -2890,15 +2894,6 @@ fn artist_feeds_from_tracks(tracks: &[Track]) -> Vec<Feed> {
             agg.feed
         })
         .collect()
-}
-
-fn artist_active_years(artist: &Artist) -> Option<String> {
-    match (artist.begin_year, artist.end_year) {
-        (Some(begin), Some(end)) => Some(format!("{begin}-{end}")),
-        (Some(begin), None) => Some(format!("{begin}-")),
-        (None, Some(end)) => Some(format!("until {end}")),
-        (None, None) => None,
-    }
 }
 
 fn render_discover_feed_inspector(
@@ -6004,102 +5999,8 @@ fn group_heading(label: String) -> AnyElement {
         .into_any_element()
 }
 
-fn result_lines(row: &ResultRow) -> (String, String, String, Option<String>) {
-    match &row.detail {
-        Some(EntityDetail::Artist(artist)) => {
-            let mut parts = Vec::new();
-            if let Some(count) = artist.track_count {
-                parts.push(format!(
-                    "{count} track{}",
-                    if count == 1 { "" } else { "s" }
-                ));
-            }
-            if let Some(count) = artist.feed_count {
-                parts.push(format!("{count} feed{}", if count == 1 { "" } else { "s" }));
-            }
-            let line3 = artist
-                .area
-                .clone()
-                .or_else(|| artist_active_years(artist))
-                .unwrap_or_default();
-            (
-                artist
-                    .name
-                    .clone()
-                    .or_else(|| artist.artist_id.clone())
-                    .unwrap_or_else(|| row.entity_id.clone()),
-                parts.join(" · "),
-                line3,
-                artist.image_url.clone(),
-            )
-        }
-        Some(EntityDetail::Feed(feed)) => {
-            let count = feed
-                .episode_count
-                .map_or_else(String::new, |count| format!("{count} tracks"));
-            (
-                feed_title(feed),
-                feed.release_artist
-                    .clone()
-                    .unwrap_or_else(|| "Unknown".into()),
-                count,
-                feed.image_url.clone(),
-            )
-        }
-        Some(EntityDetail::Track(track)) => {
-            let vm = TrackVm::new(track);
-            let line1 = [Some(vm.title()), vm.duration_display()]
-                .into_iter()
-                .flatten()
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>()
-                .join(" – ");
-            let feed_title = track.feed_title.clone().unwrap_or_default();
-            let release_artist = track.release_artist.clone().unwrap_or_default();
-            let line3 = if release_artist.is_empty() {
-                feed_title
-            } else {
-                format!("{feed_title} by {release_artist}")
-            };
-
-            (
-                line1,
-                track
-                    .track_artist
-                    .clone()
-                    .unwrap_or_else(|| "Unknown".into()),
-                line3,
-                track.image_url.clone(),
-            )
-        }
-        Some(EntityDetail::Publisher(publisher)) => {
-            let mut parts = Vec::new();
-            if let Some(count) = publisher.feed_count {
-                parts.push(format!("{count} feeds"));
-            }
-            if let Some(count) = publisher.track_count {
-                parts.push(format!("{count} tracks"));
-            }
-            (
-                publisher.publisher_text.clone().unwrap_or_default(),
-                parts.join(" · "),
-                String::new(),
-                None,
-            )
-        }
-        _ => (row.entity_id.clone(), String::new(), String::new(), None),
-    }
-}
-
-fn result_image_url(row: &ResultRow) -> Option<String> {
-    match &row.detail {
-        Some(EntityDetail::Feed(feed)) => feed.image_url.clone(),
-        Some(EntityDetail::Track(track)) => track.image_url.clone(),
-        Some(EntityDetail::Artist(artist)) => artist.image_url.clone(),
-        Some(EntityDetail::Release(release)) => release.image_url.clone(),
-        Some(EntityDetail::Recording(recording)) => recording.image_url.clone(),
-        Some(EntityDetail::Publisher(_)) | None => None,
-    }
+fn result_display(row: &ResultRow) -> crate::view_models::search::ResultRowDisplay {
+    ResultRowVm::new(&row.entity_id, row.detail.as_ref()).display()
 }
 
 fn entity_key(entity_type: &str, entity_id: &str) -> String {
@@ -7526,12 +7427,9 @@ mod tests {
                 MetadataGridRow::Group(_) => None,
             })
             .collect::<Vec<_>>();
+        assert!(fields.contains(&"Track #"), "track row should exist");
         assert!(
-            fields.iter().any(|field| *field == "Track #"),
-            "track row should exist"
-        );
-        assert!(
-            !fields.iter().any(|field| *field == "Total tracks"),
+            !fields.contains(&"Total tracks"),
             "total tracks should be merged into Track # row"
         );
     }
