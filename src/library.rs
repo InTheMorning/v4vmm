@@ -229,8 +229,8 @@ impl LibraryApp {
     }
 
     fn apply_search(&mut self, cx: &mut Context<Self>) {
-        self.vm.search_query = self.search_input.read(cx).value().trim().to_string();
-        self.vm.selected_id = None;
+        self.vm
+            .apply_search_query(self.search_input.read(cx).value().to_string());
         self.detail = LibraryDetail::None;
         cx.notify();
     }
@@ -1683,54 +1683,6 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
     LibraryTree { artists }
 }
 
-fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
-    let q = query.trim().to_lowercase();
-    if q.is_empty() {
-        return tree.clone();
-    }
-    let mut artists = Vec::new();
-    for artist in &tree.artists {
-        let artist_match = artist.name.to_lowercase().contains(&q);
-        let mut albums = Vec::new();
-        for album in &artist.albums {
-            let album_match = album.name.to_lowercase().contains(&q);
-            let keep_all = artist_match || album_match;
-            let tracks: Vec<TrackRow> = if keep_all {
-                album.tracks.clone()
-            } else {
-                album
-                    .tracks
-                    .iter()
-                    .filter(|t| {
-                        t.track_title
-                            .as_deref()
-                            .unwrap_or("")
-                            .to_lowercase()
-                            .contains(&q)
-                    })
-                    .cloned()
-                    .collect()
-            };
-            if keep_all || !tracks.is_empty() {
-                albums.push(AlbumNode {
-                    name: album.name.clone(),
-                    feed_id: album.feed_id,
-                    feed_url: album.feed_url.clone(),
-                    image_href: album.image_href.clone(),
-                    tracks,
-                });
-            }
-        }
-        if !albums.is_empty() {
-            artists.push(ArtistNode {
-                name: artist.name.clone(),
-                albums,
-            });
-        }
-    }
-    LibraryTree { artists }
-}
-
 pub(crate) fn cleanup_empty_parents(path: &std::path::Path) {
     let music_dir = config::config_path()
         .ok()
@@ -1797,45 +1749,16 @@ impl Render for LibraryApp {
             }
         }
 
-        let base_tree = self.vm.tree();
-        let query = self.vm.search_query.trim();
-        let has_query = !query.is_empty();
-        let filtered_tree = if has_query {
-            filter_tree(base_tree, query)
-        } else {
-            base_tree.clone()
-        };
-        let (expanded_artists, expanded_albums) = if has_query {
-            let ea: HashSet<String> = filtered_tree
-                .artists
-                .iter()
-                .map(|a| a.name.clone())
-                .collect();
-            let eb: HashSet<(String, String)> = filtered_tree
-                .artists
-                .iter()
-                .flat_map(|a| {
-                    a.albums
-                        .iter()
-                        .map(move |alb| (a.name.clone(), alb.name.clone()))
-                })
-                .collect();
-            (ea, eb)
-        } else {
-            (
-                self.vm.expanded_artists.clone(),
-                self.vm.expanded_albums.clone(),
-            )
-        };
+        let tree_projection = self.vm.tree_projection();
         let tree_items: Vec<AnyElement> = render_tree(
-            &filtered_tree,
-            &expanded_artists,
-            &expanded_albums,
+            &tree_projection.tree,
+            &tree_projection.expanded_artists,
+            &tree_projection.expanded_albums,
             self.vm.selected_id,
             &album_thumbs,
             cx,
         );
-        let filtered_empty = filtered_tree.artists.is_empty();
+        let filtered_empty = tree_projection.is_empty();
 
         let playlists = self.vm.playlists().to_vec();
         let selected_playlist_id = self.vm.selected_playlist_id;

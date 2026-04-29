@@ -100,6 +100,21 @@ pub(crate) struct LibrarySnapshot {
     feed_update_state: FeedUpdateState,
 }
 
+/// Projected library tree plus the expansion state needed to render it.
+#[derive(Clone, Debug)]
+pub(crate) struct LibraryTreeProjection {
+    pub(crate) tree: LibraryTree,
+    pub(crate) expanded_artists: HashSet<String>,
+    pub(crate) expanded_albums: HashSet<(String, String)>,
+}
+
+impl LibraryTreeProjection {
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.tree.artists.is_empty()
+    }
+}
+
 /// Snapshot of the multi-feed update workflow exposed by
 /// `feed_service`. Owned by the library view-model; the screen reads
 /// `phase` to decide whether to show progress vs. results.
@@ -224,6 +239,41 @@ impl LibraryViewModel {
 
     pub(crate) fn replace_tree(&mut self, tree: LibraryTree) {
         self.snapshot.tree = tree;
+    }
+
+    #[must_use]
+    pub(crate) fn tree_projection(&self) -> LibraryTreeProjection {
+        let query = self.search_query.trim();
+        if query.is_empty() {
+            return LibraryTreeProjection {
+                tree: self.snapshot.tree.clone(),
+                expanded_artists: self.expanded_artists.clone(),
+                expanded_albums: self.expanded_albums.clone(),
+            };
+        }
+
+        let tree = filter_tree(&self.snapshot.tree, query);
+        let expanded_artists = tree
+            .artists
+            .iter()
+            .map(|artist| artist.name.clone())
+            .collect();
+        let expanded_albums = tree
+            .artists
+            .iter()
+            .flat_map(|artist| {
+                artist
+                    .albums
+                    .iter()
+                    .map(move |album| (artist.name.clone(), album.name.clone()))
+            })
+            .collect();
+
+        LibraryTreeProjection {
+            tree,
+            expanded_artists,
+            expanded_albums,
+        }
     }
 
     #[must_use]
@@ -393,6 +443,11 @@ impl LibraryViewModel {
         self.snapshot.feed_update_state.status_message = Some(message);
     }
 
+    pub(crate) fn apply_search_query(&mut self, query: impl Into<String>) {
+        self.search_query = query.into().trim().to_string();
+        self.selected_id = None;
+    }
+
     /// Toggle the expansion state of an artist node by name.
     pub(crate) fn toggle_artist(&mut self, name: &str) {
         if !self.expanded_artists.remove(name) {
@@ -415,9 +470,7 @@ impl LibraryViewModel {
         self.playlists_expanded = !self.playlists_expanded;
     }
 
-    /// Advance the playlist sort order one step. The screen still has
-    /// to re-sort its loaded `Vec<Playlist>` afterwards because the
-    /// VM does not own the snapshot yet.
+    /// Advance the playlist sort order one step.
     pub(crate) fn cycle_playlist_sort(&mut self) {
         self.playlist_sort = self.playlist_sort.next();
     }
@@ -462,6 +515,55 @@ impl LibraryViewModel {
     pub(crate) fn playlist_sort_label(&self) -> &'static str {
         self.playlist_sort.label()
     }
+}
+
+fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return tree.clone();
+    }
+    let mut artists = Vec::new();
+    for artist in &tree.artists {
+        let artist_match = artist.name.to_lowercase().contains(&q);
+        let mut albums = Vec::new();
+        for album in &artist.albums {
+            let album_match = album.name.to_lowercase().contains(&q);
+            let keep_all = artist_match || album_match;
+            let tracks: Vec<TrackRow> = if keep_all {
+                album.tracks.clone()
+            } else {
+                album
+                    .tracks
+                    .iter()
+                    .filter(|track| {
+                        track
+                            .track_title
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&q)
+                    })
+                    .cloned()
+                    .collect()
+            };
+            if keep_all || !tracks.is_empty() {
+                albums.push(AlbumNode {
+                    name: album.name.clone(),
+                    feed_id: album.feed_id,
+                    feed_url: album.feed_url.clone(),
+                    image_href: album.image_href.clone(),
+                    tracks,
+                });
+            }
+        }
+        if !albums.is_empty() {
+            artists.push(ArtistNode {
+                name: artist.name.clone(),
+                albums,
+            });
+        }
+    }
+    LibraryTree { artists }
 }
 
 impl Default for LibraryViewModel {
@@ -1309,6 +1411,52 @@ mod tests {
         }
     }
 
+    fn library_tree() -> LibraryTree {
+        let mut rhubarb = row();
+        rhubarb.id = 1;
+        rhubarb.track_title = Some("Rhubarb".into());
+        let mut cliffs = row();
+        cliffs.id = 2;
+        cliffs.track_title = Some("Cliffs".into());
+        let mut windowlicker = row();
+        windowlicker.id = 3;
+        windowlicker.track_title = Some("Windowlicker".into());
+
+        LibraryTree {
+            artists: vec![
+                ArtistNode {
+                    name: "Aphex Twin".into(),
+                    albums: vec![
+                        AlbumNode {
+                            name: "Selected Ambient Works".into(),
+                            feed_id: Some(10),
+                            feed_url: Some("https://example.test/saw.xml".into()),
+                            image_href: Some("saw.jpg".into()),
+                            tracks: vec![rhubarb, cliffs],
+                        },
+                        AlbumNode {
+                            name: "Windowlicker".into(),
+                            feed_id: Some(20),
+                            feed_url: None,
+                            image_href: None,
+                            tracks: vec![windowlicker],
+                        },
+                    ],
+                },
+                ArtistNode {
+                    name: "Autechre".into(),
+                    albums: vec![AlbumNode {
+                        name: "Tri Repetae".into(),
+                        feed_id: Some(30),
+                        feed_url: None,
+                        image_href: None,
+                        tracks: vec![row()],
+                    }],
+                },
+            ],
+        }
+    }
+
     #[test]
     fn album_detail_vm_falls_back_to_untitled_and_unknown_artist() {
         let view = FeedView::default();
@@ -1440,6 +1588,70 @@ mod tests {
         assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Idle);
         assert!(vm.feed_update_state().status_message.is_none());
         assert!(vm.feed_update_state().stale.is_empty());
+    }
+
+    #[test]
+    fn library_view_model_tree_projection_uses_saved_expansion_without_query() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        vm.toggle_artist("Aphex Twin");
+        vm.toggle_album("Aphex Twin", "Selected Ambient Works");
+
+        let projection = vm.tree_projection();
+
+        assert_eq!(projection.tree.artists.len(), 2);
+        assert!(projection.expanded_artists.contains("Aphex Twin"));
+        assert!(projection
+            .expanded_albums
+            .contains(&("Aphex Twin".into(), "Selected Ambient Works".into())));
+    }
+
+    #[test]
+    fn library_view_model_tree_projection_filters_tracks_and_expands_matches() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        vm.apply_search_query("  cliff  ");
+
+        let projection = vm.tree_projection();
+
+        assert_eq!(vm.search_query, "cliff");
+        assert_eq!(projection.tree.artists.len(), 1);
+        assert_eq!(projection.tree.artists[0].name, "Aphex Twin");
+        assert_eq!(projection.tree.artists[0].albums.len(), 1);
+        assert_eq!(
+            projection.tree.artists[0].albums[0].tracks[0]
+                .track_title
+                .as_deref(),
+            Some("Cliffs")
+        );
+        assert!(projection.expanded_artists.contains("Aphex Twin"));
+        assert!(projection
+            .expanded_albums
+            .contains(&("Aphex Twin".into(), "Selected Ambient Works".into())));
+    }
+
+    #[test]
+    fn library_view_model_tree_projection_album_match_keeps_all_album_tracks() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        vm.apply_search_query("ambient");
+
+        let projection = vm.tree_projection();
+
+        assert_eq!(projection.tree.artists.len(), 1);
+        assert_eq!(projection.tree.artists[0].albums.len(), 1);
+        assert_eq!(projection.tree.artists[0].albums[0].tracks.len(), 2);
+    }
+
+    #[test]
+    fn library_view_model_apply_search_query_clears_track_selection() {
+        let mut vm = LibraryViewModel::new();
+        vm.selected_id = Some(99);
+
+        vm.apply_search_query("aphex");
+
+        assert_eq!(vm.selected_id, None);
+        assert_eq!(vm.search_query, "aphex");
     }
 
     #[test]

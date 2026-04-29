@@ -205,6 +205,8 @@ Shipped view-models:
   library screen VM owning pure read snapshots (`tree`, playlists, playlist
   tracks), staged `MusicBrainz` lookups, per-track MB status, and feed-update
   workflow state.
+- `view_models::library::LibraryTreeProjection` — filtered tree plus render
+  expansion state for the library sidebar.
 - `view_models::library::MbTrackStatus` — screen-independent
   `MusicBrainz` lookup state used by the library screen.
 - `view_models::library::LibraryTrackRowVm` — album-detail row
@@ -230,7 +232,8 @@ the discover row of `ui_track.rs` are bound to projection VMs. `library.rs`
 uses `LibraryTrackRowVm`, `LibraryArtistDetailVm`, `PlaylistDetailVm`, and
 `TrackVm` in several detail slices, and routes its pure library snapshots
 through `LibraryViewModel` / `LibrarySnapshot` methods instead of mutating
-those maps and vectors directly. `search.rs` uses `TrackVm`,
+those maps and vectors directly. Its library-tree filtering / expansion
+projection now lives in `LibraryTreeProjection`. `search.rs` uses `TrackVm`,
 `ResultRowVm`, and shared format helpers, and its contributor / value-route /
 frame sections use `DisclosureGroup`. The Discover result row now renders
 through `ListRow`, `Thumbnail`, `Label`, and `TagBadge` instead of raw row /
