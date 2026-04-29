@@ -3406,7 +3406,9 @@ fn render_musicbrainz_header(
                         .text_size(typography::SIZE_MICRO)
                         .line_clamp(2)
                         .child(SharedString::from(musicbrainz_subtitle(
-                            frame, result, candidate,
+                            frame.musicbrainz_selected,
+                            result,
+                            candidate,
                         ))),
                 ),
         )
@@ -3475,63 +3477,6 @@ fn render_musicbrainz_title_bar(
             )
         })
         .into_any_element()
-}
-
-fn musicbrainz_release_summary(candidate: &MusicBrainzCandidate) -> String {
-    let mut parts = Vec::new();
-    if let Some(country) = &candidate.country {
-        parts.push(country.clone());
-    }
-    if let Some(format) = &candidate.format {
-        parts.push(format.clone());
-    }
-    if let Some(tracks) = candidate.total_tracks {
-        parts.push(format!("{tracks} tracks"));
-    }
-
-    let mut value = if parts.is_empty() {
-        candidate
-            .release_title
-            .clone()
-            .unwrap_or_else(|| candidate.title.clone())
-    } else {
-        parts.join(" - ")
-    };
-
-    if let Some(date) = &candidate.release_date {
-        value.push_str(&format!(" ({date})"));
-    }
-    value
-}
-
-fn musicbrainz_subtitle(
-    frame: &InspectorFrame,
-    result: &MusicBrainzLookupResult,
-    candidate: &MusicBrainzCandidate,
-) -> String {
-    let rank = if result
-        .lookup
-        .candidates
-        .get(frame.musicbrainz_selected)
-        .is_some()
-    {
-        frame.musicbrainz_selected + 1
-    } else {
-        1
-    };
-    let score = if let Some(musicbrainz_score) = candidate.musicbrainz_score {
-        format!(
-            "Best: #{} · {}% local · {} MB",
-            rank, candidate.similarity_score, musicbrainz_score
-        )
-    } else {
-        format!("Best: #{} · {}% local", rank, candidate.similarity_score)
-    };
-    if let Some(release_id) = &candidate.release_id {
-        format!("{score} · {release_id}")
-    } else {
-        format!("{score} · {}", candidate.recording_id)
-    }
 }
 
 fn track_metadata_rows_for_frame(
