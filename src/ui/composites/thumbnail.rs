@@ -39,6 +39,23 @@ impl ThumbnailSize {
         }
     }
 
+    /// Pick a [`ThumbnailSize`] from a legacy raw-pixel hint.
+    ///
+    /// Used while migrating call sites that still pass `(size: f32, large: bool)`
+    /// pairs. The mapping mirrors the historical `render_thumb` helper:
+    /// the explicit `large` flag wins, then `>= 64` is `Lg`, then
+    /// `>= 40` is `Md`, else `Sm`.
+    #[must_use]
+    pub fn from_legacy_px(size: f32, large: bool) -> Self {
+        if large || size >= 64.0 {
+            Self::Lg
+        } else if size >= 40.0 {
+            Self::Md
+        } else {
+            Self::Sm
+        }
+    }
+
     fn scaled(self, cx: &App) -> Pixels {
         gpui::px(self.base() * ScaleFactor::current(cx).multiplier())
     }

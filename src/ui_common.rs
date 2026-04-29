@@ -10,9 +10,7 @@
 //! scale-aware automatically — without each call site having to thread `cx`
 //! through.
 
-use crate::ui::composites::{
-    DetailGrid, DetailRow as CompositeDetailRow, EntityKind, Thumbnail, ThumbnailSize,
-};
+use crate::ui::composites::{DetailGrid, DetailRow as CompositeDetailRow, EntityKind};
 use crate::ui::theme::{badges, color, radius, spacing, typography};
 use gpui::{
     div, img, prelude::*, px, AnyElement, Div, FontWeight, Image, ImageFormat, IntoElement,
@@ -50,32 +48,6 @@ pub fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
     } else {
         base.into_any_element()
     }
-}
-
-/// Thin wrapper around the [`Thumbnail`] composite. The legacy `large`
-/// flag maps to `ThumbnailSize::Lg`; smaller sizes pick Sm/Md based on the
-/// raw pixel size requested.
-pub fn render_thumb(
-    image_data: Option<Arc<Image>>,
-    entity_type: &str,
-    size: f32,
-    large: bool,
-) -> AnyElement {
-    let kind = EntityKind::from_legacy_str(entity_type);
-    // Map the legacy raw pixel size to a semantic ThumbnailSize, preferring
-    // the explicit `large` flag when set. Library list rows pass 28-32 px;
-    // sidebar / now-playing strips pass 48 px; the detail header passes 80
-    // (or 160 for the large compare panel).
-    let semantic = if large || size >= 64.0 {
-        ThumbnailSize::Lg
-    } else if size >= 40.0 {
-        ThumbnailSize::Md
-    } else {
-        ThumbnailSize::Sm
-    };
-    Thumbnail::new(kind, semantic)
-        .image(image_data)
-        .into_any_element()
 }
 
 /// Detail header — preserves the legacy positional API but delegates to

@@ -104,6 +104,12 @@ impl EntityKind {
     }
 }
 
+impl From<&str> for EntityKind {
+    fn from(value: &str) -> Self {
+        Self::from_legacy_str(value)
+    }
+}
+
 #[derive(IntoElement)]
 #[must_use]
 pub struct TagBadge {

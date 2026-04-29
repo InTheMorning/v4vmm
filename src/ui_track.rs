@@ -8,10 +8,10 @@ use crate::search::{
     fmt_dur, render_play_icon_button_with_id, render_track_download_button, track_play_url,
     track_title, SearchApp,
 };
-use crate::ui::composites::ListRow;
+use crate::ui::composites::{EntityKind, ListRow, Thumbnail, ThumbnailSize};
 use crate::ui::playlist_popover::AddToPlaylistPopover;
 use crate::ui::theme::{color, typography};
-use crate::ui_common::{render_thumb, truncated};
+use crate::ui_common::truncated;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TrackRowMode {
@@ -101,7 +101,13 @@ fn render_discover_track_row(
                     .text_size(typography::SIZE_MICRO)
                     .child(track_number.map_or_else(|| "·".into(), |n| n.to_string())),
             )
-            .child(render_thumb(thumbnail.clone(), "track", 28.0, false))
+            .child(
+                Thumbnail::new(
+                    EntityKind::Track,
+                    ThumbnailSize::from_legacy_px(28.0, false),
+                )
+                .image(thumbnail.clone()),
+            )
             .child(truncated(title).flex_1())
             .when(duration_secs.is_some(), |el| {
                 el.child(

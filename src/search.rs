@@ -37,10 +37,11 @@ use crate::subscribe_service::{
     SubscribeTrackRequest,
 };
 use crate::track_compare::ComparisonStatus;
+use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
 use crate::ui_common::{
     artwork_img, badge_text, compare_value_line_elements, metadata_action_button, optional_row,
-    plural, render_detail_grid, render_detail_grid_elements, render_detail_header, render_thumb,
-    section_heading, truncated, truncated_muted, type_color, type_emoji, DetailRow,
+    plural, render_detail_grid, render_detail_grid_elements, render_detail_header, section_heading,
+    truncated, truncated_muted, type_color, type_emoji, DetailRow,
 };
 
 #[derive(Clone, Debug)]
@@ -2701,7 +2702,13 @@ fn render_result_item(
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
         }))
-        .child(render_thumb(thumbnail, &row.entity_type, 36.0, false))
+        .child(
+            Thumbnail::new(
+                EntityKind::from_legacy_str(&row.entity_type),
+                ThumbnailSize::from_legacy_px(36.0, false),
+            )
+            .image(thumbnail),
+        )
         .child(
             div()
                 .flex_1()
@@ -2959,7 +2966,10 @@ fn podroll_section(
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 this.push_inspector("feed".into(), click_guid.clone(), click_title.clone(), cx);
             }))
-            .child(render_thumb(thumb.clone(), "feed", 128.0, true))
+            .child(
+                Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(128.0, true))
+                    .image(thumb.clone()),
+            )
             .child(
                 div()
                     .text_size(typography::SIZE_CAPTION)
@@ -3543,15 +3553,14 @@ fn render_musicbrainz_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(
-            result
-                .image
-                .as_ref()
-                .map(|img| image_from_bytes(img.clone())),
-            "track",
-            80.0,
-            true,
-        ))
+        .child(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+                result
+                    .image
+                    .as_ref()
+                    .map(|img| image_from_bytes(img.clone())),
+            ),
+        )
         .child(
             div()
                 .flex_1()
@@ -4224,15 +4233,14 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(
-            result
-                .file_image
-                .as_ref()
-                .map(|img| image_from_bytes(img.clone())),
-            "track",
-            80.0,
-            true,
-        ))
+        .child(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+                result
+                    .file_image
+                    .as_ref()
+                    .map(|img| image_from_bytes(img.clone())),
+            ),
+        )
         .child(
             div()
                 .flex_1()
@@ -5324,7 +5332,10 @@ pub(crate) fn render_feed_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(frame.image.clone(), "feed", 80.0, true))
+        .child(
+            Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(80.0, true))
+                .image(frame.image.clone()),
+        )
         .child(
             div()
                 .flex_1()
@@ -5625,7 +5636,10 @@ pub(crate) fn render_feed_list_section(
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
                 }))
-                .child(render_thumb(thumb.clone(), "feed", 128.0, true))
+                .child(
+                    Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(128.0, true))
+                        .image(thumb.clone()),
+                )
                 .child(
                     div()
                         .text_size(typography::SIZE_CAPTION)
@@ -5683,7 +5697,10 @@ fn render_track_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(frame.image.clone(), "track", 80.0, true))
+        .child(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true))
+                .image(frame.image.clone()),
+        )
         .child(
             div()
                 .flex_1()

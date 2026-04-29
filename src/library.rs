@@ -34,9 +34,10 @@ use crate::metadata::{
 use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
 use crate::playlist_service;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
+use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
 use crate::ui_common::{
     artwork_img, badge_text, compare_value_line_elements, metadata_action_button,
-    render_detail_grid, render_detail_header, render_thumb, type_color,
+    render_detail_grid, render_detail_header, type_color,
 };
 use crate::views::FeedView;
 
@@ -2667,7 +2668,10 @@ fn render_library_artist_detail(
                         }
                     }
                 }))
-                .child(render_thumb(thumb_image.clone(), "feed", 28.0, false))
+                .child(
+                    Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(28.0, false))
+                        .image(thumb_image.clone()),
+                )
                 .child(
                     div()
                         .flex_1()
@@ -3691,15 +3695,14 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(
-            result
-                .file_image
-                .as_ref()
-                .map(|img| image_from_bytes(img.clone())),
-            "track",
-            80.0,
-            true,
-        ))
+        .child(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+                result
+                    .file_image
+                    .as_ref()
+                    .map(|img| image_from_bytes(img.clone())),
+            ),
+        )
         .child(
             div()
                 .flex_1()
@@ -3805,15 +3808,14 @@ fn render_musicbrainz_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(
-            result
-                .image
-                .as_ref()
-                .map(|img| image_from_bytes(img.clone())),
-            "track",
-            80.0,
-            true,
-        ))
+        .child(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+                result
+                    .image
+                    .as_ref()
+                    .map(|img| image_from_bytes(img.clone())),
+            ),
+        )
         .child(
             div()
                 .flex_1()
@@ -4366,7 +4368,13 @@ fn expanded_metadata_value(
                 .flex_col()
                 .gap(spacing::XS)
                 .child(SharedString::from(display_value.to_string()))
-                .child(render_thumb(Some(image.clone()), "track", 160.0, true))
+                .child(
+                    Thumbnail::new(
+                        EntityKind::Track,
+                        ThumbnailSize::from_legacy_px(160.0, true),
+                    )
+                    .image(Some(image.clone())),
+                )
                 .into_any_element();
         }
     }
