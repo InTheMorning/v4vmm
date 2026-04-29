@@ -49,7 +49,8 @@ use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
-    artist_rows_from_result_rows, search_result_type_is_visible, ResultRow, ResultRowVm,
+    artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ResultRow,
+    ResultRowVm,
 };
 use crate::view_models::track::TrackVm;
 
@@ -2942,7 +2943,14 @@ pub(crate) fn render_action_row(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    if !matches!(frame.entity_type.as_str(), "feed" | "track") {
+    let vm = ActionRowVm::new(
+        &frame.entity_type,
+        frame.subscription_busy,
+        frame.local_subscription,
+        frame.subscription_message.as_deref(),
+    );
+
+    if !vm.is_visible() {
         return div().into_any_element();
     }
 
@@ -2952,66 +2960,44 @@ pub(crate) fn render_action_row(
         .items_start()
         .gap(spacing::XS)
         .child(
-            action_button(&subscription_button_label(frame), cx)
+            action_button(&vm.subscription_button_label(), cx)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_local_subscription(cx);
                 })),
         )
-        .child({
-            let label = if frame.entity_type == "feed" {
-                "Add feed to playlist ▾"
-            } else {
-                "Add to playlist ▾"
-            };
-            action_button(label, cx)
+        .child(
+            action_button(vm.add_to_playlist_label(), cx)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     if let Some(frame) = this.inspector_stack.last_mut() {
                         frame.add_to_playlist_open = !frame.add_to_playlist_open;
                     }
                     cx.notify();
-                }))
-        })
+                })),
+        )
         .when(frame.add_to_playlist_open, |el| {
             el.child(render_add_to_playlist_panel_search(frame, app, cx))
         })
-        .when_some(frame.subscription_message.clone(), |el, message| {
-            el.child(
-                div()
-                    .max_w(px(220.0))
-                    .text_size(typography::SIZE_MICRO)
-                    .line_height(px(14.0))
-                    .text_color(if message.contains("error") || message.contains("Error") {
-                        color::diff_missing()
-                    } else {
-                        color::text_muted()
-                    })
-                    .child(SharedString::from(message)),
-            )
-        })
+        .when_some(
+            vm.subscription_message().map(str::to_string),
+            |el, message| {
+                let is_error = vm.message_is_error();
+                el.child(
+                    div()
+                        .max_w(px(220.0))
+                        .text_size(typography::SIZE_MICRO)
+                        .line_height(px(14.0))
+                        .text_color(if is_error {
+                            color::diff_missing()
+                        } else {
+                            color::text_muted()
+                        })
+                        .child(SharedString::from(message)),
+                )
+            },
+        )
         .into_any_element()
-}
-
-fn subscription_button_label(frame: &InspectorFrame) -> String {
-    if frame.subscription_busy {
-        return if frame.local_subscription.unwrap_or(false) {
-            "Removing...".into()
-        } else {
-            "Downloading...".into()
-        };
-    }
-
-    let noun = if frame.entity_type == "feed" {
-        "Feed"
-    } else {
-        "Track"
-    };
-    if frame.local_subscription.unwrap_or(false) {
-        format!("Remove {noun}")
-    } else {
-        format!("Download {noun}")
-    }
 }
 
 fn render_add_to_playlist_panel_search(

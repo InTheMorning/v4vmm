@@ -195,6 +195,101 @@ pub(crate) fn search_result_type_is_visible(entity_type: &str) -> bool {
     matches!(entity_type, "artist" | "feed" | "track")
 }
 
+/// Borrow-only projection over the per-entity action-row state owned by
+/// the search inspector. Owns:
+/// * the visibility rule (only `feed` and `track` carry an action row);
+/// * the four-way subscription button label (busy × subscribed);
+/// * the "Add to playlist" toggle label (`feed` adds the noun "feed");
+/// * the message-is-error classification used to pick the status colour.
+///
+/// The screen still owns click handlers, panel state, and rendering;
+/// the VM owns the strings and the boolean classifications.
+pub(crate) struct ActionRowVm<'a> {
+    entity_type: &'a str,
+    subscription_busy: bool,
+    local_subscription: Option<bool>,
+    subscription_message: Option<&'a str>,
+}
+
+impl<'a> ActionRowVm<'a> {
+    #[must_use]
+    pub(crate) fn new(
+        entity_type: &'a str,
+        subscription_busy: bool,
+        local_subscription: Option<bool>,
+        subscription_message: Option<&'a str>,
+    ) -> Self {
+        Self {
+            entity_type,
+            subscription_busy,
+            local_subscription,
+            subscription_message,
+        }
+    }
+
+    /// `true` when an action row should render for this entity type.
+    /// Only `feed` and `track` ever do.
+    #[must_use]
+    pub(crate) fn is_visible(&self) -> bool {
+        matches!(self.entity_type, "feed" | "track")
+    }
+
+    /// Subscription button label. Distinguishes the busy and idle
+    /// states, and routes idle by `entity_type` for the `Feed`/`Track`
+    /// noun.
+    #[must_use]
+    pub(crate) fn subscription_button_label(&self) -> String {
+        let subscribed = self.local_subscription.unwrap_or(false);
+        if self.subscription_busy {
+            return if subscribed {
+                "Removing...".into()
+            } else {
+                "Downloading...".into()
+            };
+        }
+        let noun = if self.entity_type == "feed" {
+            "Feed"
+        } else {
+            "Track"
+        };
+        if subscribed {
+            format!("Remove {noun}")
+        } else {
+            format!("Download {noun}")
+        }
+    }
+
+    /// Toggle label for the "Add to playlist" panel. Feeds get the
+    /// `Add feed to playlist ▾` form so the operator knows the whole
+    /// album will be added.
+    #[must_use]
+    pub(crate) fn add_to_playlist_label(&self) -> &'static str {
+        if self.entity_type == "feed" {
+            "Add feed to playlist ▾"
+        } else {
+            "Add to playlist ▾"
+        }
+    }
+
+    /// The current subscription status message, if any.
+    #[must_use]
+    pub(crate) fn subscription_message(&self) -> Option<&str> {
+        self.subscription_message
+    }
+
+    /// `true` when the current message reads as an error (case-
+    /// insensitive substring match on `"error"`). The screen uses this
+    /// to pick the danger colour for the message line.
+    #[must_use]
+    pub(crate) fn message_is_error(&self) -> bool {
+        self.subscription_message.is_some_and(|m| {
+            // Case-insensitive substring match without an extra alloc:
+            // `to_lowercase` only happens once and only on the message.
+            m.to_lowercase().contains("error")
+        })
+    }
+}
+
 /// Derive artist result rows from mixed artist/feed/track results.
 ///
 /// This is pure projection over already-fetched rows. Network enrichment
@@ -521,6 +616,67 @@ mod tests {
             artist.image_url.as_deref(),
             Some("https://example.test/track.png")
         );
+    }
+
+    #[test]
+    fn action_row_vm_visibility_matches_feed_and_track_only() {
+        assert!(ActionRowVm::new("feed", false, None, None).is_visible());
+        assert!(ActionRowVm::new("track", false, None, None).is_visible());
+        assert!(!ActionRowVm::new("artist", false, None, None).is_visible());
+        assert!(!ActionRowVm::new("publisher", false, None, None).is_visible());
+        assert!(!ActionRowVm::new("release", false, None, None).is_visible());
+    }
+
+    #[test]
+    fn action_row_vm_busy_label_distinguishes_remove_vs_download() {
+        // local_subscription = Some(true) → "Removing..."
+        let vm = ActionRowVm::new("feed", true, Some(true), None);
+        assert_eq!(vm.subscription_button_label(), "Removing...");
+        // local_subscription = Some(false) → "Downloading..."
+        let vm = ActionRowVm::new("feed", true, Some(false), None);
+        assert_eq!(vm.subscription_button_label(), "Downloading...");
+        // local_subscription = None → "Downloading..." (matches the
+        // `unwrap_or(false)` in the legacy renderer).
+        let vm = ActionRowVm::new("feed", true, None, None);
+        assert_eq!(vm.subscription_button_label(), "Downloading...");
+    }
+
+    #[test]
+    fn action_row_vm_idle_label_picks_noun_by_entity_type() {
+        let vm = ActionRowVm::new("feed", false, Some(false), None);
+        assert_eq!(vm.subscription_button_label(), "Download Feed");
+        let vm = ActionRowVm::new("track", false, Some(false), None);
+        assert_eq!(vm.subscription_button_label(), "Download Track");
+        let vm = ActionRowVm::new("feed", false, Some(true), None);
+        assert_eq!(vm.subscription_button_label(), "Remove Feed");
+        let vm = ActionRowVm::new("track", false, Some(true), None);
+        assert_eq!(vm.subscription_button_label(), "Remove Track");
+    }
+
+    #[test]
+    fn action_row_vm_idle_label_treats_unknown_local_subscription_as_downloadable() {
+        let vm = ActionRowVm::new("feed", false, None, None);
+        assert_eq!(vm.subscription_button_label(), "Download Feed");
+    }
+
+    #[test]
+    fn action_row_vm_add_to_playlist_label_uses_feed_noun_for_feeds() {
+        let vm = ActionRowVm::new("feed", false, None, None);
+        assert_eq!(vm.add_to_playlist_label(), "Add feed to playlist ▾");
+        let vm = ActionRowVm::new("track", false, None, None);
+        assert_eq!(vm.add_to_playlist_label(), "Add to playlist ▾");
+    }
+
+    #[test]
+    fn action_row_vm_message_is_error_when_text_contains_error_token() {
+        let vm = ActionRowVm::new("feed", false, None, Some("Subscribed!"));
+        assert!(!vm.message_is_error());
+        let vm = ActionRowVm::new("feed", false, None, Some("error: bad request"));
+        assert!(vm.message_is_error());
+        let vm = ActionRowVm::new("feed", false, None, Some("Error: bad request"));
+        assert!(vm.message_is_error());
+        let vm = ActionRowVm::new("feed", false, None, None);
+        assert!(!vm.message_is_error());
     }
 
     #[test]
