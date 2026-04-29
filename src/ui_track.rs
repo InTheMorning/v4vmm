@@ -1,15 +1,14 @@
 use std::sync::Arc;
 
 use gpui::{div, prelude::*, px, AnyElement, ClickEvent, Context, Image, SharedString};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{Sizable, Size};
 
 use crate::api::{Feed, Track};
 use crate::db;
 use crate::search::{
-    fmt_dur, render_play_icon_button_with_id, render_row_playlist_popup,
-    render_track_download_button, track_play_url, track_title, SearchApp,
+    fmt_dur, render_play_icon_button_with_id, render_track_download_button, track_play_url,
+    track_title, SearchApp,
 };
+use crate::ui::playlist_popover::AddToPlaylistPopover;
 use crate::ui::theme::{color, radius, spacing, typography};
 use crate::ui_common::{render_thumb, truncated};
 
@@ -30,7 +29,7 @@ pub(crate) fn render_track_row(
     is_in_flight: bool,
     feed_guid: Option<&str>,
     feed_url: Option<&str>,
-    open_guid: Option<&str>,
+    _open_guid: Option<&str>,
     playlists: &[db::Playlist],
     mode: TrackRowMode,
     cx: &mut Context<SearchApp>,
@@ -44,7 +43,6 @@ pub(crate) fn render_track_row(
             is_in_flight,
             feed_guid,
             feed_url,
-            open_guid,
             playlists,
             cx,
         ),
@@ -63,7 +61,6 @@ fn render_discover_track_row(
     is_in_flight: bool,
     feed_guid: Option<&str>,
     feed_url: Option<&str>,
-    open_guid: Option<&str>,
     playlists: &[db::Playlist],
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
@@ -76,9 +73,6 @@ fn render_discover_track_row(
     let guid_for_click = guid.clone();
     let title_for_click = title.clone();
     let feed_guid_owned = feed_guid.map(str::to_string);
-    let popup_open = feed_guid.is_some()
-        && !guid.is_empty()
-        && open_guid.map(|s| s == guid.as_str()).unwrap_or(false);
 
     let mut row = div()
         .id(SharedString::from(format!("track-row:{guid}")))
@@ -137,18 +131,38 @@ fn render_discover_track_row(
         cx,
     ));
 
-    if feed_guid_owned.is_some() && !guid.is_empty() {
-        let guid_for_toggle = guid.clone();
-        row = row.child(
-            Button::new(SharedString::from(format!("track-row-add:{guid}")))
-                .label("+")
-                .ghost()
-                .with_size(Size::XSmall)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.toggle_add_to_playlist_track_guid(&guid_for_toggle);
-                    cx.notify();
-                })),
-        );
+    if let Some(ref fguid) = feed_guid_owned {
+        if !guid.is_empty() {
+            let feed_guid_sel = fguid.clone();
+            let feed_url_sel = feed_url.map(str::to_string);
+            let track_guid_sel = guid.clone();
+            let feed_guid_cre = feed_guid_sel.clone();
+            let feed_url_cre = feed_url_sel.clone();
+            let track_guid_cre = track_guid_sel.clone();
+            let popover = AddToPlaylistPopover::new(
+                SharedString::from(format!("add-pl:{guid}")),
+                playlists.to_vec(),
+            )
+            .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
+                this.add_search_track_to_playlist(
+                    &feed_guid_sel,
+                    feed_url_sel.as_deref(),
+                    &track_guid_sel,
+                    *playlist_id,
+                    cx,
+                );
+            }))
+            .on_create(cx.listener(move |this, name: &String, _window, cx| {
+                this.create_playlist_and_add_discover_track(
+                    name,
+                    &feed_guid_cre,
+                    feed_url_cre.as_deref(),
+                    &track_guid_cre,
+                    cx,
+                );
+            }));
+            row = row.child(popover);
+        }
     }
 
     row = row.child(render_play_icon_button_with_id(
@@ -156,25 +170,6 @@ fn render_discover_track_row(
         audio_url,
         cx,
     ));
-
-    if popup_open {
-        let feed_guid_str = feed_guid_owned.clone().unwrap_or_default();
-        let track_guid_str = guid.clone();
-        let feed_url_str = feed_url.map(str::to_string);
-        let popup = render_row_playlist_popup(
-            &feed_guid_str,
-            feed_url_str.as_deref(),
-            &track_guid_str,
-            playlists,
-            cx,
-        );
-        return div()
-            .flex()
-            .flex_col()
-            .child(row)
-            .child(popup)
-            .into_any_element();
-    }
 
     row.into_any_element()
 }
