@@ -195,6 +195,82 @@ pub(crate) fn search_result_type_is_visible(entity_type: &str) -> bool {
     matches!(entity_type, "artist" | "feed" | "track")
 }
 
+/// Borrow-only projection of a [`Publisher`] inspector panel.
+///
+/// Owns the title fallback (`"Unknown publisher"`), the feed-count and
+/// track-count fallbacks (explicit count → collection length → 0),
+/// the detail-grid composition, and the feed-list visibility flag.
+/// The screen still owns rendering of the feed-list section itself.
+pub(crate) struct PublisherInspectorVm<'a> {
+    publisher: &'a Publisher,
+}
+
+impl<'a> PublisherInspectorVm<'a> {
+    #[must_use]
+    pub(crate) fn new(publisher: &'a Publisher) -> Self {
+        Self { publisher }
+    }
+
+    /// Display title — `publisher_text` if present, else
+    /// `"Unknown publisher"`.
+    #[must_use]
+    pub(crate) fn title(&self) -> String {
+        self.publisher
+            .publisher_text
+            .clone()
+            .unwrap_or_else(|| "Unknown publisher".to_string())
+    }
+
+    /// Number of feeds — `feed_count` if present, else the length of
+    /// the embedded `feeds` list, else `0`. Always non-negative; a
+    /// negative `feed_count` is clamped to zero so the display never
+    /// shows a leading minus.
+    #[must_use]
+    pub(crate) fn feed_count(&self) -> i32 {
+        Self::resolve_count(self.publisher.feed_count, self.publisher.feeds.as_deref())
+    }
+
+    /// Number of tracks — same fallback chain as [`Self::feed_count`].
+    #[must_use]
+    pub(crate) fn track_count(&self) -> i32 {
+        Self::resolve_count(self.publisher.track_count, self.publisher.tracks.as_deref())
+    }
+
+    fn resolve_count<T>(explicit: Option<i32>, collection: Option<&[T]>) -> i32 {
+        explicit
+            .or_else(|| collection.map(|c| i32::try_from(c.len()).unwrap_or(i32::MAX)))
+            .unwrap_or(0)
+            .max(0)
+    }
+
+    /// Detail-grid rows in display order: `Feeds`, `Tracks`.
+    #[must_use]
+    pub(crate) fn detail_rows(&self) -> Vec<(String, String)> {
+        vec![
+            ("Feeds".to_string(), self.feed_count().to_string()),
+            ("Tracks".to_string(), self.track_count().to_string()),
+        ]
+    }
+
+    /// Owned copy of the embedded feed list, or an empty `Vec` when
+    /// the publisher carries no `feeds` field.
+    #[must_use]
+    pub(crate) fn feeds(&self) -> Vec<Feed> {
+        self.publisher.feeds.clone().unwrap_or_default()
+    }
+
+    /// `true` when the publisher carries at least one embedded feed —
+    /// used by the screen to decide whether to render the feed-list
+    /// section.
+    #[must_use]
+    pub(crate) fn has_feed_list(&self) -> bool {
+        self.publisher
+            .feeds
+            .as_ref()
+            .is_some_and(|feeds| !feeds.is_empty())
+    }
+}
+
 /// Borrow-only projection over the per-entity action-row state owned by
 /// the search inspector. Owns:
 /// * the visibility rule (only `feed` and `track` carry an action row);
@@ -616,6 +692,86 @@ mod tests {
             artist.image_url.as_deref(),
             Some("https://example.test/track.png")
         );
+    }
+
+    #[test]
+    fn publisher_inspector_vm_falls_back_to_unknown_publisher_title() {
+        let pub_ = Publisher::default();
+        let vm = PublisherInspectorVm::new(&pub_);
+        assert_eq!(vm.title(), "Unknown publisher");
+    }
+
+    #[test]
+    fn publisher_inspector_vm_uses_publisher_text_when_present() {
+        let pub_ = Publisher {
+            publisher_text: Some("Acme Audio".into()),
+            ..Publisher::default()
+        };
+        let vm = PublisherInspectorVm::new(&pub_);
+        assert_eq!(vm.title(), "Acme Audio");
+    }
+
+    #[test]
+    fn publisher_inspector_vm_prefers_explicit_counts_over_collection_length() {
+        let pub_ = Publisher {
+            feed_count: Some(7),
+            track_count: Some(42),
+            feeds: Some(vec![Feed::default()]),
+            tracks: Some(vec![Track::default(), Track::default()]),
+            ..Publisher::default()
+        };
+        let vm = PublisherInspectorVm::new(&pub_);
+        assert_eq!(vm.feed_count(), 7);
+        assert_eq!(vm.track_count(), 42);
+    }
+
+    #[test]
+    fn publisher_inspector_vm_falls_back_to_collection_length_when_count_absent() {
+        let pub_ = Publisher {
+            feed_count: None,
+            track_count: None,
+            feeds: Some(vec![Feed::default(), Feed::default()]),
+            tracks: Some(vec![Track::default(), Track::default(), Track::default()]),
+            ..Publisher::default()
+        };
+        let vm = PublisherInspectorVm::new(&pub_);
+        assert_eq!(vm.feed_count(), 2);
+        assert_eq!(vm.track_count(), 3);
+    }
+
+    #[test]
+    fn publisher_inspector_vm_falls_back_to_zero_when_neither_present() {
+        let pub_ = Publisher::default();
+        let vm = PublisherInspectorVm::new(&pub_);
+        assert_eq!(vm.feed_count(), 0);
+        assert_eq!(vm.track_count(), 0);
+    }
+
+    #[test]
+    fn publisher_inspector_vm_detail_rows_render_in_feeds_then_tracks_order() {
+        let pub_ = Publisher {
+            feed_count: Some(3),
+            track_count: Some(5),
+            ..Publisher::default()
+        };
+        let vm = PublisherInspectorVm::new(&pub_);
+        let rows = vm.detail_rows();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], ("Feeds".into(), "3".into()));
+        assert_eq!(rows[1], ("Tracks".into(), "5".into()));
+    }
+
+    #[test]
+    fn publisher_inspector_vm_has_feed_list_only_when_feeds_present() {
+        let pub_ = Publisher::default();
+        let vm = PublisherInspectorVm::new(&pub_);
+        assert!(!vm.has_feed_list());
+        let pub_ = Publisher {
+            feeds: Some(vec![Feed::default()]),
+            ..Publisher::default()
+        };
+        let vm = PublisherInspectorVm::new(&pub_);
+        assert!(vm.has_feed_list());
     }
 
     #[test]

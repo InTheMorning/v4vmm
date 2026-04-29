@@ -49,8 +49,8 @@ use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
-    artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ResultRow,
-    ResultRowVm,
+    artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, PublisherInspectorVm,
+    ResultRow, ResultRowVm,
 };
 use crate::view_models::track::TrackVm;
 
@@ -2669,64 +2669,6 @@ fn render_artist_inspector(
     )
 }
 
-fn artist_feeds_from_tracks(tracks: &[Track]) -> Vec<Feed> {
-    use std::collections::BTreeMap;
-    struct Agg {
-        feed: Feed,
-        image_counts: BTreeMap<String, i32>,
-    }
-    let mut order: Vec<String> = Vec::new();
-    let mut map: BTreeMap<String, Agg> = BTreeMap::new();
-    for track in tracks {
-        let guid = track
-            .feed_guid
-            .clone()
-            .or_else(|| track.feed_url.clone())
-            .unwrap_or_default();
-        if guid.is_empty() {
-            continue;
-        }
-        let entry = map.entry(guid.clone()).or_insert_with(|| {
-            order.push(guid.clone());
-            Agg {
-                feed: Feed {
-                    feed_guid: track.feed_guid.clone(),
-                    title: track.feed_title.clone(),
-                    feed_url: track.feed_url.clone(),
-                    image_url: None,
-                    episode_count: Some(0),
-                    ..Feed::default()
-                },
-                image_counts: BTreeMap::new(),
-            }
-        });
-        entry.feed.episode_count = Some(entry.feed.episode_count.unwrap_or(0) + 1);
-        if entry.feed.title.is_none() {
-            entry.feed.title = track.feed_title.clone();
-        }
-        if let Some(url) = track
-            .image_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            *entry.image_counts.entry(url.to_string()).or_insert(0) += 1;
-        }
-    }
-    order
-        .into_iter()
-        .filter_map(|k| map.remove(&k))
-        .map(|mut agg| {
-            agg.feed.image_url = agg
-                .image_counts
-                .into_iter()
-                .max_by_key(|(_, n)| *n)
-                .map(|(url, _)| url);
-            agg.feed
-        })
-        .collect()
-}
-
 fn render_discover_feed_inspector(
     frame: &InspectorFrame,
     feed: &Feed,
@@ -2898,41 +2840,21 @@ fn render_publisher_inspector(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let title = publisher
-        .publisher_text
-        .clone()
-        .unwrap_or_else(|| "Unknown publisher".into());
-    let rows = vec![
-        (
-            "Feeds".to_string(),
-            publisher
-                .feed_count
-                .unwrap_or_else(|| publisher.feeds.as_ref().map_or(0, Vec::len) as i32)
-                .to_string(),
-        ),
-        (
-            "Tracks".to_string(),
-            publisher
-                .track_count
-                .unwrap_or_else(|| publisher.tracks.as_ref().map_or(0, Vec::len) as i32)
-                .to_string(),
-        ),
-    ];
-
-    let feeds = publisher.feeds.clone().unwrap_or_default();
+    let vm = PublisherInspectorVm::new(publisher);
 
     div()
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(DetailHeader::new(EntityKind::Publisher, &title))
+        .child(DetailHeader::new(EntityKind::Publisher, vm.title()))
         .child(DetailGrid::new(
-            rows.into_iter()
+            vm.detail_rows()
+                .into_iter()
                 .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
                 .collect::<Vec<_>>(),
         ))
-        .when(!feeds.is_empty(), |el| {
-            el.child(render_feed_list_section("Feeds", feeds, app, cx))
+        .when(vm.has_feed_list(), |el| {
+            el.child(render_feed_list_section("Feeds", vm.feeds(), app, cx))
         })
         .into_any_element()
 }
