@@ -14,7 +14,7 @@ use rusqlite::Connection;
 
 use crate::config;
 use crate::db;
-use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryAppEvent, LibraryTree};
+use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryAppEvent};
 use crate::library_service;
 use crate::media::ImageCache;
 use crate::playback;
@@ -28,6 +28,7 @@ use crate::ui::theme::layout;
 use crate::ui::theme::radius;
 use crate::ui::theme::spacing;
 use crate::ui::theme::typography;
+use crate::view_models::library::LibraryTree;
 
 // ---------------------------------------------------------------------------
 // Color helpers (same palette)

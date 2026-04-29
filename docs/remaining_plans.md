@@ -51,16 +51,21 @@ The projection view-model layer is partially migrated:
 - `view_models::library::LibraryArtistDetailVm` backs library artist detail.
 - `view_models::library::PlaylistDetailVm` and `PlaylistTrackRowVm` back
   playlist detail.
+- `view_models::library::{LibraryViewModel, LibrarySnapshot}` owns the
+  library screen's pure read snapshots and workflow state: tree, playlists,
+  playlist tracks, `mb_status`, staged `MusicBrainz` lookups,
+  in-flight feed checks, and feed-update state. `library.rs` now uses VM
+  methods for those transitions instead of direct map/vector mutation.
 
 ## Remaining Work
 
 ### Track E — Finish Screen View-Models
 
-- `library-view-model`: create a stateful `LibraryViewModel` that owns the
-  library screen's read snapshot, selection, filters, expanded sections,
-  playlist detail state, and `BTreeMap<i64, MbTrackStatus>`. Keep service
-  mutation out of accessors; expose typed command intent for the screen to
-  dispatch.
+- `library-view-model`: continue thinning `LibraryViewModel` now that
+  `LibrarySnapshot` owns the pure snapshot fields. Next moves: project the
+  filtered tree / playlist sidebar rows, hide remaining direct selection and
+  picker field mutation behind methods, and expose typed command intent for
+  service dispatch.
 - `search-view-model`: create `SearchViewModel` for discover/search state,
   result grouping, inspector frame state, recent-feed state, and display-ready
   result rows. `ResultRow` / `ResultRowVm` now own the former `result_lines` /

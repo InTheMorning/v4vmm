@@ -201,6 +201,10 @@ Shipped view-models:
 - `view_models::search::{ResultRow, ResultRowVm}` — Discover result-row
   data and projection (visible-type filtering, derived artist aggregation,
   three-line display text, and image URL selection).
+- `view_models::library::{LibraryViewModel, LibrarySnapshot}` — stateful
+  library screen VM owning pure read snapshots (`tree`, playlists, playlist
+  tracks), staged `MusicBrainz` lookups, per-track MB status, and feed-update
+  workflow state.
 - `view_models::library::MbTrackStatus` — screen-independent
   `MusicBrainz` lookup state used by the library screen.
 - `view_models::library::LibraryTrackRowVm` — album-detail row
@@ -224,7 +228,9 @@ display strings inline.
 After PR #5 and follow-up local commits, `ui_artist.rs`, `ui_feed.rs`, and
 the discover row of `ui_track.rs` are bound to projection VMs. `library.rs`
 uses `LibraryTrackRowVm`, `LibraryArtistDetailVm`, `PlaylistDetailVm`, and
-`TrackVm` in several detail slices. `search.rs` uses `TrackVm`,
+`TrackVm` in several detail slices, and routes its pure library snapshots
+through `LibraryViewModel` / `LibrarySnapshot` methods instead of mutating
+those maps and vectors directly. `search.rs` uses `TrackVm`,
 `ResultRowVm`, and shared format helpers, and its contributor / value-route /
 frame sections use `DisclosureGroup`. The Discover result row now renders
 through `ListRow`, `Thumbnail`, `Label`, and `TagBadge` instead of raw row /
@@ -286,11 +292,9 @@ and `rgb(...)` literals. Binding them to stateful screen VMs is tracked in
   behavior exists in multiple projections. They should collapse where the
   target layer dependency allows it. Service-side formatting must not depend
   on `view_models`.
-- `library.rs` still owns `BTreeMap<i64, MbTrackStatus>` and passes it into
-  projection VMs. That is acceptable for the current projection-VM stage
-  because the type lives in `view_models::library`, but the final
-  `LibraryViewModel` should own the map with the rest of the library screen
-  state.
+- `library.rs` still dispatches service calls directly and passes snapshot
+  borrows into projection VMs. `LibraryViewModel` now owns the pure snapshot
+  data, but command intent extraction remains future work.
 - Several `gpui_component` widgets do not expose appearance through
   `Environment` and require explicit `.appearance()` modifier calls.
   This is acceptable but inconsistent with the rest of the primitive

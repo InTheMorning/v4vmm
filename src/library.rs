@@ -42,8 +42,9 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius};
 use crate::view_models::library::{
-    LibraryAlbumDetailVm, LibraryArtistDetailVm, LibraryTrackRowVm, LibraryViewModel, MbStatusKind,
-    MbTrackStatus, PlaylistDetailVm, PlaylistSort,
+    AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
+    LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind, MbTrackStatus,
+    PlaylistDetailVm,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
@@ -145,26 +146,6 @@ impl InspectorFrame {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct ArtistNode {
-    pub(crate) name: String,
-    pub(crate) albums: Vec<AlbumNode>,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct AlbumNode {
-    pub(crate) name: String,
-    pub(crate) feed_id: Option<i64>,
-    pub(crate) feed_url: Option<String>,
-    pub(crate) image_href: Option<String>,
-    pub(crate) tracks: Vec<TrackRow>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) struct LibraryTree {
-    pub(crate) artists: Vec<ArtistNode>,
-}
-
-#[derive(Clone, Debug)]
 struct LibraryTrackCompare {
     tag_compare: TagCompareResult,
     track_context: TrackContext,
@@ -180,38 +161,19 @@ pub struct LibraryApp {
     conn: Arc<Mutex<Connection>>,
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
-    tree: LibraryTree,
-    /// Stateful screen view-model. Owns the pure UI state that does
-    /// not need GPUI types — selection, expansion sets, sort orders,
-    /// picker toggles, status messages, search query. Fields move
-    /// from `LibraryApp` into the VM in phases; see ADR 0023.
+    /// Stateful screen view-model. Owns all pure UI state and loaded
+    /// snapshots — tree, selection, expansion sets, sort orders,
+    /// picker toggles, status, search query, playlists, MusicBrainz
+    /// lookup state, feed-update workflow state. The fields kept on
+    /// `LibraryApp` itself are GPUI-bound (Entity / Subscription),
+    /// service handles, screen-only inspector state, or maps that
+    /// still hold `Arc<gpui::Image>`. See ADR 0023.
     vm: LibraryViewModel,
     detail: LibraryDetail,
-    mb_status: BTreeMap<i64, MbTrackStatus>,
-    staged_musicbrainz: BTreeMap<i64, MusicBrainzLookupResult>,
     thumbnails: BTreeMap<(String, bool), ThumbnailState>,
     search_input: Entity<InputState>,
     _search_sub: gpui::Subscription,
-    feed_update_state: FeedUpdateState,
-    in_flight_feed_checks: HashSet<i64>,
-    playlists: Vec<db::Playlist>,
-    playlist_tracks: Vec<TrackRow>,
     new_playlist_input: Entity<InputState>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct FeedUpdateState {
-    pub phase: FeedUpdatePhase,
-    pub status_message: Option<String>,
-    pub stale: Vec<feed_service::StaleFeed>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum FeedUpdatePhase {
-    #[default]
-    Idle,
-    Checking,
-    Applying,
 }
 
 use crate::ui::render_rss_icon_link;
@@ -244,18 +206,11 @@ impl LibraryApp {
             conn,
             cache,
             musicindex_endpoint,
-            tree: LibraryTree::default(),
             vm: LibraryViewModel::new(),
             detail: LibraryDetail::None,
-            mb_status: BTreeMap::new(),
-            staged_musicbrainz: BTreeMap::new(),
             thumbnails: BTreeMap::new(),
             search_input,
             _search_sub: search_sub,
-            feed_update_state: FeedUpdateState::default(),
-            in_flight_feed_checks: HashSet::new(),
-            playlists: Vec::new(),
-            playlist_tracks: Vec::new(),
             new_playlist_input,
         };
         app.reload();
@@ -358,7 +313,7 @@ impl LibraryApp {
         match library_service::library_tracks(&conn) {
             Ok(rows) => {
                 let count = rows.len();
-                self.tree = build_tree(&rows, &conn);
+                self.vm.replace_tree(build_tree(&rows, &conn));
                 self.vm.status =
                     format!("{count} library track{}", if count == 1 { "" } else { "s" });
             }
@@ -370,39 +325,20 @@ impl LibraryApp {
         self.reload_playlists();
         self.vm.selected_id = None;
         self.detail = LibraryDetail::None;
-        self.mb_status.clear();
+        self.vm.clear_mb_status();
     }
 
     fn reload_playlists(&mut self) {
         let conn = self.conn.lock().expect("lock db");
         match playlist_service::list(&conn) {
-            Ok(mut list) => {
-                self.sort_playlists(&mut list);
-                self.playlists = list;
-            }
+            Ok(list) => self.vm.replace_playlists(list),
             Err(err) => self.vm.status = format!("Error loading playlists: {err:#}"),
-        }
-    }
-
-    fn sort_playlists(&self, list: &mut [db::Playlist]) {
-        match self.vm.playlist_sort {
-            PlaylistSort::Name => {
-                list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            }
-            PlaylistSort::RecentlyUpdated => {
-                list.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-            }
-            PlaylistSort::TrackCount => {
-                list.sort_by(|a, b| b.track_count.cmp(&a.track_count));
-            }
         }
     }
 
     fn cycle_playlist_sort(&mut self, cx: &mut Context<Self>) {
         self.vm.cycle_playlist_sort();
-        let mut list = std::mem::take(&mut self.playlists);
-        self.sort_playlists(&mut list);
-        self.playlists = list;
+        self.vm.sort_loaded_playlists();
         cx.notify();
     }
 
@@ -410,7 +346,7 @@ impl LibraryApp {
         self.vm.selected_id = None;
         self.vm.selected_playlist_id = Some(id);
         let conn = self.conn.lock().expect("lock db");
-        let playlist = self.playlists.iter().find(|p| p.id == id).cloned();
+        let playlist = self.vm.playlist_by_id(id);
         let tracks = playlist_service::tracks(&conn, id).unwrap_or_default();
         drop(conn);
         if let Some(playlist) = playlist {
@@ -418,7 +354,7 @@ impl LibraryApp {
                 playlist,
                 tracks: tracks.clone(),
             });
-            self.playlist_tracks = tracks;
+            self.vm.replace_playlist_tracks(tracks);
         }
         cx.notify();
     }
@@ -549,9 +485,8 @@ impl LibraryApp {
     ) {
         let total = track_ids.len();
         let playlist_name = self
-            .playlists
-            .iter()
-            .find(|p| p.id == playlist_id)
+            .vm
+            .playlist_by_id(playlist_id)
             .map(|p| p.name.clone())
             .unwrap_or_default();
         self.vm.status = format!(
@@ -676,7 +611,7 @@ impl LibraryApp {
     fn select_artist(&mut self, name: &str, _cx: &mut Context<Self>) {
         // Find all tracks matching this artist name
         let mut tracks = Vec::new();
-        for artist_node in &self.tree.artists {
+        for artist_node in &self.vm.tree().artists {
             if artist_node.name == name {
                 for album in &artist_node.albums {
                     tracks.extend(album.tracks.clone());
@@ -692,19 +627,11 @@ impl LibraryApp {
     }
 
     fn check_feed_on_view(&mut self, feed_id: i64, cx: &mut Context<Self>) {
-        if self.feed_update_state.phase == FeedUpdatePhase::Applying
-            || self
-                .feed_update_state
-                .stale
-                .iter()
-                .any(|entry| entry.feed_id == feed_id)
-            || !self.in_flight_feed_checks.insert(feed_id)
-        {
+        if !self.vm.begin_feed_view_check(feed_id) {
             return;
         }
         let conn = Arc::clone(&self.conn);
         let endpoint = self.musicindex_endpoint.clone();
-        self.feed_update_state.status_message = Some("Checking feed...".into());
         cx.notify();
         cx.spawn(
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
@@ -715,40 +642,8 @@ impl LibraryApp {
                         })
                         .await;
                 let _ = this.update(cx, move |this, cx| {
-                    this.in_flight_feed_checks.remove(&feed_id);
-                    match stale {
-                        Ok(Some(entry)) => {
-                            if !this
-                                .feed_update_state
-                                .stale
-                                .iter()
-                                .any(|existing| existing.feed_id == entry.feed_id)
-                            {
-                                this.feed_update_state.stale.push(entry);
-                            }
-                            this.feed_update_state.status_message = Some(format!(
-                                "{} feed update{} pending",
-                                this.feed_update_state.stale.len(),
-                                if this.feed_update_state.stale.len() == 1 {
-                                    ""
-                                } else {
-                                    "s"
-                                }
-                            ));
-                        }
-                        Ok(None) => {
-                            if this.feed_update_state.stale.is_empty()
-                                && this.in_flight_feed_checks.is_empty()
-                            {
-                                this.feed_update_state.status_message =
-                                    Some("Feed up to date".into());
-                            }
-                        }
-                        Err(err) => {
-                            this.feed_update_state.status_message =
-                                Some(format!("Feed check error: {err:#}"));
-                        }
-                    }
+                    this.vm
+                        .finish_feed_view_check(feed_id, stale.map_err(|err| format!("{err:#}")));
                     cx.notify();
                 });
             },
@@ -757,15 +652,14 @@ impl LibraryApp {
     }
 
     fn check_all_feeds(&mut self, cx: &mut Context<Self>) {
-        if self.feed_update_state.phase != FeedUpdatePhase::Idle {
+        if self.vm.feed_update_state().phase != FeedUpdatePhase::Idle {
             return;
         }
         let feeds = {
             let conn = match self.conn.lock() {
                 Ok(conn) => conn,
                 Err(_) => {
-                    self.feed_update_state.status_message =
-                        Some("Feed check error: database lock poisoned".into());
+                    self.vm.set_feed_check_error("database lock poisoned");
                     cx.notify();
                     return;
                 }
@@ -773,21 +667,18 @@ impl LibraryApp {
             match db::subscribed_feeds_for_stale_check(&conn) {
                 Ok(rows) => rows,
                 Err(err) => {
-                    self.feed_update_state.status_message =
-                        Some(format!("Feed check error: {err:#}"));
+                    self.vm.set_feed_check_error(format!("{err:#}"));
                     cx.notify();
                     return;
                 }
             }
         };
         if feeds.is_empty() {
-            self.feed_update_state.status_message = Some("No subscribed feeds to check".into());
+            self.vm.set_no_subscribed_feeds();
             cx.notify();
             return;
         }
-        self.feed_update_state.phase = FeedUpdatePhase::Checking;
-        self.feed_update_state.stale.clear();
-        self.feed_update_state.status_message = Some(format!("Checking {} feeds...", feeds.len()));
+        self.vm.begin_all_feed_check(feeds.len());
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -809,22 +700,7 @@ impl LibraryApp {
                     })
                     .await;
                 let _ = this.update(cx, move |this, cx| {
-                    this.feed_update_state.phase = FeedUpdatePhase::Idle;
-                    this.feed_update_state.stale = stale;
-                    this.feed_update_state.status_message =
-                        Some(if this.feed_update_state.stale.is_empty() {
-                            "All feeds up to date".into()
-                        } else {
-                            format!(
-                                "{} feed update{} available",
-                                this.feed_update_state.stale.len(),
-                                if this.feed_update_state.stale.len() == 1 {
-                                    ""
-                                } else {
-                                    "s"
-                                }
-                            )
-                        });
+                    this.vm.finish_all_feed_check(stale);
                     cx.notify();
                 });
             },
@@ -833,15 +709,9 @@ impl LibraryApp {
     }
 
     fn apply_all_feed_updates(&mut self, cx: &mut Context<Self>) {
-        if self.feed_update_state.phase != FeedUpdatePhase::Idle
-            || self.feed_update_state.stale.is_empty()
-        {
+        let Some(stale) = self.vm.begin_apply_feed_updates() else {
             return;
-        }
-        let stale = self.feed_update_state.stale.clone();
-        self.feed_update_state.phase = FeedUpdatePhase::Applying;
-        self.feed_update_state.status_message =
-            Some(format!("Applying updates to {} feed(s)...", stale.len()));
+        };
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -875,8 +745,6 @@ impl LibraryApp {
                     })
                     .await;
                 let _ = this.update(cx, move |this, cx| {
-                    this.feed_update_state.phase = FeedUpdatePhase::Idle;
-                    this.feed_update_state.stale.clear();
                     let (tracks, edits, id3_errors, feed_errors) = outcomes;
                     let mut parts: Vec<String> = Vec::new();
                     parts.push(if tracks == 0 {
@@ -898,7 +766,7 @@ impl LibraryApp {
                             feed_errors.join("; ")
                         ));
                     }
-                    this.feed_update_state.status_message = Some(parts.join(" — "));
+                    this.vm.finish_apply_feed_updates(parts.join(" — "));
                     cx.notify();
                 });
             },
@@ -914,7 +782,7 @@ impl LibraryApp {
             .or(track.album_image_href.as_deref())
             .and_then(|url| self.thumbnail_for_url(Some(url), true, cx));
         let mut frame = InspectorFrame::for_track(track.clone(), image);
-        if let Some(lookup) = self.staged_musicbrainz.get(&track.id).cloned() {
+        if let Some(lookup) = self.vm.staged_musicbrainz(track.id).cloned() {
             frame.musicbrainz_lookup = LazyPanel::Loaded(lookup);
             frame.musicbrainz_selected = 0;
         }
@@ -1050,7 +918,7 @@ impl LibraryApp {
         track_id: i64,
         lookup: MusicBrainzLookupResult,
     ) {
-        self.staged_musicbrainz.insert(track_id, lookup.clone());
+        self.vm.stage_musicbrainz(track_id, lookup.clone());
         if let Some(frame) = self.selected_track_frame_mut() {
             if frame.entity_id == track_id {
                 frame.musicbrainz_lookup = LazyPanel::Loaded(lookup);
@@ -1390,10 +1258,10 @@ impl LibraryApp {
 
     #[allow(dead_code)]
     fn musicbrainz_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
-        if self.mb_status.contains_key(&track.id) {
+        if self.vm.has_mb_status(track.id) {
             return;
         }
-        self.mb_status.insert(track.id, MbTrackStatus::Processing);
+        self.vm.set_mb_status(track.id, MbTrackStatus::Processing);
         self.vm.status = "MusicBrainz lookup...".into();
         cx.notify();
 
@@ -1413,15 +1281,17 @@ impl LibraryApp {
                             Ok(staged) => {
                                 let n = staged.edit_count;
                                 this.stage_musicbrainz_lookup_for_track(track_id, staged.lookup);
-                                this.mb_status.insert(track_id, MbTrackStatus::Done(n));
+                                this.vm.set_mb_status(track_id, MbTrackStatus::Done(n));
                                 this.vm.status = format!(
                                     "MusicBrainz: staged {n} edit{}",
                                     if n == 1 { "" } else { "s" }
                                 );
                             }
                             Err(err) => {
-                                this.mb_status
-                                    .insert(track_id, MbTrackStatus::Skipped(format!("{err:#}")));
+                                this.vm.set_mb_status(
+                                    track_id,
+                                    MbTrackStatus::Skipped(format!("{err:#}")),
+                                );
                                 this.vm.status = format!("MusicBrainz error: {err:#}");
                             }
                         }
@@ -1445,9 +1315,8 @@ impl LibraryApp {
             cx.notify();
             return;
         }
-        for t in &downloadable {
-            self.mb_status.insert(t.id, MbTrackStatus::Pending);
-        }
+        self.vm
+            .mark_musicbrainz_pending(downloadable.iter().map(|track| track.id));
         self.vm.status = format!(
             "MusicBrainz: album lookup for {} tracks...",
             downloadable.len()
@@ -1545,7 +1414,7 @@ impl LibraryApp {
                     this.update(
                         cx,
                         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                            this.mb_status.insert(track_id, MbTrackStatus::Processing);
+                            this.vm.set_mb_status(track_id, MbTrackStatus::Processing);
                             this.vm.status = format!(
                                 "MusicBrainz: staging track {progress}/{total_count} ...",
                             );
@@ -1594,7 +1463,7 @@ impl LibraryApp {
                     this.update(
                         cx,
                         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                            this.mb_status.insert(track_id, status_clone);
+                            this.vm.set_mb_status(track_id, status_clone);
                             cx.notify();
                         },
                     )
@@ -1691,7 +1560,7 @@ async fn musicbrainz_feed_per_track(
         this.update(
             cx,
             move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                this.mb_status.insert(track_id, MbTrackStatus::Processing);
+                this.vm.set_mb_status(track_id, MbTrackStatus::Processing);
                 this.vm.status =
                     format!("MusicBrainz: staging track {progress}/{total_count} ...",);
                 cx.notify();
@@ -1728,7 +1597,7 @@ async fn musicbrainz_feed_per_track(
         this.update(
             cx,
             move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                this.mb_status.insert(track_id, status_clone);
+                this.vm.set_mb_status(track_id, status_clone);
                 cx.notify();
             },
         )
@@ -1899,7 +1768,8 @@ impl Render for LibraryApp {
 
         // Collect image URLs from tree, then fetch thumbnails (avoids borrow conflict).
         let urls: Vec<String> = {
-            self.tree
+            self.vm
+                .tree()
                 .artists
                 .iter()
                 .flat_map(|a| &a.albums)
@@ -1927,7 +1797,7 @@ impl Render for LibraryApp {
             }
         }
 
-        let base_tree = &self.tree;
+        let base_tree = self.vm.tree();
         let query = self.vm.search_query.trim();
         let has_query = !query.is_empty();
         let filtered_tree = if has_query {
@@ -1967,7 +1837,7 @@ impl Render for LibraryApp {
         );
         let filtered_empty = filtered_tree.artists.is_empty();
 
-        let playlists = self.playlists.clone();
+        let playlists = self.vm.playlists().to_vec();
         let selected_playlist_id = self.vm.selected_playlist_id;
         let creating_playlist = self.vm.creating_playlist;
         let playlists_expanded = self.vm.playlists_expanded;
@@ -2134,9 +2004,9 @@ impl Render for LibraryApp {
         let detail_pane = render_detail(
             &self.detail,
             self.vm.busy_track,
-            &self.mb_status,
+            self.vm.mb_status(),
             &album_thumbs,
-            &self.playlists,
+            self.vm.playlists(),
             self.vm.album_add_open_feed,
             self.vm.album_add_open_track,
             cx,
@@ -2200,10 +2070,11 @@ impl Render for LibraryApp {
                                     ),
                             )
                             .child({
-                                let has_stale = !self.feed_update_state.stale.is_empty();
-                                let phase = self.feed_update_state.phase.clone();
-                                let stale_count = self.feed_update_state.stale.len();
-                                let feed_status = self.feed_update_state.status_message.clone();
+                                let feed_update = self.vm.feed_update_state();
+                                let has_stale = !feed_update.stale.is_empty();
+                                let phase = feed_update.phase.clone();
+                                let stale_count = feed_update.stale.len();
+                                let feed_status = feed_update.status_message.clone();
                                 div()
                                     .flex()
                                     .flex_row()
@@ -2591,7 +2462,7 @@ fn render_library_artist_detail(
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let feed_name_to_match = feed_name_for_click.clone();
-                    let tree_artists = this.tree.artists.clone();
+                    let tree_artists = this.vm.tree().artists.clone();
                     for artist_node in &tree_artists {
                         for album in &artist_node.albums {
                             if album.name == feed_name_to_match {

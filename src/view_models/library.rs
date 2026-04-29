@@ -20,6 +20,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::db::{self, TrackRow};
+use crate::feed_service;
+use crate::metadata::MusicBrainzLookupResult;
 use crate::view_models::format::{fmt_total_runtime_clock, plural};
 use crate::views::FeedView;
 
@@ -53,6 +55,68 @@ pub(crate) enum MbStatusKind {
     Warning,
     Danger,
     Muted,
+}
+
+/// One artist node in the library sidebar tree. Owns a flat list of
+/// album nodes; the screen handles expansion and rendering.
+#[derive(Clone, Debug)]
+pub(crate) struct ArtistNode {
+    pub(crate) name: String,
+    pub(crate) albums: Vec<AlbumNode>,
+}
+
+/// One album node — a feed in podcast terms — under an artist. Holds
+/// the embedded track rows so the album-detail panel can render
+/// without re-querying the DB.
+#[derive(Clone, Debug)]
+pub(crate) struct AlbumNode {
+    pub(crate) name: String,
+    pub(crate) feed_id: Option<i64>,
+    pub(crate) feed_url: Option<String>,
+    pub(crate) image_href: Option<String>,
+    pub(crate) tracks: Vec<TrackRow>,
+}
+
+/// Top-level structure of the library sidebar — a list of artist
+/// nodes, each with their albums.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LibraryTree {
+    pub(crate) artists: Vec<ArtistNode>,
+}
+
+/// Pure data snapshots loaded by the library screen.
+///
+/// This groups DB-derived read models and in-flight metadata/feed state
+/// behind the view-model boundary. It intentionally carries no GPUI
+/// framework values; image caches and subscriptions stay in `LibraryApp`.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LibrarySnapshot {
+    tree: LibraryTree,
+    playlists: Vec<db::Playlist>,
+    playlist_tracks: Vec<TrackRow>,
+    mb_status: BTreeMap<i64, MbTrackStatus>,
+    staged_musicbrainz: BTreeMap<i64, MusicBrainzLookupResult>,
+    in_flight_feed_checks: HashSet<i64>,
+    feed_update_state: FeedUpdateState,
+}
+
+/// Snapshot of the multi-feed update workflow exposed by
+/// `feed_service`. Owned by the library view-model; the screen reads
+/// `phase` to decide whether to show progress vs. results.
+#[derive(Clone, Debug, Default)]
+pub struct FeedUpdateState {
+    pub phase: FeedUpdatePhase,
+    pub status_message: Option<String>,
+    pub stale: Vec<feed_service::StaleFeed>,
+}
+
+/// Lifecycle of a feed-update workflow.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum FeedUpdatePhase {
+    #[default]
+    Idle,
+    Checking,
+    Applying,
 }
 
 /// Sort order for the library's playlist sidebar.
@@ -105,7 +169,10 @@ impl PlaylistSort {
 /// renderer migrates to projection VMs.
 #[derive(Clone, Debug)]
 pub(crate) struct LibraryViewModel {
-    // Sidebar tree expansion + sort.
+    // Loaded snapshots — owned here so the screen can become a thin
+    // Render impl. None of these carry GPUI types.
+    snapshot: LibrarySnapshot,
+    // Sidebar expansion + sort.
     pub(crate) expanded_artists: HashSet<String>,
     pub(crate) expanded_albums: HashSet<(String, String)>,
     pub(crate) playlists_expanded: bool,
@@ -127,11 +194,13 @@ pub(crate) struct LibraryViewModel {
 
 impl LibraryViewModel {
     /// Construct a view-model with the legacy `LibraryApp::new`
-    /// defaults: empty expansion sets, playlists sidebar already
-    /// expanded, sort by name, no selection, no operation in flight.
+    /// defaults: empty tree + snapshots, empty expansion sets,
+    /// playlists sidebar already expanded, sort by name, no selection,
+    /// no operation in flight.
     #[must_use]
     pub(crate) fn new() -> Self {
         Self {
+            snapshot: LibrarySnapshot::default(),
             expanded_artists: HashSet::new(),
             expanded_albums: HashSet::new(),
             playlists_expanded: true,
@@ -146,6 +215,182 @@ impl LibraryViewModel {
             album_add_open_feed: false,
             album_add_open_track: None,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn tree(&self) -> &LibraryTree {
+        &self.snapshot.tree
+    }
+
+    pub(crate) fn replace_tree(&mut self, tree: LibraryTree) {
+        self.snapshot.tree = tree;
+    }
+
+    #[must_use]
+    pub(crate) fn playlists(&self) -> &[db::Playlist] {
+        &self.snapshot.playlists
+    }
+
+    pub(crate) fn replace_playlists(&mut self, mut playlists: Vec<db::Playlist>) {
+        Self::sort_playlists_by(self.playlist_sort, &mut playlists);
+        self.snapshot.playlists = playlists;
+    }
+
+    pub(crate) fn sort_loaded_playlists(&mut self) {
+        Self::sort_playlists_by(self.playlist_sort, &mut self.snapshot.playlists);
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_by_id(&self, playlist_id: i64) -> Option<db::Playlist> {
+        self.snapshot
+            .playlists
+            .iter()
+            .find(|playlist| playlist.id == playlist_id)
+            .cloned()
+    }
+
+    pub(crate) fn replace_playlist_tracks(&mut self, tracks: Vec<TrackRow>) {
+        self.snapshot.playlist_tracks = tracks;
+    }
+
+    #[must_use]
+    pub(crate) fn mb_status(&self) -> &BTreeMap<i64, MbTrackStatus> {
+        &self.snapshot.mb_status
+    }
+
+    #[must_use]
+    pub(crate) fn has_mb_status(&self, track_id: i64) -> bool {
+        self.snapshot.mb_status.contains_key(&track_id)
+    }
+
+    pub(crate) fn set_mb_status(&mut self, track_id: i64, status: MbTrackStatus) {
+        self.snapshot.mb_status.insert(track_id, status);
+    }
+
+    pub(crate) fn mark_musicbrainz_pending(&mut self, track_ids: impl IntoIterator<Item = i64>) {
+        for track_id in track_ids {
+            self.set_mb_status(track_id, MbTrackStatus::Pending);
+        }
+    }
+
+    pub(crate) fn clear_mb_status(&mut self) {
+        self.snapshot.mb_status.clear();
+    }
+
+    #[must_use]
+    pub(crate) fn staged_musicbrainz(&self, track_id: i64) -> Option<&MusicBrainzLookupResult> {
+        self.snapshot.staged_musicbrainz.get(&track_id)
+    }
+
+    pub(crate) fn stage_musicbrainz(&mut self, track_id: i64, lookup: MusicBrainzLookupResult) {
+        self.snapshot.staged_musicbrainz.insert(track_id, lookup);
+    }
+
+    #[must_use]
+    pub(crate) fn feed_update_state(&self) -> &FeedUpdateState {
+        &self.snapshot.feed_update_state
+    }
+
+    pub(crate) fn begin_feed_view_check(&mut self, feed_id: i64) -> bool {
+        if self.snapshot.feed_update_state.phase == FeedUpdatePhase::Applying
+            || self
+                .snapshot
+                .feed_update_state
+                .stale
+                .iter()
+                .any(|entry| entry.feed_id == feed_id)
+            || !self.snapshot.in_flight_feed_checks.insert(feed_id)
+        {
+            return false;
+        }
+        self.snapshot.feed_update_state.status_message = Some("Checking feed...".into());
+        true
+    }
+
+    pub(crate) fn finish_feed_view_check(
+        &mut self,
+        feed_id: i64,
+        result: Result<Option<feed_service::StaleFeed>, String>,
+    ) {
+        self.snapshot.in_flight_feed_checks.remove(&feed_id);
+        match result {
+            Ok(Some(entry)) => {
+                if !self
+                    .snapshot
+                    .feed_update_state
+                    .stale
+                    .iter()
+                    .any(|existing| existing.feed_id == entry.feed_id)
+                {
+                    self.snapshot.feed_update_state.stale.push(entry);
+                }
+                self.snapshot.feed_update_state.status_message = Some(
+                    Self::pending_feed_update_label(self.snapshot.feed_update_state.stale.len()),
+                );
+            }
+            Ok(None) => {
+                if self.snapshot.feed_update_state.stale.is_empty()
+                    && self.snapshot.in_flight_feed_checks.is_empty()
+                {
+                    self.snapshot.feed_update_state.status_message = Some("Feed up to date".into());
+                }
+            }
+            Err(err) => {
+                self.snapshot.feed_update_state.status_message =
+                    Some(format!("Feed check error: {err}"));
+            }
+        }
+    }
+
+    pub(crate) fn set_feed_check_error(&mut self, message: impl Into<String>) {
+        self.snapshot.feed_update_state.status_message =
+            Some(format!("Feed check error: {}", message.into()));
+    }
+
+    pub(crate) fn set_no_subscribed_feeds(&mut self) {
+        self.snapshot.feed_update_state.status_message =
+            Some("No subscribed feeds to check".into());
+    }
+
+    pub(crate) fn begin_all_feed_check(&mut self, feed_count: usize) {
+        self.snapshot.feed_update_state.phase = FeedUpdatePhase::Checking;
+        self.snapshot.feed_update_state.stale.clear();
+        self.snapshot.feed_update_state.status_message =
+            Some(format!("Checking {feed_count} feeds..."));
+    }
+
+    pub(crate) fn finish_all_feed_check(&mut self, stale: Vec<feed_service::StaleFeed>) {
+        self.snapshot.feed_update_state.phase = FeedUpdatePhase::Idle;
+        self.snapshot.feed_update_state.stale = stale;
+        self.snapshot.feed_update_state.status_message =
+            Some(if self.snapshot.feed_update_state.stale.is_empty() {
+                "All feeds up to date".into()
+            } else {
+                format!(
+                    "{} feed update{} available",
+                    self.snapshot.feed_update_state.stale.len(),
+                    plural(self.snapshot.feed_update_state.stale.len())
+                )
+            });
+    }
+
+    pub(crate) fn begin_apply_feed_updates(&mut self) -> Option<Vec<feed_service::StaleFeed>> {
+        if self.snapshot.feed_update_state.phase != FeedUpdatePhase::Idle
+            || self.snapshot.feed_update_state.stale.is_empty()
+        {
+            return None;
+        }
+        let stale = self.snapshot.feed_update_state.stale.clone();
+        self.snapshot.feed_update_state.phase = FeedUpdatePhase::Applying;
+        self.snapshot.feed_update_state.status_message =
+            Some(format!("Applying updates to {} feed(s)...", stale.len()));
+        Some(stale)
+    }
+
+    pub(crate) fn finish_apply_feed_updates(&mut self, message: String) {
+        self.snapshot.feed_update_state.phase = FeedUpdatePhase::Idle;
+        self.snapshot.feed_update_state.stale.clear();
+        self.snapshot.feed_update_state.status_message = Some(message);
     }
 
     /// Toggle the expansion state of an artist node by name.
@@ -175,6 +420,24 @@ impl LibraryViewModel {
     /// VM does not own the snapshot yet.
     pub(crate) fn cycle_playlist_sort(&mut self) {
         self.playlist_sort = self.playlist_sort.next();
+    }
+
+    fn sort_playlists_by(sort: PlaylistSort, playlists: &mut [db::Playlist]) {
+        match sort {
+            PlaylistSort::Name => {
+                playlists.sort_by_key(|playlist| playlist.name.to_lowercase());
+            }
+            PlaylistSort::RecentlyUpdated => {
+                playlists.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            }
+            PlaylistSort::TrackCount => {
+                playlists.sort_by(|a, b| b.track_count.cmp(&a.track_count));
+            }
+        }
+    }
+
+    fn pending_feed_update_label(count: usize) -> String {
+        format!("{count} feed update{} pending", plural(count))
     }
 
     // Both lookups are exercised by the unit tests below but not yet
@@ -1166,6 +1429,20 @@ mod tests {
     }
 
     #[test]
+    fn library_view_model_starts_with_empty_snapshots_and_idle_feed_update() {
+        let vm = LibraryViewModel::new();
+        assert!(vm.tree().artists.is_empty());
+        assert!(vm.playlists().is_empty());
+        assert!(vm.snapshot.playlist_tracks.is_empty());
+        assert!(vm.mb_status().is_empty());
+        assert!(vm.snapshot.staged_musicbrainz.is_empty());
+        assert!(vm.snapshot.in_flight_feed_checks.is_empty());
+        assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Idle);
+        assert!(vm.feed_update_state().status_message.is_none());
+        assert!(vm.feed_update_state().stale.is_empty());
+    }
+
+    #[test]
     fn library_view_model_toggle_artist_round_trip() {
         let mut vm = LibraryViewModel::new();
         assert!(!vm.is_artist_expanded("Aphex"));
@@ -1217,6 +1494,147 @@ mod tests {
         assert_eq!(vm.playlist_sort_label(), "Recent");
         vm.cycle_playlist_sort();
         assert_eq!(vm.playlist_sort_label(), "Size");
+    }
+
+    #[test]
+    fn library_view_model_replaces_and_sorts_playlists_by_active_sort() {
+        let mut vm = LibraryViewModel::new();
+        let mut alpha = playlist("Alpha");
+        alpha.id = 10;
+        alpha.track_count = 3;
+        alpha.updated_at = 1;
+        let mut zed = playlist("zed");
+        zed.id = 20;
+        zed.track_count = 9;
+        zed.updated_at = 5;
+
+        vm.replace_playlists(vec![zed.clone(), alpha.clone()]);
+        assert_eq!(vm.playlists()[0].id, alpha.id);
+        assert_eq!(
+            vm.playlist_by_id(zed.id).map(|playlist| playlist.name),
+            Some("zed".into())
+        );
+
+        vm.cycle_playlist_sort();
+        vm.sort_loaded_playlists();
+        assert_eq!(vm.playlists()[0].id, zed.id);
+
+        vm.cycle_playlist_sort();
+        vm.sort_loaded_playlists();
+        assert_eq!(vm.playlists()[0].track_count, 9);
+    }
+
+    #[test]
+    fn library_view_model_tracks_playlist_snapshot_replacement() {
+        let mut vm = LibraryViewModel::new();
+        let mut track = row();
+        track.id = 42;
+
+        vm.replace_playlist_tracks(vec![track]);
+
+        assert_eq!(vm.snapshot.playlist_tracks.len(), 1);
+        assert_eq!(vm.snapshot.playlist_tracks[0].id, 42);
+    }
+
+    #[test]
+    fn library_view_model_tracks_musicbrainz_status_and_staged_lookup() {
+        let mut vm = LibraryViewModel::new();
+        vm.set_mb_status(7, MbTrackStatus::Processing);
+        assert!(vm.has_mb_status(7));
+        assert!(matches!(
+            vm.mb_status().get(&7),
+            Some(MbTrackStatus::Processing)
+        ));
+
+        vm.mark_musicbrainz_pending([8, 9]);
+        assert!(matches!(
+            vm.mb_status().get(&8),
+            Some(MbTrackStatus::Pending)
+        ));
+        assert!(matches!(
+            vm.mb_status().get(&9),
+            Some(MbTrackStatus::Pending)
+        ));
+
+        let lookup = MusicBrainzLookupResult {
+            lookup: crate::musicbrainz::MusicBrainzLookup {
+                query: "track".into(),
+                candidates: Vec::new(),
+            },
+            image: None,
+        };
+        vm.stage_musicbrainz(7, lookup);
+        assert_eq!(
+            vm.staged_musicbrainz(7)
+                .map(|lookup| lookup.lookup.query.as_str()),
+            Some("track")
+        );
+
+        vm.clear_mb_status();
+        assert!(vm.mb_status().is_empty());
+    }
+
+    #[test]
+    fn library_view_model_single_feed_check_dedupes_and_records_stale() {
+        let mut vm = LibraryViewModel::new();
+        assert!(vm.begin_feed_view_check(42));
+        assert!(!vm.begin_feed_view_check(42));
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some("Checking feed...")
+        );
+
+        vm.finish_feed_view_check(
+            42,
+            Ok(Some(feed_service::StaleFeed {
+                feed_id: 42,
+                feed_guid: "feed-guid".into(),
+                title: Some("Feed".into()),
+                new_updated_at: 100,
+            })),
+        );
+
+        assert_eq!(vm.feed_update_state().stale.len(), 1);
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some("1 feed update pending")
+        );
+    }
+
+    #[test]
+    fn library_view_model_bulk_feed_check_and_apply_transitions_are_pure() {
+        let mut vm = LibraryViewModel::new();
+        vm.begin_all_feed_check(2);
+        assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Checking);
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some("Checking 2 feeds...")
+        );
+
+        vm.finish_all_feed_check(vec![feed_service::StaleFeed {
+            feed_id: 1,
+            feed_guid: "one".into(),
+            title: None,
+            new_updated_at: 9,
+        }]);
+        assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Idle);
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some("1 feed update available")
+        );
+
+        let stale = vm
+            .begin_apply_feed_updates()
+            .expect("stale feeds should apply");
+        assert_eq!(stale.len(), 1);
+        assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Applying);
+        vm.finish_apply_feed_updates("Done".into());
+        assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Idle);
+        assert!(vm.feed_update_state().stale.is_empty());
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some("Done")
+        );
     }
 
     #[test]
