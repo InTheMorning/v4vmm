@@ -917,6 +917,7 @@ pub fn run_app() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
+        crate::ui::theme_bridge::install_theme(crate::ui::tokens::Appearance::Dark, cx);
 
         // Load config + open DB
         let cfg_path = config::config_path().expect("config path");

@@ -6180,6 +6180,7 @@ pub fn run_search_app() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
+        crate::ui::theme_bridge::install_theme(crate::ui::tokens::Appearance::Dark, cx);
         let cfg_path = config::config_path().expect("config path");
         let cfg = config::load_config(&cfg_path).expect("load config");
         config::ensure_dirs(&cfg).expect("ensure dirs");

@@ -1,5 +1,9 @@
+pub mod contrast;
 pub mod playlist_popover;
+pub mod primitives;
 pub mod theme;
+pub mod theme_bridge;
+pub mod tokens;
 
 use std::sync::{Arc, OnceLock};
 
