@@ -10,6 +10,7 @@ use gpui::{
     div, AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window,
 };
 
+use crate::ui::primitives::{HStack, VStack};
 use crate::ui::tokens::{Appearance, FontSize, ScaleFactor, SemanticColor, Spacing};
 
 /// Single key/value row in a [`DetailGrid`]. The value is an
@@ -102,34 +103,32 @@ impl RenderOnce for DetailGrid {
         let key_color = SemanticColor::SecondaryLabel.resolve(appearance);
         let mult = ScaleFactor::current(cx).multiplier();
         let key_width = gpui::px(KEY_COL_BASE * mult);
+        let body_size = FontSize::Micro.scaled(cx);
 
-        div()
-            .flex()
-            .flex_col()
-            .gap(Spacing::XS.scaled(cx))
-            .children(self.rows.into_iter().map(|row| {
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_start()
-                    .gap(Spacing::MD.scaled(cx))
+        let mut stack = VStack::new().spacing(Spacing::XS).stretch();
+        for row in self.rows {
+            stack = stack.child(
+                HStack::new()
+                    .spacing(Spacing::MD)
+                    .top()
                     .child(
                         div()
                             .w(key_width)
                             .flex_shrink_0()
                             .text_color(key_color)
                             .whitespace_nowrap()
-                            .text_size(FontSize::Micro.scaled(cx))
+                            .text_size(body_size)
                             .child(row.key),
                     )
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_size(FontSize::Micro.scaled(cx))
+                            .text_size(body_size)
                             .child(row.value),
-                    )
-                    .into_any_element()
-            }))
+                    ),
+            );
+        }
+        stack
     }
 }

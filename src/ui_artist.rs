@@ -1,10 +1,11 @@
 use crate::api::Feed;
 use crate::search::{render_feed_list_section, SearchApp};
 use crate::ui::composites::{DetailGrid, DetailHeader, DetailRow, EntityKind};
+use crate::ui::primitives::VStack;
 use crate::ui::tokens::Spacing;
 use crate::ui_context::ViewContext;
 use crate::views::ArtistView;
-use gpui::{div, prelude::*, AnyElement, Context};
+use gpui::{prelude::*, AnyElement, Context};
 use std::sync::Arc;
 
 #[expect(
@@ -41,20 +42,21 @@ pub fn render_artist_view(
     );
     push_optional(&mut rows, "Website", view.url.clone());
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(Spacing::LG.scaled(cx))
+    let mut stack = VStack::new()
+        .spacing(Spacing::LG)
+        .stretch()
         .child(
             DetailHeader::new(EntityKind::Artist, title)
                 .subtitle("Feeds with tracks by this artist")
                 .image(image),
         )
-        .child(DetailGrid::new(rows))
-        .when(!feeds.is_empty(), |el| {
-            el.child(render_feed_list_section("Feeds", feeds.to_vec(), app, cx))
-        })
-        .into_any_element()
+        .child(DetailGrid::new(rows));
+
+    if !feeds.is_empty() {
+        stack = stack.child(render_feed_list_section("Feeds", feeds.to_vec(), app, cx));
+    }
+
+    stack.into_any_element()
 }
 
 fn artist_active_years(begin_year: Option<i32>, end_year: Option<i32>) -> Option<String> {

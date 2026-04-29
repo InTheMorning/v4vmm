@@ -66,11 +66,11 @@ impl EntityKind {
     #[must_use]
     pub fn emoji(self) -> &'static str {
         match self {
-            Self::Artist => "\u{1F3A4}",    // 🎤
-            Self::Feed => "\u{1F4E1}",      // 📡
-            Self::Track => "\u{1F3B6}",     // 🎶
-            Self::Publisher => "\u{1F3E2}", // 🏢
-            Self::Release => "\u{1F4BF}",   // 💿
+            Self::Artist => "\u{1F3A4}",                    // 🎤
+            Self::Feed => "\u{1F4E1}",                      // 📡
+            Self::Track => "\u{1F3B6}",                     // 🎶
+            Self::Publisher => "\u{1F3E2}",                 // 🏢
+            Self::Release => "\u{1F4BF}",                   // 💿
             Self::Recording | Self::Generic => "\u{1F3B5}", // 🎵
         }
     }

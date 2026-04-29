@@ -6,10 +6,11 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, App, FontWeight, Image, IntoElement, ParentElement, RenderOnce, SharedString,
-    Styled, Window,
+    div, App, FontWeight, Image, IntoElement, ParentElement, RenderOnce, SharedString, Styled,
+    Window,
 };
 
+use crate::ui::primitives::{HStack, VStack};
 use crate::ui::tokens::{Appearance, FontSize, SemanticColor, Spacing};
 
 use super::tag_badge::{EntityKind, TagBadge};
@@ -58,37 +59,35 @@ impl RenderOnce for DetailHeader {
         let title_color = SemanticColor::Label.resolve(appearance);
         let subtitle_color = SemanticColor::SecondaryLabel.resolve(appearance);
 
-        div()
-            .flex()
-            .flex_row()
-            .items_start()
-            .gap(Spacing::LG.scaled(cx))
-            .child(Thumbnail::new(self.kind, ThumbnailSize::Lg).image(self.image))
+        let mut text_block = VStack::new()
+            .spacing(Spacing::XS)
+            .leading()
             .child(
                 div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .mb(Spacing::SM.scaled(cx))
-                            .child(TagBadge::new(self.kind).appearance(appearance)),
-                    )
-                    .child(
-                        div()
-                            .text_size(FontSize::Title2.scaled(cx))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(title_color)
-                            .child(self.title),
-                    )
-                    .when_some(self.subtitle, |el, sub| {
-                        el.child(
-                            div()
-                                .mt(Spacing::XS.scaled(cx))
-                                .text_size(FontSize::Body.scaled(cx))
-                                .text_color(subtitle_color)
-                                .child(sub),
-                        )
-                    }),
+                    .mb(Spacing::XS.scaled(cx))
+                    .child(TagBadge::new(self.kind).appearance(appearance)),
             )
+            .child(
+                div()
+                    .text_size(FontSize::Title2.scaled(cx))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(title_color)
+                    .child(self.title),
+            );
+
+        if let Some(sub) = self.subtitle {
+            text_block = text_block.child(
+                div()
+                    .text_size(FontSize::Body.scaled(cx))
+                    .text_color(subtitle_color)
+                    .child(sub),
+            );
+        }
+
+        HStack::new()
+            .spacing(Spacing::LG)
+            .top()
+            .child(Thumbnail::new(self.kind, ThumbnailSize::Lg).image(self.image))
+            .child(div().flex_1().min_w_0().child(text_block))
     }
 }

@@ -1,3 +1,18 @@
+//! Legacy `ui_common` helpers — kept as a thin compatibility layer above the
+//! new [`crate::ui::composites`] components.
+//!
+//! New code should use the composites directly. Once `library.rs` and
+//! `search.rs` finish migrating off these helpers (Track G) this module can
+//! be deleted entirely.
+//!
+//! Every helper here delegates to a composite under the hood so that existing
+//! call sites (the inspector panels, search results, library lists) become
+//! scale-aware automatically — without each call site having to thread `cx`
+//! through.
+
+use crate::ui::composites::{
+    DetailGrid, DetailRow as CompositeDetailRow, EntityKind, Thumbnail, ThumbnailSize,
+};
 use crate::ui::theme::{badges, color, radius, spacing, typography};
 use gpui::{
     div, img, prelude::*, px, rgb, AnyElement, Div, FontWeight, Image, ImageFormat, IntoElement,
@@ -7,9 +22,21 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::{Sizable, Size};
 use std::sync::Arc;
 
+/// Legacy detail row shape — the value is a pre-rendered `AnyElement` so
+/// callers can build rich content. Kept identical to the original shape
+/// for source-compatibility with library.rs / search.rs.
 pub struct DetailRow {
     pub key: String,
     pub value: AnyElement,
+}
+
+impl From<DetailRow> for CompositeDetailRow {
+    fn from(row: DetailRow) -> Self {
+        Self {
+            key: SharedString::from(row.key),
+            value: row.value,
+        }
+    }
 }
 
 pub fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
@@ -25,124 +52,60 @@ pub fn artwork_img(image: Arc<Image>, size: f32) -> AnyElement {
     }
 }
 
+/// Thin wrapper around the [`Thumbnail`] composite. The legacy `large`
+/// flag maps to `ThumbnailSize::Lg`; smaller sizes pick Sm/Md based on the
+/// raw pixel size requested.
 pub fn render_thumb(
     image_data: Option<Arc<Image>>,
     entity_type: &str,
     size: f32,
     large: bool,
 ) -> AnyElement {
-    let radius = if large { 6.0 } else { 4.0 };
-    if let Some(image) = image_data {
-        div()
-            .w(px(size))
-            .h(px(size))
-            .rounded(px(radius))
-            .overflow_hidden()
-            .flex_shrink_0()
-            .child(artwork_img(image, size))
-            .into_any_element()
+    let kind = EntityKind::from_legacy_str(entity_type);
+    // Map the legacy raw pixel size to a semantic ThumbnailSize, preferring
+    // the explicit `large` flag when set. Library list rows pass 28-32 px;
+    // sidebar / now-playing strips pass 48 px; the detail header passes 80
+    // (or 160 for the large compare panel).
+    let semantic = if large || size >= 64.0 {
+        ThumbnailSize::Lg
+    } else if size >= 40.0 {
+        ThumbnailSize::Md
     } else {
-        div()
-            .w(px(size))
-            .h(px(size))
-            .rounded(px(radius))
-            .bg(color::border_subtle())
-            .flex()
-            .items_center()
-            .justify_center()
-            .text_size(if large {
-                px(28.0)
-            } else {
-                typography::SIZE_BODY
-            })
-            .flex_shrink_0()
-            .child(type_emoji(entity_type))
-            .into_any_element()
-    }
+        ThumbnailSize::Sm
+    };
+    Thumbnail::new(kind, semantic)
+        .image(image_data)
+        .into_any_element()
 }
 
+/// Detail header — preserves the legacy positional API but delegates to
+/// the [`crate::ui::composites::DetailHeader`] composite.
 pub fn render_detail_header(
     entity_type: &str,
     title: &str,
     subtitle: Option<&str>,
     image: Option<Arc<Image>>,
 ) -> AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::LG)
-        .child(render_thumb(image, entity_type, 80.0, true))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_size(typography::SIZE_MICRO)
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(badge_text(entity_type))
-                        .bg(type_color(entity_type))
-                        .px(spacing::SM)
-                        .py(spacing::XXS)
-                        .rounded(radius::SM)
-                        .mb(spacing::SM)
-                        .child(SharedString::from(entity_type.to_string())),
-                )
-                .child(typography::type_title(div()).child(SharedString::from(title.to_string())))
-                .when_some(subtitle.map(str::to_owned), |el, sub| {
-                    el.child(
-                        typography::type_body(div())
-                            .mt(spacing::XS)
-                            .text_color(color::text_muted())
-                            .child(SharedString::from(sub)),
-                    )
-                }),
-        )
-        .into_any_element()
+    let kind = EntityKind::from_legacy_str(entity_type);
+    let header = crate::ui::composites::DetailHeader::new(kind, title.to_string()).image(image);
+    if let Some(sub) = subtitle {
+        header.subtitle(sub.to_string()).into_any_element()
+    } else {
+        header.into_any_element()
+    }
 }
 
 pub fn render_detail_grid(rows: Vec<(String, String)>) -> AnyElement {
-    render_detail_grid_elements(
-        rows.into_iter()
-            .map(|(key, value)| DetailRow {
-                key,
-                value: div()
-                    .text_size(typography::SIZE_MICRO)
-                    .line_height(px(17.0))
-                    .flex()
-                    .flex_col()
-                    .children(compare_value_line_elements(&value, 6))
-                    .into_any_element(),
-            })
-            .collect(),
-    )
+    let composite_rows: Vec<CompositeDetailRow> = rows
+        .into_iter()
+        .map(|(key, value)| CompositeDetailRow::text(key, value, 6))
+        .collect();
+    DetailGrid::new(composite_rows).into_any_element()
 }
 
 pub fn render_detail_grid_elements(rows: Vec<DetailRow>) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::XS)
-        .children(rows.into_iter().map(|row| {
-            div()
-                .flex()
-                .flex_row()
-                .items_start()
-                .gap(spacing::MD)
-                .child(
-                    div()
-                        .w(px(124.0))
-                        .flex_shrink_0()
-                        .text_color(color::text_muted())
-                        .whitespace_nowrap()
-                        .text_size(typography::SIZE_MICRO)
-                        .child(SharedString::from(row.key)),
-                )
-                .child(div().flex_1().min_w_0().child(row.value))
-                .into_any_element()
-        }))
-        .into_any_element()
+    let composite_rows: Vec<CompositeDetailRow> = rows.into_iter().map(Into::into).collect();
+    DetailGrid::new(composite_rows).into_any_element()
 }
 
 pub fn compare_value_line_elements(value: &str, max_lines: usize) -> Vec<AnyElement> {
@@ -239,4 +202,11 @@ pub fn plural(count: usize) -> &'static str {
     } else {
         "s"
     }
+}
+
+// keep `spacing` re-export indirectly available via the existing
+// `crate::ui::theme::spacing` callers — no helper needed.
+#[allow(dead_code)]
+fn _spacing_kept_in_scope() {
+    let _ = spacing::LG;
 }
