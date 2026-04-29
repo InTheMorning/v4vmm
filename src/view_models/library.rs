@@ -20,6 +20,8 @@
 use std::collections::BTreeMap;
 
 use crate::db::{self, TrackRow};
+use crate::view_models::format::{fmt_total_runtime_clock, plural};
+use crate::views::FeedView;
 
 /// Per-track `MusicBrainz` lookup state owned by the library screen and
 /// projected into display by [`LibraryTrackRowVm`].
@@ -200,11 +202,7 @@ impl<'a> LibraryArtistDetailVm<'a> {
             ("Albums".to_string(), self.album_count().to_string()),
             (
                 "Tracks".to_string(),
-                format!(
-                    "{} track{}",
-                    self.track_count(),
-                    if self.track_count() == 1 { "" } else { "s" }
-                ),
+                format!("{} track{}", self.track_count(), plural(self.track_count())),
             ),
         ];
         let downloaded = self.downloaded_count();
@@ -244,6 +242,128 @@ impl<'a> LibraryArtistDetailVm<'a> {
                 }
             })
             .collect()
+    }
+}
+
+/// Display-ready projection of a library album detail panel.
+///
+/// Borrow-only — constructed fresh each render and dropped before the
+/// element tree is painted. The VM owns the title/artist fallbacks,
+/// detail-row composition, total-runtime roll-up, and the
+/// `MusicBrainz` activity flag the action button needs to disable
+/// itself while a lookup is in flight.
+pub(crate) struct LibraryAlbumDetailVm<'a> {
+    feed_view: &'a FeedView,
+    tracks: &'a [TrackRow],
+    mb_status: &'a BTreeMap<i64, MbTrackStatus>,
+}
+
+impl<'a> LibraryAlbumDetailVm<'a> {
+    #[must_use]
+    pub(crate) fn new(
+        feed_view: &'a FeedView,
+        tracks: &'a [TrackRow],
+        mb_status: &'a BTreeMap<i64, MbTrackStatus>,
+    ) -> Self {
+        Self {
+            feed_view,
+            tracks,
+            mb_status,
+        }
+    }
+
+    /// Album title with the legacy `"Untitled"` fallback.
+    #[must_use]
+    pub(crate) fn title(&self) -> String {
+        self.feed_view
+            .title
+            .clone()
+            .unwrap_or_else(|| "Untitled".to_string())
+    }
+
+    /// Artist with the legacy `"Unknown Artist"` fallback. The detail
+    /// header subtitle and the `Artist` detail-row both display this.
+    #[must_use]
+    pub(crate) fn artist(&self) -> String {
+        self.feed_view
+            .artist
+            .clone()
+            .unwrap_or_else(|| "Unknown Artist".to_string())
+    }
+
+    #[must_use]
+    pub(crate) fn track_count(&self) -> usize {
+        self.tracks.len()
+    }
+
+    /// Sum of all track durations in seconds.
+    #[must_use]
+    pub(crate) fn total_duration_seconds(&self) -> i64 {
+        self.tracks.iter().filter_map(|t| t.duration_seconds).sum()
+    }
+
+    /// Clock-style total runtime label, or `None` when no track has a
+    /// known duration. See [`fmt_total_runtime_clock`].
+    #[must_use]
+    pub(crate) fn total_duration_label(&self) -> Option<String> {
+        fmt_total_runtime_clock(self.total_duration_seconds())
+    }
+
+    /// Number of tracks downloaded to disk.
+    #[must_use]
+    pub(crate) fn downloaded_count(&self) -> usize {
+        self.tracks
+            .iter()
+            .filter(|t| t.local_path.is_some())
+            .count()
+    }
+
+    /// Detail-grid rows in display order: `Artist`, `Tracks` (with
+    /// pluralised count), `Duration` (only when total > 0), and
+    /// `Downloaded` (only when at least one track is downloaded).
+    #[must_use]
+    pub(crate) fn detail_rows(&self) -> Vec<(String, String)> {
+        let track_count = self.track_count();
+        let mut rows = vec![
+            ("Artist".to_string(), self.artist()),
+            (
+                "Tracks".to_string(),
+                format!("{track_count} track{}", plural(track_count)),
+            ),
+        ];
+        if let Some(label) = self.total_duration_label() {
+            rows.push(("Duration".to_string(), label));
+        }
+        let downloaded = self.downloaded_count();
+        if downloaded > 0 {
+            rows.push(("Downloaded".to_string(), downloaded.to_string()));
+        }
+        rows
+    }
+
+    /// `true` when any track has an in-flight `MusicBrainz` lookup —
+    /// used by the screen to disable the `MusicBrainz` action button.
+    #[must_use]
+    pub(crate) fn has_active_musicbrainz(&self) -> bool {
+        self.mb_status
+            .values()
+            .any(|s| matches!(s, MbTrackStatus::Pending | MbTrackStatus::Processing))
+    }
+
+    /// Label for the "Add album to playlist" toggle button. The
+    /// caret glyph reflects whether the picker panel is currently
+    /// expanded.
+    #[expect(
+        clippy::unused_self,
+        reason = "kept as a method for API symmetry with the other accessors"
+    )]
+    #[must_use]
+    pub(crate) fn add_to_playlist_label(&self, open: bool) -> &'static str {
+        if open {
+            "Add album to playlist ▴"
+        } else {
+            "Add album to playlist ▾"
+        }
     }
 }
 
@@ -382,17 +502,7 @@ impl<'a> PlaylistDetailVm<'a> {
     /// has a known duration). Matches the legacy renderer exactly.
     #[must_use]
     pub(crate) fn total_duration_label(&self) -> Option<String> {
-        let total = self.total_duration_seconds();
-        if total <= 0 {
-            return None;
-        }
-        let mins = total / 60;
-        let secs = total % 60;
-        Some(if mins >= 60 {
-            format!("{}h {}m", mins / 60, mins % 60)
-        } else {
-            format!("{mins}:{secs:02}")
-        })
+        fmt_total_runtime_clock(self.total_duration_seconds())
     }
 
     /// Detail-grid rows in display order: `Tracks` always, plus
@@ -774,5 +884,118 @@ mod tests {
         let rows = vm.track_rows();
         assert_eq!(rows[0].thumb_url(), Some("track"));
         assert_eq!(rows[1].thumb_url(), Some("album-only"));
+    }
+
+    fn feed_view_with(title: Option<&str>, artist: Option<&str>) -> FeedView {
+        FeedView {
+            title: title.map(str::to_string),
+            artist: artist.map(str::to_string),
+            ..FeedView::default()
+        }
+    }
+
+    #[test]
+    fn album_detail_vm_falls_back_to_untitled_and_unknown_artist() {
+        let view = FeedView::default();
+        let mb = BTreeMap::new();
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        assert_eq!(vm.title(), "Untitled");
+        assert_eq!(vm.artist(), "Unknown Artist");
+    }
+
+    #[test]
+    fn album_detail_vm_uses_provided_title_and_artist_when_present() {
+        let view = feed_view_with(Some("Selected Ambient Works"), Some("Aphex Twin"));
+        let mb = BTreeMap::new();
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        assert_eq!(vm.title(), "Selected Ambient Works");
+        assert_eq!(vm.artist(), "Aphex Twin");
+    }
+
+    #[test]
+    fn album_detail_vm_detail_rows_minimum_set_is_artist_and_tracks() {
+        let view = feed_view_with(None, Some("A"));
+        let mb = BTreeMap::new();
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let rows = vm.detail_rows();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], ("Artist".into(), "A".into()));
+        assert_eq!(rows[1], ("Tracks".into(), "0 tracks".into()));
+    }
+
+    #[test]
+    fn album_detail_vm_pluralises_tracks_count() {
+        let view = feed_view_with(None, Some("A"));
+        let mb = BTreeMap::new();
+        let tracks = [row()];
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let rows = vm.detail_rows();
+        assert_eq!(rows[1], ("Tracks".into(), "1 track".into()));
+    }
+
+    #[test]
+    fn album_detail_vm_includes_duration_when_known() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let mut t = row();
+        t.duration_seconds = Some(125);
+        let tracks = [t];
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let rows = vm.detail_rows();
+        assert!(rows.iter().any(|(k, v)| k == "Duration" && v == "2:05"));
+    }
+
+    #[test]
+    fn album_detail_vm_includes_downloaded_count_when_any_local_path_present() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let mut t = row();
+        t.local_path = Some("/x".into());
+        let tracks = [t, row()];
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let rows = vm.detail_rows();
+        assert!(rows.iter().any(|(k, v)| k == "Downloaded" && v == "1"));
+    }
+
+    #[test]
+    fn album_detail_vm_omits_duration_and_downloaded_rows_when_zero() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let tracks = [row(), row()];
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        let rows = vm.detail_rows();
+        assert!(!rows.iter().any(|(k, _)| k == "Duration"));
+        assert!(!rows.iter().any(|(k, _)| k == "Downloaded"));
+    }
+
+    #[test]
+    fn album_detail_vm_has_active_musicbrainz_when_any_track_pending_or_processing() {
+        let view = feed_view_with(None, None);
+        let mut tracks = [row(), row(), row()];
+        tracks[0].id = 10;
+        tracks[1].id = 20;
+        tracks[2].id = 30;
+        let mut mb: BTreeMap<i64, MbTrackStatus> = BTreeMap::new();
+        mb.insert(10, MbTrackStatus::Done(2));
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        assert!(!vm.has_active_musicbrainz());
+        mb.insert(20, MbTrackStatus::Pending);
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        assert!(vm.has_active_musicbrainz());
+        mb.insert(20, MbTrackStatus::Processing);
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        assert!(vm.has_active_musicbrainz());
+        mb.insert(20, MbTrackStatus::Skipped("err".into()));
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+        assert!(!vm.has_active_musicbrainz());
+    }
+
+    #[test]
+    fn album_detail_vm_add_to_playlist_label_flips_arrow_glyph_when_open() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        assert_eq!(vm.add_to_playlist_label(false), "Add album to playlist ▾");
+        assert_eq!(vm.add_to_playlist_label(true), "Add album to playlist ▴");
     }
 }

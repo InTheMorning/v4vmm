@@ -42,7 +42,8 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius};
 use crate::view_models::library::{
-    LibraryArtistDetailVm, LibraryTrackRowVm, MbStatusKind, MbTrackStatus, PlaylistDetailVm,
+    LibraryAlbumDetailVm, LibraryArtistDetailVm, LibraryTrackRowVm, MbStatusKind, MbTrackStatus,
+    PlaylistDetailVm,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
@@ -2742,51 +2743,9 @@ fn render_album_detail(
         })
         .collect();
 
-    // Compute metadata grid from feed_view
-    let artist = feed_view
-        .artist
-        .clone()
-        .unwrap_or_else(|| "Unknown Artist".to_string());
-    let track_count = album.tracks.len();
-    let total_duration_secs: i64 = album.tracks.iter().filter_map(|t| t.duration_seconds).sum();
-    let duration_str = if total_duration_secs > 0 {
-        let mins = total_duration_secs / 60;
-        let secs = total_duration_secs % 60;
-        if mins >= 60 {
-            format!("{}h {}m", mins / 60, mins % 60)
-        } else {
-            format!("{mins}:{secs:02}")
-        }
-    } else {
-        String::new()
-    };
-    let downloaded = album
-        .tracks
-        .iter()
-        .filter(|t| t.local_path.is_some())
-        .count();
-
-    let mut detail_rows = vec![
-        ("Artist".to_string(), artist.clone()),
-        (
-            "Tracks".to_string(),
-            format!(
-                "{track_count} track{}",
-                if track_count == 1 { "" } else { "s" }
-            ),
-        ),
-    ];
-    if !duration_str.is_empty() {
-        detail_rows.push(("Duration".to_string(), duration_str.clone()));
-    }
-    if downloaded > 0 {
-        detail_rows.push(("Downloaded".to_string(), downloaded.to_string()));
-    }
+    let vm = LibraryAlbumDetailVm::new(&feed_view, &album.tracks, mb_status);
 
     // Library-specific action buttons
-    let has_active_mb = mb_status
-        .values()
-        .any(|s| matches!(s, MbTrackStatus::Pending | MbTrackStatus::Processing));
     let album_for_mb = album.clone();
     let feed_url = album.feed_url.clone();
     let feed_id = album.feed_id;
@@ -2805,26 +2764,20 @@ fn render_album_detail(
     }
     buttons = buttons.child(
         action_button("MusicBrainz", cx)
-            .disabled(has_active_mb)
+            .disabled(vm.has_active_musicbrainz())
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.musicbrainz_feed(album_for_mb.clone(), cx);
             })),
     );
     if let Some(fid) = feed_id {
         buttons = buttons.child(
-            action_button(
-                if add_open_feed {
-                    "Add album to playlist ▴"
-                } else {
-                    "Add album to playlist ▾"
+            action_button(vm.add_to_playlist_label(add_open_feed), cx).on_click(cx.listener(
+                move |this, _, _, cx| {
+                    this.album_add_open_feed = !this.album_add_open_feed;
+                    let _ = fid;
+                    cx.notify();
                 },
-                cx,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.album_add_open_feed = !this.album_add_open_feed;
-                let _ = fid;
-                cx.notify();
-            })),
+            )),
         );
     }
 
@@ -2834,7 +2787,6 @@ fn render_album_detail(
         None
     };
 
-    // Unified layout with app-agnostic ui_common helpers
     let mut container = div()
         .id("album-detail-scroll")
         .size_full()
@@ -2844,15 +2796,12 @@ fn render_album_detail(
         .flex_col()
         .gap(spacing::LG)
         .child(
-            DetailHeader::new(
-                EntityKind::Feed,
-                feed_view.title.clone().unwrap_or_else(|| "Untitled".into()),
-            )
-            .subtitle(artist.as_str().to_string())
-            .image(thumb_image.clone()),
+            DetailHeader::new(EntityKind::Feed, vm.title())
+                .subtitle(vm.artist())
+                .image(thumb_image.clone()),
         )
         .child(DetailGrid::new(
-            detail_rows
+            vm.detail_rows()
                 .into_iter()
                 .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
                 .collect::<Vec<_>>(),
