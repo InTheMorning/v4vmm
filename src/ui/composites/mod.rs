@@ -17,6 +17,7 @@
 
 #![warn(clippy::pedantic)]
 
+pub mod action_button;
 pub mod detail_grid;
 pub mod detail_header;
 pub mod list_row;
@@ -24,6 +25,7 @@ pub mod segmented_control;
 pub mod tag_badge;
 pub mod thumbnail;
 
+pub use action_button::action_button;
 pub use detail_grid::{DetailGrid, DetailRow};
 pub use detail_header::DetailHeader;
 pub use list_row::{ListRow, ListRowDensity};

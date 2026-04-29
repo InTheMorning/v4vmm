@@ -38,13 +38,14 @@ use crate::subscribe_service::{
 };
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
-    DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind, Thumbnail, ThumbnailSize,
+    action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind,
+    Thumbnail, ThumbnailSize,
 };
 use crate::ui::primitives::{Image as ImagePrimitive, ImageSize};
 use crate::ui::tokens::Radius;
 use crate::ui_common::{
-    badge_text, compare_value_line_elements, metadata_action_button, optional_row, plural,
-    section_heading, truncated, truncated_muted, type_color, type_emoji, DetailRow,
+    badge_text, compare_value_line_elements, optional_row, plural, section_heading, truncated,
+    truncated_muted, type_color, type_emoji, DetailRow,
 };
 
 #[derive(Clone, Debug)]
@@ -3136,7 +3137,7 @@ pub(crate) fn render_action_row(
         .items_start()
         .gap(spacing::XS)
         .child(
-            metadata_action_button(&subscription_button_label(frame))
+            action_button(&subscription_button_label(frame))
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_local_subscription(cx);
@@ -3148,7 +3149,7 @@ pub(crate) fn render_action_row(
             } else {
                 "Add to playlist ▾"
             };
-            metadata_action_button(label)
+            action_button(label)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     if let Some(frame) = this.inspector_stack.last_mut() {
@@ -3300,8 +3301,8 @@ fn render_add_to_playlist_panel_search(
                 feed_guid: feed_guid.clone(),
             },
         };
-        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
-            move |this, _, _, cx| {
+        panel = panel.child(
+            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(frame) = this.inspector_stack.last_mut() {
                     frame.add_to_playlist_open = false;
                 }
@@ -3329,8 +3330,8 @@ fn render_add_to_playlist_panel_search(
                         this.add_feed_to_playlist(feed_guid, feed_url.as_deref(), playlist_id, cx);
                     }
                 }
-            },
-        )));
+            })),
+        );
     }
 
     panel.into_any_element()
@@ -4272,12 +4273,12 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
                                 .rounded(radius::SM)
                                 .child(SharedString::from(embedded_label.clone())),
                         )
-                        .child(metadata_action_button("Re-read").on_click(cx.listener(
-                            |this, _, _, cx| {
+                        .child(
+                            action_button("Re-read").on_click(cx.listener(|this, _, _, cx| {
                                 this.reread_tag_compare(cx);
-                            },
-                        )))
-                        .child(metadata_action_button("Re-download").on_click(cx.listener(
+                            })),
+                        )
+                        .child(action_button("Re-download").on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.redownload_tag_compare(cx);
                             },
@@ -5305,8 +5306,8 @@ pub(crate) fn render_row_playlist_popup(
         let feed_guid_owned = feed_guid.to_string();
         let feed_url_owned = feed_url.map(|s| s.to_string());
         let track_guid_owned = track_guid.to_string();
-        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
-            move |this, _, _, cx| {
+        panel = panel.child(
+            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(frame) = this.inspector_stack.last_mut() {
                     frame.add_to_playlist_open_track_guid = None;
                 }
@@ -5317,8 +5318,8 @@ pub(crate) fn render_row_playlist_popup(
                     playlist_id,
                     cx,
                 );
-            },
-        )));
+            })),
+        );
     }
 
     panel.into_any_element()

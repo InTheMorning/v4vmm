@@ -11,10 +11,8 @@
 //! through.
 
 use crate::ui::composites::DetailRow as CompositeDetailRow;
-use crate::ui::theme::{badges, color, radius, spacing, typography};
+use crate::ui::theme::{badges, color, spacing, typography};
 use gpui::{div, AnyElement, Div, FontWeight, IntoElement, ParentElement, SharedString, Styled};
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::{Sizable, Size};
 
 /// Legacy detail row shape — the value is a pre-rendered `AnyElement` so
 /// callers can build rich content. Kept identical to the original shape
@@ -57,19 +55,6 @@ pub fn compare_value_line_elements(value: &str, max_lines: usize) -> Vec<AnyElem
                 .into_any_element()
         })
         .collect::<Vec<_>>()
-}
-
-pub fn metadata_action_button(label: &str) -> Button {
-    Button::new(SharedString::from(format!("metadata-action:{label}")))
-        .label(SharedString::from(label.to_string()))
-        .with_size(Size::XSmall)
-        .compact()
-        .ghost()
-        .text_color(color::text_on_accent())
-        .text_size(typography::SIZE_MICRO)
-        .rounded(radius::SM)
-        .border_1()
-        .border_color(color::accent())
 }
 
 pub fn section_heading(label: &str) -> AnyElement {

@@ -35,13 +35,12 @@ use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
 use crate::playlist_service;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
-    DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind, Thumbnail, ThumbnailSize,
+    action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind,
+    Thumbnail, ThumbnailSize,
 };
 use crate::ui::primitives::Image as ImagePrimitive;
 use crate::ui::tokens::Radius;
-use crate::ui_common::{
-    badge_text, compare_value_line_elements, metadata_action_button, type_color,
-};
+use crate::ui_common::{badge_text, compare_value_line_elements, type_color};
 use crate::views::FeedView;
 
 // ---------------------------------------------------------------------------
@@ -2848,7 +2847,7 @@ fn render_album_detail(
     ));
     if let Some(fid) = feed_id {
         buttons = buttons.child(
-            metadata_action_button("Unsubscribe Feed")
+            action_button("Unsubscribe Feed")
                 .danger()
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.unsubscribe_feed(fid);
@@ -2857,7 +2856,7 @@ fn render_album_detail(
         );
     }
     buttons = buttons.child(
-        metadata_action_button("MusicBrainz")
+        action_button("MusicBrainz")
             .disabled(has_active_mb)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.musicbrainz_feed(album_for_mb.clone(), cx);
@@ -2865,7 +2864,7 @@ fn render_album_detail(
     );
     if let Some(fid) = feed_id {
         buttons = buttons.child(
-            metadata_action_button(if add_open_feed {
+            action_button(if add_open_feed {
                 "Add album to playlist ▴"
             } else {
                 "Add album to playlist ▾"
@@ -3084,12 +3083,12 @@ fn render_album_track_add_panel(
     for p in playlists {
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
-            move |this, _, _, cx| {
+        panel = panel.child(
+            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
                 this.album_add_open_track = None;
                 this.add_track_to_playlist(track_id, playlist_id, cx);
-            },
-        )));
+            })),
+        );
     }
 
     panel.into_any_element()
@@ -3125,12 +3124,12 @@ fn render_album_feed_add_panel(
     for p in playlists {
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
-            move |this, _, _, cx| {
+        panel = panel.child(
+            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
                 this.album_add_open_feed = false;
                 this.add_album_to_playlist(feed_id, playlist_id, cx);
-            },
-        )));
+            })),
+        );
     }
 
     panel.into_any_element()
@@ -3523,14 +3522,14 @@ fn render_action_row(
         .items_start()
         .gap(spacing::XS)
         .child(
-            metadata_action_button(&subscription_button_label(frame))
+            action_button(&subscription_button_label(frame))
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_local_subscription(cx);
                 })),
         )
         .child(
-            metadata_action_button("Add to playlist ▾").on_click(cx.listener(|this, _, _, cx| {
+            action_button("Add to playlist ▾").on_click(cx.listener(|this, _, _, cx| {
                 if let Some(frame) = this.selected_track_frame_mut() {
                     frame.add_to_playlist_open = !frame.add_to_playlist_open;
                 }
@@ -3556,7 +3555,7 @@ fn render_action_row(
         })
         .when(frame.track.local_path.is_some(), |el| {
             el.child(
-                metadata_action_button(match frame.tag_compare {
+                action_button(match frame.tag_compare {
                     LazyPanel::Loaded(_) => "Hide Compare",
                     LazyPanel::Loading => "Reading ID3...",
                     LazyPanel::Empty(_) | LazyPanel::Hidden => "Compare ID3",
@@ -3567,7 +3566,7 @@ fn render_action_row(
                 })),
             )
             .child(
-                metadata_action_button(match frame.musicbrainz_lookup {
+                action_button(match frame.musicbrainz_lookup {
                     LazyPanel::Loaded(_) => "Hide MusicBrainz",
                     LazyPanel::Loading => "Searching MusicBrainz...",
                     LazyPanel::Empty(_) | LazyPanel::Hidden => "MusicBrainz",
@@ -3604,7 +3603,7 @@ fn render_action_row(
                                 ))),
                         )
                         .child(
-                            metadata_action_button(&label)
+                            action_button(&label)
                                 .disabled(frame.applying_id3_edits || has_pending_conflicts)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.apply_pending_id3_edits(cx);
@@ -3625,11 +3624,11 @@ fn render_action_row(
                         .when(
                             !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty(),
                             |el| {
-                                el.child(metadata_action_button("Discard staged").on_click(
-                                    cx.listener(|this, _, _, cx| {
+                                el.child(action_button("Discard staged").on_click(cx.listener(
+                                    |this, _, _, cx| {
                                         this.clear_pending_id3_edits(cx);
-                                    }),
-                                ))
+                                    },
+                                )))
                             },
                         ),
                 )
@@ -3695,14 +3694,14 @@ fn render_add_to_playlist_panel(
     for p in playlists {
         let playlist_id = p.id;
         let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
-            move |this, _, _, cx| {
+        panel = panel.child(
+            action_button(&label).on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(frame) = this.selected_track_frame_mut() {
                     frame.add_to_playlist_open = false;
                 }
                 this.add_track_to_playlist(track_id, playlist_id, cx);
-            },
-        )));
+            })),
+        );
     }
 
     panel.into_any_element()
@@ -3745,12 +3744,12 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -
                                 .rounded(radius::SM)
                                 .child(SharedString::from(embedded_label.clone())),
                         )
-                        .child(metadata_action_button("Re-read").on_click(cx.listener(
-                            |this, _, _, cx| {
+                        .child(
+                            action_button("Re-read").on_click(cx.listener(|this, _, _, cx| {
                                 this.reread_tag_compare(cx);
-                            },
-                        )))
-                        .child(metadata_action_button("Re-download").on_click(cx.listener(
+                            })),
+                        )
+                        .child(action_button("Re-download").on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.redownload_tag_compare(cx);
                             },
