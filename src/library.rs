@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 use gpui::{
-    div, prelude::*, px, rgb, AnyElement, Context, Entity, FontWeight, Image, InteractiveElement,
-    IntoElement, Render, SharedString, Styled, Window,
+    div, prelude::*, px, rgb, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
+    InteractiveElement, IntoElement, Render, SharedString, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -35,12 +35,12 @@ use crate::playlist_service;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, Thumbnail, ThumbnailSize,
+    EntityKind, ListRow, Thumbnail, ThumbnailSize,
 };
-use crate::ui::primitives::{Image as ImagePrimitive, MultilineText};
+use crate::ui::primitives::{Image as ImagePrimitive, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
-use crate::ui::tokens::{FontSize, Radius};
+use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
     LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind, MbTrackStatus,
@@ -1760,17 +1760,9 @@ impl Render for LibraryApp {
         );
         let filtered_empty = tree_projection.is_empty();
 
-        let playlists = self.vm.playlists().to_vec();
-        let selected_playlist_id = self.vm.selected_playlist_id;
-        let creating_playlist = self.vm.creating_playlist;
-        let playlists_expanded = self.vm.playlists_expanded;
+        let playlist_sidebar = self.vm.playlist_sidebar();
         let mut left_items: Vec<AnyElement> = Vec::new();
 
-        let playlist_arrow = if playlists_expanded {
-            "\u{25BC}"
-        } else {
-            "\u{25B6}"
-        };
         left_items.push(
             div()
                 .id("playlists-header")
@@ -1798,7 +1790,7 @@ impl Render for LibraryApp {
                                 .text_xs()
                                 .text_color(color::text_muted())
                                 .w(spacing::MD)
-                                .child(SharedString::from(playlist_arrow)),
+                                .child(SharedString::from(playlist_sidebar.disclosure_glyph)),
                         )
                         .child(
                             div()
@@ -1815,7 +1807,7 @@ impl Render for LibraryApp {
                         .items_center()
                         .child(
                             Button::new("playlists-sort")
-                                .label(self.vm.playlist_sort_label())
+                                .label(playlist_sidebar.sort_label)
                                 .ghost()
                                 .scaled(Size::XSmall, cx)
                                 .text_color(color::text_muted())
@@ -1830,7 +1822,7 @@ impl Render for LibraryApp {
                                 .scaled(Size::XSmall, cx)
                                 .text_color(color::text_primary())
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.vm.creating_playlist = !this.vm.creating_playlist;
+                                    this.vm.toggle_creating_playlist();
                                     cx.notify();
                                 })),
                         ),
@@ -1838,60 +1830,40 @@ impl Render for LibraryApp {
                 .into_any_element(),
         );
 
-        if playlists_expanded {
-            for playlist in &playlists {
-                let is_selected = selected_playlist_id == Some(playlist.id);
-                let playlist_id = playlist.id;
-                let playlist_name = playlist.name.clone();
-                let track_count = playlist.track_count;
-
+        if playlist_sidebar.expanded {
+            for row in &playlist_sidebar.rows {
+                let playlist_id = row.id;
                 left_items.push(
-                    div()
-                        .id(SharedString::from(format!("playlist-{}", playlist.id)))
-                        .pl(spacing::LG + spacing::XS)
-                        .pr(spacing::SM)
-                        .py(spacing::XXS)
-                        .rounded(spacing::XS)
-                        .cursor_pointer()
-                        .when(is_selected, |el| el.bg(color::bg_selected()))
-                        .when(is_selected, |el| {
-                            el.border_l_2().border_color(color::accent())
-                        })
-                        .when(!is_selected, |el| {
-                            el.hover(|e| e.bg(color::bg_surface_hi()))
-                        })
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                    ListRow::compact(SharedString::from(row.element_id.clone()))
+                        .selected(row.selected)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                             this.select_playlist(playlist_id, cx);
                         }))
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_between()
                         .child(
                             div()
                                 .flex_1()
+                                .min_w_0()
+                                .pl(spacing::MD)
                                 .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(if is_selected {
-                                            color::accent()
+                                    Label::new(row.name.clone())
+                                        .color(if row.selected {
+                                            SemanticColor::Accent
                                         } else {
-                                            color::text_primary()
+                                            SemanticColor::Label
                                         })
-                                        .child(SharedString::from(playlist_name.clone())),
+                                        .truncated(),
                                 )
                                 .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(color::text_muted())
-                                        .child(SharedString::from(format!("({track_count})"))),
+                                    Label::new(row.track_count_label.clone())
+                                        .size(FontSize::Caption)
+                                        .color(SemanticColor::TertiaryLabel),
                                 ),
                         )
                         .into_any_element(),
                 );
             }
 
-            if creating_playlist {
+            if playlist_sidebar.creating_playlist {
                 left_items.push(
                     div()
                         .id("playlist-new-input")

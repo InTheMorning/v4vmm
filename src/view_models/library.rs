@@ -115,6 +115,26 @@ impl LibraryTreeProjection {
     }
 }
 
+/// Display-ready projection for the playlist sidebar section.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PlaylistSidebarVm {
+    pub(crate) expanded: bool,
+    pub(crate) disclosure_glyph: &'static str,
+    pub(crate) sort_label: &'static str,
+    pub(crate) creating_playlist: bool,
+    pub(crate) rows: Vec<PlaylistSidebarRowVm>,
+}
+
+/// One playlist row in the library sidebar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PlaylistSidebarRowVm {
+    pub(crate) id: i64,
+    pub(crate) element_id: String,
+    pub(crate) name: String,
+    pub(crate) track_count_label: String,
+    pub(crate) selected: bool,
+}
+
 /// Snapshot of the multi-feed update workflow exposed by
 /// `feed_service`. Owned by the library view-model; the screen reads
 /// `phase` to decide whether to show progress vs. results.
@@ -299,6 +319,32 @@ impl LibraryViewModel {
             .cloned()
     }
 
+    #[must_use]
+    pub(crate) fn playlist_sidebar(&self) -> PlaylistSidebarVm {
+        PlaylistSidebarVm {
+            expanded: self.playlists_expanded,
+            disclosure_glyph: if self.playlists_expanded {
+                "\u{25BC}"
+            } else {
+                "\u{25B6}"
+            },
+            sort_label: self.playlist_sort_label(),
+            creating_playlist: self.creating_playlist,
+            rows: self
+                .snapshot
+                .playlists
+                .iter()
+                .map(|playlist| PlaylistSidebarRowVm {
+                    id: playlist.id,
+                    element_id: format!("playlist-{}", playlist.id),
+                    name: playlist.name.clone(),
+                    track_count_label: format!("({})", playlist.track_count),
+                    selected: self.selected_playlist_id == Some(playlist.id),
+                })
+                .collect(),
+        }
+    }
+
     pub(crate) fn replace_playlist_tracks(&mut self, tracks: Vec<TrackRow>) {
         self.snapshot.playlist_tracks = tracks;
     }
@@ -446,6 +492,10 @@ impl LibraryViewModel {
     pub(crate) fn apply_search_query(&mut self, query: impl Into<String>) {
         self.search_query = query.into().trim().to_string();
         self.selected_id = None;
+    }
+
+    pub(crate) fn toggle_creating_playlist(&mut self) {
+        self.creating_playlist = !self.creating_playlist;
     }
 
     /// Toggle the expansion state of an artist node by name.
@@ -1734,6 +1784,55 @@ mod tests {
         vm.cycle_playlist_sort();
         vm.sort_loaded_playlists();
         assert_eq!(vm.playlists()[0].track_count, 9);
+    }
+
+    #[test]
+    fn library_view_model_playlist_sidebar_projects_rows_and_header_state() {
+        let mut vm = LibraryViewModel::new();
+        let mut alpha = playlist("Alpha");
+        alpha.id = 10;
+        alpha.track_count = 3;
+        let mut zed = playlist("zed");
+        zed.id = 20;
+        zed.track_count = 9;
+        vm.selected_playlist_id = Some(20);
+        vm.creating_playlist = true;
+
+        vm.replace_playlists(vec![zed, alpha]);
+        let sidebar = vm.playlist_sidebar();
+
+        assert!(sidebar.expanded);
+        assert_eq!(sidebar.disclosure_glyph, "\u{25BC}");
+        assert_eq!(sidebar.sort_label, "A–Z");
+        assert!(sidebar.creating_playlist);
+        assert_eq!(sidebar.rows.len(), 2);
+        assert_eq!(sidebar.rows[0].id, 10);
+        assert_eq!(sidebar.rows[0].element_id, "playlist-10");
+        assert_eq!(sidebar.rows[0].name, "Alpha");
+        assert_eq!(sidebar.rows[0].track_count_label, "(3)");
+        assert!(!sidebar.rows[0].selected);
+        assert!(sidebar.rows[1].selected);
+    }
+
+    #[test]
+    fn library_view_model_playlist_sidebar_reflects_collapsed_state() {
+        let mut vm = LibraryViewModel::new();
+        vm.toggle_playlists_expanded();
+
+        let sidebar = vm.playlist_sidebar();
+
+        assert!(!sidebar.expanded);
+        assert_eq!(sidebar.disclosure_glyph, "\u{25B6}");
+    }
+
+    #[test]
+    fn library_view_model_toggle_creating_playlist_flips_flag() {
+        let mut vm = LibraryViewModel::new();
+        assert!(!vm.playlist_sidebar().creating_playlist);
+        vm.toggle_creating_playlist();
+        assert!(vm.playlist_sidebar().creating_playlist);
+        vm.toggle_creating_playlist();
+        assert!(!vm.playlist_sidebar().creating_playlist);
     }
 
     #[test]

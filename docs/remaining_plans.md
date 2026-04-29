@@ -58,6 +58,9 @@ The projection view-model layer is partially migrated:
   methods for those transitions instead of direct map/vector mutation.
 - `view_models::library::LibraryTreeProjection` owns library sidebar tree
   filtering and the "expand all matches while searching" expansion state.
+- `view_models::library::PlaylistSidebarVm` owns playlist sidebar header and
+  row projection. The playlist sidebar now renders rows through `ListRow` /
+  `Label` instead of raw row chrome.
 
 ## Remaining Work
 
@@ -65,10 +68,9 @@ The projection view-model layer is partially migrated:
 
 - `library-view-model`: continue thinning `LibraryViewModel` now that
   `LibrarySnapshot` owns the pure snapshot fields and
-  `LibraryTreeProjection` owns filtered-tree state. Next moves: project the
-  playlist sidebar rows, hide remaining direct selection and picker field
-  mutation behind methods, and expose typed command intent for service
-  dispatch.
+  `LibraryTreeProjection` / `PlaylistSidebarVm` own sidebar projections.
+  Next moves: hide remaining direct selection and picker field mutation
+  behind methods, and expose typed command intent for service dispatch.
 - `search-view-model`: create `SearchViewModel` for discover/search state,
   result grouping, inspector frame state, recent-feed state, and display-ready
   result rows. `ResultRow` / `ResultRowVm` now own the former `result_lines` /
@@ -84,9 +86,10 @@ The projection view-model layer is partially migrated:
 - `screen-library-album`: move album-detail header rows, duration/downloaded
   counts, button labels, and add-to-playlist panel state into library
   view-model projections.
-- `screen-library-playlists`: keep the `PlaylistDetailVm` path, then replace
-  the remaining raw playlist row layout with `ListRow` / `ActionButton`
-  where it preserves behavior.
+- `screen-library-playlists`: playlist sidebar rows now use `ListRow` /
+  `Label`; keep the `PlaylistDetailVm` path and replace the remaining
+  playlist detail row actions with `ActionButton` where it preserves
+  behavior.
 - `screen-library-metadata`: migrate the ID3 / MusicBrainz metadata panels
   out of inline string formatting and raw color literals.
 - `screen-search-results`: Discover result rows now read labels, image URLs,

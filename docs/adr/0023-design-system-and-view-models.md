@@ -207,6 +207,9 @@ Shipped view-models:
   workflow state.
 - `view_models::library::LibraryTreeProjection` — filtered tree plus render
   expansion state for the library sidebar.
+- `view_models::library::PlaylistSidebarVm` — playlist sidebar header and
+  row projection, including disclosure state, sort label, create-input
+  visibility, row labels, and selected row state.
 - `view_models::library::MbTrackStatus` — screen-independent
   `MusicBrainz` lookup state used by the library screen.
 - `view_models::library::LibraryTrackRowVm` — album-detail row
@@ -233,7 +236,9 @@ uses `LibraryTrackRowVm`, `LibraryArtistDetailVm`, `PlaylistDetailVm`, and
 `TrackVm` in several detail slices, and routes its pure library snapshots
 through `LibraryViewModel` / `LibrarySnapshot` methods instead of mutating
 those maps and vectors directly. Its library-tree filtering / expansion
-projection now lives in `LibraryTreeProjection`. `search.rs` uses `TrackVm`,
+projection now lives in `LibraryTreeProjection`, and its playlist sidebar
+rows render from `PlaylistSidebarVm` through `ListRow` / `Label`.
+`search.rs` uses `TrackVm`,
 `ResultRowVm`, and shared format helpers, and its contributor / value-route /
 frame sections use `DisclosureGroup`. The Discover result row now renders
 through `ListRow`, `Thumbnail`, `Label`, and `TagBadge` instead of raw row /
