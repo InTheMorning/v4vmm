@@ -45,9 +45,11 @@ impl From<UiScale> for ScaleFactor {
     reason = "flat field-by-field assignment list is clearer than splitting"
 )]
 pub fn install_theme(appearance: Appearance, scale: ScaleFactor, cx: &mut App) {
-    // Make the requested scale globally readable by every primitive's
-    // `.scaled(cx)` accessor.
-    cx.set_global(scale);
+    // Install the bundled Environment so every component can read appearance
+    // and scale through the single SwiftUI-style accessor. Mirrors the scale
+    // into the legacy `ScaleFactor` global for any code still reading it
+    // directly during the migration.
+    crate::ui::tokens::Environment { appearance, scale }.install(cx);
 
     let mode = match appearance {
         Appearance::Dark => ThemeMode::Dark,

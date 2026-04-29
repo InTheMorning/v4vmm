@@ -30,9 +30,16 @@ pub enum Appearance {
 }
 
 impl Appearance {
-    /// Returns the appearance currently bound to the gpui-component theme.
+    /// Returns the appearance currently bound to the rendering environment.
+    ///
+    /// Prefers the typed [`Environment`] global (the bundled SwiftUI-style
+    /// accessor); falls back to the gpui-component theme mode for any path
+    /// that hasn't installed the env yet.
     #[must_use]
     pub fn current(cx: &App) -> Self {
+        if let Some(env) = cx.try_global::<Environment>() {
+            return env.appearance;
+        }
         if cx.theme().mode.is_dark() {
             Self::Dark
         } else {
@@ -478,13 +485,64 @@ impl ScaleFactor {
 
     /// Returns the scale stored on `cx`, or [`ScaleFactor::Medium`] if none
     /// has been installed yet (e.g. early-startup paths or tests).
+    ///
+    /// Prefers the bundled [`Environment`] global; falls back to the legacy
+    /// stand-alone `ScaleFactor` global, then to the default.
     #[must_use]
     pub fn current(cx: &App) -> Self {
+        if let Some(env) = cx.try_global::<Environment>() {
+            return env.scale;
+        }
         cx.try_global::<ScaleFactor>().copied().unwrap_or_default()
     }
 }
 
 impl gpui::Global for ScaleFactor {}
+
+// -----------------------------------------------------------------------------
+// Environment — SwiftUI-style bundle of every value the UI tree reads at render.
+// -----------------------------------------------------------------------------
+
+/// Bundled rendering context that primitives and composites consult.
+///
+/// Modeled after `SwiftUI`'s `Environment`: a single typed value carrying the
+/// appearance scheme and Dynamic-Type-style scale that every component
+/// observes. Today it lives as a `gpui::Global` (app-scoped); per-subtree
+/// override would be a wrapper element that swaps the global for the duration
+/// of its render.
+///
+/// # Examples
+///
+/// ```ignore
+/// use crate::ui::tokens::Environment;
+/// let env = Environment::current(cx);
+/// let bg = SemanticColor::SystemBackground.resolve(env.appearance);
+/// let pad = Spacing::Md.scaled(cx);   // reads env.scale internally
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct Environment {
+    pub appearance: Appearance,
+    pub scale: ScaleFactor,
+}
+
+impl Environment {
+    /// Returns the environment installed on `cx`, or the default
+    /// (Dark / Medium) if none has been installed yet (early startup, tests).
+    #[must_use]
+    pub fn current(cx: &App) -> Self {
+        cx.try_global::<Environment>().copied().unwrap_or_default()
+    }
+
+    /// Installs the environment as a `gpui::Global` and mirrors the scale
+    /// into the legacy `ScaleFactor` global so any code still reading that
+    /// directly keeps working during the migration.
+    pub fn install(self, cx: &mut App) {
+        cx.set_global(self);
+        cx.set_global(self.scale);
+    }
+}
+
+impl gpui::Global for Environment {}
 
 // -----------------------------------------------------------------------------
 // Helpers.
