@@ -87,8 +87,9 @@ The projection view-model layer is partially migrated:
   `Label` / `TagBadge`; next move section headers / empty states and
   result-row interaction command intent out of `search.rs`.
 - `screen-search-inspector`: migrate track/feed/publisher inspector sections
-  to projections and existing composites; keep direct GPUI event wiring in
-  the screen until command intent is available.
+  to projections and existing composites. Feed / track inspector identity
+  labels now render through `TagBadge`; keep direct GPUI event wiring in the
+  screen until command intent is available.
 
 ### Track D — Token And Literal Audit
 
@@ -101,7 +102,9 @@ The projection view-model layer is partially migrated:
   are part of the design language.
 - `theme-badge-migration`: replace remaining direct `theme::badges` calls in
   screens with `TagBadge` or `EntityKind` where the UI is rendering an entity
-  badge rather than deriving compatibility color data.
+  badge rather than deriving compatibility color data. `search.rs` now uses
+  `TagBadge` for Discover rows and feed / track inspector labels; the
+  remaining Search usage is MusicBrainz release-picker button styling.
 
 ### Deferred Architecture Work
 

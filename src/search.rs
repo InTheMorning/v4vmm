@@ -4081,15 +4081,8 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
                         .gap(spacing::SM)
                         .mb(spacing::SM)
                         .child(
-                            div()
-                                .text_size(typography::SIZE_MICRO)
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(badges::text_color("track"))
-                                .bg(badges::type_color("track"))
-                                .px(spacing::SM)
-                                .py(spacing::XXS)
-                                .rounded(radius::SM)
-                                .child(SharedString::from(embedded_label.clone())),
+                            TagBadge::new(EntityKind::Track)
+                                .label(SharedString::from(embedded_label.clone())),
                         )
                         .child(action_button("Re-read", cx).on_click(cx.listener(
                             |this, _, _, cx| {
@@ -5158,18 +5151,7 @@ pub(crate) fn render_feed_header(
             div()
                 .flex_1()
                 .min_w_0()
-                .child(
-                    div()
-                        .text_size(typography::SIZE_MICRO)
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(badges::text_color("feed"))
-                        .bg(badges::type_color("feed"))
-                        .px(spacing::SM)
-                        .py(spacing::XXS)
-                        .rounded(radius::SM)
-                        .mb(spacing::SM)
-                        .child("feed"),
-                )
+                .child(div().mb(spacing::SM).child(TagBadge::new(EntityKind::Feed)))
                 .child(
                     div()
                         .text_lg()
@@ -5527,15 +5509,8 @@ fn render_track_header(
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(typography::SIZE_MICRO)
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(badges::text_color("track"))
-                        .bg(badges::type_color("track"))
-                        .px(spacing::SM)
-                        .py(spacing::XXS)
-                        .rounded(radius::SM)
                         .mb(spacing::SM)
-                        .child("track"),
+                        .child(TagBadge::new(EntityKind::Track)),
                 )
                 .child(typography::type_title(div()).child(SharedString::from(title)))
                 .child(
@@ -5723,7 +5698,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                             .items_center()
                             .justify_center()
                             .text_size(px(28.0))
-                            .child(badges::emoji("feed"))
+                            .child(EntityKind::Feed.emoji())
                     }),
             )
             .child(

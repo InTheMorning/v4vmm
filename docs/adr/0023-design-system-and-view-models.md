@@ -228,7 +228,8 @@ uses `LibraryTrackRowVm`, `LibraryArtistDetailVm`, `PlaylistDetailVm`, and
 `ResultRowVm`, and shared format helpers, and its contributor / value-route /
 frame sections use `DisclosureGroup`. The Discover result row now renders
 through `ListRow`, `Thumbnail`, `Label`, and `TagBadge` instead of raw row /
-badge layout.
+badge layout, and feed / track inspector identity labels use `TagBadge`
+rather than inline badge styling.
 
 `library.rs` and `search.rs` remain large and partially migrated. They still
 own screen state, call services directly, and contain remaining raw `px(...)`
@@ -245,9 +246,8 @@ and `rgb(...)` literals. Binding them to stateful screen VMs is tracked in
   call sites in `library.rs`, `search.rs`, and `app.rs` migrated to
   `.scaled(Size::*, cx)` so the user's UI scale picker actually moves
   third-party widgets.
-- `theme::badges` — single source of truth for entity-type badge
-  styling. Artist and release special cases folded directly into
-  `text_color` and `emoji`; the previous
+- `theme::badges` — legacy compatibility surface for string-keyed badge
+  styling. New entity badges use `TagBadge` / `EntityKind`; the previous
   `ui_common::{type_color, badge_text, type_emoji}` wrappers are gone.
 
 ## Consequences
