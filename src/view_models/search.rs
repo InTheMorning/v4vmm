@@ -7,8 +7,33 @@
 
 #![warn(clippy::pedantic)]
 
-use crate::api::{Artist, EntityDetail, Feed, Publisher};
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::api::{Artist, EntityDetail, Feed, Publisher, Track};
 use crate::view_models::track::TrackVm;
+
+/// Search result row data owned by the Discover screen.
+#[derive(Clone, Debug)]
+pub(crate) struct ResultRow {
+    pub(crate) entity_type: String,
+    pub(crate) entity_id: String,
+    pub(crate) detail: Option<EntityDetail>,
+}
+
+impl ResultRow {
+    #[must_use]
+    pub(crate) fn new(
+        entity_type: impl Into<String>,
+        entity_id: impl Into<String>,
+        detail: Option<EntityDetail>,
+    ) -> Self {
+        Self {
+            entity_type: entity_type.into(),
+            entity_id: entity_id.into(),
+            detail,
+        }
+    }
+}
 
 /// Display-ready text and media fields for one Discover result row.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -165,10 +190,154 @@ fn artist_active_years(artist: &Artist) -> Option<String> {
     }
 }
 
+#[must_use]
+pub(crate) fn search_result_type_is_visible(entity_type: &str) -> bool {
+    matches!(entity_type, "artist" | "feed" | "track")
+}
+
+/// Derive artist result rows from mixed artist/feed/track results.
+///
+/// This is pure projection over already-fetched rows. Network enrichment
+/// remains in the screen-side query adapter until a broader command/query
+/// layer exists.
+#[must_use]
+pub(crate) fn artist_rows_from_result_rows(
+    rows: &[ResultRow],
+    query: Option<&str>,
+) -> Vec<ResultRow> {
+    let mut artists = BTreeMap::<String, Artist>::new();
+
+    for row in rows {
+        match &row.detail {
+            Some(EntityDetail::Artist(artist)) => {
+                insert_artist_candidate(&mut artists, artist.clone(), query);
+            }
+            Some(EntityDetail::Feed(feed)) => {
+                if let Some(name) = nonempty_text(feed.release_artist.as_deref()) {
+                    insert_artist_candidate(
+                        &mut artists,
+                        Artist {
+                            name: Some(name.to_string()),
+                            feed_count: Some(1),
+                            image_url: feed.image_url.clone(),
+                            ..Artist::default()
+                        },
+                        query,
+                    );
+                }
+            }
+            Some(EntityDetail::Track(track)) => {
+                insert_track_artist_candidates(&mut artists, track, query);
+            }
+            Some(
+                EntityDetail::Release(_) | EntityDetail::Recording(_) | EntityDetail::Publisher(_),
+            )
+            | None => {}
+        }
+    }
+
+    artists
+        .into_values()
+        .map(|artist| {
+            let entity_id = artist
+                .name
+                .clone()
+                .or_else(|| artist.artist_id.clone())
+                .unwrap_or_default();
+            ResultRow::new("artist", entity_id, Some(EntityDetail::Artist(artist)))
+        })
+        .collect()
+}
+
+fn insert_track_artist_candidates(
+    artists: &mut BTreeMap<String, Artist>,
+    track: &Track,
+    query: Option<&str>,
+) {
+    let names: BTreeSet<&str> = [
+        track.track_artist.as_deref(),
+        track.release_artist.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    for name in names {
+        insert_artist_candidate(
+            artists,
+            Artist {
+                name: Some(name.to_string()),
+                track_count: Some(1),
+                image_url: track.image_url.clone(),
+                ..Artist::default()
+            },
+            query,
+        );
+    }
+}
+
+fn insert_artist_candidate(
+    artists: &mut BTreeMap<String, Artist>,
+    artist: Artist,
+    query: Option<&str>,
+) {
+    let Some(name) = artist.name.clone().or_else(|| artist.artist_id.clone()) else {
+        return;
+    };
+    let name = name.trim();
+    if name.is_empty() || !artist_name_matches_query(name, query) {
+        return;
+    }
+
+    let key = name.to_lowercase();
+    if let Some(existing) = artists.get_mut(&key) {
+        if existing.name.is_none() {
+            existing.name = Some(name.to_string());
+        }
+        if existing.image_url.is_none() {
+            existing.image_url = artist.image_url;
+        }
+        existing.feed_count = add_optional_counts(existing.feed_count, artist.feed_count);
+        existing.track_count = add_optional_counts(existing.track_count, artist.track_count);
+        return;
+    }
+
+    artists.insert(
+        key,
+        Artist {
+            name: Some(name.to_string()),
+            ..artist
+        },
+    );
+}
+
+fn artist_name_matches_query(name: &str, query: Option<&str>) -> bool {
+    let Some(query) = query else {
+        return true;
+    };
+    let normalized_name = name.to_lowercase();
+    query
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .all(|term| normalized_name.contains(&term))
+}
+
+fn add_optional_counts(left: Option<i32>, right: Option<i32>) -> Option<i32> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left + right),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        (None, None) => None,
+    }
+}
+
+fn nonempty_text(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{Recording, Release, Track};
+    use crate::api::{Recording, Release};
 
     #[test]
     fn artist_display_uses_counts_area_and_image() {
@@ -296,5 +465,93 @@ mod tests {
             Some("https://example.test/recording.png")
         );
         assert_eq!(ResultRowVm::new("bare-id", None).display().line1, "bare-id");
+    }
+
+    #[test]
+    fn visible_result_types_match_discover_scope() {
+        assert!(search_result_type_is_visible("artist"));
+        assert!(search_result_type_is_visible("feed"));
+        assert!(search_result_type_is_visible("track"));
+        assert!(!search_result_type_is_visible("publisher"));
+    }
+
+    #[test]
+    fn artist_rows_are_derived_from_feed_and_track_details() {
+        let rows = vec![
+            ResultRow::new(
+                "track",
+                "track-1",
+                Some(EntityDetail::Track(Track {
+                    track_artist: Some("The Doerfels".into()),
+                    release_artist: Some("The Doerfels".into()),
+                    image_url: Some("https://example.test/track.png".into()),
+                    ..Track::default()
+                })),
+            ),
+            ResultRow::new(
+                "feed",
+                "feed-1",
+                Some(EntityDetail::Feed(Feed {
+                    release_artist: Some("The Doerfels".into()),
+                    image_url: Some("https://example.test/feed.png".into()),
+                    ..Feed::default()
+                })),
+            ),
+            ResultRow::new(
+                "artist",
+                "other",
+                Some(EntityDetail::Artist(Artist {
+                    name: Some("Other Artist".into()),
+                    ..Artist::default()
+                })),
+            ),
+        ];
+
+        let artist_rows = artist_rows_from_result_rows(&rows, Some("doerfels"));
+
+        assert_eq!(artist_rows.len(), 1);
+        assert_eq!(artist_rows[0].entity_type, "artist");
+        assert_eq!(artist_rows[0].entity_id, "The Doerfels");
+        let Some(EntityDetail::Artist(artist)) = &artist_rows[0].detail else {
+            panic!("expected artist detail");
+        };
+        assert_eq!(artist.track_count, Some(1));
+        assert_eq!(artist.feed_count, Some(1));
+        assert_eq!(
+            artist.image_url.as_deref(),
+            Some("https://example.test/track.png")
+        );
+    }
+
+    #[test]
+    fn artist_rows_merge_case_insensitive_counts() {
+        let rows = vec![
+            ResultRow::new(
+                "feed",
+                "feed-1",
+                Some(EntityDetail::Feed(Feed {
+                    release_artist: Some("Artist".into()),
+                    ..Feed::default()
+                })),
+            ),
+            ResultRow::new(
+                "track",
+                "track-1",
+                Some(EntityDetail::Track(Track {
+                    track_artist: Some("artist".into()),
+                    ..Track::default()
+                })),
+            ),
+        ];
+
+        let artist_rows = artist_rows_from_result_rows(&rows, None);
+
+        assert_eq!(artist_rows.len(), 1);
+        let Some(EntityDetail::Artist(artist)) = &artist_rows[0].detail else {
+            panic!("expected artist detail");
+        };
+        assert_eq!(artist.name.as_deref(), Some("Artist"));
+        assert_eq!(artist.feed_count, Some(1));
+        assert_eq!(artist.track_count, Some(1));
     }
 }

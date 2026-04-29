@@ -48,15 +48,10 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
-use crate::view_models::search::ResultRowVm;
+use crate::view_models::search::{
+    artist_rows_from_result_rows, search_result_type_is_visible, ResultRow, ResultRowVm,
+};
 use crate::view_models::track::TrackVm;
-
-#[derive(Clone, Debug)]
-struct ResultRow {
-    entity_type: String,
-    entity_id: String,
-    detail: Option<EntityDetail>,
-}
 
 #[derive(Clone, Debug)]
 pub(crate) enum InspectorDetail {
@@ -2019,10 +2014,6 @@ fn fetch_artist_search_batch(
     })
 }
 
-fn search_result_type_is_visible(entity_type: &str) -> bool {
-    matches!(entity_type, "artist" | "feed" | "track")
-}
-
 fn search_hit_to_result_row(client: &Client, hit: &SearchResult) -> ResultRow {
     let detail = client
         .fetch_detail(&hit.entity_type, &hit.entity_id)
@@ -2033,78 +2024,7 @@ fn search_hit_to_result_row(client: &Client, hit: &SearchResult) -> ResultRow {
                 EntityDetail::Artist(_) | EntityDetail::Feed(_) | EntityDetail::Track(_)
             )
         });
-    ResultRow {
-        entity_type: hit.entity_type.clone(),
-        entity_id: hit.entity_id.clone(),
-        detail,
-    }
-}
-
-fn artist_rows_from_result_rows(rows: &[ResultRow], query: Option<&str>) -> Vec<ResultRow> {
-    let mut artists = BTreeMap::<String, Artist>::new();
-
-    for row in rows {
-        match &row.detail {
-            Some(EntityDetail::Artist(artist)) => {
-                insert_artist_candidate(&mut artists, artist.clone(), query);
-            }
-            Some(EntityDetail::Feed(feed)) => {
-                if let Some(name) = nonempty_url(feed.release_artist.as_deref()) {
-                    insert_artist_candidate(
-                        &mut artists,
-                        Artist {
-                            name: Some(name.to_string()),
-                            feed_count: Some(1),
-                            image_url: feed.image_url.clone(),
-                            ..Artist::default()
-                        },
-                        query,
-                    );
-                }
-            }
-            Some(EntityDetail::Track(track)) => {
-                let names: BTreeSet<&str> = [
-                    track.track_artist.as_deref(),
-                    track.release_artist.as_deref(),
-                ]
-                .into_iter()
-                .flatten()
-                .collect();
-                for name in names {
-                    insert_artist_candidate(
-                        &mut artists,
-                        Artist {
-                            name: Some(name.to_string()),
-                            track_count: Some(1),
-                            image_url: track.image_url.clone(),
-                            ..Artist::default()
-                        },
-                        query,
-                    );
-                }
-            }
-            Some(EntityDetail::Release(_))
-            | Some(EntityDetail::Recording(_))
-            | Some(EntityDetail::Publisher(_))
-            | None => {}
-        }
-    }
-
-    artists
-        .into_values()
-        .map(|artist| {
-            let entity_id = artist
-                .name
-                .clone()
-                .or_else(|| artist.artist_id.clone())
-                .unwrap_or_default();
-            ResultRow {
-                entity_type: "artist".into(),
-                entity_id,
-                detail: Some(EntityDetail::Artist(artist)),
-            }
-        })
-        .collect()
+    ResultRow::new(hit.entity_type.clone(), hit.entity_id.clone(), detail)
 }
 
 fn enrich_artist_rows(client: &Client, rows: &mut [ResultRow]) {
@@ -2153,61 +2073,6 @@ fn enrich_artist_rows(client: &Client, rows: &mut [ResultRow]) {
                 artist.image_url = first_feed_image;
             }
         }
-    }
-}
-
-fn insert_artist_candidate(
-    artists: &mut BTreeMap<String, Artist>,
-    artist: Artist,
-    query: Option<&str>,
-) {
-    let Some(name) = artist.name.clone().or_else(|| artist.artist_id.clone()) else {
-        return;
-    };
-    let name = name.trim();
-    if name.is_empty() || !artist_name_matches_query(name, query) {
-        return;
-    }
-
-    let key = name.to_lowercase();
-    if let Some(existing) = artists.get_mut(&key) {
-        if existing.name.is_none() {
-            existing.name = Some(name.to_string());
-        }
-        if existing.image_url.is_none() {
-            existing.image_url = artist.image_url;
-        }
-        existing.feed_count = add_optional_counts(existing.feed_count, artist.feed_count);
-        existing.track_count = add_optional_counts(existing.track_count, artist.track_count);
-        return;
-    }
-
-    artists.insert(
-        key,
-        Artist {
-            name: Some(name.to_string()),
-            ..artist
-        },
-    );
-}
-
-fn artist_name_matches_query(name: &str, query: Option<&str>) -> bool {
-    let Some(query) = query else {
-        return true;
-    };
-    let normalized_name = name.to_lowercase();
-    query
-        .split_whitespace()
-        .map(str::to_lowercase)
-        .all(|term| normalized_name.contains(&term))
-}
-
-fn add_optional_counts(left: Option<i32>, right: Option<i32>) -> Option<i32> {
-    match (left, right) {
-        (Some(left), Some(right)) => Some(left + right),
-        (Some(left), None) => Some(left),
-        (None, Some(right)) => Some(right),
-        (None, None) => None,
     }
 }
 

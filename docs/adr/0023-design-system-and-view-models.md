@@ -198,8 +198,9 @@ Shipped view-models:
   sorted tracks / runtime / detail entries.
 - `view_models::track::TrackVm` — title with fallback, runtime suffix,
   composed labels, identity helpers.
-- `view_models::search::ResultRowVm` — Discover result-row projection
-  (three-line display text and image URL selection).
+- `view_models::search::{ResultRow, ResultRowVm}` — Discover result-row
+  data and projection (visible-type filtering, derived artist aggregation,
+  three-line display text, and image URL selection).
 - `view_models::library::MbTrackStatus` — screen-independent
   `MusicBrainz` lookup state used by the library screen.
 - `view_models::library::LibraryTrackRowVm` — album-detail row

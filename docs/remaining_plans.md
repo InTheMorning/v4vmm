@@ -40,8 +40,9 @@ The projection view-model layer is partially migrated:
 - `view_models::feed::FeedVm` backs `ui_feed.rs`.
 - `view_models::track::TrackVm` backs the discover row, several search
   track projections, and library track title fallback.
-- `view_models::search::ResultRowVm` backs Discover result-row display
-  strings and image selection.
+- `view_models::search::{ResultRow, ResultRowVm}` backs Discover result-row
+  data, display strings, image selection, visible-type filtering, and pure
+  derived-artist aggregation.
 - `view_models::library::MbTrackStatus` is now screen-independent.
 - `view_models::library::LibraryTrackRowVm` backs album detail track rows.
 - `view_models::library::LibraryArtistDetailVm` backs library artist detail.
@@ -59,9 +60,10 @@ The projection view-model layer is partially migrated:
   dispatch.
 - `search-view-model`: create `SearchViewModel` for discover/search state,
   result grouping, inspector frame state, recent-feed state, and display-ready
-  result rows. `ResultRowVm` now owns the former `result_lines` /
-  `result_image_url` projection; continue with result grouping, track/feed
-  headers, and inspector sections before moving async command dispatch.
+  result rows. `ResultRow` / `ResultRowVm` now own the former `result_lines` /
+  `result_image_url` projection, visible type filtering, and pure derived
+  artist aggregation; continue with track/feed headers, inspector sections,
+  and async command dispatch.
 - `command-intent-types`: introduce small command enums or structs only where
   they remove direct service calls from screens. Do not build a broad
   CommandBus without a separate ADR.
@@ -76,9 +78,10 @@ The projection view-model layer is partially migrated:
   where it preserves behavior.
 - `screen-library-metadata`: migrate the ID3 / MusicBrainz metadata panels
   out of inline string formatting and raw color literals.
-- `screen-search-results`: Discover result rows now read labels and image
-  URLs through `ResultRowVm`; next move result grouping and section headers
-  out of `search.rs`.
+- `screen-search-results`: Discover result rows now read labels, image URLs,
+  visible type filtering, and derived artist rows through
+  `view_models::search`; next move section headers / empty states and
+  result-row interaction command intent out of `search.rs`.
 - `screen-search-inspector`: migrate track/feed/publisher inspector sections
   to projections and existing composites; keep direct GPUI event wiring in
   the screen until command intent is available.
