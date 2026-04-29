@@ -617,6 +617,7 @@ mod tests {
             db_path: "/tmp/v4vmm-test.sqlite".into(),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            ui_scale: Default::default(),
         };
 
         assert_eq!(
@@ -636,6 +637,7 @@ mod tests {
             db_path: "/tmp/v4vmm-test.sqlite".into(),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            ui_scale: Default::default(),
         };
         let mut track = track();
         track.track_artist = Some("CON".into());
@@ -659,6 +661,7 @@ mod tests {
             db_path: "/tmp/v4vmm-test.sqlite".into(),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            ui_scale: Default::default(),
         };
         let mut track = track();
         track.track_artist = Some("Artist\tName".into());
@@ -755,6 +758,7 @@ mod tests {
             db_path: temp.path().join("db.sqlite"),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            ui_scale: Default::default(),
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));

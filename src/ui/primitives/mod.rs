@@ -23,9 +23,11 @@
 pub mod button;
 pub mod divider;
 pub mod label;
+pub mod popover;
 pub mod surface;
 
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use divider::Divider;
 pub use label::{Label, LabelVariant};
+pub use popover::{Popover, PopoverAlignment, PopoverPlacement};
 pub use surface::{Surface, SurfaceElevation};

@@ -61,6 +61,7 @@ pub struct TopApp {
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
+    ui_scale: crate::config::UiScale,
     cfg_path: PathBuf,
     settings_status: String,
     library_tab_focus: gpui::FocusHandle,
@@ -92,6 +93,7 @@ impl TopApp {
         musicindex_endpoint: String,
         music_dir: PathBuf,
         flac_path: Option<PathBuf>,
+        ui_scale: crate::config::UiScale,
         playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -158,6 +160,7 @@ impl TopApp {
             endpoint_input,
             music_dir_input,
             flac_path_input,
+            ui_scale,
             cfg_path,
             settings_status: String::new(),
             library_tab_focus: cx.focus_handle(),
@@ -307,12 +310,22 @@ impl TopApp {
         }
     }
 
+    fn set_ui_scale(&mut self, scale: crate::config::UiScale, cx: &mut Context<Self>) {
+        if self.ui_scale == scale {
+            return;
+        }
+        self.ui_scale = scale;
+        cx.notify();
+    }
+
     fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let endpoint = self.endpoint_input.read(cx).value().to_string();
         let music_dir = self.music_dir_input.read(cx).value().to_string();
         let flac_path = self.flac_path_input.read(cx).value().to_string();
-        match config::save_app_settings(&self.cfg_path, &endpoint, &music_dir, &flac_path) {
-            Ok((normalized_endpoint, normalized_music_dir, normalized_flac_path)) => {
+        let ui_scale = self.ui_scale;
+        match config::save_app_settings(&self.cfg_path, &endpoint, &music_dir, &flac_path, ui_scale)
+        {
+            Ok((normalized_endpoint, normalized_music_dir, normalized_flac_path, saved_scale)) => {
                 let cfg = match config::load_config(&self.cfg_path)
                     .and_then(|cfg| config::ensure_dirs(&cfg).map(|()| cfg))
                 {
@@ -342,6 +355,12 @@ impl TopApp {
                 self.flac_path_input.update(cx, |input, cx| {
                     input.set_value(flac_display, window, cx);
                 });
+                // Apply scale change immediately so the UI reflects it.
+                crate::ui::theme_bridge::install_theme(
+                    crate::ui::tokens::Appearance::Dark,
+                    saved_scale.into(),
+                    cx,
+                );
                 self.settings_status = format!(
                     "Saved settings. Music files download under {}/artists",
                     cfg.music_dir.display()
@@ -572,6 +591,47 @@ impl Render for TopApp {
     }
 }
 
+fn render_ui_scale_picker(
+    current: crate::config::UiScale,
+    cx: &mut Context<TopApp>,
+) -> gpui::AnyElement {
+    use crate::config::UiScale;
+
+    let options: [(UiScale, &str); 5] = [
+        (UiScale::XSmall, "XS"),
+        (UiScale::Small, "S"),
+        (UiScale::Medium, "M"),
+        (UiScale::Large, "L"),
+        (UiScale::XLarge, "XL"),
+    ];
+
+    let mut row = div().flex().flex_row().items_center().gap(spacing::XS);
+    for (scale, label) in options {
+        let id = match scale {
+            UiScale::XSmall => "ui-scale-xs",
+            UiScale::Small => "ui-scale-s",
+            UiScale::Medium => "ui-scale-m",
+            UiScale::Large => "ui-scale-l",
+            UiScale::XLarge => "ui-scale-xl",
+        };
+        let mut button = Button::new(id)
+            .label(label)
+            .with_size(Size::Small)
+            .text_color(rgb(0xffffff))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.set_ui_scale(scale, cx);
+            }));
+        button = if scale == current {
+            button.primary()
+        } else {
+            button.ghost()
+        };
+        row = row.child(button);
+    }
+
+    row.into_any_element()
+}
+
 fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {
     app.reload_cached();
 
@@ -655,6 +715,19 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .text_color(color::text_muted())
                         .child(
                             "Used to silently upgrade WAV downloads to FLAC. Leave blank to resolve `flac` via $PATH.",
+                        ),
+                )
+                .child(
+                    typography::type_caption_strong(div())
+                        .text_color(color::text_muted())
+                        .child("UI scale"),
+                )
+                .child(render_ui_scale_picker(app.ui_scale, cx))
+                .child(
+                    typography::type_caption(div())
+                        .text_color(color::text_muted())
+                        .child(
+                            "Scales every dimension token (spacing, radius, font, sizes). Click Save to persist.",
                         ),
                 )
                 .child(
@@ -917,7 +990,14 @@ pub fn run_app() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
-        crate::ui::theme_bridge::install_theme(crate::ui::tokens::Appearance::Dark, cx);
+        // Pre-config: install with default scale so the loading window is
+        // themed; we re-install with the user's preference once config is
+        // loaded a few lines below.
+        crate::ui::theme_bridge::install_theme(
+            crate::ui::tokens::Appearance::Dark,
+            crate::ui::tokens::ScaleFactor::Medium,
+            cx,
+        );
 
         // Load config + open DB
         let cfg_path = config::config_path().expect("config path");
@@ -925,6 +1005,13 @@ pub fn run_app() {
         let musicindex_endpoint =
             config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
         config::ensure_dirs(&cfg).expect("ensure dirs");
+
+        // Re-apply theme now that config has provided the user's UI scale.
+        crate::ui::theme_bridge::install_theme(
+            crate::ui::tokens::Appearance::Dark,
+            cfg.ui_scale.into(),
+            cx,
+        );
         let conn = db::open_db(&cfg).expect("open db");
         let conn = Arc::new(Mutex::new(conn));
         let playback_driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)
@@ -957,6 +1044,7 @@ pub fn run_app() {
                             musicindex_endpoint,
                             cfg.music_dir,
                             cfg.flac_path,
+                            cfg.ui_scale,
                             playback_owner,
                             window,
                             cx,

@@ -20,16 +20,35 @@
 use gpui::{App, Hsla, Rgba};
 use gpui_component::{Theme, ThemeMode};
 
-use crate::ui::tokens::{Appearance, SemanticColor};
+use crate::config::UiScale;
+use crate::ui::tokens::{Appearance, ScaleFactor, SemanticColor};
 
-/// Install v4vmm's palette into the global `gpui-component` theme.
+impl From<UiScale> for ScaleFactor {
+    fn from(s: UiScale) -> Self {
+        match s {
+            UiScale::XSmall => Self::XSmall,
+            UiScale::Small => Self::Small,
+            UiScale::Medium => Self::Medium,
+            UiScale::Large => Self::Large,
+            UiScale::XLarge => Self::XLarge,
+        }
+    }
+}
+
+/// Install v4vmm's palette and UI scale into the global `gpui-component`
+/// theme + the application context.
 ///
-/// Idempotent: safe to call from every window-construction path.
+/// Idempotent: safe to call from every window-construction path, and to
+/// re-call when the user changes appearance or scale at runtime.
 #[expect(
     clippy::too_many_lines,
     reason = "flat field-by-field assignment list is clearer than splitting"
 )]
-pub fn install_theme(appearance: Appearance, cx: &mut App) {
+pub fn install_theme(appearance: Appearance, scale: ScaleFactor, cx: &mut App) {
+    // Make the requested scale globally readable by every primitive's
+    // `.scaled(cx)` accessor.
+    cx.set_global(scale);
+
     let mode = match appearance {
         Appearance::Dark => ThemeMode::Dark,
         Appearance::Light => ThemeMode::Light,

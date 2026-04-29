@@ -268,6 +268,8 @@ pub enum Spacing {
 }
 
 impl Spacing {
+    /// Base (1.0×) value. Use [`Self::scaled`] when an `App` is in scope so
+    /// the user's UI scale is honored.
     #[must_use]
     pub const fn px(self) -> Pixels {
         match self {
@@ -279,6 +281,12 @@ impl Spacing {
             Self::XL => px(24.0),
             Self::XXL => px(32.0),
         }
+    }
+
+    /// Same as [`Self::px`] but multiplied by the active [`ScaleFactor`].
+    #[must_use]
+    pub fn scaled(self, cx: &App) -> Pixels {
+        scale_px(f32::from(self.px()), ScaleFactor::current(cx))
     }
 }
 
@@ -311,6 +319,16 @@ impl Radius {
             Self::XL => px(14.0),
             Self::Full => px(999.0),
         }
+    }
+
+    #[must_use]
+    pub fn scaled(self, cx: &App) -> Pixels {
+        // The pill radius is intentionally capped — scaling 999px makes no
+        // visual difference and risks integer overflow on extreme factors.
+        if matches!(self, Self::Full) {
+            return self.px();
+        }
+        scale_px(f32::from(self.px()), ScaleFactor::current(cx))
     }
 }
 
@@ -350,6 +368,11 @@ impl FontSize {
             Self::Title => px(24.0),
         }
     }
+
+    #[must_use]
+    pub fn scaled(self, cx: &App) -> Pixels {
+        scale_px(f32::from(self.px()), ScaleFactor::current(cx))
+    }
 }
 
 /// Type weight token (mirrors HIG weights).
@@ -373,8 +396,105 @@ impl From<Weight> for FontWeight {
 }
 
 // -----------------------------------------------------------------------------
+// Size — semantic widths/heights for menus, popovers, scrollable columns, etc.
+// -----------------------------------------------------------------------------
+
+/// Semantic size token for recurring container widths and heights.
+///
+/// These values are HIG-aligned (`NSPopover` menus typically run 160–280pt
+/// wide; scrollable lists use 240/320/480pt depending on density). Always
+/// prefer this enum over a hard-coded `px(220.)` so the entire UI re-scales
+/// when a future `ScaleFactor` token is introduced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Size {
+    /// 160 px — compact menu / dropdown.
+    MenuCompact,
+    /// 220 px — regular menu / popover (default).
+    MenuRegular,
+    /// 280 px — wide menu.
+    MenuWide,
+    /// 240 px — short scrollable column.
+    ColumnShort,
+    /// 320 px — regular scrollable column.
+    ColumnRegular,
+    /// 480 px — tall scrollable column.
+    ColumnTall,
+    /// 36 px — HIG menu row height (regular).
+    RowMd,
+    /// 44 px — HIG menu/list row height (touch-friendly).
+    RowLg,
+}
+
+impl Size {
+    #[must_use]
+    pub const fn px(self) -> Pixels {
+        match self {
+            Self::MenuCompact => px(160.0),
+            Self::MenuRegular => px(220.0),
+            Self::MenuWide => px(280.0),
+            Self::ColumnShort => px(240.0),
+            Self::ColumnRegular => px(320.0),
+            Self::ColumnTall => px(480.0),
+            Self::RowMd => px(36.0),
+            Self::RowLg => px(44.0),
+        }
+    }
+
+    #[must_use]
+    pub fn scaled(self, cx: &App) -> Pixels {
+        scale_px(f32::from(self.px()), ScaleFactor::current(cx))
+    }
+}
+
+// -----------------------------------------------------------------------------
+// ScaleFactor — Apple Dynamic Type-style runtime UI scale.
+// -----------------------------------------------------------------------------
+
+/// Global UI scale, mirroring the named steps of iOS Dynamic Type.
+///
+/// Multiplied into every dimension token's `.scaled(cx)` accessor so the
+/// entire UI can shrink or grow without any per-screen code change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum ScaleFactor {
+    XSmall,
+    Small,
+    #[default]
+    Medium,
+    Large,
+    XLarge,
+}
+
+impl ScaleFactor {
+    #[must_use]
+    pub const fn multiplier(self) -> f32 {
+        match self {
+            Self::XSmall => 0.85,
+            Self::Small => 0.92,
+            Self::Medium => 1.0,
+            Self::Large => 1.12,
+            Self::XLarge => 1.25,
+        }
+    }
+
+    /// Returns the scale stored on `cx`, or [`ScaleFactor::Medium`] if none
+    /// has been installed yet (e.g. early-startup paths or tests).
+    #[must_use]
+    pub fn current(cx: &App) -> Self {
+        cx.try_global::<ScaleFactor>().copied().unwrap_or_default()
+    }
+}
+
+impl gpui::Global for ScaleFactor {}
+
+// -----------------------------------------------------------------------------
 // Helpers.
 // -----------------------------------------------------------------------------
+
+/// Multiply a base point value by a scale and return `Pixels`.
+#[inline]
+fn scale_px(base: f32, scale: ScaleFactor) -> Pixels {
+    px(base * scale.multiplier())
+}
 
 #[inline]
 const fn hex(rgb: u32) -> Rgba {

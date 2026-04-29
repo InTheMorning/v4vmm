@@ -28,6 +28,58 @@ pub struct Config {
     /// driver so existing configs keep loading unchanged.
     #[serde(default)]
     pub playback: PlaybackConfig,
+
+    /// Global UI scale factor. Mirrors iOS Dynamic Type's named steps.
+    /// Missing value defaults to `medium` (1.0×).
+    #[serde(default, deserialize_with = "deserialize_ui_scale")]
+    pub ui_scale: UiScale,
+}
+
+/// Persisted UI scale enum — TOML representation is a lowercase string
+/// (`"x-small"`, `"small"`, `"medium"`, `"large"`, `"x-large"`).
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub enum UiScale {
+    #[serde(rename = "x-small")]
+    XSmall,
+    #[serde(rename = "small")]
+    Small,
+    #[default]
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "large")]
+    Large,
+    #[serde(rename = "x-large")]
+    XLarge,
+}
+
+impl UiScale {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::XSmall => "x-small",
+            Self::Small => "small",
+            Self::Medium => "medium",
+            Self::Large => "large",
+            Self::XLarge => "x-large",
+        }
+    }
+}
+
+fn deserialize_ui_scale<'de, D>(deserializer: D) -> std::result::Result<UiScale, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw = String::deserialize(deserializer)?;
+    match raw.as_str() {
+        "x-small" => Ok(UiScale::XSmall),
+        "small" => Ok(UiScale::Small),
+        "medium" => Ok(UiScale::Medium),
+        "large" => Ok(UiScale::Large),
+        "x-large" => Ok(UiScale::XLarge),
+        other => Err(serde::de::Error::custom(format!(
+            "unknown ui_scale {other:?}; expected one of \
+             \"x-small\", \"small\", \"medium\", \"large\", \"x-large\""
+        ))),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -160,7 +212,8 @@ pub fn save_app_settings(
     endpoint: &str,
     music_dir: &str,
     flac_path: &str,
-) -> Result<(String, PathBuf, Option<PathBuf>)> {
+    ui_scale: UiScale,
+) -> Result<(String, PathBuf, Option<PathBuf>, UiScale)> {
     let endpoint = normalize_musicindex_endpoint(endpoint)?;
     let music_dir = normalize_music_dir(music_dir)?;
     let flac_path = normalize_flac_path(flac_path)?;
@@ -181,6 +234,10 @@ pub fn save_app_settings(
         "music_dir".into(),
         toml::Value::String(music_dir.display().to_string()),
     );
+    table.insert(
+        "ui_scale".into(),
+        toml::Value::String(ui_scale.as_str().to_string()),
+    );
     match &flac_path {
         Some(path) => {
             table.insert(
@@ -196,7 +253,7 @@ pub fn save_app_settings(
     let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
     fs::write(cfg_path, updated.as_bytes())
         .with_context(|| format!("write config {}", cfg_path.display()))?;
-    Ok((endpoint, music_dir, flac_path))
+    Ok((endpoint, music_dir, flac_path, ui_scale))
 }
 
 pub fn normalize_musicindex_endpoint(endpoint: &str) -> Result<String> {
@@ -452,11 +509,12 @@ extra = "keep"
         )
         .expect("write config");
 
-        let (endpoint, music_dir, flac_path) = save_app_settings(
+        let (endpoint, music_dir, flac_path, ui_scale) = save_app_settings(
             &cfg_path,
             "api.musicindex.org/",
             "~/V4Vmusic",
             "/usr/bin/flac",
+            UiScale::Medium,
         )
         .expect("save");
         let raw = fs::read_to_string(&cfg_path).expect("read config");
@@ -465,6 +523,7 @@ extra = "keep"
         assert_eq!(endpoint, DEFAULT_BASE_URL);
         assert_eq!(music_dir, default_music_dir().expect("default music dir"));
         assert_eq!(flac_path, Some(PathBuf::from("/usr/bin/flac")));
+        assert_eq!(ui_scale, UiScale::Medium);
         assert_eq!(
             table.get("flac_path").and_then(toml::Value::as_str),
             Some("/usr/bin/flac")

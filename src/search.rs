@@ -6180,7 +6180,11 @@ pub fn run_search_app() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
-        crate::ui::theme_bridge::install_theme(crate::ui::tokens::Appearance::Dark, cx);
+        crate::ui::theme_bridge::install_theme(
+            crate::ui::tokens::Appearance::Dark,
+            crate::ui::tokens::ScaleFactor::Medium,
+            cx,
+        );
         let cfg_path = config::config_path().expect("config path");
         let cfg = config::load_config(&cfg_path).expect("load config");
         config::ensure_dirs(&cfg).expect("ensure dirs");
@@ -6188,6 +6192,12 @@ pub fn run_search_app() {
         let conn = Arc::new(Mutex::new(conn));
         let musicindex_endpoint =
             config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
+
+        crate::ui::theme_bridge::install_theme(
+            crate::ui::tokens::Appearance::Dark,
+            cfg.ui_scale.into(),
+            cx,
+        );
 
         let thumbnail_cache_dir = cfg_path
             .parent()

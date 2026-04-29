@@ -11,18 +11,17 @@
 
 use std::rc::Rc;
 
-use gpui::{
-    div, prelude::*, px, App, Corner, Div, Entity, IntoElement, RenderOnce, SharedString, Window,
-};
+use gpui::{div, prelude::*, App, Div, Entity, IntoElement, RenderOnce, SharedString, Window};
 use gpui_component::{
     input::{Input, InputState},
-    popover::Popover,
     v_flex,
 };
 
 use crate::db;
-use crate::ui::primitives::{Button, ButtonSize, Divider, Surface, SurfaceElevation};
-use crate::ui::tokens::Spacing;
+use crate::ui::primitives::{
+    Button, ButtonSize, Divider, Popover, PopoverAlignment, PopoverPlacement,
+};
+use crate::ui::tokens::{FontSize, Size, Spacing};
 
 // ---------------------------------------------------------------------------
 // Callback type aliases (silence clippy::type_complexity)
@@ -92,10 +91,9 @@ impl RenderOnce for AddToPlaylistPopover {
         let trigger_id = SharedString::from(format!("{}-btn", self.id));
 
         Popover::new(self.id)
-            .anchor(Corner::TopLeft)
-            // Disable gpui-component's built-in popover surface; we apply our
-            // own dark `Surface::Floating` styling inside the content closure.
-            .appearance(false)
+            .placement(PopoverPlacement::Below)
+            .alignment(PopoverAlignment::Start)
+            .surface_padding(Spacing::XS)
             .overlay_closable(true)
             .open(open)
             .on_open_change({
@@ -118,21 +116,17 @@ impl RenderOnce for AddToPlaylistPopover {
                     .size(ButtonSize::Sm)
                     .label("+ Playlist"),
             )
-            .content(move |_ps, _window, cx| {
+            .content(move |_window, cx| {
                 let (creating, name_input) = {
                     let s = state.read(cx);
                     (s.creating, s.name_input.clone())
                 };
 
-                let inner = if creating {
+                if creating {
                     build_create_mode(state.clone(), name_input, on_create.clone())
                 } else {
                     build_list_mode(state.clone(), playlists.clone(), on_select.clone())
-                };
-
-                Surface::new(SurfaceElevation::Floating)
-                    .padding(Spacing::XS)
-                    .child(inner)
+                }
             })
     }
 }
@@ -180,15 +174,15 @@ fn build_list_mode(
         });
 
     v_flex()
-        .w(px(220.))
-        .max_h(px(320.))
+        .w(Size::MenuRegular.px())
+        .max_h(Size::ColumnRegular.px())
         .gap(Spacing::XXS.px())
         .when(playlists.is_empty(), |el: Div| {
             el.child(
                 div()
-                    .px_3()
-                    .py_2()
-                    .text_size(px(12.))
+                    .px(Spacing::MD.px())
+                    .py(Spacing::SM.px())
+                    .text_size(FontSize::Caption.px())
                     .child("No playlists yet"),
             )
         })
@@ -246,7 +240,7 @@ fn build_create_mode(
         });
 
     v_flex()
-        .w(px(220.))
+        .w(Size::MenuRegular.px())
         .gap(Spacing::XS.px())
         .child(back_btn)
         .child(div().my(Spacing::XS.px()).child(Divider::horizontal()))
