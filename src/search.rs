@@ -43,10 +43,11 @@ use crate::ui::composites::{
 };
 use crate::ui::primitives::{Image as ImagePrimitive, ImageSize};
 use crate::ui::sizable_bridge::SizableScaled;
+use crate::ui::theme::badges;
 use crate::ui::tokens::Radius;
 use crate::ui_common::{
-    badge_text, compare_value_line_elements, optional_row, plural, section_heading, truncated,
-    truncated_muted, type_color, type_emoji, DetailRow,
+    compare_value_line_elements, optional_row, plural, section_heading, truncated, truncated_muted,
+    DetailRow,
 };
 
 #[derive(Clone, Debug)]
@@ -2735,8 +2736,8 @@ fn render_result_item(
                 .flex_shrink_0()
                 .text_size(typography::SIZE_MICRO)
                 .font_weight(FontWeight::BOLD)
-                .text_color(badge_text(&row.entity_type))
-                .bg(type_color(&row.entity_type))
+                .text_color(badges::text_color(&row.entity_type))
+                .bg(badges::type_color(&row.entity_type))
                 .px(spacing::XS)
                 .py(spacing::XXS)
                 .rounded(radius::SM)
@@ -3613,14 +3614,14 @@ fn render_musicbrainz_title_bar(
         .ghost()
         .w_full()
         .justify_start()
-        .bg(type_color("track"))
+        .bg(badges::type_color("track"))
         .text_color(rgb(0xffffff))
         .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::BOLD)
         .px(spacing::SM)
         .py(spacing::XXS)
         .border_1()
-        .border_color(type_color("track"))
+        .border_color(badges::type_color("track"))
         .rounded(radius::SM)
         .mb(spacing::SM);
 
@@ -4267,8 +4268,8 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
                             div()
                                 .text_size(typography::SIZE_MICRO)
                                 .font_weight(FontWeight::BOLD)
-                                .text_color(badge_text("track"))
-                                .bg(type_color("track"))
+                                .text_color(badges::text_color("track"))
+                                .bg(badges::type_color("track"))
                                 .px(spacing::SM)
                                 .py(spacing::XXS)
                                 .rounded(radius::SM)
@@ -5352,8 +5353,8 @@ pub(crate) fn render_feed_header(
                     div()
                         .text_size(typography::SIZE_MICRO)
                         .font_weight(FontWeight::BOLD)
-                        .text_color(badge_text("feed"))
-                        .bg(type_color("feed"))
+                        .text_color(badges::text_color("feed"))
+                        .bg(badges::type_color("feed"))
                         .px(spacing::SM)
                         .py(spacing::XXS)
                         .rounded(radius::SM)
@@ -5717,8 +5718,8 @@ fn render_track_header(
                     div()
                         .text_size(typography::SIZE_MICRO)
                         .font_weight(FontWeight::BOLD)
-                        .text_color(badge_text("track"))
-                        .bg(type_color("track"))
+                        .text_color(badges::text_color("track"))
+                        .bg(badges::type_color("track"))
                         .px(spacing::SM)
                         .py(spacing::XXS)
                         .rounded(radius::SM)
@@ -5912,7 +5913,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                             .items_center()
                             .justify_center()
                             .text_size(px(28.0))
-                            .child(type_emoji("feed"))
+                            .child(badges::emoji("feed"))
                     }),
             )
             .child(

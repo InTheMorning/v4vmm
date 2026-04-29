@@ -11,7 +11,7 @@
 //! through.
 
 use crate::ui::composites::DetailRow as CompositeDetailRow;
-use crate::ui::theme::{badges, color, spacing, typography};
+use crate::ui::theme::{color, spacing, typography};
 use gpui::{div, AnyElement, Div, FontWeight, IntoElement, ParentElement, SharedString, Styled};
 
 /// Legacy detail row shape — the value is a pre-rendered `AnyElement` so
@@ -83,27 +83,6 @@ pub fn optional_row(rows: &mut Vec<(String, String)>, key: &str, value: Option<S
         if !value.is_empty() {
             rows.push((key.into(), value));
         }
-    }
-}
-
-pub fn type_color(entity_type: &str) -> gpui::Rgba {
-    badges::type_color(entity_type)
-}
-
-pub fn badge_text(entity_type: &str) -> gpui::Rgba {
-    match entity_type {
-        // Dark text on bright artist badges for WCAG AA contrast — same
-        // dark-on-light pairing already used for feed/track badges.
-        "artist" => badges::text_color("track"),
-        _ => badges::text_color(entity_type),
-    }
-}
-
-pub fn type_emoji(entity_type: &str) -> &'static str {
-    match entity_type {
-        "artist" => "🎤",
-        "release" => "💿",
-        _ => badges::emoji(entity_type),
     }
 }
 

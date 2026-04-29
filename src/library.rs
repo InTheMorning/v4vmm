@@ -39,8 +39,9 @@ use crate::ui::composites::{
 };
 use crate::ui::primitives::Image as ImagePrimitive;
 use crate::ui::sizable_bridge::SizableScaled;
+use crate::ui::theme::badges;
 use crate::ui::tokens::Radius;
-use crate::ui_common::{badge_text, compare_value_line_elements, type_color};
+use crate::ui_common::compare_value_line_elements;
 use crate::views::FeedView;
 
 // ---------------------------------------------------------------------------
@@ -3744,8 +3745,8 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -
                             div()
                                 .text_size(typography::SIZE_MICRO)
                                 .font_weight(FontWeight::BOLD)
-                                .text_color(badge_text("track"))
-                                .bg(type_color("track"))
+                                .text_color(badges::text_color("track"))
+                                .bg(badges::type_color("track"))
                                 .px(spacing::XS)
                                 .py(spacing::XXS)
                                 .rounded(radius::SM)
@@ -3887,14 +3888,14 @@ fn render_musicbrainz_title_bar(
         .ghost()
         .w_full()
         .justify_start()
-        .bg(type_color("track"))
+        .bg(badges::type_color("track"))
         .text_color(rgb(0xffffff))
         .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::BOLD)
         .px(spacing::XS)
         .py(spacing::XXS)
         .border_1()
-        .border_color(type_color("track"))
+        .border_color(badges::type_color("track"))
         .rounded(radius::SM)
         .mb(spacing::XS)
         .dropdown_menu(move |menu, _window, _cx| {

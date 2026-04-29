@@ -107,7 +107,9 @@ pub mod badges {
 
     pub fn text_color(entity_type: &str) -> Rgba {
         match entity_type {
-            "feed" | "track" => rgb(0x111318),
+            // Dark text on bright artist badges keeps WCAG AA contrast
+            // (the green artist colour is too light for white text).
+            "feed" | "track" | "artist" => rgb(0x111318),
             _ => rgb(0xffffff),
         }
     }
@@ -117,6 +119,8 @@ pub mod badges {
             "feed" => "\u{1F4E1}",
             "track" => "\u{1F3B6}",
             "publisher" => "\u{1F3E2}",
+            "artist" => "\u{1F3A4}",
+            "release" => "\u{1F4BF}",
             _ => "\u{1F3B5}",
         }
     }
@@ -189,5 +193,45 @@ pub mod typography {
 
     pub fn type_micro<T: Styled>(el: T) -> T {
         el.text_size(SIZE_MICRO).font_weight(FontWeight::MEDIUM)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::badges;
+    use gpui::rgb;
+
+    // Dark text marker — kept as a constant so tests reference the same
+    // value used by the production mapping.
+    const DARK: u32 = 0x111318;
+
+    #[test]
+    fn artist_uses_dark_text_for_wcag_contrast() {
+        assert_eq!(badges::text_color("artist"), rgb(DARK));
+    }
+
+    #[test]
+    fn feed_and_track_use_dark_text() {
+        assert_eq!(badges::text_color("feed"), rgb(DARK));
+        assert_eq!(badges::text_color("track"), rgb(DARK));
+    }
+
+    #[test]
+    fn publisher_and_unknown_use_white_text() {
+        assert_eq!(badges::text_color("publisher"), rgb(0xffffff));
+        assert_eq!(badges::text_color("unknown-thing"), rgb(0xffffff));
+    }
+
+    #[test]
+    fn artist_and_release_emojis_are_distinct_from_default() {
+        assert_eq!(badges::emoji("artist"), "\u{1F3A4}");
+        assert_eq!(badges::emoji("release"), "\u{1F4BF}");
+        assert_ne!(badges::emoji("artist"), badges::emoji("unknown"));
+        assert_ne!(badges::emoji("release"), badges::emoji("unknown"));
+    }
+
+    #[test]
+    fn unknown_entity_falls_back_to_default_emoji() {
+        assert_eq!(badges::emoji("unknown"), "\u{1F3B5}");
     }
 }
