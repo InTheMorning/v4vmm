@@ -3,12 +3,17 @@
 //! gap, and corner radius. Callers fill it with arbitrary children
 //! (thumbnail, title, trailing actions). All dimensions scale.
 
+use std::rc::Rc;
+
 use gpui::{
-    div, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce, Styled, Window,
+    div, prelude::*, App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement,
+    RenderOnce, Styled, Window,
 };
 
 use crate::ui::primitives::HStack;
-use crate::ui::tokens::{Radius, Spacing};
+use crate::ui::tokens::{Appearance, Radius, SemanticColor, Spacing};
+
+type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 /// Vertical density for a [`ListRow`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +47,9 @@ impl ListRowDensity {
 pub struct ListRow {
     id: ElementId,
     density: ListRowDensity,
+    selected: bool,
+    focused: bool,
+    on_click: Option<ClickHandler>,
     children: Vec<gpui::AnyElement>,
 }
 
@@ -50,6 +58,9 @@ impl ListRow {
         Self {
             id: id.into(),
             density: ListRowDensity::default(),
+            selected: false,
+            focused: false,
+            on_click: None,
             children: Vec::new(),
         }
     }
@@ -62,6 +73,24 @@ impl ListRow {
         self.density = density;
         self
     }
+
+    pub fn selected(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+
+    pub fn focused(mut self, focused: bool) -> Self {
+        self.focused = focused;
+        self
+    }
+
+    pub fn on_click<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    {
+        self.on_click = Some(Rc::new(handler));
+        self
+    }
 }
 
 impl ParentElement for ListRow {
@@ -72,15 +101,43 @@ impl ParentElement for ListRow {
 
 impl RenderOnce for ListRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let appearance = Appearance::current(cx);
         let pad_x = self.density.padding().scaled(cx);
         let pad_y = self.density.padding().scaled(cx);
         let radius = Radius::SM.scaled(cx);
         let stack = HStack::new().spacing(self.density.gap()).center();
-        div()
+        let selected = self.selected;
+        let focused = self.focused;
+        let on_click = self.on_click.clone();
+
+        let mut row = div()
             .id(self.id)
             .px(pad_x)
             .py(pad_y)
             .rounded(radius)
-            .child(stack.children(self.children))
+            .border_1()
+            .border_color(gpui::transparent_black())
+            .when(selected, |el| {
+                el.bg(SemanticColor::SelectedContent.resolve(appearance))
+                    .border_color(SemanticColor::Accent.resolve(appearance))
+            })
+            .when(selected && focused, |el| {
+                el.border_2()
+                    .border_color(SemanticColor::Focus.resolve(appearance))
+            })
+            .child(stack.children(self.children));
+
+        if let Some(handler) = on_click {
+            row = row
+                .cursor_pointer()
+                .hover(move |el| {
+                    el.bg(SemanticColor::SecondarySystemBackground.resolve(appearance))
+                })
+                .on_click(move |event, window, cx| {
+                    handler(event, window, cx);
+                });
+        }
+
+        row
     }
 }

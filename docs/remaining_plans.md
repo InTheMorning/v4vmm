@@ -29,6 +29,9 @@ The primitive/composite layer is also in place:
 - Composites: `Thumbnail`, `TagBadge`, `DetailHeader`, `DetailGrid`,
   `ListRow`, `SegmentedControl`, `DisclosureGroup`, `ActionButton`, and
   `playlist_popover`.
+- `ListRow` now owns selectable/focused/clickable row chrome for dense
+  result lists, so screens do not hand-roll row background, focus ring, or
+  click affordances.
 - `ui_common.rs` has been removed. Its surviving responsibilities live in
   `ui/detail_row.rs`, `ui/composites/*`, and `view_models::format`.
 - `theme::badges` remains the legacy badge compatibility surface; newer
@@ -80,7 +83,8 @@ The projection view-model layer is partially migrated:
   out of inline string formatting and raw color literals.
 - `screen-search-results`: Discover result rows now read labels, image URLs,
   visible type filtering, and derived artist rows through
-  `view_models::search`; next move section headers / empty states and
+  `view_models::search`, and render through `ListRow` / `Thumbnail` /
+  `Label` / `TagBadge`; next move section headers / empty states and
   result-row interaction command intent out of `search.rs`.
 - `screen-search-inspector`: migrate track/feed/publisher inspector sections
   to projections and existing composites; keep direct GPUI event wiring in

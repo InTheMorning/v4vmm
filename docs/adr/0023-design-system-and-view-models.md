@@ -142,7 +142,7 @@ Shipped composites:
 - `TagBadge`
 - `DetailHeader`
 - `DetailGrid`
-- `ListRow`
+- `ListRow` — token-driven selectable/focused/clickable row chrome.
 - `SegmentedControl`
 - `DisclosureGroup`
 - `ActionButton`
@@ -226,7 +226,9 @@ the discover row of `ui_track.rs` are bound to projection VMs. `library.rs`
 uses `LibraryTrackRowVm`, `LibraryArtistDetailVm`, `PlaylistDetailVm`, and
 `TrackVm` in several detail slices. `search.rs` uses `TrackVm`,
 `ResultRowVm`, and shared format helpers, and its contributor / value-route /
-frame sections use `DisclosureGroup`.
+frame sections use `DisclosureGroup`. The Discover result row now renders
+through `ListRow`, `Thumbnail`, `Label`, and `TagBadge` instead of raw row /
+badge layout.
 
 `library.rs` and `search.rs` remain large and partially migrated. They still
 own screen state, call services directly, and contain remaining raw `px(...)`

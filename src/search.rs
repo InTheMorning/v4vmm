@@ -39,7 +39,7 @@ use crate::subscribe_service::{
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, Thumbnail, ThumbnailSize,
+    EntityKind, ListRow, TagBadge, Thumbnail, ThumbnailSize,
 };
 use crate::ui::detail_row::DetailRow;
 use crate::ui::primitives::SectionHeader;
@@ -2515,84 +2515,49 @@ fn render_result_item(
         line1.clone()
     };
 
-    div()
-        .id(SharedString::from(format!(
-            "result-item:{}:{}",
-            row.entity_type, row.entity_id
-        )))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(spacing::SM)
-        .p(spacing::SM)
-        .rounded(radius::MD)
-        .cursor_pointer()
-        .bg(if is_selected {
-            color::bg_selected()
-        } else {
-            color::bg_canvas()
-        })
-        .border_1()
-        .border_color(if is_selected {
-            color::accent()
-        } else {
-            color::bg_canvas()
-        })
-        .when(is_selected && list_focused, |el| {
-            el.border_2().border_color(color::focus_ring())
-        })
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
-        }))
-        .child(
-            Thumbnail::new(
-                EntityKind::from_legacy_str(&row.entity_type),
-                ThumbnailSize::from_legacy_px(36.0, false),
+    let kind = EntityKind::from_legacy_str(&row.entity_type);
+
+    ListRow::new(SharedString::from(format!(
+        "result-item:{}:{}",
+        row.entity_type, row.entity_id
+    )))
+    .selected(is_selected)
+    .focused(is_selected && list_focused)
+    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+        this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
+    }))
+    .child(Thumbnail::new(kind, ThumbnailSize::from_legacy_px(36.0, false)).image(thumbnail))
+    .child(
+        div()
+            .flex_1()
+            .min_w_0()
+            .child(
+                Label::new(line1)
+                    .size(FontSize::Micro)
+                    .weight(FontWeight::MEDIUM)
+                    .truncated(),
             )
-            .image(thumbnail),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    Label::new(line1)
+            .when(!line2.is_empty(), |el| {
+                el.child(
+                    Label::new(line2)
                         .size(FontSize::Micro)
-                        .weight(FontWeight::MEDIUM)
+                        .color(SemanticColor::TertiaryLabel)
                         .truncated(),
                 )
-                .when(!line2.is_empty(), |el| {
-                    el.child(
-                        Label::new(line2)
+            })
+            .when(!line3.is_empty(), |el| {
+                el.child(
+                    div().opacity(0.7).child(
+                        Label::new(line3)
                             .size(FontSize::Micro)
                             .color(SemanticColor::TertiaryLabel)
                             .truncated(),
-                    )
-                })
-                .when(!line3.is_empty(), |el| {
-                    el.child(
-                        div().opacity(0.7).child(
-                            Label::new(line3)
-                                .size(FontSize::Micro)
-                                .color(SemanticColor::TertiaryLabel)
-                                .truncated(),
-                        ),
-                    )
-                }),
-        )
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_size(typography::SIZE_MICRO)
-                .font_weight(FontWeight::BOLD)
-                .text_color(badges::text_color(&row.entity_type))
-                .bg(badges::type_color(&row.entity_type))
-                .px(spacing::XS)
-                .py(spacing::XXS)
-                .rounded(radius::SM)
-                .child(SharedString::from(row.entity_type.clone())),
-        )
-        .into_any_element()
+                    ),
+                )
+            }),
+    )
+    .child(TagBadge::new(kind).label(row.entity_type.clone()))
+    .into_any_element()
 }
 
 fn render_inspector(
