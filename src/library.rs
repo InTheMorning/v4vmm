@@ -182,30 +182,21 @@ pub struct LibraryApp {
     musicindex_endpoint: String,
     tree: LibraryTree,
     /// Stateful screen view-model. Owns the pure UI state that does
-    /// not need GPUI types — expansion sets, sort orders, picker
-    /// toggles. Fields move from `LibraryApp` into the VM
-    /// incrementally; see ADR 0023 for the layered architecture.
+    /// not need GPUI types — selection, expansion sets, sort orders,
+    /// picker toggles, status messages, search query. Fields move
+    /// from `LibraryApp` into the VM in phases; see ADR 0023.
     vm: LibraryViewModel,
-    selected_id: Option<i64>,
     detail: LibraryDetail,
-    status: String,
-    busy_track: Option<i64>,
     mb_status: BTreeMap<i64, MbTrackStatus>,
     staged_musicbrainz: BTreeMap<i64, MusicBrainzLookupResult>,
     thumbnails: BTreeMap<(String, bool), ThumbnailState>,
-    hovered_thumb_url: Option<String>,
     search_input: Entity<InputState>,
-    search_query: String,
     _search_sub: gpui::Subscription,
     feed_update_state: FeedUpdateState,
     in_flight_feed_checks: HashSet<i64>,
     playlists: Vec<db::Playlist>,
-    selected_playlist_id: Option<i64>,
     playlist_tracks: Vec<TrackRow>,
-    creating_playlist: bool,
     new_playlist_input: Entity<InputState>,
-    album_add_open_feed: bool,
-    album_add_open_track: Option<i64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -255,26 +246,17 @@ impl LibraryApp {
             musicindex_endpoint,
             tree: LibraryTree::default(),
             vm: LibraryViewModel::new(),
-            selected_id: None,
             detail: LibraryDetail::None,
-            status: String::new(),
-            busy_track: None,
             mb_status: BTreeMap::new(),
             staged_musicbrainz: BTreeMap::new(),
             thumbnails: BTreeMap::new(),
-            hovered_thumb_url: None,
             search_input,
-            search_query: String::new(),
             _search_sub: search_sub,
             feed_update_state: FeedUpdateState::default(),
             in_flight_feed_checks: HashSet::new(),
             playlists: Vec::new(),
-            selected_playlist_id: None,
             playlist_tracks: Vec::new(),
-            creating_playlist: false,
             new_playlist_input,
-            album_add_open_feed: false,
-            album_add_open_track: None,
         };
         app.reload();
         app
@@ -292,8 +274,8 @@ impl LibraryApp {
     }
 
     fn apply_search(&mut self, cx: &mut Context<Self>) {
-        self.search_query = self.search_input.read(cx).value().trim().to_string();
-        self.selected_id = None;
+        self.vm.search_query = self.search_input.read(cx).value().trim().to_string();
+        self.vm.selected_id = None;
         self.detail = LibraryDetail::None;
         cx.notify();
     }
@@ -321,7 +303,7 @@ impl LibraryApp {
         if items.is_empty() {
             return;
         }
-        let current_idx = items.iter().position(|&id| Some(id) == self.selected_id);
+        let current_idx = items.iter().position(|&id| Some(id) == self.vm.selected_id);
         let next_idx = match current_idx {
             Some(idx) if idx > 0 => idx - 1,
             _ => 0,
@@ -336,7 +318,7 @@ impl LibraryApp {
         if items.is_empty() {
             return;
         }
-        let current_idx = items.iter().position(|&id| Some(id) == self.selected_id);
+        let current_idx = items.iter().position(|&id| Some(id) == self.vm.selected_id);
         let next_idx = match current_idx {
             Some(idx) if idx + 1 < items.len() => idx + 1,
             Some(idx) => idx,
@@ -355,7 +337,7 @@ impl LibraryApp {
         // Need to find if it's an album or track to call appropriate method
         // This is a bit complex with current structure.
         // I'll simplify: just update selected_id and reload detail.
-        self.selected_id = Some(id);
+        self.vm.selected_id = Some(id);
         // ... need to find the item to know what detail to show ...
     }
 
@@ -377,15 +359,16 @@ impl LibraryApp {
             Ok(rows) => {
                 let count = rows.len();
                 self.tree = build_tree(&rows, &conn);
-                self.status = format!("{count} library track{}", if count == 1 { "" } else { "s" });
+                self.vm.status =
+                    format!("{count} library track{}", if count == 1 { "" } else { "s" });
             }
             Err(err) => {
-                self.status = format!("Error: {err:#}");
+                self.vm.status = format!("Error: {err:#}");
             }
         }
         drop(conn);
         self.reload_playlists();
-        self.selected_id = None;
+        self.vm.selected_id = None;
         self.detail = LibraryDetail::None;
         self.mb_status.clear();
     }
@@ -397,7 +380,7 @@ impl LibraryApp {
                 self.sort_playlists(&mut list);
                 self.playlists = list;
             }
-            Err(err) => self.status = format!("Error loading playlists: {err:#}"),
+            Err(err) => self.vm.status = format!("Error loading playlists: {err:#}"),
         }
     }
 
@@ -424,8 +407,8 @@ impl LibraryApp {
     }
 
     fn select_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
-        self.selected_id = None;
-        self.selected_playlist_id = Some(id);
+        self.vm.selected_id = None;
+        self.vm.selected_playlist_id = Some(id);
         let conn = self.conn.lock().expect("lock db");
         let playlist = self.playlists.iter().find(|p| p.id == id).cloned();
         let tracks = playlist_service::tracks(&conn, id).unwrap_or_default();
@@ -450,11 +433,11 @@ impl LibraryApp {
         match playlist_service::create(&conn, name) {
             Ok(id) => {
                 drop(conn);
-                self.creating_playlist = false;
+                self.vm.creating_playlist = false;
                 self.reload_playlists();
                 self.select_playlist(id, cx);
             }
-            Err(err) => self.status = format!("Error creating playlist: {err:#}"),
+            Err(err) => self.vm.status = format!("Error creating playlist: {err:#}"),
         }
         cx.notify();
     }
@@ -467,12 +450,12 @@ impl LibraryApp {
         }
         let conn = self.conn.lock().expect("lock db");
         if let Err(err) = playlist_service::rename(&conn, id, trimmed) {
-            self.status = format!("Error renaming: {err:#}");
+            self.vm.status = format!("Error renaming: {err:#}");
             return;
         }
         drop(conn);
         self.reload_playlists();
-        if self.selected_playlist_id == Some(id) {
+        if self.vm.selected_playlist_id == Some(id) {
             self.select_playlist(id, cx);
         }
         cx.notify();
@@ -481,12 +464,12 @@ impl LibraryApp {
     fn delete_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
         let conn = self.conn.lock().expect("lock db");
         if let Err(err) = playlist_service::delete(&conn, id) {
-            self.status = format!("Error deleting: {err:#}");
+            self.vm.status = format!("Error deleting: {err:#}");
             return;
         }
         drop(conn);
-        if self.selected_playlist_id == Some(id) {
-            self.selected_playlist_id = None;
+        if self.vm.selected_playlist_id == Some(id) {
+            self.vm.selected_playlist_id = None;
             self.detail = LibraryDetail::None;
         }
         self.reload_playlists();
@@ -501,12 +484,12 @@ impl LibraryApp {
     ) {
         let mut conn = self.conn.lock().expect("lock db");
         if let Err(err) = playlist_service::remove_track_at(&mut conn, playlist_id, position) {
-            self.status = format!("Error removing track: {err:#}");
+            self.vm.status = format!("Error removing track: {err:#}");
             return;
         }
         drop(conn);
         self.reload_playlists();
-        if self.selected_playlist_id == Some(playlist_id) {
+        if self.vm.selected_playlist_id == Some(playlist_id) {
             self.select_playlist(playlist_id, cx);
         }
         cx.notify();
@@ -524,11 +507,11 @@ impl LibraryApp {
         }
         let mut conn = self.conn.lock().expect("lock db");
         if let Err(err) = playlist_service::reorder(&mut conn, playlist_id, from, to) {
-            self.status = format!("Error reordering: {err:#}");
+            self.vm.status = format!("Error reordering: {err:#}");
             return;
         }
         drop(conn);
-        if self.selected_playlist_id == Some(playlist_id) {
+        if self.vm.selected_playlist_id == Some(playlist_id) {
             self.select_playlist(playlist_id, cx);
         }
         cx.notify();
@@ -543,7 +526,7 @@ impl LibraryApp {
         let tracks = match db::feed_tracks(&conn, feed_id) {
             Ok(t) => t,
             Err(err) => {
-                self.status = format!("Error loading album tracks: {err:#}");
+                self.vm.status = format!("Error loading album tracks: {err:#}");
                 cx.notify();
                 return;
             }
@@ -551,7 +534,7 @@ impl LibraryApp {
         drop(conn);
         let track_ids: Vec<i64> = tracks.iter().map(|t| t.id).collect();
         if track_ids.is_empty() {
-            self.status = "Album has no tracks".into();
+            self.vm.status = "Album has no tracks".into();
             cx.notify();
             return;
         }
@@ -571,7 +554,7 @@ impl LibraryApp {
             .find(|p| p.id == playlist_id)
             .map(|p| p.name.clone())
             .unwrap_or_default();
-        self.status = format!(
+        self.vm.status = format!(
             "Downloading {total} track{}...",
             if total == 1 { "" } else { "s" }
         );
@@ -605,10 +588,10 @@ impl LibraryApp {
                                 if !outcome.failed.is_empty() {
                                     msg.push_str(&format!("; {} failed", outcome.failed.len()));
                                 }
-                                this.status = msg;
+                                this.vm.status = msg;
                             }
                             Err(err) => {
-                                this.status = format!("Error adding to playlist: {err:#}");
+                                this.vm.status = format!("Error adding to playlist: {err:#}");
                             }
                         }
                         this.reload_playlists();
@@ -676,14 +659,14 @@ impl LibraryApp {
     }
 
     fn set_hovered_thumb(&mut self, url: Option<String>, cx: &mut Context<Self>) {
-        if self.hovered_thumb_url != url {
-            self.hovered_thumb_url = url;
+        if self.vm.hovered_thumb_url != url {
+            self.vm.hovered_thumb_url = url;
             cx.notify();
         }
     }
 
     fn select_album(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
-        self.selected_id = album.feed_id;
+        self.vm.selected_id = album.feed_id;
         self.detail = LibraryDetail::Album(album.clone());
         if let Some(feed_id) = album.feed_id {
             self.check_feed_on_view(feed_id, cx);
@@ -701,7 +684,7 @@ impl LibraryApp {
                 break;
             }
         }
-        self.selected_id = None;
+        self.vm.selected_id = None;
         self.detail = LibraryDetail::Artist(LibraryArtistDetail {
             name: name.to_string(),
             tracks,
@@ -924,7 +907,7 @@ impl LibraryApp {
     }
 
     fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
-        self.selected_id = Some(track.id);
+        self.vm.selected_id = Some(track.id);
         let image = track
             .track_image_href
             .as_deref()
@@ -979,11 +962,11 @@ impl LibraryApp {
     fn unsubscribe_feed(&mut self, feed_id: i64) {
         let conn = self.conn.lock().expect("lock db");
         if let Err(err) = db::set_feed_subscribed(&conn, feed_id, false) {
-            self.status = format!("Error: {err:#}");
+            self.vm.status = format!("Error: {err:#}");
             return;
         }
         if let Err(err) = db::unsubscribe_feed_tracks(&conn, feed_id) {
-            self.status = format!("Error: {err:#}");
+            self.vm.status = format!("Error: {err:#}");
             return;
         }
         drop(conn);
@@ -993,7 +976,7 @@ impl LibraryApp {
     fn remove_track(&mut self, track_id: i64) {
         let conn = self.conn.lock().expect("lock db");
         if let Err(err) = library_service::set_track_in_library(&conn, track_id, false) {
-            self.status = format!("Error: {err:#}");
+            self.vm.status = format!("Error: {err:#}");
             return;
         }
         drop(conn);
@@ -1001,12 +984,12 @@ impl LibraryApp {
     }
 
     fn subscribe_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
-        if self.busy_track.is_some() {
+        if self.vm.busy_track.is_some() {
             return;
         }
         let track_id = track.id;
-        self.busy_track = Some(track_id);
-        self.status = "Subscribing track...".into();
+        self.vm.busy_track = Some(track_id);
+        self.vm.status = "Subscribing track...".into();
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -1027,7 +1010,7 @@ impl LibraryApp {
                 this.update(
                     cx,
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        this.busy_track = None;
+                        this.vm.busy_track = None;
                         match result {
                             Ok(outcome) => {
                                 let mut msg =
@@ -1036,11 +1019,11 @@ impl LibraryApp {
                                     msg.push_str(" — ");
                                     msg.push_str(&warning);
                                 }
-                                this.status = msg;
+                                this.vm.status = msg;
                                 this.reload();
                             }
                             Err(error) => {
-                                this.status = format!("Error subscribing track: {error:#}");
+                                this.vm.status = format!("Error subscribing track: {error:#}");
                             }
                         }
                         cx.notify();
@@ -1411,7 +1394,7 @@ impl LibraryApp {
             return;
         }
         self.mb_status.insert(track.id, MbTrackStatus::Processing);
-        self.status = "MusicBrainz lookup...".into();
+        self.vm.status = "MusicBrainz lookup...".into();
         cx.notify();
 
         let track_id = track.id;
@@ -1431,7 +1414,7 @@ impl LibraryApp {
                                 let n = staged.edit_count;
                                 this.stage_musicbrainz_lookup_for_track(track_id, staged.lookup);
                                 this.mb_status.insert(track_id, MbTrackStatus::Done(n));
-                                this.status = format!(
+                                this.vm.status = format!(
                                     "MusicBrainz: staged {n} edit{}",
                                     if n == 1 { "" } else { "s" }
                                 );
@@ -1439,7 +1422,7 @@ impl LibraryApp {
                             Err(err) => {
                                 this.mb_status
                                     .insert(track_id, MbTrackStatus::Skipped(format!("{err:#}")));
-                                this.status = format!("MusicBrainz error: {err:#}");
+                                this.vm.status = format!("MusicBrainz error: {err:#}");
                             }
                         }
                         cx.notify();
@@ -1458,14 +1441,14 @@ impl LibraryApp {
             .filter(|t| t.local_path.is_some())
             .collect();
         if downloadable.is_empty() {
-            self.status = "No downloaded tracks to process".into();
+            self.vm.status = "No downloaded tracks to process".into();
             cx.notify();
             return;
         }
         for t in &downloadable {
             self.mb_status.insert(t.id, MbTrackStatus::Pending);
         }
-        self.status = format!(
+        self.vm.status = format!(
             "MusicBrainz: album lookup for {} tracks...",
             downloadable.len()
         );
@@ -1511,7 +1494,7 @@ impl LibraryApp {
                         this.update(
                             cx,
                             move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                                this.status = format!(
+                                this.vm.status = format!(
                                     "Album lookup failed ({err:#}), falling back to per-track..."
                                 );
                                 cx.notify();
@@ -1535,7 +1518,7 @@ impl LibraryApp {
                     this.update(
                         cx,
                         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                            this.status =
+                            this.vm.status =
                                 "Album lookup: no results, falling back to per-track...".into();
                             cx.notify();
                         },
@@ -1563,7 +1546,7 @@ impl LibraryApp {
                         cx,
                         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
                             this.mb_status.insert(track_id, MbTrackStatus::Processing);
-                            this.status = format!(
+                            this.vm.status = format!(
                                 "MusicBrainz: staging track {progress}/{total_count} ...",
                             );
                             cx.notify();
@@ -1621,7 +1604,7 @@ impl LibraryApp {
                 this.update(
                     cx,
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        this.status = format!(
+                        this.vm.status = format!(
                             "MusicBrainz: staged {total_edits} edit{} across {} tracks",
                             if total_edits == 1 { "" } else { "s" },
                             processed,
@@ -1709,7 +1692,8 @@ async fn musicbrainz_feed_per_track(
             cx,
             move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
                 this.mb_status.insert(track_id, MbTrackStatus::Processing);
-                this.status = format!("MusicBrainz: staging track {progress}/{total_count} ...",);
+                this.vm.status =
+                    format!("MusicBrainz: staging track {progress}/{total_count} ...",);
                 cx.notify();
             },
         )
@@ -1760,7 +1744,7 @@ async fn musicbrainz_feed_per_track(
     this.update(
         cx,
         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-            this.status = format!(
+            this.vm.status = format!(
                 "MusicBrainz: staged {total_edits} edit{} across {} tracks",
                 if total_edits == 1 { "" } else { "s" },
                 processed,
@@ -1906,7 +1890,7 @@ pub(crate) fn cleanup_empty_parents(path: &std::path::Path) {
 
 impl Render for LibraryApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status_text = self.status.clone();
+        let status_text = self.vm.status.clone();
         let status_color = if status_text.starts_with("Error:") {
             color::status_danger()
         } else {
@@ -1933,7 +1917,7 @@ impl Render for LibraryApp {
                 })
                 .collect()
         };
-        let hovered_url = self.hovered_thumb_url.clone();
+        let hovered_url = self.vm.hovered_thumb_url.clone();
         let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
         for url in &urls {
             if !album_thumbs.contains_key(url.as_str()) {
@@ -1944,7 +1928,7 @@ impl Render for LibraryApp {
         }
 
         let base_tree = &self.tree;
-        let query = self.search_query.trim();
+        let query = self.vm.search_query.trim();
         let has_query = !query.is_empty();
         let filtered_tree = if has_query {
             filter_tree(base_tree, query)
@@ -1977,15 +1961,15 @@ impl Render for LibraryApp {
             &filtered_tree,
             &expanded_artists,
             &expanded_albums,
-            self.selected_id,
+            self.vm.selected_id,
             &album_thumbs,
             cx,
         );
         let filtered_empty = filtered_tree.artists.is_empty();
 
         let playlists = self.playlists.clone();
-        let selected_playlist_id = self.selected_playlist_id;
-        let creating_playlist = self.creating_playlist;
+        let selected_playlist_id = self.vm.selected_playlist_id;
+        let creating_playlist = self.vm.creating_playlist;
         let playlists_expanded = self.vm.playlists_expanded;
         let mut left_items: Vec<AnyElement> = Vec::new();
 
@@ -2053,7 +2037,7 @@ impl Render for LibraryApp {
                                 .scaled(Size::XSmall, cx)
                                 .text_color(color::text_primary())
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.creating_playlist = !this.creating_playlist;
+                                    this.vm.creating_playlist = !this.vm.creating_playlist;
                                     cx.notify();
                                 })),
                         ),
@@ -2149,12 +2133,12 @@ impl Render for LibraryApp {
 
         let detail_pane = render_detail(
             &self.detail,
-            self.busy_track,
+            self.vm.busy_track,
             &self.mb_status,
             &album_thumbs,
             &self.playlists,
-            self.album_add_open_feed,
-            self.album_add_open_track,
+            self.vm.album_add_open_feed,
+            self.vm.album_add_open_track,
             cx,
         );
 
@@ -2288,7 +2272,7 @@ impl Render for LibraryApp {
                                             .children(left_items)
                                             .when(
                                                 filtered_empty
-                                                    && !self.status.starts_with("Error:"),
+                                                    && !self.vm.status.starts_with("Error:"),
                                                 |el| {
                                                     el.child(
                                                         div()
@@ -2743,7 +2727,7 @@ fn render_album_detail(
         buttons = buttons.child(
             action_button(vm.add_to_playlist_label(add_open_feed), cx).on_click(cx.listener(
                 move |this, _, _, cx| {
-                    this.album_add_open_feed = !this.album_add_open_feed;
+                    this.vm.album_add_open_feed = !this.vm.album_add_open_feed;
                     let _ = fid;
                     cx.notify();
                 },
@@ -2882,7 +2866,8 @@ fn render_library_track_row(
                 .ghost()
                 .scaled(Size::XSmall, cx)
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.album_add_open_track = if this.album_add_open_track == Some(track_id) {
+                    this.vm.album_add_open_track = if this.vm.album_add_open_track == Some(track_id)
+                    {
                         None
                     } else {
                         Some(track_id)
@@ -2937,7 +2922,7 @@ fn render_album_track_add_panel(
         let label = format!("{} ({})", p.name, p.track_count);
         panel = panel.child(action_button(&label, cx).on_click(cx.listener(
             move |this, _, _, cx| {
-                this.album_add_open_track = None;
+                this.vm.album_add_open_track = None;
                 this.add_track_to_playlist(track_id, playlist_id, cx);
             },
         )));
@@ -2978,7 +2963,7 @@ fn render_album_feed_add_panel(
         let label = format!("{} ({})", p.name, p.track_count);
         panel = panel.child(action_button(&label, cx).on_click(cx.listener(
             move |this, _, _, cx| {
-                this.album_add_open_feed = false;
+                this.vm.album_add_open_feed = false;
                 this.add_album_to_playlist(feed_id, playlist_id, cx);
             },
         )));
@@ -4525,12 +4510,12 @@ fn hoverable_thumb(
     div()
         .id(SharedString::from(format!("thumb-{url}")))
         .on_mouse_move(cx.listener(move |this, _, _, cx| {
-            if this.hovered_thumb_url.as_deref() != Some(enter_url.as_str()) {
+            if this.vm.hovered_thumb_url.as_deref() != Some(enter_url.as_str()) {
                 this.set_hovered_thumb(Some(enter_url.clone()), cx);
             }
         }))
         .on_hover(cx.listener(move |this, entered: &bool, _, cx| {
-            if !*entered && this.hovered_thumb_url.as_deref() == Some(leave_url.as_str()) {
+            if !*entered && this.vm.hovered_thumb_url.as_deref() == Some(leave_url.as_str()) {
                 this.set_hovered_thumb(None, cx);
             }
         }))

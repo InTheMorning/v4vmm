@@ -101,21 +101,34 @@ impl PlaylistSort {
 /// requires `gpui::Image`, `gpui::Entity`, or other framework types
 /// stays in `LibraryApp` for now.
 ///
-/// This first scaffold owns the simplest pure-data fields. Fields move
-/// from `LibraryApp` into this VM in subsequent commits as the legacy
+/// Fields move from `LibraryApp` into this VM in phases as the legacy
 /// renderer migrates to projection VMs.
 #[derive(Clone, Debug)]
 pub(crate) struct LibraryViewModel {
+    // Sidebar tree expansion + sort.
     pub(crate) expanded_artists: HashSet<String>,
     pub(crate) expanded_albums: HashSet<(String, String)>,
     pub(crate) playlists_expanded: bool,
     pub(crate) playlist_sort: PlaylistSort,
+    // Selection / focus.
+    pub(crate) selected_id: Option<i64>,
+    pub(crate) selected_playlist_id: Option<i64>,
+    pub(crate) hovered_thumb_url: Option<String>,
+    // Operation state.
+    pub(crate) busy_track: Option<i64>,
+    pub(crate) status: String,
+    // Search + playlist creation.
+    pub(crate) search_query: String,
+    pub(crate) creating_playlist: bool,
+    // Album-detail "Add to playlist" picker toggles.
+    pub(crate) album_add_open_feed: bool,
+    pub(crate) album_add_open_track: Option<i64>,
 }
 
 impl LibraryViewModel {
     /// Construct a view-model with the legacy `LibraryApp::new`
     /// defaults: empty expansion sets, playlists sidebar already
-    /// expanded, sort by name.
+    /// expanded, sort by name, no selection, no operation in flight.
     #[must_use]
     pub(crate) fn new() -> Self {
         Self {
@@ -123,6 +136,15 @@ impl LibraryViewModel {
             expanded_albums: HashSet::new(),
             playlists_expanded: true,
             playlist_sort: PlaylistSort::default(),
+            selected_id: None,
+            selected_playlist_id: None,
+            hovered_thumb_url: None,
+            busy_track: None,
+            status: String::new(),
+            search_query: String::new(),
+            creating_playlist: false,
+            album_add_open_feed: false,
+            album_add_open_track: None,
         }
     }
 
@@ -1127,6 +1149,20 @@ mod tests {
         assert_eq!(vm.playlist_sort, PlaylistSort::Name);
         assert!(vm.expanded_artists.is_empty());
         assert!(vm.expanded_albums.is_empty());
+    }
+
+    #[test]
+    fn library_view_model_starts_with_no_selection_or_operation_in_flight() {
+        let vm = LibraryViewModel::new();
+        assert_eq!(vm.selected_id, None);
+        assert_eq!(vm.selected_playlist_id, None);
+        assert_eq!(vm.hovered_thumb_url, None);
+        assert_eq!(vm.busy_track, None);
+        assert!(vm.status.is_empty());
+        assert!(vm.search_query.is_empty());
+        assert!(!vm.creating_playlist);
+        assert!(!vm.album_add_open_feed);
+        assert_eq!(vm.album_add_open_track, None);
     }
 
     #[test]
