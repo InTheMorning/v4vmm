@@ -17,7 +17,7 @@
 
 #![warn(clippy::pedantic)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::db::{self, TrackRow};
 use crate::view_models::format::{fmt_total_runtime_clock, plural};
@@ -53,6 +53,136 @@ pub(crate) enum MbStatusKind {
     Warning,
     Danger,
     Muted,
+}
+
+/// Sort order for the library's playlist sidebar.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum PlaylistSort {
+    /// Alphabetical by playlist name.
+    #[default]
+    Name,
+    /// Most-recently-updated playlists first.
+    RecentlyUpdated,
+    /// Largest playlists first by track count.
+    TrackCount,
+}
+
+impl PlaylistSort {
+    /// Cycle to the next sort order. Wraps `TrackCount` back to `Name`.
+    #[must_use]
+    pub(crate) fn next(self) -> Self {
+        match self {
+            PlaylistSort::Name => PlaylistSort::RecentlyUpdated,
+            PlaylistSort::RecentlyUpdated => PlaylistSort::TrackCount,
+            PlaylistSort::TrackCount => PlaylistSort::Name,
+        }
+    }
+
+    /// Short button label for the sort cycler.
+    #[must_use]
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            PlaylistSort::Name => "A–Z",
+            PlaylistSort::RecentlyUpdated => "Recent",
+            PlaylistSort::TrackCount => "Size",
+        }
+    }
+}
+
+/// Stateful screen view-model for the library tab.
+///
+/// `LibraryViewModel` is the [SwiftUI `@Observable`-style](https://developer.apple.com/documentation/observation)
+/// adapter between the GPUI `LibraryApp` and the rest of the layered
+/// architecture: it owns the screen's *pure* UI state (selection,
+/// expansion sets, sort orders, picker toggles) so the screen file
+/// shrinks to event wiring and `Render` glue.
+///
+/// Per ADR 0023 this struct must remain GPUI-free. Anything that
+/// requires `gpui::Image`, `gpui::Entity`, or other framework types
+/// stays in `LibraryApp` for now.
+///
+/// This first scaffold owns the simplest pure-data fields. Fields move
+/// from `LibraryApp` into this VM in subsequent commits as the legacy
+/// renderer migrates to projection VMs.
+#[derive(Clone, Debug)]
+pub(crate) struct LibraryViewModel {
+    pub(crate) expanded_artists: HashSet<String>,
+    pub(crate) expanded_albums: HashSet<(String, String)>,
+    pub(crate) playlists_expanded: bool,
+    pub(crate) playlist_sort: PlaylistSort,
+}
+
+impl LibraryViewModel {
+    /// Construct a view-model with the legacy `LibraryApp::new`
+    /// defaults: empty expansion sets, playlists sidebar already
+    /// expanded, sort by name.
+    #[must_use]
+    pub(crate) fn new() -> Self {
+        Self {
+            expanded_artists: HashSet::new(),
+            expanded_albums: HashSet::new(),
+            playlists_expanded: true,
+            playlist_sort: PlaylistSort::default(),
+        }
+    }
+
+    /// Toggle the expansion state of an artist node by name.
+    pub(crate) fn toggle_artist(&mut self, name: &str) {
+        if !self.expanded_artists.remove(name) {
+            self.expanded_artists.insert(name.to_string());
+        }
+    }
+
+    /// Toggle the expansion state of an album node, keyed on the
+    /// `(artist, album)` pair to keep two albums with the same name
+    /// from collapsing onto each other.
+    pub(crate) fn toggle_album(&mut self, artist: &str, album: &str) {
+        let key = (artist.to_string(), album.to_string());
+        if !self.expanded_albums.remove(&key) {
+            self.expanded_albums.insert(key);
+        }
+    }
+
+    /// Flip the playlists sidebar expansion flag.
+    pub(crate) fn toggle_playlists_expanded(&mut self) {
+        self.playlists_expanded = !self.playlists_expanded;
+    }
+
+    /// Advance the playlist sort order one step. The screen still has
+    /// to re-sort its loaded `Vec<Playlist>` afterwards because the
+    /// VM does not own the snapshot yet.
+    pub(crate) fn cycle_playlist_sort(&mut self) {
+        self.playlist_sort = self.playlist_sort.next();
+    }
+
+    // Both lookups are exercised by the unit tests below but not yet
+    // by the legacy renderer (which still clones the whole expansion
+    // set). The `#[cfg_attr(not(test), allow(dead_code))]` suppresses
+    // the lib-only warning until the screen migrates to the
+    // accessors.
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub(crate) fn is_artist_expanded(&self, name: &str) -> bool {
+        self.expanded_artists.contains(name)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    #[must_use]
+    pub(crate) fn is_album_expanded(&self, artist: &str, album: &str) -> bool {
+        self.expanded_albums
+            .contains(&(artist.to_string(), album.to_string()))
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_sort_label(&self) -> &'static str {
+        self.playlist_sort.label()
+    }
+}
+
+impl Default for LibraryViewModel {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> LibraryTrackRowVm<'a> {
@@ -988,6 +1118,69 @@ mod tests {
         mb.insert(20, MbTrackStatus::Skipped("err".into()));
         let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
         assert!(!vm.has_active_musicbrainz());
+    }
+
+    #[test]
+    fn library_view_model_starts_with_playlists_expanded_and_default_sort() {
+        let vm = LibraryViewModel::new();
+        assert!(vm.playlists_expanded);
+        assert_eq!(vm.playlist_sort, PlaylistSort::Name);
+        assert!(vm.expanded_artists.is_empty());
+        assert!(vm.expanded_albums.is_empty());
+    }
+
+    #[test]
+    fn library_view_model_toggle_artist_round_trip() {
+        let mut vm = LibraryViewModel::new();
+        assert!(!vm.is_artist_expanded("Aphex"));
+        vm.toggle_artist("Aphex");
+        assert!(vm.is_artist_expanded("Aphex"));
+        vm.toggle_artist("Aphex");
+        assert!(!vm.is_artist_expanded("Aphex"));
+    }
+
+    #[test]
+    fn library_view_model_toggle_album_keys_on_artist_and_album() {
+        let mut vm = LibraryViewModel::new();
+        vm.toggle_album("Aphex", "SAW II");
+        assert!(vm.is_album_expanded("Aphex", "SAW II"));
+        // Different (artist, album) combination is independent.
+        assert!(!vm.is_album_expanded("Aphex", "Drukqs"));
+        assert!(!vm.is_album_expanded("Other", "SAW II"));
+        vm.toggle_album("Aphex", "SAW II");
+        assert!(!vm.is_album_expanded("Aphex", "SAW II"));
+    }
+
+    #[test]
+    fn library_view_model_toggle_playlists_expanded_flips_flag() {
+        let mut vm = LibraryViewModel::new();
+        assert!(vm.playlists_expanded);
+        vm.toggle_playlists_expanded();
+        assert!(!vm.playlists_expanded);
+        vm.toggle_playlists_expanded();
+        assert!(vm.playlists_expanded);
+    }
+
+    #[test]
+    fn library_view_model_cycle_playlist_sort_advances_through_three_states() {
+        let mut vm = LibraryViewModel::new();
+        assert_eq!(vm.playlist_sort, PlaylistSort::Name);
+        vm.cycle_playlist_sort();
+        assert_eq!(vm.playlist_sort, PlaylistSort::RecentlyUpdated);
+        vm.cycle_playlist_sort();
+        assert_eq!(vm.playlist_sort, PlaylistSort::TrackCount);
+        vm.cycle_playlist_sort();
+        assert_eq!(vm.playlist_sort, PlaylistSort::Name);
+    }
+
+    #[test]
+    fn library_view_model_playlist_sort_label_reflects_active_sort() {
+        let mut vm = LibraryViewModel::new();
+        assert_eq!(vm.playlist_sort_label(), "A–Z");
+        vm.cycle_playlist_sort();
+        assert_eq!(vm.playlist_sort_label(), "Recent");
+        vm.cycle_playlist_sort();
+        assert_eq!(vm.playlist_sort_label(), "Size");
     }
 
     #[test]

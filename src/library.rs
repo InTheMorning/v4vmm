@@ -42,8 +42,8 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius};
 use crate::view_models::library::{
-    LibraryAlbumDetailVm, LibraryArtistDetailVm, LibraryTrackRowVm, MbStatusKind, MbTrackStatus,
-    PlaylistDetailVm,
+    LibraryAlbumDetailVm, LibraryArtistDetailVm, LibraryTrackRowVm, LibraryViewModel, MbStatusKind,
+    MbTrackStatus, PlaylistDetailVm, PlaylistSort,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
@@ -181,8 +181,11 @@ pub struct LibraryApp {
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
     tree: LibraryTree,
-    expanded_artists: HashSet<String>,
-    expanded_albums: HashSet<(String, String)>,
+    /// Stateful screen view-model. Owns the pure UI state that does
+    /// not need GPUI types — expansion sets, sort orders, picker
+    /// toggles. Fields move from `LibraryApp` into the VM
+    /// incrementally; see ADR 0023 for the layered architecture.
+    vm: LibraryViewModel,
     selected_id: Option<i64>,
     detail: LibraryDetail,
     status: String,
@@ -201,36 +204,8 @@ pub struct LibraryApp {
     playlist_tracks: Vec<TrackRow>,
     creating_playlist: bool,
     new_playlist_input: Entity<InputState>,
-    playlists_expanded: bool,
-    playlist_sort: PlaylistSort,
     album_add_open_feed: bool,
     album_add_open_track: Option<i64>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum PlaylistSort {
-    #[default]
-    Name,
-    RecentlyUpdated,
-    TrackCount,
-}
-
-impl PlaylistSort {
-    fn next(self) -> Self {
-        match self {
-            PlaylistSort::Name => PlaylistSort::RecentlyUpdated,
-            PlaylistSort::RecentlyUpdated => PlaylistSort::TrackCount,
-            PlaylistSort::TrackCount => PlaylistSort::Name,
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            PlaylistSort::Name => "A–Z",
-            PlaylistSort::RecentlyUpdated => "Recent",
-            PlaylistSort::TrackCount => "Size",
-        }
-    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -279,8 +254,7 @@ impl LibraryApp {
             cache,
             musicindex_endpoint,
             tree: LibraryTree::default(),
-            expanded_artists: HashSet::new(),
-            expanded_albums: HashSet::new(),
+            vm: LibraryViewModel::new(),
             selected_id: None,
             detail: LibraryDetail::None,
             status: String::new(),
@@ -298,9 +272,7 @@ impl LibraryApp {
             selected_playlist_id: None,
             playlist_tracks: Vec::new(),
             creating_playlist: false,
-            playlist_sort: PlaylistSort::default(),
             new_playlist_input,
-            playlists_expanded: true,
             album_add_open_feed: false,
             album_add_open_track: None,
         };
@@ -430,7 +402,7 @@ impl LibraryApp {
     }
 
     fn sort_playlists(&self, list: &mut [db::Playlist]) {
-        match self.playlist_sort {
+        match self.vm.playlist_sort {
             PlaylistSort::Name => {
                 list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
             }
@@ -444,7 +416,7 @@ impl LibraryApp {
     }
 
     fn cycle_playlist_sort(&mut self, cx: &mut Context<Self>) {
-        self.playlist_sort = self.playlist_sort.next();
+        self.vm.cycle_playlist_sort();
         let mut list = std::mem::take(&mut self.playlists);
         self.sort_playlists(&mut list);
         self.playlists = list;
@@ -997,16 +969,11 @@ impl LibraryApp {
     }
 
     fn toggle_artist(&mut self, name: &str) {
-        if !self.expanded_artists.remove(name) {
-            self.expanded_artists.insert(name.to_string());
-        }
+        self.vm.toggle_artist(name);
     }
 
     fn toggle_album(&mut self, artist: &str, album: &str) {
-        let key = (artist.to_string(), album.to_string());
-        if !self.expanded_albums.remove(&key) {
-            self.expanded_albums.insert(key);
-        }
+        self.vm.toggle_album(artist, album);
     }
 
     fn unsubscribe_feed(&mut self, feed_id: i64) {
@@ -2001,7 +1968,10 @@ impl Render for LibraryApp {
                 .collect();
             (ea, eb)
         } else {
-            (self.expanded_artists.clone(), self.expanded_albums.clone())
+            (
+                self.vm.expanded_artists.clone(),
+                self.vm.expanded_albums.clone(),
+            )
         };
         let tree_items: Vec<AnyElement> = render_tree(
             &filtered_tree,
@@ -2016,7 +1986,7 @@ impl Render for LibraryApp {
         let playlists = self.playlists.clone();
         let selected_playlist_id = self.selected_playlist_id;
         let creating_playlist = self.creating_playlist;
-        let playlists_expanded = self.playlists_expanded;
+        let playlists_expanded = self.vm.playlists_expanded;
         let mut left_items: Vec<AnyElement> = Vec::new();
 
         let playlist_arrow = if playlists_expanded {
@@ -2033,7 +2003,7 @@ impl Render for LibraryApp {
                 .cursor_pointer()
                 .hover(|el| el.bg(color::bg_surface_hi()))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.playlists_expanded = !this.playlists_expanded;
+                    this.vm.toggle_playlists_expanded();
                     cx.notify();
                 }))
                 .flex()
@@ -2068,7 +2038,7 @@ impl Render for LibraryApp {
                         .items_center()
                         .child(
                             Button::new("playlists-sort")
-                                .label(self.playlist_sort.label())
+                                .label(self.vm.playlist_sort_label())
                                 .ghost()
                                 .scaled(Size::XSmall, cx)
                                 .text_color(color::text_muted())
