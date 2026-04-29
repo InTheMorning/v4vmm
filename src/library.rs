@@ -44,7 +44,7 @@ use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
     LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind, MbTrackStatus,
-    PlaylistAppendIntent, PlaylistDetailVm,
+    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm, TrackSubscribeOutcome,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
@@ -495,10 +495,8 @@ impl LibraryApp {
         intent: PlaylistAppendIntent,
         cx: &mut Context<Self>,
     ) {
-        let total = intent.total_tracks();
         let playlist_id = intent.playlist_id();
-        let playlist_name = intent.playlist_name().to_string();
-        let track_ids = intent.into_track_ids();
+        let track_ids = intent.track_ids().to_vec();
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -519,21 +517,17 @@ impl LibraryApp {
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
                         match result {
                             Ok(outcome) => {
-                                let mut msg = format!(
-                                    "Added {} of {} to {playlist_name}",
-                                    outcome.appended, total
+                                this.vm.finish_playlist_append(
+                                    &intent,
+                                    PlaylistAppendOutcome::new(
+                                        outcome.appended,
+                                        outcome.downloaded,
+                                        outcome.failed.len(),
+                                    ),
                                 );
-                                if outcome.downloaded > 0 {
-                                    msg.push_str(&format!(" (downloaded {})", outcome.downloaded));
-                                }
-                                if !outcome.failed.is_empty() {
-                                    msg.push_str(&format!("; {} failed", outcome.failed.len()));
-                                }
-                                this.vm.set_status(msg);
                             }
                             Err(err) => {
-                                this.vm
-                                    .set_status(format!("Error adding to playlist: {err:#}"));
+                                this.vm.fail_playlist_append(err);
                             }
                         }
                         this.reload_playlists();
@@ -887,21 +881,16 @@ impl LibraryApp {
                 this.update(
                     cx,
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        this.vm.clear_busy_track();
                         match result {
                             Ok(outcome) => {
-                                let mut msg =
-                                    format!("Subscribed track: {}", outcome.path.display());
-                                if let Some(warning) = outcome.format_warning {
-                                    msg.push_str(" — ");
-                                    msg.push_str(&warning);
-                                }
-                                this.vm.set_status(msg);
+                                this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
+                                    outcome.path.display().to_string(),
+                                    outcome.format_warning,
+                                ));
                                 this.reload();
                             }
                             Err(error) => {
-                                this.vm
-                                    .set_status(format!("Error subscribing track: {error:#}"));
+                                this.vm.fail_track_subscribe(error);
                             }
                         }
                         cx.notify();

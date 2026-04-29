@@ -18,6 +18,7 @@
 #![warn(clippy::pedantic)]
 
 use std::collections::{BTreeMap, HashSet};
+use std::fmt::Write as _;
 
 use crate::db::{self, TrackRow};
 use crate::feed_service;
@@ -143,6 +144,42 @@ pub(crate) struct PlaylistAppendIntent {
     playlist_name: String,
 }
 
+/// Pure result counts for a completed playlist append command.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistAppendOutcome {
+    appended: usize,
+    downloaded: usize,
+    failed: usize,
+}
+
+impl PlaylistAppendOutcome {
+    #[must_use]
+    pub(crate) fn new(appended: usize, downloaded: usize, failed: usize) -> Self {
+        Self {
+            appended,
+            downloaded,
+            failed,
+        }
+    }
+}
+
+/// Pure result data for a completed library track subscription.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TrackSubscribeOutcome {
+    path_label: String,
+    format_warning: Option<String>,
+}
+
+impl TrackSubscribeOutcome {
+    #[must_use]
+    pub(crate) fn new(path_label: impl Into<String>, format_warning: Option<String>) -> Self {
+        Self {
+            path_label: path_label.into(),
+            format_warning,
+        }
+    }
+}
+
 impl PlaylistAppendIntent {
     #[must_use]
     pub(crate) fn playlist_id(&self) -> i64 {
@@ -160,20 +197,8 @@ impl PlaylistAppendIntent {
     }
 
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "kept for intent tests and future command-adapter assertions"
-        )
-    )]
     pub(crate) fn track_ids(&self) -> &[i64] {
         &self.track_ids
-    }
-
-    #[must_use]
-    pub(crate) fn into_track_ids(self) -> Vec<i64> {
-        self.track_ids
     }
 }
 
@@ -416,6 +441,32 @@ impl LibraryViewModel {
         })
     }
 
+    pub(crate) fn finish_playlist_append(
+        &mut self,
+        intent: &PlaylistAppendIntent,
+        outcome: PlaylistAppendOutcome,
+    ) {
+        let mut message = format!(
+            "Added {} of {} to {}",
+            outcome.appended,
+            intent.total_tracks(),
+            intent.playlist_name()
+        );
+        if outcome.downloaded > 0 {
+            write!(&mut message, " (downloaded {})", outcome.downloaded)
+                .expect("writing to a String cannot fail");
+        }
+        if outcome.failed > 0 {
+            write!(&mut message, "; {} failed", outcome.failed)
+                .expect("writing to a String cannot fail");
+        }
+        self.status = message;
+    }
+
+    pub(crate) fn fail_playlist_append(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error adding to playlist: {error:#}");
+    }
+
     #[must_use]
     pub(crate) fn selected_id(&self) -> Option<i64> {
         self.selected_id
@@ -461,8 +512,30 @@ impl LibraryViewModel {
         self.status = status.into();
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept as a focused escape hatch for future cancellable operations"
+        )
+    )]
     pub(crate) fn clear_busy_track(&mut self) {
         self.busy_track = None;
+    }
+
+    pub(crate) fn finish_track_subscribe(&mut self, outcome: TrackSubscribeOutcome) {
+        self.busy_track = None;
+        let mut message = format!("Subscribed track: {}", outcome.path_label);
+        if let Some(warning) = outcome.format_warning {
+            message.push_str(" — ");
+            message.push_str(&warning);
+        }
+        self.status = message;
+    }
+
+    pub(crate) fn fail_track_subscribe(&mut self, error: impl std::fmt::Display) {
+        self.busy_track = None;
+        self.status = format!("Error subscribing track: {error:#}");
     }
 
     #[must_use]
@@ -2089,6 +2162,48 @@ mod tests {
     }
 
     #[test]
+    fn library_view_model_playlist_append_finish_formats_counts() {
+        let mut vm = LibraryViewModel::new();
+        let mut playlist = playlist("Focus");
+        playlist.id = 12;
+        vm.replace_playlists(vec![playlist]);
+        let intent = vm
+            .begin_playlist_append(12, vec![7, 8, 9])
+            .expect("non-empty track ids should build an append intent");
+
+        vm.finish_playlist_append(&intent, PlaylistAppendOutcome::new(2, 1, 1));
+
+        assert_eq!(
+            vm.status(),
+            "Added 2 of 3 to Focus (downloaded 1); 1 failed"
+        );
+    }
+
+    #[test]
+    fn library_view_model_playlist_append_finish_omits_zero_optional_counts() {
+        let mut vm = LibraryViewModel::new();
+        let mut playlist = playlist("Focus");
+        playlist.id = 12;
+        vm.replace_playlists(vec![playlist]);
+        let intent = vm
+            .begin_playlist_append(12, vec![7])
+            .expect("non-empty track ids should build an append intent");
+
+        vm.finish_playlist_append(&intent, PlaylistAppendOutcome::new(1, 0, 0));
+
+        assert_eq!(vm.status(), "Added 1 of 1 to Focus");
+    }
+
+    #[test]
+    fn library_view_model_playlist_append_failure_sets_error_status() {
+        let mut vm = LibraryViewModel::new();
+
+        vm.fail_playlist_append("offline");
+
+        assert_eq!(vm.status(), "Error adding to playlist: offline");
+    }
+
+    #[test]
     fn library_view_model_selection_methods_keep_sidebar_and_tree_exclusive() {
         let mut vm = LibraryViewModel::new();
         vm.select_playlist(7);
@@ -2164,6 +2279,34 @@ mod tests {
 
         vm.clear_busy_track();
         assert_eq!(vm.busy_track(), None);
+    }
+
+    #[test]
+    fn library_view_model_track_subscribe_finish_clears_busy_and_formats_warning() {
+        let mut vm = LibraryViewModel::new();
+        vm.begin_busy_track(42, "Subscribing track...");
+
+        vm.finish_track_subscribe(TrackSubscribeOutcome::new(
+            "/tmp/song.mp3",
+            Some("converted from WAV".into()),
+        ));
+
+        assert_eq!(vm.busy_track(), None);
+        assert_eq!(
+            vm.status(),
+            "Subscribed track: /tmp/song.mp3 — converted from WAV"
+        );
+    }
+
+    #[test]
+    fn library_view_model_track_subscribe_failure_clears_busy_and_sets_error() {
+        let mut vm = LibraryViewModel::new();
+        vm.begin_busy_track(42, "Subscribing track...");
+
+        vm.fail_track_subscribe("offline");
+
+        assert_eq!(vm.busy_track(), None);
+        assert_eq!(vm.status(), "Error subscribing track: offline");
     }
 
     #[test]

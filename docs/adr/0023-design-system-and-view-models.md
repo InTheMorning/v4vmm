@@ -215,10 +215,13 @@ Shipped view-models:
   playlist creation visibility, and album add-to-playlist pickers.
 - `view_models::library::LibraryViewModel` operation-state methods —
   typed transitions for status text, busy track, and hovered thumbnail URL.
-- `view_models::library::PlaylistAppendIntent` — pure command intent for
-  playlist append operations; `LibraryViewModel` prepares the intent and
-  owns the initial progress status while `library.rs` dispatches the
-  service call.
+- `view_models::library::{PlaylistAppendIntent, PlaylistAppendOutcome}` —
+  pure command intent and result-count data for playlist append operations;
+  `LibraryViewModel` prepares the intent and owns the progress, success,
+  and failure status text while `library.rs` dispatches the service call.
+- `view_models::library::TrackSubscribeOutcome` — pure result data for
+  library track subscription completion; `LibraryViewModel` clears busy
+  state and owns the success / failure status text.
 - `view_models::library::MbTrackStatus` — screen-independent
   `MusicBrainz` lookup state used by the library screen.
 - `view_models::library::LibraryTrackRowVm` — album-detail row

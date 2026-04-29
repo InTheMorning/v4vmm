@@ -69,9 +69,13 @@ The projection view-model layer is partially migrated:
 - The migrated `LibraryViewModel` state is private to the VM; `library.rs`
   now reads it through accessors/projections and writes it through typed
   transition methods.
-- `PlaylistAppendIntent` is the first small command-intent value for the
-  library screen. The VM prepares the playlist id, track ids, playlist name,
-  and progress status; the screen still performs the DB/service dispatch.
+- `PlaylistAppendIntent` / `PlaylistAppendOutcome` are the first small
+  command-intent/result values for the library screen. The VM prepares the
+  playlist id, track ids, playlist name, progress status, success summary,
+  and failure text; the screen still performs the DB/service dispatch.
+- `TrackSubscribeOutcome` moves library track subscribe completion state
+  into the VM: busy-track clearing plus success/failure status text now live
+  outside `library.rs`.
 
 ## Remaining Work
 
@@ -81,8 +85,7 @@ The projection view-model layer is partially migrated:
   `LibrarySnapshot` owns the pure snapshot fields and
   `LibraryTreeProjection` / `PlaylistSidebarVm` own sidebar projections.
   Next moves: continue introducing focused command-intent values where they
-  remove service-dispatch setup from `library.rs`, then move result-status
-  formatting for those commands into the VM.
+  remove service-dispatch setup and status formatting from `library.rs`.
 - `search-view-model`: create `SearchViewModel` for discover/search state,
   result grouping, inspector frame state, recent-feed state, and display-ready
   result rows. `ResultRow` / `ResultRowVm` now own the former `result_lines` /
