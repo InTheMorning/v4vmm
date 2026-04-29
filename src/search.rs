@@ -16,7 +16,7 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_component::spinner::Spinner;
 use gpui_component::tooltip::Tooltip;
-use gpui_component::{Disableable, Root, Sizable, Size};
+use gpui_component::{Disableable, Root, Size};
 use rusqlite::Connection;
 
 use crate::api::*;
@@ -37,11 +37,18 @@ use crate::subscribe_service::{
     SubscribeTrackRequest,
 };
 use crate::track_compare::ComparisonStatus;
-use crate::ui_common::{
-    artwork_img, badge_text, compare_value_line_elements, metadata_action_button, optional_row,
-    plural, render_detail_grid, render_detail_grid_elements, render_detail_header, render_thumb,
-    section_heading, truncated, truncated_muted, type_color, type_emoji, DetailRow,
+use crate::ui::composites::{
+    action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
+    EntityKind, Thumbnail, ThumbnailSize,
 };
+use crate::ui::detail_row::DetailRow;
+use crate::ui::primitives::SectionHeader;
+use crate::ui::primitives::{Image as ImagePrimitive, ImageSize, Label, MultilineText};
+use crate::ui::sizable_bridge::SizableScaled;
+use crate::ui::theme::badges;
+use crate::ui::tokens::{FontSize, Radius, SemanticColor};
+use crate::view_models::format::{optional_row, plural};
+use crate::view_models::track::TrackVm;
 
 #[derive(Clone, Debug)]
 struct ResultRow {
@@ -158,14 +165,13 @@ impl Render for MetadataDragPreview {
                     .child(SharedString::from(self.label.clone())),
             )
             .child(
-                div()
-                    .mt(spacing::XS)
-                    .text_size(typography::SIZE_MICRO)
-                    .line_height(px(16.0))
-                    .text_color(color::text_primary())
-                    .flex()
-                    .flex_col()
-                    .children(compare_value_line_elements(&self.value, 4)),
+                div().mt(spacing::XS).child(
+                    MultilineText::new(self.value.clone())
+                        .max_lines(4)
+                        .size(FontSize::Micro)
+                        .line_height(px(16.0))
+                        .color(SemanticColor::Label),
+                ),
             )
     }
 }
@@ -1810,7 +1816,7 @@ impl Render for SearchApp {
                                     .child(
                                         Input::new(&active_input)
                                             .cleanable(true)
-                                            .with_size(Size::Small),
+                                            .scaled(Size::Small, cx),
                                     )
                                     .child(
                                         div()
@@ -1830,7 +1836,7 @@ impl Render for SearchApp {
                                                 Button::new("search-btn")
                                                     .label(search_label)
                                                     .primary()
-                                                    .with_size(Size::Small)
+                                                    .scaled(Size::Small, cx)
                                                     .text_color(rgb(0xffffff))
                                                     .loading(is_loading)
                                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -1844,7 +1850,7 @@ impl Render for SearchApp {
                                                     } else {
                                                         "Fuzzy: Off"
                                                     })
-                                                    .with_size(Size::Small)
+                                                    .scaled(Size::Small, cx)
                                                     .when(self.fuzzy_search, |button| {
                                                         button.primary()
                                                     })
@@ -1910,7 +1916,7 @@ impl Render for SearchApp {
                                                     Button::new("load-more")
                                                         .label("Load more")
                                                         .ghost()
-                                                        .with_size(Size::Small)
+                                                        .scaled(Size::Small, cx)
                                                         .text_color(rgb(0xffffff))
                                                         .on_click(cx.listener(|this, _, _, cx| {
                                                             this.do_search(true, cx);
@@ -2382,7 +2388,7 @@ fn hydrate_feed_track_play_urls(client: &Client, feed: &mut Feed) {
 
     for track in tracks
         .iter_mut()
-        .filter(|track| track_play_url(track).is_none())
+        .filter(|track| TrackVm::new(track).play_url().is_none())
     {
         let Some(track_guid) = nonempty_url(track.track_guid.as_deref()).map(str::to_string) else {
             continue;
@@ -2413,36 +2419,6 @@ fn feed_rss_url(feed: &Feed) -> Option<String> {
     nonempty_url(feed.feed_url.as_deref()).map(str::to_string)
 }
 
-pub(crate) fn track_play_url(track: &Track) -> Option<String> {
-    nonempty_url(track.enclosure_url.as_deref())
-        .map(str::to_string)
-        .or_else(|| {
-            track
-                .source_enclosures
-                .as_deref()
-                .and_then(primary_source_enclosure_url)
-        })
-        .or_else(|| {
-            track
-                .source_enclosures
-                .as_deref()
-                .and_then(first_source_enclosure_url)
-        })
-}
-
-fn primary_source_enclosure_url(enclosures: &[SourceEnclosure]) -> Option<String> {
-    enclosures
-        .iter()
-        .filter(|enclosure| enclosure.is_primary.unwrap_or(false))
-        .find_map(|enclosure| nonempty_url(enclosure.url.as_deref()).map(str::to_string))
-}
-
-fn first_source_enclosure_url(enclosures: &[SourceEnclosure]) -> Option<String> {
-    enclosures
-        .iter()
-        .find_map(|enclosure| nonempty_url(enclosure.url.as_deref()).map(str::to_string))
-}
-
 fn nonempty_url(url: Option<&str>) -> Option<&str> {
     url.map(str::trim).filter(|url| !url.is_empty())
 }
@@ -2451,12 +2427,10 @@ pub(crate) fn detail_rows_from_strings(rows: Vec<(String, String)>) -> Vec<Detai
     rows.into_iter()
         .map(|(key, value)| DetailRow {
             key,
-            value: div()
-                .text_size(typography::SIZE_MICRO)
+            value: MultilineText::new(value)
+                .max_lines(6)
+                .size(FontSize::Micro)
                 .line_height(px(17.0))
-                .flex()
-                .flex_col()
-                .children(compare_value_line_elements(&value, 6))
                 .into_any_element(),
         })
         .collect()
@@ -2638,7 +2612,7 @@ fn render_filter_button(
 ) -> AnyElement {
     Button::new(("type-filter", idx))
         .label(SharedString::from(label.to_string()))
-        .with_size(Size::Small)
+        .scaled(Size::Small, cx)
         .when(selected, |button| button.primary())
         .when(!selected, |button| button.ghost())
         .text_color(rgb(0xffffff))
@@ -2701,20 +2675,39 @@ fn render_result_item(
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
         }))
-        .child(render_thumb(thumbnail, &row.entity_type, 36.0, false))
+        .child(
+            Thumbnail::new(
+                EntityKind::from_legacy_str(&row.entity_type),
+                ThumbnailSize::from_legacy_px(36.0, false),
+            )
+            .image(thumbnail),
+        )
         .child(
             div()
                 .flex_1()
                 .min_w_0()
-                .child(truncated(line1).font_weight(FontWeight::MEDIUM))
+                .child(
+                    Label::new(line1)
+                        .size(FontSize::Micro)
+                        .weight(FontWeight::MEDIUM)
+                        .truncated(),
+                )
                 .when(!line2.is_empty(), |el| {
-                    el.child(truncated_muted(line2).text_size(typography::SIZE_MICRO))
+                    el.child(
+                        Label::new(line2)
+                            .size(FontSize::Micro)
+                            .color(SemanticColor::TertiaryLabel)
+                            .truncated(),
+                    )
                 })
                 .when(!line3.is_empty(), |el| {
                     el.child(
-                        truncated_muted(line3)
-                            .text_size(typography::SIZE_MICRO)
-                            .opacity(0.7),
+                        div().opacity(0.7).child(
+                            Label::new(line3)
+                                .size(FontSize::Micro)
+                                .color(SemanticColor::TertiaryLabel)
+                                .truncated(),
+                        ),
                     )
                 }),
         )
@@ -2723,8 +2716,8 @@ fn render_result_item(
                 .flex_shrink_0()
                 .text_size(typography::SIZE_MICRO)
                 .font_weight(FontWeight::BOLD)
-                .text_color(badge_text(&row.entity_type))
-                .bg(type_color(&row.entity_type))
+                .text_color(badges::text_color(&row.entity_type))
+                .bg(badges::type_color(&row.entity_type))
                 .px(spacing::XS)
                 .py(spacing::XXS)
                 .rounded(radius::SM)
@@ -2767,14 +2760,21 @@ fn render_inspector(
                         Button::new("inspector-back")
                             .label("← Back")
                             .ghost()
-                            .with_size(Size::Small)
+                            .scaled(Size::Small, cx)
                             .text_color(rgb(0xffffff))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.inspector_back(cx);
                             })),
                     )
                 })
-                .child(truncated_muted(title.to_string()).flex_1()),
+                .child(
+                    div().flex_1().child(
+                        Label::new(title.to_string())
+                            .size(FontSize::Micro)
+                            .color(SemanticColor::TertiaryLabel)
+                            .truncated(),
+                    ),
+                ),
         )
         .child(
             div()
@@ -2959,13 +2959,17 @@ fn podroll_section(
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 this.push_inspector("feed".into(), click_guid.clone(), click_title.clone(), cx);
             }))
-            .child(render_thumb(thumb.clone(), "feed", 128.0, true))
             .child(
-                div()
-                    .text_size(typography::SIZE_CAPTION)
-                    .font_weight(FontWeight::MEDIUM)
-                    .line_height(px(15.0))
-                    .child(truncated(title)),
+                Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(128.0, true))
+                    .image(thumb.clone()),
+            )
+            .child(
+                div().line_height(px(15.0)).child(
+                    Label::new(title)
+                        .size(FontSize::Caption)
+                        .weight(FontWeight::MEDIUM)
+                        .truncated(),
+                ),
             )
             .into_any_element();
         tiles.push(tile);
@@ -3029,7 +3033,7 @@ fn render_discover_track_inspector(
     optional_row(
         &mut scalar_rows,
         "Duration",
-        track.duration_secs.map(fmt_dur),
+        track.duration_secs.map(crate::view_models::track::fmt_dur),
     );
     optional_row(
         &mut scalar_rows,
@@ -3050,7 +3054,9 @@ fn render_discover_track_inspector(
         .gap(spacing::LG)
         .child(render_track_header(frame, track, cx))
         .child(render_action_row(frame, &BTreeMap::new(), app, cx))
-        .child(render_detail_grid_elements(rows))
+        .child(DetailGrid::new(
+            rows.into_iter().map(Into::into).collect::<Vec<_>>(),
+        ))
         .when(track.description.is_some(), |el| {
             el.child(render_collapsed_text_section(
                 "Description",
@@ -3093,8 +3099,12 @@ fn render_publisher_inspector(
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(render_detail_header("publisher", &title, None, None))
-        .child(render_detail_grid(rows))
+        .child(DetailHeader::new(EntityKind::Publisher, &title))
+        .child(DetailGrid::new(
+            rows.into_iter()
+                .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                .collect::<Vec<_>>(),
+        ))
         .when(!feeds.is_empty(), |el| {
             el.child(render_feed_list_section("Feeds", feeds, app, cx))
         })
@@ -3117,7 +3127,7 @@ pub(crate) fn render_action_row(
         .items_start()
         .gap(spacing::XS)
         .child(
-            metadata_action_button(&subscription_button_label(frame))
+            action_button(&subscription_button_label(frame), cx)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_local_subscription(cx);
@@ -3129,7 +3139,7 @@ pub(crate) fn render_action_row(
             } else {
                 "Add to playlist ▾"
             };
-            metadata_action_button(label)
+            action_button(label, cx)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     if let Some(frame) = this.inspector_stack.last_mut() {
@@ -3281,7 +3291,7 @@ fn render_add_to_playlist_panel_search(
                 feed_guid: feed_guid.clone(),
             },
         };
-        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
+        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
             move |this, _, _, cx| {
                 if let Some(frame) = this.inspector_stack.last_mut() {
                     frame.add_to_playlist_open = false;
@@ -3490,16 +3500,18 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
 }
 
 fn render_contributors_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
-    render_clickable_section_heading("Contributors", collapsed)
-        .on_click(cx.listener(|this, _, _, cx| {
+    DisclosureGroup::new("section:contributors", "Contributors")
+        .collapsed(collapsed)
+        .on_toggle(cx.listener(|this, _, _, cx| {
             this.toggle_contributors(cx);
         }))
         .into_any_element()
 }
 
 fn render_value_routes_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
-    render_clickable_section_heading("Value Routes", collapsed)
-        .on_click(cx.listener(|this, _, _, cx| {
+    DisclosureGroup::new("section:value-routes", "Value Routes")
+        .collapsed(collapsed)
+        .on_toggle(cx.listener(|this, _, _, cx| {
             this.toggle_value_routes(cx);
         }))
         .into_any_element()
@@ -3543,15 +3555,14 @@ fn render_musicbrainz_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(
-            result
-                .image
-                .as_ref()
-                .map(|img| image_from_bytes(img.clone())),
-            "track",
-            80.0,
-            true,
-        ))
+        .child(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+                result
+                    .image
+                    .as_ref()
+                    .map(|img| image_from_bytes(img.clone())),
+            ),
+        )
         .child(
             div()
                 .flex_1()
@@ -3588,19 +3599,19 @@ fn render_musicbrainz_title_bar(
     );
     let trigger = Button::new("musicbrainz-release-picker")
         .label(SharedString::from(format!("MusicBrainz: {label}")))
-        .with_size(Size::XSmall)
+        .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
         .w_full()
         .justify_start()
-        .bg(type_color("track"))
+        .bg(badges::type_color("track"))
         .text_color(rgb(0xffffff))
         .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::BOLD)
         .px(spacing::SM)
         .py(spacing::XXS)
         .border_1()
-        .border_color(type_color("track"))
+        .border_color(badges::type_color("track"))
         .rounded(radius::SM)
         .mb(spacing::SM);
 
@@ -4090,12 +4101,13 @@ fn metadata_group_cell(
     let expanded = group.expanded;
     let mut cell = div().col_span(columns).mt(spacing::SM);
     if let Some(group_key) = group.key {
+        let id = SharedString::from(format!("section:id3-frame-group:{group_key}"));
         cell = cell.child(
-            render_clickable_section_heading(&label, !expanded).on_click(cx.listener(
-                move |this, _, _, cx| {
+            DisclosureGroup::new(id, label.clone())
+                .collapsed(!expanded)
+                .on_toggle(cx.listener(move |this, _, _, cx| {
                     this.toggle_id3_frame_group(group_key.clone(), cx);
-                },
-            )),
+                })),
         );
     } else {
         cell = cell.child(
@@ -4224,15 +4236,14 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(
-            result
-                .file_image
-                .as_ref()
-                .map(|img| image_from_bytes(img.clone())),
-            "track",
-            80.0,
-            true,
-        ))
+        .child(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+                result
+                    .file_image
+                    .as_ref()
+                    .map(|img| image_from_bytes(img.clone())),
+            ),
+        )
         .child(
             div()
                 .flex_1()
@@ -4248,19 +4259,19 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
                             div()
                                 .text_size(typography::SIZE_MICRO)
                                 .font_weight(FontWeight::BOLD)
-                                .text_color(badge_text("track"))
-                                .bg(type_color("track"))
+                                .text_color(badges::text_color("track"))
+                                .bg(badges::type_color("track"))
                                 .px(spacing::SM)
                                 .py(spacing::XXS)
                                 .rounded(radius::SM)
                                 .child(SharedString::from(embedded_label.clone())),
                         )
-                        .child(metadata_action_button("Re-read").on_click(cx.listener(
+                        .child(action_button("Re-read", cx).on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.reread_tag_compare(cx);
                             },
                         )))
-                        .child(metadata_action_button("Re-download").on_click(cx.listener(
+                        .child(action_button("Re-download", cx).on_click(cx.listener(
                             |this, _, _, cx| {
                                 this.redownload_tag_compare(cx);
                             },
@@ -4562,12 +4573,9 @@ fn expandable_tag_cell(
                             .child(SharedString::from(display_value.to_string())),
                     )
                     .child(
-                        div()
-                            .w(px(200.0))
-                            .h(px(200.0))
-                            .rounded(radius::MD)
-                            .overflow_hidden()
-                            .child(artwork_img(image.clone(), 200.0)),
+                        ImagePrimitive::new(image.clone())
+                            .size(ImageSize::XXl)
+                            .radius(Radius::MD),
                     )
                     .into_any_element()
             } else {
@@ -4907,16 +4915,14 @@ fn transcript_text_elements(raw_value: &str, color: gpui::Rgba) -> Vec<AnyElemen
 }
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
-    let mut cell = div()
-        .text_size(typography::SIZE_MICRO)
-        .line_height(px(16.0))
-        .flex()
-        .flex_col();
+    let mut cell = MultilineText::new(value.to_string())
+        .max_lines(4)
+        .size(FontSize::Micro)
+        .line_height(px(16.0));
     if let Some(color) = color {
-        cell = cell.text_color(color);
+        cell = cell.color_raw(color);
     }
-    cell.children(compare_value_line_elements(value, 4))
-        .into_any_element()
+    cell.into_any_element()
 }
 
 fn compare_tag_cell(
@@ -4925,14 +4931,16 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let mut value_cell = div()
-        .text_size(typography::SIZE_MICRO)
-        .line_height(px(16.0));
-    if let Some(color) = color {
-        value_cell = value_cell.text_color(color);
-    }
     let frame_id = frame_id.map(ToOwned::to_owned);
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
+
+    let mut body = MultilineText::new(value.to_string())
+        .max_lines(4)
+        .size(FontSize::Micro)
+        .line_height(px(16.0));
+    if let Some(color) = color {
+        body = body.color_raw(color);
+    }
 
     div()
         .flex()
@@ -4948,14 +4956,7 @@ fn compare_tag_cell(
                 .line_height(px(16.0))
                 .child(SharedString::from(frame_id.unwrap_or_default())),
         )
-        .child(
-            value_cell
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .children(compare_value_line_elements(value, 4)),
-        )
+        .child(div().flex_1().min_w_0().child(body))
         .into_any_element()
 }
 
@@ -5188,7 +5189,7 @@ pub(crate) fn render_track_list_section(
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .child(section_heading(heading))
+                .child(SectionHeader::new(heading.to_string()))
                 .when(!note.is_empty(), |el| {
                     el.child(
                         div()
@@ -5291,7 +5292,7 @@ pub(crate) fn render_row_playlist_popup(
         let feed_guid_owned = feed_guid.to_string();
         let feed_url_owned = feed_url.map(|s| s.to_string());
         let track_guid_owned = track_guid.to_string();
-        panel = panel.child(metadata_action_button(&label).on_click(cx.listener(
+        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
             move |this, _, _, cx| {
                 if let Some(frame) = this.inspector_stack.last_mut() {
                     frame.add_to_playlist_open_track_guid = None;
@@ -5324,7 +5325,10 @@ pub(crate) fn render_feed_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(frame.image.clone(), "feed", 80.0, true))
+        .child(
+            Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(80.0, true))
+                .image(frame.image.clone()),
+        )
         .child(
             div()
                 .flex_1()
@@ -5333,8 +5337,8 @@ pub(crate) fn render_feed_header(
                     div()
                         .text_size(typography::SIZE_MICRO)
                         .font_weight(FontWeight::BOLD)
-                        .text_color(badge_text("feed"))
-                        .bg(type_color("feed"))
+                        .text_color(badges::text_color("feed"))
+                        .bg(badges::type_color("feed"))
                         .px(spacing::SM)
                         .py(spacing::XXS)
                         .rounded(radius::SM)
@@ -5493,7 +5497,7 @@ pub(crate) fn render_play_icon_button_with_id(
 
     Button::new(id)
         .label("▶")
-        .with_size(Size::XSmall)
+        .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
         .w(px(18.0))
@@ -5550,7 +5554,7 @@ pub(crate) fn render_track_download_button(
             .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
             .child(
                 Spinner::new()
-                    .with_size(Size::XSmall)
+                    .scaled(Size::XSmall, cx)
                     .color(color::accent().into()),
             )
             .into_any_element();
@@ -5574,7 +5578,7 @@ pub(crate) fn render_track_download_button(
 
     Button::new(id)
         .label(label)
-        .with_size(Size::XSmall)
+        .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
         .w(px(18.0))
@@ -5625,13 +5629,17 @@ pub(crate) fn render_feed_list_section(
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
                 }))
-                .child(render_thumb(thumb.clone(), "feed", 128.0, true))
                 .child(
-                    div()
-                        .text_size(typography::SIZE_CAPTION)
-                        .font_weight(FontWeight::MEDIUM)
-                        .line_height(px(15.0))
-                        .child(truncated(feed_title(&feed))),
+                    Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(128.0, true))
+                        .image(thumb.clone()),
+                )
+                .child(
+                    div().line_height(px(15.0)).child(
+                        Label::new(feed_title(&feed))
+                            .size(FontSize::Caption)
+                            .weight(FontWeight::MEDIUM)
+                            .truncated(),
+                    ),
                 )
                 .when(!episode_note.is_empty(), |el| {
                     el.child(
@@ -5649,7 +5657,7 @@ pub(crate) fn render_feed_list_section(
         .flex()
         .flex_col()
         .gap(spacing::SM)
-        .child(section_heading(heading))
+        .child(SectionHeader::new(heading.to_string()))
         .child(
             div()
                 .flex()
@@ -5666,7 +5674,8 @@ fn render_track_header(
     track: &Track,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let title = track_title(track);
+    let vm = TrackVm::new(track);
+    let title = vm.title();
     let artist = track
         .track_artist
         .clone()
@@ -5675,7 +5684,7 @@ fn render_track_header(
     let feed_guid = track.feed_guid.clone();
     let feed_title_label = track.feed_title.clone();
     let feed_url = track.feed_url.clone().or_else(|| track.feed_guid.clone());
-    let audio_url = track_play_url(track);
+    let audio_url = vm.play_url();
     let npub = track_nostr(track);
 
     div()
@@ -5683,7 +5692,10 @@ fn render_track_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(render_thumb(frame.image.clone(), "track", 80.0, true))
+        .child(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true))
+                .image(frame.image.clone()),
+        )
         .child(
             div()
                 .flex_1()
@@ -5692,8 +5704,8 @@ fn render_track_header(
                     div()
                         .text_size(typography::SIZE_MICRO)
                         .font_weight(FontWeight::BOLD)
-                        .text_color(badge_text("track"))
-                        .bg(type_color("track"))
+                        .text_color(badges::text_color("track"))
+                        .bg(badges::type_color("track"))
                         .px(spacing::SM)
                         .py(spacing::XXS)
                         .rounded(radius::SM)
@@ -5767,14 +5779,13 @@ pub(crate) fn render_collapsed_text_section(label: &str, value: String) -> AnyEl
                 .child(SharedString::from(label.to_string())),
         )
         .child(
-            div()
-                .mt(spacing::XS)
-                .text_size(typography::SIZE_MICRO)
-                .line_height(px(17.0))
-                .text_color(color::text_primary())
-                .flex()
-                .flex_col()
-                .children(compare_value_line_elements(&value, 3)),
+            div().mt(spacing::XS).child(
+                MultilineText::new(value)
+                    .max_lines(3)
+                    .size(FontSize::Micro)
+                    .line_height(px(17.0))
+                    .color(SemanticColor::Label),
+            ),
         )
         .into_any_element()
 }
@@ -5874,28 +5885,34 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                     .rounded(radius::MD)
                     .overflow_hidden()
                     .flex_shrink_0()
-                    .when_some(thumbnail, |el, image| el.child(artwork_img(image, 152.0)))
+                    .when_some(thumbnail, |el, image| {
+                        el.child(
+                            ImagePrimitive::new(image)
+                                .dimension(px(152.0))
+                                .radius(Radius::MD),
+                        )
+                    })
                     .when(image_url.is_none(), |el| {
                         el.bg(color::border_subtle())
                             .flex()
                             .items_center()
                             .justify_center()
                             .text_size(px(28.0))
-                            .child(type_emoji("feed"))
+                            .child(badges::emoji("feed"))
                     }),
             )
             .child(
-                div()
-                    .text_size(typography::SIZE_CAPTION)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(truncated(title)),
+                Label::new(title)
+                    .size(FontSize::Caption)
+                    .weight(FontWeight::MEDIUM)
+                    .truncated(),
             )
             .when(!artist.is_empty(), |el| {
                 el.child(
-                    div()
-                        .text_size(typography::SIZE_MICRO)
-                        .text_color(color::text_muted())
-                        .child(truncated(artist)),
+                    Label::new(artist)
+                        .size(FontSize::Micro)
+                        .color(SemanticColor::TertiaryLabel)
+                        .truncated(),
                 )
             })
             .into_any_element();
@@ -5943,7 +5960,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                     Button::new("recent-load-more")
                         .label("Load more")
                         .ghost()
-                        .with_size(Size::Small)
+                        .scaled(Size::Small, cx)
                         .text_color(rgb(0xffffff))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.load_recent_feeds(true, cx);
@@ -5975,39 +5992,6 @@ fn render_loading(message: &str) -> AnyElement {
         .py(spacing::SM)
         .child(SharedString::from(message.to_string()))
         .into_any_element()
-}
-
-fn render_clickable_section_heading(label: &str, collapsed: bool) -> gpui::Stateful<gpui::Div> {
-    let state = if collapsed { "show" } else { "hide" };
-    let glyph = if collapsed { ">" } else { "v" };
-
-    div()
-        .id(SharedString::from(format!("section-heading:{label}")))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(spacing::SM)
-        .cursor_pointer()
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .font_weight(FontWeight::BOLD)
-                .text_color(color::text_muted())
-                .child(glyph),
-        )
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .font_weight(FontWeight::BOLD)
-                .text_color(color::text_muted())
-                .child(SharedString::from(label.to_string())),
-        )
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(color::text_muted())
-                .child(SharedString::from(state.to_string())),
-        )
 }
 
 fn group_heading(label: String) -> AnyElement {
@@ -6063,8 +6047,8 @@ fn result_lines(row: &ResultRow) -> (String, String, String, Option<String>) {
             )
         }
         Some(EntityDetail::Track(track)) => {
-            let duration = track.duration_secs.map(fmt_dur);
-            let line1 = [Some(track_title(track)), duration]
+            let vm = TrackVm::new(track);
+            let line1 = [Some(vm.title()), vm.duration_display()]
                 .into_iter()
                 .flatten()
                 .filter(|part| !part.is_empty())
@@ -6130,23 +6114,10 @@ fn feed_title(feed: &Feed) -> String {
         .unwrap_or_else(|| "Untitled".into())
 }
 
-pub(crate) fn track_title(track: &Track) -> String {
-    track
-        .title
-        .clone()
-        .or_else(|| track.name.clone())
-        .or_else(|| track.track_guid.clone())
-        .unwrap_or_else(|| "Untitled".into())
-}
-
-pub(crate) fn fmt_dur(secs: i32) -> String {
-    format!("{}:{:02}", secs / 60, secs % 60)
-}
-
 #[cfg(test)]
 #[allow(dead_code)]
 fn fmt_ms(ms: i64) -> String {
-    fmt_dur((ms / 1000).try_into().unwrap_or(i32::MAX))
+    crate::view_models::track::fmt_dur((ms / 1000).try_into().unwrap_or(i32::MAX))
 }
 
 #[cfg(test)]
@@ -6159,20 +6130,6 @@ fn join_values(values: &[String]) -> Option<String> {
     }
 }
 
-pub(crate) fn fmt_runtime(total_secs: i32) -> String {
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    if hours > 0 {
-        format!("{hours} h {minutes} min")
-    } else {
-        format!("{minutes} min")
-    }
-}
-
-pub(crate) fn fmt_date(ts: i64) -> Option<String> {
-    chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.format("%b %-d, %Y").to_string())
-}
-
 use crate::ui::theme::{color, glyphs, radius, spacing, typography};
 
 pub fn run_search_app() {
@@ -6180,6 +6137,11 @@ pub fn run_search_app() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
+        crate::ui::theme_bridge::install_theme(
+            crate::ui::tokens::Appearance::Dark,
+            crate::ui::tokens::ScaleFactor::Medium,
+            cx,
+        );
         let cfg_path = config::config_path().expect("config path");
         let cfg = config::load_config(&cfg_path).expect("load config");
         config::ensure_dirs(&cfg).expect("ensure dirs");
@@ -6187,6 +6149,12 @@ pub fn run_search_app() {
         let conn = Arc::new(Mutex::new(conn));
         let musicindex_endpoint =
             config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
+
+        crate::ui::theme_bridge::install_theme(
+            crate::ui::tokens::Appearance::Dark,
+            cfg.ui_scale.into(),
+            cx,
+        );
 
         let thumbnail_cache_dir = cfg_path
             .parent()
@@ -6225,10 +6193,10 @@ mod tests {
         merge_track_play_fields, metadata_data_row, metadata_drag_value, metadata_field_group_key,
         musicbrainz_remainder_rows, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
         pending_id3_target_key, search_result_type_is_visible, should_show_inspector_back,
-        track_metadata_rows, track_play_url, unused_id3v24_frames_for_group, AlignedCompareRow,
-        Artist, EntityDetail, Feed, Id3FrameVersion, MetadataColumn, MetadataGridRow,
-        PendingId3Edit, ResultRow, SourceEnclosure, SourceEntityId, SourceEntityLink,
-        TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
+        track_metadata_rows, unused_id3v24_frames_for_group, AlignedCompareRow, Artist,
+        EntityDetail, Feed, Id3FrameVersion, MetadataColumn, MetadataGridRow, PendingId3Edit,
+        ResultRow, SourceEnclosure, SourceEntityId, SourceEntityLink, TagCompareResult, Track,
+        TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
     use crate::metadata::{
@@ -6290,7 +6258,9 @@ mod tests {
             ..Track::default()
         };
         assert_eq!(
-            track_play_url(&direct_track).as_deref(),
+            crate::view_models::track::TrackVm::new(&direct_track)
+                .play_url()
+                .as_deref(),
             Some("https://example.test/audio.mp3")
         );
 
@@ -6310,7 +6280,9 @@ mod tests {
             ..Track::default()
         };
         assert_eq!(
-            track_play_url(&source_track).as_deref(),
+            crate::view_models::track::TrackVm::new(&source_track)
+                .play_url()
+                .as_deref(),
             Some("https://example.test/primary.mp3")
         );
     }

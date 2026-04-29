@@ -546,6 +546,7 @@ mod tests {
             db_path: temp.join("db.sqlite"),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            ui_scale: Default::default(),
         }
     }
 

@@ -1,9 +1,12 @@
 use crate::api::Feed;
 use crate::search::{render_feed_list_section, SearchApp};
-use crate::ui_common::{optional_row, render_detail_grid, render_detail_header};
+use crate::ui::composites::{DetailGrid, DetailHeader, DetailRow, EntityKind};
+use crate::ui::primitives::VStack;
+use crate::ui::tokens::Spacing;
 use crate::ui_context::ViewContext;
+use crate::view_models::artist::ArtistVm;
 use crate::views::ArtistView;
-use gpui::{div, prelude::*, AnyElement, Context};
+use gpui::{prelude::*, AnyElement, Context};
 use std::sync::Arc;
 
 #[expect(
@@ -20,51 +23,27 @@ pub fn render_artist_view(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    use crate::ui::theme::spacing;
+    let vm = ArtistVm::new(view, feeds, has_more_tracks, track_count_override);
 
-    let title = view.name.clone().unwrap_or_else(|| "Unknown Artist".into());
-    let display_track_count = track_count_override.or(view.track_count).unwrap_or(0);
-    let track_count_str = format!(
-        "{}{}",
-        display_track_count,
-        if has_more_tracks { "+" } else { "" }
-    );
+    let rows: Vec<DetailRow> = vm
+        .detail_rows()
+        .into_iter()
+        .map(|entry| DetailRow::text(entry.key, entry.value, entry.max_lines))
+        .collect();
 
-    let mut rows = vec![
-        ("Tracks".to_string(), track_count_str),
-        ("Feeds".to_string(), feeds.len().to_string()),
-    ];
-    optional_row(&mut rows, "Sort Name", view.sort_name.clone());
-    optional_row(&mut rows, "Area", view.area.clone());
-    optional_row(
-        &mut rows,
-        "Active",
-        artist_active_years(view.begin_year, view.end_year),
-    );
-    optional_row(&mut rows, "Website", view.url.clone());
+    let mut stack = VStack::new()
+        .spacing(Spacing::LG)
+        .stretch()
+        .child(
+            DetailHeader::new(EntityKind::Artist, vm.title())
+                .subtitle(vm.subtitle())
+                .image(image),
+        )
+        .child(DetailGrid::new(rows));
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::LG)
-        .child(render_detail_header(
-            "artist",
-            &title,
-            Some("Feeds with tracks by this artist"),
-            image,
-        ))
-        .child(render_detail_grid(rows))
-        .when(!feeds.is_empty(), |el| {
-            el.child(render_feed_list_section("Feeds", feeds.to_vec(), app, cx))
-        })
-        .into_any_element()
-}
-
-fn artist_active_years(begin_year: Option<i32>, end_year: Option<i32>) -> Option<String> {
-    match (begin_year, end_year) {
-        (Some(begin), Some(end)) => Some(format!("{begin}-{end}")),
-        (Some(begin), None) => Some(format!("{begin}-")),
-        (None, Some(end)) => Some(format!("until {end}")),
-        (None, None) => None,
+    if vm.has_feeds() {
+        stack = stack.child(render_feed_list_section("Feeds", feeds.to_vec(), app, cx));
     }
+
+    stack.into_any_element()
 }

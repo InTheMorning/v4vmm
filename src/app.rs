@@ -3,13 +3,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{
-    div, img, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, Image, ImageFormat,
+    div, img, prelude::*, px, size, Application, Bounds, Context, Entity, Image, ImageFormat,
     KeyDownEvent, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
 use gpui_component::Disableable;
-use gpui_component::{Root, Sizable, Size};
+use gpui_component::{Root, Size};
 use rusqlite::Connection;
 
 use crate::config;
@@ -21,6 +21,7 @@ use crate::playback;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
 use crate::search::{SearchApp, SearchAppEvent};
+use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::color;
 use crate::ui::theme::layout;
 #[allow(unused_imports)]
@@ -61,6 +62,7 @@ pub struct TopApp {
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
+    ui_scale: crate::config::UiScale,
     cfg_path: PathBuf,
     settings_status: String,
     library_tab_focus: gpui::FocusHandle,
@@ -92,6 +94,7 @@ impl TopApp {
         musicindex_endpoint: String,
         music_dir: PathBuf,
         flac_path: Option<PathBuf>,
+        ui_scale: crate::config::UiScale,
         playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -158,6 +161,7 @@ impl TopApp {
             endpoint_input,
             music_dir_input,
             flac_path_input,
+            ui_scale,
             cfg_path,
             settings_status: String::new(),
             library_tab_focus: cx.focus_handle(),
@@ -307,12 +311,22 @@ impl TopApp {
         }
     }
 
+    fn set_ui_scale(&mut self, scale: crate::config::UiScale, cx: &mut Context<Self>) {
+        if self.ui_scale == scale {
+            return;
+        }
+        self.ui_scale = scale;
+        cx.notify();
+    }
+
     fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let endpoint = self.endpoint_input.read(cx).value().to_string();
         let music_dir = self.music_dir_input.read(cx).value().to_string();
         let flac_path = self.flac_path_input.read(cx).value().to_string();
-        match config::save_app_settings(&self.cfg_path, &endpoint, &music_dir, &flac_path) {
-            Ok((normalized_endpoint, normalized_music_dir, normalized_flac_path)) => {
+        let ui_scale = self.ui_scale;
+        match config::save_app_settings(&self.cfg_path, &endpoint, &music_dir, &flac_path, ui_scale)
+        {
+            Ok((normalized_endpoint, normalized_music_dir, normalized_flac_path, saved_scale)) => {
                 let cfg = match config::load_config(&self.cfg_path)
                     .and_then(|cfg| config::ensure_dirs(&cfg).map(|()| cfg))
                 {
@@ -342,6 +356,12 @@ impl TopApp {
                 self.flac_path_input.update(cx, |input, cx| {
                     input.set_value(flac_display, window, cx);
                 });
+                // Apply scale change immediately so the UI reflects it.
+                crate::ui::theme_bridge::install_theme(
+                    crate::ui::tokens::Appearance::Dark,
+                    saved_scale.into(),
+                    cx,
+                );
                 self.settings_status = format!(
                     "Saved settings. Music files download under {}/artists",
                     cfg.music_dir.display()
@@ -572,6 +592,31 @@ impl Render for TopApp {
     }
 }
 
+fn render_ui_scale_picker(
+    current: crate::config::UiScale,
+    cx: &mut Context<TopApp>,
+) -> gpui::AnyElement {
+    use crate::config::UiScale;
+    use crate::ui::composites::{Segment, SegmentedControl};
+
+    let segments = [
+        Segment::new("ui-scale-xs", UiScale::XSmall, "XS"),
+        Segment::new("ui-scale-s", UiScale::Small, "S"),
+        Segment::new("ui-scale-m", UiScale::Medium, "M"),
+        Segment::new("ui-scale-l", UiScale::Large, "L"),
+        Segment::new("ui-scale-xl", UiScale::XLarge, "XL"),
+    ];
+
+    let entity = cx.entity();
+    SegmentedControl::new(current)
+        .segments(segments)
+        .on_select(move |scale, _window, cx| {
+            let scale = *scale;
+            entity.update(cx, |this, cx| this.set_ui_scale(scale, cx));
+        })
+        .into_any_element()
+}
+
 fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {
     app.reload_cached();
 
@@ -618,7 +663,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                 .child(
                     Input::new(&endpoint_input)
                         .cleanable(true)
-                        .with_size(Size::Small),
+                        .scaled(Size::Small, cx),
                 )
                 .child(
                     typography::type_caption(div())
@@ -633,7 +678,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                 .child(
                     Input::new(&music_dir_input)
                         .cleanable(true)
-                        .with_size(Size::Small),
+                        .scaled(Size::Small, cx),
                 )
                 .child(
                     typography::type_caption(div())
@@ -648,13 +693,26 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                 .child(
                     Input::new(&flac_path_input)
                         .cleanable(true)
-                        .with_size(Size::Small),
+                        .scaled(Size::Small, cx),
                 )
                 .child(
                     typography::type_caption(div())
                         .text_color(color::text_muted())
                         .child(
                             "Used to silently upgrade WAV downloads to FLAC. Leave blank to resolve `flac` via $PATH.",
+                        ),
+                )
+                .child(
+                    typography::type_caption_strong(div())
+                        .text_color(color::text_muted())
+                        .child("UI scale"),
+                )
+                .child(render_ui_scale_picker(app.ui_scale, cx))
+                .child(
+                    typography::type_caption(div())
+                        .text_color(color::text_muted())
+                        .child(
+                            "Scales every dimension token (spacing, radius, font, sizes). Click Save to persist.",
                         ),
                 )
                 .child(
@@ -667,8 +725,8 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             Button::new("settings-save")
                                 .label("Save")
                                 .primary()
-                                .with_size(Size::Small)
-                                .text_color(rgb(0xffffff))
+                                .scaled(Size::Small, cx)
+                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.save_settings(window, cx);
                                 })),
@@ -677,8 +735,8 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             Button::new("settings-default")
                                 .label("Use Defaults")
                                 .ghost()
-                                .with_size(Size::Small)
-                                .text_color(rgb(0xffffff))
+                                .scaled(Size::Small, cx)
+                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.endpoint_input.update(cx, |input, cx| {
                                         input.set_value(crate::api::DEFAULT_BASE_URL, window, cx);
@@ -754,8 +812,8 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                             Button::new(SharedString::from(format!("del-cached-{}", track.id)))
                                                 .label("Delete")
                                                 .danger()
-                                                .with_size(Size::XSmall)
-                                                .text_color(rgb(0xffffff))
+                                                .scaled(Size::XSmall, cx)
+                                                .text_color(color::text_on_accent())
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     this.delete_cached_file(path_clone.clone());
                                                     cx.notify();
@@ -780,8 +838,8 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             Button::new("delete-all-cached-settings")
                                 .label("Delete All Cached")
                                 .danger()
-                                .with_size(Size::XSmall)
-                                .text_color(rgb(0xffffff))
+                                .scaled(Size::XSmall, cx)
+                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.delete_all_cached();
                                     cx.notify();
@@ -829,7 +887,7 @@ fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::Any
             Button::new("playback-prev")
                 .label("⏮")
                 .ghost()
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .disabled(!state.active)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.skip_playback_previous(cx);
@@ -839,7 +897,7 @@ fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::Any
             Button::new("playback-toggle")
                 .label(toggle_label)
                 .ghost()
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .disabled(!state.active)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.set_playback_paused(toggle_paused, cx);
@@ -849,7 +907,7 @@ fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::Any
             Button::new("playback-next")
                 .label("⏭")
                 .ghost()
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .disabled(!state.active)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.skip_playback_next(cx);
@@ -859,7 +917,7 @@ fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::Any
             Button::new("playback-stop")
                 .label("⏹")
                 .ghost()
-                .with_size(Size::XSmall)
+                .scaled(Size::XSmall, cx)
                 .disabled(!state.active)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.stop_playback_owner(cx);
@@ -917,6 +975,14 @@ pub fn run_app() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
+        // Pre-config: install with default scale so the loading window is
+        // themed; we re-install with the user's preference once config is
+        // loaded a few lines below.
+        crate::ui::theme_bridge::install_theme(
+            crate::ui::tokens::Appearance::Dark,
+            crate::ui::tokens::ScaleFactor::Medium,
+            cx,
+        );
 
         // Load config + open DB
         let cfg_path = config::config_path().expect("config path");
@@ -924,6 +990,13 @@ pub fn run_app() {
         let musicindex_endpoint =
             config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
         config::ensure_dirs(&cfg).expect("ensure dirs");
+
+        // Re-apply theme now that config has provided the user's UI scale.
+        crate::ui::theme_bridge::install_theme(
+            crate::ui::tokens::Appearance::Dark,
+            cfg.ui_scale.into(),
+            cx,
+        );
         let conn = db::open_db(&cfg).expect("open db");
         let conn = Arc::new(Mutex::new(conn));
         let playback_driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)
@@ -956,6 +1029,7 @@ pub fn run_app() {
                             musicindex_endpoint,
                             cfg.music_dir,
                             cfg.flac_path,
+                            cfg.ui_scale,
                             playback_owner,
                             window,
                             cx,

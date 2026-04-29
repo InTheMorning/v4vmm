@@ -4,21 +4,24 @@
 //! listing all playlists with an inline "New Playlist" create flow at the bottom.
 //! Exactly one popover is visible at a time; clicking outside or pressing Escape
 //! dismisses it without committing any state.
+//!
+//! Built on top of `crate::ui::primitives` — the trigger and inline buttons
+//! are `primitives::Button` variants, the floating panel body is a
+//! `primitives::Surface`, and section breaks use `primitives::Divider`.
 
 use std::rc::Rc;
 
-use gpui::{prelude::*, Corner, Div, div, px, App, Entity, SharedString, Window};
+use gpui::{div, prelude::*, App, Div, Entity, IntoElement, RenderOnce, SharedString, Window};
 use gpui_component::{
-    Sizable, Size,
-    button::{Button, ButtonCustomVariant, ButtonVariants as _},
-    divider::Divider,
     input::{Input, InputState},
-    popover::Popover,
     v_flex,
 };
 
 use crate::db;
-use crate::ui::theme::color;
+use crate::ui::primitives::{
+    Button, ButtonSize, Divider, Popover, PopoverAlignment, PopoverPlacement,
+};
+use crate::ui::tokens::{FontSize, Size, Spacing};
 
 // ---------------------------------------------------------------------------
 // Callback type aliases (silence clippy::type_complexity)
@@ -42,25 +45,6 @@ struct AddToPlaylistState {
 // ---------------------------------------------------------------------------
 
 /// A floating "Add to Playlist" popover anchored to a small trigger button.
-///
-/// The popover renders in two modes controlled by an internal `creating` flag:
-///
-/// * **List mode** — shows every playlist as a tappable row, followed by a
-///   "New Playlist" entry that switches to create mode.
-/// * **Create mode** — shows a text field and a "Create" button plus a back
-///   arrow to return to list mode without committing.
-///
-/// # Examples
-///
-/// ```rust
-/// AddToPlaylistPopover::new("add-track-42", playlists)
-///     .on_select(cx.listener(|this, id: &i64, window, cx| {
-///         this.add_track_to_playlist(track_id, *id, window, cx);
-///     }))
-///     .on_create(cx.listener(|this, name: &String, window, cx| {
-///         this.create_playlist_and_add(name.clone(), track_id, window, cx);
-///     }))
-/// ```
 #[derive(IntoElement)]
 pub struct AddToPlaylistPopover {
     id: SharedString,
@@ -70,10 +54,6 @@ pub struct AddToPlaylistPopover {
 }
 
 impl AddToPlaylistPopover {
-    /// Creates the component with the playlist data to display.
-    ///
-    /// `id` must be unique across every simultaneously rendered instance (e.g.
-    /// include the track or feed ID so two rows don't collide).
     pub fn new(id: impl Into<SharedString>, playlists: Vec<db::Playlist>) -> Self {
         Self {
             id: id.into(),
@@ -83,20 +63,12 @@ impl AddToPlaylistPopover {
         }
     }
 
-    /// Called with the chosen playlist's `id` when the user selects a row.
-    pub fn on_select(
-        mut self,
-        handler: impl Fn(&i64, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_select(mut self, handler: impl Fn(&i64, &mut Window, &mut App) + 'static) -> Self {
         self.on_select = Some(Rc::new(handler));
         self
     }
 
-    /// Called with the entered name when the user confirms a new playlist.
-    pub fn on_create(
-        mut self,
-        handler: impl Fn(&String, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_create(mut self, handler: impl Fn(&String, &mut Window, &mut App) + 'static) -> Self {
         self.on_create = Some(Rc::new(handler));
         self
     }
@@ -118,14 +90,10 @@ impl RenderOnce for AddToPlaylistPopover {
         let on_create = self.on_create;
         let trigger_id = SharedString::from(format!("{}-btn", self.id));
 
-        let trigger_style = ButtonCustomVariant::new(cx)
-            .foreground(color::accent().into())
-            .border(color::border_strong().into())
-            .hover(color::bg_surface_hi().into())
-            .active(color::bg_selected().into());
-
         Popover::new(self.id)
-            .anchor(Corner::TopLeft)
+            .placement(PopoverPlacement::Below)
+            .alignment(PopoverAlignment::Start)
+            .surface_padding(Spacing::XS)
             .overlay_closable(true)
             .open(open)
             .on_open_change({
@@ -141,13 +109,14 @@ impl RenderOnce for AddToPlaylistPopover {
                 }
             })
             .trigger(
-                Button::new(trigger_id)
-                    .custom(trigger_style)
-                    .outline()
-                    .with_size(Size::Small)
+                // HIG: secondary inline action — a tinted button reads cleanly
+                // on every row background our tokens emit, and is far more
+                // discoverable than a plain ghost label.
+                Button::tinted(trigger_id)
+                    .size(ButtonSize::Sm)
                     .label("+ Playlist"),
             )
-            .content(move |_ps, _window, cx| {
+            .content(move |_window, cx| {
                 let (creating, name_input) = {
                     let s = state.read(cx);
                     (s.creating, s.name_input.clone())
@@ -176,9 +145,8 @@ fn build_list_mode(
         let label = SharedString::from(p.name.clone());
         let on_select = on_select.clone();
         let state = state.clone();
-        Button::new(SharedString::from(format!("pl-{playlist_id}")))
-            .ghost()
-            .w_full()
+        Button::plain(SharedString::from(format!("pl-{playlist_id}")))
+            .full_width()
             .label(label)
             .on_click(move |_, window, cx| {
                 state.update(cx, |s, cx| {
@@ -191,10 +159,10 @@ fn build_list_mode(
             })
     });
 
-    let new_btn = Button::new("pl-new")
-        .ghost()
-        .w_full()
-        .label("＋ New Playlist")
+    let new_btn = Button::plain("pl-new")
+        .full_width()
+        .leading_glyph("\u{FF0B}")
+        .label("New Playlist")
         .on_click({
             let state = state.clone();
             move |_, _window, cx| {
@@ -206,19 +174,20 @@ fn build_list_mode(
         });
 
     v_flex()
-        .w(px(220.))
-        .max_h(px(320.))
+        .w(Size::MenuRegular.px())
+        .max_h(Size::ColumnRegular.px())
+        .gap(Spacing::XXS.px())
         .when(playlists.is_empty(), |el: Div| {
             el.child(
                 div()
-                    .px_3()
-                    .py_2()
-                    .opacity(0.5)
+                    .px(Spacing::MD.px())
+                    .py(Spacing::SM.px())
+                    .text_size(FontSize::Caption.px())
                     .child("No playlists yet"),
             )
         })
         .children(playlist_buttons)
-        .child(Divider::horizontal())
+        .child(div().my(Spacing::XS.px()).child(Divider::horizontal()))
         .child(new_btn)
 }
 
@@ -231,10 +200,10 @@ fn build_create_mode(
     name_input: Entity<InputState>,
     on_create: Option<CreateHandler>,
 ) -> Div {
-    let back_btn = Button::new("pl-back")
-        .ghost()
-        .w_full()
-        .label("← Back")
+    let back_btn = Button::plain("pl-back")
+        .full_width()
+        .leading_glyph("\u{2190}")
+        .label("Back")
         .on_click({
             let state = state.clone();
             move |_, _window, cx| {
@@ -245,8 +214,8 @@ fn build_create_mode(
             }
         });
 
-    let create_btn = Button::new("pl-create-confirm")
-        .w_full()
+    let create_btn = Button::filled("pl-create-confirm")
+        .full_width()
         .label("Create & Add")
         .on_click({
             let state = state.clone();
@@ -271,11 +240,10 @@ fn build_create_mode(
         });
 
     v_flex()
-        .w(px(220.))
-        .gap_2()
-        .p_1()
+        .w(Size::MenuRegular.px())
+        .gap(Spacing::XS.px())
         .child(back_btn)
-        .child(Divider::horizontal())
-        .child(Input::new(&name_input))
-        .child(create_btn)
+        .child(div().my(Spacing::XS.px()).child(Divider::horizontal()))
+        .child(div().px(Spacing::XS.px()).child(Input::new(&name_input)))
+        .child(div().px(Spacing::XS.px()).child(create_btn))
 }
