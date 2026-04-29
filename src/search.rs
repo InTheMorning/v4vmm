@@ -38,8 +38,8 @@ use crate::subscribe_service::{
 };
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
-    action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind,
-    Thumbnail, ThumbnailSize,
+    action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
+    EntityKind, Thumbnail, ThumbnailSize,
 };
 use crate::ui::detail_row::DetailRow;
 use crate::ui::primitives::SectionHeader;
@@ -3500,16 +3500,18 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
 }
 
 fn render_contributors_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
-    render_clickable_section_heading("Contributors", collapsed)
-        .on_click(cx.listener(|this, _, _, cx| {
+    DisclosureGroup::new("section:contributors", "Contributors")
+        .collapsed(collapsed)
+        .on_toggle(cx.listener(|this, _, _, cx| {
             this.toggle_contributors(cx);
         }))
         .into_any_element()
 }
 
 fn render_value_routes_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
-    render_clickable_section_heading("Value Routes", collapsed)
-        .on_click(cx.listener(|this, _, _, cx| {
+    DisclosureGroup::new("section:value-routes", "Value Routes")
+        .collapsed(collapsed)
+        .on_toggle(cx.listener(|this, _, _, cx| {
             this.toggle_value_routes(cx);
         }))
         .into_any_element()
@@ -4099,12 +4101,13 @@ fn metadata_group_cell(
     let expanded = group.expanded;
     let mut cell = div().col_span(columns).mt(spacing::SM);
     if let Some(group_key) = group.key {
+        let id = SharedString::from(format!("section:id3-frame-group:{group_key}"));
         cell = cell.child(
-            render_clickable_section_heading(&label, !expanded).on_click(cx.listener(
-                move |this, _, _, cx| {
+            DisclosureGroup::new(id, label.clone())
+                .collapsed(!expanded)
+                .on_toggle(cx.listener(move |this, _, _, cx| {
                     this.toggle_id3_frame_group(group_key.clone(), cx);
-                },
-            )),
+                })),
         );
     } else {
         cell = cell.child(
@@ -5989,13 +5992,6 @@ fn render_loading(message: &str) -> AnyElement {
         .py(spacing::SM)
         .child(SharedString::from(message.to_string()))
         .into_any_element()
-}
-
-fn render_clickable_section_heading(label: &str, collapsed: bool) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(SharedString::from(format!("section-heading:{label}")))
-        .cursor_pointer()
-        .child(SectionHeader::new(label.to_string()).disclosure(collapsed))
 }
 
 fn group_heading(label: String) -> AnyElement {

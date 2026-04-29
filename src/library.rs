@@ -34,8 +34,8 @@ use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
 use crate::playlist_service;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
-    action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind,
-    Thumbnail, ThumbnailSize,
+    action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
+    EntityKind, Thumbnail, ThumbnailSize,
 };
 use crate::ui::primitives::{Image as ImagePrimitive, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
@@ -4097,12 +4097,13 @@ fn metadata_group_cell(
     let expanded = group.expanded;
     let mut cell = div().col_span(columns).mt(spacing::XS);
     if let Some(group_key) = group.key {
+        let id = SharedString::from(format!("section:id3-frame-group:{group_key}"));
         cell = cell.child(
-            render_clickable_section_heading(&label, !expanded).on_click(cx.listener(
-                move |this, _, _, cx| {
+            DisclosureGroup::new(id, label.clone())
+                .collapsed(!expanded)
+                .on_toggle(cx.listener(move |this, _, _, cx| {
                     this.toggle_id3_frame_group(group_key.clone(), cx);
-                },
-            )),
+                })),
         );
     } else {
         cell = cell.child(
@@ -4711,38 +4712,6 @@ fn render_loading(message: &str) -> AnyElement {
         .py(spacing::SM)
         .child(SharedString::from(message.to_string()))
         .into_any_element()
-}
-
-fn render_clickable_section_heading(label: &str, collapsed: bool) -> gpui::Stateful<gpui::Div> {
-    let state = if collapsed { "show" } else { "hide" };
-    let glyph = if collapsed { ">" } else { "v" };
-    div()
-        .id(SharedString::from(format!("section-heading:{label}")))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(spacing::XS)
-        .cursor_pointer()
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .font_weight(FontWeight::BOLD)
-                .text_color(color::text_muted())
-                .child(glyph),
-        )
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .font_weight(FontWeight::BOLD)
-                .text_color(color::text_muted())
-                .child(SharedString::from(label.to_string())),
-        )
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(color::text_muted())
-                .child(SharedString::from(state.to_string())),
-        )
 }
 
 fn muted_line(value: &str) -> AnyElement {
