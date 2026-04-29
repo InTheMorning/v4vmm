@@ -34,6 +34,9 @@ pub struct Label {
     variant: LabelVariant,
     color: Option<SemanticColor>,
     appearance: Option<Appearance>,
+    weight: Option<FontWeight>,
+    size: Option<FontSize>,
+    truncated: bool,
 }
 
 impl Label {
@@ -43,6 +46,9 @@ impl Label {
             variant: LabelVariant::Body,
             color: None,
             appearance: None,
+            weight: None,
+            size: None,
+            truncated: false,
         }
     }
 
@@ -60,12 +66,34 @@ impl Label {
         self.appearance = Some(appearance);
         self
     }
+
+    /// Override the variant's default weight. Mirrors `SwiftUI`
+    /// `.fontWeight(.medium)`.
+    pub fn weight(mut self, weight: FontWeight) -> Self {
+        self.weight = Some(weight);
+        self
+    }
+
+    /// Override the variant's default size. Mirrors `SwiftUI`
+    /// `.font(.caption)` when applied to text.
+    pub fn size(mut self, size: FontSize) -> Self {
+        self.size = Some(size);
+        self
+    }
+
+    /// Clamp to a single line with tail truncation. Sets `min_w_0` so
+    /// the label collapses correctly inside a flex row. Mirrors
+    /// `SwiftUI` `.lineLimit(1).truncationMode(.tail)`.
+    pub fn truncated(mut self) -> Self {
+        self.truncated = true;
+        self
+    }
 }
 
 impl RenderOnce for Label {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
-        let (size, weight, default_color) = match self.variant {
+        let (default_size, default_weight, default_color) = match self.variant {
             LabelVariant::Title => (FontSize::Title2, FontWeight::SEMIBOLD, SemanticColor::Label),
             LabelVariant::Headline => (
                 FontSize::Headline,
@@ -84,11 +112,53 @@ impl RenderOnce for Label {
                 SemanticColor::TertiaryLabel,
             ),
         };
+        let size = self.size.unwrap_or(default_size);
+        let weight = self.weight.unwrap_or(default_weight);
         let color = self.color.unwrap_or(default_color);
-        div()
+        let mut el = div()
             .text_size(size.px())
             .font_weight(weight)
-            .text_color(color.resolve(appearance))
-            .child(self.text)
+            .text_color(color.resolve(appearance));
+        if self.truncated {
+            el = el.min_w_0().truncate();
+        }
+        el.child(self.text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Builder behaviour pinned without `Window` / `App`. The render
+    //! path itself is exercised by the screen tests; here we only
+    //! verify the configuration surface.
+
+    use super::*;
+
+    #[test]
+    fn defaults_have_no_overrides() {
+        let l = Label::new("hi");
+        assert_eq!(l.variant, LabelVariant::Body);
+        assert!(l.color.is_none());
+        assert!(l.appearance.is_none());
+        assert!(l.weight.is_none());
+        assert!(l.size.is_none());
+        assert!(!l.truncated);
+    }
+
+    #[test]
+    fn modifiers_set_their_fields() {
+        let l = Label::new("hi")
+            .variant(LabelVariant::Caption)
+            .color(SemanticColor::Label)
+            .appearance(Appearance::Dark)
+            .weight(FontWeight::MEDIUM)
+            .size(FontSize::Micro)
+            .truncated();
+        assert_eq!(l.variant, LabelVariant::Caption);
+        assert_eq!(l.color, Some(SemanticColor::Label));
+        assert_eq!(l.appearance, Some(Appearance::Dark));
+        assert_eq!(l.weight, Some(FontWeight::MEDIUM));
+        assert_eq!(l.size, Some(FontSize::Micro));
+        assert!(l.truncated);
     }
 }

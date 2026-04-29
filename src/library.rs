@@ -37,11 +37,10 @@ use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind,
     Thumbnail, ThumbnailSize,
 };
-use crate::ui::primitives::Image as ImagePrimitive;
+use crate::ui::primitives::{Image as ImagePrimitive, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::text::compare_value_line_elements;
 use crate::ui::theme::badges;
-use crate::ui::tokens::Radius;
+use crate::ui::tokens::{FontSize, Radius};
 use crate::views::FeedView;
 
 // ---------------------------------------------------------------------------
@@ -4406,11 +4405,9 @@ fn expanded_metadata_value(
         }
     }
     let value = expanded_metadata_display_value(field, raw_value, display_value);
-    div()
-        .text_color(color)
-        .flex()
-        .flex_col()
-        .children(compare_value_line_elements(value, 20))
+    MultilineText::new(value.to_string())
+        .max_lines(20)
+        .color_raw(color)
         .into_any_element()
 }
 
@@ -4423,7 +4420,10 @@ fn value_routes_tree_elements(
     cx: &mut Context<LibraryApp>,
 ) -> Vec<AnyElement> {
     let Ok(routes) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) else {
-        return compare_value_line_elements(raw_value, 20);
+        return vec![MultilineText::new(raw_value.to_string())
+            .max_lines(20)
+            .color_raw(color)
+            .into_any_element()];
     };
 
     routes
@@ -4576,16 +4576,14 @@ fn expandable_cell_summary(
 }
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
-    let mut cell = div()
-        .text_size(typography::SIZE_MICRO)
-        .line_height(px(16.0))
-        .flex()
-        .flex_col();
+    let mut cell = MultilineText::new(value.to_string())
+        .max_lines(4)
+        .size(FontSize::Micro)
+        .line_height(px(16.0));
     if let Some(color) = color {
-        cell = cell.text_color(color);
+        cell = cell.color_raw(color);
     }
-    cell.children(compare_value_line_elements(value, 4))
-        .into_any_element()
+    cell.into_any_element()
 }
 
 fn compare_tag_cell(
@@ -4594,11 +4592,12 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let mut value_cell = div()
-        .text_size(typography::SIZE_MICRO)
+    let mut body = MultilineText::new(value.to_string())
+        .max_lines(4)
+        .size(FontSize::Micro)
         .line_height(px(16.0));
     if let Some(color) = color {
-        value_cell = value_cell.text_color(color);
+        body = body.color_raw(color);
     }
     div()
         .flex()
@@ -4614,14 +4613,7 @@ fn compare_tag_cell(
                 .line_height(px(16.0))
                 .child(SharedString::from(frame_id.unwrap_or_default().to_string())),
         )
-        .child(
-            value_cell
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .children(compare_value_line_elements(value, 4)),
-        )
+        .child(div().flex_1().min_w_0().child(body))
         .into_any_element()
 }
 

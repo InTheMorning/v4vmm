@@ -43,11 +43,10 @@ use crate::ui::composites::{
 };
 use crate::ui::detail_row::DetailRow;
 use crate::ui::primitives::SectionHeader;
-use crate::ui::primitives::{Image as ImagePrimitive, ImageSize};
+use crate::ui::primitives::{Image as ImagePrimitive, ImageSize, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::text::{compare_value_line_elements, truncated, truncated_muted};
 use crate::ui::theme::badges;
-use crate::ui::tokens::Radius;
+use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::track::TrackVm;
 
@@ -166,14 +165,13 @@ impl Render for MetadataDragPreview {
                     .child(SharedString::from(self.label.clone())),
             )
             .child(
-                div()
-                    .mt(spacing::XS)
-                    .text_size(typography::SIZE_MICRO)
-                    .line_height(px(16.0))
-                    .text_color(color::text_primary())
-                    .flex()
-                    .flex_col()
-                    .children(compare_value_line_elements(&self.value, 4)),
+                div().mt(spacing::XS).child(
+                    MultilineText::new(self.value.clone())
+                        .max_lines(4)
+                        .size(FontSize::Micro)
+                        .line_height(px(16.0))
+                        .color(SemanticColor::Label),
+                ),
             )
     }
 }
@@ -2429,12 +2427,10 @@ pub(crate) fn detail_rows_from_strings(rows: Vec<(String, String)>) -> Vec<Detai
     rows.into_iter()
         .map(|(key, value)| DetailRow {
             key,
-            value: div()
-                .text_size(typography::SIZE_MICRO)
+            value: MultilineText::new(value)
+                .max_lines(6)
+                .size(FontSize::Micro)
                 .line_height(px(17.0))
-                .flex()
-                .flex_col()
-                .children(compare_value_line_elements(&value, 6))
                 .into_any_element(),
         })
         .collect()
@@ -2690,15 +2686,28 @@ fn render_result_item(
             div()
                 .flex_1()
                 .min_w_0()
-                .child(truncated(line1).font_weight(FontWeight::MEDIUM))
+                .child(
+                    Label::new(line1)
+                        .size(FontSize::Micro)
+                        .weight(FontWeight::MEDIUM)
+                        .truncated(),
+                )
                 .when(!line2.is_empty(), |el| {
-                    el.child(truncated_muted(line2).text_size(typography::SIZE_MICRO))
+                    el.child(
+                        Label::new(line2)
+                            .size(FontSize::Micro)
+                            .color(SemanticColor::TertiaryLabel)
+                            .truncated(),
+                    )
                 })
                 .when(!line3.is_empty(), |el| {
                     el.child(
-                        truncated_muted(line3)
-                            .text_size(typography::SIZE_MICRO)
-                            .opacity(0.7),
+                        div().opacity(0.7).child(
+                            Label::new(line3)
+                                .size(FontSize::Micro)
+                                .color(SemanticColor::TertiaryLabel)
+                                .truncated(),
+                        ),
                     )
                 }),
         )
@@ -2758,7 +2767,14 @@ fn render_inspector(
                             })),
                     )
                 })
-                .child(truncated_muted(title.to_string()).flex_1()),
+                .child(
+                    div().flex_1().child(
+                        Label::new(title.to_string())
+                            .size(FontSize::Micro)
+                            .color(SemanticColor::TertiaryLabel)
+                            .truncated(),
+                    ),
+                ),
         )
         .child(
             div()
@@ -2948,11 +2964,12 @@ fn podroll_section(
                     .image(thumb.clone()),
             )
             .child(
-                div()
-                    .text_size(typography::SIZE_CAPTION)
-                    .font_weight(FontWeight::MEDIUM)
-                    .line_height(px(15.0))
-                    .child(truncated(title)),
+                div().line_height(px(15.0)).child(
+                    Label::new(title)
+                        .size(FontSize::Caption)
+                        .weight(FontWeight::MEDIUM)
+                        .truncated(),
+                ),
             )
             .into_any_element();
         tiles.push(tile);
@@ -4895,16 +4912,14 @@ fn transcript_text_elements(raw_value: &str, color: gpui::Rgba) -> Vec<AnyElemen
 }
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
-    let mut cell = div()
-        .text_size(typography::SIZE_MICRO)
-        .line_height(px(16.0))
-        .flex()
-        .flex_col();
+    let mut cell = MultilineText::new(value.to_string())
+        .max_lines(4)
+        .size(FontSize::Micro)
+        .line_height(px(16.0));
     if let Some(color) = color {
-        cell = cell.text_color(color);
+        cell = cell.color_raw(color);
     }
-    cell.children(compare_value_line_elements(value, 4))
-        .into_any_element()
+    cell.into_any_element()
 }
 
 fn compare_tag_cell(
@@ -4913,14 +4928,16 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let mut value_cell = div()
-        .text_size(typography::SIZE_MICRO)
-        .line_height(px(16.0));
-    if let Some(color) = color {
-        value_cell = value_cell.text_color(color);
-    }
     let frame_id = frame_id.map(ToOwned::to_owned);
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
+
+    let mut body = MultilineText::new(value.to_string())
+        .max_lines(4)
+        .size(FontSize::Micro)
+        .line_height(px(16.0));
+    if let Some(color) = color {
+        body = body.color_raw(color);
+    }
 
     div()
         .flex()
@@ -4936,14 +4953,7 @@ fn compare_tag_cell(
                 .line_height(px(16.0))
                 .child(SharedString::from(frame_id.unwrap_or_default())),
         )
-        .child(
-            value_cell
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .children(compare_value_line_elements(value, 4)),
-        )
+        .child(div().flex_1().min_w_0().child(body))
         .into_any_element()
 }
 
@@ -5621,11 +5631,12 @@ pub(crate) fn render_feed_list_section(
                         .image(thumb.clone()),
                 )
                 .child(
-                    div()
-                        .text_size(typography::SIZE_CAPTION)
-                        .font_weight(FontWeight::MEDIUM)
-                        .line_height(px(15.0))
-                        .child(truncated(feed_title(&feed))),
+                    div().line_height(px(15.0)).child(
+                        Label::new(feed_title(&feed))
+                            .size(FontSize::Caption)
+                            .weight(FontWeight::MEDIUM)
+                            .truncated(),
+                    ),
                 )
                 .when(!episode_note.is_empty(), |el| {
                     el.child(
@@ -5765,14 +5776,13 @@ pub(crate) fn render_collapsed_text_section(label: &str, value: String) -> AnyEl
                 .child(SharedString::from(label.to_string())),
         )
         .child(
-            div()
-                .mt(spacing::XS)
-                .text_size(typography::SIZE_MICRO)
-                .line_height(px(17.0))
-                .text_color(color::text_primary())
-                .flex()
-                .flex_col()
-                .children(compare_value_line_elements(&value, 3)),
+            div().mt(spacing::XS).child(
+                MultilineText::new(value)
+                    .max_lines(3)
+                    .size(FontSize::Micro)
+                    .line_height(px(17.0))
+                    .color(SemanticColor::Label),
+            ),
         )
         .into_any_element()
 }
@@ -5889,17 +5899,17 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                     }),
             )
             .child(
-                div()
-                    .text_size(typography::SIZE_CAPTION)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(truncated(title)),
+                Label::new(title)
+                    .size(FontSize::Caption)
+                    .weight(FontWeight::MEDIUM)
+                    .truncated(),
             )
             .when(!artist.is_empty(), |el| {
                 el.child(
-                    div()
-                        .text_size(typography::SIZE_MICRO)
-                        .text_color(color::text_muted())
-                        .child(truncated(artist)),
+                    Label::new(artist)
+                        .size(FontSize::Micro)
+                        .color(SemanticColor::TertiaryLabel)
+                        .truncated(),
                 )
             })
             .into_any_element();

@@ -7,8 +7,9 @@ use crate::db;
 use crate::search::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
 use crate::ui::composites::{EntityKind, ListRow, Thumbnail, ThumbnailSize};
 use crate::ui::playlist_popover::AddToPlaylistPopover;
-use crate::ui::text::truncated;
+use crate::ui::primitives::Label;
 use crate::ui::theme::{color, typography};
+use crate::ui::tokens::FontSize;
 use crate::view_models::track::TrackVm;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -107,7 +108,11 @@ fn render_discover_track_row(
                 )
                 .image(thumbnail.clone()),
             )
-            .child(truncated(title).flex_1())
+            .child(
+                div()
+                    .flex_1()
+                    .child(Label::new(title).size(FontSize::Micro).truncated()),
+            )
             .when_some(duration_display, |el, dur| {
                 el.child(
                     div()
