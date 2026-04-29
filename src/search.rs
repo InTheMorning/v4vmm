@@ -1398,6 +1398,30 @@ impl SearchApp {
         self.spawn_subscribe_then_append(playlist_id, track_ids, cx);
     }
 
+    pub(crate) fn create_playlist_and_add_discover_track(
+        &mut self,
+        name: &str,
+        feed_guid: &str,
+        feed_url: Option<&str>,
+        track_guid: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let playlist_id = {
+            let db = self.conn.lock().expect("lock db");
+            match playlist_service::create(&db, name) {
+                Ok(id) => id,
+                Err(err) => {
+                    self.status = format!("Create playlist: {err:#}");
+                    cx.notify();
+                    return;
+                }
+            }
+        };
+        self.load_playlists();
+        cx.notify();
+        self.add_search_track_to_playlist(feed_guid, feed_url, track_guid, playlist_id, cx);
+    }
+
     pub(crate) fn add_search_track_to_playlist(
         &mut self,
         feed_guid: &str,

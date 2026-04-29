@@ -1,3 +1,4 @@
+pub mod playlist_popover;
 pub mod theme;
 
 use std::sync::{Arc, OnceLock};
