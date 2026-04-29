@@ -4,10 +4,12 @@ use crate::search::{
     render_collapsed_text_section, render_feed_header, render_publisher_link_value,
     render_track_list_section, InspectorFrame, SearchApp,
 };
+use crate::ui::primitives::VStack;
+use crate::ui::tokens::Spacing;
 use crate::ui_common::{optional_row, render_detail_grid_elements, DetailRow};
 use crate::ui_context::ViewContext;
 use crate::views::FeedView;
-use gpui::{div, prelude::*, AnyElement, Context};
+use gpui::{prelude::*, AnyElement, Context};
 use std::collections::BTreeMap;
 
 pub(crate) fn render_feed_view(
@@ -18,8 +20,6 @@ pub(crate) fn render_feed_view(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    use crate::ui::theme::spacing;
-
     let title = view.title.clone().unwrap_or_else(|| "Unknown Feed".into());
     let artist = view.artist.clone().unwrap_or_else(|| "Unknown".into());
 
@@ -77,10 +77,9 @@ pub(crate) fn render_feed_view(
 
     let header_feed = feed_view_to_api(view);
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::LG)
+    let mut stack = VStack::new()
+        .spacing(Spacing::LG)
+        .stretch()
         .child(render_feed_header(
             frame,
             &header_feed,
@@ -89,53 +88,54 @@ pub(crate) fn render_feed_view(
             cx,
         ))
         .child(render_action_row(frame, &BTreeMap::new(), app, cx))
-        .child(render_detail_grid_elements(rows))
-        .when(view.description.is_some(), |el| {
-            el.child(render_collapsed_text_section(
-                "Description",
-                view.description.clone().unwrap_or_default(),
-            ))
-        })
-        .when(!sorted_tracks.is_empty(), |el| {
-            let playlists = app.playlists.clone();
-            let open_guid = frame.add_to_playlist_open_track_guid.clone();
-            let feed_guid = frame.entity_id.clone();
-            let feed_url = view.feed_url.clone();
-            let feed_context = Some((
-                feed_guid.as_str(),
-                feed_url.as_deref(),
-                open_guid.as_deref(),
-                playlists.as_slice(),
-            ));
-            let feed_for_tracks = if view.feed_guid.is_some() || view.feed_url.is_some() {
-                Some(Feed {
-                    feed_guid: view.feed_guid.clone(),
-                    feed_url: view.feed_url.clone(),
-                    title: view.title.clone(),
-                    ..Default::default()
-                })
-            } else {
-                None
-            };
-            el.child(render_track_list_section(
-                "Tracks",
-                format!(
-                    "{} total{}",
-                    sorted_tracks.len(),
-                    if total_secs > 0 {
-                        format!(" · {}", fmt_runtime(total_secs))
-                    } else {
-                        String::new()
-                    }
-                ),
-                sorted_tracks,
-                feed_for_tracks,
-                feed_context,
-                app,
-                cx,
-            ))
-        })
-        .into_any_element()
+        .child(render_detail_grid_elements(rows));
+
+    if let Some(description) = view.description.clone() {
+        stack = stack.child(render_collapsed_text_section("Description", description));
+    }
+
+    if !sorted_tracks.is_empty() {
+        let playlists = app.playlists.clone();
+        let open_guid = frame.add_to_playlist_open_track_guid.clone();
+        let feed_guid = frame.entity_id.clone();
+        let feed_url = view.feed_url.clone();
+        let feed_context = Some((
+            feed_guid.as_str(),
+            feed_url.as_deref(),
+            open_guid.as_deref(),
+            playlists.as_slice(),
+        ));
+        let feed_for_tracks = if view.feed_guid.is_some() || view.feed_url.is_some() {
+            Some(Feed {
+                feed_guid: view.feed_guid.clone(),
+                feed_url: view.feed_url.clone(),
+                title: view.title.clone(),
+                ..Default::default()
+            })
+        } else {
+            None
+        };
+        let count = sorted_tracks.len();
+        stack = stack.child(render_track_list_section(
+            "Tracks",
+            format!(
+                "{} total{}",
+                count,
+                if total_secs > 0 {
+                    format!(" · {}", fmt_runtime(total_secs))
+                } else {
+                    String::new()
+                }
+            ),
+            sorted_tracks,
+            feed_for_tracks,
+            feed_context,
+            app,
+            cx,
+        ));
+    }
+
+    stack.into_any_element()
 }
 
 fn feed_view_to_api(view: &FeedView) -> Feed {

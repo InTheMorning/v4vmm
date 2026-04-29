@@ -596,40 +596,24 @@ fn render_ui_scale_picker(
     cx: &mut Context<TopApp>,
 ) -> gpui::AnyElement {
     use crate::config::UiScale;
+    use crate::ui::composites::{Segment, SegmentedControl};
 
-    let options: [(UiScale, &str); 5] = [
-        (UiScale::XSmall, "XS"),
-        (UiScale::Small, "S"),
-        (UiScale::Medium, "M"),
-        (UiScale::Large, "L"),
-        (UiScale::XLarge, "XL"),
+    let segments = [
+        Segment::new("ui-scale-xs", UiScale::XSmall, "XS"),
+        Segment::new("ui-scale-s", UiScale::Small, "S"),
+        Segment::new("ui-scale-m", UiScale::Medium, "M"),
+        Segment::new("ui-scale-l", UiScale::Large, "L"),
+        Segment::new("ui-scale-xl", UiScale::XLarge, "XL"),
     ];
 
-    let mut row = div().flex().flex_row().items_center().gap(spacing::XS);
-    for (scale, label) in options {
-        let id = match scale {
-            UiScale::XSmall => "ui-scale-xs",
-            UiScale::Small => "ui-scale-s",
-            UiScale::Medium => "ui-scale-m",
-            UiScale::Large => "ui-scale-l",
-            UiScale::XLarge => "ui-scale-xl",
-        };
-        let mut button = Button::new(id)
-            .label(label)
-            .with_size(Size::Small)
-            .text_color(rgb(0xffffff))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.set_ui_scale(scale, cx);
-            }));
-        button = if scale == current {
-            button.primary()
-        } else {
-            button.ghost()
-        };
-        row = row.child(button);
-    }
-
-    row.into_any_element()
+    let entity = cx.entity();
+    SegmentedControl::new(current)
+        .segments(segments)
+        .on_select(move |scale, _window, cx| {
+            let scale = *scale;
+            entity.update(cx, |this, cx| this.set_ui_scale(scale, cx));
+        })
+        .into_any_element()
 }
 
 fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {

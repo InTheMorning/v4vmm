@@ -19,10 +19,14 @@
 
 pub mod detail_grid;
 pub mod detail_header;
+pub mod list_row;
+pub mod segmented_control;
 pub mod tag_badge;
 pub mod thumbnail;
 
 pub use detail_grid::{DetailGrid, DetailRow};
 pub use detail_header::DetailHeader;
+pub use list_row::{ListRow, ListRowDensity};
+pub use segmented_control::{Segment, SegmentedControl};
 pub use tag_badge::{EntityKind, TagBadge};
 pub use thumbnail::{Thumbnail, ThumbnailSize};
