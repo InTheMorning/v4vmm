@@ -41,14 +41,13 @@ use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, EntityKind,
     Thumbnail, ThumbnailSize,
 };
+use crate::ui::detail_row::DetailRow;
 use crate::ui::primitives::{Image as ImagePrimitive, ImageSize};
 use crate::ui::sizable_bridge::SizableScaled;
+use crate::ui::text::{compare_value_line_elements, section_heading, truncated, truncated_muted};
 use crate::ui::theme::badges;
 use crate::ui::tokens::Radius;
-use crate::ui_common::{
-    compare_value_line_elements, optional_row, plural, section_heading, truncated, truncated_muted,
-    DetailRow,
-};
+use crate::view_models::format::{optional_row, plural};
 
 #[derive(Clone, Debug)]
 struct ResultRow {

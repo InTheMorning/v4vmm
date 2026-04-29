@@ -1,8 +1,10 @@
 pub mod composites;
 pub mod contrast;
+pub mod detail_row;
 pub mod playlist_popover;
 pub mod primitives;
 pub mod sizable_bridge;
+pub mod text;
 pub mod theme;
 pub mod theme_bridge;
 pub mod tokens;

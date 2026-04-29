@@ -29,6 +29,27 @@ pub fn fmt_date(ts: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.format("%b %-d, %Y").to_string())
 }
 
+/// Push `(key, value)` into `rows` only when `value` is `Some` and not
+/// empty. Lifted from the deleted `ui_common::optional_row`.
+pub fn optional_row(rows: &mut Vec<(String, String)>, key: &str, value: Option<String>) {
+    if let Some(value) = value {
+        if !value.is_empty() {
+            rows.push((key.into(), value));
+        }
+    }
+}
+
+/// English plural suffix: empty for `1`, otherwise `"s"`. Lifted from
+/// the deleted `ui_common::plural`.
+#[must_use]
+pub fn plural(count: usize) -> &'static str {
+    if count == 1 {
+        ""
+    } else {
+        "s"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -52,5 +73,22 @@ mod tests {
     fn fmt_date_renders_ymd() {
         // 2024-04-05T00:00:00 UTC
         assert_eq!(fmt_date(1_712_275_200).as_deref(), Some("Apr 5, 2024"));
+    }
+
+    #[test]
+    fn plural_returns_empty_for_one() {
+        assert_eq!(plural(0), "s");
+        assert_eq!(plural(1), "");
+        assert_eq!(plural(2), "s");
+        assert_eq!(plural(99), "s");
+    }
+
+    #[test]
+    fn optional_row_skips_none_and_empty() {
+        let mut rows: Vec<(String, String)> = Vec::new();
+        optional_row(&mut rows, "A", None);
+        optional_row(&mut rows, "B", Some(String::new()));
+        optional_row(&mut rows, "C", Some("ok".into()));
+        assert_eq!(rows, vec![("C".to_string(), "ok".to_string())]);
     }
 }

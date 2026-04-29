@@ -4,9 +4,9 @@ use crate::search::{
     render_publisher_link_value, render_track_list_section, InspectorFrame, SearchApp,
 };
 use crate::ui::composites::DetailGrid;
+use crate::ui::detail_row::DetailRow;
 use crate::ui::primitives::VStack;
 use crate::ui::tokens::Spacing;
-use crate::ui_common::DetailRow;
 use crate::ui_context::ViewContext;
 use crate::view_models::feed::FeedVm;
 use crate::views::FeedView;

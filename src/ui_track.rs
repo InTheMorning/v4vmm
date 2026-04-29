@@ -10,8 +10,8 @@ use crate::search::{
 };
 use crate::ui::composites::{EntityKind, ListRow, Thumbnail, ThumbnailSize};
 use crate::ui::playlist_popover::AddToPlaylistPopover;
+use crate::ui::text::truncated;
 use crate::ui::theme::{color, typography};
-use crate::ui_common::truncated;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TrackRowMode {

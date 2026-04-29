@@ -39,9 +39,9 @@ use crate::ui::composites::{
 };
 use crate::ui::primitives::Image as ImagePrimitive;
 use crate::ui::sizable_bridge::SizableScaled;
+use crate::ui::text::compare_value_line_elements;
 use crate::ui::theme::badges;
 use crate::ui::tokens::Radius;
-use crate::ui_common::compare_value_line_elements;
 use crate::views::FeedView;
 
 // ---------------------------------------------------------------------------
