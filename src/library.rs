@@ -41,6 +41,7 @@ use crate::ui::primitives::{Image as ImagePrimitive, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius};
+use crate::view_models::library::{LibraryTrackRowVm, MbStatusKind};
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
 
@@ -142,7 +143,7 @@ impl InspectorFrame {
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-enum MbTrackStatus {
+pub(crate) enum MbTrackStatus {
     Pending,
     Processing,
     Done(usize),
@@ -2937,28 +2938,10 @@ fn render_library_track_row(
     let in_library = track.is_in_library;
     let is_busy = busy_track == Some(track_id);
     let popup_open = add_open_track == Some(track_id);
-    let track_title = track
-        .track_title
-        .as_deref()
-        .unwrap_or("[untitled]")
-        .to_string();
-    let num_str = track
-        .track_number
-        .map(|n| format!("{n}. "))
-        .unwrap_or_default();
-    let dur = track
-        .duration_seconds
-        .map(|s| format!("  ({}:{:02})", s / 60, s % 60))
-        .unwrap_or_default();
-    let mb = mb_status.get(&track_id);
-    let mb_text = match mb {
-        Some(MbTrackStatus::Pending) => Some("MB: pending"),
-        Some(MbTrackStatus::Processing) => Some("MB: looking up..."),
-        Some(MbTrackStatus::Done(0)) => Some("MB: no missing fields"),
-        Some(MbTrackStatus::Done(_)) => Some("MB: done"),
-        Some(MbTrackStatus::Skipped(_)) => Some("MB: skipped"),
-        None => None,
-    };
+    let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
+    let label_text = vm.full_label();
+    let mb_text = vm.mb_status_text();
+    let mb_kind = vm.mb_status_kind();
 
     let row = div()
         .id(SharedString::from(format!("album-track-{track_id}")))
@@ -2979,12 +2962,12 @@ fn render_library_track_row(
                     this.select_track(&track_for_select, cx);
                     cx.notify();
                 }))
-                .child(SharedString::from(format!("{num_str}{track_title}{dur}")))
+                .child(SharedString::from(label_text))
                 .when(mb_text.is_some(), |el| {
-                    let color = match mb {
-                        Some(MbTrackStatus::Done(n)) if *n > 0 => color::status_success(),
-                        Some(MbTrackStatus::Skipped(_)) => color::status_danger(),
-                        Some(MbTrackStatus::Processing) => color::status_warning(),
+                    let color = match mb_kind {
+                        Some(MbStatusKind::Success) => color::status_success(),
+                        Some(MbStatusKind::Danger) => color::status_danger(),
+                        Some(MbStatusKind::Warning) => color::status_warning(),
                         _ => color::text_muted(),
                     };
                     el.child(
