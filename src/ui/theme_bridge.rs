@@ -195,6 +195,11 @@ pub fn install_theme(appearance: Appearance, scale: ScaleFactor, cx: &mut App) {
 
     theme.overlay = scrim();
     theme.drag_border = accent;
+
+    // Force every open window to re-render so the new scale + colors are
+    // picked up immediately. Without this, the next user interaction (or a
+    // background timer) would be needed before any visual change.
+    cx.refresh_windows();
 }
 
 /// Convert our `Rgba` token output to gpui's `Hsla` that the theme stores.

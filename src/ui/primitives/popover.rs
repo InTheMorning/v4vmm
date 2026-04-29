@@ -234,7 +234,7 @@ impl RenderOnce for Popover {
         }
         if let Some(builder) = content_builder {
             popover = popover.content(move |_state, window, cx| {
-                let arrow = arrow_div(placement, arrow_color);
+                let arrow = arrow_div(placement, arrow_color, cx);
                 let body = Surface::new(SurfaceElevation::Floating)
                     .padding(surface_padding)
                     .appearance(appearance)
@@ -250,9 +250,9 @@ impl RenderOnce for Popover {
                 // sits *over* the trigger rather than at the very corner —
                 // matches HIG's centered tip on a flush-aligned popover.
                 let arrow_inset = match alignment {
-                    PopoverAlignment::Start => div().pl(Spacing::SM.px()).child(arrow),
+                    PopoverAlignment::Start => div().pl(Spacing::SM.scaled(cx)).child(arrow),
                     PopoverAlignment::Center => div().child(arrow),
-                    PopoverAlignment::End => div().pr(Spacing::SM.px()).child(arrow),
+                    PopoverAlignment::End => div().pr(Spacing::SM.scaled(cx)).child(arrow),
                 };
 
                 if placement == PopoverPlacement::Below {
@@ -274,16 +274,19 @@ impl RenderOnce for Popover {
 /// Render the arrow droplet as a fixed-size `canvas` element. The triangle
 /// is filled with `color` (which the caller picks to match the popover
 /// surface background).
-fn arrow_div(placement: PopoverPlacement, color: gpui::Rgba) -> impl IntoElement {
+fn arrow_div(placement: PopoverPlacement, color: gpui::Rgba, cx: &App) -> impl IntoElement {
     div()
-        .w(ARROW_WIDTH_TOKEN.px())
-        .h(ARROW_HEIGHT_TOKEN.px())
-        .child(canvas(
-            |_bounds, _window, _cx| {},
-            move |bounds, (), window, _cx| {
-                paint_arrow(bounds, placement, color, window);
-            },
-        ))
+        .w(ARROW_WIDTH_TOKEN.scaled(cx))
+        .h(ARROW_HEIGHT_TOKEN.scaled(cx))
+        .child(
+            canvas(
+                |_bounds, _window, _cx| {},
+                move |bounds, (), window, _cx| {
+                    paint_arrow(bounds, placement, color, window);
+                },
+            )
+            .size_full(),
+        )
 }
 
 fn paint_arrow(
