@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{
-    div, img, prelude::*, px, rgb, size, Application, Bounds, Context, Entity, Image, ImageFormat,
+    div, img, prelude::*, px, size, Application, Bounds, Context, Entity, Image, ImageFormat,
     KeyDownEvent, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -725,7 +725,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                 .label("Save")
                                 .primary()
                                 .with_size(Size::Small)
-                                .text_color(rgb(0xffffff))
+                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.save_settings(window, cx);
                                 })),
@@ -735,7 +735,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                 .label("Use Defaults")
                                 .ghost()
                                 .with_size(Size::Small)
-                                .text_color(rgb(0xffffff))
+                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.endpoint_input.update(cx, |input, cx| {
                                         input.set_value(crate::api::DEFAULT_BASE_URL, window, cx);
@@ -812,7 +812,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                                 .label("Delete")
                                                 .danger()
                                                 .with_size(Size::XSmall)
-                                                .text_color(rgb(0xffffff))
+                                                .text_color(color::text_on_accent())
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     this.delete_cached_file(path_clone.clone());
                                                     cx.notify();
@@ -838,7 +838,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                 .label("Delete All Cached")
                                 .danger()
                                 .with_size(Size::XSmall)
-                                .text_color(rgb(0xffffff))
+                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.delete_all_cached();
                                     cx.notify();

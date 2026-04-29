@@ -15,7 +15,7 @@ use crate::ui::composites::{
 };
 use crate::ui::theme::{badges, color, radius, spacing, typography};
 use gpui::{
-    div, img, prelude::*, px, rgb, AnyElement, Div, FontWeight, Image, ImageFormat, IntoElement,
+    div, img, prelude::*, px, AnyElement, Div, FontWeight, Image, ImageFormat, IntoElement,
     ObjectFit, ParentElement, SharedString, Styled,
 };
 use gpui_component::button::{Button, ButtonVariants};
@@ -140,7 +140,7 @@ pub fn metadata_action_button(label: &str) -> Button {
         .with_size(Size::XSmall)
         .compact()
         .ghost()
-        .text_color(rgb(0xffffff))
+        .text_color(color::text_on_accent())
         .text_size(typography::SIZE_MICRO)
         .rounded(radius::SM)
         .border_1()
@@ -182,8 +182,9 @@ pub fn type_color(entity_type: &str) -> gpui::Rgba {
 
 pub fn badge_text(entity_type: &str) -> gpui::Rgba {
     match entity_type {
-        // Dark text on bright badges for WCAG AA contrast
-        "artist" => rgb(0x111318),
+        // Dark text on bright artist badges for WCAG AA contrast — same
+        // dark-on-light pairing already used for feed/track badges.
+        "artist" => badges::text_color("track"),
         _ => badges::text_color(entity_type),
     }
 }
