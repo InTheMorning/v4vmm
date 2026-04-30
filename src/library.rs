@@ -23,7 +23,8 @@ use rusqlite::Connection;
 
 use gpui::{
     div, prelude::*, px, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
-    InteractiveElement, IntoElement, Render, SharedString, Styled, Window,
+    InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render,
+    SharedString, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -52,7 +53,7 @@ use crate::playlist_service;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, Thumbnail, ThumbnailSize, TrackRow as TrackRowComposite,
+    EntityKind, ListRow, SplitPane, Thumbnail, ThumbnailSize, TrackRow as TrackRowComposite,
 };
 use crate::ui::primitives::{Image as ImagePrimitive, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
@@ -1918,6 +1919,157 @@ impl Render for LibraryApp {
             cx,
         );
 
+        let leading_pane = div()
+            .child(
+                div()
+                    .p(spacing::MD)
+                    .border_b_1()
+                    .border_color(color::border_subtle())
+                    .flex()
+                    .flex_col()
+                    .gap(spacing::SM)
+                    .child(
+                        typography::type_micro(div())
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(color::text_muted())
+                            .child("Search Library"),
+                    )
+                    .child(
+                        Input::new(&self.search_input)
+                            .cleanable(true)
+                            .scaled(Size::Small, cx),
+                    )
+                    .child(
+                        Button::new("lib-search-btn")
+                            .label("Search")
+                            .primary()
+                            .scaled(Size::Small, cx)
+                            .text_color(color::text_on_accent())
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.apply_search(cx);
+                            })),
+                    ),
+            )
+            .child({
+                let feed_update = self.vm.feed_update_state();
+                let has_stale = !feed_update.stale.is_empty();
+                let phase = feed_update.phase.clone();
+                let stale_count = feed_update.stale.len();
+                let feed_status = feed_update.status_message.clone();
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .justify_between()
+                    .gap(spacing::SM)
+                    .px(spacing::MD)
+                    .py(spacing::XS)
+                    .border_b_1()
+                    .border_color(color::border_subtle())
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(spacing::XXS)
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(status_color)
+                                    .child(SharedString::from(status_text)),
+                            )
+                            .when_some(feed_status, |el, msg| {
+                                el.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(color::text_muted())
+                                        .child(SharedString::from(msg)),
+                                )
+                            }),
+                    )
+                    .child(if has_stale {
+                        Button::new("apply-feed-updates")
+                            .label(format!("Apply updates ({stale_count})"))
+                            .primary()
+                            .scaled(Size::XSmall, cx)
+                            .text_color(color::text_on_accent())
+                            .disabled(phase != FeedUpdatePhase::Idle)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.apply_all_feed_updates(cx);
+                            }))
+                    } else {
+                        Button::new("check-all-feeds")
+                            .label(if phase == FeedUpdatePhase::Checking {
+                                "Checking..."
+                            } else {
+                                "Check all feeds"
+                            })
+                            .scaled(Size::XSmall, cx)
+                            .disabled(phase != FeedUpdatePhase::Idle)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.check_all_feeds(cx);
+                            }))
+                    })
+            })
+            .child(
+                div()
+                    .id("library-list")
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .p(spacing::SM)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(spacing::XXS)
+                            .children(left_items)
+                            .when(
+                                filtered_empty && !self.vm.status().starts_with("Error:"),
+                                |el| {
+                                    el.child(
+                                        div()
+                                            .text_center()
+                                            .p(spacing::XXL + spacing::LG)
+                                            .text_color(color::text_muted())
+                                            .child(
+                                                div()
+                                                    .mt(spacing::SM)
+                                                    .child("No library tracks yet"),
+                                            ),
+                                    )
+                                },
+                            ),
+                    ),
+            )
+            .into_any_element();
+
+        let trailing_pane = div().child(detail_pane).into_any_element();
+        let split_pane = SplitPane::new("library-pane-container")
+            .resize_handle_id("library-resize-handle")
+            .leading_width(px(self.vm.split_pane_width()))
+            .leading_min_width(layout::INSPECTOR_MIN_WIDTH)
+            .leading(leading_pane)
+            .trailing(trailing_pane)
+            .on_resize_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                if this.vm.is_resizing() {
+                    this.vm.resize_split_pane(
+                        f32::from(event.position.x),
+                        f32::from(layout::INSPECTOR_MIN_WIDTH),
+                        f32::from(layout::INSPECTOR_MAX_WIDTH),
+                    );
+                    cx.notify();
+                }
+            }))
+            .on_resize_end(cx.listener(|this, _: &MouseUpEvent, _window, cx| {
+                if this.vm.is_resizing() {
+                    this.vm.end_resize();
+                    cx.notify();
+                }
+            }))
+            .on_resize_start(cx.listener(|this, _: &MouseDownEvent, _window, cx| {
+                this.vm.begin_resize();
+                cx.notify();
+            }));
+
         div()
             .size_full()
             .bg(color::bg_canvas())
@@ -1926,158 +2078,7 @@ impl Render for LibraryApp {
             .flex()
             .flex_col()
             .overflow_hidden()
-            // Two panes
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_hidden()
-                    // Left pane: list
-                    .child(
-                        div()
-                            .w(layout::INSPECTOR_WIDTH)
-                            .min_w(layout::INSPECTOR_MIN_WIDTH)
-                            .flex_shrink_0()
-                            .flex()
-                            .flex_col()
-                            .overflow_hidden()
-                            .border_r_1()
-                            .border_color(color::border_subtle())
-                            .child(
-                                div()
-                                    .p(spacing::MD)
-                                    .border_b_1()
-                                    .border_color(color::border_subtle())
-                                    .flex()
-                                    .flex_col()
-                                    .gap(spacing::SM)
-                                    .child(
-                                        typography::type_micro(div())
-                                            .font_weight(FontWeight::BOLD)
-                                            .text_color(color::text_muted())
-                                            .child("Search Library"),
-                                    )
-                                    .child(
-                                        Input::new(&self.search_input)
-                                            .cleanable(true)
-                                            .scaled(Size::Small, cx),
-                                    )
-                                    .child(
-                                        Button::new("lib-search-btn")
-                                            .label("Search")
-                                            .primary()
-                                            .scaled(Size::Small, cx)
-                                            .text_color(color::text_on_accent())
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.apply_search(cx);
-                                            })),
-                                    ),
-                            )
-                            .child({
-                                let feed_update = self.vm.feed_update_state();
-                                let has_stale = !feed_update.stale.is_empty();
-                                let phase = feed_update.phase.clone();
-                                let stale_count = feed_update.stale.len();
-                                let feed_status = feed_update.status_message.clone();
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .justify_between()
-                                    .gap(spacing::SM)
-                                    .px(spacing::MD)
-                                    .py(spacing::XS)
-                                    .border_b_1()
-                                    .border_color(color::border_subtle())
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_col()
-                                            .gap(spacing::XXS)
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(status_color)
-                                                    .child(SharedString::from(status_text)),
-                                            )
-                                            .when_some(feed_status, |el, msg| {
-                                                el.child(
-                                                    div()
-                                                        .text_xs()
-                                                        .text_color(color::text_muted())
-                                                        .child(SharedString::from(msg)),
-                                                )
-                                            }),
-                                    )
-                                    .child(if has_stale {
-                                        Button::new("apply-feed-updates")
-                                            .label(format!("Apply updates ({stale_count})"))
-                                            .primary()
-                                            .scaled(Size::XSmall, cx)
-                                            .text_color(color::text_on_accent())
-                                            .disabled(phase != FeedUpdatePhase::Idle)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.apply_all_feed_updates(cx);
-                                            }))
-                                    } else {
-                                        Button::new("check-all-feeds")
-                                            .label(if phase == FeedUpdatePhase::Checking {
-                                                "Checking..."
-                                            } else {
-                                                "Check all feeds"
-                                            })
-                                            .scaled(Size::XSmall, cx)
-                                            .disabled(phase != FeedUpdatePhase::Idle)
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.check_all_feeds(cx);
-                                            }))
-                                    })
-                            })
-                            .child(
-                                div()
-                                    .id("library-list")
-                                    .flex_1()
-                                    .overflow_y_scroll()
-                                    .p(spacing::SM)
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_col()
-                                            .gap(spacing::XXS)
-                                            .children(left_items)
-                                            .when(
-                                                filtered_empty
-                                                    && !self.vm.status().starts_with("Error:"),
-                                                |el| {
-                                                    el.child(
-                                                        div()
-                                                            .text_center()
-                                                            .p(spacing::XXL + spacing::LG)
-                                                            .text_color(color::text_muted())
-                                                            .child(
-                                                                div()
-                                                                    .mt(spacing::SM)
-                                                                    .child("No library tracks yet"),
-                                                            ),
-                                                    )
-                                                },
-                                            ),
-                                    ),
-                            ),
-                    )
-                    // Right pane: detail
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .overflow_hidden()
-                            .child(detail_pane),
-                    ),
-            )
+            .child(split_pane)
     }
 }
 

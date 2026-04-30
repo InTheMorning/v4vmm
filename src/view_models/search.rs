@@ -13,6 +13,9 @@ use std::fmt::Write as _;
 use crate::api::{self, Artist, EntityDetail, Feed, PaymentRoute, Publisher, Track};
 use crate::db;
 use crate::view_models::track::TrackVm;
+use crate::view_models::SplitPaneState;
+
+const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 
 /// Search result row data owned by the Discover screen.
 #[derive(Clone, Debug)]
@@ -748,7 +751,7 @@ pub(crate) struct SearchViewModel {
     pub(crate) recent_cursor: Option<String>,
     pub(crate) recent_has_more: bool,
     // Layout / drag state.
-    resizing: bool,
+    split_pane: SplitPaneState,
     // Loaded snapshots — owned here so the screen can become a thin
     // Render impl. None of these carry GPUI types.
     pub(crate) results: Vec<ResultRow>,
@@ -950,7 +953,7 @@ impl SearchViewModel {
             recent_loaded_once: false,
             recent_cursor: None,
             recent_has_more: false,
-            resizing: false,
+            split_pane: SplitPaneState::new(DEFAULT_SPLIT_PANE_WIDTH),
             results: Vec::new(),
             recent_feeds: Vec::new(),
             playlists: Vec::new(),
@@ -1344,15 +1347,30 @@ impl SearchViewModel {
 
     #[must_use]
     pub(crate) fn is_resizing(&self) -> bool {
-        self.resizing
+        self.split_pane.is_resizing()
+    }
+
+    #[must_use]
+    pub(crate) fn split_pane_width(&self) -> f32 {
+        self.split_pane.leading_width()
     }
 
     pub(crate) fn begin_resize(&mut self) {
-        self.resizing = true;
+        self.split_pane.begin_resize();
     }
 
     pub(crate) fn end_resize(&mut self) {
-        self.resizing = false;
+        self.split_pane.end_resize();
+    }
+
+    pub(crate) fn resize_split_pane(
+        &mut self,
+        requested_width: f32,
+        min_width: f32,
+        max_width: f32,
+    ) {
+        self.split_pane
+            .resize_to(requested_width, min_width, max_width);
     }
 }
 
@@ -1497,6 +1515,10 @@ fn nonempty_text(value: Option<&str>) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::api::{Recording, Release};
+
+    fn assert_width_eq(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() < f32::EPSILON);
+    }
 
     fn playlist(name: &str) -> db::Playlist {
         db::Playlist {
@@ -1925,6 +1947,7 @@ mod tests {
         assert_eq!(vm.recent_cursor, None);
         assert!(!vm.recent_has_more);
         assert!(!vm.is_resizing());
+        assert_width_eq(vm.split_pane_width(), DEFAULT_SPLIT_PANE_WIDTH);
     }
 
     #[test]
@@ -2704,5 +2727,19 @@ mod tests {
         assert!(vm.is_resizing());
         vm.end_resize();
         assert!(!vm.is_resizing());
+    }
+
+    #[test]
+    fn search_view_model_clamps_split_pane_width() {
+        let mut vm = SearchViewModel::new();
+
+        vm.resize_split_pane(120.0, 200.0, 800.0);
+        assert_width_eq(vm.split_pane_width(), 200.0);
+
+        vm.resize_split_pane(900.0, 200.0, 800.0);
+        assert_width_eq(vm.split_pane_width(), 800.0);
+
+        vm.resize_split_pane(420.0, 200.0, 800.0);
+        assert_width_eq(vm.split_pane_width(), 420.0);
     }
 }

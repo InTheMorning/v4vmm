@@ -24,7 +24,10 @@ use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
 use crate::view_models::format::{fmt_total_runtime_clock, plural};
+use crate::view_models::SplitPaneState;
 use crate::views::FeedView;
+
+const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 
 /// Per-track `MusicBrainz` lookup state owned by the library screen and
 /// projected into display by [`LibraryTrackRowVm`].
@@ -344,6 +347,8 @@ pub(crate) struct LibraryViewModel {
     // Operation state.
     busy_track: Option<i64>,
     status: String,
+    // Layout / drag state.
+    split_pane: SplitPaneState,
     // Search + playlist creation.
     search_query: String,
     creating_playlist: bool,
@@ -370,6 +375,7 @@ impl LibraryViewModel {
             hovered_thumb_url: None,
             busy_track: None,
             status: String::new(),
+            split_pane: SplitPaneState::new(DEFAULT_SPLIT_PANE_WIDTH),
             search_query: String::new(),
             creating_playlist: false,
             album_add_open_feed: false,
@@ -655,6 +661,34 @@ impl LibraryViewModel {
 
     pub(crate) fn set_error_status(&mut self, error: impl std::fmt::Display) {
         self.status = format!("Error: {error:#}");
+    }
+
+    #[must_use]
+    pub(crate) fn is_resizing(&self) -> bool {
+        self.split_pane.is_resizing()
+    }
+
+    #[must_use]
+    pub(crate) fn split_pane_width(&self) -> f32 {
+        self.split_pane.leading_width()
+    }
+
+    pub(crate) fn begin_resize(&mut self) {
+        self.split_pane.begin_resize();
+    }
+
+    pub(crate) fn end_resize(&mut self) {
+        self.split_pane.end_resize();
+    }
+
+    pub(crate) fn resize_split_pane(
+        &mut self,
+        requested_width: f32,
+        min_width: f32,
+        max_width: f32,
+    ) {
+        self.split_pane
+            .resize_to(requested_width, min_width, max_width);
     }
 
     pub(crate) fn select_library_item(&mut self, id: i64) {
@@ -1512,6 +1546,10 @@ impl<'a> PlaylistDetailVm<'a> {
 mod tests {
     use super::*;
 
+    fn assert_width_eq(actual: f32, expected: f32) {
+        assert!((actual - expected).abs() < f32::EPSILON);
+    }
+
     fn row() -> TrackRow {
         TrackRow {
             id: 0,
@@ -2029,6 +2067,28 @@ mod tests {
         assert!(!vm.creating_playlist);
         assert!(!vm.album_add_open_feed);
         assert_eq!(vm.album_add_open_track, None);
+        assert!(!vm.is_resizing());
+        assert_width_eq(vm.split_pane_width(), DEFAULT_SPLIT_PANE_WIDTH);
+    }
+
+    #[test]
+    fn library_view_model_tracks_resize_lifecycle_and_width() {
+        let mut vm = LibraryViewModel::new();
+
+        vm.begin_resize();
+        assert!(vm.is_resizing());
+
+        vm.resize_split_pane(120.0, 200.0, 800.0);
+        assert_width_eq(vm.split_pane_width(), 200.0);
+
+        vm.resize_split_pane(900.0, 200.0, 800.0);
+        assert_width_eq(vm.split_pane_width(), 800.0);
+
+        vm.resize_split_pane(420.0, 200.0, 800.0);
+        assert_width_eq(vm.split_pane_width(), 420.0);
+
+        vm.end_resize();
+        assert!(!vm.is_resizing());
     }
 
     #[test]

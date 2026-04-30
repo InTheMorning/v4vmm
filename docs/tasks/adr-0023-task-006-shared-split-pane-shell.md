@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Completed 2026-04-30.
 
 ## Task Goal
 
@@ -68,6 +68,18 @@ resize state GPUI-free and event wiring in the screens.
 - No `gpui` or `gpui_component` imports are added under `src/view_models`.
 - No screen-level numeric `px(...)` literals are introduced.
 - Existing inspector/list focus and scroll behavior still works.
+
+## Result
+
+- Added `SplitPaneState`, a GPUI-free leading-pane width and resize lifecycle
+  value shared by `SearchViewModel` and `LibraryViewModel`.
+- Added `ui::composites::SplitPane`, which owns the two-pane structure and
+  resize-handle styling.
+- Discover now renders through the shared shell instead of hand-rolling the
+  pane/handle layout.
+- Library now renders through the same shared shell and has the same resize
+  affordance and clamp behavior as Discover.
+- Focused VM tests cover resize lifecycle and width clamping.
 
 ## Test Commands
 

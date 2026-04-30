@@ -206,7 +206,7 @@ The projection view-model layer is partially migrated:
 - [x] `release-detail-parity`: make the same release render with the same
    detail skeleton in Discover and Library by using shared `DetailHeader` and
    `TrackRow` composites.
-- [ ] `shared-split-pane-shell`: make Discover and Library use the same
+- [x] `shared-split-pane-shell`: make Discover and Library use the same
    resizable split-pane shell.
 - [ ] `release-detail-surface`: replace parallel feed/album page skeletons
    with one shared detail-surface contract.

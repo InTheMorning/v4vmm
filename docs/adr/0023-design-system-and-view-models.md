@@ -458,7 +458,7 @@ already true at merge of PR #5; others are explicitly tracked in
 - [x] Final audit (`audit-token-usage`): zero `rgb()` / `px(<number>)`
       literals in screen modules outside `tokens.rs`, `theme.rs`,
       primitives, and composites.
-- [ ] Discover and Library both use the same resizable split-pane shell, with
+- [x] Discover and Library both use the same resizable split-pane shell, with
       pure resize state and GPUI event wiring kept out of view-model
       projections.
 - [ ] Discover feed detail and Library album detail share one structural

@@ -44,7 +44,7 @@ use crate::subscribe_service::{
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, TagBadge, Thumbnail, ThumbnailSize,
+    EntityKind, ListRow, SplitPane, TagBadge, Thumbnail, ThumbnailSize,
 };
 use crate::ui::detail_row::DetailRow;
 use crate::ui::primitives::SectionHeader;
@@ -184,12 +184,11 @@ pub struct SearchApp {
     /// Stateful screen view-model. Owns all pure UI scalars,
     /// pane-state flags, and loaded snapshots (results, recent feeds,
     /// playlists). Fields kept on `SearchApp` itself are GPUI-bound
-    /// (`Entity`, `Subscription`, `FocusHandle`, `Pixels`), service
+    /// (`Entity`, `Subscription`, `FocusHandle`), service
     /// handles, screen-only inspector state, or maps that still hold
     /// `Arc<gpui::Image>`. See ADR 0023.
     pub(crate) vm: SearchViewModel,
     inspector_stack: Vec<InspectorFrame>,
-    left_pane_width: gpui::Pixels,
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
@@ -234,7 +233,6 @@ impl SearchApp {
             input,
             vm: SearchViewModel::new(),
             inspector_stack: Vec::new(),
-            left_pane_width: layout::INSPECTOR_WIDTH,
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
             list_focus: cx.focus_handle(),
@@ -1547,6 +1545,152 @@ impl Render for SearchApp {
         let fuzzy_search = snapshot.fuzzy_search;
         let search_label = "Search Index";
 
+        let leading_pane = div()
+            .child(
+                div()
+                    .p(spacing::MD)
+                    .border_b_1()
+                    .border_color(color::border_subtle())
+                    .flex()
+                    .flex_col()
+                    .gap(spacing::SM)
+                    .child(
+                        div()
+                            .text_size(typography::SIZE_MICRO)
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(color::text_muted())
+                            .child("Search Index"),
+                    )
+                    .child(
+                        Input::new(&active_input)
+                            .cleanable(true)
+                            .scaled(Size::Small, cx),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .flex_wrap()
+                            .gap(spacing::SM)
+                            .children(type_filters),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(spacing::SM)
+                            .child(
+                                Button::new("search-btn")
+                                    .label(search_label)
+                                    .primary()
+                                    .scaled(Size::Small, cx)
+                                    .text_color(color::text_on_accent())
+                                    .loading(is_loading)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.do_search(false, cx);
+                                    })),
+                            )
+                            .child(
+                                Button::new("fuzzy-toggle")
+                                    .label(if fuzzy_search {
+                                        "Fuzzy: On"
+                                    } else {
+                                        "Fuzzy: Off"
+                                    })
+                                    .scaled(Size::Small, cx)
+                                    .when(fuzzy_search, |button| button.primary())
+                                    .when(!fuzzy_search, |button| button.ghost())
+                                    .text_color(color::text_on_accent())
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.toggle_fuzzy_search(cx);
+                                    })),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(status_color)
+                            .child(SharedString::from(status_text)),
+                    ),
+            )
+            .child(
+                div()
+                    .id("results-scroll")
+                    .track_focus(&self.list_focus)
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .p(spacing::SM)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(spacing::XXS)
+                            .children(results)
+                            .when(is_empty && !is_loading && status_empty, |el| {
+                                el.child(
+                                    div()
+                                        .text_center()
+                                        .p(spacing::XXL)
+                                        .text_color(color::text_muted())
+                                        .child(div().text_2xl().child("🔍"))
+                                        .child(div().mt(spacing::SM).child("No results")),
+                                )
+                            })
+                            .when(is_empty && !is_loading && !status_empty, |el| {
+                                el.child(
+                                    div()
+                                        .text_center()
+                                        .p(spacing::XXL)
+                                        .text_color(color::text_muted())
+                                        .child(div().text_2xl().child("🔍"))
+                                        .child(div().mt(spacing::SM).child("No results")),
+                                )
+                            })
+                            .when(has_more && !is_loading, |el| {
+                                el.child(
+                                    Button::new("load-more")
+                                        .label("Load more")
+                                        .ghost()
+                                        .scaled(Size::Small, cx)
+                                        .text_color(color::text_on_accent())
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.do_search(true, cx);
+                                        })),
+                                )
+                            }),
+                    ),
+            )
+            .into_any_element();
+
+        let trailing_pane = div().child(inspector).into_any_element();
+        let split_pane = SplitPane::new("pane-container")
+            .resize_handle_id("resize-handle")
+            .leading_width(px(self.vm.split_pane_width()))
+            .leading_min_width(layout::INSPECTOR_MIN_WIDTH)
+            .leading(leading_pane)
+            .trailing(trailing_pane)
+            .on_resize_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                if this.vm.is_resizing() {
+                    this.vm.resize_split_pane(
+                        f32::from(event.position.x),
+                        f32::from(layout::INSPECTOR_MIN_WIDTH),
+                        f32::from(layout::INSPECTOR_MAX_WIDTH),
+                    );
+                    cx.notify();
+                }
+            }))
+            .on_resize_end(cx.listener(|this, _: &MouseUpEvent, _window, cx| {
+                if this.vm.is_resizing() {
+                    this.vm.end_resize();
+                    cx.notify();
+                }
+            }))
+            .on_resize_start(cx.listener(|this, _: &MouseDownEvent, _window, cx| {
+                this.vm.begin_resize();
+                cx.notify();
+            }));
+
         div()
             .size_full()
             .bg(color::bg_canvas())
@@ -1554,191 +1698,7 @@ impl Render for SearchApp {
             .text_sm()
             .flex()
             .overflow_hidden()
-            .child(
-                div()
-                    .id("pane-container")
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_hidden()
-                    .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                        if this.vm.is_resizing() {
-                            let x = event.position.x;
-                            let clamped = x
-                                .max(layout::INSPECTOR_MIN_WIDTH)
-                                .min(layout::INSPECTOR_MAX_WIDTH);
-                            this.left_pane_width = clamped;
-                            cx.notify();
-                        }
-                    }))
-                    .on_mouse_up(
-                        MouseButton::Left,
-                        cx.listener(|this, _: &MouseUpEvent, _window, cx| {
-                            if this.vm.is_resizing() {
-                                this.vm.end_resize();
-                                cx.notify();
-                            }
-                        }),
-                    )
-                    .child(
-                        div()
-                            .w(self.left_pane_width)
-                            .min_w(layout::INSPECTOR_MIN_WIDTH)
-                            .flex_shrink_0()
-                            .flex()
-                            .flex_col()
-                            .overflow_hidden()
-                            .child(
-                                div()
-                                    .p(spacing::MD)
-                                    .border_b_1()
-                                    .border_color(color::border_subtle())
-                                    .flex()
-                                    .flex_col()
-                                    .gap(spacing::SM)
-                                    .child(
-                                        div()
-                                            .text_size(typography::SIZE_MICRO)
-                                            .font_weight(FontWeight::BOLD)
-                                            .text_color(color::text_muted())
-                                            .child("Search Index"),
-                                    )
-                                    .child(
-                                        Input::new(&active_input)
-                                            .cleanable(true)
-                                            .scaled(Size::Small, cx),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .flex_wrap()
-                                            .gap(spacing::SM)
-                                            .children(type_filters),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
-                                            .items_center()
-                                            .gap(spacing::SM)
-                                            .child(
-                                                Button::new("search-btn")
-                                                    .label(search_label)
-                                                    .primary()
-                                                    .scaled(Size::Small, cx)
-                                                    .text_color(color::text_on_accent())
-                                                    .loading(is_loading)
-                                                    .on_click(cx.listener(|this, _, _, cx| {
-                                                        this.do_search(false, cx);
-                                                    })),
-                                            )
-                                            .child(
-                                                Button::new("fuzzy-toggle")
-                                                    .label(if fuzzy_search {
-                                                        "Fuzzy: On"
-                                                    } else {
-                                                        "Fuzzy: Off"
-                                                    })
-                                                    .scaled(Size::Small, cx)
-                                                    .when(fuzzy_search, |button| button.primary())
-                                                    .when(!fuzzy_search, |button| button.ghost())
-                                                    .text_color(color::text_on_accent())
-                                                    .on_click(cx.listener(|this, _, _, cx| {
-                                                        this.toggle_fuzzy_search(cx);
-                                                    })),
-                                            ),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(status_color)
-                                            .child(SharedString::from(status_text)),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .id("results-scroll")
-                                    .track_focus(&self.list_focus)
-                                    .flex_1()
-                                    .overflow_y_scroll()
-                                    .p(spacing::SM)
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .flex_col()
-                                            .gap(spacing::XXS)
-                                            .children(results)
-                                            .when(is_empty && !is_loading && status_empty, |el| {
-                                                el.child(
-                                                    div()
-                                                        .text_center()
-                                                        .p(spacing::XXL)
-                                                        .text_color(color::text_muted())
-                                                        .child(div().text_2xl().child("🔍"))
-                                                        .child(
-                                                            div()
-                                                                .mt(spacing::SM)
-                                                                .child("No results"),
-                                                        ),
-                                                )
-                                            })
-                                            .when(is_empty && !is_loading && !status_empty, |el| {
-                                                el.child(
-                                                    div()
-                                                        .text_center()
-                                                        .p(spacing::XXL)
-                                                        .text_color(color::text_muted())
-                                                        .child(div().text_2xl().child("🔍"))
-                                                        .child(
-                                                            div()
-                                                                .mt(spacing::SM)
-                                                                .child("No results"),
-                                                        ),
-                                                )
-                                            })
-                                            .when(has_more && !is_loading, |el| {
-                                                el.child(
-                                                    Button::new("load-more")
-                                                        .label("Load more")
-                                                        .ghost()
-                                                        .scaled(Size::Small, cx)
-                                                        .text_color(color::text_on_accent())
-                                                        .on_click(cx.listener(|this, _, _, cx| {
-                                                            this.do_search(true, cx);
-                                                        })),
-                                                )
-                                            }),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("resize-handle")
-                            .w(layout::SPLIT_HANDLE_WIDTH)
-                            .cursor_col_resize()
-                            .bg(color::border_subtle())
-                            .hover(|s| s.bg(color::accent()))
-                            .flex_shrink_0()
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|this, _: &MouseDownEvent, _window, cx| {
-                                    this.vm.begin_resize();
-                                    cx.notify();
-                                }),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .overflow_hidden()
-                            .child(inspector),
-                    ),
-            )
+            .child(split_pane)
     }
 }
 
