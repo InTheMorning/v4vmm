@@ -108,6 +108,14 @@ The projection view-model layer is partially migrated:
 - `docs/tasks/adr-0023-task-002-top-app-token-composite-slice.md`
 - `docs/tasks/adr-0023-task-003-library-token-intent-slice.md`
 - `docs/tasks/adr-0023-task-004-search-inspector-token-slice.md`
+- `docs/tasks/adr-0023-task-005-release-detail-parity.md`
+- `docs/tasks/adr-0023-task-006-shared-split-pane-shell.md`
+- `docs/tasks/adr-0023-task-007-release-detail-surface.md`
+- `docs/tasks/adr-0023-task-008-library-row-semantics.md`
+- `docs/tasks/adr-0023-task-009-command-intent-finish.md`
+- `docs/tasks/adr-0023-task-010-boundary-gates.md`
+- `docs/tasks/adr-0023-task-011-final-review.md`
+- `docs/plans/adr-0023-finalization-plan.md`
 - `docs/reviews/adr-0023-review-checklist.md`
 
 ## Remaining Work
@@ -126,12 +134,24 @@ The projection view-model layer is partially migrated:
 - `command-intent-types`: introduce small command enums or structs only where
   they remove direct service calls from screens. Do not build a broad
   CommandBus without a separate ADR.
+- `boundary-gates`: add automated tests for no GPUI imports under
+  `view_models`, no screen-level raw `rgb(...)` / numeric `px(...)` literals,
+  and no hardcoded dark render defaults in screen modules.
 
 ### Track G — Thin The Screens
 
+- `shared-split-pane-shell`: Discover already has resize affordances; Library
+  must use the same split-pane shell so equivalent workspaces have equivalent
+  layout control.
+- `release-detail-surface`: Discover feed detail and Library album detail
+  should share one structural surface, not only a few shared components.
 - `screen-library-album`: move album-detail header rows, duration/downloaded
   counts, button labels, and add-to-playlist panel state into library
   view-model projections.
+- `library-row-semantics`: remove the redundant per-row `dl'd` marker from
+  Library album rows. Membership is already represented by the `Remove`
+  action; aggregate downloaded counts can remain in detail grids until a
+  product decision removes them.
 - `screen-library-playlists`: playlist sidebar rows now use `ListRow` /
   `Label`; keep the `PlaylistDetailVm` path and replace the remaining
   playlist detail row actions with `ActionButton` where it preserves
@@ -186,6 +206,18 @@ The projection view-model layer is partially migrated:
 - [x] `release-detail-parity`: make the same release render with the same
    detail skeleton in Discover and Library by using shared `DetailHeader` and
    `TrackRow` composites.
+- [ ] `shared-split-pane-shell`: make Discover and Library use the same
+   resizable split-pane shell.
+- [ ] `release-detail-surface`: replace parallel feed/album page skeletons
+   with one shared detail-surface contract.
+- [ ] `library-row-semantics`: remove redundant Library row downloaded labels
+   and move remaining row semantics into projections.
+- [ ] `command-intent-finish`: finish narrow intent/result extraction where it
+   materially reduces screen glue.
+- [ ] `boundary-gates`: add automated architecture tests for ADR 0023 import
+   and token-literal boundaries.
+- [ ] `final-review`: reconcile ADR, plan, task, and review documents after
+   implementation.
 
 ### Deferred Architecture Work
 

@@ -2,11 +2,16 @@
 
 ## Status
 
-Accepted — design-system foundation and stateful screen VMs implemented for
-both library and discover screens. The remaining ADR 0023 work is the
-screen-literal audit, focused command-intent extraction, and final thinning
-of screen-owned inspector/status glue. A broad CommandBus remains outside
-this ADR unless a later ADR scopes it.
+Accepted — finalization in progress.
+
+The design-system foundation, token audit, and stateful screen VMs are
+substantially implemented for Library and Discover. ADR 0023 is not yet
+complete: Discover and Library still do not share the same resizable shell,
+release/feed detail parity is only partial, and automated architecture gates
+do not yet enforce all GPUI-free and token-literal claims.
+
+A broad CommandBus, QueryService, or EventBus remains outside this ADR unless
+a later ADR scopes it.
 
 ## Context
 
@@ -301,7 +306,10 @@ element tree and event wiring.
 directly (no command bus seam yet), but screen-level `rgb(...)` and numeric
 `px(...)` literals have been routed through tokens/theme constants as part of
 the audit sweep tracked in
-`docs/plans/adr-0023-design-system-migration.md`.
+`docs/plans/adr-0023-design-system-migration.md`. Finalization work remains
+tracked in `docs/plans/adr-0023-finalization-plan.md`: shared split-pane
+shell, shared release detail surface, Library row semantics, narrow
+command-intent cleanup, and automated boundary gates.
 
 ### Cross-cutting bridges
 
@@ -415,7 +423,8 @@ an `Hsla` literal.
 
 This ADR is fulfilled when the following are true. Some of these are
 already true at merge of PR #5; others are explicitly tracked in
-`docs/plans/adr-0023-design-system-migration.md`.
+`docs/plans/adr-0023-design-system-migration.md` and
+`docs/plans/adr-0023-finalization-plan.md`.
 
 - [x] `tokens.rs` / `theme.rs` / `theme_bridge.rs` are the only places with
       raw color construction. Current screen literals are removed or routed
@@ -449,9 +458,20 @@ already true at merge of PR #5; others are explicitly tracked in
 - [x] Final audit (`audit-token-usage`): zero `rgb()` / `px(<number>)`
       literals in screen modules outside `tokens.rs`, `theme.rs`,
       primitives, and composites.
+- [ ] Discover and Library both use the same resizable split-pane shell, with
+      pure resize state and GPUI event wiring kept out of view-model
+      projections.
+- [ ] Discover feed detail and Library album detail share one structural
+      detail-surface contract rather than parallel page skeletons.
+- [ ] Library album track rows do not show redundant downloaded labels when
+      membership is already represented by the `Remove` action.
+- [ ] Remaining high-noise screen status/command setup is represented by
+      narrow intent/result values where it materially thins the screens.
+- [ ] Automated architecture tests enforce GPUI-free `view_models`, token
+      literal rules in screen modules, and no hardcoded dark render defaults.
 - [x] `docs/tasks/adr-0023-*.md` task packets exist for the remaining
-      screen-VM and token-audit slices, and each slice records its test
-      command before being marked done.
+      screen-VM, shell, surface, and boundary-gate slices, and each slice
+      records its test command before being marked done.
 
 ## References
 
@@ -463,4 +483,5 @@ already true at merge of PR #5; others are explicitly tracked in
   diagrams.
 - `docs/plans/adr-0023-design-system-migration.md` — outstanding migration
   work (Tracks E, G, D).
+- `docs/plans/adr-0023-finalization-plan.md` — final ADR 0023 task sequence.
 - PR #5 (commit f2548a0) — implementation.

@@ -1,5 +1,10 @@
 # ADR 0023 Final Implementation Review
 
+> Superseded 2026-04-30 by
+> `docs/plans/adr-0023-finalization-plan.md`. This review remains useful for
+> the completed token/projection slices, but it is not a final pass for ADR
+> 0023 as a whole.
+
 ## Reviewed Artifact
 
 ADR 0023 remainder implementation on 2026-04-30:
@@ -10,7 +15,11 @@ ADR 0023 remainder implementation on 2026-04-30:
 
 ## Result
 
-Pass.
+Partial pass for the reviewed slices only.
+
+ADR 0023 still requires shared split-pane shell work, shared release detail
+surface work, Library row semantic cleanup, narrow command-intent cleanup, and
+automated boundary gates before it can be called finalized.
 
 ## Required Fixes
 
