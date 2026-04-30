@@ -280,8 +280,9 @@ cursor / `has_more` flags, track download/remove in-flight
 transitions, drag-resize lifecycle, result-row identity / keyboard
 navigation targets, render snapshots, artist-result enrichment, and the
 loaded snapshots (`results`, `recent_feeds`, `playlists`). The reusable
-`LazyPanel<T>` inspector panel state also lives in the view-model layer,
-while GPUI-bound inspector frames remain screen-owned. Discover result rows render through `ListRow`,
+`LazyPanel<T>` inspector panel state and its collapsible fetch/toggle
+transition also live in the view-model layer, while GPUI-bound inspector
+frames remain screen-owned. Discover result rows render through `ListRow`,
 `Thumbnail`, `Label`, and `TagBadge` instead of raw row / badge
 layout. Inspector projection logic lives in `PublisherInspectorVm`,
 `ActionRowVm`, `TrackInspectorHeaderVm`, `ContributorVm`, and

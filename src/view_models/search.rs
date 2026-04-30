@@ -584,6 +584,65 @@ pub(crate) enum LazyPanel<T> {
     Loaded(T),
 }
 
+/// Result of toggling a deferred collapsible inspector panel.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LazyPanelToggle {
+    Fetch,
+    Toggled,
+    Ignored,
+}
+
+impl LazyPanelToggle {
+    #[must_use]
+    pub(crate) fn should_fetch(self) -> bool {
+        matches!(self, Self::Fetch)
+    }
+
+    #[must_use]
+    pub(crate) fn should_notify(self) -> bool {
+        matches!(self, Self::Fetch | Self::Toggled)
+    }
+}
+
+impl<T> LazyPanel<T> {
+    pub(crate) fn begin_collapsible_toggle(
+        &mut self,
+        collapsed: &mut bool,
+        force_toggle_only: bool,
+    ) -> LazyPanelToggle {
+        if force_toggle_only {
+            *collapsed = !*collapsed;
+            return LazyPanelToggle::Toggled;
+        }
+
+        match self {
+            Self::Loaded(_) | Self::Empty(_) => {
+                *collapsed = !*collapsed;
+                LazyPanelToggle::Toggled
+            }
+            Self::Loading => LazyPanelToggle::Ignored,
+            Self::Hidden => {
+                *self = Self::Loading;
+                *collapsed = false;
+                LazyPanelToggle::Fetch
+            }
+        }
+    }
+}
+
+impl<T> LazyPanel<Vec<T>> {
+    pub(crate) fn from_items_result(
+        result: Result<Vec<T>, impl std::fmt::Display>,
+        empty_label: &str,
+    ) -> Self {
+        match result {
+            Ok(items) if items.is_empty() => Self::Empty(empty_label.into()),
+            Ok(items) => Self::Loaded(items),
+            Err(error) => Self::Empty(format!("Error: {error}")),
+        }
+    }
+}
+
 /// Stateful screen view-model for the Discover (search) tab.
 ///
 /// Mirror of `view_models::library::LibraryViewModel`. Owns the
@@ -1889,6 +1948,64 @@ mod tests {
         };
         let vm = ContributorVm::new(&c);
         assert_eq!(vm.href(), Some("https://x"));
+    }
+
+    #[test]
+    fn lazy_panel_collapsible_toggle_starts_fetch_toggles_and_ignores_loading() {
+        let mut panel: LazyPanel<Vec<i32>> = LazyPanel::Hidden;
+        let mut collapsed = true;
+
+        let action = panel.begin_collapsible_toggle(&mut collapsed, false);
+        assert_eq!(action, LazyPanelToggle::Fetch);
+        assert!(action.should_fetch());
+        assert!(action.should_notify());
+        assert_eq!(panel, LazyPanel::Loading);
+        assert!(!collapsed);
+
+        let action = panel.begin_collapsible_toggle(&mut collapsed, false);
+        assert_eq!(action, LazyPanelToggle::Ignored);
+        assert!(!action.should_fetch());
+        assert!(!action.should_notify());
+
+        panel = LazyPanel::Loaded(vec![1]);
+        let action = panel.begin_collapsible_toggle(&mut collapsed, false);
+        assert_eq!(action, LazyPanelToggle::Toggled);
+        assert!(!action.should_fetch());
+        assert!(action.should_notify());
+        assert!(collapsed);
+
+        panel = LazyPanel::Empty("No items".into());
+        let action = panel.begin_collapsible_toggle(&mut collapsed, false);
+        assert_eq!(action, LazyPanelToggle::Toggled);
+        assert!(!collapsed);
+    }
+
+    #[test]
+    fn lazy_panel_force_toggle_only_never_starts_fetch() {
+        let mut panel: LazyPanel<Vec<i32>> = LazyPanel::Hidden;
+        let mut collapsed = true;
+
+        let action = panel.begin_collapsible_toggle(&mut collapsed, true);
+
+        assert_eq!(action, LazyPanelToggle::Toggled);
+        assert_eq!(panel, LazyPanel::Hidden);
+        assert!(!collapsed);
+    }
+
+    #[test]
+    fn lazy_panel_from_items_result_maps_empty_loaded_and_error() {
+        assert_eq!(
+            LazyPanel::from_items_result(Result::<Vec<i32>, &str>::Ok(Vec::new()), "No rows"),
+            LazyPanel::Empty("No rows".into())
+        );
+        assert_eq!(
+            LazyPanel::from_items_result(Result::<Vec<i32>, &str>::Ok(vec![1, 2]), "No rows"),
+            LazyPanel::Loaded(vec![1, 2])
+        );
+        assert_eq!(
+            LazyPanel::from_items_result(Result::<Vec<i32>, &str>::Err("offline"), "No rows"),
+            LazyPanel::Empty("Error: offline".into())
+        );
     }
 
     #[test]

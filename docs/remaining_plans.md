@@ -61,8 +61,9 @@ The projection view-model layer is partially migrated:
   render flags instead of having `search.rs` recompute them field by field;
   playlist popover rendering also reads playlists through a VM snapshot
   accessor. The reusable `LazyPanel<T>` state for deferred inspector panels
-  now lives in `view_models::search`; GPUI-bound inspector frames remain in
-  `search.rs`.
+  now lives in `view_models::search`, along with the collapsible
+  fetch/toggle transition used by contributors and value routes;
+  GPUI-bound inspector frames remain in `search.rs`.
 - `view_models::library::MbTrackStatus` is now screen-independent.
 - `view_models::library::LibraryTrackRowVm` backs album detail track rows.
 - `view_models::library::LibraryArtistDetailVm` backs library artist detail.

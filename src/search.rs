@@ -586,28 +586,15 @@ impl SearchApp {
             return;
         };
 
-        if matches!(frame.tag_compare, LazyPanel::Loaded(_)) {
-            frame.contributors_collapsed = !frame.contributors_collapsed;
-            cx.notify();
+        let action = frame.contributors.begin_collapsible_toggle(
+            &mut frame.contributors_collapsed,
+            matches!(frame.tag_compare, LazyPanel::Loaded(_)),
+        );
+        if !action.should_fetch() {
+            if action.should_notify() {
+                cx.notify();
+            }
             return;
-        }
-
-        match frame.contributors {
-            LazyPanel::Loaded(_) => {
-                frame.contributors_collapsed = !frame.contributors_collapsed;
-                cx.notify();
-                return;
-            }
-            LazyPanel::Loading => return,
-            LazyPanel::Empty(_) => {
-                frame.contributors_collapsed = !frame.contributors_collapsed;
-                cx.notify();
-                return;
-            }
-            LazyPanel::Hidden => {
-                frame.contributors = LazyPanel::Loading;
-                frame.contributors_collapsed = false;
-            }
         }
 
         let entity_type = frame.entity_type.clone();
@@ -626,13 +613,8 @@ impl SearchApp {
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
                         if let Some(frame) = this.inspector_stack.last_mut() {
-                            frame.contributors = match contributors {
-                                Ok(items) if items.is_empty() => {
-                                    LazyPanel::Empty("No contributors found".into())
-                                }
-                                Ok(items) => LazyPanel::Loaded(items),
-                                Err(error) => LazyPanel::Empty(format!("Error: {error}")),
-                            };
+                            frame.contributors =
+                                LazyPanel::from_items_result(contributors, "No contributors found");
                         }
                         cx.notify();
                     },
@@ -648,28 +630,15 @@ impl SearchApp {
             return;
         };
 
-        if matches!(frame.tag_compare, LazyPanel::Loaded(_)) {
-            frame.value_routes_collapsed = !frame.value_routes_collapsed;
-            cx.notify();
+        let action = frame.value_routes.begin_collapsible_toggle(
+            &mut frame.value_routes_collapsed,
+            matches!(frame.tag_compare, LazyPanel::Loaded(_)),
+        );
+        if !action.should_fetch() {
+            if action.should_notify() {
+                cx.notify();
+            }
             return;
-        }
-
-        match frame.value_routes {
-            LazyPanel::Loaded(_) => {
-                frame.value_routes_collapsed = !frame.value_routes_collapsed;
-                cx.notify();
-                return;
-            }
-            LazyPanel::Loading => return,
-            LazyPanel::Empty(_) => {
-                frame.value_routes_collapsed = !frame.value_routes_collapsed;
-                cx.notify();
-                return;
-            }
-            LazyPanel::Hidden => {
-                frame.value_routes = LazyPanel::Loading;
-                frame.value_routes_collapsed = false;
-            }
         }
 
         let entity_type = frame.entity_type.clone();
@@ -688,13 +657,8 @@ impl SearchApp {
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
                         if let Some(frame) = this.inspector_stack.last_mut() {
-                            frame.value_routes = match routes {
-                                Ok(items) if items.is_empty() => {
-                                    LazyPanel::Empty("No value routes found".into())
-                                }
-                                Ok(items) => LazyPanel::Loaded(items),
-                                Err(error) => LazyPanel::Empty(format!("Error: {error}")),
-                            };
+                            frame.value_routes =
+                                LazyPanel::from_items_result(routes, "No value routes found");
                         }
                         cx.notify();
                     },
