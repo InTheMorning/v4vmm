@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Completed 2026-04-30.
 
 ## Task Goal
 
@@ -61,12 +61,23 @@ optional mode-specific panels.
 
 ## Acceptance Criteria
 
-- Discover feed detail and Library album detail use the same common surface.
-- The layout order is identical in both modes.
-- The same album/feed no longer gets a fundamentally different page skeleton
+- [x] Discover feed detail and Library album detail use the same common surface.
+- [x] The layout order is identical in both modes.
+- [x] The same album/feed no longer gets a fundamentally different page skeleton
   across tabs.
-- Library-only MusicBrainz/compare/remove affordances remain intact.
-- No raw screen-level colors or numeric `px(...)` literals are introduced.
+- [x] Library-only MusicBrainz/compare/remove affordances remain intact.
+- [x] No raw screen-level colors or numeric `px(...)` literals are introduced.
+
+## Result
+
+- Added `ReleaseDetailSurface` as the shared composite for release/feed detail
+  pages.
+- Discover feed detail and Library album detail now pass headers, actions,
+  details, panels, and track rows into the same structural surface.
+- Discover-only podroll/lazy panels and Library-only playlist picker panels
+  remain mode-specific children; the common ordering lives in the composite.
+- Track row click, playlist picker, download/remove, and MusicBrainz behavior
+  were preserved.
 
 ## Test Commands
 

@@ -53,7 +53,8 @@ use crate::playlist_service;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, SplitPane, Thumbnail, ThumbnailSize, TrackRow as TrackRowComposite,
+    EntityKind, ListRow, ReleaseDetailSurface, SplitPane, Thumbnail, ThumbnailSize,
+    TrackRow as TrackRowComposite,
 };
 use crate::ui::primitives::{Image as ImagePrimitive, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
@@ -2524,67 +2525,35 @@ fn render_album_detail(
         None
     };
 
-    let mut container = div()
-        .id("album-detail-scroll")
-        .size_full()
-        .overflow_y_scroll()
-        .p(spacing::LG)
-        .flex()
-        .flex_col()
-        .gap(spacing::LG)
-        .child(
-            DetailHeader::new(EntityKind::Feed, vm.title())
-                .subtitle(vm.artist())
-                .image(thumb_image.clone()),
-        )
-        .child(buttons)
-        .child(DetailGrid::new(
-            vm.detail_rows()
-                .into_iter()
-                .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
-                .collect::<Vec<_>>(),
-        ));
-    if let Some(panel) = feed_popup {
-        container = container.child(panel);
-    }
     let track_count = vm.track_count();
     let track_summary = vm.total_duration_label().map_or_else(
         || format!("{track_count} total"),
         |duration| format!("{track_count} total · {duration}"),
     );
-    container
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(spacing::SM)
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .text_size(typography::SIZE_CAPTION)
-                                .text_color(color::text_muted())
-                                .child("Tracks"),
-                        )
-                        .child(
-                            div()
-                                .text_size(typography::SIZE_MICRO)
-                                .text_color(color::text_muted())
-                                .child(SharedString::from(track_summary)),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(spacing::XXS)
-                        .children(track_rows),
-                ),
+
+    let mut surface = ReleaseDetailSurface::new("album-detail-scroll")
+        .scrollable(true)
+        .header(
+            DetailHeader::new(EntityKind::Feed, vm.title())
+                .subtitle(vm.artist())
+                .image(thumb_image.clone())
+                .into_any_element(),
         )
+        .actions(buttons.into_any_element())
+        .details(
+            DetailGrid::new(
+                vm.detail_rows()
+                    .into_iter()
+                    .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                    .collect::<Vec<_>>(),
+            )
+            .into_any_element(),
+        );
+    if let Some(panel) = feed_popup {
+        surface = surface.panel(panel);
+    }
+    surface
+        .track_section("Tracks", track_summary, track_rows)
         .into_any_element()
 }
 

@@ -156,6 +156,8 @@ Shipped composites:
 - `SegmentedControl`
 - `DisclosureGroup`
 - `ActionButton`
+- `ReleaseDetailSurface` — shared release/feed detail skeleton for headers,
+  actions, detail grids, optional panels, and track sections.
 - `PlaylistPopover` (the original composite, predates this ADR)
 
 Composites replace the equivalents in the now-removed `ui_common.rs`.
@@ -273,10 +275,13 @@ snapshots through `LibraryViewModel` / `LibrarySnapshot` methods
 instead of mutating those maps and vectors directly. Its library-tree
 filtering / expansion projection lives in `LibraryTreeProjection`, and
 its playlist sidebar rows render from `PlaylistSidebarVm` through
-`ListRow` / `Label`. Library album track rows now compose the same
-`TrackRow` composite used by Discover release rows, keeping the release
-detail skeleton consistent across modes while preserving Library-specific
-trailing actions. Library selection, album add-to-playlist picker toggles,
+`ListRow` / `Label`. Discover feed detail and Library album detail now
+compose through `ReleaseDetailSurface`, which owns the common header,
+action, detail-grid, panel, and track-section order while preserving
+Discover-specific and Library-specific children. Library album track rows now
+compose the same `TrackRow` composite used by Discover release rows,
+preserving Library-specific trailing actions. Library selection, album
+add-to-playlist picker toggles,
 status / busy-track / hovered-thumbnail updates, and command intent for
 playlist append / track subscribe are all mediated by `LibraryViewModel`
 methods and value types
@@ -461,7 +466,7 @@ already true at merge of PR #5; others are explicitly tracked in
 - [x] Discover and Library both use the same resizable split-pane shell, with
       pure resize state and GPUI event wiring kept out of view-model
       projections.
-- [ ] Discover feed detail and Library album detail share one structural
+- [x] Discover feed detail and Library album detail share one structural
       detail-surface contract rather than parallel page skeletons.
 - [ ] Library album track rows do not show redundant downloaded labels when
       membership is already represented by the `Remove` action.

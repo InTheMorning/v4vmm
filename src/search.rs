@@ -2424,19 +2424,13 @@ fn render_discover_feed_inspector(
     let view = crate::views::FeedView::from_api(feed.clone());
     let tracks = feed.tracks.clone().unwrap_or_default();
     let ctx = crate::ui_context::ViewContext::Discover;
+    let mut panels = Vec::new();
+    if let Some(section) = podroll_section(frame, app, cx) {
+        panels.push(section);
+    }
+    panels.push(render_lazy_sections(frame, cx));
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::LG)
-        .child(crate::ui_feed::render_feed_view(
-            &view, &tracks, &ctx, frame, app, cx,
-        ))
-        .when_some(podroll_section(frame, app, cx), |el, section| {
-            el.child(section)
-        })
-        .child(render_lazy_sections(frame, cx))
-        .into_any_element()
+    crate::ui_feed::render_feed_view(&view, &tracks, &ctx, frame, panels, app, cx)
 }
 
 fn podroll_section(
@@ -4541,15 +4535,13 @@ fn id3_cell_status_color(row: &AlignedCompareRow) -> gpui::Rgba {
     comparison_status_color(&row.id3_status)
 }
 
-pub(crate) fn render_track_list_section(
-    heading: &str,
-    note: String,
+pub(crate) fn render_track_list_rows(
     tracks: Vec<Track>,
     feed: Option<Feed>,
     feed_context: Option<FeedTrackListContext<'_>>,
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
-) -> AnyElement {
+) -> Vec<AnyElement> {
     let downloaded: Vec<bool> = {
         let db = app.conn.lock().ok();
         tracks
@@ -4582,50 +4574,27 @@ pub(crate) fn render_track_list_section(
         None => (None, None, None, Vec::new()),
     };
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::SM)
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .child(SectionHeader::new(heading.to_string()))
-                .when(!note.is_empty(), |el| {
-                    el.child(
-                        div()
-                            .text_color(color::text_muted())
-                            .text_size(typography::SIZE_MICRO)
-                            .child(note),
-                    )
-                }),
-        )
-        .children(
-            tracks
-                .into_iter()
-                .zip(downloaded)
-                .map(|(track, is_downloaded)| {
-                    let key = TrackRowActionVm::new(&track, is_downloaded, false).key();
-                    let is_in_flight = app.vm.is_track_operation_in_flight(&key);
-                    let thumb = app.thumbnail_for_url(track.image_url.as_deref(), cx);
-                    render_track_row(
-                        track,
-                        thumb,
-                        feed.clone(),
-                        is_downloaded,
-                        is_in_flight,
-                        feed_guid.as_deref(),
-                        feed_url.as_deref(),
-                        open_guid.as_deref(),
-                        &playlists,
-                        cx,
-                    )
-                })
-                .collect::<Vec<_>>(),
-        )
-        .into_any_element()
+    tracks
+        .into_iter()
+        .zip(downloaded)
+        .map(|(track, is_downloaded)| {
+            let key = TrackRowActionVm::new(&track, is_downloaded, false).key();
+            let is_in_flight = app.vm.is_track_operation_in_flight(&key);
+            let thumb = app.thumbnail_for_url(track.image_url.as_deref(), cx);
+            render_track_row(
+                track,
+                thumb,
+                feed.clone(),
+                is_downloaded,
+                is_in_flight,
+                feed_guid.as_deref(),
+                feed_url.as_deref(),
+                open_guid.as_deref(),
+                &playlists,
+                cx,
+            )
+        })
+        .collect()
 }
 
 #[expect(

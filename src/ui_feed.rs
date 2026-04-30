@@ -1,12 +1,10 @@
 use crate::api::Track;
 use crate::search::{
     detail_rows_from_strings, render_action_row, render_collapsed_text_section, render_feed_header,
-    render_publisher_link_value, render_track_list_section, InspectorFrame, SearchApp,
+    render_publisher_link_value, render_track_list_rows, InspectorFrame, SearchApp,
 };
-use crate::ui::composites::DetailGrid;
+use crate::ui::composites::{DetailGrid, ReleaseDetailSurface};
 use crate::ui::detail_row::DetailRow;
-use crate::ui::primitives::VStack;
-use crate::ui::tokens::Spacing;
 use crate::ui_context::ViewContext;
 use crate::view_models::feed::FeedVm;
 use crate::views::FeedView;
@@ -18,6 +16,7 @@ pub(crate) fn render_feed_view(
     tracks: &[Track],
     _ctx: &ViewContext,
     frame: &InspectorFrame,
+    panels: Vec<AnyElement>,
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
@@ -43,23 +42,22 @@ pub(crate) fn render_feed_view(
     let title = vm.title();
     let artist = vm.artist_label();
 
-    let mut stack = VStack::new()
-        .spacing(Spacing::LG)
-        .stretch()
-        .child(render_feed_header(
+    let mut surface = ReleaseDetailSurface::new("discover-feed-detail")
+        .header(render_feed_header(
             frame,
             &header_feed,
             &title,
             Some(artist.as_str()),
             cx,
         ))
-        .child(render_action_row(frame, &BTreeMap::new(), app, cx))
-        .child(DetailGrid::new(
-            rows.into_iter().map(Into::into).collect::<Vec<_>>(),
-        ));
+        .actions(render_action_row(frame, &BTreeMap::new(), app, cx))
+        .details(
+            DetailGrid::new(rows.into_iter().map(Into::into).collect::<Vec<_>>())
+                .into_any_element(),
+        );
 
     if let Some(description) = vm.description() {
-        stack = stack.child(render_collapsed_text_section("Description", description));
+        surface = surface.panel(render_collapsed_text_section("Description", description));
     }
 
     if vm.has_tracks() {
@@ -73,16 +71,19 @@ pub(crate) fn render_feed_view(
             open_guid.as_deref(),
             playlists.as_slice(),
         ));
-        stack = stack.child(render_track_list_section(
-            "Tracks",
-            vm.track_list_summary(),
+        let rows = render_track_list_rows(
             vm.sorted_tracks(),
             vm.track_list_feed(),
             feed_context,
             app,
             cx,
-        ));
+        );
+        surface = surface.track_section("Tracks", vm.track_list_summary(), rows);
     }
 
-    stack.into_any_element()
+    for panel in panels {
+        surface = surface.after_section(panel);
+    }
+
+    surface.into_any_element()
 }
