@@ -8,6 +8,7 @@
 #![warn(clippy::pedantic)]
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fmt::Write as _;
 
 use crate::api::{self, Artist, EntityDetail, Feed, PaymentRoute, Publisher, Track};
 use crate::db;
@@ -596,6 +597,101 @@ pub(crate) struct SearchViewModel {
     pub(crate) playlists: Vec<db::Playlist>,
 }
 
+/// Pure command intent for fetching the next recent-feed page.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RecentFeedLoadIntent {
+    cursor: Option<String>,
+}
+
+impl RecentFeedLoadIntent {
+    #[must_use]
+    pub(crate) fn into_cursor(self) -> Option<String> {
+        self.cursor
+    }
+}
+
+/// Pure command intent for fetching a Discover/Search result page.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchLoadIntent {
+    type_filter: usize,
+    cursor: Option<String>,
+    fuzzy: bool,
+}
+
+impl SearchLoadIntent {
+    #[must_use]
+    pub(crate) fn type_filter(&self) -> usize {
+        self.type_filter
+    }
+
+    #[must_use]
+    pub(crate) fn cursor(&self) -> Option<&str> {
+        self.cursor.as_deref()
+    }
+
+    #[must_use]
+    pub(crate) fn fuzzy(&self) -> bool {
+        self.fuzzy
+    }
+}
+
+/// One fetched Discover/Search result page.
+#[derive(Clone, Debug)]
+pub(crate) struct SearchBatch {
+    pub(crate) rows: Vec<ResultRow>,
+    pub(crate) has_more: bool,
+    pub(crate) cursor: Option<String>,
+}
+
+/// Pure command intent for appending one or more tracks to a playlist.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistAppendIntent {
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+    playlist_name: String,
+}
+
+impl PlaylistAppendIntent {
+    #[must_use]
+    pub(crate) fn playlist_id(&self) -> i64 {
+        self.playlist_id
+    }
+
+    #[must_use]
+    pub(crate) fn track_ids(&self) -> &[i64] {
+        &self.track_ids
+    }
+
+    #[must_use]
+    pub(crate) fn total_tracks(&self) -> usize {
+        self.track_ids.len()
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_name(&self) -> &str {
+        &self.playlist_name
+    }
+}
+
+/// Pure result counts for a completed playlist append command.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistAppendOutcome {
+    appended: usize,
+    downloaded: usize,
+    failed: usize,
+}
+
+impl PlaylistAppendOutcome {
+    #[must_use]
+    pub(crate) fn new(appended: usize, downloaded: usize, failed: usize) -> Self {
+        Self {
+            appended,
+            downloaded,
+            failed,
+        }
+    }
+}
+
 /// Number of segmented filter slots — see the `TYPE_LABELS` /
 /// `TYPE_VALUES` tables in `search.rs`.
 const TYPE_FILTER_LEN: usize = 4;
@@ -667,6 +763,212 @@ impl SearchViewModel {
     /// Clear the selection.
     pub(crate) fn clear_selection(&mut self) {
         self.selected_key = None;
+    }
+
+    /// Reset pure search state after the `MusicIndex` endpoint changes.
+    pub(crate) fn reset_for_endpoint_change(&mut self) {
+        self.results.clear();
+        self.loading = false;
+        self.status = "MusicIndex endpoint updated".into();
+        self.cursor = None;
+        self.has_more = false;
+        self.clear_selection();
+        self.clear_inspector_origin();
+        self.recent_feeds.clear();
+        self.recent_cursor = None;
+        self.recent_has_more = false;
+        self.recent_loaded_once = false;
+        self.recent_status.clear();
+    }
+
+    #[must_use]
+    pub(crate) fn begin_recent_feed_load(&mut self, append: bool) -> Option<RecentFeedLoadIntent> {
+        if self.recent_loading {
+            return None;
+        }
+        self.recent_loading = true;
+        if !append {
+            self.recent_feeds.clear();
+            self.recent_cursor = None;
+            self.recent_has_more = false;
+        }
+        self.recent_status = if append {
+            "Loading more recent feeds...".into()
+        } else {
+            "Loading recent feeds...".into()
+        };
+        Some(RecentFeedLoadIntent {
+            cursor: if append {
+                self.recent_cursor.clone()
+            } else {
+                None
+            },
+        })
+    }
+
+    pub(crate) fn finish_recent_feed_load(&mut self, response: api::RecentFeedsResponse) {
+        self.recent_loading = false;
+        self.recent_loaded_once = true;
+        self.recent_feeds.extend(response.data);
+        self.recent_cursor = response.pagination.cursor;
+        self.recent_has_more = response.pagination.has_more;
+        self.recent_status.clear();
+    }
+
+    pub(crate) fn fail_recent_feed_load(&mut self, error: impl std::fmt::Display) {
+        self.recent_loading = false;
+        self.recent_loaded_once = true;
+        self.recent_status = format!("Error: {error}");
+    }
+
+    #[must_use]
+    pub(crate) fn begin_search_load(&mut self, append: bool) -> Option<SearchLoadIntent> {
+        if self.loading {
+            return None;
+        }
+        self.loading = true;
+        self.status = if append {
+            "Loading more...".into()
+        } else {
+            "Discovering...".into()
+        };
+
+        if !append {
+            self.results.clear();
+            self.cursor = None;
+            self.has_more = false;
+            self.clear_selection();
+            self.clear_inspector_origin();
+        }
+
+        Some(SearchLoadIntent {
+            type_filter: self.type_filter,
+            cursor: if append { self.cursor.clone() } else { None },
+            fuzzy: self.fuzzy_search,
+        })
+    }
+
+    pub(crate) fn finish_search_load(&mut self, batch: SearchBatch, append: bool) {
+        if !append && batch.rows.is_empty() {
+            self.status.clear();
+            self.results.clear();
+            self.loading = false;
+            self.has_more = false;
+            self.cursor = None;
+            return;
+        }
+
+        if append {
+            let mut seen: HashSet<(String, String)> = self
+                .results
+                .iter()
+                .map(|row| (row.entity_type.clone(), row.entity_id.clone()))
+                .collect();
+            for row in batch.rows {
+                let key = (row.entity_type.clone(), row.entity_id.clone());
+                if seen.insert(key) {
+                    self.results.push(row);
+                }
+            }
+        } else {
+            self.results.extend(batch.rows);
+        }
+        self.cursor = batch.cursor;
+        self.has_more = batch.has_more;
+        self.loading = false;
+
+        let total = self.results.len();
+        self.status = format!(
+            "{total} result{}{}",
+            if total == 1 { "" } else { "s" },
+            if self.has_more { "+" } else { "" }
+        );
+    }
+
+    pub(crate) fn fail_search_load(&mut self, error: impl std::fmt::Display) {
+        self.loading = false;
+        self.status = format!("Error: {error}");
+    }
+
+    pub(crate) fn replace_playlists(&mut self, playlists: Vec<db::Playlist>) {
+        self.playlists = playlists;
+    }
+
+    pub(crate) fn fail_playlist_load(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error loading playlists: {error:#}");
+    }
+
+    pub(crate) fn fail_feed_subscription(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error subscribing feed: {error:#}");
+    }
+
+    pub(crate) fn fail_feed_tracks_load(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error loading feed tracks: {error:#}");
+    }
+
+    pub(crate) fn set_feed_has_no_tracks(&mut self) {
+        self.status = "Feed has no tracks".into();
+    }
+
+    pub(crate) fn fail_playlist_create(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Create playlist: {error:#}");
+    }
+
+    pub(crate) fn set_track_not_in_library(&mut self) {
+        self.status = "Track not in local library".into();
+    }
+
+    #[must_use]
+    pub(crate) fn begin_playlist_append(
+        &mut self,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Option<PlaylistAppendIntent> {
+        if track_ids.is_empty() {
+            return None;
+        }
+        let playlist_name = self
+            .playlists
+            .iter()
+            .find(|playlist| playlist.id == playlist_id)
+            .map(|playlist| playlist.name.clone())
+            .unwrap_or_default();
+        self.status = format!(
+            "Downloading {} track{}...",
+            track_ids.len(),
+            if track_ids.len() == 1 { "" } else { "s" }
+        );
+        Some(PlaylistAppendIntent {
+            playlist_id,
+            track_ids,
+            playlist_name,
+        })
+    }
+
+    pub(crate) fn finish_playlist_append(
+        &mut self,
+        intent: &PlaylistAppendIntent,
+        outcome: PlaylistAppendOutcome,
+    ) {
+        let mut message = format!(
+            "Added {} of {} to {}",
+            outcome.appended,
+            intent.total_tracks(),
+            intent.playlist_name()
+        );
+        if outcome.downloaded > 0 {
+            write!(&mut message, " (downloaded {})", outcome.downloaded)
+                .expect("writing to a String cannot fail");
+        }
+        if outcome.failed > 0 {
+            write!(&mut message, "; {} failed", outcome.failed)
+                .expect("writing to a String cannot fail");
+        }
+        self.status = message;
+    }
+
+    pub(crate) fn fail_playlist_append(&mut self, error: impl std::fmt::Display) {
+        self.status = format!("Error adding to playlist: {error:#}");
     }
 }
 
@@ -811,6 +1113,17 @@ fn nonempty_text(value: Option<&str>) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::api::{Recording, Release};
+
+    fn playlist(name: &str) -> db::Playlist {
+        db::Playlist {
+            id: 1,
+            name: name.into(),
+            description: None,
+            track_count: 0,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
 
     #[test]
     fn artist_display_uses_counts_area_and_image() {
@@ -1413,5 +1726,275 @@ mod tests {
         assert_eq!(vm.selected_key.as_deref(), Some("track:abc"));
         vm.clear_selection();
         assert_eq!(vm.selected_key, None);
+    }
+
+    #[test]
+    fn search_view_model_endpoint_reset_clears_snapshots_and_marks_status() {
+        let mut vm = SearchViewModel::new();
+        vm.results.push(ResultRow::new("feed", "f1", None));
+        vm.loading = true;
+        vm.status = "Searching...".into();
+        vm.cursor = Some("cursor".into());
+        vm.has_more = true;
+        vm.select("feed:f1");
+        vm.mark_inspector_from_search();
+        vm.recent_feeds.push(Feed::default());
+        vm.recent_cursor = Some("recent".into());
+        vm.recent_has_more = true;
+        vm.recent_loaded_once = true;
+        vm.recent_status = "Loaded".into();
+
+        vm.reset_for_endpoint_change();
+
+        assert!(vm.results.is_empty());
+        assert!(!vm.loading);
+        assert_eq!(vm.status, "MusicIndex endpoint updated");
+        assert_eq!(vm.cursor, None);
+        assert!(!vm.has_more);
+        assert_eq!(vm.selected_key, None);
+        assert_eq!(vm.inspector_origin, None);
+        assert!(vm.recent_feeds.is_empty());
+        assert_eq!(vm.recent_cursor, None);
+        assert!(!vm.recent_has_more);
+        assert!(!vm.recent_loaded_once);
+        assert!(vm.recent_status.is_empty());
+    }
+
+    #[test]
+    fn search_view_model_recent_feed_load_intent_tracks_append_cursor() {
+        let mut vm = SearchViewModel::new();
+        vm.recent_feeds.push(Feed::default());
+        vm.recent_cursor = Some("next".into());
+        vm.recent_has_more = true;
+
+        let intent = vm
+            .begin_recent_feed_load(true)
+            .expect("idle VM should begin recent load");
+
+        assert_eq!(intent.into_cursor().as_deref(), Some("next"));
+        assert!(vm.recent_loading);
+        assert_eq!(vm.recent_status, "Loading more recent feeds...");
+        assert_eq!(vm.recent_feeds.len(), 1);
+        assert!(vm.begin_recent_feed_load(true).is_none());
+    }
+
+    #[test]
+    fn search_view_model_recent_feed_fresh_load_resets_prior_page() {
+        let mut vm = SearchViewModel::new();
+        vm.recent_feeds.push(Feed::default());
+        vm.recent_cursor = Some("next".into());
+        vm.recent_has_more = true;
+
+        let intent = vm
+            .begin_recent_feed_load(false)
+            .expect("idle VM should begin recent load");
+
+        assert_eq!(intent.into_cursor(), None);
+        assert!(vm.recent_feeds.is_empty());
+        assert_eq!(vm.recent_cursor, None);
+        assert!(!vm.recent_has_more);
+        assert_eq!(vm.recent_status, "Loading recent feeds...");
+    }
+
+    #[test]
+    fn search_view_model_recent_feed_finish_and_fail_update_state() {
+        let mut vm = SearchViewModel::new();
+        assert!(vm.begin_recent_feed_load(false).is_some());
+
+        vm.finish_recent_feed_load(api::RecentFeedsResponse {
+            data: vec![Feed::default()],
+            pagination: api::Pagination {
+                has_more: true,
+                cursor: Some("next".into()),
+            },
+        });
+
+        assert!(!vm.recent_loading);
+        assert!(vm.recent_loaded_once);
+        assert_eq!(vm.recent_feeds.len(), 1);
+        assert_eq!(vm.recent_cursor.as_deref(), Some("next"));
+        assert!(vm.recent_has_more);
+        assert!(vm.recent_status.is_empty());
+
+        assert!(vm.begin_recent_feed_load(true).is_some());
+        vm.fail_recent_feed_load("offline");
+
+        assert!(!vm.recent_loading);
+        assert!(vm.recent_loaded_once);
+        assert_eq!(vm.recent_status, "Error: offline");
+    }
+
+    #[test]
+    fn search_view_model_begin_search_load_sets_status_and_intent() {
+        let mut vm = SearchViewModel::new();
+        vm.set_type_filter(2);
+        vm.fuzzy_search = false;
+        vm.cursor = Some("next".into());
+        vm.results.push(ResultRow::new("feed", "old", None));
+        vm.select("feed:old");
+        vm.mark_inspector_from_search();
+
+        let intent = vm
+            .begin_search_load(false)
+            .expect("idle VM should begin a fresh search");
+
+        assert_eq!(intent.type_filter(), 2);
+        assert_eq!(intent.cursor(), None);
+        assert!(!intent.fuzzy());
+        assert!(vm.loading);
+        assert_eq!(vm.status, "Discovering...");
+        assert!(vm.results.is_empty());
+        assert_eq!(vm.cursor, None);
+        assert_eq!(vm.selected_key, None);
+        assert_eq!(vm.inspector_origin, None);
+        assert!(vm.begin_search_load(false).is_none());
+    }
+
+    #[test]
+    fn search_view_model_begin_search_append_preserves_existing_results() {
+        let mut vm = SearchViewModel::new();
+        vm.cursor = Some("next".into());
+        vm.results.push(ResultRow::new("feed", "old", None));
+
+        let intent = vm
+            .begin_search_load(true)
+            .expect("idle VM should begin an append search");
+
+        assert_eq!(intent.cursor(), Some("next"));
+        assert_eq!(intent.type_filter(), 0);
+        assert!(intent.fuzzy());
+        assert_eq!(vm.status, "Loading more...");
+        assert_eq!(vm.results.len(), 1);
+    }
+
+    #[test]
+    fn search_view_model_finish_search_load_formats_counts_and_cursor() {
+        let mut vm = SearchViewModel::new();
+        assert!(vm.begin_search_load(false).is_some());
+
+        vm.finish_search_load(
+            SearchBatch {
+                rows: vec![ResultRow::new("feed", "f1", None)],
+                has_more: true,
+                cursor: Some("next".into()),
+            },
+            false,
+        );
+
+        assert!(!vm.loading);
+        assert_eq!(vm.results.len(), 1);
+        assert_eq!(vm.cursor.as_deref(), Some("next"));
+        assert!(vm.has_more);
+        assert_eq!(vm.status, "1 result+");
+    }
+
+    #[test]
+    fn search_view_model_finish_search_append_dedupes_existing_rows() {
+        let mut vm = SearchViewModel::new();
+        vm.results.push(ResultRow::new("feed", "f1", None));
+        assert!(vm.begin_search_load(true).is_some());
+
+        vm.finish_search_load(
+            SearchBatch {
+                rows: vec![
+                    ResultRow::new("feed", "f1", None),
+                    ResultRow::new("track", "t1", None),
+                ],
+                has_more: false,
+                cursor: None,
+            },
+            true,
+        );
+
+        assert_eq!(vm.results.len(), 2);
+        assert_eq!(vm.status, "2 results");
+    }
+
+    #[test]
+    fn search_view_model_finish_empty_fresh_search_clears_state() {
+        let mut vm = SearchViewModel::new();
+        assert!(vm.begin_search_load(false).is_some());
+
+        vm.finish_search_load(
+            SearchBatch {
+                rows: Vec::new(),
+                has_more: false,
+                cursor: Some("ignored".into()),
+            },
+            false,
+        );
+
+        assert!(!vm.loading);
+        assert!(vm.results.is_empty());
+        assert_eq!(vm.cursor, None);
+        assert!(!vm.has_more);
+        assert!(vm.status.is_empty());
+    }
+
+    #[test]
+    fn search_view_model_fail_search_load_sets_error_status() {
+        let mut vm = SearchViewModel::new();
+        assert!(vm.begin_search_load(false).is_some());
+
+        vm.fail_search_load("offline");
+
+        assert!(!vm.loading);
+        assert_eq!(vm.status, "Error: offline");
+    }
+
+    #[test]
+    fn search_view_model_playlist_snapshot_and_failures_update_status() {
+        let mut vm = SearchViewModel::new();
+        let mut playlist = playlist("Focus");
+        playlist.id = 12;
+
+        vm.replace_playlists(vec![playlist]);
+        assert_eq!(vm.playlists.len(), 1);
+
+        vm.fail_playlist_load("db");
+        assert_eq!(vm.status, "Error loading playlists: db");
+        vm.fail_feed_subscription("offline");
+        assert_eq!(vm.status, "Error subscribing feed: offline");
+        vm.fail_feed_tracks_load("db");
+        assert_eq!(vm.status, "Error loading feed tracks: db");
+        vm.set_feed_has_no_tracks();
+        assert_eq!(vm.status, "Feed has no tracks");
+        vm.fail_playlist_create("exists");
+        assert_eq!(vm.status, "Create playlist: exists");
+        vm.set_track_not_in_library();
+        assert_eq!(vm.status, "Track not in local library");
+    }
+
+    #[test]
+    fn search_view_model_playlist_append_intent_and_finish_format_status() {
+        let mut vm = SearchViewModel::new();
+        let mut playlist = playlist("Focus");
+        playlist.id = 12;
+        vm.replace_playlists(vec![playlist]);
+
+        let intent = vm
+            .begin_playlist_append(12, vec![7, 8])
+            .expect("non-empty track ids should build an append intent");
+
+        assert_eq!(intent.playlist_id(), 12);
+        assert_eq!(intent.track_ids(), &[7, 8]);
+        assert_eq!(intent.total_tracks(), 2);
+        assert_eq!(intent.playlist_name(), "Focus");
+        assert_eq!(vm.status, "Downloading 2 tracks...");
+
+        vm.finish_playlist_append(&intent, PlaylistAppendOutcome::new(1, 1, 1));
+        assert_eq!(vm.status, "Added 1 of 2 to Focus (downloaded 1); 1 failed");
+    }
+
+    #[test]
+    fn search_view_model_playlist_append_ignores_empty_and_formats_failure() {
+        let mut vm = SearchViewModel::new();
+        vm.status = "Ready".into();
+
+        assert!(vm.begin_playlist_append(12, Vec::new()).is_none());
+        assert_eq!(vm.status, "Ready");
+
+        vm.fail_playlist_append("offline");
+        assert_eq!(vm.status, "Error adding to playlist: offline");
     }
 }

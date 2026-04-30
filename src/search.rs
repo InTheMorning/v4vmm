@@ -50,8 +50,8 @@ use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ContributorVm,
-    PaymentRouteVm, PublisherInspectorVm, ResultRow, ResultRowVm, SearchViewModel,
-    TrackInspectorHeaderVm,
+    PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm, ResultRow,
+    ResultRowVm, SearchBatch, SearchViewModel, TrackInspectorHeaderVm,
 };
 use crate::view_models::track::TrackVm;
 
@@ -174,12 +174,6 @@ impl Render for MetadataDragPreview {
     }
 }
 
-struct SearchBatch {
-    rows: Vec<ResultRow>,
-    has_more: bool,
-    cursor: Option<String>,
-}
-
 #[derive(Clone)]
 enum ThumbnailState {
     Loading,
@@ -260,46 +254,20 @@ impl SearchApp {
         }
 
         self.musicindex_endpoint = endpoint;
-        self.vm.results.clear();
-        self.vm.loading = false;
-        self.vm.status = "MusicIndex endpoint updated".into();
-        self.vm.cursor = None;
-        self.vm.has_more = false;
-        self.vm.clear_selection();
+        self.vm.reset_for_endpoint_change();
         self.inspector_stack.clear();
-        self.vm.clear_inspector_origin();
-        self.vm.recent_feeds.clear();
-        self.vm.recent_cursor = None;
-        self.vm.recent_has_more = false;
-        self.vm.recent_loaded_once = false;
-        self.vm.recent_status.clear();
         self.load_recent_feeds(false, cx);
         cx.notify();
     }
 
     fn load_recent_feeds(&mut self, append: bool, cx: &mut Context<Self>) {
-        if self.vm.recent_loading {
+        let Some(intent) = self.vm.begin_recent_feed_load(append) else {
             return;
-        }
-        self.vm.recent_loading = true;
-        if !append {
-            self.vm.recent_feeds.clear();
-            self.vm.recent_cursor = None;
-            self.vm.recent_has_more = false;
-        }
-        self.vm.recent_status = if append {
-            "Loading more recent feeds...".into()
-        } else {
-            "Loading recent feeds...".into()
         };
         cx.notify();
 
         let client = self.api_client();
-        let cursor = if append {
-            self.vm.recent_cursor.clone()
-        } else {
-            None
-        };
+        let cursor = intent.into_cursor();
         cx.spawn(
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
                 let result =
@@ -309,17 +277,12 @@ impl SearchApp {
                         })
                         .await;
                 let _ = this.update(cx, move |this, cx| {
-                    this.vm.recent_loading = false;
-                    this.vm.recent_loaded_once = true;
                     match result {
                         Ok(response) => {
-                            this.vm.recent_feeds.extend(response.data);
-                            this.vm.recent_cursor = response.pagination.cursor;
-                            this.vm.recent_has_more = response.pagination.has_more;
-                            this.vm.recent_status.clear();
+                            this.vm.finish_recent_feed_load(response);
                         }
                         Err(error) => {
-                            this.vm.recent_status = format!("Error: {error}");
+                            this.vm.fail_recent_feed_load(error);
                         }
                     }
                     cx.notify();
@@ -404,35 +367,22 @@ impl SearchApp {
     }
 
     fn do_search(&mut self, append: bool, cx: &mut Context<Self>) {
-        if self.vm.loading {
-            return;
-        }
-
         let query = self.input.read(cx).value().trim().to_string();
         if query.is_empty() {
             return;
         }
 
-        self.vm.loading = true;
-        self.vm.status = if append {
-            "Loading more...".into()
-        } else {
-            "Discovering...".into()
+        let Some(intent) = self.vm.begin_search_load(append) else {
+            return;
         };
-
         if !append {
-            self.vm.results.clear();
-            self.vm.cursor = None;
-            self.vm.has_more = false;
-            self.vm.clear_selection();
             self.inspector_stack.clear();
-            self.vm.clear_inspector_origin();
         }
         cx.notify();
 
-        let entity_type = TYPE_VALUES[self.vm.type_filter].map(str::to_string);
-        let cursor = if append { self.vm.cursor.clone() } else { None };
-        let fuzzy = self.vm.fuzzy_search;
+        let entity_type = TYPE_VALUES[intent.type_filter()].map(str::to_string);
+        let cursor = intent.cursor().map(str::to_string);
+        let fuzzy = intent.fuzzy();
         let client = self.api_client();
 
         cx.spawn(
@@ -454,11 +404,8 @@ impl SearchApp {
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
                         match batch {
-                            Ok(batch) => this.apply_search_batch(batch, append),
-                            Err(error) => {
-                                this.vm.loading = false;
-                                this.vm.status = format!("Error: {error}");
-                            }
+                            Ok(batch) => this.vm.finish_search_load(batch, append),
+                            Err(error) => this.vm.fail_search_load(error),
                         }
                         cx.notify();
                     },
@@ -467,44 +414,6 @@ impl SearchApp {
             },
         )
         .detach();
-    }
-
-    fn apply_search_batch(&mut self, batch: SearchBatch, append: bool) {
-        if !append && batch.rows.is_empty() {
-            self.vm.status.clear();
-            self.vm.results.clear();
-            self.vm.loading = false;
-            self.vm.has_more = false;
-            self.vm.cursor = None;
-            return;
-        }
-
-        if append {
-            let mut seen: std::collections::HashSet<(String, String)> = self
-                .vm
-                .results
-                .iter()
-                .map(|r| (r.entity_type.clone(), r.entity_id.clone()))
-                .collect();
-            for row in batch.rows {
-                let key = (row.entity_type.clone(), row.entity_id.clone());
-                if seen.insert(key) {
-                    self.vm.results.push(row);
-                }
-            }
-        } else {
-            self.vm.results.extend(batch.rows);
-        }
-        self.vm.cursor = batch.cursor;
-        self.vm.has_more = batch.has_more;
-        self.vm.loading = false;
-
-        let total = self.vm.results.len();
-        self.vm.status = format!(
-            "{total} result{}{}",
-            if total == 1 { "" } else { "s" },
-            if self.vm.has_more { "+" } else { "" }
-        );
     }
 
     fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
@@ -1322,8 +1231,8 @@ impl SearchApp {
     fn load_playlists(&mut self) {
         let conn = self.conn.lock().expect("lock db");
         match playlist_service::list(&conn) {
-            Ok(list) => self.vm.playlists = list,
-            Err(err) => self.vm.status = format!("Error loading playlists: {err:#}"),
+            Ok(list) => self.vm.replace_playlists(list),
+            Err(err) => self.vm.fail_playlist_load(err),
         }
     }
 
@@ -1345,7 +1254,7 @@ impl SearchApp {
         let feed_id = match self.ensure_feed_in_db(feed_guid, feed_url) {
             Ok(id) => id,
             Err(err) => {
-                self.vm.status = format!("Error subscribing feed: {err:#}");
+                self.vm.fail_feed_subscription(err);
                 cx.notify();
                 return;
             }
@@ -1355,18 +1264,20 @@ impl SearchApp {
             match db::feed_tracks(&conn, feed_id) {
                 Ok(t) => t.into_iter().map(|row| row.id).collect(),
                 Err(err) => {
-                    self.vm.status = format!("Error loading feed tracks: {err:#}");
+                    self.vm.fail_feed_tracks_load(err);
                     cx.notify();
                     return;
                 }
             }
         };
         if track_ids.is_empty() {
-            self.vm.status = "Feed has no tracks".into();
+            self.vm.set_feed_has_no_tracks();
             cx.notify();
             return;
         }
-        self.spawn_subscribe_then_append(playlist_id, track_ids, cx);
+        if let Some(intent) = self.vm.begin_playlist_append(playlist_id, track_ids) {
+            self.spawn_subscribe_then_append(intent, cx);
+        }
     }
 
     pub(crate) fn create_playlist_and_add_discover_track(
@@ -1382,7 +1293,7 @@ impl SearchApp {
             match playlist_service::create(&db, name) {
                 Ok(id) => id,
                 Err(err) => {
-                    self.vm.status = format!("Create playlist: {err:#}");
+                    self.vm.fail_playlist_create(err);
                     cx.notify();
                     return;
                 }
@@ -1404,7 +1315,7 @@ impl SearchApp {
         let feed_id = match self.ensure_feed_in_db(feed_guid, feed_url) {
             Ok(id) => id,
             Err(err) => {
-                self.vm.status = format!("Error subscribing feed: {err:#}");
+                self.vm.fail_feed_subscription(err);
                 cx.notify();
                 return;
             }
@@ -1419,11 +1330,13 @@ impl SearchApp {
             .ok()
         };
         let Some(track_id) = track_id else {
-            self.vm.status = "Track not in local library".into();
+            self.vm.set_track_not_in_library();
             cx.notify();
             return;
         };
-        self.spawn_subscribe_then_append(playlist_id, vec![track_id], cx);
+        if let Some(intent) = self.vm.begin_playlist_append(playlist_id, vec![track_id]) {
+            self.spawn_subscribe_then_append(intent, cx);
+        }
     }
 
     pub(crate) fn toggle_add_to_playlist_track_guid(&mut self, track_guid: &str) {
@@ -1437,27 +1350,18 @@ impl SearchApp {
     }
 
     fn add_track_to_playlist(&mut self, track_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
-        self.spawn_subscribe_then_append(playlist_id, vec![track_id], cx);
+        if let Some(intent) = self.vm.begin_playlist_append(playlist_id, vec![track_id]) {
+            self.spawn_subscribe_then_append(intent, cx);
+        }
     }
 
     fn spawn_subscribe_then_append(
         &mut self,
-        playlist_id: i64,
-        track_ids: Vec<i64>,
+        intent: PlaylistAppendIntent,
         cx: &mut Context<Self>,
     ) {
-        let total = track_ids.len();
-        let playlist_name = self
-            .vm
-            .playlists
-            .iter()
-            .find(|p| p.id == playlist_id)
-            .map(|p| p.name.clone())
-            .unwrap_or_default();
-        self.vm.status = format!(
-            "Downloading {total} track{}...",
-            if total == 1 { "" } else { "s" }
-        );
+        let playlist_id = intent.playlist_id();
+        let track_ids = intent.track_ids().to_vec();
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -1478,20 +1382,17 @@ impl SearchApp {
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
                         match result {
                             Ok(outcome) => {
-                                let mut msg = format!(
-                                    "Added {} of {} to {playlist_name}",
-                                    outcome.appended, total
+                                this.vm.finish_playlist_append(
+                                    &intent,
+                                    PlaylistAppendOutcome::new(
+                                        outcome.appended,
+                                        outcome.downloaded,
+                                        outcome.failed.len(),
+                                    ),
                                 );
-                                if outcome.downloaded > 0 {
-                                    msg.push_str(&format!(" (downloaded {})", outcome.downloaded));
-                                }
-                                if !outcome.failed.is_empty() {
-                                    msg.push_str(&format!("; {} failed", outcome.failed.len()));
-                                }
-                                this.vm.status = msg;
                             }
                             Err(err) => {
-                                this.vm.status = format!("Error adding to playlist: {err:#}");
+                                this.vm.fail_playlist_append(err);
                             }
                         }
                         this.load_playlists();

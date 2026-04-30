@@ -203,6 +203,14 @@ Shipped view-models:
 - `view_models::search::{ResultRow, ResultRowVm}` — Discover result-row
   data and projection (visible-type filtering, derived artist aggregation,
   three-line display text, and image URL selection).
+- `view_models::search::SearchViewModel` — stateful Discover/Search
+  screen VM owning pure UI scalars and snapshots (`results`,
+  `recent_feeds`, `playlists`), while `search.rs` still owns GPUI-bound
+  handles, service dispatch, and several direct VM field transitions during
+  the migration. Endpoint-reset and recent-feed loading transitions now
+  route through VM methods and pure command intent; main search
+  loading/result application and playlist append state now follow the same
+  pattern.
 - `view_models::library::{LibraryViewModel, LibrarySnapshot}` — stateful
   library screen VM owning pure read snapshots (`tree`, playlists, playlist
   tracks), staged `MusicBrainz` lookups, per-track MB status, and feed-update
