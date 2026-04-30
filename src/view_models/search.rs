@@ -313,6 +313,16 @@ pub(crate) struct ActionRowVm<'a> {
     subscription_message: Option<&'a str>,
 }
 
+/// Display and identity projection for per-track row actions in Discover.
+///
+/// The screen owns GPUI buttons and service dispatch. This VM owns the stable
+/// row key plus the download/remove labels and tooltips used by those buttons.
+pub(crate) struct TrackRowActionVm<'a> {
+    track: &'a Track,
+    is_downloaded: bool,
+    is_in_flight: bool,
+}
+
 impl<'a> ActionRowVm<'a> {
     #[must_use]
     pub(crate) fn new(
@@ -389,6 +399,58 @@ impl<'a> ActionRowVm<'a> {
             // `to_lowercase` only happens once and only on the message.
             m.to_lowercase().contains("error")
         })
+    }
+}
+
+impl<'a> TrackRowActionVm<'a> {
+    #[must_use]
+    pub(crate) fn new(track: &'a Track, is_downloaded: bool, is_in_flight: bool) -> Self {
+        Self {
+            track,
+            is_downloaded,
+            is_in_flight,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn key(&self) -> String {
+        self.track
+            .enclosure_url
+            .clone()
+            .or_else(|| self.track.track_guid.clone())
+            .unwrap_or_default()
+    }
+
+    #[must_use]
+    pub(crate) fn busy_tooltip(&self) -> &'static str {
+        if self.is_downloaded {
+            "Removing..."
+        } else {
+            "Downloading..."
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn download_label(&self) -> &'static str {
+        if self.is_downloaded {
+            "🗑"
+        } else {
+            "⬇"
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn download_tooltip(&self) -> &'static str {
+        if self.is_downloaded {
+            "Remove from library"
+        } else {
+            "Download track"
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn is_in_flight(&self) -> bool {
+        self.is_in_flight
     }
 }
 
@@ -1770,6 +1832,40 @@ mod tests {
         assert!(vm.message_is_error());
         let vm = ActionRowVm::new("feed", false, None, None);
         assert!(!vm.message_is_error());
+    }
+
+    #[test]
+    fn track_row_action_vm_key_prefers_enclosure_then_guid() {
+        let track = Track {
+            enclosure_url: Some("https://example.test/a.mp3".into()),
+            track_guid: Some("guid".into()),
+            ..Track::default()
+        };
+        let vm = TrackRowActionVm::new(&track, false, false);
+        assert_eq!(vm.key(), "https://example.test/a.mp3");
+
+        let track = Track {
+            enclosure_url: None,
+            track_guid: Some("guid".into()),
+            ..Track::default()
+        };
+        let vm = TrackRowActionVm::new(&track, false, false);
+        assert_eq!(vm.key(), "guid");
+    }
+
+    #[test]
+    fn track_row_action_vm_labels_match_download_state() {
+        let track = Track::default();
+        let vm = TrackRowActionVm::new(&track, false, true);
+        assert_eq!(vm.busy_tooltip(), "Downloading...");
+        assert_eq!(vm.download_label(), "⬇");
+        assert_eq!(vm.download_tooltip(), "Download track");
+        assert!(vm.is_in_flight());
+
+        let vm = TrackRowActionVm::new(&track, true, true);
+        assert_eq!(vm.busy_tooltip(), "Removing...");
+        assert_eq!(vm.download_label(), "🗑");
+        assert_eq!(vm.download_tooltip(), "Remove from library");
     }
 
     #[test]

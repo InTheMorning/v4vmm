@@ -2,7 +2,7 @@
 
 ## Status
 
-Not started.
+Completed 2026-04-30.
 
 ## Goal
 
@@ -39,3 +39,13 @@ display/status transitions from `library.rs` into `view_models::library`, add
 unit tests, and replace nearby color/layout literals with tokens or existing
 composites. Do not import GPUI in view-model code and do not introduce a broad
 CommandBus. Run the tests listed above.
+
+## Result
+
+- Added `LibraryTrackActionVm` for library track-action labels and
+  subscription-message error classification.
+- Removed remaining screen-level `rgb(...)` literals from `library.rs`.
+- Replaced remaining numeric `px(...)` literals in `library.rs` with named
+  layout/typography constants or existing token values.
+- Replaced legacy thumbnail pixel hints with semantic `ThumbnailSize` values.
+- Added focused `view_models::library` unit tests.

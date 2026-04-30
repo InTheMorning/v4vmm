@@ -180,6 +180,64 @@ impl TrackSubscribeOutcome {
     }
 }
 
+/// Display/status projection for the library track action row.
+///
+/// The screen owns click handlers and panel rendering; this VM owns the
+/// button labels and subscription-message classification.
+pub(crate) struct LibraryTrackActionVm<'a> {
+    subscription_busy: bool,
+    local_subscription: bool,
+    add_to_playlist_open: bool,
+    subscription_message: Option<&'a str>,
+}
+
+impl<'a> LibraryTrackActionVm<'a> {
+    #[must_use]
+    pub(crate) fn new(
+        subscription_busy: bool,
+        local_subscription: bool,
+        add_to_playlist_open: bool,
+        subscription_message: Option<&'a str>,
+    ) -> Self {
+        Self {
+            subscription_busy,
+            local_subscription,
+            add_to_playlist_open,
+            subscription_message,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn subscription_button_label(&self) -> &'static str {
+        match (self.subscription_busy, self.local_subscription) {
+            (true, true) => "Unsubscribing...",
+            (true, false) => "Subscribing...",
+            (false, true) => "Unsubscribe Track",
+            (false, false) => "Subscribe Track",
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn add_to_playlist_label(&self) -> &'static str {
+        if self.add_to_playlist_open {
+            "Add to playlist ▴"
+        } else {
+            "Add to playlist ▾"
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn subscription_message(&self) -> Option<&str> {
+        self.subscription_message
+    }
+
+    #[must_use]
+    pub(crate) fn message_is_error(&self) -> bool {
+        self.subscription_message
+            .is_some_and(|message| message.to_lowercase().contains("error"))
+    }
+}
+
 impl PlaylistAppendIntent {
     #[must_use]
     pub(crate) fn playlist_id(&self) -> i64 {
@@ -2354,6 +2412,38 @@ mod tests {
 
         vm.clear_busy_track();
         assert_eq!(vm.busy_track(), None);
+    }
+
+    #[test]
+    fn library_track_action_vm_formats_subscription_labels() {
+        assert_eq!(
+            LibraryTrackActionVm::new(false, false, false, None).subscription_button_label(),
+            "Subscribe Track"
+        );
+        assert_eq!(
+            LibraryTrackActionVm::new(false, true, false, None).subscription_button_label(),
+            "Unsubscribe Track"
+        );
+        assert_eq!(
+            LibraryTrackActionVm::new(true, false, false, None).subscription_button_label(),
+            "Subscribing..."
+        );
+        assert_eq!(
+            LibraryTrackActionVm::new(true, true, false, None).subscription_button_label(),
+            "Unsubscribing..."
+        );
+    }
+
+    #[test]
+    fn library_track_action_vm_formats_playlist_label_and_message_status() {
+        let closed = LibraryTrackActionVm::new(false, false, false, Some("Subscribed"));
+        assert_eq!(closed.add_to_playlist_label(), "Add to playlist ▾");
+        assert_eq!(closed.subscription_message(), Some("Subscribed"));
+        assert!(!closed.message_is_error());
+
+        let open = LibraryTrackActionVm::new(false, false, true, Some("Error: offline"));
+        assert_eq!(open.add_to_playlist_label(), "Add to playlist ▴");
+        assert!(open.message_is_error());
     }
 
     #[test]

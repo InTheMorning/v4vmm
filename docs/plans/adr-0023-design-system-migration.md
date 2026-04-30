@@ -152,11 +152,15 @@ The projection view-model layer is partially migrated:
 
 - `audit-color-usage`: remove remaining screen-level `rgb(...)` literals in
   `app.rs`, `library.rs`, and `search.rs`. Use semantic tokens or a
-  deliberately named compatibility helper in `theme.rs`.
+  deliberately named compatibility helper in `theme.rs`. Completed
+  2026-04-30: screen-level `rgb(...)` literals are gone; ID3 frame colours
+  now resolve through named `theme::color` helpers.
 - `audit-layout-usage`: reduce raw `px(...)` literals in screens. Preserve
   legitimate fixed geometry such as split-pane clamps and image pixel sizes,
   but document them or route them through `Size` / `Spacing` tokens when they
-  are part of the design language.
+  are part of the design language. Completed 2026-04-30 for numeric screen
+  literals: fixed geometry now uses named `theme::layout` and
+  `theme::typography` constants.
 - `theme-badge-migration`: replace remaining direct `theme::badges` calls in
   screens with `TagBadge` or `EntityKind` where the UI is rendering an entity
   badge rather than deriving compatibility color data. `search.rs` now uses
@@ -170,10 +174,10 @@ The projection view-model layer is partially migrated:
 - [x] `top-app-token-composite`: finish the app-level token sweep and bind the
    playback strip to `NowPlayingBar`, because this touches the root UI surface
    and establishes the remaining screen pattern.
-- [ ] `library-token-intent`: continue the library token audit and introduce
+- [x] `library-token-intent`: continue the library token audit and introduce
    narrow command-intent/result values only where they remove status-formatting
    or service-setup code from `library.rs`.
-- [ ] `search-inspector-token`: migrate the highest-count Discover inspector and
+- [x] `search-inspector-token`: migrate the highest-count Discover inspector and
    metadata literal sites to semantic tokens/composites, backed by focused
    `SearchViewModel` tests for any moved transition logic.
 

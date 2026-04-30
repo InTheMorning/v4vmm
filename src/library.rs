@@ -11,7 +11,6 @@
     clippy::single_match_else,
     clippy::struct_excessive_bools,
     clippy::too_many_lines,
-    clippy::unreadable_literal,
     clippy::unused_self,
     reason = "legacy screen module is being migrated incrementally under ADR 0023"
 )]
@@ -23,7 +22,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 use gpui::{
-    div, prelude::*, px, rgb, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
+    div, prelude::*, px, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
     InteractiveElement, IntoElement, Render, SharedString, Styled, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -60,8 +59,9 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
-    LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind, MbTrackStatus,
-    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm, TrackSubscribeOutcome,
+    LibraryTrackActionVm, LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind,
+    MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm,
+    TrackSubscribeOutcome,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
@@ -1895,7 +1895,7 @@ impl Render for LibraryApp {
                                 .label("Add")
                                 .primary()
                                 .scaled(Size::XSmall, cx)
-                                .text_color(rgb(0xffffff))
+                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.create_playlist(cx);
                                 })),
@@ -1938,7 +1938,7 @@ impl Render for LibraryApp {
                     .child(
                         div()
                             .w(layout::INSPECTOR_WIDTH)
-                            .min_w(px(200.0))
+                            .min_w(layout::INSPECTOR_MIN_WIDTH)
                             .flex_shrink_0()
                             .flex()
                             .flex_col()
@@ -1969,7 +1969,7 @@ impl Render for LibraryApp {
                                             .label("Search")
                                             .primary()
                                             .scaled(Size::Small, cx)
-                                            .text_color(rgb(0xffffff))
+                                            .text_color(color::text_on_accent())
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.apply_search(cx);
                                             })),
@@ -2016,7 +2016,7 @@ impl Render for LibraryApp {
                                             .label(format!("Apply updates ({stale_count})"))
                                             .primary()
                                             .scaled(Size::XSmall, cx)
-                                            .text_color(rgb(0xffffff))
+                                            .text_color(color::text_on_accent())
                                             .disabled(phase != FeedUpdatePhase::Idle)
                                             .on_click(cx.listener(|this, _, _, cx| {
                                                 this.apply_all_feed_updates(cx);
@@ -2379,10 +2379,7 @@ fn render_library_artist_detail(
                         }
                     }
                 }))
-                .child(
-                    Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(28.0, false))
-                        .image(thumb_image),
-                )
+                .child(Thumbnail::new(EntityKind::Feed, ThumbnailSize::Sm).image(thumb_image))
                 .child(
                     div()
                         .flex_1()
@@ -2618,7 +2615,7 @@ fn render_library_track_row(
                 .scaled(Size::XSmall, cx)
                 .when(in_library, |btn| btn.primary())
                 .when(!in_library, |btn| btn.ghost())
-                .text_color(rgb(0xffffff))
+                .text_color(color::text_on_accent())
                 .disabled(is_busy)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if in_library {
@@ -2854,7 +2851,7 @@ fn render_playlist_detail(
                             }))
                             .child(
                                 div()
-                                    .w(px(32.0))
+                                    .w(layout::PLAYLIST_THUMB_SLOT)
                                     .text_xs()
                                     .text_color(color::text_muted())
                                     .child(SharedString::from(position_label)),
@@ -2880,7 +2877,7 @@ fn render_playlist_detail(
                                 div()
                                     .text_xs()
                                     .text_color(color::text_muted())
-                                    .w(px(48.0))
+                                    .w(layout::PLAYLIST_TITLE_OFFSET)
                                     .child(SharedString::from(dur)),
                             ),
                     )
@@ -3090,6 +3087,14 @@ fn render_action_row(
 ) -> AnyElement {
     let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
     let has_pending_conflicts = !pending_conflicts.is_empty();
+    let action_vm = LibraryTrackActionVm::new(
+        frame.subscription_busy,
+        frame.local_subscription,
+        frame.add_to_playlist_open,
+        frame.subscription_message.as_deref(),
+    );
+    let subscription_message = action_vm.subscription_message().map(str::to_owned);
+    let subscription_message_is_error = action_vm.message_is_error();
 
     div()
         .flex()
@@ -3097,30 +3102,32 @@ fn render_action_row(
         .items_start()
         .gap(spacing::XS)
         .child(
-            action_button(&subscription_button_label(frame), cx)
+            action_button(action_vm.subscription_button_label(), cx)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_local_subscription(cx);
                 })),
         )
         .child(
-            action_button("Add to playlist ▾", cx).on_click(cx.listener(|this, _, _, cx| {
-                if let Some(frame) = this.selected_track_frame_mut() {
-                    frame.add_to_playlist_open = !frame.add_to_playlist_open;
-                }
-                cx.notify();
-            })),
+            action_button(action_vm.add_to_playlist_label(), cx).on_click(cx.listener(
+                |this, _, _, cx| {
+                    if let Some(frame) = this.selected_track_frame_mut() {
+                        frame.add_to_playlist_open = !frame.add_to_playlist_open;
+                    }
+                    cx.notify();
+                },
+            )),
         )
         .when(frame.add_to_playlist_open, |el| {
             el.child(render_add_to_playlist_panel(frame, playlists, cx))
         })
-        .when_some(frame.subscription_message.clone(), |el, message| {
+        .when_some(subscription_message, |el, message| {
             el.child(
                 div()
-                    .max_w(px(220.0))
+                    .max_w(layout::STATUS_MESSAGE_WIDTH)
                     .text_size(typography::SIZE_MICRO)
-                    .line_height(px(14.0))
-                    .text_color(if message.contains("error") || message.contains("Error") {
+                    .line_height(typography::LINE_TIGHT)
+                    .text_color(if subscription_message_is_error {
                         color::status_danger()
                     } else {
                         color::text_muted()
@@ -3193,9 +3200,9 @@ fn render_action_row(
                         .when(has_pending_conflicts, |el| {
                             el.child(
                                 div()
-                                    .max_w(px(190.0))
+                                    .max_w(layout::CONFLICT_MESSAGE_WIDTH)
                                     .text_size(typography::SIZE_MICRO)
-                                    .line_height(px(14.0))
+                                    .line_height(typography::LINE_TIGHT)
                                     .text_color(color::status_danger())
                                     .child(SharedString::from(format!(
                                         "Duplicate target: {conflict_text}"
@@ -3218,29 +3225,14 @@ fn render_action_row(
         .when_some(frame.id3_apply_error.clone(), |el, error| {
             el.child(
                 div()
-                    .max_w(px(180.0))
+                    .max_w(layout::ACTION_MESSAGE_WIDTH)
                     .text_size(typography::SIZE_MICRO)
-                    .line_height(px(14.0))
+                    .line_height(typography::LINE_TIGHT)
                     .text_color(color::status_danger())
                     .child(SharedString::from(error)),
             )
         })
         .into_any_element()
-}
-
-fn subscription_button_label(frame: &InspectorFrame) -> String {
-    if frame.subscription_busy {
-        return if frame.local_subscription {
-            "Unsubscribing...".into()
-        } else {
-            "Subscribing...".into()
-        };
-    }
-    if frame.local_subscription {
-        "Unsubscribe Track".into()
-    } else {
-        "Subscribe Track".into()
-    }
 }
 
 fn render_add_to_playlist_panel(
@@ -3296,7 +3288,7 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -
         .items_start()
         .gap(spacing::LG)
         .child(
-            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(
                 result
                     .file_image
                     .as_ref()
@@ -3340,7 +3332,7 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -
                     div()
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(px(23.0))
+                        .line_height(typography::LINE_HEADER)
                         .child(SharedString::from(id3_header_title(result))),
                 )
                 .child(
@@ -3409,7 +3401,7 @@ fn render_musicbrainz_header(
         .items_start()
         .gap(spacing::LG)
         .child(
-            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(
                 result
                     .image
                     .as_ref()
@@ -3425,7 +3417,7 @@ fn render_musicbrainz_header(
                     div()
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(px(23.0))
+                        .line_height(typography::LINE_HEADER)
                         .child(SharedString::from(candidate.title.clone())),
                 )
                 .child(
@@ -3464,7 +3456,7 @@ fn render_musicbrainz_title_bar(
         .w_full()
         .justify_start()
         .bg(badges::type_color("track"))
-        .text_color(rgb(0xffffff))
+        .text_color(color::text_on_accent())
         .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::BOLD)
         .px(spacing::XS)
@@ -3475,7 +3467,9 @@ fn render_musicbrainz_title_bar(
         .mb(spacing::XS)
         .dropdown_menu(move |menu, _window, _cx| {
             candidates.iter().enumerate().fold(
-                menu.min_w(px(320.0)).max_w(px(520.0)).scrollable(true),
+                menu.min_w(layout::MENU_MIN_WIDTH)
+                    .max_w(layout::MENU_MAX_WIDTH)
+                    .scrollable(true),
                 |menu, (idx, candidate)| {
                     let app = app.clone();
                     menu.item(
@@ -3670,11 +3664,11 @@ fn metadata_rss_cell(
         .gap(spacing::SM)
         .child(
             div()
-                .w(px(86.0))
+                .w(layout::COMPACT_COLUMN_WIDTH)
                 .flex_shrink_0()
                 .text_color(color::text_primary())
                 .text_size(typography::SIZE_MICRO)
-                .line_height(px(16.0))
+                .line_height(typography::LINE_BODY)
                 .child(SharedString::from(row.field.clone())),
         )
         .child(div().flex_1().min_w_0().child(value_element))
@@ -3789,7 +3783,7 @@ fn metadata_value_cell(
         let header_key = cell_key.clone();
         return div()
             .text_size(typography::SIZE_MICRO)
-            .line_height(px(16.0))
+            .line_height(typography::LINE_BODY)
             .text_color(color)
             .flex()
             .flex_col()
@@ -3837,7 +3831,7 @@ fn metadata_value_cell(
         .id(cell_id)
         .cursor_pointer()
         .text_size(typography::SIZE_MICRO)
-        .line_height(px(16.0))
+        .line_height(typography::LINE_BODY)
         .flex()
         .flex_row()
         .items_start()
@@ -3891,11 +3885,11 @@ fn metadata_tag_cell(
         .gap(spacing::XS)
         .child(
             div()
-                .w(px(136.0))
+                .w(layout::METADATA_LABEL_WIDTH)
                 .flex_shrink_0()
                 .text_color(frame_color)
                 .text_size(typography::SIZE_MICRO)
-                .line_height(px(16.0))
+                .line_height(typography::LINE_BODY)
                 .child(SharedString::from(frame_id.unwrap_or_default().to_string())),
         )
         .child(div().flex_1().min_w_0().child(value))
@@ -3917,11 +3911,7 @@ fn expanded_metadata_value(
                 .gap(spacing::XS)
                 .child(SharedString::from(display_value.to_string()))
                 .child(
-                    Thumbnail::new(
-                        EntityKind::Track,
-                        ThumbnailSize::from_legacy_px(160.0, true),
-                    )
-                    .image(Some(image.clone())),
+                    Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(Some(image.clone())),
                 )
                 .into_any_element();
         }
@@ -4101,7 +4091,7 @@ fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
     let mut cell = MultilineText::new(value.to_string())
         .max_lines(4)
         .size(FontSize::Micro)
-        .line_height(px(16.0));
+        .line_height(typography::LINE_BODY);
     if let Some(color) = color {
         cell = cell.color_raw(color);
     }
@@ -4117,7 +4107,7 @@ fn compare_tag_cell(
     let mut body = MultilineText::new(value.to_string())
         .max_lines(4)
         .size(FontSize::Micro)
-        .line_height(px(16.0));
+        .line_height(typography::LINE_BODY);
     if let Some(color) = color {
         body = body.color_raw(color);
     }
@@ -4128,11 +4118,11 @@ fn compare_tag_cell(
         .gap(spacing::XS)
         .child(
             div()
-                .w(px(136.0))
+                .w(layout::METADATA_LABEL_WIDTH)
                 .flex_shrink_0()
                 .text_color(frame_color.unwrap_or_else(color::text_muted))
                 .text_size(typography::SIZE_MICRO)
-                .line_height(px(16.0))
+                .line_height(typography::LINE_BODY)
                 .child(SharedString::from(frame_id.unwrap_or_default().to_string())),
         )
         .child(div().flex_1().min_w_0().child(body))
@@ -4141,8 +4131,8 @@ fn compare_tag_cell(
 
 fn id3_frame_color(frame_id: &str) -> gpui::Rgba {
     match id3_frame_base(frame_id) {
-        "SYLT" | "USLT" | "APIC" => rgb(0x3ac4c4),
-        "TXXX" | "WXXX" | "UFID" => rgb(0xb06cf4),
+        "SYLT" | "USLT" | "APIC" => color::id3_frame_v24_only(),
+        "TXXX" | "WXXX" | "UFID" => color::id3_frame_v22(),
         _ => color::accent(),
     }
 }
@@ -4310,7 +4300,7 @@ pub(crate) fn render_album_thumb(image: Option<Arc<Image>>, size: f32) -> AnyEle
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(14.0))
+            .text_size(layout::ACTION_ICON_INNER_SIZE)
             .flex_shrink_0()
             .child("\u{1F3B5}")
             .into_any_element()

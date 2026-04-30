@@ -87,6 +87,19 @@ pub mod color {
     pub fn diff_missing() -> Rgba {
         dark(SemanticColor::DiffMissing)
     }
+
+    pub fn id3_frame_v22() -> Rgba {
+        gpui::rgb(0x00b0_6cf4)
+    }
+    pub fn id3_frame_v23_only() -> Rgba {
+        gpui::rgb(0x00ff_c857)
+    }
+    pub fn id3_frame_v24_only() -> Rgba {
+        gpui::rgb(0x003a_c4c4)
+    }
+    pub fn id3_frame_unknown() -> Rgba {
+        gpui::rgb(0x00ff_8a65)
+    }
 }
 
 pub mod badges {
@@ -128,10 +141,32 @@ pub mod badges {
 
 pub mod layout {
     use super::{px, Pixels};
+    pub const WINDOW_WIDTH: Pixels = px(1120.0);
+    pub const WINDOW_HEIGHT: Pixels = px(760.0);
     pub const TAB_BAR_HEIGHT: Pixels = px(44.0);
     pub const ROW_HEIGHT: Pixels = px(36.0);
     pub const HIT_TARGET_MIN: Pixels = px(28.0);
     pub const INSPECTOR_WIDTH: Pixels = px(360.0);
+    pub const INSPECTOR_MIN_WIDTH: Pixels = px(200.0);
+    pub const INSPECTOR_MAX_WIDTH: Pixels = px(800.0);
+    pub const SPLIT_HANDLE_WIDTH: Pixels = px(5.0);
+    pub const APP_ICON_SIZE: Pixels = px(26.0);
+    pub const ACTION_ICON_SIZE: Pixels = px(18.0);
+    pub const ACTION_ICON_INNER_SIZE: Pixels = px(14.0);
+    pub const FEED_TILE_WIDTH: Pixels = px(140.0);
+    pub const SEARCH_TILE_WIDTH: Pixels = px(168.0);
+    pub const THUMBNAIL_XL: Pixels = px(152.0);
+    pub const COMPACT_COLUMN_WIDTH: Pixels = px(86.0);
+    pub const METADATA_LABEL_WIDTH: Pixels = px(136.0);
+    pub const METADATA_VALUE_INDENT: Pixels = px(142.0);
+    pub const PLAYLIST_THUMB_SLOT: Pixels = px(32.0);
+    pub const PLAYLIST_TITLE_OFFSET: Pixels = px(48.0);
+    pub const STATUS_MESSAGE_WIDTH: Pixels = px(220.0);
+    pub const CONFLICT_MESSAGE_WIDTH: Pixels = px(190.0);
+    pub const ACTION_MESSAGE_WIDTH: Pixels = px(180.0);
+    pub const SETTINGS_COLUMN_WIDTH: Pixels = px(720.0);
+    pub const MENU_MIN_WIDTH: Pixels = px(320.0);
+    pub const MENU_MAX_WIDTH: Pixels = px(520.0);
 }
 
 pub mod glyphs {
@@ -145,6 +180,7 @@ pub mod glyphs {
 
 pub mod spacing {
     use super::{px, Pixels};
+    pub const NONE: Pixels = px(0.0);
     pub const XXS: Pixels = px(2.0);
     pub const XS: Pixels = px(4.0);
     pub const SM: Pixels = px(8.0);
@@ -164,11 +200,18 @@ pub mod radius {
 pub mod typography {
     use super::{px, FontWeight, Pixels, Styled};
 
+    pub const LINE_TIGHT: Pixels = px(14.0);
+    pub const LINE_COMPACT: Pixels = px(15.0);
+    pub const LINE_BODY: Pixels = px(16.0);
+    pub const LINE_DETAIL: Pixels = px(17.0);
+    pub const LINE_TITLE: Pixels = px(20.0);
+    pub const LINE_HEADER: Pixels = px(23.0);
     pub const SIZE_TITLE: Pixels = px(20.0);
     pub const SIZE_HEADLINE: Pixels = px(15.0);
     pub const SIZE_BODY: Pixels = px(13.0);
     pub const SIZE_CAPTION: Pixels = px(12.0);
     pub const SIZE_MICRO: Pixels = px(11.0);
+    pub const SIZE_ARTWORK_FALLBACK: Pixels = px(28.0);
 
     pub fn type_title<T: Styled>(el: T) -> T {
         el.text_size(SIZE_TITLE).font_weight(FontWeight::SEMIBOLD)

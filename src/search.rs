@@ -1,4 +1,9 @@
 #![allow(dead_code)]
+#![warn(clippy::pedantic)]
+#![expect(
+    clippy::pedantic,
+    reason = "legacy discover screen is being migrated incrementally under ADR 0023"
+)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -6,7 +11,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{anyhow, Result};
 use gpui::{
-    div, img, prelude::*, px, rgb, size, AnyElement, App, Application, Bounds, ClickEvent,
+    div, img, prelude::*, px, size, AnyElement, App, Application, Bounds, ClickEvent,
     ClipboardItem, Context, Entity, FontWeight, Image, ImageFormat, InteractiveElement,
     IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels,
     Point, Render, Rgba, SharedString, Styled, Window, WindowBounds, WindowOptions,
@@ -51,7 +56,7 @@ use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ContributorVm,
     LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm,
-    ResultRow, SearchBatch, SearchViewModel, TrackInspectorHeaderVm,
+    ResultRow, SearchBatch, SearchViewModel, TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
 
@@ -140,7 +145,7 @@ struct MetadataDragPreview {
 impl Render for MetadataDragPreview {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .max_w(px(320.0))
+            .max_w(layout::MENU_MIN_WIDTH)
             .rounded(radius::MD)
             .border_1()
             .border_color(color::accent())
@@ -158,7 +163,7 @@ impl Render for MetadataDragPreview {
                     MultilineText::new(self.value.clone())
                         .max_lines(4)
                         .size(FontSize::Micro)
-                        .line_height(px(16.0))
+                        .line_height(typography::LINE_BODY)
                         .color(SemanticColor::Label),
                 ),
             )
@@ -229,7 +234,7 @@ impl SearchApp {
             input,
             vm: SearchViewModel::new(),
             inspector_stack: Vec::new(),
-            left_pane_width: px(360.0),
+            left_pane_width: layout::INSPECTOR_WIDTH,
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
             list_focus: cx.focus_handle(),
@@ -871,7 +876,7 @@ impl SearchApp {
         feed: Option<Feed>,
         cx: &mut Context<Self>,
     ) {
-        let key = track_row_key(&track);
+        let key = TrackRowActionVm::new(&track, false, false).key();
         if !self.vm.begin_track_operation(key.clone()) {
             return;
         }
@@ -920,7 +925,7 @@ impl SearchApp {
         feed: Option<Feed>,
         cx: &mut Context<Self>,
     ) {
-        let key = track_row_key(&track);
+        let key = TrackRowActionVm::new(&track, false, false).key();
         if !self.vm.begin_track_operation(key.clone()) {
             return;
         }
@@ -1560,7 +1565,9 @@ impl Render for SearchApp {
                     .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
                         if this.vm.is_resizing() {
                             let x = event.position.x;
-                            let clamped = x.max(px(200.0)).min(px(800.0));
+                            let clamped = x
+                                .max(layout::INSPECTOR_MIN_WIDTH)
+                                .min(layout::INSPECTOR_MAX_WIDTH);
                             this.left_pane_width = clamped;
                             cx.notify();
                         }
@@ -1577,7 +1584,7 @@ impl Render for SearchApp {
                     .child(
                         div()
                             .w(self.left_pane_width)
-                            .min_w(px(200.0))
+                            .min_w(layout::INSPECTOR_MIN_WIDTH)
                             .flex_shrink_0()
                             .flex()
                             .flex_col()
@@ -1621,7 +1628,7 @@ impl Render for SearchApp {
                                                     .label(search_label)
                                                     .primary()
                                                     .scaled(Size::Small, cx)
-                                                    .text_color(rgb(0xffffff))
+                                                    .text_color(color::text_on_accent())
                                                     .loading(is_loading)
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.do_search(false, cx);
@@ -1637,7 +1644,7 @@ impl Render for SearchApp {
                                                     .scaled(Size::Small, cx)
                                                     .when(fuzzy_search, |button| button.primary())
                                                     .when(!fuzzy_search, |button| button.ghost())
-                                                    .text_color(rgb(0xffffff))
+                                                    .text_color(color::text_on_accent())
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.toggle_fuzzy_search(cx);
                                                     })),
@@ -1697,7 +1704,7 @@ impl Render for SearchApp {
                                                         .label("Load more")
                                                         .ghost()
                                                         .scaled(Size::Small, cx)
-                                                        .text_color(rgb(0xffffff))
+                                                        .text_color(color::text_on_accent())
                                                         .on_click(cx.listener(|this, _, _, cx| {
                                                             this.do_search(true, cx);
                                                         })),
@@ -1709,7 +1716,7 @@ impl Render for SearchApp {
                     .child(
                         div()
                             .id("resize-handle")
-                            .w(px(5.0))
+                            .w(layout::SPLIT_HANDLE_WIDTH)
                             .cursor_col_resize()
                             .bg(color::border_subtle())
                             .hover(|s| s.bg(color::accent()))
@@ -2080,7 +2087,7 @@ pub(crate) fn detail_rows_from_strings(rows: Vec<(String, String)>) -> Vec<Detai
             value: MultilineText::new(value)
                 .max_lines(6)
                 .size(FontSize::Micro)
-                .line_height(px(17.0))
+                .line_height(typography::LINE_DETAIL)
                 .into_any_element(),
         })
         .collect()
@@ -2265,7 +2272,7 @@ fn render_filter_button(
         .scaled(Size::Small, cx)
         .when(selected, |button| button.primary())
         .when(!selected, |button| button.ghost())
-        .text_color(rgb(0xffffff))
+        .text_color(color::text_on_accent())
         .on_click(cx.listener(move |this, _, _, cx| {
             if this.vm.set_type_filter_if_changed(idx) {
                 let has_query = !this.input.read(cx).value().trim().is_empty();
@@ -2306,7 +2313,7 @@ fn render_result_item(
     .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
         this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
     }))
-    .child(Thumbnail::new(kind, ThumbnailSize::from_legacy_px(36.0, false)).image(thumbnail))
+    .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
     .child(
         div()
             .flex_1()
@@ -2359,7 +2366,7 @@ fn render_inspector(
         .overflow_hidden()
         .child(
             div()
-                .min_h(px(36.0))
+                .min_h(layout::ROW_HEIGHT)
                 .bg(color::bg_surface())
                 .border_b_1()
                 .border_color(color::border_subtle())
@@ -2375,7 +2382,7 @@ fn render_inspector(
                             .label("← Back")
                             .ghost()
                             .scaled(Size::Small, cx)
-                            .text_color(rgb(0xffffff))
+                            .text_color(color::text_on_accent())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.inspector_back(cx);
                             })),
@@ -2495,7 +2502,7 @@ fn podroll_section(
         let tile = div()
             .id(SharedString::from(format!("podroll-tile:{guid}")))
             .flex_shrink_0()
-            .w(px(140.0))
+            .w(layout::FEED_TILE_WIDTH)
             .flex()
             .flex_col()
             .gap(spacing::SM)
@@ -2506,12 +2513,9 @@ fn podroll_section(
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 this.push_inspector("feed".into(), click_guid.clone(), click_title.clone(), cx);
             }))
+            .child(Thumbnail::new(EntityKind::Feed, ThumbnailSize::Lg).image(thumb.clone()))
             .child(
-                Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(128.0, true))
-                    .image(thumb.clone()),
-            )
-            .child(
-                div().line_height(px(15.0)).child(
+                div().line_height(typography::LINE_COMPACT).child(
                     Label::new(title)
                         .size(FontSize::Caption)
                         .weight(FontWeight::MEDIUM)
@@ -2565,7 +2569,7 @@ fn render_discover_track_inspector(
         key: "Release".to_string(),
         value: div()
             .text_size(typography::SIZE_MICRO)
-            .line_height(px(17.0))
+            .line_height(typography::LINE_DETAIL)
             .child(SharedString::from(
                 track.feed_title.clone().unwrap_or_else(|| "Unknown".into()),
             ))
@@ -2686,9 +2690,9 @@ pub(crate) fn render_action_row(
                 let is_error = vm.message_is_error();
                 el.child(
                     div()
-                        .max_w(px(220.0))
+                        .max_w(layout::STATUS_MESSAGE_WIDTH)
                         .text_size(typography::SIZE_MICRO)
-                        .line_height(px(14.0))
+                        .line_height(typography::LINE_TIGHT)
                         .text_color(if is_error {
                             color::diff_missing()
                         } else {
@@ -3055,7 +3059,7 @@ fn render_musicbrainz_header(
         .items_start()
         .gap(spacing::LG)
         .child(
-            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(
                 result
                     .image
                     .as_ref()
@@ -3071,7 +3075,7 @@ fn render_musicbrainz_header(
                     div()
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(px(23.0))
+                        .line_height(typography::LINE_HEADER)
                         .child(SharedString::from(candidate.title.clone())),
                 )
                 .child(
@@ -3106,7 +3110,7 @@ fn render_musicbrainz_title_bar(
         .w_full()
         .justify_start()
         .bg(badges::type_color("track"))
-        .text_color(rgb(0xffffff))
+        .text_color(color::text_on_accent())
         .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::BOLD)
         .px(spacing::SM)
@@ -3133,7 +3137,9 @@ fn render_musicbrainz_title_bar(
     trigger
         .dropdown_menu(move |menu, _window, _cx| {
             candidates.iter().enumerate().fold(
-                menu.min_w(px(320.0)).max_w(px(520.0)).scrollable(true),
+                menu.min_w(layout::MENU_MIN_WIDTH)
+                    .max_w(layout::MENU_MAX_WIDTH)
+                    .scrollable(true),
                 |menu, (idx, candidate)| {
                     let app = app.clone();
                     menu.item(
@@ -3321,11 +3327,11 @@ fn metadata_rss_cell(
         .gap(spacing::SM)
         .child(
             div()
-                .w(px(86.0))
+                .w(layout::COMPACT_COLUMN_WIDTH)
                 .flex_shrink_0()
                 .text_color(color::text_primary())
                 .text_size(typography::SIZE_MICRO)
-                .line_height(px(16.0))
+                .line_height(typography::LINE_BODY)
                 .child(SharedString::from(row.field.clone())),
         )
         .child(div().flex_1().min_w_0().child(value_element));
@@ -3681,7 +3687,7 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
         .items_start()
         .gap(spacing::LG)
         .child(
-            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true)).image(
+            Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(
                 result
                     .file_image
                     .as_ref()
@@ -3718,7 +3724,7 @@ fn render_file_header(result: &TagCompareResult, cx: &mut Context<SearchApp>) ->
                     div()
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(px(23.0))
+                        .line_height(typography::LINE_HEADER)
                         .child(SharedString::from(id3_header_title(result))),
                 )
                 .child(
@@ -3825,7 +3831,7 @@ fn expandable_cell(
         let cell_key_h = cell_key.clone();
         return div()
             .text_size(typography::SIZE_MICRO)
-            .line_height(px(16.0))
+            .line_height(typography::LINE_BODY)
             .text_color(color)
             .flex()
             .flex_col()
@@ -3861,7 +3867,7 @@ fn expandable_cell(
         .id(SharedString::from(format!("expandable-rss-{}", field)))
         .cursor_pointer()
         .text_size(typography::SIZE_MICRO)
-        .line_height(px(16.0))
+        .line_height(typography::LINE_BODY)
         .text_color(color)
         .flex()
         .flex_col()
@@ -4005,7 +4011,7 @@ fn expandable_tag_cell(
                     .child(
                         div()
                             .text_size(typography::SIZE_MICRO)
-                            .line_height(px(16.0))
+                            .line_height(typography::LINE_BODY)
                             .text_color(color)
                             .child(SharedString::from(display_value.to_string())),
                     )
@@ -4020,7 +4026,7 @@ fn expandable_tag_cell(
                     .flex_1()
                     .min_w_0()
                     .text_size(typography::SIZE_MICRO)
-                    .line_height(px(16.0))
+                    .line_height(typography::LINE_BODY)
                     .text_color(color)
                     .child(SharedString::from(display_value.to_string()))
                     .into_any_element()
@@ -4031,7 +4037,7 @@ fn expandable_tag_cell(
                 .flex_1()
                 .min_w_0()
                 .text_size(typography::SIZE_MICRO)
-                .line_height(px(16.0))
+                .line_height(typography::LINE_BODY)
                 .text_color(color)
                 .flex()
                 .flex_col()
@@ -4042,7 +4048,7 @@ fn expandable_tag_cell(
                 .flex_1()
                 .min_w_0()
                 .text_size(typography::SIZE_MICRO)
-                .line_height(px(16.0))
+                .line_height(typography::LINE_BODY)
                 .text_color(color)
                 .flex()
                 .flex_col()
@@ -4055,7 +4061,7 @@ fn expandable_tag_cell(
             .flex_1()
             .min_w_0()
             .text_size(typography::SIZE_MICRO)
-            .line_height(px(16.0))
+            .line_height(typography::LINE_BODY)
             .flex()
             .flex_row()
             .gap(spacing::XS)
@@ -4080,7 +4086,7 @@ fn expandable_tag_cell(
             .flex()
             .flex_col()
             .text_size(typography::SIZE_MICRO)
-            .line_height(px(16.0))
+            .line_height(typography::LINE_BODY)
             .text_color(color)
             .child(
                 div()
@@ -4095,11 +4101,11 @@ fn expandable_tag_cell(
                     .gap(spacing::SM)
                     .child(
                         div()
-                            .w(px(136.0))
+                            .w(layout::METADATA_LABEL_WIDTH)
                             .flex_shrink_0()
                             .text_color(frame_color)
                             .text_size(typography::SIZE_MICRO)
-                            .line_height(px(16.0))
+                            .line_height(typography::LINE_BODY)
                             .child(SharedString::from(frame_id_owned.unwrap_or_default())),
                     )
                     .child(
@@ -4111,7 +4117,7 @@ fn expandable_tag_cell(
             )
             .child(
                 div()
-                    .pl(px(142.0))
+                    .pl(layout::METADATA_VALUE_INDENT)
                     .flex()
                     .flex_col()
                     .children(value_routes_tree_elements(
@@ -4138,11 +4144,11 @@ fn expandable_tag_cell(
         .gap(spacing::SM)
         .child(
             div()
-                .w(px(136.0))
+                .w(layout::METADATA_LABEL_WIDTH)
                 .flex_shrink_0()
                 .text_color(frame_color)
                 .text_size(typography::SIZE_MICRO)
-                .line_height(px(16.0))
+                .line_height(typography::LINE_BODY)
                 .child(SharedString::from(frame_id_owned.unwrap_or_default())),
         )
         .child(value_el)
@@ -4179,7 +4185,7 @@ fn json_object_element(value: &serde_json::Value, color: gpui::Rgba, depth: usiz
                 .flex_col()
                 .pl(indent)
                 .text_size(typography::SIZE_MICRO)
-                .line_height(px(16.0));
+                .line_height(typography::LINE_BODY);
             for (key, val) in map {
                 let key_str = format!("{key}: ");
                 match val {
@@ -4355,7 +4361,7 @@ fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
     let mut cell = MultilineText::new(value.to_string())
         .max_lines(4)
         .size(FontSize::Micro)
-        .line_height(px(16.0));
+        .line_height(typography::LINE_BODY);
     if let Some(color) = color {
         cell = cell.color_raw(color);
     }
@@ -4374,7 +4380,7 @@ fn compare_tag_cell(
     let mut body = MultilineText::new(value.to_string())
         .max_lines(4)
         .size(FontSize::Micro)
-        .line_height(px(16.0));
+        .line_height(typography::LINE_BODY);
     if let Some(color) = color {
         body = body.color_raw(color);
     }
@@ -4386,11 +4392,11 @@ fn compare_tag_cell(
         .gap(spacing::SM)
         .child(
             div()
-                .w(px(136.0))
+                .w(layout::METADATA_LABEL_WIDTH)
                 .flex_shrink_0()
                 .text_color(frame_color)
                 .text_size(typography::SIZE_MICRO)
-                .line_height(px(16.0))
+                .line_height(typography::LINE_BODY)
                 .child(SharedString::from(frame_id.unwrap_or_default())),
         )
         .child(div().flex_1().min_w_0().child(body))
@@ -4399,11 +4405,11 @@ fn compare_tag_cell(
 
 fn id3_frame_version_color(frame_id: &str) -> gpui::Rgba {
     match id3_frame_version(frame_id) {
-        Id3FrameVersion::V22 => rgb(0xb06cf4),
-        Id3FrameVersion::V23Only => rgb(0xffc857),
-        Id3FrameVersion::V24Only => rgb(0x3ac4c4),
+        Id3FrameVersion::V22 => color::id3_frame_v22(),
+        Id3FrameVersion::V23Only => color::id3_frame_v23_only(),
+        Id3FrameVersion::V24Only => color::id3_frame_v24_only(),
         Id3FrameVersion::V23V24 => color::accent(),
-        Id3FrameVersion::Unknown => rgb(0xff8a65),
+        Id3FrameVersion::Unknown => color::id3_frame_unknown(),
     }
 }
 
@@ -4641,7 +4647,7 @@ pub(crate) fn render_track_list_section(
                 .into_iter()
                 .zip(downloaded)
                 .map(|(track, is_downloaded)| {
-                    let key = track_row_key(&track);
+                    let key = TrackRowActionVm::new(&track, is_downloaded, false).key();
                     let is_in_flight = app.vm.is_track_operation_in_flight(&key);
                     let thumb = app.thumbnail_for_url(track.image_url.as_deref(), cx);
                     render_track_row(
@@ -4701,7 +4707,7 @@ pub(crate) fn render_row_playlist_popup(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let mut panel = div()
-        .ml(px(48.0))
+        .ml(layout::PLAYLIST_TITLE_OFFSET)
         .border_1()
         .border_color(color::border_subtle())
         .rounded(radius::SM)
@@ -4762,10 +4768,7 @@ pub(crate) fn render_feed_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(
-            Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(80.0, true))
-                .image(frame.image.clone()),
-        )
+        .child(Thumbnail::new(EntityKind::Feed, ThumbnailSize::Lg).image(frame.image.clone()))
         .child(
             div()
                 .flex_1()
@@ -4775,7 +4778,7 @@ pub(crate) fn render_feed_header(
                     div()
                         .text_lg()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(px(23.0))
+                        .line_height(typography::LINE_HEADER)
                         .child(SharedString::from(title.to_string())),
                 )
                 .when_some(subtitle.map(str::to_owned), |el, sub| {
@@ -4784,7 +4787,7 @@ pub(crate) fn render_feed_header(
                             .mt(spacing::XS)
                             .text_size(typography::SIZE_HEADLINE)
                             .font_weight(FontWeight::MEDIUM)
-                            .line_height(px(20.0))
+                            .line_height(typography::LINE_TITLE)
                             .text_color(color::text_muted())
                             .child(SharedString::from(sub)),
                     )
@@ -4817,8 +4820,8 @@ fn render_rss_icon_button(url: Option<String>, cx: &mut Context<SearchApp>) -> A
 
     div()
         .id(id)
-        .w(px(18.0))
-        .h(px(18.0))
+        .w(layout::ACTION_ICON_SIZE)
+        .h(layout::ACTION_ICON_SIZE)
         .flex()
         .items_center()
         .justify_center()
@@ -4829,8 +4832,8 @@ fn render_rss_icon_button(url: Option<String>, cx: &mut Context<SearchApp>) -> A
         .when(url.is_none(), |el| el.opacity(0.45))
         .child(
             img(rss_icon_image())
-                .w(px(14.0))
-                .h(px(14.0))
+                .w(layout::ACTION_ICON_INNER_SIZE)
+                .h(layout::ACTION_ICON_INNER_SIZE)
                 .object_fit(ObjectFit::Contain),
         )
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
@@ -4874,8 +4877,8 @@ fn render_nostr_icon_button(
 
     div()
         .id(id)
-        .w(px(18.0))
-        .h(px(18.0))
+        .w(layout::ACTION_ICON_SIZE)
+        .h(layout::ACTION_ICON_SIZE)
         .flex()
         .items_center()
         .justify_center()
@@ -4886,8 +4889,8 @@ fn render_nostr_icon_button(
         .when(npub.is_none(), |el| el.opacity(0.45))
         .child(
             img(nostr_icon_image())
-                .w(px(14.0))
-                .h(px(14.0))
+                .w(layout::ACTION_ICON_INNER_SIZE)
+                .h(layout::ACTION_ICON_INNER_SIZE)
                 .object_fit(ObjectFit::Contain),
         )
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, cx| {
@@ -4926,11 +4929,11 @@ pub(crate) fn render_play_icon_button_with_id(
         .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
-        .w(px(18.0))
-        .h(px(18.0))
-        .px(px(0.0))
-        .py(px(0.0))
-        .text_color(rgb(0xffffff))
+        .w(layout::ACTION_ICON_SIZE)
+        .h(layout::ACTION_ICON_SIZE)
+        .px(spacing::NONE)
+        .py(spacing::NONE)
+        .text_color(color::text_on_accent())
         .rounded(radius::SM)
         .border_1()
         .border_color(color::accent())
@@ -4944,14 +4947,6 @@ pub(crate) fn render_play_icon_button_with_id(
         .into_any_element()
 }
 
-fn track_row_key(track: &Track) -> String {
-    track
-        .enclosure_url
-        .clone()
-        .or_else(|| track.track_guid.clone())
-        .unwrap_or_default()
-}
-
 pub(crate) fn render_track_download_button(
     track: Track,
     feed: Option<Feed>,
@@ -4959,18 +4954,15 @@ pub(crate) fn render_track_download_button(
     is_in_flight: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let key = track_row_key(&track);
+    let action_vm = TrackRowActionVm::new(&track, is_downloaded, is_in_flight);
+    let key = action_vm.key();
 
-    if is_in_flight {
-        let tip: SharedString = if is_downloaded {
-            "Removing...".into()
-        } else {
-            "Downloading...".into()
-        };
+    if action_vm.is_in_flight() {
+        let tip = SharedString::from(action_vm.busy_tooltip());
         return div()
             .id(SharedString::from(format!("track-row-download-spin:{key}")))
-            .w(px(18.0))
-            .h(px(18.0))
+            .w(layout::ACTION_ICON_SIZE)
+            .h(layout::ACTION_ICON_SIZE)
             .flex()
             .items_center()
             .justify_center()
@@ -4987,12 +4979,8 @@ pub(crate) fn render_track_download_button(
     }
 
     let id = SharedString::from(format!("track-row-download:{key}"));
-    let label = if is_downloaded { "🗑" } else { "⬇" };
-    let tooltip = if is_downloaded {
-        "Remove from library"
-    } else {
-        "Download track"
-    };
+    let label = action_vm.download_label();
+    let tooltip = action_vm.download_tooltip();
     let border = if is_downloaded {
         color::status_danger()
     } else {
@@ -5007,11 +4995,11 @@ pub(crate) fn render_track_download_button(
         .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
-        .w(px(18.0))
-        .h(px(18.0))
-        .px(px(0.0))
-        .py(px(0.0))
-        .text_color(rgb(0xffffff))
+        .w(layout::ACTION_ICON_SIZE)
+        .h(layout::ACTION_ICON_SIZE)
+        .px(spacing::NONE)
+        .py(spacing::NONE)
+        .text_color(color::text_on_accent())
         .rounded(radius::SM)
         .border_1()
         .border_color(border)
@@ -5045,7 +5033,7 @@ pub(crate) fn render_feed_list_section(
                 .unwrap_or_default();
             div()
                 .id(SharedString::from(format!("feed-tile:{guid}")))
-                .w(px(140.0))
+                .w(layout::FEED_TILE_WIDTH)
                 .flex()
                 .flex_col()
                 .gap(spacing::SM)
@@ -5055,12 +5043,9 @@ pub(crate) fn render_feed_list_section(
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                     this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
                 }))
+                .child(Thumbnail::new(EntityKind::Feed, ThumbnailSize::Lg).image(thumb.clone()))
                 .child(
-                    Thumbnail::new(EntityKind::Feed, ThumbnailSize::from_legacy_px(128.0, true))
-                        .image(thumb.clone()),
-                )
-                .child(
-                    div().line_height(px(15.0)).child(
+                    div().line_height(typography::LINE_COMPACT).child(
                         Label::new(feed_title(&feed))
                             .size(FontSize::Caption)
                             .weight(FontWeight::MEDIUM)
@@ -5119,10 +5104,7 @@ fn render_track_header(
         .flex_row()
         .items_start()
         .gap(spacing::LG)
-        .child(
-            Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(80.0, true))
-                .image(frame.image.clone()),
-        )
+        .child(Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(frame.image.clone()))
         .child(
             div()
                 .flex_1()
@@ -5198,7 +5180,7 @@ pub(crate) fn render_collapsed_text_section(label: &str, value: String) -> AnyEl
                 MultilineText::new(value)
                     .max_lines(3)
                     .size(FontSize::Micro)
-                    .line_height(px(17.0))
+                    .line_height(typography::LINE_DETAIL)
                     .color(SemanticColor::Label),
             ),
         )
@@ -5218,7 +5200,7 @@ fn render_feed_link_value(
         .cursor_pointer()
         .text_color(color::accent())
         .text_size(typography::SIZE_MICRO)
-        .line_height(px(17.0))
+        .line_height(typography::LINE_DETAIL)
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .on_click(cx.listener(move |this, _, _, cx| {
             this.push_inspector("feed".into(), guid.clone(), click_title.clone(), cx);
@@ -5242,7 +5224,7 @@ pub(crate) fn render_publisher_link_value(
         .cursor_pointer()
         .text_color(color::accent())
         .text_size(typography::SIZE_MICRO)
-        .line_height(px(17.0))
+        .line_height(typography::LINE_DETAIL)
         .truncate()
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .on_click(cx.listener(move |this, _, _, cx| {
@@ -5286,7 +5268,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             .flex()
             .flex_col()
             .gap(spacing::SM)
-            .w(px(168.0))
+            .w(layout::SEARCH_TILE_WIDTH)
             .p(spacing::SM)
             .rounded(radius::LG)
             .cursor_pointer()
@@ -5296,15 +5278,15 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             }))
             .child(
                 div()
-                    .w(px(152.0))
-                    .h(px(152.0))
+                    .w(layout::THUMBNAIL_XL)
+                    .h(layout::THUMBNAIL_XL)
                     .rounded(radius::MD)
                     .overflow_hidden()
                     .flex_shrink_0()
                     .when_some(thumbnail, |el, image| {
                         el.child(
                             ImagePrimitive::new(image)
-                                .dimension(px(152.0))
+                                .dimension(layout::THUMBNAIL_XL)
                                 .radius(Radius::MD),
                         )
                     })
@@ -5313,7 +5295,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_size(px(28.0))
+                            .text_size(typography::SIZE_ARTWORK_FALLBACK)
                             .child(EntityKind::Feed.emoji())
                     }),
             )
@@ -5377,7 +5359,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                         .label("Load more")
                         .ghost()
                         .scaled(Size::Small, cx)
-                        .text_color(rgb(0xffffff))
+                        .text_color(color::text_on_accent())
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.load_recent_feeds(true, cx);
                         })),
@@ -5444,7 +5426,7 @@ fn join_values(values: &[String]) -> Option<String> {
     }
 }
 
-use crate::ui::theme::{color, glyphs, radius, spacing, typography};
+use crate::ui::theme::{color, glyphs, layout, radius, spacing, typography};
 
 pub fn run_search_app() {
     let app = Application::new().with_assets(gpui_component_assets::Assets);
@@ -5481,7 +5463,7 @@ pub fn run_search_app() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                     None,
-                    size(px(1120.0), px(760.0)),
+                    size(layout::WINDOW_WIDTH, layout::WINDOW_HEIGHT),
                     cx,
                 ))),
                 ..Default::default()

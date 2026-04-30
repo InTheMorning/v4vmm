@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{
-    div, img, prelude::*, px, size, Application, Bounds, Context, Entity, Image, ImageFormat,
+    div, img, prelude::*, size, Application, Bounds, Context, Entity, Image, ImageFormat,
     KeyDownEvent, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
@@ -24,6 +24,7 @@ use crate::playback_owner::{PlaybackOwner, PollOutcome};
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::composites::{NowPlayingBar, NowPlayingData, NowPlayingState};
 use crate::ui::sizable_bridge::SizableScaled;
+use crate::ui::theme::layout;
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size as TokenSize, Spacing};
 use crate::view_models::library::LibraryTree;
 
@@ -546,15 +547,15 @@ impl Render for TopApp {
                             .mr(spacing_md)
                             .child(
                                 div()
-                                    .w(px(26.0))
-                                    .h(px(26.0))
+                                    .w(layout::APP_ICON_SIZE)
+                                    .h(layout::APP_ICON_SIZE)
                                     .rounded(spacing_xs)
                                     .overflow_hidden()
                                     .flex_shrink_0()
                                     .child(
                                         img(app_logo())
-                                            .w(px(26.0))
-                                            .h(px(26.0))
+                                            .w(layout::APP_ICON_SIZE)
+                                            .h(layout::APP_ICON_SIZE)
                                             .object_fit(ObjectFit::Cover),
                                     ),
                             )
@@ -671,7 +672,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
         .overflow_y_scroll()
         .child(
             div()
-                .max_w(px(720.0))
+                .max_w(layout::SETTINGS_COLUMN_WIDTH)
                 .flex()
                 .flex_col()
                 .gap(Spacing::LG.scaled(cx))
@@ -941,7 +942,7 @@ fn render_app_tab(
     let bg_surface_hi_color = color(cx, SemanticColor::TertiarySystemBackground);
     let focus_ring_color = color(cx, SemanticColor::Focus);
     let spacing_md = Spacing::MD.scaled(cx);
-    let hit_target_min = px(28.0);
+    let hit_target_min = layout::HIT_TARGET_MIN;
     let radius_lg = Radius::LG.scaled(cx);
 
     div()
@@ -1032,7 +1033,7 @@ pub fn run_app() {
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                         None,
-                        size(px(1120.0), px(760.0)),
+                        size(layout::WINDOW_WIDTH, layout::WINDOW_HEIGHT),
                         cx,
                     ))),
                     ..Default::default()

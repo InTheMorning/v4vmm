@@ -2,7 +2,7 @@
 
 ## Status
 
-Not started.
+Completed 2026-04-30.
 
 ## Goal
 
@@ -39,3 +39,13 @@ inspector/status transitions from `search.rs` into `view_models::search`, add
 unit tests, and replace nearby raw colors/layout literals with semantic tokens
 or existing composites. Keep GPUI-bound fields in `SearchApp`. Run the tests
 listed above.
+
+## Result
+
+- Added `TrackRowActionVm` for Discover track-row action keys, labels, busy
+  tooltips, and remove/download tooltips.
+- Removed remaining screen-level `rgb(...)` literals from `search.rs`.
+- Replaced remaining numeric `px(...)` literals in `search.rs` with named
+  layout/typography constants or existing token values.
+- Replaced legacy thumbnail pixel hints with semantic `ThumbnailSize` values.
+- Added focused `view_models::search` unit tests.

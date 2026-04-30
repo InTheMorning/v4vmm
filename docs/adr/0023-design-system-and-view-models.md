@@ -414,7 +414,7 @@ This ADR is fulfilled when the following are true. Some of these are
 already true at merge of PR #5; others are explicitly tracked in
 `docs/plans/adr-0023-design-system-migration.md`.
 
-- [ ] `tokens.rs` / `theme.rs` / `theme_bridge.rs` are the only places with
+- [x] `tokens.rs` / `theme.rs` / `theme_bridge.rs` are the only places with
       raw color construction. Current screen literals are removed or routed
       through semantic tokens.
 - [x] WCAG matrix tests pass for both `Appearance::Dark` and
@@ -443,7 +443,7 @@ already true at merge of PR #5; others are explicitly tracked in
       `library`, `search`, `app`, and `ui_*`.
 - [x] No primitive/composite render defaults hardcode `Appearance::Dark`;
       they read from `Appearance::current(cx)` / `Environment`.
-- [ ] Final audit (`audit-token-usage`): zero `rgb()` / `px(<number>)`
+- [x] Final audit (`audit-token-usage`): zero `rgb()` / `px(<number>)`
       literals in screen modules outside `tokens.rs`, `theme.rs`,
       primitives, and composites.
 - [x] `docs/tasks/adr-0023-*.md` task packets exist for the remaining
