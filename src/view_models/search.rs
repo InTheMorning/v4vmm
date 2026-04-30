@@ -691,6 +691,56 @@ impl ResultNavigationTarget {
     }
 }
 
+/// Status text plus severity for Discover/Search render paths.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchStatusSnapshot {
+    pub(crate) text: String,
+    pub(crate) is_error: bool,
+}
+
+impl SearchStatusSnapshot {
+    #[must_use]
+    fn from_text(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            is_error: text.starts_with("Error:"),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
+}
+
+/// Pure render snapshot for the Discover/Search results pane.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "render snapshots intentionally group screen flags for one render pass"
+)]
+#[derive(Clone, Debug)]
+pub(crate) struct SearchRenderSnapshot {
+    pub(crate) status: SearchStatusSnapshot,
+    pub(crate) rows: Vec<ResultRow>,
+    pub(crate) selected_key: Option<String>,
+    pub(crate) type_filter: usize,
+    pub(crate) show_recents_root: bool,
+    pub(crate) loading: bool,
+    pub(crate) empty: bool,
+    pub(crate) has_more: bool,
+    pub(crate) fuzzy_search: bool,
+}
+
+/// Pure render snapshot for the recent-feeds root panel.
+#[derive(Clone, Debug)]
+pub(crate) struct RecentFeedsSnapshot {
+    pub(crate) feeds: Vec<Feed>,
+    pub(crate) status: String,
+    pub(crate) has_more: bool,
+    pub(crate) loading: bool,
+    pub(crate) empty: bool,
+}
+
 /// Pure command intent for appending one or more tracks to a playlist.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PlaylistAppendIntent {
@@ -780,6 +830,12 @@ impl SearchViewModel {
         }
     }
 
+    pub(crate) fn set_type_filter_if_changed(&mut self, index: usize) -> bool {
+        let before = self.type_filter;
+        self.set_type_filter(index);
+        self.type_filter != before
+    }
+
     /// Flip the fuzzy-search toggle.
     pub(crate) fn toggle_fuzzy_search(&mut self) {
         self.fuzzy_search = !self.fuzzy_search;
@@ -855,6 +911,40 @@ impl SearchViewModel {
     fn selected_result_index(&self) -> Option<usize> {
         let current_key = self.selected_key.as_deref()?;
         self.results.iter().position(|row| row.key() == current_key)
+    }
+
+    #[must_use]
+    pub(crate) fn render_snapshot(
+        &self,
+        inspector_stack_empty: bool,
+        input_is_empty: bool,
+    ) -> SearchRenderSnapshot {
+        let empty = self.results.is_empty();
+        SearchRenderSnapshot {
+            status: SearchStatusSnapshot::from_text(&self.status),
+            rows: self.results.clone(),
+            selected_key: self.selected_key.clone(),
+            type_filter: self.type_filter,
+            show_recents_root: inspector_stack_empty
+                && self.inspector_origin.is_none()
+                && empty
+                && input_is_empty,
+            loading: self.loading,
+            empty,
+            has_more: self.has_more,
+            fuzzy_search: self.fuzzy_search,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn recent_feeds_snapshot(&self) -> RecentFeedsSnapshot {
+        RecentFeedsSnapshot {
+            feeds: self.recent_feeds.clone(),
+            status: self.recent_status.clone(),
+            has_more: self.recent_has_more,
+            loading: self.recent_loading,
+            empty: self.recent_feeds.is_empty(),
+        }
     }
 
     /// Reset pure search state after the `MusicIndex` endpoint changes.
@@ -999,6 +1089,11 @@ impl SearchViewModel {
 
     pub(crate) fn replace_playlists(&mut self, playlists: Vec<db::Playlist>) {
         self.playlists = playlists;
+    }
+
+    #[must_use]
+    pub(crate) fn playlists_snapshot(&self) -> Vec<db::Playlist> {
+        self.playlists.clone()
     }
 
     pub(crate) fn fail_playlist_load(&mut self, error: impl std::fmt::Display) {
@@ -1846,10 +1941,15 @@ mod tests {
         let mut vm = SearchViewModel::new();
         vm.set_type_filter(2);
         assert_eq!(vm.type_filter, 2);
+        assert!(!vm.set_type_filter_if_changed(2));
+        assert!(vm.set_type_filter_if_changed(3));
+        assert_eq!(vm.type_filter, 3);
         // Out-of-range index stays at the prior value (caller is the
         // segmented control which knows its range).
         vm.set_type_filter(99);
-        assert_eq!(vm.type_filter, 2);
+        assert_eq!(vm.type_filter, 3);
+        assert!(!vm.set_type_filter_if_changed(99));
+        assert_eq!(vm.type_filter, 3);
     }
 
     #[test]
@@ -1880,6 +1980,57 @@ mod tests {
         assert_eq!(vm.selected_key.as_deref(), Some("track:abc"));
         vm.clear_selection();
         assert_eq!(vm.selected_key, None);
+    }
+
+    #[test]
+    fn search_view_model_render_snapshot_groups_search_render_state() {
+        let mut vm = SearchViewModel::new();
+        vm.status = "Error: offline".into();
+        vm.loading = true;
+        vm.has_more = true;
+        vm.type_filter = 2;
+        vm.fuzzy_search = false;
+        vm.results.push(ResultRow::new("feed", "feed-1", None));
+        vm.select_result("feed", "feed-1");
+
+        let snapshot = vm.render_snapshot(true, true);
+
+        assert_eq!(snapshot.status.text, "Error: offline");
+        assert!(snapshot.status.is_error);
+        assert!(!snapshot.status.is_empty());
+        assert_eq!(snapshot.rows.len(), 1);
+        assert_eq!(snapshot.selected_key.as_deref(), Some("feed:feed-1"));
+        assert_eq!(snapshot.type_filter, 2);
+        assert!(!snapshot.show_recents_root);
+        assert!(snapshot.loading);
+        assert!(!snapshot.empty);
+        assert!(snapshot.has_more);
+        assert!(!snapshot.fuzzy_search);
+
+        let empty_snapshot = SearchViewModel::new().render_snapshot(true, true);
+        assert!(empty_snapshot.show_recents_root);
+        assert!(empty_snapshot.empty);
+        assert!(empty_snapshot.status.is_empty());
+    }
+
+    #[test]
+    fn search_view_model_recent_feeds_snapshot_groups_recent_render_state() {
+        let mut vm = SearchViewModel::new();
+        vm.recent_feeds.push(Feed {
+            feed_guid: Some("feed-1".into()),
+            ..Feed::default()
+        });
+        vm.recent_status = "Loading recent feeds...".into();
+        vm.recent_has_more = true;
+        vm.recent_loading = true;
+
+        let snapshot = vm.recent_feeds_snapshot();
+
+        assert_eq!(snapshot.feeds.len(), 1);
+        assert_eq!(snapshot.status, "Loading recent feeds...");
+        assert!(snapshot.has_more);
+        assert!(snapshot.loading);
+        assert!(!snapshot.empty);
     }
 
     #[test]

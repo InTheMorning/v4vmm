@@ -57,6 +57,10 @@ The projection view-model layer is partially migrated:
   split-pane resize lifecycle are also VM-owned. Result-row key/display title
   projection and keyboard navigation targets now live with the result snapshot
   in the VM layer, as does artist-result enrichment after inspector loads.
+  Search and recent-feed render snapshots now group the remaining read-only
+  render flags instead of having `search.rs` recompute them field by field;
+  playlist popover rendering also reads playlists through a VM snapshot
+  accessor.
 - `view_models::library::MbTrackStatus` is now screen-independent.
 - `view_models::library::LibraryTrackRowVm` backs album detail track rows.
 - `view_models::library::LibraryArtistDetailVm` backs library artist detail.
@@ -101,8 +105,8 @@ The projection view-model layer is partially migrated:
   remove service-dispatch setup and status formatting from `library.rs`.
 - `search-view-model`: continue thinning `SearchViewModel` now that it owns
   Discover/Search pure UI state and snapshots. Next moves: replace direct
-  `search.rs` field mutation with typed methods for remaining render-state
-  accessors and status formatting.
+  `search.rs` field mutation with typed methods for remaining status
+  formatting and inspector-panel transitions.
 - `command-intent-types`: introduce small command enums or structs only where
   they remove direct service calls from screens. Do not build a broad
   CommandBus without a separate ADR.

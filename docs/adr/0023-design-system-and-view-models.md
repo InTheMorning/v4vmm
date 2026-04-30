@@ -278,8 +278,8 @@ selection (`selected_key`, `inspector_origin`), filter state
 (`type_filter`, `fuzzy_search`), both panes' loading / status /
 cursor / `has_more` flags, track download/remove in-flight
 transitions, drag-resize lifecycle, result-row identity / keyboard
-navigation targets, artist-result enrichment, and the loaded snapshots
-(`results`, `recent_feeds`, `playlists`). Discover result rows render through `ListRow`,
+navigation targets, render snapshots, artist-result enrichment, and the
+loaded snapshots (`results`, `recent_feeds`, `playlists`). Discover result rows render through `ListRow`,
 `Thumbnail`, `Label`, and `TagBadge` instead of raw row / badge
 layout. Inspector projection logic lives in `PublisherInspectorVm`,
 `ActionRowVm`, `TrackInspectorHeaderVm`, `ContributorVm`, and

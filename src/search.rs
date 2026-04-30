@@ -1536,26 +1536,31 @@ impl SearchApp {
 
 impl Render for SearchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut status_text = self.vm.status.clone();
-        let status_color = if status_text.starts_with("Error:") {
-            status_text = format!("{} {}", glyphs::STATUS_DANGER, status_text);
+        let stack = self.inspector_stack.clone();
+        let input_is_empty = self.input.read(cx).value().trim().is_empty();
+        let snapshot = self.vm.render_snapshot(stack.is_empty(), input_is_empty);
+        let status_text = if snapshot.status.is_error {
+            format!("{} {}", glyphs::STATUS_DANGER, snapshot.status.text)
+        } else {
+            snapshot.status.text.clone()
+        };
+        let status_color = if snapshot.status.is_error {
             color::status_danger()
         } else {
             color::text_muted()
         };
-        let status_empty = status_text.is_empty();
+        let status_empty = snapshot.status.is_empty();
 
-        let rows = self.vm.results.clone();
-        let selected_key = self.vm.selected_key.clone();
         let list_focused = self.list_focus.is_focused(_window);
-        let results: Vec<AnyElement> = rows
+        let results: Vec<AnyElement> = snapshot
+            .rows
             .iter()
             .map(|row| {
                 let image_url = row.display().image_url;
                 let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
                 render_result_item(
                     row,
-                    selected_key.as_deref(),
+                    snapshot.selected_key.as_deref(),
                     thumbnail.clone(),
                     list_focused,
                     cx,
@@ -1565,20 +1570,21 @@ impl Render for SearchApp {
         let type_filters: Vec<AnyElement> = TYPE_LABELS
             .iter()
             .enumerate()
-            .map(|(idx, label)| render_filter_button(idx, label, idx == self.vm.type_filter, cx))
+            .map(|(idx, label)| render_filter_button(idx, label, idx == snapshot.type_filter, cx))
             .collect();
-        let stack = self.inspector_stack.clone();
         let show_back = should_show_inspector_back(stack.len());
-        let input_is_empty = self.input.read(cx).value().trim().is_empty();
-        let show_recents_root = stack.is_empty()
-            && self.vm.inspector_origin.is_none()
-            && self.vm.results.is_empty()
-            && input_is_empty;
-        let inspector = render_inspector(stack.last(), show_back, show_recents_root, self, cx);
+        let inspector = render_inspector(
+            stack.last(),
+            show_back,
+            snapshot.show_recents_root,
+            self,
+            cx,
+        );
         let active_input = self.input.clone();
-        let is_loading = self.vm.loading;
-        let is_empty = self.vm.results.is_empty();
-        let has_more = self.vm.has_more;
+        let is_loading = snapshot.loading;
+        let is_empty = snapshot.empty;
+        let has_more = snapshot.has_more;
+        let fuzzy_search = snapshot.fuzzy_search;
         let search_label = "Search Index";
 
         div()
@@ -1668,18 +1674,14 @@ impl Render for SearchApp {
                                             )
                                             .child(
                                                 Button::new("fuzzy-toggle")
-                                                    .label(if self.vm.fuzzy_search {
+                                                    .label(if fuzzy_search {
                                                         "Fuzzy: On"
                                                     } else {
                                                         "Fuzzy: Off"
                                                     })
                                                     .scaled(Size::Small, cx)
-                                                    .when(self.vm.fuzzy_search, |button| {
-                                                        button.primary()
-                                                    })
-                                                    .when(!self.vm.fuzzy_search, |button| {
-                                                        button.ghost()
-                                                    })
+                                                    .when(fuzzy_search, |button| button.primary())
+                                                    .when(!fuzzy_search, |button| button.ghost())
                                                     .text_color(rgb(0xffffff))
                                                     .on_click(cx.listener(|this, _, _, cx| {
                                                         this.toggle_fuzzy_search(cx);
@@ -2310,8 +2312,7 @@ fn render_filter_button(
         .when(!selected, |button| button.ghost())
         .text_color(rgb(0xffffff))
         .on_click(cx.listener(move |this, _, _, cx| {
-            if this.vm.type_filter != idx {
-                this.vm.set_type_filter(idx);
+            if this.vm.set_type_filter_if_changed(idx) {
                 let has_query = !this.input.read(cx).value().trim().is_empty();
                 cx.notify();
                 if has_query {
@@ -2750,7 +2751,7 @@ fn render_add_to_playlist_panel_search(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let playlists = app.vm.playlists.clone();
+    let playlists = app.vm.playlists_snapshot();
 
     enum Target {
         Track(i64),
@@ -5302,11 +5303,12 @@ pub(crate) fn render_publisher_link_value(
 }
 
 fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -> AnyElement {
-    let feeds = app.vm.recent_feeds.clone();
-    let status = app.vm.recent_status.clone();
-    let has_more = app.vm.recent_has_more;
-    let loading = app.vm.recent_loading;
-    let is_empty = feeds.is_empty();
+    let snapshot = app.vm.recent_feeds_snapshot();
+    let feeds = snapshot.feeds;
+    let status = snapshot.status;
+    let has_more = snapshot.has_more;
+    let loading = snapshot.loading;
+    let is_empty = snapshot.empty;
 
     let mut tiles: Vec<AnyElement> = Vec::with_capacity(feeds.len());
     for feed in feeds {
