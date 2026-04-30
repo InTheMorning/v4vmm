@@ -4763,46 +4763,26 @@ pub(crate) fn render_feed_header(
 ) -> AnyElement {
     let rss_url = feed_rss_url(feed);
     let npub = feed_nostr(feed);
+    let mut header =
+        DetailHeader::new(EntityKind::Feed, title.to_string()).image(frame.image.clone());
+    if let Some(subtitle) = subtitle.filter(|value| !value.trim().is_empty()) {
+        header = header.subtitle(subtitle.to_string());
+    }
+
     div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::LG)
-        .child(Thumbnail::new(EntityKind::Feed, ThumbnailSize::Lg).image(frame.image.clone()))
+        .flex_col()
+        .gap(spacing::SM)
+        .child(header)
         .child(
             div()
-                .flex_1()
-                .min_w_0()
-                .child(div().mb(spacing::SM).child(TagBadge::new(EntityKind::Feed)))
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(typography::LINE_HEADER)
-                        .child(SharedString::from(title.to_string())),
-                )
-                .when_some(subtitle.map(str::to_owned), |el, sub| {
-                    el.child(
-                        div()
-                            .mt(spacing::XS)
-                            .text_size(typography::SIZE_HEADLINE)
-                            .font_weight(FontWeight::MEDIUM)
-                            .line_height(typography::LINE_TITLE)
-                            .text_color(color::text_muted())
-                            .child(SharedString::from(sub)),
-                    )
-                })
-                .child(
-                    div()
-                        .mt(spacing::SM)
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(spacing::SM)
-                        .justify_start()
-                        .child(render_rss_icon_button(rss_url, cx))
-                        .child(render_nostr_icon_button(npub, "feed", cx)),
-                ),
+                .ml(layout::DETAIL_HEADER_TEXT_OFFSET)
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(spacing::SM)
+                .justify_start()
+                .child(render_rss_icon_button(rss_url, cx))
+                .child(render_nostr_icon_button(npub, "feed", cx)),
         )
         .into_any_element()
 }

@@ -161,12 +161,14 @@ pub mod layout {
     pub const METADATA_VALUE_INDENT: Pixels = px(142.0);
     pub const PLAYLIST_THUMB_SLOT: Pixels = px(32.0);
     pub const PLAYLIST_TITLE_OFFSET: Pixels = px(48.0);
+    pub const DETAIL_HEADER_TEXT_OFFSET: Pixels = px(96.0);
     pub const STATUS_MESSAGE_WIDTH: Pixels = px(220.0);
     pub const CONFLICT_MESSAGE_WIDTH: Pixels = px(190.0);
     pub const ACTION_MESSAGE_WIDTH: Pixels = px(180.0);
     pub const SETTINGS_COLUMN_WIDTH: Pixels = px(720.0);
     pub const MENU_MIN_WIDTH: Pixels = px(320.0);
     pub const MENU_MAX_WIDTH: Pixels = px(520.0);
+    pub const TRACK_NUMBER_WIDTH: Pixels = px(24.0);
 }
 
 pub mod glyphs {

@@ -1019,6 +1019,7 @@ impl<'a> LibraryTrackRowVm<'a> {
     }
 
     /// Leading `"{n}. "` segment, empty when there is no track number.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn number_prefix(&self) -> String {
         self.track
@@ -1027,8 +1028,17 @@ impl<'a> LibraryTrackRowVm<'a> {
             .unwrap_or_default()
     }
 
+    /// Leading track-number label for the shared [`TrackRow`] composite.
+    #[must_use]
+    pub(crate) fn number_label(&self) -> String {
+        self.track
+            .track_number
+            .map_or_else(|| "·".into(), |n| n.to_string())
+    }
+
     /// Trailing `"  (M:SS)"` segment, empty when there is no
     /// duration.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn duration_suffix(&self) -> String {
         self.track
@@ -1037,7 +1047,16 @@ impl<'a> LibraryTrackRowVm<'a> {
             .unwrap_or_default()
     }
 
+    /// Duration label for the shared [`TrackRow`] composite.
+    #[must_use]
+    pub(crate) fn duration_display(&self) -> Option<String> {
+        self.track
+            .duration_seconds
+            .map(|seconds| format!("{}:{:02}", seconds / 60, seconds % 60))
+    }
+
     /// Concatenated single-line label: `"{n}. {title}  (M:SS)"`.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn full_label(&self) -> String {
         format!(
@@ -1531,6 +1550,8 @@ mod tests {
         let mut r = row();
         r.track_number = Some(7);
         assert_eq!(LibraryTrackRowVm::new(&r, None).number_prefix(), "7. ");
+        assert_eq!(LibraryTrackRowVm::new(&r, None).number_label(), "7");
+        assert_eq!(LibraryTrackRowVm::new(&row(), None).number_label(), "·");
     }
 
     #[test]
@@ -1540,6 +1561,12 @@ mod tests {
         assert_eq!(
             LibraryTrackRowVm::new(&r, None).duration_suffix(),
             "  (1:05)"
+        );
+        assert_eq!(
+            LibraryTrackRowVm::new(&r, None)
+                .duration_display()
+                .as_deref(),
+            Some("1:05")
         );
     }
 

@@ -268,10 +268,13 @@ snapshots through `LibraryViewModel` / `LibrarySnapshot` methods
 instead of mutating those maps and vectors directly. Its library-tree
 filtering / expansion projection lives in `LibraryTreeProjection`, and
 its playlist sidebar rows render from `PlaylistSidebarVm` through
-`ListRow` / `Label`. Library selection, album add-to-playlist picker
-toggles, status / busy-track / hovered-thumbnail updates, and command
-intent for playlist append / track subscribe are all mediated by
-`LibraryViewModel` methods and value types
+`ListRow` / `Label`. Library album track rows now compose the same
+`TrackRow` composite used by Discover release rows, keeping the release
+detail skeleton consistent across modes while preserving Library-specific
+trailing actions. Library selection, album add-to-playlist picker toggles,
+status / busy-track / hovered-thumbnail updates, and command intent for
+playlist append / track subscribe are all mediated by `LibraryViewModel`
+methods and value types
 (`PlaylistAppendIntent`, `PlaylistAppendOutcome`,
 `TrackSubscribeOutcome`) rather than direct screen mutation.
 
@@ -295,9 +298,9 @@ layout. Inspector projection logic lives in `PublisherInspectorVm`,
 element tree and event wiring.
 
 `library.rs` and `search.rs` remain large. They still call services
-directly (no command bus seam yet) and contain raw `px(...)` and
-`rgb(...)` literals. The audit sweep is tracked separately as
-`audit-token-usage` in
+directly (no command bus seam yet), but screen-level `rgb(...)` and numeric
+`px(...)` literals have been routed through tokens/theme constants as part of
+the audit sweep tracked in
 `docs/plans/adr-0023-design-system-migration.md`.
 
 ### Cross-cutting bridges

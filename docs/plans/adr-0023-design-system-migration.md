@@ -166,6 +166,9 @@ The projection view-model layer is partially migrated:
   badge rather than deriving compatibility color data. `search.rs` now uses
   `TagBadge` for Discover rows and feed / track inspector labels; the
   remaining Search usage is MusicBrainz release-picker button styling.
+- `release-detail-parity`: align Discover feed detail and Library album detail
+  by wiring both through shared header / row composites and fixing
+  low-contrast ghost action defaults. Completed 2026-04-30.
 
 ## Implementation Order
 
@@ -180,6 +183,9 @@ The projection view-model layer is partially migrated:
 - [x] `search-inspector-token`: migrate the highest-count Discover inspector and
    metadata literal sites to semantic tokens/composites, backed by focused
    `SearchViewModel` tests for any moved transition logic.
+- [x] `release-detail-parity`: make the same release render with the same
+   detail skeleton in Discover and Library by using shared `DetailHeader` and
+   `TrackRow` composites.
 
 ### Deferred Architecture Work
 

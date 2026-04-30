@@ -31,6 +31,11 @@ wiring and service dispatch.
   `library.rs`, and `search.rs`.
 - Fixed geometry that remains screen-visible is routed through named
   `theme::layout` or `theme::typography` constants.
+- Discover feed detail and Library album detail now share core
+  `DetailHeader` / `TrackRow` composites, so the same release has the same
+  structural presentation across modes.
+- Ghost action buttons now default to accent text instead of on-accent text,
+  addressing low-contrast secondary controls on dark surfaces.
 - New projection code remains GPUI-free.
 
 ## Missing Tests

@@ -155,10 +155,10 @@ impl RenderOnce for TrackRow {
         }
 
         body = body
-            // Leading track-number column — fixed 24 px, right-aligned.
+            // Leading track-number column — fixed width, right-aligned.
             .child(
                 div()
-                    .w(gpui::px(24.0))
+                    .w(crate::ui::theme::layout::TRACK_NUMBER_WIDTH)
                     .flex_shrink_0()
                     .text_right()
                     .text_color(SemanticColor::TertiaryLabel.resolve(appearance))
@@ -166,13 +166,7 @@ impl RenderOnce for TrackRow {
                     .child(number),
             )
             // Thumbnail.
-            .child(
-                Thumbnail::new(
-                    EntityKind::Track,
-                    ThumbnailSize::from_legacy_px(28.0, false),
-                )
-                .image(thumbnail),
-            )
+            .child(Thumbnail::new(EntityKind::Track, ThumbnailSize::Sm).image(thumbnail))
             // Title — fills remaining space, truncates.
             .child(
                 div()

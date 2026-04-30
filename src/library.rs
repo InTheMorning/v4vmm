@@ -52,7 +52,7 @@ use crate::playlist_service;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, Thumbnail, ThumbnailSize,
+    EntityKind, ListRow, Thumbnail, ThumbnailSize, TrackRow as TrackRowComposite,
 };
 use crate::ui::primitives::{Image as ImagePrimitive, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
@@ -2467,7 +2467,15 @@ fn render_album_detail(
         .tracks
         .iter()
         .map(|track| {
-            render_library_track_row(track, mb_status, busy_track, add_open_track, playlists, cx)
+            render_library_track_row(
+                track,
+                mb_status,
+                busy_track,
+                add_open_track,
+                album_thumbs,
+                playlists,
+                cx,
+            )
         })
         .collect();
 
@@ -2528,23 +2536,53 @@ fn render_album_detail(
                 .subtitle(vm.artist())
                 .image(thumb_image.clone()),
         )
+        .child(buttons)
         .child(DetailGrid::new(
             vm.detail_rows()
                 .into_iter()
                 .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
                 .collect::<Vec<_>>(),
-        ))
-        .child(buttons);
+        ));
     if let Some(panel) = feed_popup {
         container = container.child(panel);
     }
+    let track_count = vm.track_count();
+    let track_summary = vm.total_duration_label().map_or_else(
+        || format!("{track_count} total"),
+        |duration| format!("{track_count} total · {duration}"),
+    );
     container
         .child(
             div()
                 .flex()
                 .flex_col()
-                .gap(spacing::XXS)
-                .children(track_rows),
+                .gap(spacing::SM)
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_size(typography::SIZE_CAPTION)
+                                .text_color(color::text_muted())
+                                .child("Tracks"),
+                        )
+                        .child(
+                            div()
+                                .text_size(typography::SIZE_MICRO)
+                                .text_color(color::text_muted())
+                                .child(SharedString::from(track_summary)),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(spacing::XXS)
+                        .children(track_rows),
+                ),
         )
         .into_any_element()
 }
@@ -2554,6 +2592,7 @@ fn render_library_track_row(
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     busy_track: Option<i64>,
     add_open_track: Option<i64>,
+    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -2564,86 +2603,90 @@ fn render_library_track_row(
     let is_busy = busy_track == Some(track_id);
     let popup_open = add_open_track == Some(track_id);
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
-    let label_text = vm.full_label();
     let mb_text = vm.mb_status_text();
     let mb_kind = vm.mb_status_kind();
+    let thumbnail = track
+        .track_image_href
+        .as_ref()
+        .or(track.album_image_href.as_ref())
+        .and_then(|url| album_thumbs.get(url.as_str()))
+        .and_then(|opt| opt.clone());
 
-    let row = div()
-        .id(SharedString::from(format!("album-track-{track_id}")))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(spacing::SM)
-        .px(spacing::SM)
-        .py(spacing::XS)
-        .rounded(radius::SM)
-        .hover(|el| el.bg(color::bg_surface_hi()))
-        .child(
-            div()
-                .id(SharedString::from(format!("album-track-select-{track_id}")))
-                .flex_1()
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.select_track(&track_for_select, cx);
-                    cx.notify();
-                }))
-                .child(SharedString::from(label_text))
-                .when(mb_text.is_some(), |el| {
-                    let color = match mb_kind {
-                        Some(MbStatusKind::Success) => color::status_success(),
-                        Some(MbStatusKind::Danger) => color::status_danger(),
-                        Some(MbStatusKind::Warning) => color::status_warning(),
-                        _ => color::text_muted(),
-                    };
-                    el.child(
-                        div()
-                            .text_xs()
-                            .text_color(color)
-                            .child(SharedString::from(mb_text.unwrap().to_string())),
-                    )
-                }),
-        )
-        .child(
-            Button::new(SharedString::from(format!("lib-toggle-{track_id}")))
-                .label(if is_busy {
-                    "Subscribing..."
-                } else if in_library {
-                    "Unsubscribe"
-                } else {
-                    "Subscribe"
-                })
-                .scaled(Size::XSmall, cx)
-                .when(in_library, |btn| btn.primary())
-                .when(!in_library, |btn| btn.ghost())
-                .text_color(color::text_on_accent())
-                .disabled(is_busy)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if in_library {
-                        this.remove_track(track_id);
-                    } else {
-                        this.subscribe_track(track_for_click.clone(), cx);
-                    }
-                    cx.notify();
-                })),
-        )
-        .when(track.local_path.is_some(), |el| {
-            el.child(
-                div()
-                    .text_xs()
-                    .text_color(color::status_success())
-                    .child("dl'd"),
-            )
+    let toggle_label = if is_busy {
+        "Working..."
+    } else if in_library {
+        "Remove"
+    } else {
+        "Download"
+    };
+    let toggle_button = Button::new(SharedString::from(format!("lib-toggle-{track_id}")))
+        .label(toggle_label)
+        .scaled(Size::XSmall, cx)
+        .compact()
+        .when(in_library, |btn| {
+            btn.danger().text_color(color::text_on_accent())
         })
-        .child(
-            Button::new(SharedString::from(format!("album-track-add-{track_id}")))
-                .label(if popup_open { "Add ▴" } else { "Add ▾" })
-                .ghost()
-                .scaled(Size::XSmall, cx)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.vm.toggle_album_track_picker(track_id);
-                    cx.notify();
-                })),
+        .when(!in_library, |btn| btn.ghost().text_color(color::accent()))
+        .disabled(is_busy)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            if in_library {
+                this.remove_track(track_id);
+            } else {
+                this.subscribe_track(track_for_click.clone(), cx);
+            }
+            cx.notify();
+        }));
+
+    let mut row = TrackRowComposite::new(SharedString::from(format!("album-track-{track_id}")))
+        .number(vm.number_label())
+        .title(vm.title())
+        .duration(vm.duration_display())
+        .thumbnail(thumbnail)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.select_track(&track_for_select, cx);
+            cx.notify();
+        }))
+        .trailing_child(toggle_button);
+
+    if let Some(text) = mb_text {
+        let status_color = match mb_kind {
+            Some(MbStatusKind::Success) => color::status_success(),
+            Some(MbStatusKind::Danger) => color::status_danger(),
+            Some(MbStatusKind::Warning) => color::status_warning(),
+            _ => color::text_muted(),
+        };
+        row = row.trailing_child(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .text_color(status_color)
+                .child(SharedString::from(text.to_string())),
         );
+    }
+
+    if track.local_path.is_some() {
+        row = row.trailing_child(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .text_color(color::status_success())
+                .child("dl'd"),
+        );
+    }
+
+    row = row.trailing_child(
+        Button::new(SharedString::from(format!("album-track-add-{track_id}")))
+            .label(if popup_open {
+                "+ Playlist ▴"
+            } else {
+                "+ Playlist"
+            })
+            .ghost()
+            .scaled(Size::XSmall, cx)
+            .text_color(color::accent())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.vm.toggle_album_track_picker(track_id);
+                cx.notify();
+            })),
+    );
 
     if popup_open {
         let popup = render_album_track_add_panel(track_id, playlists, cx);

@@ -28,7 +28,7 @@ pub fn action_button(label: &str, cx: &App) -> Button {
         .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
-        .text_color(color(cx, SemanticColor::OnAccent))
+        .text_color(color(cx, SemanticColor::Accent))
         .text_size(FontSize::Micro.scaled(cx))
         .rounded(Radius::SM.scaled(cx))
         .border_1()

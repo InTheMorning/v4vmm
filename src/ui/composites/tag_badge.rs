@@ -154,6 +154,7 @@ impl RenderOnce for TagBadge {
             .unwrap_or_else(|| SharedString::from(self.kind.label()));
 
         div()
+            .flex_none()
             .text_size(FontSize::Micro.scaled(cx))
             .font_weight(FontWeight::BOLD)
             .text_color(fg)
