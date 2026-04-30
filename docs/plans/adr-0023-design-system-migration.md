@@ -2,10 +2,9 @@
 
 ## Current Snapshot
 
-Branch: `master`, based on local HEAD `f238eae` (`feat(view-models): project
-playlist detail and per-track row`) with additional uncommitted refactor work.
-This branch is ahead of `origin/master` and should not be pushed or turned
-into a PR without explicit direction.
+Verified 2026-04-30 on local HEAD `9a73a3d`, with additional uncommitted
+refactor work in progress. This branch should not be pushed or turned into a
+PR without explicit direction.
 
 The ADR 0023 design-system foundation is in place:
 
@@ -96,6 +95,20 @@ The projection view-model layer is partially migrated:
 - `TrackSubscribeOutcome` moves library track subscribe completion state
   into the VM: busy-track clearing plus success/failure status text now live
   outside `library.rs`.
+- Documentation is now organized by purpose: architecture diagrams and app
+  overview under `docs/architecture/`, migration plans under `docs/plans/`,
+  operator workflows under `docs/runbooks/`, storage notes under
+  `docs/schema/`, research under `docs/research/`, task packets under
+  `docs/tasks/`, reviews under `docs/reviews/`, and older roadmap notes under
+  `docs/archive/`.
+
+## Orchestration Artifacts
+
+- `docs/tasks/adr-0023-task-001-doc-architecture-cleanup.md`
+- `docs/tasks/adr-0023-task-002-top-app-token-composite-slice.md`
+- `docs/tasks/adr-0023-task-003-library-token-intent-slice.md`
+- `docs/tasks/adr-0023-task-004-search-inspector-token-slice.md`
+- `docs/reviews/adr-0023-review-checklist.md`
 
 ## Remaining Work
 
@@ -150,10 +163,24 @@ The projection view-model layer is partially migrated:
   `TagBadge` for Discover rows and feed / track inspector labels; the
   remaining Search usage is MusicBrainz release-picker button styling.
 
+## Implementation Order
+
+- [x] `docs-cleanup`: land the docs organization and update all stale references
+   before implementation so future task packets point at stable paths.
+- [x] `top-app-token-composite`: finish the app-level token sweep and bind the
+   playback strip to `NowPlayingBar`, because this touches the root UI surface
+   and establishes the remaining screen pattern.
+- [ ] `library-token-intent`: continue the library token audit and introduce
+   narrow command-intent/result values only where they remove status-formatting
+   or service-setup code from `library.rs`.
+- [ ] `search-inspector-token`: migrate the highest-count Discover inspector and
+   metadata literal sites to semantic tokens/composites, backed by focused
+   `SearchViewModel` tests for any moved transition logic.
+
 ### Deferred Architecture Work
 
 - A broad CommandBus / QueryService / EventBus architecture remains an ideal
-  target in `docs/architecture-diagrams.md`; it is not part of this ADR 0023
+  target in `docs/architecture/architecture-diagrams.md`; it is not part of this ADR 0023
   cleanup unless a new ADR scopes it.
 - Splitting `library.rs` or `search.rs` into directories remains out of
   scope for this plan. Do that only under a separate ADR.

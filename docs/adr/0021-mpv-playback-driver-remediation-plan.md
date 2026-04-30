@@ -184,7 +184,7 @@ Recommended sequence:
 
 1. Revise ADR 0021 with runtime ownership, command semantics, pause policy,
    IPC contract, socket hygiene, and config schema.
-2. Update `docs/workflows.md` to distinguish session-only playback from
+2. Update `docs/runbooks/workflows.md` to distinguish session-only playback from
    live-driver playback.
 3. Add playback config structs and defaults.
 4. Add the playback owner/reconciliation abstraction without mpv.

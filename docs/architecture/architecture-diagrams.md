@@ -27,6 +27,18 @@ graph TD
             SrchApp["search.rs\nSearchApp\n(Discover)"]
         end
 
+        subgraph VM["View Models\n(no GPUI imports)"]
+            LibVM["view_models/library.rs\nLibraryViewModel\nLibrarySnapshot\nLibrary projections"]
+            SrchVM["view_models/search.rs\nSearchViewModel\nResult rows\nInspector projections"]
+            ProjVM["artist/feed/track/format\nprojection helpers"]
+        end
+
+        subgraph DS["Design System"]
+            Tokens["ui/tokens.rs\nsemantic color · spacing · type · radius · scale"]
+            Primitives["ui/primitives/*\nButton · Label · Surface · Stack"]
+            Composites["ui/composites/*\nThumbnail · ListRow · TagBadge · NowPlayingBar"]
+        end
+
         subgraph Services["Service Layer\n(no GPUI imports)"]
             FeedSvc["feed_service"]
             LibSvc["library_service"]
@@ -49,9 +61,15 @@ graph TD
     run_app --> LibApp
     run_app --> SrchApp
     run_app --> POwner
+    run_app --> Composites
 
     LibApp --> FeedSvc & LibSvc & PLSvc & MetaSvc
     SrchApp --> FeedSvc & LibSvc & SubSvc & PLSvc
+    LibApp --> LibVM & ProjVM
+    SrchApp --> SrchVM & ProjVM
+    LibApp & SrchApp --> Primitives & Composites
+    Composites --> Primitives
+    Primitives --> Tokens
     cli --> FeedSvc & LibSvc & SubSvc & PLSvc & PlaySvc
 
     FeedSvc --> RSS & MI
@@ -76,14 +94,22 @@ graph LR
         UITrack["ui_track.rs"]
         UIFeed["ui_feed.rs"]
         UIArtist["ui_artist.rs"]
-        UICommon["ui_common.rs"]
         UICtx["ui_context.rs"]
         Views["views.rs"]
     end
 
-    subgraph UIKit["UI Kit (ui/)"]
-        Theme["theme.rs\ncolor · spacing\ntypography · radius"]
-        PlaylistPop["playlist_popover.rs\nAddToPlaylistPopover"]
+    subgraph DS["Design System (ui/)"]
+        Tokens["tokens.rs\nsemantic color · spacing · type · radius · scale"]
+        Theme["theme.rs + theme_bridge.rs\nlegacy compatibility · Environment install"]
+        Primitives["primitives/\nButton · Label · Surface · Stack · Popover"]
+        Composites["composites/\nThumbnail · ListRow · TagBadge\nSegmentedControl · NowPlayingBar"]
+        LegacyPop["playlist_popover.rs\nlegacy bridge"]
+    end
+
+    subgraph VM["View Models (GPUI-free)"]
+        LibVM["library.rs\nLibraryViewModel · LibrarySnapshot\nLibraryTreeProjection · Playlist VMs"]
+        SrchVM["search.rs\nSearchViewModel · ResultRowVm\nLazyPanel · inspector VMs"]
+        SharedVM["artist.rs · feed.rs · track.rs · format.rs"]
     end
 
     subgraph Domain["Domain / Service"]
@@ -109,10 +135,16 @@ graph LR
     end
 
     TopApp --> LibApp & SrchApp
-    LibApp --> UITrack & UIFeed & UIArtist & UICommon & Views & UICtx
-    SrchApp --> UITrack & UIFeed & UIArtist & UICommon & Views
-    UITrack & UIFeed & UIArtist --> PlaylistPop
-    UITrack & UIFeed & UIArtist & UICommon & Views --> Theme
+    TopApp --> Composites
+    LibApp --> UITrack & UIFeed & UIArtist & Views & UICtx
+    SrchApp --> UITrack & UIFeed & UIArtist & Views
+    LibApp --> LibVM & SharedVM
+    SrchApp --> SrchVM & SharedVM
+    UITrack & UIFeed & UIArtist --> Composites & LegacyPop
+    LibApp & SrchApp & UITrack & UIFeed & UIArtist & Views --> Primitives & Composites
+    Composites --> Primitives
+    Primitives --> Tokens
+    Theme --> Tokens
 
     LibApp --> FeedSvc & LibSvc & PLSvc & MetaSvc & TrackCmp
     SrchApp --> FeedSvc & LibSvc & SubSvc & PLSvc & TrackCmp
@@ -166,18 +198,22 @@ graph TD
             end
         end
 
-        subgraph SharedComponents["Shared render helpers"]
-            TrackRow["ui_track.rs\nTrackRow (Discover mode)"]
-            FeedRow["ui_feed.rs\nFeed header/row"]
-            ArtistRow["ui_artist.rs\nArtist row"]
-            Thumb["ui_common.rs\nThumbnail · truncated"]
-            AddPLPop["playlist_popover.rs\nAddToPlaylistPopover\n(floating HIG popover)"]
+        subgraph SharedComponents["Design-system components"]
+            TrackRow["ui/composites/track_row.rs\nTrack row chrome"]
+            ListRow["ui/composites/list_row.rs\nSelectable/focused row"]
+            FeedRow["ui_feed.rs + FeedVm\nFeed header/row"]
+            ArtistRow["ui_artist.rs + ArtistVm\nArtist row"]
+            Thumb["ui/composites/thumbnail.rs\nThumbnail"]
+            Badges["ui/composites/tag_badge.rs\nTagBadge"]
+            AddPLPop["ui/composites/playlist_popover.rs\nAddToPlaylistPopover"]
+            NowPlaying["ui/composites/now_playing_bar.rs\nRoot mini-player"]
         end
     end
 
     TopApp --> TopBar & Content
-    Results --> TrackRow & FeedRow & ArtistRow
-    TrackRow --> AddPLPop & Thumb
+    PlayBar --> NowPlaying
+    Results --> ListRow & TrackRow & FeedRow & ArtistRow
+    TrackRow --> AddPLPop & Thumb & Badges
     FeedRow --> Thumb
     LibTree --> Thumb
 ```

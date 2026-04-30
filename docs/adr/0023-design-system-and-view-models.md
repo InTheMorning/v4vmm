@@ -3,8 +3,10 @@
 ## Status
 
 Accepted — design-system foundation and stateful screen VMs implemented for
-both library and discover screens; token-literal sweep
-(`audit-token-usage`) and a typed command-bus seam remain.
+both library and discover screens. The remaining ADR 0023 work is the
+screen-literal audit, focused command-intent extraction, and final thinning
+of screen-owned inspector/status glue. A broad CommandBus remains outside
+this ADR unless a later ADR scopes it.
 
 ## Context
 
@@ -39,7 +41,7 @@ Before the work documented here, the UI had four problems:
    element tree, and the projections were not unit-testable without a
    `Window` and an `App` cx.
 
-The architecture diagrams in `docs/architecture-diagrams.md` describe the
+The architecture diagrams in `docs/architecture/architecture-diagrams.md` describe the
 target shape: a layered UI built from tokens → primitives → composites →
 screens, with a view-model layer between domain services and screens. In the
 ideal architecture, view-models hold read snapshots, local UI state, and
@@ -53,11 +55,12 @@ default appearance/scale accessor for primitives and composites, and
 `view_models::library` now owns the `MusicBrainz` row status type plus
 artist-detail and playlist-detail projections.
 
-The ideal architecture is still not complete. `library.rs` and `search.rs`
-continue to own most screen state and still contain direct service dispatch,
-raw layout literals, and several color literals. `search.rs` has no dedicated
-screen view-model yet. The remaining migration is tracked in
-`docs/remaining_plans.md`.
+The ideal architecture is still not complete. `LibraryViewModel` and
+`SearchViewModel` now own the pure snapshots and many local UI transitions,
+but `app.rs`, `library.rs`, and `search.rs` still contain direct service
+dispatch, raw layout literals, and several color literals. The remaining
+migration is tracked in
+`docs/plans/adr-0023-design-system-migration.md`.
 
 This ADR records the decision behind that work and the rules that govern
 each layer going forward.
@@ -167,8 +170,10 @@ screen. ADR 0023 permits two shapes, because the migration is incremental:
    today.
 2. **Screen VMs** — stateful models that own read snapshots, local UI state
    (selection, filters, what is expanded), and command intent for a screen.
-   This is the target shape described in `docs/architecture-diagrams.md` and
-   `docs/remaining_plans.md` for `LibraryViewModel` and `SearchViewModel`.
+   This is the target shape described in
+   `docs/architecture/architecture-diagrams.md` and
+   `docs/plans/adr-0023-design-system-migration.md` for
+   `LibraryViewModel` and `SearchViewModel`.
 
 Rules — enforced by the module-level documentation in `view_models/mod.rs`
 and by code review:
@@ -292,7 +297,8 @@ element tree and event wiring.
 `library.rs` and `search.rs` remain large. They still call services
 directly (no command bus seam yet) and contain raw `px(...)` and
 `rgb(...)` literals. The audit sweep is tracked separately as
-`audit-token-usage` in `docs/remaining_plans.md`.
+`audit-token-usage` in
+`docs/plans/adr-0023-design-system-migration.md`.
 
 ### Cross-cutting bridges
 
@@ -327,8 +333,8 @@ directly (no command bus seam yet) and contain raw `px(...)` and
   remaining screens.
 - The smaller screen helpers are meaningfully thinner. `library.rs` and
   `search.rs` still carry hardcoded literals and inline state/service glue,
-  but the remaining work is now described as a screen-VM migration rather
-  than a design-system invention task.
+  but the remaining work is now described as a screen-VM and token-audit
+  migration rather than a design-system invention task.
 - The SwiftUI-shaped API (`Label` modifiers, `VStack`/`HStack`,
   `Environment`, `DisclosureGroup`) reduces cognitive load for callers
   and gives migration of further screens a clear template.
@@ -406,7 +412,7 @@ an `Hsla` literal.
 
 This ADR is fulfilled when the following are true. Some of these are
 already true at merge of PR #5; others are explicitly tracked in
-`docs/remaining_plans.md`.
+`docs/plans/adr-0023-design-system-migration.md`.
 
 - [ ] `tokens.rs` / `theme.rs` / `theme_bridge.rs` are the only places with
       raw color construction. Current screen literals are removed or routed
@@ -440,6 +446,9 @@ already true at merge of PR #5; others are explicitly tracked in
 - [ ] Final audit (`audit-token-usage`): zero `rgb()` / `px(<number>)`
       literals in screen modules outside `tokens.rs`, `theme.rs`,
       primitives, and composites.
+- [x] `docs/tasks/adr-0023-*.md` task packets exist for the remaining
+      screen-VM and token-audit slices, and each slice records its test
+      command before being marked done.
 
 ## References
 
@@ -447,7 +456,8 @@ already true at merge of PR #5; others are explicitly tracked in
   render helper).
 - ADR 0015 — Non-UI Service Boundaries (south-side companion).
 - ADR 0022 — UI-Agnostic Core Extraction (south-side companion).
-- `docs/architecture-diagrams.md` — current and target architecture
+- `docs/architecture/architecture-diagrams.md` — current and target architecture
   diagrams.
-- `docs/remaining_plans.md` — outstanding migration work (Tracks E, G, D).
+- `docs/plans/adr-0023-design-system-migration.md` — outstanding migration
+  work (Tracks E, G, D).
 - PR #5 (commit f2548a0) — implementation.

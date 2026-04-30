@@ -167,8 +167,11 @@ impl RenderOnce for TrackRow {
             )
             // Thumbnail.
             .child(
-                Thumbnail::new(EntityKind::Track, ThumbnailSize::from_legacy_px(28.0, false))
-                    .image(thumbnail),
+                Thumbnail::new(
+                    EntityKind::Track,
+                    ThumbnailSize::from_legacy_px(28.0, false),
+                )
+                .image(thumbnail),
             )
             // Title — fills remaining space, truncates.
             .child(

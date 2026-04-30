@@ -21,7 +21,7 @@
 //! variant is multiplied by [`ScaleFactor::multiplier`] instead — it
 //! represents an explicit pixel value, not a discrete tier.
 //!
-//! See `docs/architecture-diagrams.md` § 2.4.
+//! See `docs/architecture/architecture-diagrams.md` § 2.4.
 
 #![warn(clippy::pedantic)]
 

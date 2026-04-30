@@ -13,7 +13,7 @@
 //! Unlike primitives they may make opinionated layout choices (e.g. "the
 //! detail header always shows a thumbnail to the left of the title block").
 //!
-//! See `docs/architecture-diagrams.md` § 2.3.
+//! See `docs/architecture/architecture-diagrams.md` § 2.3.
 
 #![warn(clippy::pedantic)]
 

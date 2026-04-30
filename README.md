@@ -137,7 +137,7 @@ Global shortcuts wired in the app today:
 ## Docs
 
 - [Docs index](docs/README.md)
-- [App overview](docs/app-overview.md)
-- [Library and discovery workflows](docs/workflows.md)
-- [Storage and metadata model](docs/storage-and-metadata.md)
+- [App overview](docs/architecture/app-overview.md)
+- [Library and discovery workflows](docs/runbooks/workflows.md)
+- [Storage and metadata model](docs/schema/storage-and-metadata.md)
 - ADRs remain in [`docs/adr/`](docs/adr/)

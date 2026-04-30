@@ -143,7 +143,7 @@ v4vmm library tracks --json
 
 - Commands return structured JSON.
 - Commands use the same services as the UI.
-- Commands are documented in `docs/workflows.md`.
+- Commands are documented in `docs/runbooks/workflows.md`.
 
 ## Phase E — Download Manager Readiness
 

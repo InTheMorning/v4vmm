@@ -1,3 +1,21 @@
+#![warn(clippy::pedantic)]
+#![expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::doc_markdown,
+    clippy::manual_let_else,
+    clippy::map_unwrap_or,
+    clippy::match_same_arms,
+    clippy::needless_pass_by_value,
+    clippy::redundant_closure_for_method_calls,
+    clippy::single_match_else,
+    clippy::struct_excessive_bools,
+    clippy::too_many_lines,
+    clippy::unreadable_literal,
+    clippy::unused_self,
+    reason = "legacy screen module is being migrated incrementally under ADR 0023"
+)]
+
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -39,7 +57,6 @@ use crate::ui::composites::{
 };
 use crate::ui::primitives::{Image as ImagePrimitive, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
@@ -177,6 +194,7 @@ pub struct LibraryApp {
 }
 
 use crate::ui::render_rss_icon_link;
+use crate::ui::theme::badges;
 use crate::ui::theme::color;
 use crate::ui::theme::radius;
 use crate::ui::theme::spacing;

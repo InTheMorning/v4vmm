@@ -15,7 +15,7 @@
 //! * Be implemented as `RenderOnce` builders so they can be cheaply composed
 //!   inside a parent's `render()` call without owning state.
 //!
-//! See `docs/architecture-diagrams.md` § 2.3 for where this layer fits in the
+//! See `docs/architecture/architecture-diagrams.md` § 2.3 for where this layer fits in the
 //! ideal architecture pyramid.
 
 #![warn(clippy::pedantic)]

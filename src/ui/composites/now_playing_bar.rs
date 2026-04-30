@@ -14,9 +14,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{
-    div, prelude::*, App, Image, IntoElement, RenderOnce, SharedString, Styled, Window,
-};
+use gpui::{div, prelude::*, App, Image, IntoElement, RenderOnce, SharedString, Styled, Window};
 
 use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
 use crate::ui::primitives::Label;
@@ -150,9 +148,7 @@ impl RenderOnce for NowPlayingBar {
             .gap(gap)
             .px(Spacing::LG.scaled(cx))
             // Thumbnail.
-            .child(
-                Thumbnail::new(EntityKind::Track, ThumbnailSize::Sm).image(thumbnail),
-            )
+            .child(Thumbnail::new(EntityKind::Track, ThumbnailSize::Sm).image(thumbnail))
             // Title + artist block.
             .child(
                 div()
@@ -162,19 +158,15 @@ impl RenderOnce for NowPlayingBar {
                     .flex_col()
                     .when(is_active, |el| {
                         el.child(
-                            Label::new(
-                                title.clone().unwrap_or_else(|| "Nothing playing".into()),
-                            )
-                            .size(FontSize::Body)
-                            .truncated(),
+                            Label::new(title.clone().unwrap_or_else(|| "Nothing playing".into()))
+                                .size(FontSize::Body)
+                                .truncated(),
                         )
                     })
                     .when(!is_active, |el| {
                         el.child(
                             div()
-                                .text_color(
-                                    SemanticColor::TertiaryLabel.resolve(appearance),
-                                )
+                                .text_color(SemanticColor::TertiaryLabel.resolve(appearance))
                                 .text_size(FontSize::Body.scaled(cx))
                                 .child(SharedString::from("Nothing playing")),
                         )
@@ -182,9 +174,7 @@ impl RenderOnce for NowPlayingBar {
                     .when_some(artist.clone(), |el, art| {
                         el.child(
                             div()
-                                .text_color(
-                                    SemanticColor::SecondaryLabel.resolve(appearance),
-                                )
+                                .text_color(SemanticColor::SecondaryLabel.resolve(appearance))
                                 .text_size(FontSize::Caption.scaled(cx))
                                 .child(SharedString::from(art)),
                         )
@@ -208,7 +198,7 @@ impl RenderOnce for NowPlayingBar {
                         "np-playpause",
                         play_pause_glyph,
                         self.on_play_pause,
-                        true, // always enabled
+                        is_active,
                         cx,
                     ))
                     .child(transport_btn(

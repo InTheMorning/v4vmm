@@ -74,10 +74,7 @@ impl AddToPlaylistPopover {
     }
 
     /// Called when the user creates a new playlist (receives the name string).
-    pub fn on_create(
-        mut self,
-        handler: impl Fn(&String, &mut Window, &mut App) + 'static,
-    ) -> Self {
+    pub fn on_create(mut self, handler: impl Fn(&String, &mut Window, &mut App) + 'static) -> Self {
         self.on_create = Some(Rc::new(handler));
         self
     }
