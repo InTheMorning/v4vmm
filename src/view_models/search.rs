@@ -7,7 +7,7 @@
 
 #![warn(clippy::pedantic)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::api::{Artist, EntityDetail, Feed, Publisher, Track};
 use crate::view_models::track::TrackVm;
@@ -385,22 +385,42 @@ pub(crate) enum InspectorOrigin {
 /// remain GPUI-free; fields requiring `gpui::Image`,
 /// `gpui::FocusHandle`, or `Entity<_>` stay in `SearchApp`.
 ///
-/// Phase 1 owns the simplest pure scalars. Subsequent commits move
-/// snapshots and operation flags.
+/// Subsequent commits will move snapshots (`results`,
+/// `recent_feeds`, `playlists`).
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "screen UI flags belong together; splitting them by lint count would obscure the model"
+)]
 #[derive(Clone, Debug)]
 pub(crate) struct SearchViewModel {
+    // Search filter / toggle.
     /// Current segmented filter index (`All`, `Artist`, `Feed`,
     /// `Track`). The screen owns the label/value tables; the VM owns
     /// the index and clamps it to the table length on `set_type_filter`.
     pub(crate) type_filter: usize,
     /// Whether the fuzzy-search toggle is on.
     pub(crate) fuzzy_search: bool,
+    // Selection / inspector origin.
     /// Selection key — `"<entity_type>:<entity_id>"`. The screen
     /// resolves the key back to an `InspectorFrame` from its loaded
     /// rows.
     pub(crate) selected_key: Option<String>,
     /// Origin of the active inspector frame, if any.
     pub(crate) inspector_origin: Option<InspectorOrigin>,
+    // Search-results pane state.
+    pub(crate) loading: bool,
+    pub(crate) status: String,
+    pub(crate) cursor: Option<String>,
+    pub(crate) has_more: bool,
+    pub(crate) in_flight_tracks: HashSet<String>,
+    // Recents pane state.
+    pub(crate) recent_loading: bool,
+    pub(crate) recent_status: String,
+    pub(crate) recent_loaded_once: bool,
+    pub(crate) recent_cursor: Option<String>,
+    pub(crate) recent_has_more: bool,
+    // Layout / drag state.
+    pub(crate) resizing: bool,
 }
 
 /// Number of segmented filter slots — see the `TYPE_LABELS` /
@@ -409,7 +429,8 @@ const TYPE_FILTER_LEN: usize = 4;
 
 impl SearchViewModel {
     /// Construct a view-model with `SearchApp::new` defaults: `All`
-    /// filter, fuzzy search on, no selection, no inspector frame.
+    /// filter, fuzzy search on, no selection, no inspector frame, no
+    /// active operation, both panes idle.
     #[must_use]
     pub(crate) fn new() -> Self {
         Self {
@@ -417,6 +438,17 @@ impl SearchViewModel {
             fuzzy_search: true,
             selected_key: None,
             inspector_origin: None,
+            loading: false,
+            status: String::new(),
+            cursor: None,
+            has_more: false,
+            in_flight_tracks: HashSet::new(),
+            recent_loading: false,
+            recent_status: String::new(),
+            recent_loaded_once: false,
+            recent_cursor: None,
+            recent_has_more: false,
+            resizing: false,
         }
     }
 
@@ -970,6 +1002,22 @@ mod tests {
         assert!(vm.fuzzy_search);
         assert_eq!(vm.selected_key, None);
         assert_eq!(vm.inspector_origin, None);
+    }
+
+    #[test]
+    fn search_view_model_starts_with_idle_panes_and_no_in_flight_tracks() {
+        let vm = SearchViewModel::new();
+        assert!(!vm.loading);
+        assert!(vm.status.is_empty());
+        assert_eq!(vm.cursor, None);
+        assert!(!vm.has_more);
+        assert!(vm.in_flight_tracks.is_empty());
+        assert!(!vm.recent_loading);
+        assert!(vm.recent_status.is_empty());
+        assert!(!vm.recent_loaded_once);
+        assert_eq!(vm.recent_cursor, None);
+        assert!(!vm.recent_has_more);
+        assert!(!vm.resizing);
     }
 
     #[test]

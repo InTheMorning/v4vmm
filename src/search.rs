@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -190,26 +190,17 @@ pub struct SearchApp {
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
     input: Entity<InputState>,
-    /// Stateful screen view-model. Owns the pure UI state that does
-    /// not need GPUI types — segmented filter, fuzzy toggle,
-    /// selection key, inspector origin. Fields move from `SearchApp`
-    /// into the VM in phases; see ADR 0023.
+    /// Stateful screen view-model. Owns all pure UI scalars and
+    /// pane-state flags. Fields kept on `SearchApp` itself are
+    /// GPUI-bound (`Entity`, `Subscription`, `FocusHandle`,
+    /// `Pixels`), service handles, screen-only inspector state, or
+    /// snapshots/maps that still hold `Arc<gpui::Image>`. See ADR
+    /// 0023.
     vm: SearchViewModel,
     results: Vec<ResultRow>,
-    loading: bool,
-    status: String,
-    cursor: Option<String>,
-    has_more: bool,
     inspector_stack: Vec<InspectorFrame>,
-    in_flight_tracks: HashSet<String>,
     recent_feeds: Vec<Feed>,
-    recent_cursor: Option<String>,
-    recent_has_more: bool,
-    recent_loading: bool,
-    recent_status: String,
-    recent_loaded_once: bool,
     left_pane_width: gpui::Pixels,
-    resizing: bool,
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
@@ -255,20 +246,9 @@ impl SearchApp {
             input,
             vm: SearchViewModel::new(),
             results: Vec::new(),
-            loading: false,
-            status: String::new(),
-            cursor: None,
-            has_more: false,
             inspector_stack: Vec::new(),
-            in_flight_tracks: HashSet::new(),
             recent_feeds: Vec::new(),
-            recent_cursor: None,
-            recent_has_more: false,
-            recent_loading: false,
-            recent_status: String::new(),
-            recent_loaded_once: false,
             left_pane_width: px(360.0),
-            resizing: false,
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
             list_focus: cx.focus_handle(),
@@ -286,33 +266,33 @@ impl SearchApp {
 
         self.musicindex_endpoint = endpoint;
         self.results.clear();
-        self.loading = false;
-        self.status = "MusicIndex endpoint updated".into();
-        self.cursor = None;
-        self.has_more = false;
+        self.vm.loading = false;
+        self.vm.status = "MusicIndex endpoint updated".into();
+        self.vm.cursor = None;
+        self.vm.has_more = false;
         self.vm.clear_selection();
         self.inspector_stack.clear();
         self.vm.clear_inspector_origin();
         self.recent_feeds.clear();
-        self.recent_cursor = None;
-        self.recent_has_more = false;
-        self.recent_loaded_once = false;
-        self.recent_status.clear();
+        self.vm.recent_cursor = None;
+        self.vm.recent_has_more = false;
+        self.vm.recent_loaded_once = false;
+        self.vm.recent_status.clear();
         self.load_recent_feeds(false, cx);
         cx.notify();
     }
 
     fn load_recent_feeds(&mut self, append: bool, cx: &mut Context<Self>) {
-        if self.recent_loading {
+        if self.vm.recent_loading {
             return;
         }
-        self.recent_loading = true;
+        self.vm.recent_loading = true;
         if !append {
             self.recent_feeds.clear();
-            self.recent_cursor = None;
-            self.recent_has_more = false;
+            self.vm.recent_cursor = None;
+            self.vm.recent_has_more = false;
         }
-        self.recent_status = if append {
+        self.vm.recent_status = if append {
             "Loading more recent feeds...".into()
         } else {
             "Loading recent feeds...".into()
@@ -321,7 +301,7 @@ impl SearchApp {
 
         let client = self.api_client();
         let cursor = if append {
-            self.recent_cursor.clone()
+            self.vm.recent_cursor.clone()
         } else {
             None
         };
@@ -334,17 +314,17 @@ impl SearchApp {
                         })
                         .await;
                 let _ = this.update(cx, move |this, cx| {
-                    this.recent_loading = false;
-                    this.recent_loaded_once = true;
+                    this.vm.recent_loading = false;
+                    this.vm.recent_loaded_once = true;
                     match result {
                         Ok(response) => {
                             this.recent_feeds.extend(response.data);
-                            this.recent_cursor = response.pagination.cursor;
-                            this.recent_has_more = response.pagination.has_more;
-                            this.recent_status.clear();
+                            this.vm.recent_cursor = response.pagination.cursor;
+                            this.vm.recent_has_more = response.pagination.has_more;
+                            this.vm.recent_status.clear();
                         }
                         Err(error) => {
-                            this.recent_status = format!("Error: {error}");
+                            this.vm.recent_status = format!("Error: {error}");
                         }
                     }
                     cx.notify();
@@ -429,7 +409,7 @@ impl SearchApp {
     }
 
     fn do_search(&mut self, append: bool, cx: &mut Context<Self>) {
-        if self.loading {
+        if self.vm.loading {
             return;
         }
 
@@ -438,8 +418,8 @@ impl SearchApp {
             return;
         }
 
-        self.loading = true;
-        self.status = if append {
+        self.vm.loading = true;
+        self.vm.status = if append {
             "Loading more...".into()
         } else {
             "Discovering...".into()
@@ -447,8 +427,8 @@ impl SearchApp {
 
         if !append {
             self.results.clear();
-            self.cursor = None;
-            self.has_more = false;
+            self.vm.cursor = None;
+            self.vm.has_more = false;
             self.vm.clear_selection();
             self.inspector_stack.clear();
             self.vm.clear_inspector_origin();
@@ -456,7 +436,7 @@ impl SearchApp {
         cx.notify();
 
         let entity_type = TYPE_VALUES[self.vm.type_filter].map(str::to_string);
-        let cursor = if append { self.cursor.clone() } else { None };
+        let cursor = if append { self.vm.cursor.clone() } else { None };
         let fuzzy = self.vm.fuzzy_search;
         let client = self.api_client();
 
@@ -481,8 +461,8 @@ impl SearchApp {
                         match batch {
                             Ok(batch) => this.apply_search_batch(batch, append),
                             Err(error) => {
-                                this.loading = false;
-                                this.status = format!("Error: {error}");
+                                this.vm.loading = false;
+                                this.vm.status = format!("Error: {error}");
                             }
                         }
                         cx.notify();
@@ -496,11 +476,11 @@ impl SearchApp {
 
     fn apply_search_batch(&mut self, batch: SearchBatch, append: bool) {
         if !append && batch.rows.is_empty() {
-            self.status.clear();
+            self.vm.status.clear();
             self.results.clear();
-            self.loading = false;
-            self.has_more = false;
-            self.cursor = None;
+            self.vm.loading = false;
+            self.vm.has_more = false;
+            self.vm.cursor = None;
             return;
         }
 
@@ -519,15 +499,15 @@ impl SearchApp {
         } else {
             self.results.extend(batch.rows);
         }
-        self.cursor = batch.cursor;
-        self.has_more = batch.has_more;
-        self.loading = false;
+        self.vm.cursor = batch.cursor;
+        self.vm.has_more = batch.has_more;
+        self.vm.loading = false;
 
         let total = self.results.len();
-        self.status = format!(
+        self.vm.status = format!(
             "{total} result{}{}",
             if total == 1 { "" } else { "s" },
-            if self.has_more { "+" } else { "" }
+            if self.vm.has_more { "+" } else { "" }
         );
     }
 
@@ -1074,7 +1054,7 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) {
         let key = track_row_key(&track);
-        if key.is_empty() || !self.in_flight_tracks.insert(key.clone()) {
+        if key.is_empty() || !self.vm.in_flight_tracks.insert(key.clone()) {
             return;
         }
         let request = SearchSubscribeRequest::Track(
@@ -1099,14 +1079,14 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        this.in_flight_tracks.remove(&key);
+                        this.vm.in_flight_tracks.remove(&key);
                         match result {
                             Ok(outcome) => {
-                                this.status = outcome.message;
+                                this.vm.status = outcome.message;
                                 this.refresh_inspector_subscription_state(cx);
                                 cx.emit(SearchAppEvent::LibraryMutated);
                             }
-                            Err(error) => this.status = format!("Download error: {error:#}"),
+                            Err(error) => this.vm.status = format!("Download error: {error:#}"),
                         }
                         cx.notify();
                     },
@@ -1124,7 +1104,7 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) {
         let key = track_row_key(&track);
-        if key.is_empty() || !self.in_flight_tracks.insert(key.clone()) {
+        if key.is_empty() || !self.vm.in_flight_tracks.insert(key.clone()) {
             return;
         }
         let request = SearchUnsubscribeRequest::Track {
@@ -1148,14 +1128,14 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        this.in_flight_tracks.remove(&key);
+                        this.vm.in_flight_tracks.remove(&key);
                         match result {
                             Ok(message) => {
-                                this.status = message;
+                                this.vm.status = message;
                                 this.refresh_inspector_subscription_state(cx);
                                 cx.emit(SearchAppEvent::LibraryMutated);
                             }
-                            Err(error) => this.status = format!("Remove error: {error:#}"),
+                            Err(error) => this.vm.status = format!("Remove error: {error:#}"),
                         }
                         cx.notify();
                     },
@@ -1347,7 +1327,7 @@ impl SearchApp {
         let conn = self.conn.lock().expect("lock db");
         match playlist_service::list(&conn) {
             Ok(list) => self.playlists = list,
-            Err(err) => self.status = format!("Error loading playlists: {err:#}"),
+            Err(err) => self.vm.status = format!("Error loading playlists: {err:#}"),
         }
     }
 
@@ -1369,7 +1349,7 @@ impl SearchApp {
         let feed_id = match self.ensure_feed_in_db(feed_guid, feed_url) {
             Ok(id) => id,
             Err(err) => {
-                self.status = format!("Error subscribing feed: {err:#}");
+                self.vm.status = format!("Error subscribing feed: {err:#}");
                 cx.notify();
                 return;
             }
@@ -1379,14 +1359,14 @@ impl SearchApp {
             match db::feed_tracks(&conn, feed_id) {
                 Ok(t) => t.into_iter().map(|row| row.id).collect(),
                 Err(err) => {
-                    self.status = format!("Error loading feed tracks: {err:#}");
+                    self.vm.status = format!("Error loading feed tracks: {err:#}");
                     cx.notify();
                     return;
                 }
             }
         };
         if track_ids.is_empty() {
-            self.status = "Feed has no tracks".into();
+            self.vm.status = "Feed has no tracks".into();
             cx.notify();
             return;
         }
@@ -1406,7 +1386,7 @@ impl SearchApp {
             match playlist_service::create(&db, name) {
                 Ok(id) => id,
                 Err(err) => {
-                    self.status = format!("Create playlist: {err:#}");
+                    self.vm.status = format!("Create playlist: {err:#}");
                     cx.notify();
                     return;
                 }
@@ -1428,7 +1408,7 @@ impl SearchApp {
         let feed_id = match self.ensure_feed_in_db(feed_guid, feed_url) {
             Ok(id) => id,
             Err(err) => {
-                self.status = format!("Error subscribing feed: {err:#}");
+                self.vm.status = format!("Error subscribing feed: {err:#}");
                 cx.notify();
                 return;
             }
@@ -1443,7 +1423,7 @@ impl SearchApp {
             .ok()
         };
         let Some(track_id) = track_id else {
-            self.status = "Track not in local library".into();
+            self.vm.status = "Track not in local library".into();
             cx.notify();
             return;
         };
@@ -1477,7 +1457,7 @@ impl SearchApp {
             .find(|p| p.id == playlist_id)
             .map(|p| p.name.clone())
             .unwrap_or_default();
-        self.status = format!(
+        self.vm.status = format!(
             "Downloading {total} track{}...",
             if total == 1 { "" } else { "s" }
         );
@@ -1511,10 +1491,10 @@ impl SearchApp {
                                 if !outcome.failed.is_empty() {
                                     msg.push_str(&format!("; {} failed", outcome.failed.len()));
                                 }
-                                this.status = msg;
+                                this.vm.status = msg;
                             }
                             Err(err) => {
-                                this.status = format!("Error adding to playlist: {err:#}");
+                                this.vm.status = format!("Error adding to playlist: {err:#}");
                             }
                         }
                         this.load_playlists();
@@ -1702,7 +1682,7 @@ impl SearchApp {
 
 impl Render for SearchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut status_text = self.status.clone();
+        let mut status_text = self.vm.status.clone();
         let status_color = if status_text.starts_with("Error:") {
             status_text = format!("{} {}", glyphs::STATUS_DANGER, status_text);
             color::status_danger()
@@ -1742,9 +1722,9 @@ impl Render for SearchApp {
             && input_is_empty;
         let inspector = render_inspector(stack.last(), show_back, show_recents_root, self, cx);
         let active_input = self.input.clone();
-        let is_loading = self.loading;
+        let is_loading = self.vm.loading;
         let is_empty = self.results.is_empty();
-        let has_more = self.has_more;
+        let has_more = self.vm.has_more;
         let search_label = "Search Index";
 
         div()
@@ -1763,7 +1743,7 @@ impl Render for SearchApp {
                     .min_h_0()
                     .overflow_hidden()
                     .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                        if this.resizing {
+                        if this.vm.resizing {
                             let x = event.position.x;
                             let clamped = x.max(px(200.0)).min(px(800.0));
                             this.left_pane_width = clamped;
@@ -1773,8 +1753,8 @@ impl Render for SearchApp {
                     .on_mouse_up(
                         MouseButton::Left,
                         cx.listener(|this, _: &MouseUpEvent, _window, cx| {
-                            if this.resizing {
-                                this.resizing = false;
+                            if this.vm.resizing {
+                                this.vm.resizing = false;
                                 cx.notify();
                             }
                         }),
@@ -1926,7 +1906,7 @@ impl Render for SearchApp {
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(|this, _: &MouseDownEvent, _window, cx| {
-                                    this.resizing = true;
+                                    this.vm.resizing = true;
                                     cx.notify();
                                 }),
                             ),
@@ -4868,7 +4848,7 @@ pub(crate) fn render_track_list_section(
                 .zip(downloaded)
                 .map(|(track, is_downloaded)| {
                     let key = track_row_key(&track);
-                    let is_in_flight = !key.is_empty() && app.in_flight_tracks.contains(&key);
+                    let is_in_flight = !key.is_empty() && app.vm.in_flight_tracks.contains(&key);
                     let thumb = app.thumbnail_for_url(track.image_url.as_deref(), cx);
                     render_track_row(
                         track,
@@ -5489,9 +5469,9 @@ pub(crate) fn render_publisher_link_value(
 
 fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -> AnyElement {
     let feeds = app.recent_feeds.clone();
-    let status = app.recent_status.clone();
-    let has_more = app.recent_has_more;
-    let loading = app.recent_loading;
+    let status = app.vm.recent_status.clone();
+    let has_more = app.vm.recent_has_more;
+    let loading = app.vm.recent_loading;
     let is_empty = feeds.is_empty();
 
     let mut tiles: Vec<AnyElement> = Vec::with_capacity(feeds.len());
