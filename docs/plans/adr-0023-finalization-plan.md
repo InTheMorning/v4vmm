@@ -25,12 +25,11 @@ architecture without fighting screen-specific UI drift.
   tests, and screen-level literal audits are in place.
 - `LibraryViewModel` and `SearchViewModel` own many pure snapshots and local
   transitions.
-- Discover has a resizable split between results and inspector. Library still
-  has a fixed two-pane layout.
-- Discover feed detail and Library album detail now share `DetailHeader` and
-  `TrackRow`, but they do not yet share a detail shell or layout contract.
-- Library album rows still expose redundant downloaded state in the row even
-  though the `Remove` action already implies library membership.
+- Discover and Library now share the same resizable split-pane shell.
+- Discover feed detail and Library album detail now share one
+  `ReleaseDetailSurface` layout contract.
+- Library album rows no longer expose redundant per-row downloaded text;
+  membership is expressed by the `Remove` or `Download` action.
 - The old `docs/reviews/adr-0023-final-implementation-review.md` is too
   optimistic and is superseded by this finalization plan.
 
@@ -78,13 +77,13 @@ architecture without fighting screen-specific UI drift.
 
 ## Proposed Sequence
 
-1. `adr-0023-task-006-shared-split-pane-shell`: introduce a shared resizable
+1. Completed `adr-0023-task-006-shared-split-pane-shell`: introduce a shared resizable
    split-pane component and pure resize state, then wire both Discover and
    Library through it.
-2. `adr-0023-task-007-release-detail-surface`: introduce a shared release
+2. Completed `adr-0023-task-007-release-detail-surface`: introduce a shared release
    detail surface contract so feed/album detail structure is identical across
    modes.
-3. `adr-0023-task-008-library-row-semantics`: remove redundant Library row
+3. Completed `adr-0023-task-008-library-row-semantics`: remove redundant Library row
    downloaded labels and move remaining album-row labels/actions into
    projections.
 4. `adr-0023-task-009-command-intent-finish`: add narrow command intents for

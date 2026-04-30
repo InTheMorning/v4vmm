@@ -61,6 +61,13 @@ pub(crate) enum MbStatusKind {
     Muted,
 }
 
+/// Primary library-row action without GPUI styling details.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryTrackPrimaryAction {
+    Download,
+    Remove,
+}
+
 /// One artist node in the library sidebar tree. Owns a flat list of
 /// album nodes; the screen handles expansion and rendering.
 #[derive(Clone, Debug)]
@@ -1089,6 +1096,42 @@ impl<'a> LibraryTrackRowVm<'a> {
             .map(|seconds| format!("{}:{:02}", seconds / 60, seconds % 60))
     }
 
+    /// Primary row action derived from library membership.
+    #[must_use]
+    pub(crate) fn primary_action(&self) -> LibraryTrackPrimaryAction {
+        if self.track.is_in_library {
+            LibraryTrackPrimaryAction::Remove
+        } else {
+            LibraryTrackPrimaryAction::Download
+        }
+    }
+
+    /// Primary action button label, including the shared busy state.
+    #[must_use]
+    pub(crate) fn primary_action_label(&self, is_busy: bool) -> &'static str {
+        if is_busy {
+            return "Working...";
+        }
+        match self.primary_action() {
+            LibraryTrackPrimaryAction::Download => "Download",
+            LibraryTrackPrimaryAction::Remove => "Remove",
+        }
+    }
+
+    /// Add-to-playlist action label for the row.
+    #[expect(
+        clippy::unused_self,
+        reason = "kept as a row projection accessor so screen label formatting stays out of library.rs"
+    )]
+    #[must_use]
+    pub(crate) fn playlist_action_label(&self, is_open: bool) -> &'static str {
+        if is_open {
+            "+ Playlist ▴"
+        } else {
+            "+ Playlist"
+        }
+    }
+
     /// Concatenated single-line label: `"{n}. {title}  (M:SS)"`.
     #[cfg(test)]
     #[must_use]
@@ -1611,6 +1654,38 @@ mod tests {
     #[test]
     fn duration_suffix_is_empty_when_absent() {
         assert_eq!(LibraryTrackRowVm::new(&row(), None).duration_suffix(), "");
+    }
+
+    #[test]
+    fn library_track_row_vm_primary_action_follows_membership_and_busy_state() {
+        let mut r = row();
+        let vm = LibraryTrackRowVm::new(&r, None);
+        assert_eq!(vm.primary_action(), LibraryTrackPrimaryAction::Download);
+        assert_eq!(vm.primary_action_label(false), "Download");
+        assert_eq!(vm.primary_action_label(true), "Working...");
+
+        r.is_in_library = true;
+        let vm = LibraryTrackRowVm::new(&r, None);
+        assert_eq!(vm.primary_action(), LibraryTrackPrimaryAction::Remove);
+        assert_eq!(vm.primary_action_label(false), "Remove");
+        assert_eq!(vm.primary_action_label(true), "Working...");
+    }
+
+    #[test]
+    fn library_track_row_vm_playlist_action_label_reflects_open_state() {
+        let r = row();
+        let vm = LibraryTrackRowVm::new(&r, None);
+        assert_eq!(vm.playlist_action_label(false), "+ Playlist");
+        assert_eq!(vm.playlist_action_label(true), "+ Playlist ▴");
+    }
+
+    #[test]
+    fn library_track_row_vm_local_path_does_not_change_row_action_text() {
+        let mut r = row();
+        r.local_path = Some("/music/track.mp3".into());
+        let vm = LibraryTrackRowVm::new(&r, None);
+        assert_eq!(vm.primary_action_label(false), "Download");
+        assert_eq!(vm.playlist_action_label(false), "+ Playlist");
     }
 
     #[test]

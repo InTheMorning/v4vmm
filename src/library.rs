@@ -61,9 +61,9 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
-    LibraryTrackActionVm, LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind,
-    MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm,
-    TrackSubscribeOutcome,
+    LibraryTrackActionVm, LibraryTrackPrimaryAction, LibraryTrackRowVm, LibraryTree,
+    LibraryViewModel, MbStatusKind, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
+    PlaylistDetailVm, TrackSubscribeOutcome,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
@@ -2569,10 +2569,11 @@ fn render_library_track_row(
     let track_for_click = track.clone();
     let track_for_select = track.clone();
     let track_id = track.id;
-    let in_library = track.is_in_library;
     let is_busy = busy_track == Some(track_id);
     let popup_open = add_open_track == Some(track_id);
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
+    let primary_action = vm.primary_action();
+    let in_library = primary_action == LibraryTrackPrimaryAction::Remove;
     let mb_text = vm.mb_status_text();
     let mb_kind = vm.mb_status_kind();
     let thumbnail = track
@@ -2582,15 +2583,8 @@ fn render_library_track_row(
         .and_then(|url| album_thumbs.get(url.as_str()))
         .and_then(|opt| opt.clone());
 
-    let toggle_label = if is_busy {
-        "Working..."
-    } else if in_library {
-        "Remove"
-    } else {
-        "Download"
-    };
     let toggle_button = Button::new(SharedString::from(format!("lib-toggle-{track_id}")))
-        .label(toggle_label)
+        .label(vm.primary_action_label(is_busy))
         .scaled(Size::XSmall, cx)
         .compact()
         .when(in_library, |btn| {
@@ -2633,22 +2627,9 @@ fn render_library_track_row(
         );
     }
 
-    if track.local_path.is_some() {
-        row = row.trailing_child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(color::status_success())
-                .child("dl'd"),
-        );
-    }
-
     row = row.trailing_child(
         Button::new(SharedString::from(format!("album-track-add-{track_id}")))
-            .label(if popup_open {
-                "+ Playlist ▴"
-            } else {
-                "+ Playlist"
-            })
+            .label(vm.playlist_action_label(popup_open))
             .ghost()
             .scaled(Size::XSmall, cx)
             .text_color(color::accent())

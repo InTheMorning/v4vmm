@@ -280,8 +280,10 @@ compose through `ReleaseDetailSurface`, which owns the common header,
 action, detail-grid, panel, and track-section order while preserving
 Discover-specific and Library-specific children. Library album track rows now
 compose the same `TrackRow` composite used by Discover release rows,
-preserving Library-specific trailing actions. Library selection, album
-add-to-playlist picker toggles,
+preserving Library-specific trailing actions. Those rows no longer show a
+redundant per-row downloaded label; membership is expressed by the `Remove`
+or `Download` action while aggregate downloaded counts remain in detail
+grids. Library selection, album add-to-playlist picker toggles,
 status / busy-track / hovered-thumbnail updates, and command intent for
 playlist append / track subscribe are all mediated by `LibraryViewModel`
 methods and value types
@@ -468,7 +470,7 @@ already true at merge of PR #5; others are explicitly tracked in
       projections.
 - [x] Discover feed detail and Library album detail share one structural
       detail-surface contract rather than parallel page skeletons.
-- [ ] Library album track rows do not show redundant downloaded labels when
+- [x] Library album track rows do not show redundant downloaded labels when
       membership is already represented by the `Remove` action.
 - [ ] Remaining high-noise screen status/command setup is represented by
       narrow intent/result values where it materially thins the screens.

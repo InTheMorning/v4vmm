@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Completed 2026-04-30.
 
 ## Task Goal
 
@@ -54,12 +54,21 @@ album-row action labels/status semantics into GPUI-free projections.
 
 ## Acceptance Criteria
 
-- Library album rows no longer show `dl'd`.
-- Track membership remains communicated through the `Remove` or `Download`
+- [x] Library album rows no longer show `dl'd`.
+- [x] Track membership remains communicated through the `Remove` or `Download`
   action.
-- `LibraryTrackRowVm` owns relevant row display strings.
-- Existing MusicBrainz status display still works.
-- Focused VM tests cover the projection.
+- [x] `LibraryTrackRowVm` owns relevant row display strings.
+- [x] Existing MusicBrainz status display still works.
+- [x] Focused VM tests cover the projection.
+
+## Result
+
+- Removed the per-row `dl'd` trailing label from Library album rows.
+- Added `LibraryTrackPrimaryAction` plus `LibraryTrackRowVm` accessors for
+  primary action labels and playlist action labels.
+- Kept aggregate downloaded counts in album/artist detail grids.
+- Added focused VM tests for membership labels, busy labels, playlist open
+  labels, and the local-path case that previously produced redundant row text.
 
 ## Test Commands
 

@@ -150,7 +150,7 @@ The projection view-model layer is partially migrated:
 - `library-row-semantics`: remove the redundant per-row `dl'd` marker from
   Library album rows. Membership is already represented by the `Remove`
   action; aggregate downloaded counts can remain in detail grids until a
-  product decision removes them.
+  product decision removes them. Completed 2026-04-30.
 - `screen-library-playlists`: playlist sidebar rows now use `ListRow` /
   `Label`; keep the `PlaylistDetailVm` path and replace the remaining
   playlist detail row actions with `ActionButton` where it preserves
@@ -212,7 +212,7 @@ The projection view-model layer is partially migrated:
    resizable split-pane shell.
 - [x] `release-detail-surface`: replace parallel feed/album page skeletons
    with one shared detail-surface contract.
-- [ ] `library-row-semantics`: remove redundant Library row downloaded labels
+- [x] `library-row-semantics`: remove redundant Library row downloaded labels
    and move remaining row semantics into projections.
 - [ ] `command-intent-finish`: finish narrow intent/result extraction where it
    materially reduces screen glue.
