@@ -51,7 +51,7 @@ use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ContributorVm,
     PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm, ResultRow,
-    ResultRowVm, SearchBatch, SearchViewModel, TrackInspectorHeaderVm,
+    SearchBatch, SearchViewModel, TrackInspectorHeaderVm,
 };
 use crate::view_models::track::TrackVm;
 
@@ -310,42 +310,15 @@ impl SearchApp {
     }
 
     pub fn move_up(&mut self, cx: &mut Context<Self>) {
-        if self.vm.results.is_empty() {
-            return;
-        }
-        let current_key = self.vm.selected_key.as_deref();
-        let current_idx = self.vm.results.iter().position(|r| {
-            Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string())
-        });
-        let next_idx = match current_idx {
-            Some(idx) if idx > 0 => idx - 1,
-            _ => 0,
-        };
-        if let Some(row) = self.vm.results.get(next_idx) {
-            let entity_type = row.entity_type.clone();
-            let entity_id = row.entity_id.clone();
-            let title = result_display(row).line1;
+        if let Some(target) = self.vm.previous_result_target() {
+            let (entity_type, entity_id, title) = target.into_parts();
             self.select_result(entity_type, entity_id, title, cx);
         }
     }
 
     pub fn move_down(&mut self, cx: &mut Context<Self>) {
-        if self.vm.results.is_empty() {
-            return;
-        }
-        let current_key = self.vm.selected_key.as_deref();
-        let current_idx = self.vm.results.iter().position(|r| {
-            Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string())
-        });
-        let next_idx = match current_idx {
-            Some(idx) if idx + 1 < self.vm.results.len() => idx + 1,
-            Some(idx) => idx,
-            None => 0,
-        };
-        if let Some(row) = self.vm.results.get(next_idx) {
-            let entity_type = row.entity_type.clone();
-            let entity_id = row.entity_id.clone();
-            let title = result_display(row).line1;
+        if let Some(target) = self.vm.next_result_target() {
+            let (entity_type, entity_id, title) = target.into_parts();
             self.select_result(entity_type, entity_id, title, cx);
         }
     }
@@ -481,14 +454,12 @@ impl SearchApp {
         title: String,
         cx: &mut Context<Self>,
     ) {
-        self.vm.select(entity_key(&entity_type, &entity_id));
-        self.vm.mark_inspector_from_search();
+        self.vm.select_result(&entity_type, &entity_id);
         self.load_inspector(entity_type, entity_id, title, false, cx);
     }
 
     fn open_recent_feed(&mut self, feed_guid: String, title: String, cx: &mut Context<Self>) {
-        self.vm.select(entity_key("feed", &feed_guid));
-        self.vm.mark_inspector_from_recents();
+        self.vm.select_recent_feed(&feed_guid);
         self.load_inspector("feed".into(), feed_guid, title, false, cx);
     }
 
@@ -544,23 +515,10 @@ impl SearchApp {
                                 match detail {
                                     Ok((detail, image)) => {
                                         if let InspectorDetail::Artist(ctx) = &detail {
-                                            let target_id = entity_id.clone();
-                                            for row in this.vm.results.iter_mut() {
-                                                if row.entity_type == "artist"
-                                                    && row.entity_id == target_id
-                                                {
-                                                    if let Some(EntityDetail::Artist(artist)) =
-                                                        row.detail.as_mut()
-                                                    {
-                                                        artist.track_count = ctx.artist.track_count;
-                                                        artist.feed_count = ctx.artist.feed_count;
-                                                        if ctx.artist.image_url.is_some() {
-                                                            artist.image_url =
-                                                                ctx.artist.image_url.clone();
-                                                        }
-                                                    }
-                                                }
-                                            }
+                                            this.vm.merge_artist_result_detail(
+                                                &entity_id,
+                                                &ctx.artist,
+                                            );
                                         }
                                         frame.detail = detail;
                                         frame.image = image;
@@ -959,7 +917,7 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) {
         let key = track_row_key(&track);
-        if key.is_empty() || !self.vm.in_flight_tracks.insert(key.clone()) {
+        if !self.vm.begin_track_operation(key.clone()) {
             return;
         }
         let request = SearchSubscribeRequest::Track(
@@ -984,14 +942,13 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        this.vm.in_flight_tracks.remove(&key);
                         match result {
                             Ok(outcome) => {
-                                this.vm.status = outcome.message;
+                                this.vm.finish_track_download(&key, outcome.message);
                                 this.refresh_inspector_subscription_state(cx);
                                 cx.emit(SearchAppEvent::LibraryMutated);
                             }
-                            Err(error) => this.vm.status = format!("Download error: {error:#}"),
+                            Err(error) => this.vm.fail_track_download(&key, error),
                         }
                         cx.notify();
                     },
@@ -1009,7 +966,7 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) {
         let key = track_row_key(&track);
-        if key.is_empty() || !self.vm.in_flight_tracks.insert(key.clone()) {
+        if !self.vm.begin_track_operation(key.clone()) {
             return;
         }
         let request = SearchUnsubscribeRequest::Track {
@@ -1033,14 +990,13 @@ impl SearchApp {
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        this.vm.in_flight_tracks.remove(&key);
                         match result {
                             Ok(message) => {
-                                this.vm.status = message;
+                                this.vm.finish_track_remove(&key, message);
                                 this.refresh_inspector_subscription_state(cx);
                                 cx.emit(SearchAppEvent::LibraryMutated);
                             }
-                            Err(error) => this.vm.status = format!("Remove error: {error:#}"),
+                            Err(error) => this.vm.fail_track_remove(&key, error),
                         }
                         cx.notify();
                     },
@@ -1595,7 +1551,7 @@ impl Render for SearchApp {
         let results: Vec<AnyElement> = rows
             .iter()
             .map(|row| {
-                let image_url = result_display(row).image_url;
+                let image_url = row.display().image_url;
                 let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
                 render_result_item(
                     row,
@@ -1641,7 +1597,7 @@ impl Render for SearchApp {
                     .min_h_0()
                     .overflow_hidden()
                     .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                        if this.vm.resizing {
+                        if this.vm.is_resizing() {
                             let x = event.position.x;
                             let clamped = x.max(px(200.0)).min(px(800.0));
                             this.left_pane_width = clamped;
@@ -1651,8 +1607,8 @@ impl Render for SearchApp {
                     .on_mouse_up(
                         MouseButton::Left,
                         cx.listener(|this, _: &MouseUpEvent, _window, cx| {
-                            if this.vm.resizing {
-                                this.vm.resizing = false;
+                            if this.vm.is_resizing() {
+                                this.vm.end_resize();
                                 cx.notify();
                             }
                         }),
@@ -1804,7 +1760,7 @@ impl Render for SearchApp {
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(|this, _: &MouseDownEvent, _window, cx| {
-                                    this.vm.resizing = true;
+                                    this.vm.begin_resize();
                                     cx.notify();
                                 }),
                             ),
@@ -2373,18 +2329,15 @@ fn render_result_item(
     list_focused: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let display = result_display(row);
+    let display = row.display();
     let line1 = display.line1;
     let line2 = display.line2;
     let line3 = display.line3;
-    let is_selected = selected_key == Some(entity_key(&row.entity_type, &row.entity_id).as_str());
+    let key = row.key();
+    let is_selected = selected_key == Some(key.as_str());
     let entity_type = row.entity_type.clone();
     let entity_id = row.entity_id.clone();
-    let title = if line1.is_empty() {
-        entity_id.clone()
-    } else {
-        line1.clone()
-    };
+    let title = row.inspector_title();
 
     let kind = EntityKind::from_legacy_str(&row.entity_type);
 
@@ -4733,7 +4686,7 @@ pub(crate) fn render_track_list_section(
                 .zip(downloaded)
                 .map(|(track, is_downloaded)| {
                     let key = track_row_key(&track);
-                    let is_in_flight = !key.is_empty() && app.vm.in_flight_tracks.contains(&key);
+                    let is_in_flight = app.vm.is_track_operation_in_flight(&key);
                     let thumb = app.thumbnail_for_url(track.image_url.as_deref(), cx);
                     render_track_row(
                         track,
@@ -5508,14 +5461,6 @@ fn group_heading(label: String) -> AnyElement {
         .mt(spacing::SM)
         .child(SharedString::from(label))
         .into_any_element()
-}
-
-fn result_display(row: &ResultRow) -> crate::view_models::search::ResultRowDisplay {
-    ResultRowVm::new(&row.entity_id, row.detail.as_ref()).display()
-}
-
-fn entity_key(entity_type: &str, entity_id: &str) -> String {
-    format!("{entity_type}:{entity_id}")
 }
 
 fn feed_title(feed: &Feed) -> String {

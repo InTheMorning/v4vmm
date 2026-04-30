@@ -35,6 +35,30 @@ impl ResultRow {
             detail,
         }
     }
+
+    #[must_use]
+    pub(crate) fn key(&self) -> String {
+        entity_key(&self.entity_type, &self.entity_id)
+    }
+
+    #[must_use]
+    pub(crate) fn display(&self) -> ResultRowDisplay {
+        ResultRowVm::new(&self.entity_id, self.detail.as_ref()).display()
+    }
+
+    #[must_use]
+    pub(crate) fn inspector_title(&self) -> String {
+        let line1 = self.display().line1;
+        if line1.is_empty() {
+            self.entity_id.clone()
+        } else {
+            line1
+        }
+    }
+}
+
+fn entity_key(entity_type: &str, entity_id: &str) -> String {
+    format!("{entity_type}:{entity_id}")
 }
 
 /// Display-ready text and media fields for one Discover result row.
@@ -581,7 +605,7 @@ pub(crate) struct SearchViewModel {
     pub(crate) status: String,
     pub(crate) cursor: Option<String>,
     pub(crate) has_more: bool,
-    pub(crate) in_flight_tracks: HashSet<String>,
+    in_flight_tracks: HashSet<String>,
     // Recents pane state.
     pub(crate) recent_loading: bool,
     pub(crate) recent_status: String,
@@ -589,7 +613,7 @@ pub(crate) struct SearchViewModel {
     pub(crate) recent_cursor: Option<String>,
     pub(crate) recent_has_more: bool,
     // Layout / drag state.
-    pub(crate) resizing: bool,
+    resizing: bool,
     // Loaded snapshots — owned here so the screen can become a thin
     // Render impl. None of these carry GPUI types.
     pub(crate) results: Vec<ResultRow>,
@@ -641,6 +665,30 @@ pub(crate) struct SearchBatch {
     pub(crate) rows: Vec<ResultRow>,
     pub(crate) has_more: bool,
     pub(crate) cursor: Option<String>,
+}
+
+/// Result-row identity needed by the screen to open the inspector.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResultNavigationTarget {
+    entity_type: String,
+    entity_id: String,
+    title: String,
+}
+
+impl ResultNavigationTarget {
+    #[must_use]
+    fn from_row(row: &ResultRow) -> Self {
+        Self {
+            entity_type: row.entity_type.clone(),
+            entity_id: row.entity_id.clone(),
+            title: row.inspector_title(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn into_parts(self) -> (String, String, String) {
+        (self.entity_type, self.entity_id, self.title)
+    }
 }
 
 /// Pure command intent for appending one or more tracks to a playlist.
@@ -760,9 +808,53 @@ impl SearchViewModel {
         self.selected_key = Some(key.into());
     }
 
+    pub(crate) fn select_result(&mut self, entity_type: &str, entity_id: &str) {
+        self.select(entity_key(entity_type, entity_id));
+        self.mark_inspector_from_search();
+    }
+
+    pub(crate) fn select_recent_feed(&mut self, feed_guid: &str) {
+        self.select(entity_key("feed", feed_guid));
+        self.mark_inspector_from_recents();
+    }
+
     /// Clear the selection.
     pub(crate) fn clear_selection(&mut self) {
         self.selected_key = None;
+    }
+
+    #[must_use]
+    pub(crate) fn previous_result_target(&self) -> Option<ResultNavigationTarget> {
+        if self.results.is_empty() {
+            return None;
+        }
+        let next_idx = match self.selected_result_index() {
+            Some(idx) if idx > 0 => idx - 1,
+            _ => 0,
+        };
+        self.results
+            .get(next_idx)
+            .map(ResultNavigationTarget::from_row)
+    }
+
+    #[must_use]
+    pub(crate) fn next_result_target(&self) -> Option<ResultNavigationTarget> {
+        if self.results.is_empty() {
+            return None;
+        }
+        let next_idx = match self.selected_result_index() {
+            Some(idx) if idx + 1 < self.results.len() => idx + 1,
+            Some(idx) => idx,
+            None => 0,
+        };
+        self.results
+            .get(next_idx)
+            .map(ResultNavigationTarget::from_row)
+    }
+
+    fn selected_result_index(&self) -> Option<usize> {
+        let current_key = self.selected_key.as_deref()?;
+        self.results.iter().position(|row| row.key() == current_key)
     }
 
     /// Reset pure search state after the `MusicIndex` endpoint changes.
@@ -890,6 +982,21 @@ impl SearchViewModel {
         self.status = format!("Error: {error}");
     }
 
+    pub(crate) fn merge_artist_result_detail(&mut self, entity_id: &str, detail: &Artist) {
+        for row in &mut self.results {
+            if row.entity_type == "artist" && row.entity_id == entity_id {
+                let Some(EntityDetail::Artist(artist)) = row.detail.as_mut() else {
+                    continue;
+                };
+                artist.track_count = detail.track_count;
+                artist.feed_count = detail.feed_count;
+                if detail.image_url.is_some() {
+                    artist.image_url.clone_from(&detail.image_url);
+                }
+            }
+        }
+    }
+
     pub(crate) fn replace_playlists(&mut self, playlists: Vec<db::Playlist>) {
         self.playlists = playlists;
     }
@@ -969,6 +1076,53 @@ impl SearchViewModel {
 
     pub(crate) fn fail_playlist_append(&mut self, error: impl std::fmt::Display) {
         self.status = format!("Error adding to playlist: {error:#}");
+    }
+
+    #[must_use]
+    pub(crate) fn begin_track_operation(&mut self, key: impl Into<String>) -> bool {
+        let key = key.into();
+        if key.is_empty() {
+            return false;
+        }
+        self.in_flight_tracks.insert(key)
+    }
+
+    #[must_use]
+    pub(crate) fn is_track_operation_in_flight(&self, key: &str) -> bool {
+        !key.is_empty() && self.in_flight_tracks.contains(key)
+    }
+
+    pub(crate) fn finish_track_download(&mut self, key: &str, message: impl Into<String>) {
+        self.in_flight_tracks.remove(key);
+        self.status = message.into();
+    }
+
+    pub(crate) fn fail_track_download(&mut self, key: &str, error: impl std::fmt::Display) {
+        self.in_flight_tracks.remove(key);
+        self.status = format!("Download error: {error:#}");
+    }
+
+    pub(crate) fn finish_track_remove(&mut self, key: &str, message: impl Into<String>) {
+        self.in_flight_tracks.remove(key);
+        self.status = message.into();
+    }
+
+    pub(crate) fn fail_track_remove(&mut self, key: &str, error: impl std::fmt::Display) {
+        self.in_flight_tracks.remove(key);
+        self.status = format!("Remove error: {error:#}");
+    }
+
+    #[must_use]
+    pub(crate) fn is_resizing(&self) -> bool {
+        self.resizing
+    }
+
+    pub(crate) fn begin_resize(&mut self) {
+        self.resizing = true;
+    }
+
+    pub(crate) fn end_resize(&mut self) {
+        self.resizing = false;
     }
 }
 
@@ -1506,7 +1660,7 @@ mod tests {
         assert!(!vm.recent_loaded_once);
         assert_eq!(vm.recent_cursor, None);
         assert!(!vm.recent_has_more);
-        assert!(!vm.resizing);
+        assert!(!vm.is_resizing());
     }
 
     #[test]
@@ -1729,6 +1883,78 @@ mod tests {
     }
 
     #[test]
+    fn result_row_key_display_and_inspector_title_are_pure() {
+        let row = ResultRow::new("feed", "feed-1", None);
+        assert_eq!(row.key(), "feed:feed-1");
+        assert_eq!(row.display().line1, "feed-1");
+        assert_eq!(row.inspector_title(), "feed-1");
+    }
+
+    #[test]
+    fn search_view_model_select_result_and_recent_feed_set_origin_and_key() {
+        let mut vm = SearchViewModel::new();
+
+        vm.select_result("track", "track-1");
+        assert_eq!(vm.selected_key.as_deref(), Some("track:track-1"));
+        assert_eq!(vm.inspector_origin, Some(InspectorOrigin::Search));
+
+        vm.select_recent_feed("feed-1");
+        assert_eq!(vm.selected_key.as_deref(), Some("feed:feed-1"));
+        assert_eq!(vm.inspector_origin, Some(InspectorOrigin::Recents));
+    }
+
+    #[test]
+    fn search_view_model_navigation_targets_follow_selection_and_clamp_edges() {
+        let mut vm = SearchViewModel::new();
+        vm.results = vec![
+            ResultRow::new(
+                "feed",
+                "feed-1",
+                Some(EntityDetail::Feed(Feed {
+                    title: Some("First Feed".into()),
+                    ..Feed::default()
+                })),
+            ),
+            ResultRow::new(
+                "track",
+                "track-1",
+                Some(EntityDetail::Track(Track {
+                    name: Some("Second Track".into()),
+                    ..Track::default()
+                })),
+            ),
+        ];
+
+        let (entity_type, entity_id, title) = vm
+            .next_result_target()
+            .expect("first result should be selected when no row is selected")
+            .into_parts();
+        assert_eq!(
+            (entity_type.as_str(), entity_id.as_str(), title.as_str()),
+            ("feed", "feed-1", "First Feed")
+        );
+
+        vm.select_result("track", "track-1");
+        let (entity_type, entity_id, title) = vm
+            .previous_result_target()
+            .expect("previous result should move to first row")
+            .into_parts();
+        assert_eq!(
+            (entity_type.as_str(), entity_id.as_str(), title.as_str()),
+            ("feed", "feed-1", "First Feed")
+        );
+
+        let (entity_type, entity_id, title) = vm
+            .next_result_target()
+            .expect("next result should clamp at the final row")
+            .into_parts();
+        assert_eq!(
+            (entity_type.as_str(), entity_id.as_str(), title.as_str()),
+            ("track", "track-1", "Second Track")
+        );
+    }
+
+    #[test]
     fn search_view_model_endpoint_reset_clears_snapshots_and_marks_status() {
         let mut vm = SearchViewModel::new();
         vm.results.push(ResultRow::new("feed", "f1", None));
@@ -1943,6 +2169,58 @@ mod tests {
     }
 
     #[test]
+    fn search_view_model_merges_artist_result_detail_for_matching_result() {
+        let mut vm = SearchViewModel::new();
+        vm.results = vec![
+            ResultRow::new(
+                "artist",
+                "artist-1",
+                Some(EntityDetail::Artist(Artist {
+                    name: Some("Artist".into()),
+                    track_count: Some(1),
+                    feed_count: Some(1),
+                    image_url: Some("old.png".into()),
+                    ..Artist::default()
+                })),
+            ),
+            ResultRow::new(
+                "artist",
+                "artist-2",
+                Some(EntityDetail::Artist(Artist {
+                    track_count: Some(2),
+                    feed_count: Some(2),
+                    image_url: Some("keep.png".into()),
+                    ..Artist::default()
+                })),
+            ),
+        ];
+
+        vm.merge_artist_result_detail(
+            "artist-1",
+            &Artist {
+                track_count: Some(10),
+                feed_count: Some(3),
+                image_url: Some("new.png".into()),
+                ..Artist::default()
+            },
+        );
+
+        let Some(EntityDetail::Artist(artist)) = &vm.results[0].detail else {
+            panic!("expected artist detail");
+        };
+        assert_eq!(artist.track_count, Some(10));
+        assert_eq!(artist.feed_count, Some(3));
+        assert_eq!(artist.image_url.as_deref(), Some("new.png"));
+
+        let Some(EntityDetail::Artist(other_artist)) = &vm.results[1].detail else {
+            panic!("expected artist detail");
+        };
+        assert_eq!(other_artist.track_count, Some(2));
+        assert_eq!(other_artist.feed_count, Some(2));
+        assert_eq!(other_artist.image_url.as_deref(), Some("keep.png"));
+    }
+
+    #[test]
     fn search_view_model_playlist_snapshot_and_failures_update_status() {
         let mut vm = SearchViewModel::new();
         let mut playlist = playlist("Focus");
@@ -1996,5 +2274,57 @@ mod tests {
 
         vm.fail_playlist_append("offline");
         assert_eq!(vm.status, "Error adding to playlist: offline");
+    }
+
+    #[test]
+    fn search_view_model_track_operation_rejects_empty_and_duplicate_keys() {
+        let mut vm = SearchViewModel::new();
+
+        assert!(!vm.begin_track_operation(""));
+        assert!(!vm.is_track_operation_in_flight(""));
+        assert!(vm.begin_track_operation("track:1"));
+        assert!(vm.is_track_operation_in_flight("track:1"));
+        assert!(!vm.begin_track_operation("track:1"));
+    }
+
+    #[test]
+    fn search_view_model_finishes_track_download_and_remove_operations() {
+        let mut vm = SearchViewModel::new();
+
+        assert!(vm.begin_track_operation("track:1"));
+        vm.finish_track_download("track:1", "Downloaded");
+        assert!(!vm.is_track_operation_in_flight("track:1"));
+        assert_eq!(vm.status, "Downloaded");
+
+        assert!(vm.begin_track_operation("track:2"));
+        vm.finish_track_remove("track:2", "Removed");
+        assert!(!vm.is_track_operation_in_flight("track:2"));
+        assert_eq!(vm.status, "Removed");
+    }
+
+    #[test]
+    fn search_view_model_fails_track_operations_with_contextual_status() {
+        let mut vm = SearchViewModel::new();
+
+        assert!(vm.begin_track_operation("track:1"));
+        vm.fail_track_download("track:1", "offline");
+        assert!(!vm.is_track_operation_in_flight("track:1"));
+        assert_eq!(vm.status, "Download error: offline");
+
+        assert!(vm.begin_track_operation("track:2"));
+        vm.fail_track_remove("track:2", "locked");
+        assert!(!vm.is_track_operation_in_flight("track:2"));
+        assert_eq!(vm.status, "Remove error: locked");
+    }
+
+    #[test]
+    fn search_view_model_tracks_resize_lifecycle() {
+        let mut vm = SearchViewModel::new();
+
+        assert!(!vm.is_resizing());
+        vm.begin_resize();
+        assert!(vm.is_resizing());
+        vm.end_resize();
+        assert!(!vm.is_resizing());
     }
 }

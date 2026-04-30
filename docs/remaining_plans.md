@@ -48,13 +48,15 @@ The projection view-model layer is partially migrated:
   derived-artist aggregation.
 - `view_models::search::SearchViewModel` now owns Discover/Search pure UI
   scalars and snapshots (`results`, `recent_feeds`, `playlists`). `search.rs`
-  is still mid-migration and directly mutates many of those fields while it
-  owns service dispatch, inspector stack, GPUI handles, thumbnails, and
-  layout pixels. Endpoint-reset and recent-feed loading transitions now go
-  through VM methods and pure load intents; main search loading/results now
-  use the same VM-owned transition shape. Playlist snapshots, playlist
-  append progress/completion, and add-to-playlist preflight status text are
-  also VM-owned.
+  is still mid-migration while it owns service dispatch, inspector stack,
+  GPUI handles, thumbnails, and layout pixels. Endpoint-reset and recent-feed
+  loading transitions now go through VM methods and pure load intents; main
+  search loading/results now use the same VM-owned transition shape. Playlist
+  snapshots, playlist append progress/completion, add-to-playlist preflight
+  status text, track download/remove in-flight status transitions, and the
+  split-pane resize lifecycle are also VM-owned. Result-row key/display title
+  projection and keyboard navigation targets now live with the result snapshot
+  in the VM layer, as does artist-result enrichment after inspector loads.
 - `view_models::library::MbTrackStatus` is now screen-independent.
 - `view_models::library::LibraryTrackRowVm` backs album detail track rows.
 - `view_models::library::LibraryArtistDetailVm` backs library artist detail.
@@ -99,9 +101,8 @@ The projection view-model layer is partially migrated:
   remove service-dispatch setup and status formatting from `library.rs`.
 - `search-view-model`: continue thinning `SearchViewModel` now that it owns
   Discover/Search pure UI state and snapshots. Next moves: replace direct
-  `search.rs` field mutation with typed methods for in-flight track
-  operations, resize state, result navigation accessors, and remaining
-  status formatting.
+  `search.rs` field mutation with typed methods for remaining render-state
+  accessors and status formatting.
 - `command-intent-types`: introduce small command enums or structs only where
   they remove direct service calls from screens. Do not build a broad
   CommandBus without a separate ADR.

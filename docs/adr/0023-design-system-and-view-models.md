@@ -276,9 +276,10 @@ only GPUI-bound fields — `Entity<InputState>`, `gpui::Subscription`,
 thumbnails map, and service handles — while `SearchViewModel` owns
 selection (`selected_key`, `inspector_origin`), filter state
 (`type_filter`, `fuzzy_search`), both panes' loading / status /
-cursor / `has_more` flags, the in-flight track set, drag-resize
-flag, and the loaded snapshots (`results`, `recent_feeds`,
-`playlists`). Discover result rows render through `ListRow`,
+cursor / `has_more` flags, track download/remove in-flight
+transitions, drag-resize lifecycle, result-row identity / keyboard
+navigation targets, artist-result enrichment, and the loaded snapshots
+(`results`, `recent_feeds`, `playlists`). Discover result rows render through `ListRow`,
 `Thumbnail`, `Label`, and `TagBadge` instead of raw row / badge
 layout. Inspector projection logic lives in `PublisherInspectorVm`,
 `ActionRowVm`, `TrackInspectorHeaderVm`, `ContributorVm`, and
@@ -342,7 +343,8 @@ directly (no command bus seam yet) and contain raw `px(...)` and
   on `view_models`.
 - Both `library.rs` and `search.rs` still dispatch service calls
   directly. `LibraryViewModel` and `SearchViewModel` own the pure
-  snapshot data and pane state, and library has typed command-intent
+  snapshot data and pane state, Search also owns track-operation
+  in-flight/status transitions, and library has typed command-intent
   values (`PlaylistAppendIntent`, `TrackSubscribeOutcome`,
   `PlaylistAppendOutcome`), but a full command-bus seam — typed
   commands replacing every direct `&mut self` service call — is still
