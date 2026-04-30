@@ -190,21 +190,18 @@ pub struct SearchApp {
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
     input: Entity<InputState>,
-    /// Stateful screen view-model. Owns all pure UI scalars and
-    /// pane-state flags. Fields kept on `SearchApp` itself are
-    /// GPUI-bound (`Entity`, `Subscription`, `FocusHandle`,
-    /// `Pixels`), service handles, screen-only inspector state, or
-    /// snapshots/maps that still hold `Arc<gpui::Image>`. See ADR
-    /// 0023.
-    vm: SearchViewModel,
-    results: Vec<ResultRow>,
+    /// Stateful screen view-model. Owns all pure UI scalars,
+    /// pane-state flags, and loaded snapshots (results, recent feeds,
+    /// playlists). Fields kept on `SearchApp` itself are GPUI-bound
+    /// (`Entity`, `Subscription`, `FocusHandle`, `Pixels`), service
+    /// handles, screen-only inspector state, or maps that still hold
+    /// `Arc<gpui::Image>`. See ADR 0023.
+    pub(crate) vm: SearchViewModel,
     inspector_stack: Vec<InspectorFrame>,
-    recent_feeds: Vec<Feed>,
     left_pane_width: gpui::Pixels,
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
-    pub(crate) playlists: Vec<db::Playlist>,
 }
 
 /// Events emitted by [`SearchApp`] to notify peer components (e.g. the
@@ -245,14 +242,11 @@ impl SearchApp {
             musicindex_endpoint,
             input,
             vm: SearchViewModel::new(),
-            results: Vec::new(),
             inspector_stack: Vec::new(),
-            recent_feeds: Vec::new(),
             left_pane_width: px(360.0),
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
             list_focus: cx.focus_handle(),
-            playlists: Vec::new(),
         };
         this.load_playlists();
         this.load_recent_feeds(false, cx);
@@ -265,7 +259,7 @@ impl SearchApp {
         }
 
         self.musicindex_endpoint = endpoint;
-        self.results.clear();
+        self.vm.results.clear();
         self.vm.loading = false;
         self.vm.status = "MusicIndex endpoint updated".into();
         self.vm.cursor = None;
@@ -273,7 +267,7 @@ impl SearchApp {
         self.vm.clear_selection();
         self.inspector_stack.clear();
         self.vm.clear_inspector_origin();
-        self.recent_feeds.clear();
+        self.vm.recent_feeds.clear();
         self.vm.recent_cursor = None;
         self.vm.recent_has_more = false;
         self.vm.recent_loaded_once = false;
@@ -288,7 +282,7 @@ impl SearchApp {
         }
         self.vm.recent_loading = true;
         if !append {
-            self.recent_feeds.clear();
+            self.vm.recent_feeds.clear();
             self.vm.recent_cursor = None;
             self.vm.recent_has_more = false;
         }
@@ -318,7 +312,7 @@ impl SearchApp {
                     this.vm.recent_loaded_once = true;
                     match result {
                         Ok(response) => {
-                            this.recent_feeds.extend(response.data);
+                            this.vm.recent_feeds.extend(response.data);
                             this.vm.recent_cursor = response.pagination.cursor;
                             this.vm.recent_has_more = response.pagination.has_more;
                             this.vm.recent_status.clear();
@@ -352,18 +346,18 @@ impl SearchApp {
     }
 
     pub fn move_up(&mut self, cx: &mut Context<Self>) {
-        if self.results.is_empty() {
+        if self.vm.results.is_empty() {
             return;
         }
         let current_key = self.vm.selected_key.as_deref();
-        let current_idx = self.results.iter().position(|r| {
+        let current_idx = self.vm.results.iter().position(|r| {
             Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string())
         });
         let next_idx = match current_idx {
             Some(idx) if idx > 0 => idx - 1,
             _ => 0,
         };
-        if let Some(row) = self.results.get(next_idx) {
+        if let Some(row) = self.vm.results.get(next_idx) {
             let entity_type = row.entity_type.clone();
             let entity_id = row.entity_id.clone();
             let title = result_display(row).line1;
@@ -372,19 +366,19 @@ impl SearchApp {
     }
 
     pub fn move_down(&mut self, cx: &mut Context<Self>) {
-        if self.results.is_empty() {
+        if self.vm.results.is_empty() {
             return;
         }
         let current_key = self.vm.selected_key.as_deref();
-        let current_idx = self.results.iter().position(|r| {
+        let current_idx = self.vm.results.iter().position(|r| {
             Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string())
         });
         let next_idx = match current_idx {
-            Some(idx) if idx + 1 < self.results.len() => idx + 1,
+            Some(idx) if idx + 1 < self.vm.results.len() => idx + 1,
             Some(idx) => idx,
             None => 0,
         };
-        if let Some(row) = self.results.get(next_idx) {
+        if let Some(row) = self.vm.results.get(next_idx) {
             let entity_type = row.entity_type.clone();
             let entity_id = row.entity_id.clone();
             let title = result_display(row).line1;
@@ -426,7 +420,7 @@ impl SearchApp {
         };
 
         if !append {
-            self.results.clear();
+            self.vm.results.clear();
             self.vm.cursor = None;
             self.vm.has_more = false;
             self.vm.clear_selection();
@@ -477,7 +471,7 @@ impl SearchApp {
     fn apply_search_batch(&mut self, batch: SearchBatch, append: bool) {
         if !append && batch.rows.is_empty() {
             self.vm.status.clear();
-            self.results.clear();
+            self.vm.results.clear();
             self.vm.loading = false;
             self.vm.has_more = false;
             self.vm.cursor = None;
@@ -486,6 +480,7 @@ impl SearchApp {
 
         if append {
             let mut seen: std::collections::HashSet<(String, String)> = self
+                .vm
                 .results
                 .iter()
                 .map(|r| (r.entity_type.clone(), r.entity_id.clone()))
@@ -493,17 +488,17 @@ impl SearchApp {
             for row in batch.rows {
                 let key = (row.entity_type.clone(), row.entity_id.clone());
                 if seen.insert(key) {
-                    self.results.push(row);
+                    self.vm.results.push(row);
                 }
             }
         } else {
-            self.results.extend(batch.rows);
+            self.vm.results.extend(batch.rows);
         }
         self.vm.cursor = batch.cursor;
         self.vm.has_more = batch.has_more;
         self.vm.loading = false;
 
-        let total = self.results.len();
+        let total = self.vm.results.len();
         self.vm.status = format!(
             "{total} result{}{}",
             if total == 1 { "" } else { "s" },
@@ -640,7 +635,7 @@ impl SearchApp {
                                     Ok((detail, image)) => {
                                         if let InspectorDetail::Artist(ctx) = &detail {
                                             let target_id = entity_id.clone();
-                                            for row in this.results.iter_mut() {
+                                            for row in this.vm.results.iter_mut() {
                                                 if row.entity_type == "artist"
                                                     && row.entity_id == target_id
                                                 {
@@ -1326,7 +1321,7 @@ impl SearchApp {
     fn load_playlists(&mut self) {
         let conn = self.conn.lock().expect("lock db");
         match playlist_service::list(&conn) {
-            Ok(list) => self.playlists = list,
+            Ok(list) => self.vm.playlists = list,
             Err(err) => self.vm.status = format!("Error loading playlists: {err:#}"),
         }
     }
@@ -1452,6 +1447,7 @@ impl SearchApp {
     ) {
         let total = track_ids.len();
         let playlist_name = self
+            .vm
             .playlists
             .iter()
             .find(|p| p.id == playlist_id)
@@ -1691,7 +1687,7 @@ impl Render for SearchApp {
         };
         let status_empty = status_text.is_empty();
 
-        let rows = self.results.clone();
+        let rows = self.vm.results.clone();
         let selected_key = self.vm.selected_key.clone();
         let list_focused = self.list_focus.is_focused(_window);
         let results: Vec<AnyElement> = rows
@@ -1718,12 +1714,12 @@ impl Render for SearchApp {
         let input_is_empty = self.input.read(cx).value().trim().is_empty();
         let show_recents_root = stack.is_empty()
             && self.vm.inspector_origin.is_none()
-            && self.results.is_empty()
+            && self.vm.results.is_empty()
             && input_is_empty;
         let inspector = render_inspector(stack.last(), show_back, show_recents_root, self, cx);
         let active_input = self.input.clone();
         let is_loading = self.vm.loading;
-        let is_empty = self.results.is_empty();
+        let is_empty = self.vm.results.is_empty();
         let has_more = self.vm.has_more;
         let search_label = "Search Index";
 
@@ -2899,7 +2895,7 @@ fn render_add_to_playlist_panel_search(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let playlists = app.playlists.clone();
+    let playlists = app.vm.playlists.clone();
 
     enum Target {
         Track(i64),
@@ -5468,7 +5464,7 @@ pub(crate) fn render_publisher_link_value(
 }
 
 fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -> AnyElement {
-    let feeds = app.recent_feeds.clone();
+    let feeds = app.vm.recent_feeds.clone();
     let status = app.vm.recent_status.clone();
     let has_more = app.vm.recent_has_more;
     let loading = app.vm.recent_loading;

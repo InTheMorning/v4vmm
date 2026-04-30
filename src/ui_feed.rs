@@ -63,7 +63,7 @@ pub(crate) fn render_feed_view(
     }
 
     if vm.has_tracks() {
-        let playlists = app.playlists.clone();
+        let playlists = app.vm.playlists.clone();
         let open_guid = frame.add_to_playlist_open_track_guid.clone();
         let feed_guid = frame.entity_id.clone();
         let feed_url = view.feed_url.clone();

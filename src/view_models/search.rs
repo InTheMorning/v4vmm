@@ -10,6 +10,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::api::{Artist, EntityDetail, Feed, Publisher, Track};
+use crate::db;
 use crate::view_models::track::TrackVm;
 
 /// Search result row data owned by the Discover screen.
@@ -421,6 +422,11 @@ pub(crate) struct SearchViewModel {
     pub(crate) recent_has_more: bool,
     // Layout / drag state.
     pub(crate) resizing: bool,
+    // Loaded snapshots — owned here so the screen can become a thin
+    // Render impl. None of these carry GPUI types.
+    pub(crate) results: Vec<ResultRow>,
+    pub(crate) recent_feeds: Vec<Feed>,
+    pub(crate) playlists: Vec<db::Playlist>,
 }
 
 /// Number of segmented filter slots — see the `TYPE_LABELS` /
@@ -449,6 +455,9 @@ impl SearchViewModel {
             recent_cursor: None,
             recent_has_more: false,
             resizing: false,
+            results: Vec::new(),
+            recent_feeds: Vec::new(),
+            playlists: Vec::new(),
         }
     }
 
@@ -1018,6 +1027,14 @@ mod tests {
         assert_eq!(vm.recent_cursor, None);
         assert!(!vm.recent_has_more);
         assert!(!vm.resizing);
+    }
+
+    #[test]
+    fn search_view_model_starts_with_empty_snapshots() {
+        let vm = SearchViewModel::new();
+        assert!(vm.results.is_empty());
+        assert!(vm.recent_feeds.is_empty());
+        assert!(vm.playlists.is_empty());
     }
 
     #[test]
