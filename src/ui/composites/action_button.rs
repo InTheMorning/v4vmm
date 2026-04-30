@@ -12,7 +12,7 @@
 #![warn(clippy::pedantic)]
 
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::theme::{color, radius, typography};
+use crate::ui::tokens::{color, FontSize, Radius, SemanticColor};
 use gpui::{App, SharedString, Styled};
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::Size;
@@ -28,9 +28,9 @@ pub fn action_button(label: &str, cx: &App) -> Button {
         .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
-        .text_color(color::text_on_accent())
-        .text_size(typography::SIZE_MICRO)
-        .rounded(radius::SM)
+        .text_color(color(cx, SemanticColor::OnAccent))
+        .text_size(FontSize::Micro.scaled(cx))
+        .rounded(Radius::SM.scaled(cx))
         .border_1()
-        .border_color(color::accent())
+        .border_color(color(cx, SemanticColor::Accent))
 }

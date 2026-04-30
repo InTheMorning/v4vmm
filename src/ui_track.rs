@@ -1,15 +1,19 @@
+#![warn(clippy::pedantic)]
+//! Discover-mode track row renderer.
+//!
+//! Thin screen-level glue: projects [`api::Track`] through [`TrackVm`] into
+//! the [`TrackRow`] composite, then adds screen-specific trailing actions
+//! (download button, playlist popover, play button). All layout lives inside
+//! the composite; this module only wires callbacks.
+
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, px, AnyElement, ClickEvent, Context, Image, SharedString};
+use gpui::{prelude::*, AnyElement, ClickEvent, Context, Image, SharedString};
 
 use crate::api::{Feed, Track};
 use crate::db;
 use crate::search::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
-use crate::ui::composites::{EntityKind, ListRow, Thumbnail, ThumbnailSize};
-use crate::ui::playlist_popover::AddToPlaylistPopover;
-use crate::ui::primitives::Label;
-use crate::ui::theme::{color, typography};
-use crate::ui::tokens::FontSize;
+use crate::ui::composites::{AddToPlaylistPopover, TrackRow};
 use crate::view_models::track::TrackVm;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,6 +24,10 @@ pub(crate) enum TrackRowMode {
 #[expect(
     clippy::too_many_arguments,
     reason = "staged extraction preserves the existing Discover row contract"
+)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "caller in search.rs passes Track by move; switching to &Track cascades outside this module"
 )]
 pub(crate) fn render_track_row(
     track: Track,
@@ -36,7 +44,7 @@ pub(crate) fn render_track_row(
 ) -> AnyElement {
     match mode {
         TrackRowMode::Discover => render_discover_track_row(
-            track,
+            &track,
             thumbnail,
             feed,
             is_downloaded,
@@ -54,7 +62,7 @@ pub(crate) fn render_track_row(
     reason = "shared row still needs the existing Discover inputs during rollout"
 )]
 fn render_discover_track_row(
-    track: Track,
+    track: &Track,
     thumbnail: Option<Arc<Image>>,
     feed: Option<Feed>,
     is_downloaded: bool,
@@ -64,7 +72,7 @@ fn render_discover_track_row(
     playlists: &[db::Playlist],
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let vm = TrackVm::new(&track);
+    let vm = TrackVm::new(track);
     let guid = vm.guid();
     let title = vm.title();
     let track_number_label = vm.track_number_label();
@@ -75,59 +83,26 @@ fn render_discover_track_row(
     let title_for_click = title.clone();
     let feed_guid_owned = feed_guid.map(str::to_string);
 
-    let mut row = ListRow::compact(SharedString::from(format!("track-row:{guid}"))).child(
-        div()
-            .id(SharedString::from(format!("track-row-open:{guid}")))
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(crate::ui::tokens::Spacing::SM.scaled(cx))
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.push_inspector(
-                    "track".into(),
-                    guid_for_click.clone(),
-                    title_for_click.clone(),
-                    cx,
-                );
-            }))
-            .child(
-                div()
-                    .w(px(24.0))
-                    .text_right()
-                    .text_color(color::text_muted())
-                    .text_size(typography::SIZE_MICRO)
-                    .child(track_number_label),
-            )
-            .child(
-                Thumbnail::new(
-                    EntityKind::Track,
-                    ThumbnailSize::from_legacy_px(28.0, false),
-                )
-                .image(thumbnail.clone()),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .child(Label::new(title).size(FontSize::Micro).truncated()),
-            )
-            .when_some(duration_display, |el, dur| {
-                el.child(
-                    div()
-                        .text_color(color::text_muted())
-                        .text_size(typography::SIZE_MICRO)
-                        .child(SharedString::from(dur)),
-                )
-            })
-            .into_any_element(),
-    );
-
-    row = row.child(
+    let download_btn =
         render_track_download_button(track.clone(), feed, is_downloaded, is_in_flight, cx)
-            .into_any_element(),
-    );
+            .into_any_element();
+    let play_btn =
+        render_play_icon_button_with_id(play_button_id, audio_url, cx).into_any_element();
+
+    let mut row = TrackRow::new(SharedString::from(format!("track-row:{guid}")))
+        .number(track_number_label)
+        .title(title)
+        .duration(duration_display)
+        .thumbnail(thumbnail)
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.push_inspector(
+                "track".into(),
+                guid_for_click.clone(),
+                title_for_click.clone(),
+                cx,
+            );
+        }))
+        .trailing_child(download_btn);
 
     if let Some(ref fguid) = feed_guid_owned {
         if !guid.is_empty() {
@@ -159,12 +134,9 @@ fn render_discover_track_row(
                     cx,
                 );
             }));
-            row = row.child(popover.into_any_element());
+            row = row.trailing_child(popover);
         }
     }
 
-    row = row
-        .child(render_play_icon_button_with_id(play_button_id, audio_url, cx).into_any_element());
-
-    row.into_any_element()
+    row.trailing_child(play_btn).into_any_element()
 }
