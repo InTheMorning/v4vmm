@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted — design-system foundation implemented; screen view-model migration ongoing
+Accepted — design-system foundation and stateful screen VMs implemented for
+both library and discover screens; token-literal sweep
+(`audit-token-usage`) and a typed command-bus seam remain.
 
 ## Context
 
@@ -245,27 +247,40 @@ not own workflow state, do not call services directly, and do not build
 display strings inline.
 
 After PR #5 and follow-up local commits, `ui_artist.rs`, `ui_feed.rs`, and
-the discover row of `ui_track.rs` are bound to projection VMs. `library.rs`
-uses `LibraryTrackRowVm`, `LibraryArtistDetailVm`, `PlaylistDetailVm`, and
-`TrackVm` in several detail slices, and routes its pure library snapshots
-through `LibraryViewModel` / `LibrarySnapshot` methods instead of mutating
-those maps and vectors directly. Its library-tree filtering / expansion
-projection now lives in `LibraryTreeProjection`, and its playlist sidebar
-rows render from `PlaylistSidebarVm` through `ListRow` / `Label`. Library
-selection and album add-to-playlist picker toggles are now mediated by
-`LibraryViewModel` methods rather than direct screen mutation, and status /
-busy-track / hovered-thumbnail updates follow the same pattern.
-`search.rs` uses `TrackVm`,
-`ResultRowVm`, and shared format helpers, and its contributor / value-route /
-frame sections use `DisclosureGroup`. The Discover result row now renders
-through `ListRow`, `Thumbnail`, `Label`, and `TagBadge` instead of raw row /
-badge layout, and feed / track inspector identity labels use `TagBadge`
-rather than inline badge styling.
+the discover row of `ui_track.rs` are bound to projection VMs.
+`library.rs` uses `LibraryTrackRowVm`, `LibraryArtistDetailVm`,
+`LibraryAlbumDetailVm`, `PlaylistDetailVm`, `PlaylistTrackRowVm`, and
+`TrackVm` across its detail panels, and routes its pure library
+snapshots through `LibraryViewModel` / `LibrarySnapshot` methods
+instead of mutating those maps and vectors directly. Its library-tree
+filtering / expansion projection lives in `LibraryTreeProjection`, and
+its playlist sidebar rows render from `PlaylistSidebarVm` through
+`ListRow` / `Label`. Library selection, album add-to-playlist picker
+toggles, status / busy-track / hovered-thumbnail updates, and command
+intent for playlist append / track subscribe are all mediated by
+`LibraryViewModel` methods and value types
+(`PlaylistAppendIntent`, `PlaylistAppendOutcome`,
+`TrackSubscribeOutcome`) rather than direct screen mutation.
 
-`library.rs` and `search.rs` remain large and partially migrated. They still
-own screen state, call services directly, and contain remaining raw `px(...)`
-and `rgb(...)` literals. Binding them to stateful screen VMs is tracked in
-`docs/remaining_plans.md`.
+`search.rs` mirrors this shape via `SearchViewModel`. The screen owns
+only GPUI-bound fields — `Entity<InputState>`, `gpui::Subscription`,
+`FocusHandle`, `Pixels`, the inspector stack with `Arc<Image>`, the
+thumbnails map, and service handles — while `SearchViewModel` owns
+selection (`selected_key`, `inspector_origin`), filter state
+(`type_filter`, `fuzzy_search`), both panes' loading / status /
+cursor / `has_more` flags, the in-flight track set, drag-resize
+flag, and the loaded snapshots (`results`, `recent_feeds`,
+`playlists`). Discover result rows render through `ListRow`,
+`Thumbnail`, `Label`, and `TagBadge` instead of raw row / badge
+layout. Inspector projection logic lives in `PublisherInspectorVm`,
+`ActionRowVm`, `TrackInspectorHeaderVm`, `ContributorVm`, and
+`PaymentRouteVm`; the screen consumes them and only owns the GPUI
+element tree and event wiring.
+
+`library.rs` and `search.rs` remain large. They still call services
+directly (no command bus seam yet) and contain raw `px(...)` and
+`rgb(...)` literals. The audit sweep is tracked separately as
+`audit-token-usage` in `docs/remaining_plans.md`.
 
 ### Cross-cutting bridges
 
@@ -317,9 +332,13 @@ and `rgb(...)` literals. Binding them to stateful screen VMs is tracked in
   behavior exists in multiple projections. They should collapse where the
   target layer dependency allows it. Service-side formatting must not depend
   on `view_models`.
-- `library.rs` still dispatches service calls directly and passes snapshot
-  borrows into projection VMs. `LibraryViewModel` now owns the pure snapshot
-  data, but command intent extraction remains future work.
+- Both `library.rs` and `search.rs` still dispatch service calls
+  directly. `LibraryViewModel` and `SearchViewModel` own the pure
+  snapshot data and pane state, and library has typed command-intent
+  values (`PlaylistAppendIntent`, `TrackSubscribeOutcome`,
+  `PlaylistAppendOutcome`), but a full command-bus seam — typed
+  commands replacing every direct `&mut self` service call — is still
+  future work and will likely need its own ADR.
 - Several `gpui_component` widgets do not expose appearance through
   `Environment` and require explicit `.appearance()` modifier calls.
   This is acceptable but inconsistent with the rest of the primitive
@@ -385,14 +404,22 @@ already true at merge of PR #5; others are explicitly tracked in
       directories with the rules in `view_models/mod.rs` documented.
 - [x] `ui_common.rs` is removed; its responsibilities split between
       `ui::detail_row`, `ui::composites::*`, and `view_models::format`.
-- [x] Projection VMs `ArtistVm`, `FeedVm`, `TrackVm`,
-      `ResultRowVm`, `LibraryTrackRowVm`, `LibraryArtistDetailVm`, and
-      `PlaylistDetailVm` exist with unit tests that pin display
-      invariants.
+- [x] Projection VMs exist with unit tests that pin display invariants:
+      `ArtistVm`, `FeedVm`, `TrackVm`,
+      `ResultRowVm`, `PublisherInspectorVm`, `ActionRowVm`,
+      `ContributorVm`, `PaymentRouteVm`, `TrackInspectorHeaderVm`,
+      `LibraryTrackRowVm`, `LibraryArtistDetailVm`,
+      `LibraryAlbumDetailVm`, `PlaylistDetailVm`, `PlaylistTrackRowVm`,
+      `PlaylistSidebarVm`, `ArtistFeedSummaryVm`,
+      `LibraryTreeProjection`.
 - [x] User-driven `ScaleFactor` flows through both primitives and
       `gpui_component` widgets.
-- [ ] `view-model-library` and `view-model-search` extracted; library
-      and search screens bound to their VMs.
+- [x] `view-model-library` and `view-model-search` extracted; library
+      and search screens bound to stateful `LibraryViewModel` /
+      `SearchViewModel` for selection, snapshot ownership,
+      pane state, and command-intent values
+      (`PlaylistAppendIntent`, `TrackSubscribeOutcome`,
+      `PlaylistAppendOutcome`).
 - [x] `view_models/*` has no imports from screen modules, including
       `library`, `search`, `app`, and `ui_*`.
 - [x] No primitive/composite render defaults hardcode `Appearance::Dark`;
