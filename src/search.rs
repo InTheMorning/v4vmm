@@ -51,6 +51,7 @@ use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ContributorVm,
     PaymentRouteVm, PublisherInspectorVm, ResultRow, ResultRowVm, SearchViewModel,
+    TrackInspectorHeaderVm,
 };
 use crate::view_models::track::TrackVm;
 
@@ -5290,15 +5291,16 @@ fn render_track_header(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let vm = TrackVm::new(track);
+    let header_vm = TrackInspectorHeaderVm::new(track);
     let title = vm.title();
-    let artist = track
-        .track_artist
-        .clone()
-        .or_else(|| track.release_artist.clone())
-        .unwrap_or_else(|| "Unknown".into());
+    let artist = header_vm.artist();
     let feed_guid = track.feed_guid.clone();
-    let feed_title_label = track.feed_title.clone();
-    let feed_url = track.feed_url.clone().or_else(|| track.feed_guid.clone());
+    // Resolve the visible link label up-front via the VM so the
+    // subtitle helper does not have to know about `Track` shape.
+    let feed_link_label = feed_guid
+        .as_deref()
+        .map(|guid| header_vm.feed_link_label(guid));
+    let feed_url = header_vm.feed_link_url();
     let audio_url = vm.play_url();
     let npub = track_nostr(track);
 
@@ -5329,7 +5331,7 @@ fn render_track_header(
                 )
                 .child(render_track_header_subtitle(
                     feed_guid,
-                    feed_title_label,
+                    feed_link_label,
                     feed_url,
                     audio_url,
                     npub,
@@ -5341,7 +5343,7 @@ fn render_track_header(
 
 fn render_track_header_subtitle(
     feed_guid: Option<String>,
-    feed_title: Option<String>,
+    feed_link_label: Option<String>,
     feed_url: Option<String>,
     audio_url: Option<String>,
     npub: Option<String>,
@@ -5354,12 +5356,7 @@ fn render_track_header_subtitle(
         .gap(spacing::SM)
         .min_w_0()
         .when_some(feed_guid, |el, guid| {
-            let label = feed_title
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .unwrap_or_else(|| guid.clone());
+            let label = feed_link_label.unwrap_or_else(|| guid.clone());
             el.child(render_feed_link_value(guid.clone(), label, feed_url, cx))
         })
         .child(render_play_icon_button_with_id(

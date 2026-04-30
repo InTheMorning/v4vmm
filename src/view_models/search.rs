@@ -369,6 +369,58 @@ impl<'a> ActionRowVm<'a> {
 
 /// Derive artist result rows from mixed artist/feed/track results.
 ///
+/// Borrow-only projection over the discover track-inspector header.
+/// Owns the artist fallback chain (`track_artist` → `release_artist` →
+/// `"Unknown"`), the feed-link URL fallback (`feed_url` →
+/// `feed_guid`), and the feed-link label fallback (`feed_title` →
+/// caller-provided guid).
+pub(crate) struct TrackInspectorHeaderVm<'a> {
+    track: &'a Track,
+}
+
+impl<'a> TrackInspectorHeaderVm<'a> {
+    #[must_use]
+    pub(crate) fn new(track: &'a Track) -> Self {
+        Self { track }
+    }
+
+    /// Header artist — `track_artist` first, else `release_artist`,
+    /// else `"Unknown"`. Matches the legacy
+    /// `render_track_header` fallback chain exactly.
+    #[must_use]
+    pub(crate) fn artist(&self) -> String {
+        self.track
+            .track_artist
+            .clone()
+            .or_else(|| self.track.release_artist.clone())
+            .unwrap_or_else(|| "Unknown".to_string())
+    }
+
+    /// URL the feed link should target — `feed_url` first, else
+    /// `feed_guid` (used as a stand-in identifier when no URL is
+    /// known).
+    #[must_use]
+    pub(crate) fn feed_link_url(&self) -> Option<String> {
+        self.track
+            .feed_url
+            .clone()
+            .or_else(|| self.track.feed_guid.clone())
+    }
+
+    /// Visible label for the feed link — trimmed `feed_title` if
+    /// non-empty, otherwise the supplied `guid_fallback` (typically
+    /// the row's `feed_guid`).
+    #[must_use]
+    pub(crate) fn feed_link_label(&self, guid_fallback: &str) -> String {
+        self.track
+            .feed_title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map_or_else(|| guid_fallback.to_string(), str::to_string)
+    }
+}
+
 /// Borrow-only projection of one [`api::Contributor`] entry inside the
 /// inspector's contributors panel. Owns the `Unknown` name fallback and
 /// the `" (role)"` suffix the screen used to inline.
@@ -1142,6 +1194,81 @@ mod tests {
         assert_eq!(vm.recent_cursor, None);
         assert!(!vm.recent_has_more);
         assert!(!vm.resizing);
+    }
+
+    #[test]
+    fn track_inspector_header_vm_artist_falls_through_track_release_then_unknown() {
+        // None of track_artist or release_artist set → Unknown.
+        let track = Track::default();
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.artist(), "Unknown");
+
+        // release_artist alone → that wins.
+        let track = Track {
+            release_artist: Some("Release".into()),
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.artist(), "Release");
+
+        // track_artist beats release_artist.
+        let track = Track {
+            track_artist: Some("Track".into()),
+            release_artist: Some("Release".into()),
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.artist(), "Track");
+    }
+
+    #[test]
+    fn track_inspector_header_vm_feed_link_url_falls_back_to_feed_guid() {
+        let track = Track {
+            feed_url: Some("https://example/x.rss".into()),
+            feed_guid: Some("guid-1".into()),
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.feed_link_url().as_deref(), Some("https://example/x.rss"));
+
+        let track = Track {
+            feed_url: None,
+            feed_guid: Some("guid-1".into()),
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.feed_link_url().as_deref(), Some("guid-1"));
+
+        let track = Track::default();
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.feed_link_url(), None);
+    }
+
+    #[test]
+    fn track_inspector_header_vm_feed_link_label_uses_feed_title_then_falls_back_to_guid() {
+        let track = Track {
+            feed_title: Some("Friendly Title".into()),
+            feed_guid: Some("guid-1".into()),
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.feed_link_label("guid-1"), "Friendly Title");
+
+        // Empty / whitespace-only feed_title falls back to the guid arg.
+        let track = Track {
+            feed_title: Some("   ".into()),
+            feed_guid: Some("guid-1".into()),
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.feed_link_label("guid-1"), "guid-1");
+
+        let track = Track {
+            feed_title: None,
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.feed_link_label("fallback"), "fallback");
     }
 
     #[test]
