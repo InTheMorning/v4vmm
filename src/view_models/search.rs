@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use crate::api::{Artist, EntityDetail, Feed, Publisher, Track};
+use crate::api::{self, Artist, EntityDetail, Feed, PaymentRoute, Publisher, Track};
 use crate::db;
 use crate::view_models::track::TrackVm;
 
@@ -369,6 +369,121 @@ impl<'a> ActionRowVm<'a> {
 
 /// Derive artist result rows from mixed artist/feed/track results.
 ///
+/// Borrow-only projection of one [`api::Contributor`] entry inside the
+/// inspector's contributors panel. Owns the `Unknown` name fallback and
+/// the `" (role)"` suffix the screen used to inline.
+pub(crate) struct ContributorVm<'a> {
+    contributor: &'a api::Contributor,
+}
+
+impl<'a> ContributorVm<'a> {
+    #[must_use]
+    pub(crate) fn new(contributor: &'a api::Contributor) -> Self {
+        Self { contributor }
+    }
+
+    /// Display name with `"Unknown"` fallback.
+    #[must_use]
+    pub(crate) fn display_name(&self) -> String {
+        self.contributor
+            .name
+            .clone()
+            .unwrap_or_else(|| "Unknown".to_string())
+    }
+
+    /// `" (role)"` suffix when the contributor has a role, otherwise
+    /// empty.
+    #[must_use]
+    pub(crate) fn role_suffix(&self) -> String {
+        self.contributor
+            .role
+            .as_ref()
+            .map_or(String::new(), |r| format!(" ({r})"))
+    }
+
+    /// `"<name>{ (role)}"` — what the contributor row renders.
+    #[must_use]
+    pub(crate) fn full_label(&self) -> String {
+        format!("{}{}", self.display_name(), self.role_suffix())
+    }
+
+    /// Optional clickable href for the row.
+    #[must_use]
+    pub(crate) fn href(&self) -> Option<&str> {
+        self.contributor.href.as_deref()
+    }
+
+    /// Group key (used by the screen to bucket contributors). Empty
+    /// string means "ungrouped".
+    #[must_use]
+    pub(crate) fn group(&self) -> &str {
+        self.contributor.group_name.as_deref().unwrap_or("")
+    }
+}
+
+/// Borrow-only projection of one [`api::PaymentRoute`] entry inside the
+/// inspector's value-routes panel. Owns the `"Unnamed recipient"` /
+/// `"route"` fallbacks, the fee-vs-split classification, and the
+/// `"Fees"` / `"Recipients"` group bucket the screen used to inline.
+pub(crate) struct PaymentRouteVm<'a> {
+    route: &'a PaymentRoute,
+}
+
+impl<'a> PaymentRouteVm<'a> {
+    #[must_use]
+    pub(crate) fn new(route: &'a PaymentRoute) -> Self {
+        Self { route }
+    }
+
+    #[must_use]
+    pub(crate) fn recipient_name(&self) -> String {
+        self.route
+            .recipient_name
+            .clone()
+            .unwrap_or_else(|| "Unnamed recipient".to_string())
+    }
+
+    #[must_use]
+    pub(crate) fn route_type(&self) -> String {
+        self.route
+            .route_type
+            .clone()
+            .unwrap_or_else(|| "route".to_string())
+    }
+
+    /// Split percentage; `0.0` when the route does not declare one.
+    #[must_use]
+    pub(crate) fn split(&self) -> f64 {
+        self.route.split.unwrap_or_default()
+    }
+
+    #[must_use]
+    pub(crate) fn is_fee(&self) -> bool {
+        self.route.fee.unwrap_or_default()
+    }
+
+    /// `"fee"` when the route is marked as a fee, `"split"` otherwise.
+    #[must_use]
+    pub(crate) fn kind_label(&self) -> &'static str {
+        if self.is_fee() {
+            "fee"
+        } else {
+            "split"
+        }
+    }
+
+    /// Group bucket key — `"Fees"` for fee routes, `"Recipients"`
+    /// otherwise.
+    #[must_use]
+    pub(crate) fn group(&self) -> &'static str {
+        if self.is_fee() {
+            "Fees"
+        } else {
+            "Recipients"
+        }
+    }
+}
+
 /// Source of the currently-pushed inspector frame. Used by the screen
 /// to colour the back-button affordance and to decide which list the
 /// "Back to results" target maps to.
@@ -1027,6 +1142,101 @@ mod tests {
         assert_eq!(vm.recent_cursor, None);
         assert!(!vm.recent_has_more);
         assert!(!vm.resizing);
+    }
+
+    #[test]
+    fn contributor_vm_falls_back_to_unknown_name() {
+        let c = api::Contributor::default();
+        let vm = ContributorVm::new(&c);
+        assert_eq!(vm.display_name(), "Unknown");
+        assert_eq!(vm.role_suffix(), "");
+        assert_eq!(vm.full_label(), "Unknown");
+        assert_eq!(vm.href(), None);
+    }
+
+    #[test]
+    fn contributor_vm_combines_name_and_role_suffix() {
+        let c = api::Contributor {
+            name: Some("Ada".into()),
+            role: Some("producer".into()),
+            ..api::Contributor::default()
+        };
+        let vm = ContributorVm::new(&c);
+        assert_eq!(vm.display_name(), "Ada");
+        assert_eq!(vm.role_suffix(), " (producer)");
+        assert_eq!(vm.full_label(), "Ada (producer)");
+    }
+
+    #[test]
+    fn contributor_vm_omits_role_when_absent() {
+        let c = api::Contributor {
+            name: Some("Ada".into()),
+            ..api::Contributor::default()
+        };
+        let vm = ContributorVm::new(&c);
+        assert_eq!(vm.full_label(), "Ada");
+    }
+
+    #[test]
+    fn contributor_vm_exposes_href_when_present() {
+        let c = api::Contributor {
+            name: Some("Ada".into()),
+            href: Some("https://x".into()),
+            ..api::Contributor::default()
+        };
+        let vm = ContributorVm::new(&c);
+        assert_eq!(vm.href(), Some("https://x"));
+    }
+
+    #[test]
+    fn payment_route_vm_falls_back_to_unnamed_recipient() {
+        let r = api::PaymentRoute::default();
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.recipient_name(), "Unnamed recipient");
+    }
+
+    #[test]
+    fn payment_route_vm_route_type_defaults_to_route() {
+        let r = api::PaymentRoute::default();
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.route_type(), "route");
+        let r = api::PaymentRoute {
+            route_type: Some("lightning".into()),
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.route_type(), "lightning");
+    }
+
+    #[test]
+    fn payment_route_vm_classifies_fee_vs_split() {
+        let r = api::PaymentRoute::default();
+        let vm = PaymentRouteVm::new(&r);
+        assert!(!vm.is_fee());
+        assert_eq!(vm.kind_label(), "split");
+        assert_eq!(vm.group(), "Recipients");
+
+        let r = api::PaymentRoute {
+            fee: Some(true),
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert!(vm.is_fee());
+        assert_eq!(vm.kind_label(), "fee");
+        assert_eq!(vm.group(), "Fees");
+    }
+
+    #[test]
+    fn payment_route_vm_split_value_defaults_to_zero() {
+        let r = api::PaymentRoute::default();
+        let vm = PaymentRouteVm::new(&r);
+        assert!((vm.split() - 0.0).abs() < f64::EPSILON);
+        let r = api::PaymentRoute {
+            split: Some(50.0),
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert!((vm.split() - 50.0).abs() < f64::EPSILON);
     }
 
     #[test]

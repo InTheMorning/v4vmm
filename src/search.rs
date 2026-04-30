@@ -49,8 +49,8 @@ use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
-    artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, PublisherInspectorVm,
-    ResultRow, ResultRowVm, SearchViewModel,
+    artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ContributorVm,
+    PaymentRouteVm, PublisherInspectorVm, ResultRow, ResultRowVm, SearchViewModel,
 };
 use crate::view_models::track::TrackVm;
 
@@ -3083,7 +3083,7 @@ fn contributor_elements(
     let mut groups = BTreeMap::<String, Vec<&Contributor>>::new();
     for contributor in contributors {
         groups
-            .entry(contributor.group_name.clone().unwrap_or_default())
+            .entry(ContributorVm::new(contributor).group().to_string())
             .or_default()
             .push(contributor);
     }
@@ -3094,15 +3094,12 @@ fn contributor_elements(
             all_elements.push(group_heading(group));
         }
         for contributor in members {
-            let name = contributor.name.clone().unwrap_or_else(|| "Unknown".into());
-            let role_str = contributor
-                .role
-                .as_ref()
-                .map_or(String::new(), |r| format!(" ({r})"));
+            let vm = ContributorVm::new(contributor);
+            let label = vm.full_label();
 
-            if let Some(href) = contributor.href.clone() {
+            if let Some(href) = vm.href().map(str::to_string) {
                 let href_for_click = href.clone();
-                let id = SharedString::from(format!("contrib-link:{}:{}", name, href));
+                let id = SharedString::from(format!("contrib-link:{label}:{href}"));
                 all_elements.push(
                     div()
                         .id(id)
@@ -3112,14 +3109,14 @@ fn contributor_elements(
                         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
                             let _ = open::that(&href_for_click);
                         }))
-                        .child(SharedString::from(format!("{name}{role_str}")))
+                        .child(SharedString::from(label))
                         .into_any_element(),
                 );
             } else {
                 all_elements.push(
                     div()
                         .text_size(typography::SIZE_MICRO)
-                        .child(SharedString::from(format!("{name}{role_str}")))
+                        .child(SharedString::from(label))
                         .into_any_element(),
                 );
             }
@@ -3130,39 +3127,29 @@ fn contributor_elements(
 }
 
 fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
-    let mut groups = BTreeMap::<String, Vec<&PaymentRoute>>::new();
+    let mut groups = BTreeMap::<&'static str, Vec<&PaymentRoute>>::new();
     for route in routes {
-        let group = if route.fee.unwrap_or_default() {
-            "Fees"
-        } else {
-            "Recipients"
-        };
-        groups.entry(group.into()).or_default().push(route);
+        let group = PaymentRouteVm::new(route).group();
+        groups.entry(group).or_default().push(route);
     }
 
     groups
         .into_iter()
         .flat_map(|(group, routes)| {
-            let mut elements = vec![group_heading(group)];
+            let mut elements = vec![group_heading(group.to_string())];
             elements.extend(routes.into_iter().map(|route| {
-                let name = route
-                    .recipient_name
-                    .clone()
-                    .unwrap_or_else(|| "Unnamed recipient".into());
-                let route_type = route.route_type.clone().unwrap_or_else(|| "route".into());
-                let split = route.split.unwrap_or_default();
-                let fee_label = if route.fee.unwrap_or_default() {
-                    "fee"
-                } else {
-                    "split"
-                };
+                let vm = PaymentRouteVm::new(route);
+                let name = vm.recipient_name();
+                let route_type = vm.route_type();
+                let split = vm.split();
+                let kind_label = vm.kind_label();
                 div()
                     .flex()
                     .flex_col()
                     .gap(spacing::XXS)
                     .text_size(typography::SIZE_MICRO)
                     .child(SharedString::from(format!(
-                        "{name} ({route_type} · {split}% · {fee_label})"
+                        "{name} ({route_type} · {split}% · {kind_label})"
                     )))
                     .when(route.address.is_some(), |el| {
                         el.child(
