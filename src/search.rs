@@ -50,7 +50,7 @@ use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, PublisherInspectorVm,
-    ResultRow, ResultRowVm,
+    ResultRow, ResultRowVm, SearchViewModel,
 };
 use crate::view_models::track::TrackVm;
 
@@ -190,16 +190,17 @@ pub struct SearchApp {
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
     input: Entity<InputState>,
-    type_filter: usize,
-    fuzzy_search: bool,
+    /// Stateful screen view-model. Owns the pure UI state that does
+    /// not need GPUI types — segmented filter, fuzzy toggle,
+    /// selection key, inspector origin. Fields move from `SearchApp`
+    /// into the VM in phases; see ADR 0023.
+    vm: SearchViewModel,
     results: Vec<ResultRow>,
     loading: bool,
     status: String,
     cursor: Option<String>,
     has_more: bool,
-    selected_key: Option<String>,
     inspector_stack: Vec<InspectorFrame>,
-    inspector_origin: Option<InspectorOrigin>,
     in_flight_tracks: HashSet<String>,
     recent_feeds: Vec<Feed>,
     recent_cursor: Option<String>,
@@ -213,12 +214,6 @@ pub struct SearchApp {
     _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
     pub(crate) playlists: Vec<db::Playlist>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum InspectorOrigin {
-    Recents,
-    Search,
 }
 
 /// Events emitted by [`SearchApp`] to notify peer components (e.g. the
@@ -258,16 +253,13 @@ impl SearchApp {
             cache,
             musicindex_endpoint,
             input,
-            type_filter: 0,
-            fuzzy_search: true,
+            vm: SearchViewModel::new(),
             results: Vec::new(),
             loading: false,
             status: String::new(),
             cursor: None,
             has_more: false,
-            selected_key: None,
             inspector_stack: Vec::new(),
-            inspector_origin: None,
             in_flight_tracks: HashSet::new(),
             recent_feeds: Vec::new(),
             recent_cursor: None,
@@ -298,9 +290,9 @@ impl SearchApp {
         self.status = "MusicIndex endpoint updated".into();
         self.cursor = None;
         self.has_more = false;
-        self.selected_key = None;
+        self.vm.clear_selection();
         self.inspector_stack.clear();
-        self.inspector_origin = None;
+        self.vm.clear_inspector_origin();
         self.recent_feeds.clear();
         self.recent_cursor = None;
         self.recent_has_more = false;
@@ -383,7 +375,7 @@ impl SearchApp {
         if self.results.is_empty() {
             return;
         }
-        let current_key = self.selected_key.as_deref();
+        let current_key = self.vm.selected_key.as_deref();
         let current_idx = self.results.iter().position(|r| {
             Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string())
         });
@@ -403,7 +395,7 @@ impl SearchApp {
         if self.results.is_empty() {
             return;
         }
-        let current_key = self.selected_key.as_deref();
+        let current_key = self.vm.selected_key.as_deref();
         let current_idx = self.results.iter().position(|r| {
             Some(entity_key(&r.entity_type, &r.entity_id)) == current_key.map(|s| s.to_string())
         });
@@ -457,15 +449,15 @@ impl SearchApp {
             self.results.clear();
             self.cursor = None;
             self.has_more = false;
-            self.selected_key = None;
+            self.vm.clear_selection();
             self.inspector_stack.clear();
-            self.inspector_origin = None;
+            self.vm.clear_inspector_origin();
         }
         cx.notify();
 
-        let entity_type = TYPE_VALUES[self.type_filter].map(str::to_string);
+        let entity_type = TYPE_VALUES[self.vm.type_filter].map(str::to_string);
         let cursor = if append { self.cursor.clone() } else { None };
-        let fuzzy = self.fuzzy_search;
+        let fuzzy = self.vm.fuzzy_search;
         let client = self.api_client();
 
         cx.spawn(
@@ -540,7 +532,7 @@ impl SearchApp {
     }
 
     fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
-        self.fuzzy_search = !self.fuzzy_search;
+        self.vm.toggle_fuzzy_search();
         let has_query = !self.input.read(cx).value().trim().is_empty();
         cx.notify();
         if has_query {
@@ -604,14 +596,14 @@ impl SearchApp {
         title: String,
         cx: &mut Context<Self>,
     ) {
-        self.selected_key = Some(entity_key(&entity_type, &entity_id));
-        self.inspector_origin = Some(InspectorOrigin::Search);
+        self.vm.select(entity_key(&entity_type, &entity_id));
+        self.vm.mark_inspector_from_search();
         self.load_inspector(entity_type, entity_id, title, false, cx);
     }
 
     fn open_recent_feed(&mut self, feed_guid: String, title: String, cx: &mut Context<Self>) {
-        self.selected_key = Some(entity_key("feed", &feed_guid));
-        self.inspector_origin = Some(InspectorOrigin::Recents);
+        self.vm.select(entity_key("feed", &feed_guid));
+        self.vm.mark_inspector_from_recents();
         self.load_inspector("feed".into(), feed_guid, title, false, cx);
     }
 
@@ -749,8 +741,8 @@ impl SearchApp {
         }
         self.inspector_stack.pop();
         if self.inspector_stack.is_empty() {
-            self.inspector_origin = None;
-            self.selected_key = None;
+            self.vm.clear_inspector_origin();
+            self.vm.clear_selection();
         }
         cx.notify();
     }
@@ -1720,7 +1712,7 @@ impl Render for SearchApp {
         let status_empty = status_text.is_empty();
 
         let rows = self.results.clone();
-        let selected_key = self.selected_key.clone();
+        let selected_key = self.vm.selected_key.clone();
         let list_focused = self.list_focus.is_focused(_window);
         let results: Vec<AnyElement> = rows
             .iter()
@@ -1739,13 +1731,13 @@ impl Render for SearchApp {
         let type_filters: Vec<AnyElement> = TYPE_LABELS
             .iter()
             .enumerate()
-            .map(|(idx, label)| render_filter_button(idx, label, idx == self.type_filter, cx))
+            .map(|(idx, label)| render_filter_button(idx, label, idx == self.vm.type_filter, cx))
             .collect();
         let stack = self.inspector_stack.clone();
         let show_back = should_show_inspector_back(stack.len());
         let input_is_empty = self.input.read(cx).value().trim().is_empty();
         let show_recents_root = stack.is_empty()
-            && self.inspector_origin.is_none()
+            && self.vm.inspector_origin.is_none()
             && self.results.is_empty()
             && input_is_empty;
         let inspector = render_inspector(stack.last(), show_back, show_recents_root, self, cx);
@@ -1842,16 +1834,16 @@ impl Render for SearchApp {
                                             )
                                             .child(
                                                 Button::new("fuzzy-toggle")
-                                                    .label(if self.fuzzy_search {
+                                                    .label(if self.vm.fuzzy_search {
                                                         "Fuzzy: On"
                                                     } else {
                                                         "Fuzzy: Off"
                                                     })
                                                     .scaled(Size::Small, cx)
-                                                    .when(self.fuzzy_search, |button| {
+                                                    .when(self.vm.fuzzy_search, |button| {
                                                         button.primary()
                                                     })
-                                                    .when(!self.fuzzy_search, |button| {
+                                                    .when(!self.vm.fuzzy_search, |button| {
                                                         button.ghost()
                                                     })
                                                     .text_color(rgb(0xffffff))
@@ -2484,8 +2476,8 @@ fn render_filter_button(
         .when(!selected, |button| button.ghost())
         .text_color(rgb(0xffffff))
         .on_click(cx.listener(move |this, _, _, cx| {
-            if this.type_filter != idx {
-                this.type_filter = idx;
+            if this.vm.type_filter != idx {
+                this.vm.set_type_filter(idx);
                 let has_query = !this.input.read(cx).value().trim().is_empty();
                 cx.notify();
                 if has_query {

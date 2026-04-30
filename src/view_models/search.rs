@@ -368,6 +368,100 @@ impl<'a> ActionRowVm<'a> {
 
 /// Derive artist result rows from mixed artist/feed/track results.
 ///
+/// Source of the currently-pushed inspector frame. Used by the screen
+/// to colour the back-button affordance and to decide which list the
+/// "Back to results" target maps to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InspectorOrigin {
+    Recents,
+    Search,
+}
+
+/// Stateful screen view-model for the Discover (search) tab.
+///
+/// Mirror of `view_models::library::LibraryViewModel`. Owns the
+/// pure-data UI state for the search screen so `SearchApp` shrinks to
+/// event wiring and `Render` glue. Per ADR 0023 this struct must
+/// remain GPUI-free; fields requiring `gpui::Image`,
+/// `gpui::FocusHandle`, or `Entity<_>` stay in `SearchApp`.
+///
+/// Phase 1 owns the simplest pure scalars. Subsequent commits move
+/// snapshots and operation flags.
+#[derive(Clone, Debug)]
+pub(crate) struct SearchViewModel {
+    /// Current segmented filter index (`All`, `Artist`, `Feed`,
+    /// `Track`). The screen owns the label/value tables; the VM owns
+    /// the index and clamps it to the table length on `set_type_filter`.
+    pub(crate) type_filter: usize,
+    /// Whether the fuzzy-search toggle is on.
+    pub(crate) fuzzy_search: bool,
+    /// Selection key — `"<entity_type>:<entity_id>"`. The screen
+    /// resolves the key back to an `InspectorFrame` from its loaded
+    /// rows.
+    pub(crate) selected_key: Option<String>,
+    /// Origin of the active inspector frame, if any.
+    pub(crate) inspector_origin: Option<InspectorOrigin>,
+}
+
+/// Number of segmented filter slots — see the `TYPE_LABELS` /
+/// `TYPE_VALUES` tables in `search.rs`.
+const TYPE_FILTER_LEN: usize = 4;
+
+impl SearchViewModel {
+    /// Construct a view-model with `SearchApp::new` defaults: `All`
+    /// filter, fuzzy search on, no selection, no inspector frame.
+    #[must_use]
+    pub(crate) fn new() -> Self {
+        Self {
+            type_filter: 0,
+            fuzzy_search: true,
+            selected_key: None,
+            inspector_origin: None,
+        }
+    }
+
+    /// Set the segmented filter index. Out-of-range values are
+    /// silently ignored — the segmented control owns the range.
+    pub(crate) fn set_type_filter(&mut self, index: usize) {
+        if index < TYPE_FILTER_LEN {
+            self.type_filter = index;
+        }
+    }
+
+    /// Flip the fuzzy-search toggle.
+    pub(crate) fn toggle_fuzzy_search(&mut self) {
+        self.fuzzy_search = !self.fuzzy_search;
+    }
+
+    /// Set the `inspector_origin` to `Search` — call when pushing a
+    /// frame from the main results list.
+    pub(crate) fn mark_inspector_from_search(&mut self) {
+        self.inspector_origin = Some(InspectorOrigin::Search);
+    }
+
+    /// Set the `inspector_origin` to `Recents` — call when pushing a
+    /// frame from the "Recent feeds" panel.
+    pub(crate) fn mark_inspector_from_recents(&mut self) {
+        self.inspector_origin = Some(InspectorOrigin::Recents);
+    }
+
+    /// Drop the inspector-origin marker — call when popping the last
+    /// frame off the inspector stack.
+    pub(crate) fn clear_inspector_origin(&mut self) {
+        self.inspector_origin = None;
+    }
+
+    /// Replace the selection key.
+    pub(crate) fn select(&mut self, key: impl Into<String>) {
+        self.selected_key = Some(key.into());
+    }
+
+    /// Clear the selection.
+    pub(crate) fn clear_selection(&mut self) {
+        self.selected_key = None;
+    }
+}
+
 /// This is pure projection over already-fetched rows. Network enrichment
 /// remains in the screen-side query adapter until a broader command/query
 /// layer exists.
@@ -865,5 +959,57 @@ mod tests {
         assert_eq!(artist.name.as_deref(), Some("Artist"));
         assert_eq!(artist.feed_count, Some(1));
         assert_eq!(artist.track_count, Some(1));
+    }
+
+    #[test]
+    fn search_view_model_starts_with_all_filter_fuzzy_on_and_no_selection() {
+        let vm = SearchViewModel::new();
+        assert_eq!(vm.type_filter, 0);
+        // Production default — `SearchApp::new` set fuzzy_search = true
+        // and the VM mirrors that.
+        assert!(vm.fuzzy_search);
+        assert_eq!(vm.selected_key, None);
+        assert_eq!(vm.inspector_origin, None);
+    }
+
+    #[test]
+    fn search_view_model_set_type_filter_updates_index_and_clears_when_unknown_type() {
+        let mut vm = SearchViewModel::new();
+        vm.set_type_filter(2);
+        assert_eq!(vm.type_filter, 2);
+        // Out-of-range index stays at the prior value (caller is the
+        // segmented control which knows its range).
+        vm.set_type_filter(99);
+        assert_eq!(vm.type_filter, 2);
+    }
+
+    #[test]
+    fn search_view_model_toggle_fuzzy_search_round_trip() {
+        let mut vm = SearchViewModel::new();
+        // Starts true (production default). Toggling once turns it off.
+        vm.toggle_fuzzy_search();
+        assert!(!vm.fuzzy_search);
+        vm.toggle_fuzzy_search();
+        assert!(vm.fuzzy_search);
+    }
+
+    #[test]
+    fn search_view_model_inspector_origin_remembers_search_vs_recents() {
+        let mut vm = SearchViewModel::new();
+        vm.mark_inspector_from_search();
+        assert_eq!(vm.inspector_origin, Some(InspectorOrigin::Search));
+        vm.mark_inspector_from_recents();
+        assert_eq!(vm.inspector_origin, Some(InspectorOrigin::Recents));
+        vm.clear_inspector_origin();
+        assert_eq!(vm.inspector_origin, None);
+    }
+
+    #[test]
+    fn search_view_model_select_and_clear_selection() {
+        let mut vm = SearchViewModel::new();
+        vm.select("track:abc");
+        assert_eq!(vm.selected_key.as_deref(), Some("track:abc"));
+        vm.clear_selection();
+        assert_eq!(vm.selected_key, None);
     }
 }
