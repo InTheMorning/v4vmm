@@ -50,8 +50,8 @@ use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ContributorVm,
-    PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm, ResultRow,
-    SearchBatch, SearchViewModel, TrackInspectorHeaderVm,
+    LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm,
+    ResultRow, SearchBatch, SearchViewModel, TrackInspectorHeaderVm,
 };
 use crate::view_models::track::TrackVm;
 
@@ -71,15 +71,6 @@ pub(crate) struct ArtistContext {
     tracks: Vec<Track>,
     feeds: Vec<Feed>,
     has_more_tracks: bool,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(crate) enum LazyPanel<T> {
-    #[default]
-    Hidden,
-    Loading,
-    Empty(String),
-    Loaded(T),
 }
 
 #[derive(Clone, Debug)]

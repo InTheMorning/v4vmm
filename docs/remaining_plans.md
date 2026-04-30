@@ -60,7 +60,9 @@ The projection view-model layer is partially migrated:
   Search and recent-feed render snapshots now group the remaining read-only
   render flags instead of having `search.rs` recompute them field by field;
   playlist popover rendering also reads playlists through a VM snapshot
-  accessor.
+  accessor. The reusable `LazyPanel<T>` state for deferred inspector panels
+  now lives in `view_models::search`; GPUI-bound inspector frames remain in
+  `search.rs`.
 - `view_models::library::MbTrackStatus` is now screen-independent.
 - `view_models::library::LibraryTrackRowVm` backs album detail track rows.
 - `view_models::library::LibraryArtistDetailVm` backs library artist detail.

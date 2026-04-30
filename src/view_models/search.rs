@@ -570,6 +570,20 @@ pub(crate) enum InspectorOrigin {
     Search,
 }
 
+/// Deferred inspector panel state.
+///
+/// This remains generic and GPUI-free so screens can use the same state
+/// contract for contributors, value routes, `MusicBrainz`, podroll, and tag
+/// comparison panels while keeping fetch/render wiring outside the VM layer.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) enum LazyPanel<T> {
+    #[default]
+    Hidden,
+    Loading,
+    Empty(String),
+    Loaded(T),
+}
+
 /// Stateful screen view-model for the Discover (search) tab.
 ///
 /// Mirror of `view_models::library::LibraryViewModel`. Owns the
