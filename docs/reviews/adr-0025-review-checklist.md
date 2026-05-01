@@ -73,12 +73,28 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 - [x] relevant focused unit tests passed.
 - [x] pure control role mapping tests passed.
 - [x] `cargo clippy --lib --tests -- -D warnings` passed.
-- [ ] Manual visual smoke completed for Library, Discover, Settings, and
+- [x] Manual visual smoke completed for Library, Discover, Settings, and
       playback controls when the slice changes visible UI.
 
 ## Required Fixes
 
 - None recorded.
+
+## Manual Visual Smoke
+
+- Completed: 2026-05-01.
+- Library dark profile: tab selection, search controls, playlist/library tree,
+  empty detail pane, and playback controls rendered with consistent contrast.
+- Library split pane: sidebar divider dragged wider and the layout remained
+  stable.
+- Discover dark profile: recent-feed grid, filter pills, search controls, and
+  empty-state pane rendered without obvious contrast or overlap regressions.
+- Settings dark profile: input rows, scale controls, theme controls, save
+  action, and cached-files section rendered consistently.
+- Settings light profile: runtime Light toggle repainted the window through
+  `theme_bridge`; controls remained readable. Dark was restored without saving.
+- Playback controls stayed visible and readable in both dark and light smoke
+  passes.
 
 ## Optional Improvements
 
