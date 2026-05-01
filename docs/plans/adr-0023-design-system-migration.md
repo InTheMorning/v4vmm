@@ -2,9 +2,8 @@
 
 ## Current Snapshot
 
-Verified 2026-04-30 on local HEAD `9a73a3d`, with additional uncommitted
-refactor work in progress. This branch should not be pushed or turned into a
-PR without explicit direction.
+Verified 2026-04-30 after ADR 0023 finalization Tasks 006-010. This branch
+should not be pushed or turned into a PR without explicit direction.
 
 The ADR 0023 design-system foundation is in place:
 
@@ -26,8 +25,8 @@ The primitive/composite layer is also in place:
   `MultilineText`, `Image`, `SectionHeader`, `VStack`, `HStack`, `ZStack`,
   and `Spacer`.
 - Composites: `Thumbnail`, `TagBadge`, `DetailHeader`, `DetailGrid`,
-  `ListRow`, `SegmentedControl`, `DisclosureGroup`, `ActionButton`, and
-  `playlist_popover`.
+  `ListRow`, `SegmentedControl`, `DisclosureGroup`, `ActionButton`,
+  `SplitPane`, `ReleaseDetailSurface`, and `playlist_popover`.
 - `ListRow` now owns selectable/focused/clickable row chrome for dense
   result lists, so screens do not hand-roll row background, focus ring, or
   click affordances.
@@ -36,7 +35,7 @@ The primitive/composite layer is also in place:
 - `theme::badges` remains the legacy badge compatibility surface; newer
   badge rendering should prefer `TagBadge` / `EntityKind`.
 
-The projection view-model layer is partially migrated:
+The projection view-model layer is implemented for ADR 0023 scope:
 
 - `view_models::artist::ArtistVm` backs `ui_artist.rs`.
 - `view_models::feed::FeedVm` backs `ui_feed.rs`.
@@ -95,6 +94,9 @@ The projection view-model layer is partially migrated:
 - `TrackSubscribeOutcome` moves library track subscribe completion state
   into the VM: busy-track clearing plus success/failure status text now live
   outside `library.rs`.
+- `tests/architecture_tests.rs` enforces no GPUI/screen imports under
+  `view_models`, no raw screen-level `rgb(...)` or numeric `px(...)` literals,
+  and no unapproved hardcoded dark defaults in screen modules.
 - Documentation is now organized by purpose: architecture diagrams and app
   overview under `docs/architecture/`, migration plans under `docs/plans/`,
   operator workflows under `docs/runbooks/`, storage notes under
@@ -118,9 +120,29 @@ The projection view-model layer is partially migrated:
 - `docs/plans/adr-0023-finalization-plan.md`
 - `docs/reviews/adr-0023-review-checklist.md`
 
-## Remaining Work
+## Completed And Deferred Work
 
 ### Track E — Finish Screen View-Models
+
+- `library-view-model`: ADR 0023 scope complete. `LibraryViewModel` owns
+  snapshots, selection, resize state, playlist append intent/results,
+  subscribe outcomes, feed-update state, and `MusicBrainz` status transitions.
+  Deferred: continue thinning service-dispatch setup from `library.rs` under a
+  later command architecture ADR.
+- `search-view-model`: ADR 0023 scope complete. `SearchViewModel` owns
+  Discover/Search snapshots, selection, resize state, loading transitions,
+  playlist append intent/results, track operation status, lazy-panel state, and
+  inspector subscription command messages. Deferred: continue moving
+  remaining inspector-panel transitions out of `search.rs` under a later ADR.
+- `command-intent-types`: complete for ADR 0023. Narrow command/result values
+  exist where they materially reduced screen status glue. Do not build a broad
+  CommandBus without a separate ADR.
+- `boundary-gates`: complete. `tests/architecture_tests.rs` enforces no GPUI
+  imports under `view_models`, no screen-level raw `rgb(...)` / numeric
+  `px(...)` literals, and no unapproved hardcoded dark defaults in screen
+  modules.
+
+Deferred detail:
 
 - `library-view-model`: continue thinning `LibraryViewModel` now that
   `LibrarySnapshot` owns the pure snapshot fields and
@@ -134,10 +156,6 @@ The projection view-model layer is partially migrated:
 - `command-intent-types`: introduce small command enums or structs only where
   they remove direct service calls from screens. Do not build a broad
   CommandBus without a separate ADR.
-- `boundary-gates`: add automated tests for no GPUI imports under
-  `view_models`, no screen-level raw `rgb(...)` / numeric `px(...)` literals,
-  and no hardcoded dark render defaults in screen modules. Completed
-  2026-04-30.
 
 ### Track G — Thin The Screens
 
@@ -147,7 +165,8 @@ The projection view-model layer is partially migrated:
   detail share one structural surface with mode-specific slots.
 - `screen-library-album`: move album-detail header rows, duration/downloaded
   counts, button labels, and add-to-playlist panel state into library
-  view-model projections.
+  view-model projections. ADR 0023 moved row labels and picker state; further
+  album-detail projection thinning is deferred.
 - `library-row-semantics`: remove the redundant per-row `dl'd` marker from
   Library album rows. Membership is already represented by the `Remove`
   action; aggregate downloaded counts can remain in detail grids until a
@@ -155,9 +174,9 @@ The projection view-model layer is partially migrated:
 - `screen-library-playlists`: playlist sidebar rows now use `ListRow` /
   `Label`; keep the `PlaylistDetailVm` path and replace the remaining
   playlist detail row actions with `ActionButton` where it preserves
-  behavior.
+  behavior. Deferred.
 - `screen-library-metadata`: migrate the ID3 / MusicBrainz metadata panels
-  out of inline string formatting and raw color literals.
+  out of inline string formatting and raw color literals. Deferred.
 - `screen-search-results`: Discover result rows now read labels, image URLs,
   visible type filtering, and derived artist rows through
   `view_models::search`, and render through `ListRow` / `Thumbnail` /
@@ -166,7 +185,7 @@ The projection view-model layer is partially migrated:
 - `screen-search-inspector`: migrate track/feed/publisher inspector sections
   to projections and existing composites. Feed / track inspector identity
   labels now render through `TagBadge`; keep direct GPUI event wiring in the
-  screen until command intent is available.
+  screen until command intent is available. Deferred.
 
 ### Track D — Token And Literal Audit
 
@@ -219,7 +238,7 @@ The projection view-model layer is partially migrated:
    materially reduces screen glue.
 - [x] `boundary-gates`: add automated architecture tests for ADR 0023 import
    and token-literal boundaries.
-- [ ] `final-review`: reconcile ADR, plan, task, and review documents after
+- [x] `final-review`: reconcile ADR, plan, task, and review documents after
    implementation.
 
 ### Deferred Architecture Work

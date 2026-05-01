@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Completed 2026-04-30.
 
 ## Task Goal
 
@@ -55,12 +55,21 @@ deferred to a later ADR.
 
 ## Acceptance Criteria
 
-- ADR 0023, finalization plan, task packets, and review docs do not contradict
+- [x] ADR 0023, finalization plan, task packets, and review docs do not contradict
   each other.
-- Deferred ideal architecture work is explicitly named as deferred or moved to
+- [x] Deferred ideal architecture work is explicitly named as deferred or moved to
   a future ADR.
-- No Markdown is added outside `docs/` except existing canonical root docs.
-- Verification commands are listed in the final review.
+- [x] No Markdown is added outside `docs/` except existing canonical root docs.
+- [x] Verification commands are listed in the final review.
+
+## Result
+
+- Updated ADR 0023 status to finalized for its actual scope.
+- Reconciled the migration and finalization plans so completed tasks and
+  deferred architecture work tell one story.
+- Replaced the stale partial final implementation review with a current final
+  review and verification record.
+- Kept deferred CommandBus / QueryService / EventBus work outside ADR 0023.
 
 ## Test Commands
 

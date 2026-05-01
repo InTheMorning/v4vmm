@@ -35,8 +35,8 @@ architecture without fighting screen-specific UI drift.
   view-model command/status helpers.
 - Automated `architecture_tests` enforce the GPUI-free view-model boundary,
   screen raw-literal rules, and hardcoded dark-default allowlist.
-- The old `docs/reviews/adr-0023-final-implementation-review.md` is too
-  optimistic and is superseded by this finalization plan.
+- `docs/reviews/adr-0023-final-implementation-review.md` now records the
+  final implementation review and residual manual visual risk.
 
 ## Target State
 
@@ -74,7 +74,8 @@ architecture without fighting screen-specific UI drift.
 - `src/view_models/search.rs`
 - `src/view_models/mod.rs`
 - `src/ui/composites/*`
-- Possible new `src/ui/layouts/*` or `src/ui/composites/split_pane.rs`
+- `src/ui/composites/split_pane.rs`
+- `src/ui/composites/release_detail_surface.rs`
 - `src/ui/theme.rs`
 - `docs/adr/0023-design-system-and-view-models.md`
 - `docs/plans/adr-0023-design-system-migration.md`
@@ -96,7 +97,7 @@ architecture without fighting screen-specific UI drift.
 5. Completed `adr-0023-task-010-boundary-gates`: add automated architecture tests for
    GPUI-free view-models, no screen-level raw color/layout literals, and no
    hardcoded dark render defaults.
-6. `adr-0023-task-011-final-review`: reconcile ADR status, migration docs, and
+6. Completed `adr-0023-task-011-final-review`: reconcile ADR status, migration docs, and
    visual/manual review notes after implementation is green.
 
 ## Schema/API Implications
@@ -133,11 +134,11 @@ before release-detail unification so a broken layout can be reverted without
 discarding later command-intent or boundary-test changes. Do not combine more
 than one task packet in a single commit unless explicitly directed.
 
-## Open Questions
+## Deferred Decisions
 
-- Should Library persist its split-pane width independently from Discover, or
-  should both use one shared preference?
-- Should aggregate "Downloaded" counts remain in Library album/artist detail
-  grids, or should local membership be represented only through actions?
-- Should ADR 0023 stop at narrow command intents, or should a new ADR
-  immediately follow for CommandBus / QueryService / EventBus?
+- Split-pane width persistence: Library and Discover currently use separate
+  in-memory VM state. Persisting pane widths is deferred.
+- Aggregate downloaded counts remain in Library album/artist detail grids.
+  Removing them is a product decision outside ADR 0023.
+- ADR 0023 stops at narrow command intents. A broad CommandBus /
+  QueryService / EventBus needs a separate ADR.

@@ -2,13 +2,13 @@
 
 ## Status
 
-Accepted — finalization in progress.
+Accepted — finalized 2026-04-30.
 
-The design-system foundation, token audit, and stateful screen VMs are
-substantially implemented for Library and Discover. ADR 0023 is not yet
-complete: Discover and Library still do not share the same resizable shell,
-release/feed detail parity is only partial, and automated architecture gates
-do not yet enforce all GPUI-free and token-literal claims.
+The design-system foundation, token audit, shared Library/Discover shell,
+shared release detail surface, stateful screen VMs, and automated architecture
+gates are implemented for the ADR 0023 scope. ADR 0023 does not make the
+whole app GPUI-independent; it makes the non-GPUI view-model and projection
+boundary explicit, tested, and reusable for later architecture work.
 
 A broad CommandBus, QueryService, or EventBus remains outside this ADR unless
 a later ADR scopes it.
@@ -63,9 +63,8 @@ artist-detail and playlist-detail projections.
 The ideal architecture is still not complete. `LibraryViewModel` and
 `SearchViewModel` now own the pure snapshots and many local UI transitions,
 but `app.rs`, `library.rs`, and `search.rs` still contain direct service
-dispatch, raw layout literals, and several color literals. The remaining
-migration is tracked in
-`docs/plans/adr-0023-design-system-migration.md`.
+dispatch and remain large GPUI presentation adapters. Broad command/query/event
+architecture and screen-directory splits are deferred to later ADRs.
 
 This ADR records the decision behind that work and the rules that govern
 each layer going forward.
@@ -311,12 +310,11 @@ element tree and event wiring.
 
 `library.rs` and `search.rs` remain large. They still call services
 directly (no command bus seam yet), but screen-level `rgb(...)` and numeric
-`px(...)` literals have been routed through tokens/theme constants as part of
-the audit sweep tracked in
-`docs/plans/adr-0023-design-system-migration.md`. Finalization work remains
-tracked in `docs/plans/adr-0023-finalization-plan.md`: shared split-pane
-shell, shared release detail surface, Library row semantics, narrow
-command-intent cleanup, and automated boundary gates.
+`px(...)` literals have been routed through tokens/theme constants and are
+now guarded by `tests/architecture_tests.rs`. ADR 0023 finalization tasks
+006-010 completed the shared split-pane shell, shared release detail surface,
+Library row semantics, narrow command-intent cleanup, and automated boundary
+gates.
 
 ### Cross-cutting bridges
 
@@ -350,9 +348,9 @@ command-intent cleanup, and automated boundary gates.
   scaffolding. The `ArtistVm` test pattern is reproducible across the
   remaining screens.
 - The smaller screen helpers are meaningfully thinner. `library.rs` and
-  `search.rs` still carry hardcoded literals and inline state/service glue,
-  but the remaining work is now described as a screen-VM and token-audit
-  migration rather than a design-system invention task.
+  `search.rs` still carry inline GPUI event wiring and service dispatch, but
+  screen raw-literal regressions and view-model boundary regressions are now
+  automated test failures rather than review-only concerns.
 - The SwiftUI-shaped API (`Label` modifiers, `VStack`/`HStack`,
   `Environment`, `DisclosureGroup`) reduces cognitive load for callers
   and gives migration of further screens a clear template.
@@ -380,9 +378,11 @@ command-intent cleanup, and automated boundary gates.
   `Environment` and require explicit `.appearance()` modifier calls.
   This is acceptable but inconsistent with the rest of the primitive
   layer.
-- Some legacy screen code still installs or assumes dark appearance at the
-  app boundary. Primitive and composite render paths now resolve default
-  appearance through `Appearance::current(cx)`.
+- Some legacy screen code still installs dark appearance at app/bootstrap
+  boundaries. Primitive and composite render paths now resolve default
+  appearance through `Appearance::current(cx)`, and the remaining screen
+  `Appearance::Dark` call sites are explicitly allowlisted by
+  `tests/architecture_tests.rs`.
 
 ### Neutral
 
@@ -488,7 +488,8 @@ already true at merge of PR #5; others are explicitly tracked in
 - ADR 0022 — UI-Agnostic Core Extraction (south-side companion).
 - `docs/architecture/architecture-diagrams.md` — current and target architecture
   diagrams.
-- `docs/plans/adr-0023-design-system-migration.md` — outstanding migration
-  work (Tracks E, G, D).
-- `docs/plans/adr-0023-finalization-plan.md` — final ADR 0023 task sequence.
+- `docs/plans/adr-0023-design-system-migration.md` — completed ADR 0023
+  migration record plus deferred follow-up work.
+- `docs/plans/adr-0023-finalization-plan.md` — final ADR 0023 task sequence
+  and verification scope.
 - PR #5 (commit f2548a0) — implementation.
