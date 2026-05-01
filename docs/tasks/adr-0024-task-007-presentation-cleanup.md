@@ -21,6 +21,9 @@ low-risk.
 - Top-level application-event bridge/drain handling moved out of `app.rs` into
   `src/app/events.rs`. This remains presentation refresh logic over typed
   application events.
+- Top-level tab bar/chrome rendering moved out of `app.rs` into
+  `src/app/tab_bar.rs`. This is render-only app chrome plus the existing tab
+  click refresh behavior.
 - Keep live-driver polling in `app.rs` for now because it still supervises
   `PlaybackOwner<D>` directly.
 - Library cleanup candidates are command-binding adapters and render-only
@@ -39,6 +42,7 @@ low-risk.
 - `src/app/events.rs`
 - `src/app/keyboard.rs`
 - `src/app/playback_bar.rs`
+- `src/app/tab_bar.rs`
 - `src/library.rs`
 - `src/search.rs`
 - `src/view_models/**`
@@ -78,7 +82,8 @@ low-risk.
    comprehension. Top-level playback bar binding has moved to
    `src/app/playback_bar.rs`; top-level keyboard routing has moved to
    `src/app/keyboard.rs`; top-level event drain handling has moved to
-   `src/app/events.rs`.
+   `src/app/events.rs`; top-level tab bar rendering has moved to
+   `src/app/tab_bar.rs`.
 3. Keep view-models and application modules GPUI-free.
 4. Update architecture tests and docs for any path changes.
 5. Run full verification.
