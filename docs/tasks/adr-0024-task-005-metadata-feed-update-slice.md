@@ -2,12 +2,30 @@
 
 ## Status
 
-Planned.
+In progress.
 
 ## Task Goal
 
 Migrate MusicBrainz staging and feed update workflows through ADR 0024 commands,
 events, and local queries while preserving metadata provenance.
+
+## Progress Notes
+
+- Feed update checks now dispatch ADR 0024 commands from `LibraryApp`:
+  single-feed stale checks, subscribed-feed stale scans, and applying staged
+  feed updates.
+- `ApplicationQueryService` now owns the local subscribed-feed stale-check
+  snapshot query used before bulk remote checks.
+- Applying feed updates emits feed, library, and metadata events so app-level
+  refresh paths can react to tag/feed changes.
+- Single-track Library `MusicBrainz` lookup and staging now dispatch metadata
+  commands instead of calling `feed_service` directly from the screen.
+- Album batch `MusicBrainz` still owns its release-search/progress loop in
+  `library.rs`; the per-track staging helpers used by that loop now route
+  through metadata commands, but the album-level `lookup_releases` call remains
+  to migrate.
+- Discover/Search `MusicBrainz` lookup remains deferred as remote-only lookup
+  unless a later task treats its inspector state as command lifecycle state.
 
 ## Files To Inspect
 
@@ -55,14 +73,20 @@ events, and local queries while preserving metadata provenance.
 
 ## Implementation Steps
 
-1. Define metadata/feed update commands and results.
-2. Add metadata/feed update event families.
-3. Add local query APIs for staged MusicBrainz and feed update state.
-4. Wrap existing metadata/feed services without moving them.
-5. Migrate screen call sites through commands and event/query refresh.
-6. Add architecture tests for migrated direct service calls.
-7. Add tests for successful staging, failure, event emission, and provenance
-   preservation.
+1. In progress: define metadata/feed update commands and results. Feed update
+   commands and single-track `MusicBrainz` commands are present; album release
+   lookup remains.
+2. In progress: add metadata/feed update event families. Feed apply emits
+   metadata/feed/library events; single-track staging emits metadata events.
+3. In progress: add local query APIs for staged `MusicBrainz` and feed update
+   state. Feed stale-check rows are query-backed; staged `MusicBrainz`
+   snapshot reads remain in the library view-model state.
+4. In progress: wrap existing metadata/feed services without moving them.
+5. In progress: migrate screen call sites through commands and event/query
+   refresh.
+6. In progress: add architecture tests for migrated direct service calls.
+7. In progress: add tests for successful staging, failure, event emission, and
+   provenance preservation.
 
 ## Acceptance Criteria
 

@@ -489,6 +489,7 @@ fn affects_library_surfaces(event: &ApplicationEvent) -> bool {
             | ApplicationEvent::Playlist(_)
             | ApplicationEvent::Feed(_)
             | ApplicationEvent::Download(_)
+            | ApplicationEvent::Metadata(_)
     )
 }
 

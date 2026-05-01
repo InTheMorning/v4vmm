@@ -38,7 +38,12 @@ use crate::application::commands::download::{
     RemoveTrackFromLibrary, SetTrackLibraryMembership, SubscribeThenAppendToPlaylist,
     SubscribeTrack,
 };
-use crate::application::commands::feed::UnsubscribeFeedById;
+use crate::application::commands::feed::{
+    ApplyFeedUpdates, CheckFeedStaleness, CheckSubscribedFeeds, UnsubscribeFeedById,
+};
+use crate::application::commands::metadata::{
+    LookupMusicBrainzTrack, StageMusicBrainzCandidate, StageMusicBrainzTrack,
+};
 use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
 };
@@ -664,25 +669,26 @@ impl LibraryApp {
         if !self.vm.begin_feed_view_check(feed_id) {
             return;
         }
-        let conn = Arc::clone(&self.conn);
-        let endpoint = self.musicindex_endpoint.clone();
+        let command = CheckFeedStaleness::new(
+            Arc::clone(&self.conn),
+            self.musicindex_endpoint.clone(),
+            feed_id,
+        );
         cx.notify();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let stale =
-                    cx.background_executor()
-                        .spawn(async move {
-                            feed_service::check_feed_staleness(&conn, &endpoint, feed_id)
-                        })
-                        .await;
-                let _ = this.update(cx, move |this, cx| {
-                    this.vm
-                        .finish_feed_view_check(feed_id, stale.map_err(|err| format!("{err:#}")));
-                    cx.notify();
-                });
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, outcome, _cx| {
+                let checked_feed_id = outcome.feed_id();
+                this.vm
+                    .finish_feed_view_check(checked_feed_id, Ok(outcome.into_stale()));
             },
-        )
-        .detach();
+            move |this, error, _cx| {
+                this.vm
+                    .finish_feed_view_check(feed_id, Err(format!("{error:#}")));
+            },
+        );
     }
 
     fn check_all_feeds(&mut self, cx: &mut Context<Self>) {
@@ -698,7 +704,11 @@ impl LibraryApp {
                     return;
                 }
             };
-            match db::subscribed_feeds_for_stale_check(&conn) {
+            match self
+                .application_services
+                .query_service()
+                .subscribed_feeds_for_stale_check(&conn)
+            {
                 Ok(rows) => rows,
                 Err(err) => {
                     self.vm.set_feed_check_error(format!("{err:#}"));
@@ -715,31 +725,22 @@ impl LibraryApp {
         self.vm.begin_all_feed_check(feeds.len());
         cx.notify();
 
-        let conn = Arc::clone(&self.conn);
-        let endpoint = self.musicindex_endpoint.clone();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let stale = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let mut stale = Vec::new();
-                        for feed in feeds {
-                            if let Ok(Some(entry)) =
-                                feed_service::check_feed_staleness(&conn, &endpoint, feed.id)
-                            {
-                                stale.push(entry);
-                            }
-                        }
-                        stale
-                    })
-                    .await;
-                let _ = this.update(cx, move |this, cx| {
-                    this.vm.finish_all_feed_check(stale);
-                    cx.notify();
-                });
+        let command = CheckSubscribedFeeds::new(
+            Arc::clone(&self.conn),
+            self.musicindex_endpoint.clone(),
+            feeds,
+        );
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            |this, outcome, _cx| {
+                this.vm.finish_all_feed_check(outcome.into_stale());
             },
-        )
-        .detach();
+            |this, error, _cx| {
+                this.vm.set_feed_check_error(format!("{error:#}"));
+            },
+        );
     }
 
     fn apply_all_feed_updates(&mut self, cx: &mut Context<Self>) {
@@ -748,64 +749,24 @@ impl LibraryApp {
         };
         cx.notify();
 
-        let conn = Arc::clone(&self.conn);
-        let endpoint = self.musicindex_endpoint.clone();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let outcomes = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let mut total_tracks = 0usize;
-                        let mut total_edits = 0usize;
-                        let mut id3_errors: Vec<String> = Vec::new();
-                        let mut feed_errors: Vec<String> = Vec::new();
-                        for entry in &stale {
-                            match feed_service::apply_feed_updates(&conn, &endpoint, entry) {
-                                Ok(outcome) => {
-                                    total_tracks += outcome.tracks_updated;
-                                    total_edits += outcome.edits_written;
-                                    id3_errors.extend(outcome.id3_errors);
-                                }
-                                Err(err) => {
-                                    let label = entry
-                                        .title
-                                        .clone()
-                                        .unwrap_or_else(|| entry.feed_guid.clone());
-                                    feed_errors.push(format!("{label}: {err:#}"));
-                                }
-                            }
-                        }
-                        (total_tracks, total_edits, id3_errors, feed_errors)
-                    })
-                    .await;
-                let _ = this.update(cx, move |this, cx| {
-                    let (tracks, edits, id3_errors, feed_errors) = outcomes;
-                    let mut parts: Vec<String> = Vec::new();
-                    parts.push(if tracks == 0 {
-                        "No edits written".into()
-                    } else {
-                        format!("Applied {edits} edit(s) to {tracks} track(s)")
-                    });
-                    if !id3_errors.is_empty() {
-                        parts.push(format!(
-                            "Tag write errors ({}): {}",
-                            id3_errors.len(),
-                            id3_errors.join("; ")
-                        ));
-                    }
-                    if !feed_errors.is_empty() {
-                        parts.push(format!(
-                            "Feed errors ({}): {}",
-                            feed_errors.len(),
-                            feed_errors.join("; ")
-                        ));
-                    }
-                    this.vm.finish_apply_feed_updates(parts.join(" — "));
-                    cx.notify();
-                });
+        let command = ApplyFeedUpdates::new(
+            Arc::clone(&self.conn),
+            self.musicindex_endpoint.clone(),
+            stale,
+        );
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            |this, outcome, _cx| {
+                this.vm
+                    .finish_apply_feed_updates(outcome.message().to_string());
             },
-        )
-        .detach();
+            |this, error, _cx| {
+                this.vm
+                    .finish_apply_feed_updates(format!("Feed update error: {error:#}"));
+            },
+        );
     }
 
     fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
@@ -1222,37 +1183,28 @@ impl LibraryApp {
 
         let entity_id = frame.entity_id;
         let track = frame.track.clone();
-        let cache = Arc::clone(&self.cache);
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { lookup_musicbrainz_library_track(&track, cache) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        if let Some(frame) = this.selected_track_frame_mut() {
-                            if frame.entity_id == entity_id {
-                                frame.musicbrainz_lookup = match result {
-                                    Ok(result) => {
-                                        frame.musicbrainz_selected = 0;
-                                        LazyPanel::Loaded(result)
-                                    }
-                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
-                                };
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        self.command_runner.run(
+            LookupMusicBrainzTrack::new(track),
+            CommandContext::next(),
+            cx,
+            move |this, result, _cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == entity_id {
+                        frame.musicbrainz_selected = 0;
+                        frame.musicbrainz_lookup = LazyPanel::Loaded(result);
+                    }
+                }
             },
-        )
-        .detach();
+            move |this, error, _cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == entity_id {
+                        frame.musicbrainz_lookup = LazyPanel::Empty(format!("Error: {error}"));
+                    }
+                }
+            },
+        );
     }
 
     fn select_musicbrainz_candidate(&mut self, idx: usize, cx: &mut Context<Self>) {
@@ -1275,34 +1227,19 @@ impl LibraryApp {
         cx.notify();
 
         let track_id = track.id;
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { lookup_musicbrainz_stage_for_track(conn, &track) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        match result {
-                            Ok(staged) => {
-                                let n = staged.edit_count;
-                                this.stage_musicbrainz_lookup_for_track(track_id, staged.lookup);
-                                this.vm.finish_musicbrainz_track_lookup(track_id, n);
-                            }
-                            Err(err) => {
-                                this.vm.fail_musicbrainz_track_lookup(track_id, err);
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        self.command_runner.run(
+            StageMusicBrainzTrack::new(track),
+            CommandContext::next(),
+            cx,
+            move |this, staged, _cx| {
+                let n = staged.edit_count;
+                this.stage_musicbrainz_lookup_for_track(track_id, staged.lookup);
+                this.vm.finish_musicbrainz_track_lookup(track_id, n);
             },
-        )
-        .detach();
+            move |this, error, _cx| {
+                this.vm.fail_musicbrainz_track_lookup(track_id, error);
+            },
+        );
     }
 
     fn musicbrainz_feed(&mut self, album: AlbumNode, cx: &mut Context<Self>) {
@@ -1486,7 +1423,13 @@ fn lookup_musicbrainz_stage_for_track(
     _conn: Arc<Mutex<Connection>>,
     track: &TrackRow,
 ) -> anyhow::Result<StagedMusicBrainzLookup> {
-    feed_service::lookup_musicbrainz_stage_for_track(track)
+    let outcome = crate::application::CommandBus::new()
+        .execute(
+            StageMusicBrainzTrack::new(track.clone()),
+            &CommandContext::next(),
+        )
+        .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+    Ok(outcome.into_parts().0)
 }
 
 #[allow(dead_code)]
@@ -1533,7 +1476,13 @@ fn stage_candidate_for_track(
     track: &TrackRow,
     candidate: &MusicBrainzCandidate,
 ) -> anyhow::Result<StagedMusicBrainzLookup> {
-    feed_service::stage_candidate_for_track(track, candidate)
+    let outcome = crate::application::CommandBus::new()
+        .execute(
+            StageMusicBrainzCandidate::new(track.clone(), candidate.clone()),
+            &CommandContext::next(),
+        )
+        .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+    Ok(outcome.into_parts().0)
 }
 
 #[allow(dead_code)]
@@ -4219,13 +4168,6 @@ fn compare_library_track(
         tag_compare,
         track_context: context,
     })
-}
-
-fn lookup_musicbrainz_library_track(
-    track: &TrackRow,
-    _cache: Arc<ImageCache>,
-) -> anyhow::Result<MusicBrainzLookupResult> {
-    feed_service::lookup_musicbrainz_library_track(track)
 }
 
 fn hoverable_thumb(

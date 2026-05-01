@@ -113,8 +113,10 @@ playback workflows.
    subscribe-then-append workflows route through commands and the
    `DownloadManager` port. No matching CLI subscription/download commands exist
    to migrate in this slice.
-5. `adr-0024-task-005-metadata-feed-update-slice`: migrate MusicBrainz staging
-   and feed update workflows; preserve source facts and metadata provenance.
+5. In progress `adr-0024-task-005-metadata-feed-update-slice`: feed update
+   checks/apply and single-track Library `MusicBrainz` lookup/staging route
+   through commands and local feed queries; album release lookup and any
+   remaining staged metadata query cleanup remain.
 6. `adr-0024-task-006-playback-slice`: route playback transport commands and
    playback snapshots through the application layer while preserving the
    existing playback owner/driver boundary.

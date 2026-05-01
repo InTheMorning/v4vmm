@@ -10,12 +10,276 @@ use crate::application::errors::command::CommandError;
 use crate::application::events::download::DownloadEvent;
 use crate::application::events::feed::FeedEvent;
 use crate::application::events::library::LibraryEvent;
+use crate::application::events::metadata::MetadataEvent;
 use crate::application::events::ApplicationEvent;
 use crate::application::ports::download_manager::{DownloadError, DownloadManager};
-use crate::db;
 use crate::subscribe_service::{SubscribeFeedOutcome, SubscribeFeedRequest};
+use crate::{db, feed_service};
+use feed_service::StaleFeed;
 
 type SharedConnection = Arc<Mutex<Connection>>;
+
+/// Command result for checking one feed for remote updates.
+#[derive(Clone, Debug)]
+pub struct CheckFeedStalenessResult {
+    feed_id: i64,
+    stale: Option<StaleFeed>,
+}
+
+impl CheckFeedStalenessResult {
+    /// Creates a feed staleness check result.
+    #[must_use]
+    pub fn new(feed_id: i64, stale: Option<StaleFeed>) -> Self {
+        Self { feed_id, stale }
+    }
+
+    /// Returns the checked feed id.
+    #[must_use]
+    pub const fn feed_id(&self) -> i64 {
+        self.feed_id
+    }
+
+    /// Returns the stale feed entry, if one is available.
+    #[must_use]
+    pub const fn stale(&self) -> Option<&StaleFeed> {
+        self.stale.as_ref()
+    }
+
+    /// Consumes the result and returns the stale feed entry.
+    #[must_use]
+    pub fn into_stale(self) -> Option<StaleFeed> {
+        self.stale
+    }
+}
+
+/// Checks one feed for remote updates.
+#[derive(Clone, Debug)]
+pub struct CheckFeedStaleness {
+    conn: SharedConnection,
+    musicindex_endpoint: String,
+    feed_id: i64,
+}
+
+impl CheckFeedStaleness {
+    /// Creates a single-feed staleness check command.
+    #[must_use]
+    pub fn new(
+        conn: SharedConnection,
+        musicindex_endpoint: impl Into<String>,
+        feed_id: i64,
+    ) -> Self {
+        Self {
+            conn,
+            musicindex_endpoint: musicindex_endpoint.into(),
+            feed_id,
+        }
+    }
+}
+
+impl ApplicationCommand for CheckFeedStaleness {
+    type Output = CheckFeedStalenessResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let stale =
+            feed_service::check_feed_staleness(&self.conn, &self.musicindex_endpoint, self.feed_id)
+                .map_err(|error| feed_command_error(&error))?;
+        Ok(CommandOutcome::without_events(
+            CheckFeedStalenessResult::new(self.feed_id, stale),
+        ))
+    }
+}
+
+/// Command result for checking subscribed feeds for remote updates.
+#[derive(Clone, Debug, Default)]
+pub struct CheckSubscribedFeedsResult {
+    stale: Vec<StaleFeed>,
+}
+
+impl CheckSubscribedFeedsResult {
+    /// Creates a subscribed-feed check result.
+    #[must_use]
+    pub fn new(stale: Vec<StaleFeed>) -> Self {
+        Self { stale }
+    }
+
+    /// Returns the stale feed entries.
+    #[must_use]
+    pub fn stale(&self) -> &[StaleFeed] {
+        &self.stale
+    }
+
+    /// Consumes the result and returns stale feed entries.
+    #[must_use]
+    pub fn into_stale(self) -> Vec<StaleFeed> {
+        self.stale
+    }
+}
+
+/// Checks subscribed feeds for remote updates.
+#[derive(Clone, Debug)]
+pub struct CheckSubscribedFeeds {
+    conn: SharedConnection,
+    musicindex_endpoint: String,
+    feeds: Vec<db::FeedStaleCheckRow>,
+}
+
+impl CheckSubscribedFeeds {
+    /// Creates a subscribed-feed staleness check command.
+    #[must_use]
+    pub fn new(
+        conn: SharedConnection,
+        musicindex_endpoint: impl Into<String>,
+        feeds: Vec<db::FeedStaleCheckRow>,
+    ) -> Self {
+        Self {
+            conn,
+            musicindex_endpoint: musicindex_endpoint.into(),
+            feeds,
+        }
+    }
+}
+
+impl ApplicationCommand for CheckSubscribedFeeds {
+    type Output = CheckSubscribedFeedsResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        let mut stale = Vec::new();
+        for feed in self.feeds {
+            if context.cancellation().is_cancelled() {
+                return Err(CommandError::Cancelled);
+            }
+            if let Ok(Some(entry)) =
+                feed_service::check_feed_staleness(&self.conn, &self.musicindex_endpoint, feed.id)
+            {
+                stale.push(entry);
+            }
+        }
+        Ok(CommandOutcome::without_events(
+            CheckSubscribedFeedsResult::new(stale),
+        ))
+    }
+}
+
+/// Command result for applying remote feed updates to local tracks.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ApplyFeedUpdatesResult {
+    tracks_updated: usize,
+    edits_written: usize,
+    id3_errors: Vec<String>,
+    feed_errors: Vec<String>,
+    message: String,
+}
+
+impl ApplyFeedUpdatesResult {
+    /// Creates a feed-update result.
+    #[must_use]
+    pub fn new(
+        tracks_updated: usize,
+        edits_written: usize,
+        id3_errors: Vec<String>,
+        feed_errors: Vec<String>,
+    ) -> Self {
+        let message = feed_apply_message(tracks_updated, edits_written, &id3_errors, &feed_errors);
+        Self {
+            tracks_updated,
+            edits_written,
+            id3_errors,
+            feed_errors,
+            message,
+        }
+    }
+
+    /// Returns how many tracks had tag edits written.
+    #[must_use]
+    pub const fn tracks_updated(&self) -> usize {
+        self.tracks_updated
+    }
+
+    /// Returns how many ID3 edits were written.
+    #[must_use]
+    pub const fn edits_written(&self) -> usize {
+        self.edits_written
+    }
+
+    /// Returns ID3 write error messages.
+    #[must_use]
+    pub fn id3_errors(&self) -> &[String] {
+        &self.id3_errors
+    }
+
+    /// Returns feed update error messages.
+    #[must_use]
+    pub fn feed_errors(&self) -> &[String] {
+        &self.feed_errors
+    }
+
+    /// Returns the user-facing status message.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+/// Applies remote feed updates to local downloaded tracks.
+#[derive(Clone, Debug)]
+pub struct ApplyFeedUpdates {
+    conn: SharedConnection,
+    musicindex_endpoint: String,
+    stale: Vec<StaleFeed>,
+}
+
+impl ApplyFeedUpdates {
+    /// Creates a feed-update apply command.
+    #[must_use]
+    pub fn new(
+        conn: SharedConnection,
+        musicindex_endpoint: impl Into<String>,
+        stale: Vec<StaleFeed>,
+    ) -> Self {
+        Self {
+            conn,
+            musicindex_endpoint: musicindex_endpoint.into(),
+            stale,
+        }
+    }
+}
+
+impl ApplicationCommand for ApplyFeedUpdates {
+    type Output = ApplyFeedUpdatesResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        let mut total_tracks = 0usize;
+        let mut total_edits = 0usize;
+        let mut id3_errors = Vec::new();
+        let mut feed_errors = Vec::new();
+        for entry in &self.stale {
+            if context.cancellation().is_cancelled() {
+                return Err(CommandError::Cancelled);
+            }
+            match feed_service::apply_feed_updates(&self.conn, &self.musicindex_endpoint, entry) {
+                Ok(outcome) => {
+                    total_tracks += outcome.tracks_updated;
+                    total_edits += outcome.edits_written;
+                    id3_errors.extend(outcome.id3_errors);
+                }
+                Err(error) => {
+                    let label = entry
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| entry.feed_guid.clone());
+                    feed_errors.push(format!("{label}: {error:#}"));
+                }
+            }
+        }
+        Ok(CommandOutcome::new(
+            ApplyFeedUpdatesResult::new(total_tracks, total_edits, id3_errors, feed_errors),
+            feed_update_events(),
+        ))
+    }
+}
 
 /// Command result for subscribing/downloading a feed.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -219,6 +483,14 @@ fn feed_download_changed_events() -> Vec<ApplicationEvent> {
     ]
 }
 
+fn feed_update_events() -> Vec<ApplicationEvent> {
+    vec![
+        ApplicationEvent::Feed(FeedEvent::Changed),
+        ApplicationEvent::Library(LibraryEvent::Changed),
+        ApplicationEvent::Metadata(MetadataEvent::Changed),
+    ]
+}
+
 fn feed_lock_error() -> CommandError {
     CommandError::Feed("database lock poisoned".to_string())
 }
@@ -240,6 +512,35 @@ fn plural(count: usize) -> &'static str {
     } else {
         "s"
     }
+}
+
+fn feed_apply_message(
+    tracks_updated: usize,
+    edits_written: usize,
+    id3_errors: &[String],
+    feed_errors: &[String],
+) -> String {
+    let mut parts = Vec::new();
+    parts.push(if tracks_updated == 0 {
+        "No edits written".into()
+    } else {
+        format!("Applied {edits_written} edit(s) to {tracks_updated} track(s)")
+    });
+    if !id3_errors.is_empty() {
+        parts.push(format!(
+            "Tag write errors ({}): {}",
+            id3_errors.len(),
+            id3_errors.join("; ")
+        ));
+    }
+    if !feed_errors.is_empty() {
+        parts.push(format!(
+            "Feed errors ({}): {}",
+            feed_errors.len(),
+            feed_errors.join("; ")
+        ));
+    }
+    parts.join(" — ")
 }
 
 #[cfg(test)]
@@ -277,6 +578,56 @@ mod tests {
             rusqlite::params![feed_id, "item-guid", "Track Title"],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    #[test]
+    fn check_feed_staleness_missing_feed_returns_none() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+
+        let outcome = CommandBus::new().execute(
+            CheckFeedStaleness::new(Arc::clone(&conn), "https://api.example.test", i64::MAX),
+            &CommandContext::next(),
+        )?;
+
+        assert_eq!(outcome.value().feed_id(), i64::MAX);
+        assert!(outcome.value().stale().is_none());
+        assert!(outcome.events().is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn check_subscribed_feeds_empty_input_returns_no_stale_entries() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+
+        let outcome = CommandBus::new().execute(
+            CheckSubscribedFeeds::new(Arc::clone(&conn), "https://api.example.test", Vec::new()),
+            &CommandContext::next(),
+        )?;
+
+        assert!(outcome.value().stale().is_empty());
+        assert!(outcome.events().is_empty());
+
+        Ok(())
+    }
+
+    #[test]
+    fn apply_feed_updates_empty_input_emits_feed_metadata_events() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+
+        let outcome = CommandBus::new().execute(
+            ApplyFeedUpdates::new(Arc::clone(&conn), "https://api.example.test", Vec::new()),
+            &CommandContext::next(),
+        )?;
+
+        assert_eq!(outcome.value().tracks_updated(), 0);
+        assert_eq!(outcome.value().edits_written(), 0);
+        assert!(outcome.value().id3_errors().is_empty());
+        assert!(outcome.value().feed_errors().is_empty());
+        assert_eq!(outcome.value().message(), "No edits written");
+        assert_eq!(outcome.events(), feed_update_events());
+
+        Ok(())
     }
 
     #[derive(Debug)]

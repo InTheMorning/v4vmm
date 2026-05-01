@@ -38,6 +38,15 @@ const SCREEN_SUBSCRIPTION_FORBIDDEN_PATTERNS: &[&str] = &[
     "subscribe_service::subscribe_track(",
 ];
 
+const SCREEN_METADATA_FEED_FORBIDDEN_PATTERNS: &[&str] = &[
+    "db::subscribed_feeds_for_stale_check(",
+    "feed_service::apply_feed_updates(",
+    "feed_service::check_feed_staleness(",
+    "feed_service::lookup_musicbrainz_library_track(",
+    "feed_service::lookup_musicbrainz_stage_for_track(",
+    "feed_service::stage_candidate_for_track(",
+];
+
 const SCREEN_FILES: &[&str] = &["src/app.rs", "src/library.rs", "src/search.rs"];
 
 #[test]
@@ -159,6 +168,30 @@ fn screens_do_not_call_migrated_subscription_remove_paths() {
     assert!(
         violations.is_empty(),
         "ADR 0024 subscription/remove screen boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_call_migrated_feed_update_paths() {
+    let mut violations = Vec::new();
+    for file in SCREEN_FILES {
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in SCREEN_METADATA_FEED_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: migrated feed-update workflows must go through ADR 0024 commands/queries, not `{pattern}`: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0024 feed-update screen boundary violations:\n{}",
         violations.join("\n")
     );
 }
