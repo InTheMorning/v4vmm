@@ -2,7 +2,7 @@
 
 ## Status
 
-Pending.
+Implemented.
 
 ## Goal
 
@@ -40,10 +40,28 @@ them.
 
 ## Implementation Steps
 
-1. Add one tree-format helper in `src/metadata.rs`.
-2. Add focused tests for multi-role and multi-person values.
-3. Use the helper in expanded metadata-cell display in Library and Discovery.
-4. Preserve collapsed and compare-diff summaries unless directly required.
+1. [x] Add one tree-format helper in `src/metadata.rs`.
+2. [x] Add focused tests for multi-role and multi-person values.
+3. [x] Use the helper in expanded metadata-cell display in Library and Discovery.
+4. [x] Preserve collapsed and compare-diff summaries unless directly required.
+
+## Implementation Summary
+
+- Added `display_contributor_tree` and `expanded_metadata_display_string` in
+  `src/metadata.rs`.
+- Library expanded metadata cells now use the owned expanded-display helper.
+- Discovery RSS and ID3 expanded metadata cells now pass contributor tree text
+  into the existing line renderer.
+- Collapsed contributor summaries continue to use `summarize_contributor_value`.
+
+## Verification
+
+Green on 2026-05-01:
+
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test metadata::tests`
+- `cargo clippy -- -D warnings`
 
 ## Acceptance Criteria
 

@@ -54,7 +54,7 @@ use crate::library_service;
 use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
-    expand_woar_metadata_rows, expanded_metadata_display_value, id3_frame_base,
+    expand_woar_metadata_rows, expanded_metadata_display_string, id3_frame_base,
     metadata_field_is_expandable, musicbrainz_release_option_label, musicbrainz_release_summary,
     musicbrainz_subtitle, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
     summarize_contributor_value, track_metadata_rows, AlignedCompareRow, MetadataColumn,
@@ -3925,8 +3925,8 @@ fn expanded_metadata_value(
                 .into_any_element();
         }
     }
-    let value = expanded_metadata_display_value(field, raw_value, display_value);
-    MultilineText::new(value.to_string())
+    let value = expanded_metadata_display_string(field, raw_value, display_value);
+    MultilineText::new(value)
         .max_lines(20)
         .color_raw(color)
         .into_any_element()

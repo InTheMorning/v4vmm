@@ -4030,6 +4030,8 @@ fn expandable_cell(
                     ),
             );
         } else {
+            let expanded_display =
+                expanded_metadata_display_string(field, raw_value, display_value);
             container = container.child(
                 div()
                     .flex()
@@ -4048,7 +4050,7 @@ fn expandable_cell(
                             .min_w_0()
                             .flex()
                             .flex_col()
-                            .children(json_tree_elements(raw_value, display_value, color)),
+                            .children(json_tree_elements(raw_value, &expanded_display, color)),
                     ),
             );
         }
@@ -4146,6 +4148,8 @@ fn expandable_tag_cell(
                 .children(transcript_text_elements(raw_value, color))
                 .into_any_element()
         } else {
+            let expanded_display =
+                expanded_metadata_display_string(field, raw_value, display_value);
             div()
                 .flex_1()
                 .min_w_0()
@@ -4154,7 +4158,7 @@ fn expandable_tag_cell(
                 .text_color(color)
                 .flex()
                 .flex_col()
-                .children(json_tree_elements(raw_value, display_value, color))
+                .children(json_tree_elements(raw_value, &expanded_display, color))
                 .into_any_element()
         }
     } else {
