@@ -50,7 +50,7 @@ use crate::subscribe_service::{
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, SplitPane, TagBadge, Thumbnail, ThumbnailSize,
+    EntityKind, ListRow, ProvenanceRole, SplitPane, TagBadge, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -60,7 +60,6 @@ use crate::ui::primitives::{
     Button as UiButton, Image as ImagePrimitive, ImageSize, Label, MultilineText,
 };
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
@@ -3084,6 +3083,8 @@ fn render_musicbrainz_title_bar(
         || "No MusicBrainz release".into(),
         musicbrainz_release_summary,
     );
+    let badge_fill = EntityKind::Track.fill_color(cx);
+    let badge_text = EntityKind::Track.on_fill_color(cx);
     // CONTROL-COMPAT(reason): native Button does not yet expose dropdown_menu, full-width alignment, and custom badge fill styling.
     let trigger = Button::new("musicbrainz-release-picker")
         .label(SharedString::from(format!("MusicBrainz: {label}")))
@@ -3092,14 +3093,14 @@ fn render_musicbrainz_title_bar(
         .ghost()
         .w_full()
         .justify_start()
-        .bg(badges::type_color("track"))
-        .text_color(color::text_on_accent())
+        .bg(badge_fill)
+        .text_color(badge_text)
         .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::BOLD)
         .px(spacing::SM)
         .py(spacing::XXS)
         .border_1()
-        .border_color(badges::type_color("track"))
+        .border_color(badge_fill)
         .rounded(radius::SM)
         .mb(spacing::SM);
 
@@ -3244,7 +3245,7 @@ fn render_metadata_grid(
                     ));
                 }
                 if show_musicbrainz {
-                    cells.push(metadata_musicbrainz_cell(&row, pending));
+                    cells.push(metadata_musicbrainz_cell(&row, pending, cx));
                 }
             }
         }
@@ -3278,11 +3279,12 @@ fn metadata_rss_cell(
 ) -> AnyElement {
     let value = row.rss_value.as_deref().unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
-    let (color_opt, glyph) =
-        source_cell_color_and_glyph(pending, MetadataColumn::Rss, row.rss_value.as_deref());
-    let value_color = color_opt.unwrap_or_else(color::text_primary);
-    let display_value = if !glyph.is_empty() {
-        display_with_glyph(glyph, &display_value)
+    let source_role = source_cell_role(pending, MetadataColumn::Rss, row.rss_value.as_deref());
+    let value_color = source_role
+        .map(|role| role.color(cx))
+        .unwrap_or_else(color::text_primary);
+    let display_value = if let Some(role) = source_role {
+        display_with_glyph(role.glyph(), &display_value)
     } else {
         display_value
     };
@@ -3359,8 +3361,8 @@ fn metadata_id3_cell(
         .unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
     let color = pending
-        .map(|edit| pending_source_color(edit.source))
-        .unwrap_or_else(|| id3_cell_status_color(row));
+        .map(|edit| pending_source_color(edit.source, cx))
+        .unwrap_or_else(|| id3_cell_status_color(row, cx));
     let frame_color = frame.map(id3_frame_base).map(id3_frame_version_color);
     let expandable = metadata_field_is_expandable(&row.field) && !value.is_empty();
     let value_element = if expandable {
@@ -3391,7 +3393,7 @@ fn metadata_id3_cell(
         .child(value_element)
         .when_some(pending, |el, edit| {
             el.border_1()
-                .border_color(pending_source_color(edit.source))
+                .border_color(pending_source_color(edit.source, cx))
         });
     if pending.is_some() {
         let row_id = row.row_id.clone();
@@ -3428,20 +3430,20 @@ fn metadata_id3_cell(
 fn metadata_musicbrainz_cell(
     row: &AlignedCompareRow,
     pending: Option<&PendingId3Edit>,
+    cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let (color_opt, glyph) = source_cell_color_and_glyph(
+    let source_role = source_cell_role(
         pending,
         MetadataColumn::MusicBrainz,
         row.musicbrainz_value.as_deref(),
     );
-    let (musicbrainz_color, glyph) = if let (Some(color), glyph) = (color_opt, glyph) {
-        (color, glyph)
-    } else {
-        (
-            comparison_status_color(&row.musicbrainz_status),
-            comparison_status_glyph(&row.musicbrainz_status),
-        )
-    };
+    let musicbrainz_color = source_role
+        .map(|role| role.color(cx))
+        .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status, cx));
+    let glyph = source_role.map_or_else(
+        || comparison_status_glyph(&row.musicbrainz_status),
+        ProvenanceRole::glyph,
+    );
     let value = row.musicbrainz_value.as_deref().unwrap_or("");
     let display_value = display_metadata_value(&row.field, value);
     let display_value = if !glyph.is_empty() {
@@ -3496,27 +3498,26 @@ fn metadata_drag_value(
     })
 }
 
-fn pending_source_color(source: MetadataColumn) -> gpui::Rgba {
+fn pending_source_color(source: MetadataColumn, cx: &mut Context<SearchApp>) -> gpui::Rgba {
     match source {
-        MetadataColumn::Rss => color::diff_match(),
-        MetadataColumn::MusicBrainz => color::diff_match(),
+        MetadataColumn::Rss | MetadataColumn::MusicBrainz => ProvenanceRole::Match.color(cx),
     }
 }
 
-fn source_cell_color(
+fn source_cell_role(
     pending: Option<&PendingId3Edit>,
     column: MetadataColumn,
     cell_value: Option<&str>,
-) -> Option<gpui::Rgba> {
+) -> Option<ProvenanceRole> {
     let edit = pending?;
     if edit.source != column {
         return None;
     }
     let cell_value = cell_value.map(str::trim).filter(|v| !v.is_empty())?;
     if cell_value == edit.value.trim() {
-        Some(color::diff_match())
+        Some(ProvenanceRole::Match)
     } else {
-        Some(color::diff_different())
+        Some(ProvenanceRole::Different)
     }
 }
 
@@ -4511,21 +4512,22 @@ fn format_track_slash_total(track: Option<&str>, total: Option<&str>) -> Option<
     }
 }
 
-fn comparison_status_color(status: &ComparisonStatus) -> gpui::Rgba {
-    match status {
-        ComparisonStatus::Match => color::diff_match(),
-        ComparisonStatus::Different => color::diff_different(),
-        ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => color::diff_missing(),
-        ComparisonStatus::MissingBoth => color::text_muted(),
-    }
+fn comparison_status_color(status: &ComparisonStatus, cx: &mut Context<SearchApp>) -> gpui::Rgba {
+    comparison_status_role(status).map_or_else(color::text_muted, |role| role.color(cx))
 }
 
 fn comparison_status_glyph(status: &ComparisonStatus) -> &'static str {
+    comparison_status_role(status).map_or("", ProvenanceRole::glyph)
+}
+
+fn comparison_status_role(status: &ComparisonStatus) -> Option<ProvenanceRole> {
     match status {
-        ComparisonStatus::Match => glyphs::DIFF_MATCH,
-        ComparisonStatus::Different => glyphs::DIFF_DIFFERENT,
-        ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => glyphs::DIFF_MISSING,
-        ComparisonStatus::MissingBoth => "",
+        ComparisonStatus::Match => Some(ProvenanceRole::Match),
+        ComparisonStatus::Different => Some(ProvenanceRole::Different),
+        ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => {
+            Some(ProvenanceRole::Missing)
+        }
+        ComparisonStatus::MissingBoth => None,
     }
 }
 
@@ -4537,31 +4539,11 @@ fn display_with_glyph(glyph: &str, value: &str) -> String {
     }
 }
 
-fn source_cell_color_and_glyph(
-    pending: Option<&PendingId3Edit>,
-    column: MetadataColumn,
-    cell_value: Option<&str>,
-) -> (Option<gpui::Rgba>, &'static str) {
-    let edit = match pending {
-        Some(e) if e.source == column => e,
-        _ => return (None, ""),
-    };
-    let cell_value = match cell_value.map(str::trim).filter(|v| !v.is_empty()) {
-        Some(v) => v,
-        None => return (None, ""),
-    };
-    if cell_value == edit.value.trim() {
-        (Some(color::diff_match()), glyphs::DIFF_MATCH)
-    } else {
-        (Some(color::diff_different()), glyphs::DIFF_DIFFERENT)
-    }
-}
-
-fn id3_cell_status_color(row: &AlignedCompareRow) -> gpui::Rgba {
+fn id3_cell_status_color(row: &AlignedCompareRow, cx: &mut Context<SearchApp>) -> gpui::Rgba {
     if row.id3_value.is_some() && row.rss_value.is_none() && row.musicbrainz_value.is_none() {
         return color::text_primary();
     }
-    comparison_status_color(&row.id3_status)
+    comparison_status_color(&row.id3_status, cx)
 }
 
 pub(crate) fn render_track_list_rows(

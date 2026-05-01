@@ -83,7 +83,7 @@ const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
             "use crate::ui::theme::{badges}",
         ],
         usage_pattern: "badges::",
-        max_count: 5,
+        max_count: 0,
     },
     DeprecatedVisualHelperBaseline {
         file: "src/library.rs",
@@ -116,7 +116,7 @@ const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
             "use crate::ui::theme::{badges}",
         ],
         usage_pattern: "badges::",
-        max_count: 3,
+        max_count: 0,
     },
     DeprecatedVisualHelperBaseline {
         file: "src/search.rs",
@@ -176,6 +176,29 @@ const DIRECT_COMPONENT_BUTTON_BASELINES: &[DirectComponentButtonBaseline] = &[
     },
 ];
 
+const PROVENANCE_DIFF_HELPER_BASELINES: &[DiffHelperBaseline] = &[
+    DiffHelperBaseline {
+        file: "src/library.rs",
+        pattern: "color::diff_",
+        max_count: 0,
+    },
+    DiffHelperBaseline {
+        file: "src/library.rs",
+        pattern: "glyphs::DIFF_",
+        max_count: 0,
+    },
+    DiffHelperBaseline {
+        file: "src/search.rs",
+        pattern: "color::diff_",
+        max_count: 1,
+    },
+    DiffHelperBaseline {
+        file: "src/search.rs",
+        pattern: "glyphs::DIFF_",
+        max_count: 0,
+    },
+];
+
 const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/bootstrap.rs",
@@ -207,6 +230,13 @@ struct DeprecatedVisualHelper {
 struct DirectComponentButtonBaseline {
     file: &'static str,
     max_unmarked_count: usize,
+}
+
+#[derive(Debug)]
+struct DiffHelperBaseline {
+    file: &'static str,
+    pattern: &'static str,
+    max_count: usize,
 }
 
 #[test]
@@ -493,6 +523,32 @@ fn screens_do_not_grow_unmarked_direct_component_button_usage() {
     assert!(
         violations.is_empty(),
         "ADR 0025 direct component button compatibility violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_grow_loose_provenance_diff_helpers() {
+    let mut violations = Vec::new();
+    for baseline in PROVENANCE_DIFF_HELPER_BASELINES {
+        let path = manifest_path(baseline.file);
+        let source = read_source(&path);
+        let count = source
+            .lines()
+            .map(strip_line_comment)
+            .filter(|line| line.contains(baseline.pattern))
+            .count();
+        if count > baseline.max_count {
+            violations.push(format!(
+                "{}: loose provenance/diff helper `{}` grew from allowed baseline {} to {count}; use `ui::composites::ProvenanceRole` instead",
+                baseline.file, baseline.pattern, baseline.max_count
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 provenance/diff helper violations:\n{}",
         violations.join("\n")
     );
 }

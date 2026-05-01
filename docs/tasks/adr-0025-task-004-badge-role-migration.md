@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Implemented.
 
 ## Task Goal
 
@@ -62,13 +62,24 @@ entity/status/provenance roles.
 
 ## Acceptance Criteria
 
-- [ ] Screen-level `theme::badges` usage is removed or explicitly allowlisted
+- [x] Screen-level `theme::badges` usage is removed or explicitly allowlisted
       with a reason.
-- [ ] Badge roles are typed and cover all current `EntityKind` variants.
-- [ ] Provenance/diff roles are typed and resolve color plus non-color cue
+- [x] Badge roles are typed and cover all current `EntityKind` variants.
+- [x] Provenance/diff roles are typed and resolve color plus non-color cue
       together.
-- [ ] Existing label/color intent is preserved.
-- [ ] Architecture tests prevent regression.
+- [x] Existing label/color intent is preserved.
+- [x] Architecture tests prevent regression.
+
+## Implementation Notes
+
+- Added typed `EntityKind` color accessors for compatibility surfaces that
+  still need raw colors while the native button primitive is catching up.
+- Added `ProvenanceRole` for metadata comparison states so match, different,
+  and missing color plus glyph resolve from one typed role.
+- Removed remaining screen-level `theme::badges` imports from `src/library.rs`
+  and `src/search.rs`.
+- Tightened architecture tests to hold `theme::badges` at zero screen usage
+  and prevent loose provenance/diff helper growth.
 
 ## Test Commands
 

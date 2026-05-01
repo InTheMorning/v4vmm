@@ -67,7 +67,7 @@ src/ui/
     icon.rs              optional primitive if `icons.rs` grows too large
   composites/
     action_button.rs     migrated to control style roles
-    tag_badge.rs         migrated to typed entity/status roles
+    tag_badge.rs         migrated to typed entity/status/provenance roles
 ```
 
 The names above are normative unless implementation finds a clearer local
@@ -418,6 +418,8 @@ with any remaining direct `gpui_component::Button` call sites marked using
 
 Replace remaining `theme::badges` and string-keyed entity visual lookups with
 typed roles consumed by `TagBadge` or a successor badge primitive/composite.
+Metadata provenance/diff display resolves through the same typed visual-role
+boundary so color and glyph are not chosen independently in screen code.
 
 ### Phase 5 - runtime profile selection
 

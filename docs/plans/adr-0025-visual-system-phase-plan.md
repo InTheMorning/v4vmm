@@ -27,8 +27,9 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
   button vocabulary.
 - RSS/Nostr/playback/status iconography is split between inline SVG helpers,
   string glyphs, and badge emoji.
-- `TagBadge` / `EntityKind` exist, but `theme::badges` still supports legacy
-  string-keyed visual mappings.
+- `TagBadge`, `EntityKind`, and `ProvenanceRole` cover screen entity and
+  metadata diff roles. `theme::badges` still exists only as a compatibility
+  shim inside `src/ui/theme.rs`.
 
 ## Target State
 
@@ -102,6 +103,9 @@ marked with `CONTROL-COMPAT(reason): ...` and reported in the final inventory.
 
 Replace remaining `theme::badges` screen usage with typed
 entity/status/provenance roles.
+
+Status: implemented by
+`docs/tasks/adr-0025-task-004-badge-role-migration.md`.
 
 ### Phase 5 - runtime profile selection
 

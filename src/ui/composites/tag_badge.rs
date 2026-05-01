@@ -8,7 +8,8 @@
 #![warn(clippy::pedantic)]
 
 use gpui::{
-    div, App, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window,
+    div, App, FontWeight, IntoElement, ParentElement, RenderOnce, Rgba, SharedString, Styled,
+    Window,
 };
 
 use crate::ui::tokens::{Appearance, FontSize, Radius, SemanticColor, Spacing};
@@ -106,11 +107,66 @@ impl EntityKind {
             Self::Generic => SemanticColor::Label,
         }
     }
+
+    #[must_use]
+    pub fn fill_color(self, cx: &App) -> Rgba {
+        self.fill_token().resolve(Appearance::current(cx))
+    }
+
+    #[must_use]
+    pub fn on_fill_color(self, cx: &App) -> Rgba {
+        self.on_fill_token().resolve(Appearance::current(cx))
+    }
 }
 
 impl From<&str> for EntityKind {
     fn from(value: &str) -> Self {
         Self::from_legacy_str(value)
+    }
+}
+
+/// Visual role for metadata provenance/diff states.
+///
+/// Color and glyph resolve together so comparison state never depends on
+/// color alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProvenanceRole {
+    Match,
+    Different,
+    Missing,
+}
+
+impl ProvenanceRole {
+    #[must_use]
+    pub fn color_token(self) -> SemanticColor {
+        match self {
+            Self::Match => SemanticColor::DiffMatch,
+            Self::Different => SemanticColor::DiffDifferent,
+            Self::Missing => SemanticColor::DiffMissing,
+        }
+    }
+
+    #[must_use]
+    pub fn color(self, cx: &App) -> Rgba {
+        self.color_token().resolve(Appearance::current(cx))
+    }
+
+    #[must_use]
+    pub fn glyph(self) -> &'static str {
+        match self {
+            Self::Match => "=",
+            Self::Different => "\u{2260}",
+            Self::Missing => "\u{2205}",
+        }
+    }
+
+    #[must_use]
+    pub fn accessibility_label(self) -> &'static str {
+        match self {
+            Self::Match => "matches",
+            Self::Different => "different",
+            Self::Missing => "missing",
+        }
     }
 }
 
