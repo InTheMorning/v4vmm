@@ -65,18 +65,18 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{render_contributor_rows, ContributorRowSlot};
 use crate::view_models::entity_detail::{
-    ContributorListVm, ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone,
-    MetadataPanelState, TrackMetadataActionState,
+    ContributorListVm, ContributorRowVm, EntityActionTarget, EntityActionTone, MetadataPanelState,
+    TrackMetadataActionState,
 };
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
-    artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, LazyPanel,
-    PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm, ResultRow,
-    SearchBatch, SearchSubscriptionCommand, SearchViewModel, TrackInspectorHeaderVm,
-    TrackRowActionVm,
+    artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
+    ActionRowVm, LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome,
+    PublisherInspectorVm, ResultRow, SearchBatch, SearchSubscriptionCommand, SearchViewModel,
+    TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
-use crate::views::{ContributorView, FeedRef, TrackRef};
+use crate::views::{ContributorView, FeedRef};
 
 #[derive(Clone, Debug)]
 pub(crate) enum InspectorDetail {
@@ -361,10 +361,9 @@ impl SearchApp {
     }
 
     fn do_search(&mut self, append: bool, cx: &mut Context<Self>) {
-        let query = self.input.read(cx).value().trim().to_string();
-        if query.is_empty() {
+        let Some(query) = normalized_search_query(&self.input.read(cx).value()) else {
             return;
-        }
+        };
 
         let Some(intent) = self.vm.begin_search_load(append) else {
             return;
@@ -417,7 +416,7 @@ impl SearchApp {
 
     fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
         self.vm.toggle_fuzzy_search();
-        let has_query = !self.input.read(cx).value().trim().is_empty();
+        let has_query = normalized_search_query(&self.input.read(cx).value()).is_some();
         cx.notify();
         if has_query {
             self.do_search(false, cx);
@@ -1645,8 +1644,10 @@ impl SearchApp {
 impl Render for SearchApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let stack = self.inspector_stack.clone();
-        let input_is_empty = self.input.read(cx).value().trim().is_empty();
-        let snapshot = self.vm.render_snapshot(stack.is_empty(), input_is_empty);
+        let input_has_search_term = normalized_search_query(&self.input.read(cx).value()).is_some();
+        let snapshot = self
+            .vm
+            .render_snapshot(stack.is_empty(), !input_has_search_term);
         let status_text = if snapshot.status.is_error {
             format!("{} {}", StatusRole::Danger.glyph(), snapshot.status.text)
         } else {
@@ -2298,7 +2299,7 @@ fn render_filter_button(
     .label(SharedString::from(label.to_string()))
     .on_click(cx.listener(move |this, _, _, cx| {
         if this.vm.set_type_filter_if_changed(idx) {
-            let has_query = !this.input.read(cx).value().trim().is_empty();
+            let has_query = normalized_search_query(&this.input.read(cx).value()).is_some();
             cx.notify();
             if has_query {
                 this.do_search(false, cx);
@@ -2692,8 +2693,6 @@ pub(crate) fn render_action_row(
     } else {
         None
     };
-    let metadata_target = EntityActionTarget::Track(TrackRef::Musicindex(frame.entity_id.clone()));
-    let metadata_actions = track_metadata_action_state(frame).actions(metadata_target);
     let playlist_label = if is_feed {
         release_playlist_action.as_ref().map_or_else(
             || vm.add_to_playlist_label().to_string(),
@@ -2711,11 +2710,25 @@ pub(crate) fn render_action_row(
         frame.subscription_busy
     };
 
-    div()
+    let feed_rss_action = if is_feed {
+        match &frame.detail {
+            InspectorDetail::Feed(feed) => Some(render_rss_icon_button(feed_rss_url(feed), cx)),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    let mut action_controls = div()
         .flex()
-        .flex_col()
-        .items_start()
-        .gap(spacing::XS)
+        .flex_row()
+        .items_center()
+        .gap(spacing::SM)
+        .flex_wrap();
+    if let Some(action) = feed_rss_action {
+        action_controls = action_controls.child(action);
+    }
+    action_controls = action_controls
         .child(
             action_button(&subscription_label, cx)
                 .disabled(subscription_disabled)
@@ -2732,28 +2745,17 @@ pub(crate) fn render_action_row(
                     }
                     cx.notify();
                 })),
-        )
+        );
+
+    div()
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap(spacing::XS)
+        .child(action_controls)
         .when(frame.add_to_playlist_open, |el| {
             el.child(render_add_to_playlist_panel_search(frame, app, cx))
         })
-        .children(
-            metadata_actions
-                .into_iter()
-                .map(|action| {
-                    let kind = action.kind.clone();
-                    action_button(&action.label, cx)
-                        .disabled(!action.enabled)
-                        .on_click(cx.listener(move |this, _, _, cx| match kind {
-                            EntityActionKind::CompareMetadata => this.toggle_tag_compare(cx),
-                            EntityActionKind::OpenMusicBrainz => {
-                                this.toggle_musicbrainz_lookup(cx);
-                            }
-                            _ => {}
-                        }))
-                        .into_any_element()
-                })
-                .collect::<Vec<_>>(),
-        )
         .when_some(
             vm.subscription_message().map(str::to_string),
             |el, message| {
@@ -4811,33 +4813,16 @@ pub(crate) fn render_row_playlist_popup(
 
 pub(crate) fn render_feed_header(
     frame: &InspectorFrame,
-    feed: &Feed,
     title: &str,
     subtitle: Option<&str>,
-    cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let rss_url = feed_rss_url(feed);
     let mut header =
         DetailHeader::new(EntityKind::Feed, title.to_string()).image(frame.image.clone());
     if let Some(subtitle) = subtitle.filter(|value| !value.trim().is_empty()) {
         header = header.subtitle(subtitle.to_string());
     }
 
-    div()
-        .flex_col()
-        .gap(spacing::SM)
-        .child(header)
-        .child(
-            div()
-                .ml(layout::DETAIL_HEADER_TEXT_OFFSET)
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(spacing::SM)
-                .justify_start()
-                .child(render_rss_icon_button(rss_url, cx)),
-        )
-        .into_any_element()
+    header.into_any_element()
 }
 
 fn render_rss_icon_button(url: Option<String>, cx: &mut Context<SearchApp>) -> AnyElement {
@@ -5233,8 +5218,17 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
         let title = feed_title(&feed);
         let artist = feed
             .release_artist
-            .clone()
-            .or_else(|| feed.publisher_text.clone())
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                feed.publisher_text
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            })
             .unwrap_or_default();
         let image_url = feed.image_url.clone();
         let thumbnail = app.thumbnail_for_url(image_url.as_deref(), cx);
@@ -5378,9 +5372,22 @@ fn group_heading(label: String) -> AnyElement {
 
 fn feed_title(feed: &Feed) -> String {
     feed.title
-        .clone()
-        .or_else(|| feed.name.clone())
-        .or_else(|| feed.feed_guid.clone())
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            feed.name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            feed.feed_guid
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .map(str::to_string)
         .unwrap_or_else(|| "Untitled".into())
 }
 

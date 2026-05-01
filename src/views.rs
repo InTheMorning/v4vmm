@@ -311,6 +311,12 @@ fn checked_year(year: Option<i64>) -> Option<i32> {
     year.and_then(|year| i32::try_from(year).ok())
 }
 
+fn nonempty_owned(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 impl ArtistView {
     pub fn from_api(a: api::Artist) -> Self {
         let image_url = a.image_url;
@@ -414,8 +420,8 @@ impl FeedView {
             id: f.feed_guid.clone().map(FeedRef::Musicindex),
             feed_guid: f.feed_guid,
             feed_url: f.feed_url,
-            title: f.title.or(f.name),
-            artist: f.release_artist,
+            title: nonempty_owned(f.title).or_else(|| nonempty_owned(f.name)),
+            artist: nonempty_owned(f.release_artist),
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
             identity,
@@ -503,11 +509,11 @@ impl TrackView {
             id: t.track_guid.clone().map(TrackRef::Musicindex),
             track_guid: t.track_guid,
             feed_guid: t.feed_guid,
-            feed_title: t.feed_title.clone(),
+            feed_title: nonempty_owned(t.feed_title.clone()),
             feed_url: t.feed_url,
-            title: t.title.or(t.name),
-            artist: t.track_artist.or(t.release_artist),
-            album: t.feed_title,
+            title: nonempty_owned(t.title).or_else(|| nonempty_owned(t.name)),
+            artist: nonempty_owned(t.track_artist).or_else(|| nonempty_owned(t.release_artist)),
+            album: nonempty_owned(t.feed_title),
             track_number: t.track_number,
             disc_number: None,
             duration_secs: t.duration_secs,

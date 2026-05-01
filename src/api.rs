@@ -108,6 +108,7 @@ pub struct Feed {
     pub title: Option<String>,
     pub name: Option<String>,
     pub feed_url: Option<String>,
+    #[serde(alias = "owner_name")]
     pub release_artist: Option<String>,
     pub release_artist_sort: Option<String>,
     pub raw_medium: Option<String>,
@@ -122,8 +123,11 @@ pub struct Feed {
     pub description: Option<String>,
     pub image_url: Option<String>,
     pub tracks: Option<Vec<Track>>,
+    #[serde(alias = "persons")]
     pub source_contributors: Option<Vec<Contributor>>,
+    #[serde(alias = "links")]
     pub source_links: Option<Vec<SourceEntityLink>>,
+    #[serde(alias = "entity_ids")]
     pub source_ids: Option<Vec<SourceEntityId>>,
     pub source_release_claims: Option<Vec<SourceReleaseClaim>>,
     pub payment_routes: Option<Vec<PaymentRoute>>,
@@ -148,12 +152,16 @@ pub struct Track {
     pub enclosure_type: Option<String>,
     pub enclosure_bytes: Option<i64>,
     pub image_url: Option<String>,
+    #[serde(alias = "author_name")]
     pub track_artist: Option<String>,
     pub release_artist: Option<String>,
     pub publisher_text: Option<String>,
     pub artist_credit: Option<ArtistCredit>,
+    #[serde(alias = "persons")]
     pub source_contributors: Option<Vec<Contributor>>,
+    #[serde(alias = "links")]
     pub source_links: Option<Vec<SourceEntityLink>>,
+    #[serde(alias = "entity_ids")]
     pub source_ids: Option<Vec<SourceEntityId>>,
     pub source_release_claims: Option<Vec<SourceReleaseClaim>>,
     pub source_enclosures: Option<Vec<SourceEnclosure>>,
@@ -866,6 +874,39 @@ mod tests {
             Some("https://example.com/alice.jpg")
         );
         assert_eq!(contributor.npub.as_deref(), Some("npub1alice"));
+    }
+
+    #[test]
+    fn feed_and_track_deserialize_current_musicindex_identity_aliases() {
+        let feed: Feed = serde_json::from_str(
+            r#"{
+                "feed_guid": "feed-1",
+                "owner_name": "Album Artist",
+                "persons": [{"name": "Alice", "role": "vocals"}],
+                "links": [{"link_type": "website", "url": "https://example.com"}],
+                "entity_ids": [{"scheme": "nostr_npub", "value": "npub1feed"}]
+            }"#,
+        )
+        .expect("feed aliases should deserialize");
+        let track: Track = serde_json::from_str(
+            r#"{
+                "track_guid": "track-1",
+                "author_name": "Track Artist",
+                "persons": [{"name": "Bob", "role": "guitar"}],
+                "links": [{"link_type": "website", "url": "https://example.com/track"}],
+                "entity_ids": [{"scheme": "nostr_npub", "value": "npub1track"}]
+            }"#,
+        )
+        .expect("track aliases should deserialize");
+
+        assert_eq!(feed.release_artist.as_deref(), Some("Album Artist"));
+        assert_eq!(feed.source_contributors.as_ref().map(Vec::len), Some(1));
+        assert_eq!(feed.source_links.as_ref().map(Vec::len), Some(1));
+        assert_eq!(feed.source_ids.as_ref().map(Vec::len), Some(1));
+        assert_eq!(track.track_artist.as_deref(), Some("Track Artist"));
+        assert_eq!(track.source_contributors.as_ref().map(Vec::len), Some(1));
+        assert_eq!(track.source_links.as_ref().map(Vec::len), Some(1));
+        assert_eq!(track.source_ids.as_ref().map(Vec::len), Some(1));
     }
 
     #[test]

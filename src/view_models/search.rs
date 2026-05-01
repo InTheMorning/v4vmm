@@ -178,10 +178,9 @@ fn feed_display(feed: &Feed) -> ResultRowDisplay {
         .map_or_else(String::new, |count| format!("{count} tracks"));
     ResultRowDisplay {
         line1: feed_title(feed),
-        line2: feed
-            .release_artist
-            .clone()
-            .unwrap_or_else(|| "Unknown".into()),
+        line2: nonempty_text(feed.release_artist.as_deref())
+            .or_else(|| nonempty_text(feed.publisher_text.as_deref()))
+            .map_or_else(|| "Unknown".into(), str::to_string),
         line3: count,
         image_url: feed.image_url.clone(),
     }
@@ -208,11 +207,10 @@ fn count_label(count: i32, noun: &str) -> String {
 }
 
 fn feed_title(feed: &Feed) -> String {
-    feed.title
-        .clone()
-        .or_else(|| feed.name.clone())
-        .or_else(|| feed.feed_guid.clone())
-        .unwrap_or_else(|| "Untitled".into())
+    nonempty_text(feed.title.as_deref())
+        .or_else(|| nonempty_text(feed.name.as_deref()))
+        .or_else(|| nonempty_text(feed.feed_guid.as_deref()))
+        .map_or_else(|| "Untitled".into(), str::to_string)
 }
 
 fn artist_active_years(artist: &Artist) -> Option<String> {
@@ -227,6 +225,16 @@ fn artist_active_years(artist: &Artist) -> Option<String> {
 #[must_use]
 pub(crate) fn search_result_type_is_visible(entity_type: &str) -> bool {
     matches!(entity_type, "artist" | "feed" | "track")
+}
+
+#[must_use]
+pub(crate) fn normalized_search_query(value: &str) -> Option<String> {
+    let query = value.trim();
+    if query.chars().any(char::is_alphanumeric) {
+        Some(query.to_string())
+    } else {
+        None
+    }
 }
 
 /// Borrow-only projection of a [`Publisher`] inspector panel.
@@ -2483,6 +2491,18 @@ mod tests {
         assert!(!vm.recent_loading);
         assert!(vm.recent_loaded_once);
         assert_eq!(vm.recent_status, "Error: offline");
+    }
+
+    #[test]
+    fn normalized_search_query_rejects_non_search_terms() {
+        assert_eq!(normalized_search_query("  feed  ").as_deref(), Some("feed"));
+        assert_eq!(
+            normalized_search_query("  c++ music  ").as_deref(),
+            Some("c++ music")
+        );
+        assert_eq!(normalized_search_query(r"\"), None);
+        assert_eq!(normalized_search_query("  ***  "), None);
+        assert_eq!(normalized_search_query(" \n\t "), None);
     }
 
     #[test]

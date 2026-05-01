@@ -40,19 +40,12 @@ pub(crate) fn render_feed_view(
     };
     rows.insert(vm.publisher_row_index(), publisher_row);
 
-    let header_feed = vm.header_feed();
     let title = vm.title();
     let artist = vm.artist_label();
 
     let projection = ReleaseDetailVm::new(view, EntitySurfaceContext::Discover);
     let mut slots = ReleaseDetailSlots {
-        header: Some(render_feed_header(
-            frame,
-            &header_feed,
-            &title,
-            Some(artist.as_str()),
-            cx,
-        )),
+        header: Some(render_feed_header(frame, &title, Some(artist.as_str()))),
         action_row: Some(render_action_row(frame, &BTreeMap::new(), app, cx)),
         identity_actions: render_identity_actions(view),
         details: Some(
