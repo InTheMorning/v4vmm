@@ -89,6 +89,7 @@ src/application/
     search.rs
   queries/
     mod.rs
+    feed.rs
     library.rs
     playlist.rs
     search.rs
@@ -96,6 +97,7 @@ src/application/
     playback.rs
   events/
     mod.rs
+    download.rs
     library.rs
     playlist.rs
     feed.rs

@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Completed 2026-04-30.
 
 ## Task Goal
 
@@ -27,10 +27,15 @@ workflow behavior.
 - `src/application/application_query_service.rs`
 - `src/application/application_event_bus.rs`
 - `src/application/events/mod.rs`
+- `src/application/events/download.rs`
 - `src/application/errors/mod.rs`
 - `src/application/errors/command.rs`
 - `src/application/ports/mod.rs`
 - `src/application/ports/download_manager.rs`
+- `src/application/queries/feed.rs`
+- `src/presentation/event_bridge.rs`
+- `src/presentation/gpui_command_runner.rs`
+- `src/presentation/gpui_event_bridge.rs`
 - `src/lib.rs`
 - `tests/architecture_tests.rs`
 
@@ -65,24 +70,45 @@ workflow behavior.
    batches to subscribers without depending on GPUI.
 5. Add empty command/query/event family modules needed by later tasks.
 6. Add `DownloadManager` as an application-facing port trait.
-7. Wire the module from `src/lib.rs`.
-8. Extend `tests/architecture_tests.rs` to fail if `src/application/**` imports
+7. Add the presentation-side `GpuiCommandRunner`, `PresentationEventBridge`,
+   and `GpuiEventBridge` skeletons without migrating any workflow.
+8. Wire the modules from `src/lib.rs`.
+9. Extend `tests/architecture_tests.rs` to fail if `src/application/**` imports
    GPUI or screen modules.
 
 ## Acceptance Criteria
 
-- `src/application/` compiles and is GPUI-free.
-- `ApplicationServices`, `CommandContext`, `CommandOutcome<T>`,
+- [x] `src/application/` compiles and is GPUI-free.
+- [x] `ApplicationServices`, `CommandContext`, `CommandOutcome<T>`,
   `CommandError`, `ApplicationQueryService`, `ApplicationEventBus`, and
   `DownloadManager` exist with the ADR 0024 names.
-- No screen behavior changes.
-- Architecture tests cover the new application-layer boundary.
+- [x] `GpuiCommandRunner`, `PresentationEventBridge`, and `GpuiEventBridge` exist
+  outside `src/application/`.
+- [x] No screen behavior changes.
+- [x] Architecture tests cover the new application-layer boundary.
+
+## Result
+
+- Added the dormant `src/application/` skeleton with typed command context,
+  command outcome, shared command error, local query service, app-scoped event
+  bus, event families, and `DownloadManager` port.
+- Added `src/presentation/` skeleton types for GPUI command running and event
+  bridging, while keeping GPUI out of `src/application/`.
+- Wired the new modules from `src/lib.rs`.
+- Extended `tests/architecture_tests.rs` so `src/application/**` cannot import
+  GPUI or screen modules.
+- No workflow behavior was migrated.
 
 ## Test Commands
 
 - `cargo fmt -- --check`
 - `cargo check`
 - `cargo test --test architecture_tests`
+- `cargo clippy --lib --tests -- -D warnings`
+- `cargo clippy --lib --tests -- -D warnings -W clippy::pedantic` was attempted;
+  it is not green for the existing crate and reports hundreds of pre-existing
+  warnings outside this task. New ADR 0024 modules were adjusted for the
+  pedantic warnings surfaced in this slice.
 
 ## Expected Final Summary Format
 

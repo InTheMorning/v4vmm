@@ -8,9 +8,21 @@ const VIEW_MODEL_FORBIDDEN_PATTERNS: &[&str] = &[
     "gpui_component::",
     "crate::ui::",
     "crate::ui_",
-    "crate::library",
-    "crate::search",
-    "crate::app",
+    "crate::library::",
+    "crate::search::",
+    "crate::app::",
+];
+
+const APPLICATION_FORBIDDEN_PATTERNS: &[&str] = &[
+    "use gpui",
+    "gpui::",
+    "use gpui_component",
+    "gpui_component::",
+    "crate::ui::",
+    "crate::ui_",
+    "crate::library::",
+    "crate::search::",
+    "crate::app::",
 ];
 
 const SCREEN_FILES: &[&str] = &["src/app.rs", "src/library.rs", "src/search.rs"];
@@ -35,6 +47,30 @@ fn view_models_do_not_import_gpui_or_screen_layers() {
     assert!(
         violations.is_empty(),
         "ADR 0023 view-model boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn application_layer_does_not_import_gpui_or_screen_layers() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src/application") {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in APPLICATION_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{}:{line_number}: forbidden application-layer dependency `{pattern}` in `{line}`",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0024 application-layer boundary violations:\n{}",
         violations.join("\n")
     );
 }

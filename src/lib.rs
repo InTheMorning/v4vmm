@@ -1,5 +1,6 @@
 pub mod api;
 pub mod app;
+pub mod application;
 pub mod audio_format;
 pub mod audio_tags;
 pub mod cli;
@@ -17,6 +18,7 @@ pub mod playback;
 pub mod playback_driver;
 pub mod playback_owner;
 pub mod playlist_service;
+pub mod presentation;
 pub mod rss;
 pub mod search;
 pub mod sources;

@@ -1,0 +1,1 @@
+//! Feed local query family.

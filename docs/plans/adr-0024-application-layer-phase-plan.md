@@ -50,6 +50,8 @@ playback workflows.
   - `ApplicationEvent`
   - `ApplicationEventBus`
   - application ports, starting with `DownloadManager`
+- `src/application/events/download.rs` exists for download state-change events.
+- `src/application/queries/feed.rs` exists for feed update local snapshots.
 - GPUI code uses `GpuiCommandRunner` and `GpuiEventBridge` instead of invoking
   long-running workflows inline.
 - Application events are app-scoped broadcasts, not local per-screen callbacks.
@@ -95,7 +97,7 @@ playback workflows.
 
 ## Proposed Sequence
 
-1. `adr-0024-task-001-application-skeleton`: add application modules, root
+1. Completed `adr-0024-task-001-application-skeleton`: add application modules, root
    wiring types, command context/outcome/error/event/query shapes, the GPUI
    runner/bridge skeleton, and architecture tests. Do not migrate workflows.
 2. `adr-0024-task-002-playlist-vertical-slice`: migrate playlist create/delete/
