@@ -18,6 +18,7 @@ pub enum ControlStyle {
     Destructive,
     ToolbarIcon,
     RowAction,
+    DestructiveRowAction,
     MetadataAction,
     Pill,
 }
@@ -78,6 +79,14 @@ impl ControlStyle {
                 foreground: Some(SemanticColor::Accent),
                 border: None,
             },
+            Self::DestructiveRowAction => ControlStyleSpec {
+                variant: ButtonVariant::Plain,
+                size: ButtonSize::Sm,
+                font_size: FontSize::Caption,
+                radius: Radius::SM,
+                foreground: Some(SemanticColor::DangerLabel),
+                border: None,
+            },
             Self::MetadataAction => ControlStyleSpec {
                 variant: ButtonVariant::Plain,
                 size: ButtonSize::Sm,
@@ -128,5 +137,16 @@ mod tests {
         assert_eq!(toolbar, row);
         assert_eq!(toolbar.variant, ButtonVariant::Plain);
         assert_eq!(toolbar.size, ButtonSize::Sm);
+    }
+
+    #[test]
+    fn destructive_row_action_is_compact_plain_danger_text() {
+        let spec = ControlStyle::DestructiveRowAction.spec();
+        assert_eq!(spec.variant, ButtonVariant::Plain);
+        assert_eq!(spec.size, ButtonSize::Sm);
+        assert_eq!(spec.font_size, FontSize::Caption);
+        assert_eq!(spec.radius, Radius::SM);
+        assert_eq!(spec.foreground, Some(SemanticColor::DangerLabel));
+        assert!(spec.border.is_none());
     }
 }

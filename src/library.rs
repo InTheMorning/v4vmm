@@ -74,8 +74,8 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{render_release_detail_shell, ReleaseDetailSlots, TrackSectionSlot};
 use crate::view_models::entity_detail::{
-    EntityActionKind, EntityActionTarget, EntitySurfaceContext, MetadataPanelState,
-    ReleaseDetailVm, TrackMetadataActionState,
+    EntityActionKind, EntityActionTarget, EntityActionTone, EntitySurfaceContext,
+    MetadataPanelState, ReleaseDetailVm, TrackMetadataActionState,
 };
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
@@ -2480,10 +2480,14 @@ fn render_library_track_row(
         .or(track.album_image_href.as_ref())
         .and_then(|url| album_thumbs.get(url.as_str()))
         .and_then(|opt| opt.clone());
+    let primary_style = match primary_action.tone {
+        EntityActionTone::DestructiveQuiet => ControlStyle::DestructiveRowAction,
+        _ => ControlStyle::RowAction,
+    };
 
     let toggle_button = UiButton::styled(
         SharedString::from(format!("lib-toggle-{track_id}")),
-        ControlStyle::RowAction,
+        primary_style,
     )
     .label(primary_action.label.clone())
     .disabled(!primary_action.enabled)
