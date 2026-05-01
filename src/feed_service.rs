@@ -8,6 +8,7 @@ use rusqlite::Connection;
 use crate::api::{Client as MusicIndexClient, Feed, Track};
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, AudioTags, Id3v24Edit};
 use crate::db::{self, TrackRow};
+use crate::identity_ingest;
 use crate::library_service;
 use crate::metadata::{MusicBrainzLookupResult, TrackContext};
 use crate::metadata_service::{id3_edits_for_track_context, musicbrainz_lookup_metadata};
@@ -38,6 +39,18 @@ pub fn fetch_library_track_context(
     track: &TrackRow,
     musicindex_endpoint: &str,
 ) -> Result<TrackContext> {
+    let (fetched_track, fetched_feed) = fetch_library_track_detail(track, musicindex_endpoint)?;
+    Ok(merge_track_context_from_detail(
+        track,
+        fetched_track,
+        fetched_feed,
+    ))
+}
+
+fn fetch_library_track_detail(
+    track: &TrackRow,
+    musicindex_endpoint: &str,
+) -> Result<(Option<Track>, Option<Feed>)> {
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
     let include =
         Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
@@ -50,11 +63,7 @@ pub fn fetch_library_track_context(
     if fetched_track.is_none() && fetched_feed.is_none() {
         return Err(anyhow!("MusicIndex metadata unavailable"));
     }
-    Ok(merge_track_context_from_detail(
-        track,
-        fetched_track,
-        fetched_feed,
-    ))
+    Ok((fetched_track, fetched_feed))
 }
 
 fn merge_track_context_from_detail(
@@ -238,9 +247,22 @@ pub fn apply_feed_updates(
         let Some(local_path) = track.local_path.clone() else {
             continue;
         };
-        let Ok(context) = fetch_library_track_context(track, musicindex_endpoint) else {
+        let Ok((fetched_track, fetched_feed)) =
+            fetch_library_track_detail(track, musicindex_endpoint)
+        else {
             continue;
         };
+        let context =
+            merge_track_context_from_detail(track, fetched_track.clone(), fetched_feed.clone());
+        {
+            let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+            if let Some(feed) = fetched_feed.as_ref() {
+                identity_ingest::persist_musicindex_feed(&mut db, stale.feed_id, feed)?;
+            }
+            if let Some(fetched_track) = fetched_track.as_ref() {
+                identity_ingest::persist_musicindex_track(&mut db, track.id, fetched_track)?;
+            }
+        }
         let edits = id3_edits_for_track_context(&context);
         if edits.is_empty() {
             continue;

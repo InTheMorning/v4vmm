@@ -8,6 +8,7 @@ pub mod config;
 pub mod db;
 pub mod debug_contracts;
 pub mod feed_service;
+pub mod identity_ingest;
 pub mod library;
 pub mod library_service;
 pub mod media;

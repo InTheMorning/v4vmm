@@ -230,6 +230,16 @@ pub fn feed_url_by_id(conn: &Connection, feed_id: i64) -> Result<Option<String>>
     .context("query feed_url_by_id")
 }
 
+pub fn feed_id_by_url(conn: &Connection, feed_url: &str) -> Result<Option<i64>> {
+    conn.query_row(
+        "SELECT id FROM feeds WHERE feed_url = ?1 LIMIT 1",
+        [feed_url],
+        |row| row.get(0),
+    )
+    .optional()
+    .context("query feed_id_by_url")
+}
+
 pub fn feed_stale_check_row(conn: &Connection, feed_id: i64) -> Result<Option<FeedStaleCheckRow>> {
     conn.query_row(
         "SELECT id, feed_guid, title, musicindex_updated_at

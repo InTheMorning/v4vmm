@@ -56,7 +56,7 @@ the same GPUI-free identity projections as Discover when facts are known.
 1. Schema and local read/write helpers.
    Task: `docs/tasks/adr-0028-task-001-schema-and-db-helpers.md`.
 2. Ingest persistence for MusicIndex and RSS source facts.
-   Task to create after Task 001 review.
+   Task: `docs/tasks/adr-0028-task-002-ingest-persistence.md`.
 3. Local view hydration for feed, track, and contributor facts.
    Task to create after ingest helpers exist.
 4. Library/Discover identity visual smoke.
