@@ -3,6 +3,7 @@ pub mod contrast;
 pub mod control_styles;
 pub mod detail_row;
 pub mod icons;
+pub mod layouts;
 pub mod playlist_popover;
 pub mod primitives;
 pub mod sizable_bridge;

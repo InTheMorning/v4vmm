@@ -14,7 +14,8 @@ use gpui::{
 };
 use gpui_component::tooltip::Tooltip;
 
-use crate::ui::style::{layout, radius};
+use crate::ui::layouts as layout;
+use crate::ui::style::radius;
 use crate::ui::tokens::FontSize;
 
 /// Semantic icon names understood by the design system.

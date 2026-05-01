@@ -12,7 +12,7 @@ use crate::media::ImageCache;
 use crate::playback;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
-use crate::ui::style::layout;
+use crate::ui::layouts as layout;
 
 use super::TopApp;
 

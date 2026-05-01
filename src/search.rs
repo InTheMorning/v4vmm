@@ -5303,7 +5303,8 @@ fn join_values(values: &[String]) -> Option<String> {
     }
 }
 
-use crate::ui::style::{color, layout, radius, spacing, typography, StatusRole};
+use crate::ui::layouts as layout;
+use crate::ui::style::{color, radius, spacing, typography, StatusRole};
 
 pub fn run_search_app() {
     let app = Application::new().with_assets(gpui_component_assets::Assets);

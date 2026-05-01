@@ -594,6 +594,32 @@ fn ui_components_do_not_bypass_theme_profile_resolution() {
 }
 
 #[test]
+fn ui_style_does_not_reintroduce_layout_namespace() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("ui::style::layout")
+                || line.contains("use crate::ui::style::layout")
+                || (line.contains("style::{") && line.contains("layout"))
+                || (rel_path(&path) == "src/ui/style.rs" && line.contains("pub mod layout"))
+            {
+                violations.push(format!(
+                    "{}:{line_number}: fixed layout geometry belongs in `ui::layouts`, not `ui::style::layout`: `{line}`",
+                    rel_path(&path)
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 layout-boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn screens_do_not_grow_unmarked_direct_component_button_usage() {
     let mut violations = Vec::new();
     for file in SCREEN_FILES {

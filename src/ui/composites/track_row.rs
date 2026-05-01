@@ -158,7 +158,7 @@ impl RenderOnce for TrackRow {
             // Leading track-number column — fixed width, right-aligned.
             .child(
                 div()
-                    .w(crate::ui::style::layout::TRACK_NUMBER_WIDTH)
+                    .w(crate::ui::layouts::TRACK_NUMBER_WIDTH)
                     .flex_shrink_0()
                     .text_right()
                     .text_color(tertiary_label)

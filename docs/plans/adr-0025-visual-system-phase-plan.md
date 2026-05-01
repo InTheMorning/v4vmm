@@ -19,9 +19,9 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
 
 - `tokens.rs` owns semantic dimensions and light/dark color resolution.
 - `theme_bridge.rs` installs those values into `gpui_component`.
-- `theme.rs` has been removed. Remaining fixed geometry and bridge-aware
-  compatibility color roles live in `ui::style` while legacy screens continue
-  migrating to direct token use.
+- `theme.rs` has been removed. Remaining fixed geometry lives in
+  `ui::layouts`, and bridge-aware compatibility color roles live in
+  `ui::style` while legacy screens continue migrating to direct token use.
 - Screens still use direct `Button::new(...)` plus style chains in many
   reusable contexts.
 - `ui::primitives::Button` exists but is dormant; ADR 0025 makes
@@ -59,6 +59,7 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
 
 - `src/ui/tokens.rs`
 - `src/ui/style.rs`
+- `src/ui/layouts.rs`
 - `src/ui/theme_bridge.rs`
 - `src/ui/theme_profiles.rs`
 - `src/theme_profile.rs`
@@ -140,6 +141,14 @@ profile-specific visual smoke pass is complete.
 Status: implemented by
 `docs/tasks/adr-0025-task-007-profile-specific-theme-roles.md`; high contrast
 has passed visual smoke and is exposed in Settings.
+
+### Phase 8 - layout boundary
+
+Move fixed geometry out of `ui::style` into `ui::layouts` and add an
+architecture gate against reintroducing `ui::style::layout`.
+
+Status: implemented by
+`docs/tasks/adr-0025-task-008-layout-boundary.md`.
 
 ## Schema/API Implications
 

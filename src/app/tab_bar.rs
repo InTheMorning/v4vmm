@@ -8,7 +8,7 @@ use gpui::{
 };
 
 use crate::library::LibraryApp;
-use crate::ui::style::layout;
+use crate::ui::layouts as layout;
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size as TokenSize, Spacing};
 
 use super::{AppTab, TopApp};

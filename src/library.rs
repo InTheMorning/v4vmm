@@ -211,8 +211,8 @@ pub struct LibraryApp {
 }
 
 use crate::ui::icons::render_rss_icon_link;
+use crate::ui::layouts as layout;
 use crate::ui::style::color;
-use crate::ui::style::layout;
 use crate::ui::style::radius;
 use crate::ui::style::spacing;
 use crate::ui::style::typography;

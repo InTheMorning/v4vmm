@@ -20,9 +20,10 @@ theme, icon, and control-style changes boring. The current state is mixed:
   `Appearance`, and `Environment`.
 - `src/ui/theme_bridge.rs` correctly pushes token colors into
   `gpui_component`.
-- `src/ui/theme.rs` has been removed. Remaining fixed geometry and
-  bridge-aware compatibility color roles live in `src/ui/style.rs` while
-  legacy screens continue moving to direct tokens and primitives.
+- `src/ui/theme.rs` has been removed. Remaining fixed geometry lives in
+  `src/ui/layouts.rs`, and bridge-aware compatibility color roles live in
+  `src/ui/style.rs` while legacy screens continue moving to direct tokens and
+  primitives.
 - Screens still contain many direct `gpui_component::Button::new(...)` call
   sites and per-call style chains.
 - `src/ui/primitives/button.rs` already defines a token-native button
@@ -57,7 +58,8 @@ src/ui/
   tokens.rs              existing semantic token base
   theme_bridge.rs        existing gpui-component bridge
   theme_profiles.rs      profile-specific semantic color resolution
-  style.rs               fixed geometry + bridge-aware compatibility roles
+  layouts.rs             fixed geometry for reusable UI shells
+  style.rs               bridge-aware compatibility roles
   icons.rs               semantic icon catalog and Icon primitive facade
   control_styles.rs      role mapping for the native Button primitive
   primitives/
@@ -433,10 +435,10 @@ after GPUI window appearance drives the installed profile.
 
 ### Phase 6 - retire compatibility shims
 
-Remove or sharply narrow `theme.rs`. ADR 0025 removed it and moved remaining
-fixed geometry plus bridge-aware compatibility color roles to `ui::style`.
-Architecture tests should fail if screens reintroduce deprecated visual
-helpers.
+Remove or sharply narrow `theme.rs`. ADR 0025 removed it, moved remaining
+fixed geometry to `ui::layouts`, and kept bridge-aware compatibility color
+roles in `ui::style`. Architecture tests should fail if screens reintroduce
+deprecated visual helpers or the old `ui::style::layout` namespace.
 
 ## Test strategy
 
@@ -489,6 +491,8 @@ This ADR is fulfilled when:
   base Dark/Light before being exposed as settings.
 - Runtime profile changes reinstall the theme and refresh windows without
   screen-specific theme code.
+- Layout constants used by screens and composites live in `ui::layouts`, not
+  `ui::style::layout`.
 - Phase 6 retirement gate: migrated screen files have zero `theme::color::*`,
   `theme::badges`, and `theme::glyphs` call sites; `theme.rs` has been
   removed; and the architecture gate forbidding those deprecated namespaces is
@@ -499,9 +503,9 @@ This ADR is fulfilled when:
 
 - Decide whether custom accent color should be user-editable after role-level
   contrast validation exists.
-- Decide whether `ui/layouts/` should split layout composites such as
-  `SplitPane`, inspector stack, and scroll-list shells out of
-  `ui/composites/`.
+- Decide whether layout shells such as inspector stack and scroll-list should
+  join `SplitPane` as reusable layout composites after more screen code moves
+  out of `library.rs` and `search.rs`.
 - Revisit image/artwork treatment separately; album artwork is content, not a
   theme asset.
 

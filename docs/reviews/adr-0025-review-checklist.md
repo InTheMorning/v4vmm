@@ -6,10 +6,10 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Pass / Fail
 
-- Status: Reviewed through Task 007.
+- Status: Reviewed through Task 008.
 - Reviewer: Codex
 - Date: 2026-05-01
-- Review: ADR 0025 implementation slices 001-007 pass automated verification.
+- Review: ADR 0025 implementation slices 001-008 pass automated verification.
 
 ## Architectural Invariants
 
@@ -37,6 +37,7 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 - [x] Design-system primitives and composites resolve default colors through
       the active `ThemeProfile`.
 - [x] `theme::glyphs` does not exist.
+- [x] Fixed layout geometry lives in `ui::layouts`, not `ui::style::layout`.
 - [x] View-models, application, config, and core service/domain modules do not
       import UI modules.
 
@@ -67,6 +68,8 @@ Use this checklist for ADR 0025 implementation diffs and final review.
       exposed.
 - [x] Phase 6 reduces `theme.rs` to documented layout constants only or removes
       it.
+- [x] Layout-boundary architecture tests reject reintroducing
+      `ui::style::layout`.
 
 ## Tests And Verification
 

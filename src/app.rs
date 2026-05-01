@@ -20,9 +20,9 @@ use crate::presentation::{GpuiCommandRunner, GpuiEventBridge};
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::theme_profile::ThemeProfile;
 use crate::ui::control_styles::ControlStyle;
+use crate::ui::layouts as layout;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::style::layout;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::library::LibraryTree;
 
