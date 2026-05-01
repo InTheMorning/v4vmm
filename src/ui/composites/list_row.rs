@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use crate::ui::primitives::HStack;
-use crate::ui::tokens::{Appearance, Radius, SemanticColor, Spacing};
+use crate::ui::tokens::{color, Radius, SemanticColor, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -101,7 +101,6 @@ impl ParentElement for ListRow {
 
 impl RenderOnce for ListRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = Appearance::current(cx);
         let pad_x = self.density.padding().scaled(cx);
         let pad_y = self.density.padding().scaled(cx);
         let radius = Radius::SM.scaled(cx);
@@ -109,6 +108,10 @@ impl RenderOnce for ListRow {
         let selected = self.selected;
         let focused = self.focused;
         let on_click = self.on_click.clone();
+        let selected_bg = color(cx, SemanticColor::SelectedContent);
+        let accent = color(cx, SemanticColor::Accent);
+        let focus = color(cx, SemanticColor::Focus);
+        let hover_bg = color(cx, SemanticColor::SecondarySystemBackground);
 
         let mut row = div()
             .id(self.id)
@@ -117,22 +120,14 @@ impl RenderOnce for ListRow {
             .rounded(radius)
             .border_1()
             .border_color(gpui::transparent_black())
-            .when(selected, |el| {
-                el.bg(SemanticColor::SelectedContent.resolve(appearance))
-                    .border_color(SemanticColor::Accent.resolve(appearance))
-            })
-            .when(selected && focused, |el| {
-                el.border_2()
-                    .border_color(SemanticColor::Focus.resolve(appearance))
-            })
+            .when(selected, |el| el.bg(selected_bg).border_color(accent))
+            .when(selected && focused, |el| el.border_2().border_color(focus))
             .child(stack.children(self.children));
 
         if let Some(handler) = on_click {
             row = row
                 .cursor_pointer()
-                .hover(move |el| {
-                    el.bg(SemanticColor::SecondarySystemBackground.resolve(appearance))
-                })
+                .hover(move |el| el.bg(hover_bg))
                 .on_click(move |event, window, cx| {
                     handler(event, window, cx);
                 });

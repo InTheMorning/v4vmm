@@ -570,6 +570,30 @@ fn ui_buttons_do_not_reintroduce_raw_leading_glyphs() {
 }
 
 #[test]
+fn ui_components_do_not_bypass_theme_profile_resolution() {
+    let mut violations = Vec::new();
+    for relative_dir in ["src/ui/primitives", "src/ui/composites"] {
+        for path in rust_files_under(relative_dir) {
+            let source = read_source(&path);
+            for (line_number, line) in code_lines(&source) {
+                if line.contains("Appearance::current(cx)") {
+                    violations.push(format!(
+                        "{}:{line_number}: use `tokens::color` or `resolve_color` so active `ThemeProfile` is honored: `{line}`",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 theme-profile bypass violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn screens_do_not_grow_unmarked_direct_component_button_usage() {
     let mut violations = Vec::new();
     for file in SCREEN_FILES {

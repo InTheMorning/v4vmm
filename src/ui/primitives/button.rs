@@ -21,7 +21,7 @@ use gpui::{
 
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
-use crate::ui::tokens::{Appearance, FontSize, Radius, SemanticColor, Spacing};
+use crate::ui::tokens::{resolve_color, Appearance, FontSize, Radius, SemanticColor, Spacing};
 
 /// HIG button styles.
 ///
@@ -201,40 +201,45 @@ impl Button {
 
 impl RenderOnce for Button {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let height = self.height();
         let pad = self.px_inset().px();
         let font = self.font_size.unwrap_or_else(|| self.font_size()).px();
         let radius = self.radius.unwrap_or(Radius::MD).px();
+        let appearance = self.appearance;
 
         // Resolve the variant's color triple: (bg, fg, hover_bg).
         let (bg, mut fg, hover_bg) = match self.variant {
             ButtonVariant::Filled => (
-                SemanticColor::Accent.resolve(appearance),
-                SemanticColor::OnAccent.resolve(appearance),
-                SemanticColor::AccentHover.resolve(appearance),
+                resolve_color(cx, SemanticColor::Accent, appearance),
+                resolve_color(cx, SemanticColor::OnAccent, appearance),
+                resolve_color(cx, SemanticColor::AccentHover, appearance),
             ),
             ButtonVariant::Tinted => {
-                let mut tint = SemanticColor::Accent.resolve(appearance);
+                let mut tint = resolve_color(cx, SemanticColor::Accent, appearance);
                 tint.a = 0.15;
                 let mut hover = tint;
                 hover.a = 0.25;
-                (tint, SemanticColor::Accent.resolve(appearance), hover)
+                (
+                    tint,
+                    resolve_color(cx, SemanticColor::Accent, appearance),
+                    hover,
+                )
             }
             ButtonVariant::Plain => {
-                let mut hover = SemanticColor::SecondarySystemBackground.resolve(appearance);
+                let mut hover =
+                    resolve_color(cx, SemanticColor::SecondarySystemBackground, appearance);
                 hover.a = 0.6;
                 (
                     gpui::transparent_black().into(),
-                    SemanticColor::Accent.resolve(appearance),
+                    resolve_color(cx, SemanticColor::Accent, appearance),
                     hover,
                 )
             }
             ButtonVariant::Destructive => (
-                SemanticColor::Danger.resolve(appearance),
-                SemanticColor::OnDanger.resolve(appearance),
+                resolve_color(cx, SemanticColor::Danger, appearance),
+                resolve_color(cx, SemanticColor::OnDanger, appearance),
                 {
-                    let mut hover = SemanticColor::Danger.resolve(appearance);
+                    let mut hover = resolve_color(cx, SemanticColor::Danger, appearance);
                     hover.r = (hover.r + 0.05).min(1.0);
                     hover.g = (hover.g + 0.05).min(1.0);
                     hover.b = (hover.b + 0.05).min(1.0);
@@ -243,7 +248,7 @@ impl RenderOnce for Button {
             ),
         };
         if let Some(foreground) = self.foreground {
-            fg = foreground.resolve(appearance);
+            fg = resolve_color(cx, foreground, appearance);
         }
 
         let label = self.label.clone().unwrap_or_default();
@@ -269,7 +274,9 @@ impl RenderOnce for Button {
             .cursor_pointer();
 
         if let Some(border) = self.border {
-            row = row.border_1().border_color(border.resolve(appearance));
+            row = row
+                .border_1()
+                .border_color(resolve_color(cx, border, appearance));
         }
 
         if full_width {

@@ -40,7 +40,7 @@ use gpui::{
 
 use crate::ui::composites::{EntityKind, ListRow, Thumbnail, ThumbnailSize};
 use crate::ui::primitives::Label;
-use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
+use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -117,8 +117,8 @@ impl TrackRow {
 
 impl RenderOnce for TrackRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = crate::ui::tokens::Appearance::current(cx);
         let gap = Spacing::SM.scaled(cx);
+        let tertiary_label = color(cx, SemanticColor::TertiaryLabel);
 
         let number = SharedString::from(self.number);
         let title = self.title;
@@ -161,7 +161,7 @@ impl RenderOnce for TrackRow {
                     .w(crate::ui::style::layout::TRACK_NUMBER_WIDTH)
                     .flex_shrink_0()
                     .text_right()
-                    .text_color(SemanticColor::TertiaryLabel.resolve(appearance))
+                    .text_color(tertiary_label)
                     .text_size(FontSize::Micro.scaled(cx))
                     .child(number),
             )
@@ -180,7 +180,7 @@ impl RenderOnce for TrackRow {
             body = body.child(
                 div()
                     .flex_shrink_0()
-                    .text_color(SemanticColor::TertiaryLabel.resolve(appearance))
+                    .text_color(tertiary_label)
                     .text_size(FontSize::Micro.scaled(cx))
                     .child(SharedString::from(dur)),
             );

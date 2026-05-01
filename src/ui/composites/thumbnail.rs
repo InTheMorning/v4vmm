@@ -14,7 +14,7 @@ use gpui::{
 };
 
 use crate::ui::primitives::Image as ImagePrimitive;
-use crate::ui::tokens::{FontSize, Radius, ScaleFactor, SemanticColor};
+use crate::ui::tokens::{color, FontSize, Radius, ScaleFactor, SemanticColor};
 
 use super::tag_badge::EntityKind;
 
@@ -117,7 +117,7 @@ impl RenderOnce for Thumbnail {
                 .rounded(radius_px)
                 .overflow_hidden()
                 .flex_shrink_0()
-                .bg(SemanticColor::SystemFill.resolve(crate::ui::tokens::Appearance::current(cx)))
+                .bg(color(cx, SemanticColor::SystemFill))
                 .flex()
                 .items_center()
                 .justify_center()

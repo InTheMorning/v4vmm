@@ -59,6 +59,8 @@ Dark and Light while keeping `ThemeProfile` GPUI-free.
 - [x] High-contrast profiles passed manual visual smoke.
 - [x] High-contrast profiles are exposed in Settings after the visual-smoke
       gate.
+- [x] Design-system primitives and composites resolve default colors through
+      the active `ThemeProfile`, not only the light/dark `Appearance`.
 - [x] No custom theme editor or arbitrary color input is added.
 
 ## Test Commands

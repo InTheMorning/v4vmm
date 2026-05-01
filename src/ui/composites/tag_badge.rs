@@ -12,7 +12,9 @@ use gpui::{
     Window,
 };
 
-use crate::ui::tokens::{Appearance, FontSize, Radius, SemanticColor, Spacing};
+use crate::ui::tokens::{
+    color, resolve_color, Appearance, FontSize, Radius, SemanticColor, Spacing,
+};
 
 /// Domain entity kinds the badge knows how to color.
 ///
@@ -110,12 +112,12 @@ impl EntityKind {
 
     #[must_use]
     pub fn fill_color(self, cx: &App) -> Rgba {
-        self.fill_token().resolve(Appearance::current(cx))
+        color(cx, self.fill_token())
     }
 
     #[must_use]
     pub fn on_fill_color(self, cx: &App) -> Rgba {
-        self.on_fill_token().resolve(Appearance::current(cx))
+        color(cx, self.on_fill_token())
     }
 }
 
@@ -148,7 +150,7 @@ impl ProvenanceRole {
 
     #[must_use]
     pub fn color(self, cx: &App) -> Rgba {
-        self.color_token().resolve(Appearance::current(cx))
+        color(cx, self.color_token())
     }
 
     #[must_use]
@@ -202,9 +204,8 @@ impl TagBadge {
 
 impl RenderOnce for TagBadge {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
-        let bg = self.kind.fill_token().resolve(appearance);
-        let fg = self.kind.on_fill_token().resolve(appearance);
+        let bg = resolve_color(cx, self.kind.fill_token(), self.appearance);
+        let fg = resolve_color(cx, self.kind.on_fill_token(), self.appearance);
         let label = self
             .label
             .unwrap_or_else(|| SharedString::from(self.kind.label()));

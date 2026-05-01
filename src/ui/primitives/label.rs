@@ -9,7 +9,7 @@
 
 use gpui::{div, prelude::*, App, FontWeight, IntoElement, RenderOnce, SharedString, Window};
 
-use crate::ui::tokens::{Appearance, FontSize, SemanticColor};
+use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor};
 
 /// HIG type-role presets. The variant chooses both the size and the default
 /// foreground token. Callers can override the foreground via [`Label::color`].
@@ -92,7 +92,6 @@ impl Label {
 
 impl RenderOnce for Label {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let (default_size, default_weight, default_color) = match self.variant {
             LabelVariant::Title => (FontSize::Title2, FontWeight::SEMIBOLD, SemanticColor::Label),
             LabelVariant::Headline => (
@@ -118,7 +117,7 @@ impl RenderOnce for Label {
         let mut el = div()
             .text_size(size.px())
             .font_weight(weight)
-            .text_color(color.resolve(appearance));
+            .text_color(resolve_color(cx, color, self.appearance));
         if self.truncated {
             el = el.min_w_0().truncate();
         }

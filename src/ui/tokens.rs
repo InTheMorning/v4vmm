@@ -254,6 +254,13 @@ pub fn color(cx: &App, token: SemanticColor) -> Rgba {
     crate::ui::theme_profiles::resolve_profile_color(Environment::current(cx).profile, token)
 }
 
+/// Resolve a semantic color for a render context, honoring an explicit
+/// light/dark appearance override when one is provided.
+#[must_use]
+pub fn resolve_color(cx: &App, token: SemanticColor, appearance: Option<Appearance>) -> Rgba {
+    appearance.map_or_else(|| color(cx, token), |appearance| token.resolve(appearance))
+}
+
 // -----------------------------------------------------------------------------
 // Spacing — 4-pt grid.
 // -----------------------------------------------------------------------------

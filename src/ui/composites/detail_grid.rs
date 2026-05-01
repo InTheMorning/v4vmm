@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use crate::ui::primitives::{HStack, VStack};
-use crate::ui::tokens::{Appearance, FontSize, ScaleFactor, SemanticColor, Spacing};
+use crate::ui::tokens::{resolve_color, Appearance, FontSize, ScaleFactor, SemanticColor, Spacing};
 
 /// Single key/value row in a [`DetailGrid`]. The value is an
 /// already-built `AnyElement` so callers may render rich content
@@ -99,8 +99,7 @@ const KEY_COL_BASE: f32 = 124.0;
 
 impl RenderOnce for DetailGrid {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
-        let key_color = SemanticColor::SecondaryLabel.resolve(appearance);
+        let key_color = resolve_color(cx, SemanticColor::SecondaryLabel, self.appearance);
         let mult = ScaleFactor::current(cx).multiplier();
         let key_width = gpui::px(KEY_COL_BASE * mult);
         let body_size = FontSize::Micro.scaled(cx);

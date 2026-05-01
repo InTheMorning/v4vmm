@@ -22,7 +22,7 @@
 
 use gpui::{div, prelude::*, App, FontWeight, IntoElement, RenderOnce, SharedString, Window};
 
-use crate::ui::tokens::{Appearance, FontSize, SemanticColor, Spacing};
+use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 
 #[derive(IntoElement)]
 #[must_use]
@@ -56,8 +56,7 @@ impl SectionHeader {
 
 impl RenderOnce for SectionHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
-        let muted = SemanticColor::SecondaryLabel.resolve(appearance);
+        let muted = resolve_color(cx, SemanticColor::SecondaryLabel, self.appearance);
         let micro = FontSize::Micro.px();
 
         let row = div()

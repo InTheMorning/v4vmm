@@ -25,6 +25,9 @@ Pass.
   `tokens::color(cx, ...)` to respect profile-specific palettes.
 - `ui::style` compatibility colors now follow the installed profile, so legacy
   render paths do not silently bypass high-contrast palettes.
+- Design-system primitives and composites now resolve default token colors
+  through the active `ThemeProfile`; explicit light/dark appearance overrides
+  remain available for tests and previews.
 - High-contrast profiles passed a dedicated Library, Discover, Settings, and
   playback-control smoke pass, then were exposed in Settings.
 
@@ -38,6 +41,7 @@ Pass.
 - `cargo clippy --lib --tests -- -D warnings`
 - `cargo build`
 - `git diff --check`
+- `cargo test ui::`
 - Manual visual smoke for High Contrast Dark and High Contrast Light across
   Library, Discover, Settings, and playback controls.
 - Manual visual smoke for the exposed Settings theme selector.

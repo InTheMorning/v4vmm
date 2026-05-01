@@ -34,6 +34,8 @@ Use this checklist for ADR 0025 implementation diffs and final review.
       disabled, or pending states.
 - [x] Runtime visual changes flow through `theme_bridge` / `Environment`.
 - [x] `theme_bridge::install_theme` takes `ThemeProfile`.
+- [x] Design-system primitives and composites resolve default colors through
+      the active `ThemeProfile`.
 - [x] `theme::glyphs` does not exist.
 - [x] View-models, application, config, and core service/domain modules do not
       import UI modules.

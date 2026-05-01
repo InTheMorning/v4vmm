@@ -19,7 +19,7 @@
 
 use gpui::{div, prelude::*, px, App, IntoElement, Pixels, RenderOnce, Rgba, SharedString, Window};
 
-use crate::ui::tokens::{Appearance, FontSize, SemanticColor};
+use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor};
 
 const ELLIPSIS: &str = "...";
 const BLANK_PLACEHOLDER: &str = " ";
@@ -89,12 +89,11 @@ impl MultilineText {
 
 impl RenderOnce for MultilineText {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let size = self.size.unwrap_or(FontSize::Micro);
 
         let mut container = div().flex().flex_col().text_size(size.px());
         if let Some(color) = self.color {
-            container = container.text_color(color.resolve(appearance));
+            container = container.text_color(resolve_color(cx, color, self.appearance));
         } else if let Some(raw) = self.color_raw {
             container = container.text_color(raw);
         }

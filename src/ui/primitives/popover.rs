@@ -42,7 +42,7 @@ use gpui::{
 use gpui_component::{popover::Popover as ComponentPopover, Selectable};
 
 use crate::ui::primitives::{Surface, SurfaceElevation};
-use crate::ui::tokens::{Appearance, SemanticColor, Spacing};
+use crate::ui::tokens::{resolve_color, Appearance, SemanticColor, Spacing};
 
 // ---------------------------------------------------------------------------
 // Placement / alignment
@@ -210,10 +210,10 @@ impl RenderOnce for Popover {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let placement = self.placement;
         let alignment = self.alignment;
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let surface_padding = self.surface_padding;
         let content_builder = self.content;
-        let arrow_color = SemanticColor::TertiarySystemBackground.resolve(appearance);
+        let arrow_color =
+            resolve_color(cx, SemanticColor::TertiarySystemBackground, self.appearance);
 
         let mut popover = ComponentPopover::new(self.id)
             .anchor(placement.corner(alignment))
@@ -233,12 +233,14 @@ impl RenderOnce for Popover {
             popover = inject(popover);
         }
         if let Some(builder) = content_builder {
+            let appearance = self.appearance;
             popover = popover.content(move |_state, window, cx| {
                 let arrow = arrow_div(placement, arrow_color, cx);
-                let body = Surface::new(SurfaceElevation::Floating)
-                    .padding(surface_padding)
-                    .appearance(appearance)
-                    .child(builder(window, cx));
+                let mut body = Surface::new(SurfaceElevation::Floating).padding(surface_padding);
+                if let Some(appearance) = appearance {
+                    body = body.appearance(appearance);
+                }
+                let body = body.child(builder(window, cx));
 
                 let mut wrapper = div().flex().flex_col();
                 wrapper = match alignment {

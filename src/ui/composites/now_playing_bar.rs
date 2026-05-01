@@ -19,7 +19,7 @@ use gpui::{div, prelude::*, App, Image, IntoElement, RenderOnce, SharedString, S
 use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
 use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::Label;
-use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
+use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 
 type ClickCallback = Rc<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -127,8 +127,9 @@ impl Default for NowPlayingBar {
 
 impl RenderOnce for NowPlayingBar {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = crate::ui::tokens::Appearance::current(cx);
         let gap = Spacing::MD.scaled(cx);
+        let tertiary_label = color(cx, SemanticColor::TertiaryLabel);
+        let secondary_label = color(cx, SemanticColor::SecondaryLabel);
 
         let title = self.data.title.clone();
         let artist = self.data.artist.clone();
@@ -167,7 +168,7 @@ impl RenderOnce for NowPlayingBar {
                     .when(!is_active, |el| {
                         el.child(
                             div()
-                                .text_color(SemanticColor::TertiaryLabel.resolve(appearance))
+                                .text_color(tertiary_label)
                                 .text_size(FontSize::Body.scaled(cx))
                                 .child(SharedString::from("Nothing playing")),
                         )
@@ -175,7 +176,7 @@ impl RenderOnce for NowPlayingBar {
                     .when_some(artist.clone(), |el, art| {
                         el.child(
                             div()
-                                .text_color(SemanticColor::SecondaryLabel.resolve(appearance))
+                                .text_color(secondary_label)
                                 .text_size(FontSize::Caption.scaled(cx))
                                 .child(SharedString::from(art)),
                         )
@@ -227,11 +228,10 @@ fn transport_btn(
     enabled: bool,
     cx: &App,
 ) -> impl IntoElement {
-    let appearance = crate::ui::tokens::Appearance::current(cx);
     let color = if enabled {
-        SemanticColor::Label.resolve(appearance)
+        color(cx, SemanticColor::Label)
     } else {
-        SemanticColor::QuaternaryLabel.resolve(appearance)
+        color(cx, SemanticColor::QuaternaryLabel)
     };
 
     let mut btn = div()

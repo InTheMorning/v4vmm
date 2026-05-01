@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use crate::ui::primitives::{HStack, VStack};
-use crate::ui::tokens::{Appearance, FontSize, SemanticColor, Spacing};
+use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 
 use super::tag_badge::{EntityKind, TagBadge};
 use super::thumbnail::{Thumbnail, ThumbnailSize};
@@ -55,18 +55,17 @@ impl DetailHeader {
 
 impl RenderOnce for DetailHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
-        let title_color = SemanticColor::Label.resolve(appearance);
-        let subtitle_color = SemanticColor::SecondaryLabel.resolve(appearance);
+        let title_color = resolve_color(cx, SemanticColor::Label, self.appearance);
+        let subtitle_color = resolve_color(cx, SemanticColor::SecondaryLabel, self.appearance);
+        let mut badge = TagBadge::new(self.kind);
+        if let Some(appearance) = self.appearance {
+            badge = badge.appearance(appearance);
+        }
 
         let mut text_block = VStack::new()
             .spacing(Spacing::XS)
             .leading()
-            .child(
-                div()
-                    .mb(Spacing::XS.scaled(cx))
-                    .child(TagBadge::new(self.kind).appearance(appearance)),
-            )
+            .child(div().mb(Spacing::XS.scaled(cx)).child(badge))
             .child(
                 div()
                     .text_size(FontSize::Title2.scaled(cx))
