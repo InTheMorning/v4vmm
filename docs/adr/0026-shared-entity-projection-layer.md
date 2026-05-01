@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-01.
+Implemented - 2026-05-01.
 
 ## Context
 
@@ -87,9 +87,10 @@ src/view_models/entity_detail.rs
 
 src/ui_entity.rs
   release detail shell
-  track list shell
-  identity action shell
-  contributor list shell
+
+src/ui/composites/identity_action.rs
+  IdentityActionKind
+  identity_action_button
 ```
 
 `src/views.rs` remains the source-normalized fact layer. It may contain API
@@ -109,12 +110,13 @@ descriptors, not GPUI buttons.
 `src/ui_entity.rs` is a thin GPUI shell over the shared projections. It
 composes ADR 0023 and ADR 0025 design-system pieces such as `DetailHeader`,
 `DetailGrid`, `TrackRow`, `TagBadge`, `Thumbnail`, `ReleaseDetailSurface`,
-`Icon`, and `ControlStyle`, but it must not own workflow dispatch. To avoid a
-generic renderer that imports `SearchApp` or `LibraryApp`, action controls are
-provided through explicit slots or binder structs supplied by the screen
-adapter. `src/ui_entity.rs` may render the common surface and place the slots;
-the screen adapter binds click handlers to existing commands, popovers, and
-state transitions.
+`Icon`, and `ControlStyle`, but it must not own workflow dispatch. Shared
+identity affordance styling lives in `src/ui/composites/identity_action.rs`.
+To avoid a generic renderer that imports `SearchApp` or `LibraryApp`, action
+controls are provided through explicit slots or binder structs supplied by the
+screen adapter. `src/ui_entity.rs` may render the common surface and place the
+slots; the screen adapter binds click handlers to existing commands, popovers,
+and state transitions.
 
 `src/ui_entity.rs` may import GPUI and design-system modules. It may not import
 MusicIndex clients, SQLite services, RSS services, MusicBrainz services,
@@ -367,9 +369,8 @@ Library adoption, then contributor identity UI.
 
 - There will be more intermediate Rust types, but they make display semantics
   testable and keep GPUI screens thinner.
-- Library and Discover will still have separate action handlers during the
-  first implementation. That is acceptable as long as action descriptors and
-  layout projection are shared.
+- Library and Discover still have separate action handlers. That is acceptable
+  as long as action descriptors and layout projection are shared.
 - The richer identity model creates a stable place to expose Nostr, webpage,
   and contributor image affordances without spreading link extraction across
   screens.

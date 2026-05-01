@@ -255,6 +255,12 @@ const SHARED_VIEW_FACT_FORBIDDEN_PUBLIC_FIELDS: &[&str] = &[
     "pub source_ids: Vec<api::SourceEntityId>",
 ];
 
+const DISCOVER_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS: &[&str] = &[
+    "ContributorVm",
+    "contributors: LazyPanel<Vec<Contributor>>",
+    "contributors: LazyPanel<Vec<api::Contributor>>",
+];
+
 const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/bootstrap.rs",
@@ -431,6 +437,28 @@ fn shared_view_facts_do_not_expose_api_identity_rows() {
     assert!(
         violations.is_empty(),
         "ADR 0026 shared view fact boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn discover_contributor_panel_uses_shared_projection_facts() {
+    let source = read_source(&manifest_path("src/search.rs"));
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        for pattern in DISCOVER_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/search.rs:{line_number}: ADR 0026 contributor panels must use `ContributorView` and shared contributor projections, not `{pattern}`: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0026 contributor projection boundary violations:\n{}",
         violations.join("\n")
     );
 }

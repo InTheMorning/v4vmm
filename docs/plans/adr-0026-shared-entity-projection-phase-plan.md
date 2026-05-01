@@ -16,20 +16,19 @@ feeds/items/tracks, and contributors.
 
 ## Current State
 
-- `src/views.rs` contains `ArtistView`, `FeedView`, and `TrackView`, but
-  identity fields are incomplete and contributor identity is not first-class.
-- `src/api.rs` models feed/track `source_links` and `source_ids`, but
-  contributor identity fields from the newer MusicIndex API are under-modeled.
-- Current view facts expose API-shaped contributor/source facts directly in
-  places. ADR 0026 requires a local source-fact contract before shared
-  projection adoption.
-- Discover feed detail renders through `src/ui_feed.rs` and shared
-  `ReleaseDetailSurface`.
-- Library album detail also uses `ReleaseDetailSurface`, but still builds
-  separate action rows and track-row semantics in `src/library.rs`.
-- `src/ui_track.rs` contains a Discover track-row adapter, while Library has a
-  separate local track-row path.
-- Nostr and website affordances are screen-local and feed/track oriented.
+- `src/api.rs` deserializes MusicIndex contributor `href`, `img`, and `npub`
+  fields.
+- `src/views.rs` exposes local source fact types and `ContributorView`; shared
+  view facts do not expose API contributor or identity rows as public fields.
+- `src/view_models/entity_detail.rs` provides GPUI-free release, contributor,
+  track-list, identity-link, and action projections.
+- Discover feed detail and Library album detail both route through
+  `render_release_detail_shell`.
+- Discover contributor panels store local `ContributorView` rows and render
+  image, website, and Nostr affordances through shared contributor projections
+  and `identity_action_button`.
+- Screens still own command dispatch, popover state, image-cache resolution,
+  and service calls.
 
 ## Target State
 
@@ -62,7 +61,7 @@ feeds/items/tracks, and contributors.
 - `src/library.rs`
 - `tests/architecture_tests.rs`
 
-## Proposed Sequence
+## Implementation Sequence
 
 ### Phase 1 — Identity Facts
 
@@ -80,8 +79,7 @@ preservation.
 
 Status: Implemented.
 
-Task file to create after Phase 1 review:
-`docs/tasks/adr-0026-task-002-shared-projection-vms.md`.
+Task: `docs/tasks/adr-0026-task-002-shared-projection-vms.md`
 
 Add `src/view_models/entity_detail.rs` with pure `ReleaseDetailVm`,
 `IdentityLinksVm`, `ContributorListVm`, `TrackListVm`, `SharedTrackRowVm`,
@@ -92,8 +90,7 @@ architecture tests blocking GPUI, UI, API-client, screen, and service imports.
 
 Status: Implemented.
 
-Task file to create after Phase 2 review:
-`docs/tasks/adr-0026-task-003-slot-based-ui-shells.md`.
+Task: `docs/tasks/adr-0026-task-003-slot-based-ui-shells.md`
 
 Add `src/ui_entity.rs` shell functions that place projected headers, detail
 grids, identity slots, contributor sections, and track-row slots using ADR
@@ -105,8 +102,7 @@ binder structs.
 
 Status: Implemented.
 
-Task file to create after Phase 3 review:
-`docs/tasks/adr-0026-task-004-discover-projection-adoption.md`.
+Task: `docs/tasks/adr-0026-task-004-discover-projection-adoption.md`
 
 Route Discover feed and track detail rendering through the shared projections
 and slot-based shell without changing behavior. Keep existing action handlers
@@ -116,8 +112,7 @@ and async dispatch in `src/search.rs`.
 
 Status: Implemented.
 
-Task file to create after Phase 4 review:
-`docs/tasks/adr-0026-task-005-library-projection-adoption.md`.
+Task: `docs/tasks/adr-0026-task-005-library-projection-adoption.md`
 
 Route Library album detail through the same release projection. Library keeps
 its own handlers but maps shared action descriptors to remove, playlist,
@@ -135,8 +130,9 @@ identity-action composites. Use ADR 0025 icon/control roles.
 
 ### Phase 7 — Cleanup and Gates
 
-Task file to create after Phase 6 review:
-`docs/tasks/adr-0026-task-007-cleanup-and-gates.md`.
+Status: Implemented.
+
+Task: `docs/tasks/adr-0026-task-007-cleanup-and-gates.md`
 
 Remove obsolete screen-local projection helpers, tighten architecture tests,
 and update ADR status if all green criteria are met.
