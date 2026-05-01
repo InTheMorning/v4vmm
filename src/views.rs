@@ -70,6 +70,13 @@ pub struct EntityIdentityLinks {
     pub source_ids: Vec<IdentityIdFact>,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LocalIdentityFacts {
+    pub source_links: Vec<IdentityLinkFact>,
+    pub source_ids: Vec<IdentityIdFact>,
+    pub contributors: Vec<ContributorView>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ArtistView {
     pub id: Option<ArtistRef>,
@@ -362,9 +369,22 @@ impl FeedView {
     }
 
     pub fn from_local(f: db::FeedRow, tracks: Vec<db::TrackRow>) -> Self {
-        let artist = tracks
-            .first()
-            .and_then(|t| t.album_artist_name.clone().or(t.artist_name.clone()));
+        let track_views = tracks.into_iter().map(TrackView::from_local).collect();
+        Self::from_local_with_identity(f, track_views, LocalIdentityFacts::default())
+    }
+
+    pub fn from_local_with_identity(
+        f: db::FeedRow,
+        tracks: Vec<TrackView>,
+        facts: LocalIdentityFacts,
+    ) -> Self {
+        let artist = tracks.first().and_then(|t| t.artist.clone());
+        let image_url = f.album_image_href;
+        let identity = EntityIdentityLinks::from_source_facts(
+            image_url.clone(),
+            facts.source_links,
+            facts.source_ids,
+        );
 
         Self {
             id: Some(FeedRef::LocalFeedId(f.id)),
@@ -372,9 +392,9 @@ impl FeedView {
             feed_url: Some(f.feed_url),
             title: f.title,
             artist,
-            image_url: f.album_image_href.clone(),
-            artwork: artwork_from_url(&f.album_image_href),
-            identity: EntityIdentityLinks::from_image_url(f.album_image_href),
+            image_url: image_url.clone(),
+            artwork: artwork_from_url(&image_url),
+            identity,
             release_date: None,
             language: None,
             explicit: None,
@@ -383,8 +403,8 @@ impl FeedView {
             publisher_text: None,
             description: f.description,
             payment_routes: Vec::new(),
-            contributors: Vec::new(),
-            tracks: tracks.into_iter().map(TrackView::from_local).collect(),
+            contributors: facts.contributors,
+            tracks,
         }
     }
 }
@@ -439,7 +459,16 @@ impl TrackView {
     }
 
     pub fn from_local(t: db::TrackRow) -> Self {
+        Self::from_local_with_identity(t, LocalIdentityFacts::default())
+    }
+
+    pub fn from_local_with_identity(t: db::TrackRow, facts: LocalIdentityFacts) -> Self {
         let image_url = t.track_image_href.or(t.album_image_href);
+        let identity = EntityIdentityLinks::from_source_facts(
+            image_url.clone(),
+            facts.source_links,
+            facts.source_ids,
+        );
         Self {
             id: Some(TrackRef::LocalTrackId(t.id)),
             track_guid: Some(t.item_guid),
@@ -457,12 +486,12 @@ impl TrackView {
             description: None,
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
-            identity: EntityIdentityLinks::from_image_url(image_url),
+            identity,
             audio_url: t.enclosure_url,
             mime: t.enclosure_type,
             bytes: None,
             publisher_text: None,
-            contributors: Vec::new(),
+            contributors: facts.contributors,
             payment_routes: Vec::new(),
             transcript_url: t.transcript_url,
         }
@@ -627,6 +656,55 @@ mod tests {
     }
 
     #[test]
+    fn from_local_track_hydrates_identity_facts_and_contributors() {
+        let track = db::TrackRow {
+            id: 42,
+            item_guid: "g".into(),
+            track_image_href: Some("https://example.test/track.jpg".into()),
+            ..Default::default()
+        };
+        let facts = LocalIdentityFacts {
+            source_links: vec![IdentityLinkFact {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/track".into()),
+                ..IdentityLinkFact::default()
+            }],
+            source_ids: vec![IdentityIdFact {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1track".into()),
+                ..IdentityIdFact::default()
+            }],
+            contributors: vec![ContributorView {
+                name: Some("Alice".into()),
+                href: Some("https://example.test/alice".into()),
+                image_url: Some("https://example.test/alice.jpg".into()),
+                nostr_npub: Some("npub1alice".into()),
+                ..ContributorView::default()
+            }],
+        };
+
+        let view = TrackView::from_local_with_identity(track, facts);
+
+        assert_eq!(
+            view.identity.website_url.as_deref(),
+            Some("https://example.test/track")
+        );
+        assert_eq!(view.identity.nostr_npub.as_deref(), Some("npub1track"));
+        assert_eq!(
+            view.identity.image_url.as_deref(),
+            Some("https://example.test/track.jpg")
+        );
+        assert_eq!(view.identity.source_links.len(), 1);
+        assert_eq!(view.identity.source_ids.len(), 1);
+        assert_eq!(view.contributors.len(), 1);
+        assert_eq!(view.contributors[0].name.as_deref(), Some("Alice"));
+        assert_eq!(
+            view.contributors[0].image_url.as_deref(),
+            Some("https://example.test/alice.jpg")
+        );
+    }
+
+    #[test]
     fn from_local_feed_aggregates_artist() {
         let feed = db::FeedRow {
             id: 1,
@@ -653,6 +731,51 @@ mod tests {
 
         assert_eq!(view.artist, Some("Mike Pietro".into()));
         assert_eq!(view.tracks.len(), 2);
+    }
+
+    #[test]
+    fn from_local_feed_hydrates_identity_facts_and_contributors() {
+        let feed = db::FeedRow {
+            id: 1,
+            feed_url: "http://example.com".into(),
+            album_image_href: Some("https://example.test/feed.jpg".into()),
+            ..Default::default()
+        };
+        let facts = LocalIdentityFacts {
+            source_links: vec![IdentityLinkFact {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/feed".into()),
+                ..IdentityLinkFact::default()
+            }],
+            source_ids: vec![IdentityIdFact {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1feed".into()),
+                ..IdentityIdFact::default()
+            }],
+            contributors: vec![ContributorView {
+                name: Some("Bob".into()),
+                href: Some("https://example.test/bob".into()),
+                image_url: Some("https://example.test/bob.jpg".into()),
+                nostr_npub: Some("npub1bob".into()),
+                ..ContributorView::default()
+            }],
+        };
+
+        let view = FeedView::from_local_with_identity(feed, Vec::new(), facts);
+
+        assert_eq!(
+            view.identity.website_url.as_deref(),
+            Some("https://example.test/feed")
+        );
+        assert_eq!(view.identity.nostr_npub.as_deref(), Some("npub1feed"));
+        assert_eq!(
+            view.identity.image_url.as_deref(),
+            Some("https://example.test/feed.jpg")
+        );
+        assert_eq!(view.identity.source_links.len(), 1);
+        assert_eq!(view.identity.source_ids.len(), 1);
+        assert_eq!(view.contributors.len(), 1);
+        assert_eq!(view.contributors[0].name.as_deref(), Some("Bob"));
     }
 
     #[test]

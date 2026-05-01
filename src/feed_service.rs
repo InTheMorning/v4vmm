@@ -5,7 +5,9 @@ use anyhow::{anyhow, Result};
 use reqwest::blocking::Client as ReqwestClient;
 use rusqlite::Connection;
 
-use crate::api::{Client as MusicIndexClient, Feed, Track};
+use crate::api::{
+    Client as MusicIndexClient, Contributor, Feed, SourceEntityId, SourceEntityLink, Track,
+};
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, AudioTags, Id3v24Edit};
 use crate::db::{self, TrackRow};
 use crate::identity_ingest;
@@ -302,6 +304,102 @@ pub fn track_row_to_track_context(track: &TrackRow) -> TrackContext {
     }
 }
 
+pub fn track_row_to_track_context_with_local_identity(
+    conn: &Connection,
+    track: &TrackRow,
+) -> Result<TrackContext> {
+    let mut context = track_row_to_track_context(track);
+    context.feed = Some(hydrate_feed_identity(
+        conn,
+        track.feed_id,
+        context.feed.take(),
+    )?);
+    context.track = hydrate_track_identity(conn, track.id, context.track)?;
+    Ok(context)
+}
+
+fn hydrate_feed_identity(conn: &Connection, feed_id: i64, feed: Option<Feed>) -> Result<Feed> {
+    let mut feed = feed.unwrap_or_default();
+    feed.source_links = Some(
+        db::local_identity_links(conn, db::LocalIdentityOwner::Feed(feed_id))?
+            .into_iter()
+            .map(source_link_from_local)
+            .collect(),
+    );
+    feed.source_ids = Some(
+        db::local_identity_ids(conn, db::LocalIdentityOwner::Feed(feed_id))?
+            .into_iter()
+            .map(source_id_from_local)
+            .collect(),
+    );
+    feed.source_contributors = Some(
+        db::local_contributors(conn, db::LocalEntityOwner::Feed(feed_id))?
+            .into_iter()
+            .map(contributor_from_local)
+            .collect(),
+    );
+    Ok(feed)
+}
+
+fn hydrate_track_identity(conn: &Connection, track_id: i64, mut track: Track) -> Result<Track> {
+    track.source_links = Some(
+        db::local_identity_links(conn, db::LocalIdentityOwner::Track(track_id))?
+            .into_iter()
+            .map(source_link_from_local)
+            .collect(),
+    );
+    track.source_ids = Some(
+        db::local_identity_ids(conn, db::LocalIdentityOwner::Track(track_id))?
+            .into_iter()
+            .map(source_id_from_local)
+            .collect(),
+    );
+    track.source_contributors = Some(
+        db::local_contributors(conn, db::LocalEntityOwner::Track(track_id))?
+            .into_iter()
+            .map(contributor_from_local)
+            .collect(),
+    );
+    Ok(track)
+}
+
+fn source_link_from_local(row: db::LocalIdentityLinkRow) -> SourceEntityLink {
+    SourceEntityLink {
+        entity_type: row.entity_type,
+        entity_id: row.entity_id,
+        position: row.position,
+        link_type: row.link_type,
+        url: row.url,
+        source: Some(row.source),
+        extraction_path: row.extraction_path,
+        observed_at: row.observed_at,
+    }
+}
+
+fn source_id_from_local(row: db::LocalIdentityIdRow) -> SourceEntityId {
+    SourceEntityId {
+        entity_type: row.entity_type,
+        entity_id: row.entity_id,
+        position: row.position,
+        scheme: row.scheme,
+        value: row.value,
+        source: Some(row.source),
+        extraction_path: row.extraction_path,
+        observed_at: row.observed_at,
+    }
+}
+
+fn contributor_from_local(row: db::LocalContributorRow) -> Contributor {
+    Contributor {
+        name: row.name,
+        role: row.role,
+        href: row.href,
+        img: row.image_url,
+        npub: row.nostr_npub,
+        group_name: row.group_name,
+    }
+}
+
 pub fn lookup_musicbrainz_library_track(track: &TrackRow) -> Result<MusicBrainzLookupResult> {
     let path = track
         .local_path
@@ -478,6 +576,39 @@ mod tests {
     use crate::api::{Contributor, Feed, PaymentRoute, SourceEntityId, Track};
     use crate::metadata_service::id3_edits_for_track_context;
 
+    fn setup_test_db() -> Result<Connection> {
+        let conn = Connection::open_in_memory()?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        db::init_schema(&conn)?;
+        db::migrate_schema(&conn)?;
+        Ok(conn)
+    }
+
+    fn insert_track(conn: &Connection) -> Result<TrackRow> {
+        conn.execute(
+            "INSERT INTO feeds (feed_url, feed_guid, title)
+             VALUES (?1, ?2, ?3)",
+            rusqlite::params!["https://example.test/feed.xml", "feed-guid", "Feed"],
+        )?;
+        let feed_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO tracks (feed_id, item_guid, track_title, artist_name)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![feed_id, "track-guid", "Track", "Artist"],
+        )?;
+        let track_id = conn.last_insert_rowid();
+        Ok(TrackRow {
+            id: track_id,
+            feed_id,
+            feed_guid: Some("feed-guid".into()),
+            item_guid: "track-guid".into(),
+            track_title: Some("Track".into()),
+            artist_name: Some("Artist".into()),
+            feed_title: Some("Feed".into()),
+            ..TrackRow::default()
+        })
+    }
+
     #[test]
     fn library_track_context_preserves_feed_guid_for_id3_provenance() {
         let track = TrackRow {
@@ -577,5 +708,75 @@ mod tests {
                 .and_then(|feed| feed.description.as_deref()),
             Some("Feed description")
         );
+    }
+
+    #[test]
+    fn local_track_context_hydrates_persisted_source_facts() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let track = insert_track(&conn)?;
+        db::replace_local_identity_ids(
+            &mut conn,
+            db::LocalIdentityOwner::Feed(track.feed_id),
+            "musicindex",
+            &[db::LocalIdentityIdInput {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1feed".into()),
+                ..db::LocalIdentityIdInput::default()
+            }],
+        )?;
+        db::replace_local_identity_links(
+            &mut conn,
+            db::LocalIdentityOwner::Track(track.id),
+            "musicindex",
+            &[db::LocalIdentityLinkInput {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/track".into()),
+                ..db::LocalIdentityLinkInput::default()
+            }],
+        )?;
+        db::replace_local_contributors(
+            &mut conn,
+            db::LocalEntityOwner::Track(track.id),
+            "musicindex",
+            &[db::LocalContributorInput {
+                position: 0,
+                name: Some("Track Contributor".into()),
+                image_url: Some("https://example.test/contributor.jpg".into()),
+                nostr_npub: Some("npub1contributor".into()),
+                ..db::LocalContributorInput::default()
+            }],
+        )?;
+
+        let context = track_row_to_track_context_with_local_identity(&conn, &track)?;
+
+        assert_eq!(
+            context
+                .feed
+                .as_ref()
+                .and_then(|feed| feed.source_ids.as_ref())
+                .and_then(|ids| ids.first())
+                .and_then(|id| id.value.as_deref()),
+            Some("npub1feed")
+        );
+        assert_eq!(
+            context
+                .track
+                .source_links
+                .as_ref()
+                .and_then(|links| links.first())
+                .and_then(|link| link.url.as_deref()),
+            Some("https://example.test/track")
+        );
+        assert_eq!(
+            context
+                .track
+                .source_contributors
+                .as_ref()
+                .and_then(|contributors| contributors.first())
+                .and_then(|contributor| contributor.img.as_deref()),
+            Some("https://example.test/contributor.jpg")
+        );
+
+        Ok(())
     }
 }
