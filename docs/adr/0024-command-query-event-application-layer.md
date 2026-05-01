@@ -2,10 +2,12 @@
 
 ## Status
 
-Proposed - drafted 2026-04-30.
+Accepted and implemented - 2026-05-01.
 
-Acceptance requires a reviewed phase plan and first task packet. Until then,
-this ADR is the proposed direction, not an implementation mandate.
+Implementation completed through the phase plan in
+`docs/plans/adr-0024-application-layer-phase-plan.md` and task packets
+`docs/tasks/adr-0024-task-001-*.md` through
+`docs/tasks/adr-0024-task-007-*.md`.
 
 ## Context
 
@@ -538,16 +540,20 @@ This ADR is fulfilled when:
 
 ## Follow-up work
 
-- Create `docs/plans/adr-0024-application-layer-phase-plan.md` before
-  implementation begins.
-- Create lower-context task packets under `docs/tasks/` using the ADR 0023
-  convention: `adr-0024-task-001-*.md`, `adr-0024-task-002-*.md`, etc.
-- Create `docs/reviews/adr-0024-review-checklist.md` to check each diff
-  against this ADR, ADR 0023, and
-  `docs/architecture/architecture-diagrams.md`.
+- Decide whether staged metadata needs a durable read model or should remain
+  transient GPUI-free view-model state.
+- Define a volume operation on the playback driver boundary before adding
+  `SetPlaybackVolume`.
+- Revisit playback owner/driver process supervision in a later playback
+  architecture ADR.
+- Decide whether remote discovery/search and remote inspector reads need their
+  own remote-query boundary. This ADR intentionally keeps remote-only reads out
+  of `ApplicationQueryService`.
 - Revisit explicit `domain/` and `infrastructure/` directories after the
   command/query/event boundary is proven through at least two migrated
   workflows.
+- Replace source-scan architecture tests with a `syn`-based AST test only if
+  the current scans become too brittle.
 
 ## References
 

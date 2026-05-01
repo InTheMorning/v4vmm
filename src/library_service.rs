@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
+use crate::config;
 use crate::db;
 use crate::playlist_service;
 use crate::subscribe_service::{self};
@@ -95,6 +96,38 @@ pub fn mark_track_downloaded_by_match(
 
 pub fn delete_local_file(conn: &Connection, local_file_path: &str) -> Result<()> {
     db::delete_local_file(conn, local_file_path)
+}
+
+pub fn delete_cached_file(conn: &Connection, local_file_path: &str) -> Result<()> {
+    if let Err(error) = std::fs::remove_file(local_file_path) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(error.into());
+        }
+    }
+    cleanup_empty_parents(Path::new(local_file_path));
+    delete_local_file(conn, local_file_path)
+}
+
+fn cleanup_empty_parents(path: &Path) {
+    let music_dir = config::config_path()
+        .ok()
+        .and_then(|path| config::load_config(&path).ok())
+        .map(|config| config.music_dir);
+    let mut dir = path.parent();
+    while let Some(current) = dir {
+        if music_dir.as_deref() == Some(current) {
+            break;
+        }
+        if std::fs::read_dir(current)
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_dir(current);
+            dir = current.parent();
+        } else {
+            break;
+        }
+    }
 }
 
 pub fn subscribe_then_append_to_playlist(

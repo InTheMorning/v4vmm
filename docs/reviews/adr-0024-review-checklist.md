@@ -7,10 +7,10 @@ checkpoint.
 
 ## Pass / Fail
 
-- Status: Phase 2 checkpoint passed with Task 004 adjustment.
+- Status: Final ADR 0024 review passed.
 - Reviewer: Codex
-- Date: 2026-04-30
-- Review: `docs/reviews/adr-0024-phase-2-checkpoint.md`
+- Date: 2026-05-01
+- Review: `docs/reviews/adr-0024-final-review.md`
 
 ## Architectural Invariants
 
@@ -74,7 +74,8 @@ checkpoint.
 
 ## Merge Recommendation
 
-- Not ready until reviewed.
+- Ready. ADR 0024 is implemented with deferred work recorded in
+  `docs/reviews/adr-0024-final-review.md`.
 
 ## Phase 2 Checkpoint Questions
 

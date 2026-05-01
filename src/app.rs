@@ -10,10 +10,10 @@ use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
 use rusqlite::Connection;
 
-use crate::application::{ApplicationEventSubscriber, ApplicationServices};
+use crate::application::commands::download::RemoveCachedFiles;
+use crate::application::{ApplicationEventSubscriber, ApplicationServices, CommandContext};
 use crate::config;
-use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryAppEvent};
-use crate::library_service;
+use crate::library::{build_tree, LibraryApp, LibraryAppEvent};
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
@@ -317,7 +317,11 @@ impl TopApp {
 
     fn reload_cached(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match library_service::cached_tracks(&conn) {
+        match self
+            .application_services
+            .query_service()
+            .cached_tracks(&conn)
+        {
             Ok(rows) => {
                 self.cached_tree = build_tree(&rows, &conn);
             }
@@ -327,24 +331,11 @@ impl TopApp {
         }
     }
 
-    fn delete_cached_file(&mut self, path: &str) {
-        if let Err(err) = std::fs::remove_file(path) {
-            if err.kind() != std::io::ErrorKind::NotFound {
-                self.settings_status = format!("Error deleting file: {err:#}");
-                return;
-            }
-        }
-        cleanup_empty_parents(std::path::Path::new(path));
-        let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = library_service::delete_local_file(&conn, path) {
-            self.settings_status = format!("Error: {err:#}");
-            return;
-        }
-        drop(conn);
-        self.reload_cached();
+    fn delete_cached_file(&mut self, path: String, cx: &mut Context<Self>) {
+        self.delete_cached_files(vec![path], cx);
     }
 
-    fn delete_all_cached(&mut self) {
+    fn delete_all_cached(&mut self, cx: &mut Context<Self>) {
         let paths: Vec<String> = self
             .cached_tree
             .artists
@@ -353,24 +344,26 @@ impl TopApp {
             .flat_map(|a| &a.tracks)
             .filter_map(|t| t.local_path.clone())
             .collect();
-        for path in &paths {
-            if let Err(err) = std::fs::remove_file(path) {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    self.settings_status = format!("Error deleting {path}: {err:#}");
-                    return;
-                }
-            }
-            cleanup_empty_parents(std::path::Path::new(path));
+        self.delete_cached_files(paths, cx);
+    }
+
+    fn delete_cached_files(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
+        if paths.is_empty() {
+            return;
         }
-        let conn = self.conn.lock().expect("lock db");
-        for path in &paths {
-            if let Err(err) = library_service::delete_local_file(&conn, path) {
-                self.settings_status = format!("Error: {err:#}");
-                return;
-            }
-        }
-        drop(conn);
-        self.reload_cached();
+        let command = RemoveCachedFiles::new(Arc::clone(&self.conn), paths);
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            |this, result, _cx| {
+                this.settings_status = result.message().to_string();
+                this.reload_cached();
+            },
+            |this, error, _cx| {
+                this.settings_status = format!("Error: {error:#}");
+            },
+        );
     }
 }
 
@@ -652,8 +645,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                                 .scaled(Size::XSmall, cx)
                                                 .text_color(color(cx, SemanticColor::OnAccent))
                                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                                    this.delete_cached_file(&path_clone);
-                                                    cx.notify();
+                                                    this.delete_cached_file(path_clone.clone(), cx);
                                                 }))
                                         )
                                         .into_any_element()
@@ -678,8 +670,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                 .scaled(Size::XSmall, cx)
                                 .text_color(color(cx, SemanticColor::OnAccent))
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.delete_all_cached();
-                                    cx.notify();
+                                    this.delete_all_cached(cx);
                                 })),
                         )
                     )

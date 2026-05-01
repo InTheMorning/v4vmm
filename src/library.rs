@@ -49,7 +49,6 @@ use crate::application::commands::playlist::{
 };
 use crate::application::{ApplicationServices, CommandContext};
 use crate::audio_tags::write_id3v24_edits;
-use crate::config;
 use crate::db::{self, TrackRow};
 use crate::feed_service::{self, track_row_to_track_context, StagedMusicBrainzLookup};
 use crate::library_service;
@@ -1619,28 +1618,6 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
         .collect();
 
     LibraryTree { artists }
-}
-
-pub(crate) fn cleanup_empty_parents(path: &std::path::Path) {
-    let music_dir = config::config_path()
-        .ok()
-        .and_then(|p| config::load_config(&p).ok())
-        .map(|c| c.music_dir);
-    let mut dir = path.parent();
-    while let Some(d) = dir {
-        if music_dir.as_deref() == Some(d) {
-            break;
-        }
-        if std::fs::read_dir(d)
-            .map(|mut r| r.next().is_none())
-            .unwrap_or(false)
-        {
-            let _ = std::fs::remove_dir(d);
-            dir = d.parent();
-        } else {
-            break;
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

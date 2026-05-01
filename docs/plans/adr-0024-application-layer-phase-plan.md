@@ -122,9 +122,12 @@ playback workflows.
    commands and playback snapshots through the application layer while
    preserving the existing playback owner/driver boundary. Volume remains
    deferred until the playback driver boundary has an approved volume contract.
-7. In progress `adr-0024-task-007-presentation-cleanup`: after migrated
-   workflows leave the screens, split or simplify presentation modules only
-   where it improves comprehension.
+7. Completed `adr-0024-task-007-presentation-cleanup`: after migrated workflows
+   left the screens, top-level app playback binding, keyboard routing, event
+   draining, tab-bar rendering, and bootstrap moved into focused `src/app/*`
+   modules. Settings cached-file removal now uses `RemoveCachedFiles`, cached
+   track reads use `ApplicationQueryService::cached_tracks`, and architecture
+   tests scan the extracted app modules.
 
 ## Schema/API Implications
 

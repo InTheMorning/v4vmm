@@ -239,6 +239,37 @@ impl RemoveTrackFromLibraryResult {
     }
 }
 
+/// Command result for removing cached local files.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoveCachedFilesResult {
+    removed_count: usize,
+    message: String,
+}
+
+impl RemoveCachedFilesResult {
+    /// Creates a cached-file removal result.
+    #[must_use]
+    pub fn new(removed_count: usize) -> Self {
+        let file_label = if removed_count == 1 { "file" } else { "files" };
+        Self {
+            removed_count,
+            message: format!("Deleted {removed_count} cached {file_label}"),
+        }
+    }
+
+    /// Returns how many cached files were removed.
+    #[must_use]
+    pub const fn removed_count(&self) -> usize {
+        self.removed_count
+    }
+
+    /// Returns the user-facing completion message.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
 /// Command result for setting local track library membership.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SetTrackLibraryMembershipResult {
@@ -387,6 +418,42 @@ impl ApplicationCommand for RemoveTrackFromLibraryByMatch {
         Ok(CommandOutcome::new(
             RemoveTrackFromLibraryResult::new("Removed track"),
             track_removed_events(feed_changed),
+        ))
+    }
+}
+
+/// Removes one or more cached local files and clears their local DB paths.
+#[derive(Clone, Debug)]
+pub struct RemoveCachedFiles {
+    conn: SharedConnection,
+    paths: Vec<String>,
+}
+
+impl RemoveCachedFiles {
+    /// Creates a cached-file removal command.
+    #[must_use]
+    pub fn new(conn: SharedConnection, paths: Vec<String>) -> Self {
+        Self { conn, paths }
+    }
+}
+
+impl ApplicationCommand for RemoveCachedFiles {
+    type Output = RemoveCachedFilesResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        let conn = self.conn.lock().map_err(|_| download_lock_error())?;
+        let mut removed_count = 0;
+        for path in self.paths {
+            if context.cancellation().is_cancelled() {
+                return Err(CommandError::Cancelled);
+            }
+            library_service::delete_cached_file(&conn, &path)
+                .map_err(|error| download_command_error(&error))?;
+            removed_count += 1;
+        }
+        Ok(CommandOutcome::new(
+            RemoveCachedFilesResult::new(removed_count),
+            track_removed_events(false),
         ))
     }
 }
@@ -550,6 +617,59 @@ mod tests {
         let db = conn.lock().expect("lock test db");
         let track = db::track_row_by_id(&db, track_id)?.expect("track exists");
         assert!(!track.is_in_library);
+
+        Ok(())
+    }
+
+    #[test]
+    fn remove_cached_files_deletes_files_and_clears_cached_rows() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("artist").join("album").join("track.mp3");
+        std::fs::create_dir_all(path.parent().expect("path has parent"))?;
+        std::fs::write(&path, b"audio")?;
+        let path_string = path.display().to_string();
+        let track_id = {
+            let db = conn.lock().expect("lock test db");
+            let feed_id = create_feed(&db, "https://example.test/feed.xml")?;
+            let track_id =
+                create_library_track(&db, feed_id, "item-guid", "https://cdn.test/audio.mp3")?;
+            library_service::mark_track_downloaded(&db, track_id, &path, None)?;
+            library_service::set_track_in_library(&db, track_id, false)?;
+            track_id
+        };
+
+        let outcome = CommandBus::new().execute(
+            RemoveCachedFiles::new(Arc::clone(&conn), vec![path_string]),
+            &CommandContext::next(),
+        )?;
+
+        assert_eq!(outcome.value().removed_count(), 1);
+        assert_eq!(outcome.value().message(), "Deleted 1 cached file");
+        assert_eq!(outcome.events(), track_removed_events(false));
+        assert!(!path.exists());
+        let db = conn.lock().expect("lock test db");
+        assert!(library_service::cached_tracks(&db)?.is_empty());
+        let track = db::track_row_by_id(&db, track_id)?.expect("track exists");
+        assert!(track.local_path.is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn remove_cached_files_honors_cancelled_context() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let context = CommandContext::next();
+        context.cancellation().cancel();
+
+        let error = CommandBus::new()
+            .execute(
+                RemoveCachedFiles::new(Arc::clone(&conn), vec!["/tmp/track.mp3".to_string()]),
+                &context,
+            )
+            .expect_err("cancelled command should fail");
+
+        assert_eq!(error, CommandError::Cancelled);
 
         Ok(())
     }

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress.
+Completed 2026-05-01.
 
 ## Task Goal
 
@@ -26,6 +26,8 @@ low-risk.
   click refresh behavior.
 - Public GPUI bootstrap moved out of `app.rs` into `src/app/bootstrap.rs`.
   `crate::app::run_app` remains re-exported from `src/app.rs`.
+- Settings cached-file removal moved behind `RemoveCachedFiles`, and cached
+  track reads moved behind `ApplicationQueryService::cached_tracks`.
 - Keep live-driver polling in `app.rs` for now because it still supervises
   `PlaybackOwner<D>` directly.
 - Library cleanup candidates are command-binding adapters and render-only
@@ -81,7 +83,7 @@ low-risk.
 
 1. Done: identify remaining presentation methods that now only bind view-models,
    dispatch commands, or bridge events.
-2. In progress: split or rename presentation modules only where it improves
+2. Done: split or rename presentation modules only where it improves
    comprehension. Top-level playback bar binding has moved to
    `src/app/playback_bar.rs`; top-level keyboard routing has moved to
    `src/app/keyboard.rs`; top-level event drain handling has moved to
@@ -89,10 +91,11 @@ low-risk.
    `src/app/tab_bar.rs`; public GPUI bootstrap has moved to
    `src/app/bootstrap.rs`.
 3. Keep view-models and application modules GPUI-free.
-4. In progress: update architecture tests and docs for any path changes.
+4. Done: update architecture tests and docs for any path changes.
    Screen-boundary source scans now cover the extracted `src/app/*.rs`
-   presentation modules.
-5. Run full verification.
+   presentation modules and forbid direct cached-file service calls from
+   screens.
+5. Done: run full verification.
 
 ## Acceptance Criteria
 
