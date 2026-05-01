@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Implemented - 2026-05-01.
 
 ## Task Goal
 
@@ -28,6 +28,8 @@ current visual behavior.
 - `src/ui/theme.rs`
 - `src/ui/contrast.rs`
 - `src/app/bootstrap.rs`
+- `src/app.rs` theme-install call only
+- `src/search.rs` theme-install call only
 - `tests/architecture_tests.rs`
 - `docs/plans/adr-0025-visual-system-phase-plan.md`
 - `docs/tasks/adr-0025-task-001-theme-profile-gates.md`
@@ -35,8 +37,8 @@ current visual behavior.
 ## Do Not Touch
 
 - `src/library.rs`
-- `src/search.rs`
-- `src/app.rs`
+- screen render/layout code in `src/search.rs`
+- screen render/layout code in `src/app.rs`
 - `src/application/**`
 - database migrations
 
@@ -50,7 +52,9 @@ current visual behavior.
 - `theme_bridge::install_theme` must take `ThemeProfile`, not leave the
   signature decision to the implementer.
 - High-contrast profiles must have contrast tests in this task.
-- Delete `theme::glyphs`; it has no callers and should not be migrated.
+- Do not delete `theme::glyphs` in this task. Current Library and Discover
+  provenance/status call sites still use it, and those migrations belong to
+  the icon/badge slices.
 
 ## Implementation Steps
 
@@ -61,10 +65,12 @@ current visual behavior.
 3. Change `theme_bridge::install_theme` to
    `install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App)`.
 4. Add `ThemeProfile::appearance()` or an equivalent internal resolver and
-   update both `src/app/bootstrap.rs` call sites to pass `ThemeProfile::Dark`.
+   update all compile-required theme-install call sites to pass
+   `ThemeProfile::Dark`.
 5. Extend `src/ui/contrast.rs` so `HighContrastDark` and `HighContrastLight`
    have contrast-matrix coverage before they can be exposed in Settings.
-6. Delete `theme::glyphs` from `src/ui/theme.rs`.
+6. Add architecture tests that ratchet existing `theme::color`,
+   `theme::badges`, and `theme::glyphs` usage instead of permitting growth.
 7. Extend architecture tests so new screen files cannot add deprecated visual
    helper usage once replacement phases begin. Keep existing call sites
    allowlisted if needed.
@@ -74,9 +80,10 @@ current visual behavior.
 
 - [ ] `ThemeProfile` exists and compiles.
 - [ ] `theme_bridge::install_theme` takes `ThemeProfile`.
-- [ ] Both bootstrap theme-install call sites pass `ThemeProfile::Dark`.
+- [ ] All theme-install call sites pass `ThemeProfile::Dark`.
 - [ ] High-contrast profile contrast tests exist and pass.
-- [ ] `theme::glyphs` is deleted.
+- [ ] Existing `theme::glyphs` usage is counted as temporary compatibility
+      debt and cannot grow.
 - [ ] Current default dark behavior is unchanged.
 - [ ] Architecture tests still pass.
 - [ ] The tests make it possible to ratchet down deprecated helper usage in
@@ -131,7 +138,8 @@ Constraints:
 - Preserve current dark default behavior.
 - Change `install_theme` to accept `ThemeProfile`.
 - Add high-contrast contrast tests.
-- Delete dead `theme::glyphs`.
+- Do not delete `theme::glyphs`; keep existing callers compiling and ratchet
+  its usage in architecture tests.
 - Do not migrate screen call sites.
 - Do not add settings UI.
 - Do not add arbitrary custom color input.
@@ -147,7 +155,8 @@ Acceptance criteria:
 - `theme_bridge::install_theme` takes `ThemeProfile`.
 - Bootstrap passes `ThemeProfile::Dark`.
 - High-contrast profile tests exist and pass.
-- `theme::glyphs` is deleted.
+- Existing `theme::glyphs` usage is counted as temporary compatibility debt
+  and cannot grow.
 - Architecture tests still pass and can be tightened in later ADR 0025 tasks.
 - Current UI behavior is unchanged.
 

@@ -35,7 +35,7 @@ pub fn run_app() {
         // themed; we re-install with the user's preference once config is
         // loaded a few lines below.
         crate::ui::theme_bridge::install_theme(
-            crate::ui::tokens::Appearance::Dark,
+            crate::ui::theme_profile::ThemeProfile::Dark,
             crate::ui::tokens::ScaleFactor::Medium,
             cx,
         );
@@ -49,7 +49,7 @@ pub fn run_app() {
 
         // Re-apply theme now that config has provided the user's UI scale.
         crate::ui::theme_bridge::install_theme(
-            crate::ui::tokens::Appearance::Dark,
+            crate::ui::theme_profile::ThemeProfile::Dark,
             cfg.ui_scale.into(),
             cx,
         );

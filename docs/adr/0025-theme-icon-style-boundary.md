@@ -21,9 +21,10 @@ theme, icon, and control-style changes boring. The current state is mixed:
 - `src/ui/theme_bridge.rs` correctly pushes token colors into
   `gpui_component`.
 - `src/ui/theme.rs` remains a dark-only compatibility shim. Render paths still
-  use helpers such as `theme::color::*`, `theme::badges`, and layout
-  constants. `theme::glyphs` already has no callers and should be deleted in
-  the first slice rather than migrated.
+  use helpers such as `theme::color::*`, `theme::badges`,
+  `theme::glyphs`, and layout constants. `theme::glyphs` is still used for
+  provenance/status markers in Library and Discover, so it must be retired
+  with the icon/badge migrations rather than deleted in the profile slice.
 - Screens still contain many direct `gpui_component::Button::new(...)` call
   sites and per-call style chains.
 - `src/ui/primitives/button.rs` already defines a token-native button
@@ -111,7 +112,7 @@ pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App)
 ```
 
 `ThemeProfile` owns the mapping to `Appearance` and any future profile-specific
-role resolution. The current bootstrap call sites must pass
+role resolution. Current theme-install call sites must pass
 `ThemeProfile::Dark` until config/profile selection exists. Keeping
 `install_theme(appearance, scale, cx)` as the primary API is not allowed after
 Task 001, because downstream icon and control code need one profile-driven
@@ -389,9 +390,9 @@ make icon changes broad and error-prone.
 Add the named theme-profile type, document compatibility expectations for
 `theme.rs`, and extend architecture tests so new screen code cannot add calls
 to deprecated visual helpers. Change `theme_bridge::install_theme` to accept
-`ThemeProfile`, update the two bootstrap call sites, add high-contrast contrast
-tests, and delete dead `theme::glyphs`. Do not migrate all call sites in this
-phase.
+`ThemeProfile`, update all theme-install call sites, add high-contrast
+contrast tests, and ratchet deprecated helper usage. Do not migrate all call
+sites in this phase.
 
 ### Phase 2 - icon catalog
 
@@ -460,7 +461,8 @@ This ADR is fulfilled when:
   appearance-only entry point is gone or private compatibility code.
 - New screen code cannot add `theme::color::*`, `theme::badges`, or
   `theme::glyphs` call sites without failing architecture tests.
-- `theme::glyphs` is deleted.
+- `theme::glyphs` is deleted after its Library/Discover provenance and status
+  call sites move behind icon/badge roles.
 - Reusable icons are requested through semantic icon roles.
 - RSS/Nostr/playback/download/remove/playlist/MusicBrainz/status icons are no
   longer implemented as screen-level inline SVG or glyph helpers.

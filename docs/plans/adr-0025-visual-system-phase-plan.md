@@ -76,9 +76,9 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
 
 Add the theme-profile type and architecture tests that prevent new screen-level
 use of deprecated theme helpers. Change `install_theme` to take
-`ThemeProfile`, update the two bootstrap call sites, add high-contrast contrast
-tests, and delete dead `theme::glyphs`. Do not migrate all existing call sites
-yet.
+`ThemeProfile`, update all theme-install call sites, add high-contrast contrast
+tests, and ratchet the existing `theme::color`, `theme::badges`, and
+`theme::glyphs` debt. Do not migrate all existing call sites yet.
 
 ### Phase 2 - icon catalog
 

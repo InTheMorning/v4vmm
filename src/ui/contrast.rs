@@ -265,6 +265,7 @@ pub const REQUIRED_PAIRS: &[ContrastPair] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::theme_profile::ThemeProfile;
     use crate::ui::tokens::Appearance;
 
     /// Sanity: black-on-white is the WCAG reference at 21 : 1.
@@ -322,6 +323,29 @@ mod tests {
         );
     }
 
+    fn check_profile_matrix(profile: ThemeProfile) {
+        let mut failures = Vec::new();
+        for pair in REQUIRED_PAIRS {
+            let fg = profile.resolve(pair.fg);
+            let bg = profile.resolve(pair.bg);
+            let actual = ratio(fg, bg);
+            let required = pair.level.min_ratio();
+            if actual + 0.005 < required {
+                failures.push(format!(
+                    "{profile:?}: {fg:?} on {bg:?} = {actual:.2}:1 (need {required:.2}:1) — {note}",
+                    fg = pair.fg,
+                    bg = pair.bg,
+                    note = pair.note,
+                ));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "WCAG contrast failures in {profile:?} profile:\n{}",
+            failures.join("\n")
+        );
+    }
+
     #[test]
     fn dark_palette_meets_wcag() {
         check_matrix(Appearance::Dark);
@@ -330,5 +354,15 @@ mod tests {
     #[test]
     fn light_palette_meets_wcag() {
         check_matrix(Appearance::Light);
+    }
+
+    #[test]
+    fn high_contrast_dark_profile_meets_wcag() {
+        check_profile_matrix(ThemeProfile::HighContrastDark);
+    }
+
+    #[test]
+    fn high_contrast_light_profile_meets_wcag() {
+        check_profile_matrix(ThemeProfile::HighContrastLight);
     }
 }

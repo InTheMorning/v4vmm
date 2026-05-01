@@ -299,7 +299,7 @@ impl TopApp {
                 });
                 // Apply scale change immediately so the UI reflects it.
                 crate::ui::theme_bridge::install_theme(
-                    crate::ui::tokens::Appearance::Dark,
+                    crate::ui::theme_profile::ThemeProfile::Dark,
                     saved_scale.into(),
                     cx,
                 );

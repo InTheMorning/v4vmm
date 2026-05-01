@@ -6,6 +6,7 @@ pub mod primitives;
 pub mod sizable_bridge;
 pub mod theme;
 pub mod theme_bridge;
+pub mod theme_profile;
 pub mod tokens;
 
 use std::sync::{Arc, OnceLock};

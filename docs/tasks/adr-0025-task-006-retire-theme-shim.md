@@ -49,8 +49,8 @@ control-style, and badge boundaries are in use.
 - Migrated screen files must have zero `theme::color::*`, `theme::badges`, and
   `theme::glyphs` call sites before the deprecated namespace ban becomes
   unconditional.
-- `theme::glyphs` should already be deleted by Task 001; if it is present, do
-  not keep it.
+- `theme::glyphs` should have zero remaining callers before this task deletes
+  or narrows the deprecated namespace.
 - Remaining layout constants may stay only if they are documented as fixed
   geometry or moved to token/layout roles.
 - Preserve current behavior and layout.

@@ -62,6 +62,105 @@ const SCREEN_PLAYBACK_FORBIDDEN_PATTERNS: &[&str] = &[
     "StartPlayback",
 ];
 
+const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
+    DeprecatedVisualHelperBaseline {
+        file: "src/library.rs",
+        helper: "theme::color",
+        import_patterns: &[
+            "use crate::ui::theme::color;",
+            "use crate::ui::theme::{color,",
+            "use crate::ui::theme::{color}",
+        ],
+        usage_pattern: "color::",
+        max_count: 90,
+    },
+    DeprecatedVisualHelperBaseline {
+        file: "src/library.rs",
+        helper: "theme::badges",
+        import_patterns: &[
+            "use crate::ui::theme::badges;",
+            "use crate::ui::theme::{badges,",
+            "use crate::ui::theme::{badges}",
+        ],
+        usage_pattern: "badges::",
+        max_count: 5,
+    },
+    DeprecatedVisualHelperBaseline {
+        file: "src/library.rs",
+        helper: "theme::glyphs",
+        import_patterns: &[
+            "use crate::ui::theme::glyphs;",
+            "use crate::ui::theme::{glyphs,",
+            "use crate::ui::theme::{glyphs}",
+        ],
+        usage_pattern: "glyphs::",
+        max_count: 7,
+    },
+    DeprecatedVisualHelperBaseline {
+        file: "src/search.rs",
+        helper: "theme::color",
+        import_patterns: &[
+            "use crate::ui::theme::color;",
+            "use crate::ui::theme::{color,",
+            "use crate::ui::theme::{color}",
+        ],
+        usage_pattern: "color::",
+        max_count: 96,
+    },
+    DeprecatedVisualHelperBaseline {
+        file: "src/search.rs",
+        helper: "theme::badges",
+        import_patterns: &[
+            "use crate::ui::theme::badges;",
+            "use crate::ui::theme::{badges,",
+            "use crate::ui::theme::{badges}",
+        ],
+        usage_pattern: "badges::",
+        max_count: 3,
+    },
+    DeprecatedVisualHelperBaseline {
+        file: "src/search.rs",
+        helper: "theme::glyphs",
+        import_patterns: &[
+            "use crate::ui::theme::glyphs;",
+            "use crate::ui::theme::{glyphs,",
+            "use crate::ui::theme::{glyphs}",
+        ],
+        usage_pattern: "glyphs::",
+        max_count: 6,
+    },
+];
+
+const DEPRECATED_VISUAL_HELPERS: &[DeprecatedVisualHelper] = &[
+    DeprecatedVisualHelper {
+        helper: "theme::color",
+        import_patterns: &[
+            "use crate::ui::theme::color;",
+            "use crate::ui::theme::{color,",
+            "use crate::ui::theme::{color}",
+        ],
+        usage_pattern: "color::",
+    },
+    DeprecatedVisualHelper {
+        helper: "theme::badges",
+        import_patterns: &[
+            "use crate::ui::theme::badges;",
+            "use crate::ui::theme::{badges,",
+            "use crate::ui::theme::{badges}",
+        ],
+        usage_pattern: "badges::",
+    },
+    DeprecatedVisualHelper {
+        helper: "theme::glyphs",
+        import_patterns: &[
+            "use crate::ui::theme::glyphs;",
+            "use crate::ui::theme::{glyphs,",
+            "use crate::ui::theme::{glyphs}",
+        ],
+        usage_pattern: "glyphs::",
+    },
+];
+
 const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/bootstrap.rs",
@@ -72,6 +171,22 @@ const SCREEN_FILES: &[&str] = &[
     "src/library.rs",
     "src/search.rs",
 ];
+
+#[derive(Debug)]
+struct DeprecatedVisualHelperBaseline {
+    file: &'static str,
+    helper: &'static str,
+    import_patterns: &'static [&'static str],
+    usage_pattern: &'static str,
+    max_count: usize,
+}
+
+#[derive(Debug)]
+struct DeprecatedVisualHelper {
+    helper: &'static str,
+    import_patterns: &'static [&'static str],
+    usage_pattern: &'static str,
+}
 
 #[test]
 fn view_models_do_not_import_gpui_or_screen_layers() {
@@ -251,11 +366,11 @@ fn screens_do_not_add_unapproved_hardcoded_dark_defaults() {
         let path = manifest_path(file);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
-            if line.contains("Appearance::Dark")
+            if (line.contains("Appearance::Dark") || line.contains("ThemeProfile::Dark"))
                 && !appearance_dark_is_approved(file, &source, line_number)
             {
                 violations.push(format!(
-                    "{file}:{line_number}: hardcoded `Appearance::Dark` needs an explicit architecture-test approval: `{line}`"
+                    "{file}:{line_number}: hardcoded dark theme default needs an explicit architecture-test approval: `{line}`"
                 ));
             }
         }
@@ -264,6 +379,49 @@ fn screens_do_not_add_unapproved_hardcoded_dark_defaults() {
     assert!(
         violations.is_empty(),
         "ADR 0023 hardcoded appearance violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_grow_deprecated_visual_helper_usage() {
+    let mut violations = Vec::new();
+    for file in SCREEN_FILES {
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        for baseline in DEPRECATED_VISUAL_HELPER_BASELINES {
+            if baseline.file == *file {
+                let count = deprecated_helper_count(&source, baseline);
+                if count > baseline.max_count {
+                    violations.push(format!(
+                        "{file}: `{}` usage grew from allowed baseline {} to {count}; migrate to ADR 0025 tokens/profiles/icons/control roles instead",
+                        baseline.helper, baseline.max_count
+                    ));
+                }
+            }
+        }
+        for helper in DEPRECATED_VISUAL_HELPERS {
+            if deprecated_helper_has_baseline(file, helper.helper) {
+                continue;
+            }
+            for (line_number, line) in code_lines(&source) {
+                let imports_helper = helper
+                    .import_patterns
+                    .iter()
+                    .any(|pattern| line.contains(pattern));
+                if imports_helper || line.contains(helper.usage_pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: new screen usage of deprecated `{}` helper is not allowed: `{line}`",
+                        helper.helper
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 deprecated visual helper violations:\n{}",
         violations.join("\n")
     );
 }
@@ -336,6 +494,26 @@ fn appearance_dark_is_approved(file: &str, source: &str, line_number: usize) -> 
         ),
         _ => false,
     }
+}
+
+fn deprecated_helper_count(source: &str, baseline: &DeprecatedVisualHelperBaseline) -> usize {
+    source
+        .lines()
+        .map(strip_line_comment)
+        .filter(|line| {
+            line.contains(baseline.usage_pattern)
+                || baseline
+                    .import_patterns
+                    .iter()
+                    .any(|pattern| line.contains(pattern))
+        })
+        .count()
+}
+
+fn deprecated_helper_has_baseline(file: &str, helper: &str) -> bool {
+    DEPRECATED_VISUAL_HELPER_BASELINES
+        .iter()
+        .any(|baseline| baseline.file == file && baseline.helper == helper)
 }
 
 fn nearby_source_mentions(source: &str, line_number: usize, needles: &[&str]) -> bool {

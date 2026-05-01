@@ -21,6 +21,7 @@ use gpui::{App, Hsla, Rgba};
 use gpui_component::{Theme, ThemeMode};
 
 use crate::config::UiScale;
+use crate::ui::theme_profile::ThemeProfile;
 use crate::ui::tokens::{Appearance, ScaleFactor, SemanticColor};
 
 impl From<UiScale> for ScaleFactor {
@@ -44,7 +45,9 @@ impl From<UiScale> for ScaleFactor {
     clippy::too_many_lines,
     reason = "flat field-by-field assignment list is clearer than splitting"
 )]
-pub fn install_theme(appearance: Appearance, scale: ScaleFactor, cx: &mut App) {
+pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App) {
+    let appearance = profile.appearance();
+
     // Install the bundled Environment so every component can read appearance
     // and scale through the single SwiftUI-style accessor. Mirrors the scale
     // into the legacy `ScaleFactor` global for any code still reading it

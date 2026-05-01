@@ -5364,7 +5364,7 @@ pub fn run_search_app() {
     app.run(move |cx| {
         gpui_component::init(cx);
         crate::ui::theme_bridge::install_theme(
-            crate::ui::tokens::Appearance::Dark,
+            crate::ui::theme_profile::ThemeProfile::Dark,
             crate::ui::tokens::ScaleFactor::Medium,
             cx,
         );
@@ -5377,7 +5377,7 @@ pub fn run_search_app() {
             config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
 
         crate::ui::theme_bridge::install_theme(
-            crate::ui::tokens::Appearance::Dark,
+            crate::ui::theme_profile::ThemeProfile::Dark,
             cfg.ui_scale.into(),
             cx,
         );
