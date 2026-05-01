@@ -1,4 +1,4 @@
-# ADR 0029 Artist And Person Identity Persistence Phase Plan
+# ADR 0029 Artist Identity Persistence Phase Plan
 
 ## Status
 
@@ -6,22 +6,23 @@ In progress - 2026-05-01. Tasks 001-002 implemented.
 
 ## Goal
 
-Persist artist/person identity facts locally without source inference, so
-Library can eventually hydrate richer artist/person views from the same
-provenance-first data used by Discover.
+Persist explicit artist identity facts locally without source inference, so
+Library can eventually hydrate richer artist views from the same
+provenance-first data used by Discover. Person identity remains deferred.
 
 ## Non-Goals
 
-- Do not create a canonical global person registry in the first phase.
+- Do not create a canonical global artist or person registry in this ADR.
+- Do not persist global person identity in this ADR.
 - Do not merge identities by display name.
 - Do not change GPUI rendering before data contracts are clear.
 - Do not change audio-tag writes.
-- Do not add schema until Task 001 proves the source field shape.
+- Do not bind local `tracks` rows to artist subjects in this ADR.
 
 ## Assumptions
 
 - ADR 0028 source-fact tables cover feed, track, and contributor owners, but not
-  durable artist/person subjects.
+  durable artist subjects.
 - `ArtistView` can already represent identity links, ids, image, aliases, area,
   and active years.
 - Local Library artist views are currently name-derived and can remain so until
@@ -47,8 +48,8 @@ provenance-first data used by Discover.
 2. Artist source-fact schema and DB helpers for explicit artist subjects.
    Implemented 2026-05-01.
    Task: `docs/tasks/adr-0029-task-002-artist-source-schema.md`.
-3. Ingest persistence for explicit MusicIndex/RSS artist/person facts.
-4. Local view hydration for `ArtistView` and related Library projections.
+3. Ingest persistence for explicit MusicIndex artist records.
+4. Local explicit-source artist lookup/hydration for `ArtistView`.
 5. Visual smoke and final architecture gates.
 
 ## Schema/API Implications
@@ -62,7 +63,7 @@ Any eventual schema must define:
 
 - owner/source identity keys
 - replacement scope
-- cascade behavior
+- lifecycle and non-cascade behavior
 - raw JSON retention
 - conflict display rules
 - migration tests
@@ -71,6 +72,7 @@ Any eventual schema must define:
 
 - Accidentally merging distinct artists because names match.
 - Treating contributor position as durable person identity.
+- Pretending local name-derived artists have explicit source ids.
 - Moving source-fact reconstruction into screens.
 - Designing schema before the MusicIndex/RSS field inventory is complete.
 - Overlapping with ADR 0028 feed/track/contributor facts instead of linking to
@@ -96,7 +98,7 @@ cargo test
 
 - Task 001 has no runtime rollback.
 - Schema work must be additive.
-- If ingest writes incorrect artist/person facts, disable the ingest call sites
-  while leaving additive tables harmless.
+- If ingest writes incorrect artist facts, disable the ingest call sites while
+  leaving additive tables harmless.
 - If hydration produces confusing display conflicts, keep persisted facts but
   hide the convenience display until the projection policy is revised.

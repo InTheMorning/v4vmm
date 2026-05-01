@@ -11,10 +11,12 @@ prioritized, and routed to the right governance artifact.
 
 ## Priority Order
 
-1. Artist/person identity persistence.
-   - Status: ADR required before runtime work.
+1. Artist identity persistence; person identity deferred.
+   - Status: ADR 0029 accepted and in progress.
    - Artifact: `docs/adr/0029-artist-person-identity-persistence.md`.
-   - Next task: `docs/tasks/adr-0029-task-001-source-inventory.md`.
+   - Next task: MusicIndex artist ingest persistence under ADR 0029.
+   - Person/global identity remains future ADR work until durable person ids and
+     merge policy exist.
 2. Library/Discover data parity for release date, language, explicit state,
    description, and related local detail fields.
    - Status: needs triage after ADR 0028 contributor visibility.

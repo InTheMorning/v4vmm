@@ -7,6 +7,8 @@ Use this checklist for ADR 0029 task diffs.
 - Source facts are preserved before convenience display fields.
 - No name-only identity merge is introduced.
 - Contributor position is not treated as durable person identity.
+- Global person identity remains deferred unless a future ADR defines durable
+  keys and merge policy.
 - `src/views.rs` and `src/view_models/*` remain GPUI-free and database-free.
 - Screens do not reconstruct identity facts from ad hoc JSON.
 
@@ -14,7 +16,8 @@ Use this checklist for ADR 0029 task diffs.
 
 - Any schema is additive.
 - Replacement scope is source-scoped and explicit.
-- Cascade behavior is specified.
+- Artist source facts do not cascade from feed or track deletion.
+- Local `tracks` rows do not gain an artist-subject binding in ADR 0029.
 - Raw source payload retention is specified.
 - Migration tests cover valid and invalid owner/key shapes.
 

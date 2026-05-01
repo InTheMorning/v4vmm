@@ -41,6 +41,7 @@ by `(source, source_artist_id)`.
 - Schema must be additive.
 - Artist facts require non-empty `source` and non-empty `source_artist_id`.
 - Local display names are not source artist ids.
+- Artist source facts must not cascade from feed or track deletion.
 - Raw source JSON must be preserved when available.
 - Helper APIs must make replacement scope explicit: `(source, source_artist_id)`.
 - Architecture tests must keep any new helper module UI-free.
@@ -75,6 +76,7 @@ by `(source, source_artist_id)`.
   replacement/read helpers keyed by `(source, source_artist_id)`.
 - Stored artist display facts, aliases, tags, source links, source ids, and raw
   JSON without linking to local name-derived Library artists.
+- Kept artist source facts independent of feed/track cascade behavior.
 - Added focused DB tests for schema creation, round trip, replacement, and
   invalid keys.
 
