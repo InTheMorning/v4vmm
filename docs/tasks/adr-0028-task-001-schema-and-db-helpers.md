@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Implemented - 2026-05-01.
 
 ## Goal
 
@@ -75,13 +75,24 @@ facts without wiring ingest workflows or UI hydration yet.
 
 ## Acceptance Criteria
 
-- [ ] Schema is additive and existing tests still pass.
-- [ ] DB helpers can round-trip source links, source ids, and contributors.
-- [ ] Source-scoped replacement behavior is covered by tests.
-- [ ] Invalid owner/discriminator combinations are rejected by tests.
-- [ ] Delete/cascade behavior is covered by tests.
-- [ ] No ingest or UI call sites are wired in this task.
-- [ ] Required verification commands pass.
+- [x] Schema is additive and existing tests still pass.
+- [x] DB helpers can round-trip source links, source ids, and contributors.
+- [x] Source-scoped replacement behavior is covered by tests.
+- [x] Invalid owner/discriminator combinations are rejected by tests.
+- [x] Delete/cascade behavior is covered by tests.
+- [x] No ingest or UI call sites are wired in this task.
+- [x] Required verification commands pass.
+
+## Implementation Notes
+
+- Added migration `identity_source_facts` and fresh-schema DDL for
+  `entity_identity_links`, `entity_identity_ids`, and `entity_contributors`.
+- Added DB-owned owner/input/row structs plus source-scoped replacement and
+  owner-scoped load helpers in `src/db.rs`.
+- Added focused DB tests for schema creation, round-trip preservation,
+  source-scoped replacement, invalid discriminator shapes, and cascade cleanup.
+- Intentionally did not wire MusicIndex/RSS ingest or Library/Discover
+  hydration; those remain Task 002+ work.
 
 ## Test Commands
 

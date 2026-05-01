@@ -97,6 +97,103 @@ pub struct FeedStaleCheckRow {
     pub musicindex_updated_at: Option<i64>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalIdentityOwner {
+    Feed(i64),
+    Track(i64),
+    FeedContributor {
+        feed_id: i64,
+        contributor_position: i64,
+    },
+    TrackContributor {
+        track_id: i64,
+        contributor_position: i64,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalEntityOwner {
+    Feed(i64),
+    Track(i64),
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LocalIdentityLinkInput {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub position: Option<i64>,
+    pub link_type: Option<String>,
+    pub url: Option<String>,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+    pub raw_json: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocalIdentityLinkRow {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub position: Option<i64>,
+    pub link_type: Option<String>,
+    pub url: Option<String>,
+    pub source: String,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+    pub raw_json: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LocalIdentityIdInput {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub position: Option<i64>,
+    pub scheme: Option<String>,
+    pub value: Option<String>,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+    pub raw_json: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocalIdentityIdRow {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub position: Option<i64>,
+    pub scheme: Option<String>,
+    pub value: Option<String>,
+    pub source: String,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+    pub raw_json: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LocalContributorInput {
+    pub position: i64,
+    pub name: Option<String>,
+    pub role: Option<String>,
+    pub group_name: Option<String>,
+    pub href: Option<String>,
+    pub image_url: Option<String>,
+    pub nostr_npub: Option<String>,
+    pub raw_json: Option<String>,
+    pub observed_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocalContributorRow {
+    pub position: i64,
+    pub name: Option<String>,
+    pub role: Option<String>,
+    pub group_name: Option<String>,
+    pub href: Option<String>,
+    pub image_url: Option<String>,
+    pub nostr_npub: Option<String>,
+    pub source: String,
+    pub raw_json: Option<String>,
+    pub observed_at: Option<i64>,
+}
+
 pub fn subscribed_feeds_for_stale_check(conn: &Connection) -> Result<Vec<FeedStaleCheckRow>> {
     let mut stmt = conn
         .prepare(
@@ -548,6 +645,335 @@ pub fn transcript_url_from_extra_json(extra_json: Option<&str>) -> Option<String
         .map(ToOwned::to_owned)
 }
 
+impl LocalIdentityOwner {
+    fn sql_parts(self) -> (&'static str, Option<i64>, Option<i64>, Option<i64>) {
+        match self {
+            Self::Feed(feed_id) => ("feed", Some(feed_id), None, None),
+            Self::Track(track_id) => ("track", None, Some(track_id), None),
+            Self::FeedContributor {
+                feed_id,
+                contributor_position,
+            } => (
+                "feed_contributor",
+                Some(feed_id),
+                None,
+                Some(contributor_position),
+            ),
+            Self::TrackContributor {
+                track_id,
+                contributor_position,
+            } => (
+                "track_contributor",
+                None,
+                Some(track_id),
+                Some(contributor_position),
+            ),
+        }
+    }
+}
+
+impl LocalEntityOwner {
+    fn sql_parts(self) -> (&'static str, Option<i64>, Option<i64>) {
+        match self {
+            Self::Feed(feed_id) => ("feed", Some(feed_id), None),
+            Self::Track(track_id) => ("track", None, Some(track_id)),
+        }
+    }
+}
+
+fn explicit_source_token(source: &str) -> Result<&str> {
+    let source = source.trim();
+    anyhow::ensure!(!source.is_empty(), "source token cannot be empty");
+    Ok(source)
+}
+
+pub fn replace_local_identity_links(
+    conn: &mut Connection,
+    owner: LocalIdentityOwner,
+    source: &str,
+    links: &[LocalIdentityLinkInput],
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
+    let tx = conn.transaction().context("start transaction")?;
+    let (owner_kind, feed_id, track_id, contributor_position) = owner.sql_parts();
+
+    tx.execute(
+        "DELETE FROM entity_identity_links
+         WHERE owner_kind = ?1
+           AND feed_id IS ?2
+           AND track_id IS ?3
+           AND contributor_position IS ?4
+           AND source = ?5",
+        rusqlite::params![owner_kind, feed_id, track_id, contributor_position, source],
+    )
+    .context("delete local identity links for source")?;
+
+    for link in links {
+        tx.execute(
+            "INSERT INTO entity_identity_links (
+                 owner_kind, feed_id, track_id, contributor_position,
+                 entity_type, entity_id, position, link_type, url, source,
+                 extraction_path, observed_at, raw_json
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            rusqlite::params![
+                owner_kind,
+                feed_id,
+                track_id,
+                contributor_position,
+                link.entity_type.as_deref(),
+                link.entity_id.as_deref(),
+                link.position,
+                link.link_type.as_deref(),
+                link.url.as_deref(),
+                source,
+                link.extraction_path.as_deref(),
+                link.observed_at,
+                link.raw_json.as_deref(),
+            ],
+        )
+        .context("insert local identity link")?;
+    }
+
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+pub fn replace_local_identity_ids(
+    conn: &mut Connection,
+    owner: LocalIdentityOwner,
+    source: &str,
+    ids: &[LocalIdentityIdInput],
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
+    let tx = conn.transaction().context("start transaction")?;
+    let (owner_kind, feed_id, track_id, contributor_position) = owner.sql_parts();
+
+    tx.execute(
+        "DELETE FROM entity_identity_ids
+         WHERE owner_kind = ?1
+           AND feed_id IS ?2
+           AND track_id IS ?3
+           AND contributor_position IS ?4
+           AND source = ?5",
+        rusqlite::params![owner_kind, feed_id, track_id, contributor_position, source],
+    )
+    .context("delete local identity ids for source")?;
+
+    for id in ids {
+        tx.execute(
+            "INSERT INTO entity_identity_ids (
+                 owner_kind, feed_id, track_id, contributor_position,
+                 entity_type, entity_id, position, scheme, value, source,
+                 extraction_path, observed_at, raw_json
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            rusqlite::params![
+                owner_kind,
+                feed_id,
+                track_id,
+                contributor_position,
+                id.entity_type.as_deref(),
+                id.entity_id.as_deref(),
+                id.position,
+                id.scheme.as_deref(),
+                id.value.as_deref(),
+                source,
+                id.extraction_path.as_deref(),
+                id.observed_at,
+                id.raw_json.as_deref(),
+            ],
+        )
+        .context("insert local identity id")?;
+    }
+
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+pub fn replace_local_contributors(
+    conn: &mut Connection,
+    owner: LocalEntityOwner,
+    source: &str,
+    contributors: &[LocalContributorInput],
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
+    let tx = conn.transaction().context("start transaction")?;
+    let (owner_kind, feed_id, track_id) = owner.sql_parts();
+
+    tx.execute(
+        "DELETE FROM entity_contributors
+         WHERE owner_kind = ?1
+           AND feed_id IS ?2
+           AND track_id IS ?3
+           AND source = ?4",
+        rusqlite::params![owner_kind, feed_id, track_id, source],
+    )
+    .context("delete local contributors for source")?;
+
+    for contributor in contributors {
+        tx.execute(
+            "INSERT INTO entity_contributors (
+                 owner_kind, feed_id, track_id, position, name, role,
+                 group_name, href, image_url, nostr_npub, source, raw_json,
+                 observed_at
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            rusqlite::params![
+                owner_kind,
+                feed_id,
+                track_id,
+                contributor.position,
+                contributor.name.as_deref(),
+                contributor.role.as_deref(),
+                contributor.group_name.as_deref(),
+                contributor.href.as_deref(),
+                contributor.image_url.as_deref(),
+                contributor.nostr_npub.as_deref(),
+                source,
+                contributor.raw_json.as_deref(),
+                contributor.observed_at,
+            ],
+        )
+        .context("insert local contributor")?;
+    }
+
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+pub fn local_identity_links(
+    conn: &Connection,
+    owner: LocalIdentityOwner,
+) -> Result<Vec<LocalIdentityLinkRow>> {
+    let (owner_kind, feed_id, track_id, contributor_position) = owner.sql_parts();
+    let mut stmt = conn
+        .prepare(
+            "SELECT entity_type, entity_id, position, link_type, url, source,
+                    extraction_path, observed_at, raw_json
+             FROM entity_identity_links
+             WHERE owner_kind = ?1
+               AND feed_id IS ?2
+               AND track_id IS ?3
+               AND contributor_position IS ?4
+             ORDER BY source COLLATE NOCASE, position, id",
+        )
+        .context("prepare local_identity_links")?;
+
+    let rows = stmt
+        .query_map(
+            rusqlite::params![owner_kind, feed_id, track_id, contributor_position],
+            local_identity_link_row_from_sql,
+        )
+        .context("query local_identity_links")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect local_identity_links")?;
+
+    Ok(rows)
+}
+
+pub fn local_identity_ids(
+    conn: &Connection,
+    owner: LocalIdentityOwner,
+) -> Result<Vec<LocalIdentityIdRow>> {
+    let (owner_kind, feed_id, track_id, contributor_position) = owner.sql_parts();
+    let mut stmt = conn
+        .prepare(
+            "SELECT entity_type, entity_id, position, scheme, value, source,
+                    extraction_path, observed_at, raw_json
+             FROM entity_identity_ids
+             WHERE owner_kind = ?1
+               AND feed_id IS ?2
+               AND track_id IS ?3
+               AND contributor_position IS ?4
+             ORDER BY source COLLATE NOCASE, position, id",
+        )
+        .context("prepare local_identity_ids")?;
+
+    let rows = stmt
+        .query_map(
+            rusqlite::params![owner_kind, feed_id, track_id, contributor_position],
+            local_identity_id_row_from_sql,
+        )
+        .context("query local_identity_ids")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect local_identity_ids")?;
+
+    Ok(rows)
+}
+
+pub fn local_contributors(
+    conn: &Connection,
+    owner: LocalEntityOwner,
+) -> Result<Vec<LocalContributorRow>> {
+    let (owner_kind, feed_id, track_id) = owner.sql_parts();
+    let mut stmt = conn
+        .prepare(
+            "SELECT position, name, role, group_name, href, image_url, nostr_npub,
+                    source, raw_json, observed_at
+             FROM entity_contributors
+             WHERE owner_kind = ?1
+               AND feed_id IS ?2
+               AND track_id IS ?3
+             ORDER BY source COLLATE NOCASE, position, id",
+        )
+        .context("prepare local_contributors")?;
+
+    let rows = stmt
+        .query_map(
+            rusqlite::params![owner_kind, feed_id, track_id],
+            local_contributor_row_from_sql,
+        )
+        .context("query local_contributors")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect local_contributors")?;
+
+    Ok(rows)
+}
+
+fn local_identity_link_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<LocalIdentityLinkRow> {
+    Ok(LocalIdentityLinkRow {
+        entity_type: row.get(0)?,
+        entity_id: row.get(1)?,
+        position: row.get(2)?,
+        link_type: row.get(3)?,
+        url: row.get(4)?,
+        source: row.get(5)?,
+        extraction_path: row.get(6)?,
+        observed_at: row.get(7)?,
+        raw_json: row.get(8)?,
+    })
+}
+
+fn local_identity_id_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<LocalIdentityIdRow> {
+    Ok(LocalIdentityIdRow {
+        entity_type: row.get(0)?,
+        entity_id: row.get(1)?,
+        position: row.get(2)?,
+        scheme: row.get(3)?,
+        value: row.get(4)?,
+        source: row.get(5)?,
+        extraction_path: row.get(6)?,
+        observed_at: row.get(7)?,
+        raw_json: row.get(8)?,
+    })
+}
+
+fn local_contributor_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<LocalContributorRow> {
+    Ok(LocalContributorRow {
+        position: row.get(0)?,
+        name: row.get(1)?,
+        role: row.get(2)?,
+        group_name: row.get(3)?,
+        href: row.get(4)?,
+        image_url: row.get(5)?,
+        nostr_npub: row.get(6)?,
+        source: row.get(7)?,
+        raw_json: row.get(8)?,
+        observed_at: row.get(9)?,
+    })
+}
+
 fn playback_session_from_sql(row: &rusqlite::Row) -> rusqlite::Result<PlaybackSessionRow> {
     let sequence = row.get::<_, i64>(1)?;
     let position_ms = row.get::<_, i64>(6)?;
@@ -972,6 +1398,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "tracks_enclosure_type",
         apply: migration_tracks_enclosure_type,
     },
+    Migration {
+        version: 3,
+        name: "identity_source_facts",
+        apply: migration_identity_source_facts,
+    },
 ];
 
 pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
@@ -1026,6 +1457,10 @@ fn migration_feeds_musicindex_updated_at(conn: &Connection) -> Result<()> {
 
 fn migration_tracks_enclosure_type(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "tracks", "enclosure_type", "TEXT")
+}
+
+fn migration_identity_source_facts(conn: &Connection) -> Result<()> {
+    create_identity_source_fact_tables(conn)
 }
 
 fn add_column_if_missing(
@@ -1158,6 +1593,141 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<()> {
     )
     .context("create tables")?;
 
+    create_identity_source_fact_tables(conn)?;
+
+    Ok(())
+}
+
+fn create_identity_source_fact_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_identity_links (
+            id INTEGER PRIMARY KEY,
+            owner_kind TEXT NOT NULL,
+            feed_id INTEGER NULL REFERENCES feeds(id) ON DELETE CASCADE,
+            track_id INTEGER NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            contributor_position INTEGER NULL,
+            entity_type TEXT NULL,
+            entity_id TEXT NULL,
+            position INTEGER NULL,
+            link_type TEXT NULL,
+            url TEXT NULL,
+            source TEXT NOT NULL CHECK (source != ''),
+            extraction_path TEXT NULL,
+            observed_at INTEGER NULL,
+            raw_json TEXT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK (
+                (owner_kind = 'feed'
+                    AND feed_id IS NOT NULL
+                    AND track_id IS NULL
+                    AND contributor_position IS NULL)
+                OR (owner_kind = 'track'
+                    AND feed_id IS NULL
+                    AND track_id IS NOT NULL
+                    AND contributor_position IS NULL)
+                OR (owner_kind = 'feed_contributor'
+                    AND feed_id IS NOT NULL
+                    AND track_id IS NULL
+                    AND contributor_position IS NOT NULL)
+                OR (owner_kind = 'track_contributor'
+                    AND feed_id IS NULL
+                    AND track_id IS NOT NULL
+                    AND contributor_position IS NOT NULL)
+            )
+        );
+
+        CREATE TABLE IF NOT EXISTS entity_identity_ids (
+            id INTEGER PRIMARY KEY,
+            owner_kind TEXT NOT NULL,
+            feed_id INTEGER NULL REFERENCES feeds(id) ON DELETE CASCADE,
+            track_id INTEGER NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            contributor_position INTEGER NULL,
+            entity_type TEXT NULL,
+            entity_id TEXT NULL,
+            position INTEGER NULL,
+            scheme TEXT NULL,
+            value TEXT NULL,
+            source TEXT NOT NULL CHECK (source != ''),
+            extraction_path TEXT NULL,
+            observed_at INTEGER NULL,
+            raw_json TEXT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK (
+                (owner_kind = 'feed'
+                    AND feed_id IS NOT NULL
+                    AND track_id IS NULL
+                    AND contributor_position IS NULL)
+                OR (owner_kind = 'track'
+                    AND feed_id IS NULL
+                    AND track_id IS NOT NULL
+                    AND contributor_position IS NULL)
+                OR (owner_kind = 'feed_contributor'
+                    AND feed_id IS NOT NULL
+                    AND track_id IS NULL
+                    AND contributor_position IS NOT NULL)
+                OR (owner_kind = 'track_contributor'
+                    AND feed_id IS NULL
+                    AND track_id IS NOT NULL
+                    AND contributor_position IS NOT NULL)
+            )
+        );
+
+        CREATE TABLE IF NOT EXISTS entity_contributors (
+            id INTEGER PRIMARY KEY,
+            owner_kind TEXT NOT NULL,
+            feed_id INTEGER NULL REFERENCES feeds(id) ON DELETE CASCADE,
+            track_id INTEGER NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            name TEXT NULL,
+            role TEXT NULL,
+            group_name TEXT NULL,
+            href TEXT NULL,
+            image_url TEXT NULL,
+            nostr_npub TEXT NULL,
+            source TEXT NOT NULL CHECK (source != ''),
+            raw_json TEXT NULL,
+            observed_at INTEGER NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK (
+                (owner_kind = 'feed'
+                    AND feed_id IS NOT NULL
+                    AND track_id IS NULL)
+                OR (owner_kind = 'track'
+                    AND feed_id IS NULL
+                    AND track_id IS NOT NULL)
+            )
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_entity_identity_links_owner
+            ON entity_identity_links(owner_kind, feed_id, track_id, contributor_position);
+        CREATE INDEX IF NOT EXISTS idx_entity_identity_links_owner_source
+            ON entity_identity_links(owner_kind, feed_id, track_id, contributor_position, source);
+        CREATE INDEX IF NOT EXISTS idx_entity_identity_links_feed_id
+            ON entity_identity_links(feed_id);
+        CREATE INDEX IF NOT EXISTS idx_entity_identity_links_track_id
+            ON entity_identity_links(track_id);
+
+        CREATE INDEX IF NOT EXISTS idx_entity_identity_ids_owner
+            ON entity_identity_ids(owner_kind, feed_id, track_id, contributor_position);
+        CREATE INDEX IF NOT EXISTS idx_entity_identity_ids_owner_source
+            ON entity_identity_ids(owner_kind, feed_id, track_id, contributor_position, source);
+        CREATE INDEX IF NOT EXISTS idx_entity_identity_ids_feed_id
+            ON entity_identity_ids(feed_id);
+        CREATE INDEX IF NOT EXISTS idx_entity_identity_ids_track_id
+            ON entity_identity_ids(track_id);
+
+        CREATE INDEX IF NOT EXISTS idx_entity_contributors_owner
+            ON entity_contributors(owner_kind, feed_id, track_id);
+        CREATE INDEX IF NOT EXISTS idx_entity_contributors_owner_source
+            ON entity_contributors(owner_kind, feed_id, track_id, source);
+        CREATE INDEX IF NOT EXISTS idx_entity_contributors_feed_id
+            ON entity_contributors(feed_id);
+        CREATE INDEX IF NOT EXISTS idx_entity_contributors_track_id
+            ON entity_contributors(track_id);
+        "#,
+    )
+    .context("create identity source fact tables")?;
     Ok(())
 }
 
@@ -1183,6 +1753,24 @@ mod tests {
             .filter_map(Result::ok)
             .any(|name| name.eq_ignore_ascii_case(column));
         Ok(has_column)
+    }
+
+    fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
+        conn.query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |_| Ok(()),
+        )
+        .optional()
+        .with_context(|| format!("query table_exists for {table}"))
+        .map(|value| value.is_some())
+    }
+
+    fn table_row_count(conn: &Connection, table: &str) -> Result<i64> {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .with_context(|| format!("count rows in {table}"))
     }
 
     fn applied_migration_versions(conn: &Connection) -> Result<Vec<i64>> {
@@ -1232,7 +1820,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2],
+            vec![1, 2, 3],
             "fresh schema should record all registry migrations"
         );
 
@@ -1276,9 +1864,267 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2],
+            vec![1, 2, 3],
             "migration registry should be idempotent"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_source_fact_schema_creates_tables() -> Result<()> {
+        let conn = setup_test_db()?;
+
+        assert!(
+            table_exists(&conn, "entity_identity_links")?,
+            "schema should include entity_identity_links"
+        );
+        assert!(
+            table_exists(&conn, "entity_identity_ids")?,
+            "schema should include entity_identity_ids"
+        );
+        assert!(
+            table_exists(&conn, "entity_contributors")?,
+            "schema should include entity_contributors"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_source_facts_round_trip() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+
+        replace_local_identity_links(
+            &mut conn,
+            LocalIdentityOwner::Feed(feed_id),
+            "musicindex",
+            &[LocalIdentityLinkInput {
+                entity_type: Some("feed".to_owned()),
+                entity_id: Some("feed-123".to_owned()),
+                position: Some(0),
+                link_type: Some("website".to_owned()),
+                url: Some("https://example.test".to_owned()),
+                extraction_path: Some("$.source_links[0]".to_owned()),
+                observed_at: Some(1_714_000_000),
+                raw_json: Some(r#"{"url":"https://example.test"}"#.to_owned()),
+            }],
+        )?;
+        replace_local_identity_ids(
+            &mut conn,
+            LocalIdentityOwner::Track(track_id),
+            "musicindex",
+            &[LocalIdentityIdInput {
+                entity_type: Some("track".to_owned()),
+                entity_id: Some("track-123".to_owned()),
+                position: Some(0),
+                scheme: Some("isrc".to_owned()),
+                value: Some("US-AAA-24-00001".to_owned()),
+                extraction_path: Some("$.source_ids[0]".to_owned()),
+                observed_at: Some(1_714_000_001),
+                raw_json: Some(r#"{"scheme":"isrc"}"#.to_owned()),
+            }],
+        )?;
+        replace_local_contributors(
+            &mut conn,
+            LocalEntityOwner::Feed(feed_id),
+            "musicindex",
+            &[LocalContributorInput {
+                position: 0,
+                name: Some("Alice".to_owned()),
+                role: Some("host".to_owned()),
+                group_name: Some("hosts".to_owned()),
+                href: Some("https://example.test/alice".to_owned()),
+                image_url: Some("https://example.test/alice.jpg".to_owned()),
+                nostr_npub: Some("npub1alice".to_owned()),
+                raw_json: Some(r#"{"name":"Alice"}"#.to_owned()),
+                observed_at: Some(1_714_000_002),
+            }],
+        )?;
+
+        let links = local_identity_links(&conn, LocalIdentityOwner::Feed(feed_id))?;
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].link_type.as_deref(), Some("website"));
+        assert_eq!(links[0].url.as_deref(), Some("https://example.test"));
+        assert_eq!(links[0].source, "musicindex");
+        assert_eq!(
+            links[0].raw_json.as_deref(),
+            Some(r#"{"url":"https://example.test"}"#)
+        );
+
+        let ids = local_identity_ids(&conn, LocalIdentityOwner::Track(track_id))?;
+        assert_eq!(ids.len(), 1);
+        assert_eq!(ids[0].scheme.as_deref(), Some("isrc"));
+        assert_eq!(ids[0].value.as_deref(), Some("US-AAA-24-00001"));
+        assert_eq!(ids[0].source, "musicindex");
+
+        let contributors = local_contributors(&conn, LocalEntityOwner::Feed(feed_id))?;
+        assert_eq!(contributors.len(), 1);
+        assert_eq!(contributors[0].name.as_deref(), Some("Alice"));
+        assert_eq!(
+            contributors[0].image_url.as_deref(),
+            Some("https://example.test/alice.jpg")
+        );
+        assert_eq!(contributors[0].nostr_npub.as_deref(), Some("npub1alice"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_source_replacement_is_source_scoped() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let owner = LocalIdentityOwner::Feed(feed_id);
+
+        replace_local_identity_links(
+            &mut conn,
+            owner,
+            "musicindex",
+            &[LocalIdentityLinkInput {
+                url: Some("https://musicindex.example/old".to_owned()),
+                ..LocalIdentityLinkInput::default()
+            }],
+        )?;
+        replace_local_identity_links(
+            &mut conn,
+            owner,
+            "rss",
+            &[LocalIdentityLinkInput {
+                url: Some("https://rss.example/source".to_owned()),
+                ..LocalIdentityLinkInput::default()
+            }],
+        )?;
+        replace_local_identity_links(
+            &mut conn,
+            owner,
+            "musicindex",
+            &[LocalIdentityLinkInput {
+                url: Some("https://musicindex.example/new".to_owned()),
+                ..LocalIdentityLinkInput::default()
+            }],
+        )?;
+
+        let links = local_identity_links(&conn, owner)?;
+        assert_eq!(links.len(), 2);
+        assert!(
+            links.iter().any(|link| {
+                link.source == "musicindex"
+                    && link.url.as_deref() == Some("https://musicindex.example/new")
+            }),
+            "musicindex source should be replaced"
+        );
+        assert!(
+            links.iter().any(|link| {
+                link.source == "rss" && link.url.as_deref() == Some("https://rss.example/source")
+            }),
+            "rss source should remain intact"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_source_fact_discriminator_rejects_invalid_owner_shape() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+
+        let invalid_link = conn.execute(
+            "INSERT INTO entity_identity_links (
+                 owner_kind, feed_id, track_id, source, url
+             )
+             VALUES ('feed', ?1, ?2, 'musicindex', 'https://invalid.example')",
+            rusqlite::params![feed_id, track_id],
+        );
+        assert!(
+            invalid_link.is_err(),
+            "feed identity link cannot also set track_id"
+        );
+
+        let invalid_contributor = conn.execute(
+            "INSERT INTO entity_contributors (
+                 owner_kind, feed_id, track_id, position, source, name
+             )
+             VALUES ('feed_contributor', ?1, NULL, 0, 'musicindex', 'Alice')",
+            rusqlite::params![feed_id],
+        );
+        assert!(
+            invalid_contributor.is_err(),
+            "contributors table only accepts feed or track owners"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_identity_source_facts_cascade_when_feed_is_deleted() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+
+        replace_local_identity_links(
+            &mut conn,
+            LocalIdentityOwner::Feed(feed_id),
+            "musicindex",
+            &[LocalIdentityLinkInput {
+                url: Some("https://feed.example".to_owned()),
+                ..LocalIdentityLinkInput::default()
+            }],
+        )?;
+        replace_local_identity_ids(
+            &mut conn,
+            LocalIdentityOwner::Track(track_id),
+            "musicindex",
+            &[LocalIdentityIdInput {
+                scheme: Some("isrc".to_owned()),
+                value: Some("US-AAA-24-00001".to_owned()),
+                ..LocalIdentityIdInput::default()
+            }],
+        )?;
+        replace_local_identity_links(
+            &mut conn,
+            LocalIdentityOwner::FeedContributor {
+                feed_id,
+                contributor_position: 0,
+            },
+            "musicindex",
+            &[LocalIdentityLinkInput {
+                url: Some("https://contributor.example".to_owned()),
+                ..LocalIdentityLinkInput::default()
+            }],
+        )?;
+        replace_local_identity_ids(
+            &mut conn,
+            LocalIdentityOwner::TrackContributor {
+                track_id,
+                contributor_position: 0,
+            },
+            "musicindex",
+            &[LocalIdentityIdInput {
+                scheme: Some("npub".to_owned()),
+                value: Some("npub1trackcontributor".to_owned()),
+                ..LocalIdentityIdInput::default()
+            }],
+        )?;
+        replace_local_contributors(
+            &mut conn,
+            LocalEntityOwner::Track(track_id),
+            "musicindex",
+            &[LocalContributorInput {
+                position: 0,
+                name: Some("Alice".to_owned()),
+                ..LocalContributorInput::default()
+            }],
+        )?;
+
+        conn.execute("DELETE FROM feeds WHERE id = ?1", [feed_id])
+            .context("delete test feed")?;
+
+        assert_eq!(table_row_count(&conn, "entity_identity_links")?, 0);
+        assert_eq!(table_row_count(&conn, "entity_identity_ids")?, 0);
+        assert_eq!(table_row_count(&conn, "entity_contributors")?, 0);
 
         Ok(())
     }
