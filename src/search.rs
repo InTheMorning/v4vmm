@@ -65,8 +65,8 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{render_contributor_rows, ContributorRowSlot};
 use crate::view_models::entity_detail::{
-    ContributorListVm, ContributorRowVm, EntityActionTarget, EntityActionTone, MetadataPanelState,
-    TrackMetadataActionState,
+    ContributorListVm, ContributorRowVm, EntityActionTarget, EntityActionTone,
+    EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
 };
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
@@ -3270,6 +3270,7 @@ fn track_metadata_rows_for_frame(
 
 fn track_metadata_action_state(frame: &InspectorFrame) -> TrackMetadataActionState {
     TrackMetadataActionState::new(
+        EntitySurfaceContext::Discover,
         metadata_panel_state(&frame.tag_compare),
         metadata_panel_state(&frame.musicbrainz_lookup),
         frame.entity_type == "track",

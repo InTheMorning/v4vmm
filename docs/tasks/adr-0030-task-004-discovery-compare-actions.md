@@ -2,7 +2,7 @@
 
 ## Status
 
-Pending.
+Implemented - 2026-05-01.
 
 ## Goal
 
@@ -44,9 +44,19 @@ Discovery projections.
 
 ## Acceptance Criteria
 
-- Discovery track views receive no compare action descriptors.
-- Library track views retain compare action descriptors.
-- The behavior is covered in view-model tests.
+- [x] Discovery track views receive no compare action descriptors.
+- [x] Library track views retain compare action descriptors.
+- [x] The behavior is covered in view-model tests.
+
+## Implementation Summary
+
+- Added `EntitySurfaceContext` to `TrackMetadataActionState`.
+- Passed `EntitySurfaceContext::Library` from Library track detail and
+  `EntitySurfaceContext::Discover` from Discovery track detail.
+- Gated Compare ID3 and MusicBrainz action descriptors so they only project in
+  Library context.
+- Added a unit test proving Discover context returns no compare or MusicBrainz
+  metadata actions.
 
 ## Test Commands
 
@@ -56,6 +66,8 @@ cargo check
 cargo test view_models::entity_detail
 cargo clippy -- -D warnings
 ```
+
+Verified 2026-05-01.
 
 ## Prompt for lower-context coding model
 

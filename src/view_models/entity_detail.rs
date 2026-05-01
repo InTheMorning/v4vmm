@@ -199,6 +199,7 @@ impl TrackActionState {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TrackMetadataActionState {
+    pub context: EntitySurfaceContext,
     pub compare: MetadataPanelState,
     pub musicbrainz: MetadataPanelState,
     pub has_local_file: bool,
@@ -207,11 +208,13 @@ pub struct TrackMetadataActionState {
 impl TrackMetadataActionState {
     #[must_use]
     pub const fn new(
+        context: EntitySurfaceContext,
         compare: MetadataPanelState,
         musicbrainz: MetadataPanelState,
         has_local_file: bool,
     ) -> Self {
         Self {
+            context,
             compare,
             musicbrainz,
             has_local_file,
@@ -230,7 +233,7 @@ impl TrackMetadataActionState {
 
     #[must_use]
     pub fn compare_action(&self, target: EntityActionTarget) -> Option<EntityActionVm> {
-        if !self.has_local_file {
+        if self.context != EntitySurfaceContext::Library || !self.has_local_file {
             return None;
         }
 
@@ -260,7 +263,7 @@ impl TrackMetadataActionState {
 
     #[must_use]
     pub fn musicbrainz_action(&self, target: EntityActionTarget) -> Option<EntityActionVm> {
-        if !self.has_local_file {
+        if self.context != EntitySurfaceContext::Library || !self.has_local_file {
             return None;
         }
 
@@ -1122,6 +1125,7 @@ mod tests {
     fn track_metadata_action_state_projects_compare_and_musicbrainz_actions() {
         let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
         let state = TrackMetadataActionState::new(
+            EntitySurfaceContext::Library,
             MetadataPanelState::Hidden,
             MetadataPanelState::Loading,
             true,
@@ -1133,6 +1137,7 @@ mod tests {
             .musicbrainz_action(target.clone())
             .expect("musicbrainz action should render for local files");
         let loaded = TrackMetadataActionState::new(
+            EntitySurfaceContext::Library,
             MetadataPanelState::Loaded,
             MetadataPanelState::Loaded,
             true,
@@ -1153,11 +1158,13 @@ mod tests {
     fn track_metadata_action_state_projects_panel_visibility_and_local_file_gate() {
         let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
         let no_file = TrackMetadataActionState::new(
+            EntitySurfaceContext::Library,
             MetadataPanelState::Loaded,
             MetadataPanelState::Loaded,
             false,
         );
         let hidden = TrackMetadataActionState::new(
+            EntitySurfaceContext::Library,
             MetadataPanelState::Hidden,
             MetadataPanelState::Hidden,
             true,
@@ -1169,6 +1176,21 @@ mod tests {
         assert!(no_file.show_musicbrainz_panel());
         assert!(!hidden.show_compare_panel());
         assert!(!hidden.show_musicbrainz_panel());
+    }
+
+    #[test]
+    fn track_metadata_action_state_hides_compare_and_musicbrainz_actions_in_discover() {
+        let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
+        let state = TrackMetadataActionState::new(
+            EntitySurfaceContext::Discover,
+            MetadataPanelState::Hidden,
+            MetadataPanelState::Hidden,
+            true,
+        );
+
+        assert!(state.compare_action(target.clone()).is_none());
+        assert!(state.musicbrainz_action(target.clone()).is_none());
+        assert!(state.actions(target).is_empty());
     }
 
     #[test]

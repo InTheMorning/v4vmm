@@ -3042,6 +3042,7 @@ fn render_track_window(
 
 fn track_metadata_action_state(frame: &InspectorFrame) -> TrackMetadataActionState {
     TrackMetadataActionState::new(
+        EntitySurfaceContext::Library,
         metadata_panel_state(&frame.tag_compare),
         metadata_panel_state(&frame.musicbrainz_lookup),
         frame.track.local_path.is_some(),
