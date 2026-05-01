@@ -11,37 +11,41 @@ prioritized, and routed to the right governance artifact.
 
 ## Priority Order
 
-1. Artist identity persistence; person identity deferred.
-   - Status: ADR 0029 accepted and in progress.
-   - Artifact: `docs/adr/0029-artist-person-identity-persistence.md`.
-   - Next task: `docs/tasks/adr-0029-task-005-final-gates.md`.
-   - Person/global identity remains future ADR work until durable person ids and
-     merge policy exist.
-2. Library/Discover data parity for release date, language, explicit state,
+1. Track-to-artist binding for name-derived Library artist views.
+   - Status: deferred from ADR 0029.
+   - Route: future ADR before adding `tracks` artist-subject bindings,
+     source-priority rules, or conflict surfacing.
+2. Person/global identity persistence.
+   - Status: deferred from ADR 0029.
+   - Route: future ADR only after durable person ids and merge policy exist.
+3. Library/Discover data parity for release date, language, explicit state,
    description, and related local detail fields.
    - Status: needs triage after ADR 0028 contributor visibility.
    - Route: ADR 0024 query/read-model work if the fix is loading shape;
      source-fact ADR work if the fix is persistence.
-3. ADR 0024 query/service thinning for remote-only Discover reads and remote
+4. ADR 0024 query/service thinning for remote-only Discover reads and remote
    inspector lazy panels.
    - Status: deferred from ADR 0024 final review.
    - Route: new ADR 0024 follow-up plan and bounded vertical slices.
-4. Staged metadata durability.
+5. Staged metadata durability.
    - Status: product/storage decision required.
    - Route: future ADR before schema or command behavior changes.
-5. Non-URL artwork rendering.
+6. Non-URL artwork rendering.
    - Status: audit completed; no producer/resolver contract yet.
    - Route: future ADR only when cache, storage, or public artwork contracts
      change.
-6. Playback volume and playback-driver supervision.
+7. Playback volume and playback-driver supervision.
    - Status: isolated playback-boundary follow-up.
    - Route: ADR 0021/0024 follow-up after the driver contract is clear.
-7. Visual-system polish and lower-priority product improvements.
+8. Visual-system polish and lower-priority product improvements.
    - Status: use bounded ADR 0025 tasks only when the change affects tokens,
      primitives, composites, or theme contracts.
 
 ## Recently Resolved
 
+- ADR 0029 explicit artist identity persistence is complete for its runtime
+  scope. It persists explicit MusicIndex artist source facts and hydrates
+  `ArtistRef::Musicindex` locally without name matching.
 - Library contributor identity visibility is no longer deferred. It was
   completed by `docs/tasks/post-adr-0028-task-001-library-contributor-panel.md`.
 - ADR 0027 action-state parity is implemented and should not be reopened for

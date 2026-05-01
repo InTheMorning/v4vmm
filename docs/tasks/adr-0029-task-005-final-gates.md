@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned - 2026-05-01. Depends on Tasks 003-004.
+Implemented - 2026-05-01.
 
 ## Goal
 
@@ -33,10 +33,18 @@ remaining deferred work.
 
 ## Acceptance Criteria
 
-- [ ] ADR 0029 status reflects completed runtime tasks.
-- [ ] Deferred work index names only true remaining work.
-- [ ] Architecture tests remain green.
-- [ ] Full verification gate passes.
+- [x] ADR 0029 status reflects completed runtime tasks.
+- [x] Deferred work index names only true remaining work.
+- [x] Architecture tests remain green.
+- [x] Full verification gate passes.
+
+## Implementation Summary
+
+- Marked ADR 0029 runtime scope complete.
+- Marked the phase plan complete and recorded the final gate.
+- Moved remaining work to explicit future ADR items:
+  track-to-artist-subject binding and person/global identity persistence.
+- Added the Task 005 review under `docs/reviews/`.
 
 ## Test Commands
 
@@ -47,6 +55,8 @@ cargo test --test architecture_tests
 cargo clippy --lib --tests -- -D warnings
 cargo test
 ```
+
+Verified 2026-05-01.
 
 ## Prompt for lower-context coding model
 

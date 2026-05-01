@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - 2026-05-01. Tasks 001-004 implemented.
+Complete - 2026-05-01. Tasks 001-005 implemented.
 
 ## Goal
 
@@ -54,8 +54,9 @@ provenance-first data used by Discover. Person identity remains deferred.
 4. Local explicit-source artist lookup/hydration for `ArtistView`.
    Implemented 2026-05-01.
    Task: `docs/tasks/adr-0029-task-004-local-artist-source-hydration.md`.
-5. Visual smoke and final architecture gates.
-   Next task: `docs/tasks/adr-0029-task-005-final-gates.md`.
+5. Projection and final architecture gates.
+   Implemented 2026-05-01.
+   Task: `docs/tasks/adr-0029-task-005-final-gates.md`.
 
 ## Schema/API Implications
 
@@ -99,6 +100,13 @@ cargo clippy --lib --tests -- -D warnings
 cargo test
 ```
 
+Final gate passed on 2026-05-01.
+
+No screenshot smoke was required for Task 005 because it changed documentation
+only. Task 004's user-visible artist projection contract is covered by focused
+`ArtistView` and `LocalSource` tests; future screen wiring must add visual
+smoke in its own task.
+
 ## Rollback Strategy
 
 - Task 001 has no runtime rollback.
@@ -107,3 +115,10 @@ cargo test
   leaving additive tables harmless.
 - If hydration produces confusing display conflicts, keep persisted facts but
   hide the convenience display until the projection policy is revised.
+
+## Remaining Deferred Work
+
+- Track-to-artist-subject binding for name-derived Library artist views is
+  outside ADR 0029 and requires a future ADR.
+- Runtime person/global-identity persistence remains deferred until durable
+  person ids and merge policy exist.

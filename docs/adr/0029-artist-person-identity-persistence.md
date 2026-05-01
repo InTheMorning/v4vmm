@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted - 2026-05-01. Tasks 001-004 implemented; final gates pending.
+Accepted - 2026-05-01. Tasks 001-005 complete. ADR runtime scope closed;
+follow-up ADRs remain for name-derived artist binding and person identity.
 
 ## Context
 
@@ -173,6 +174,8 @@ For an artist with a stored `(source, source_artist_id)` row, a local
 Library `ArtistView` for a name-derived `ArtistRef::LocalArtistName` continues
 to behave as it does today; this ADR does not regress that path.
 
+Completed by Tasks 003-004 and verified by Task 005 on 2026-05-01.
+
 ## Alternatives Considered
 
 ### Name-Based Artist Table
@@ -201,6 +204,7 @@ Library artist views poorer than Discover and blocks offline identity parity.
   source-fact tables.
 - Task 004 hydrates local `ArtistView` from explicit source facts for
   `ArtistRef::Musicindex`.
+- Task 005 verified the full gate and closed ADR 0029's runtime scope.
 - A follow-up ADR must define track-to-artist-subject binding before Library
   can hydrate artist views for name-derived artists.
 - Runtime person/global-identity implementation must wait for durable person
