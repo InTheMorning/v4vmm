@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted - 2026-05-01. Tasks 001-002 implemented; remaining phases pending.
+Accepted - 2026-05-01. Tasks 001-004 implemented; final gates pending.
 
 ## Context
 
@@ -199,7 +199,7 @@ Library artist views poorer than Discover and blocks offline identity parity.
   subjects only.
 - Task 003 persists explicit MusicIndex artist records into the artist
   source-fact tables.
-- Task 004 should hydrate local `ArtistView` from explicit source facts for
+- Task 004 hydrates local `ArtistView` from explicit source facts for
   `ArtistRef::Musicindex`.
 - A follow-up ADR must define track-to-artist-subject binding before Library
   can hydrate artist views for name-derived artists.

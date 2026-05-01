@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned - 2026-05-01. Depends on Task 003.
+Implemented - 2026-05-01.
 
 ## Goal
 
@@ -46,11 +46,21 @@ already has an explicit MusicIndex artist id.
 
 ## Acceptance Criteria
 
-- [ ] LocalSource can fetch `ArtistRef::Musicindex` from persisted facts.
-- [ ] LocalSource still fetches `ArtistRef::LocalArtistName` from local tracks.
-- [ ] Missing explicit artist facts return a clear not-found error.
-- [ ] No local name-derived artist receives source facts.
-- [ ] Required verification commands pass.
+- [x] LocalSource can fetch `ArtistRef::Musicindex` from persisted facts.
+- [x] LocalSource still fetches `ArtistRef::LocalArtistName` from local tracks.
+- [x] Missing explicit artist facts return a clear not-found error.
+- [x] No local name-derived artist receives source facts.
+- [x] Required verification commands pass.
+
+## Implementation Summary
+
+- Added `ArtistView::from_artist_source_fact` to map
+  `db::ArtistSourceFactRow` into the GPUI-free projection.
+- Added source-fact row conversions for local identity links and ids.
+- Used checked `i64` to `i32` conversion for active years.
+- Updated `LocalSource::fetch_artist` so `ArtistRef::Musicindex(id)` resolves
+  from `artist_source_facts`.
+- Left `ArtistRef::LocalArtistName` on the existing local track-row path.
 
 ## Test Commands
 
@@ -63,6 +73,8 @@ cargo test --test architecture_tests
 cargo clippy --lib --tests -- -D warnings
 cargo test
 ```
+
+Verified 2026-05-01.
 
 ## Prompt for lower-context coding model
 

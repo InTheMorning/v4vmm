@@ -175,6 +175,36 @@ impl From<api::SourceEntityId> for IdentityIdFact {
     }
 }
 
+impl From<db::LocalIdentityLinkRow> for IdentityLinkFact {
+    fn from(link: db::LocalIdentityLinkRow) -> Self {
+        Self {
+            entity_type: link.entity_type,
+            entity_id: link.entity_id,
+            position: link.position,
+            link_type: link.link_type,
+            url: link.url,
+            source: Some(link.source),
+            extraction_path: link.extraction_path,
+            observed_at: link.observed_at,
+        }
+    }
+}
+
+impl From<db::LocalIdentityIdRow> for IdentityIdFact {
+    fn from(id: db::LocalIdentityIdRow) -> Self {
+        Self {
+            entity_type: id.entity_type,
+            entity_id: id.entity_id,
+            position: id.position,
+            scheme: id.scheme,
+            value: id.value,
+            source: Some(id.source),
+            extraction_path: id.extraction_path,
+            observed_at: id.observed_at,
+        }
+    }
+}
+
 impl From<api::Contributor> for ContributorView {
     fn from(contributor: api::Contributor) -> Self {
         Self {
@@ -277,6 +307,10 @@ fn artwork_from_url(url: &Option<String>) -> Option<ArtworkRef> {
     url.clone().map(ArtworkRef::Url)
 }
 
+fn checked_year(year: Option<i64>) -> Option<i32> {
+    year.and_then(|year| i32::try_from(year).ok())
+}
+
 impl ArtistView {
     pub fn from_api(a: api::Artist) -> Self {
         let image_url = a.image_url;
@@ -297,6 +331,46 @@ impl ArtistView {
             url: a.url,
             aliases: a.aliases.unwrap_or_default(),
             tags: a.tags.unwrap_or_default(),
+        }
+    }
+
+    pub fn from_artist_source_fact(row: db::ArtistSourceFactRow) -> Self {
+        let image_url = row.image_url;
+        let source_links = row
+            .source_links
+            .into_iter()
+            .map(IdentityLinkFact::from)
+            .collect();
+        let source_ids = row
+            .source_ids
+            .into_iter()
+            .map(IdentityIdFact::from)
+            .collect();
+        let mut identity =
+            EntityIdentityLinks::from_source_facts(image_url.clone(), source_links, source_ids);
+        if identity.website_url.is_none() {
+            identity.website_url.clone_from(&row.website_url);
+        }
+
+        Self {
+            id: if row.source == "musicindex" {
+                Some(ArtistRef::Musicindex(row.source_artist_id))
+            } else {
+                None
+            },
+            name: row.name,
+            sort_name: row.sort_name,
+            image_url: image_url.clone(),
+            artwork: artwork_from_url(&image_url),
+            identity,
+            area: row.area,
+            begin_year: checked_year(row.begin_year),
+            end_year: checked_year(row.end_year),
+            feed_count: None,
+            track_count: None,
+            url: row.website_url,
+            aliases: row.aliases,
+            tags: row.tags,
         }
     }
 
@@ -799,5 +873,104 @@ mod tests {
 
         assert_eq!(view.feed_count, Some(2));
         assert_eq!(view.track_count, Some(3));
+    }
+
+    #[test]
+    fn artist_source_fact_maps_explicit_musicindex_artist() {
+        let view = ArtistView::from_artist_source_fact(db::ArtistSourceFactRow {
+            source: "musicindex".into(),
+            source_artist_id: "artist-123".into(),
+            name: Some("Alice".into()),
+            sort_name: Some("Alice, The".into()),
+            image_url: Some("https://example.test/alice.jpg".into()),
+            website_url: Some("https://example.test/alice".into()),
+            aliases: vec!["A. Example".into()],
+            tags: vec!["podcast".into()],
+            area: Some("Montreal".into()),
+            begin_year: Some(2020),
+            end_year: Some(2024),
+            observed_at: Some(1_714_000_000),
+            raw_json: Some("{\"artist_id\":\"artist-123\"}".into()),
+            source_links: vec![db::LocalIdentityLinkRow {
+                entity_type: Some("artist".into()),
+                entity_id: Some("artist-123".into()),
+                position: Some(0),
+                link_type: Some("website".into()),
+                url: Some("https://example.test/source-link".into()),
+                source: "musicindex".into(),
+                extraction_path: Some("$.source_links[0]".into()),
+                observed_at: Some(1_714_000_001),
+                raw_json: None,
+            }],
+            source_ids: vec![db::LocalIdentityIdRow {
+                entity_type: Some("artist".into()),
+                entity_id: Some("artist-123".into()),
+                position: Some(0),
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1artist".into()),
+                source: "musicindex".into(),
+                extraction_path: Some("$.source_ids[0]".into()),
+                observed_at: Some(1_714_000_002),
+                raw_json: None,
+            }],
+        });
+
+        assert!(matches!(
+            view.id,
+            Some(ArtistRef::Musicindex(ref id)) if id == "artist-123"
+        ));
+        assert_eq!(view.name.as_deref(), Some("Alice"));
+        assert_eq!(view.sort_name.as_deref(), Some("Alice, The"));
+        assert_eq!(
+            view.image_url.as_deref(),
+            Some("https://example.test/alice.jpg")
+        );
+        assert_eq!(
+            view.artwork,
+            Some(ArtworkRef::Url("https://example.test/alice.jpg".into()))
+        );
+        assert_eq!(view.url.as_deref(), Some("https://example.test/alice"));
+        assert_eq!(
+            view.identity.website_url.as_deref(),
+            Some("https://example.test/source-link")
+        );
+        assert_eq!(view.identity.nostr_npub.as_deref(), Some("npub1artist"));
+        assert_eq!(
+            view.identity.image_url.as_deref(),
+            Some("https://example.test/alice.jpg")
+        );
+        assert_eq!(view.identity.source_links.len(), 1);
+        assert_eq!(view.identity.source_ids.len(), 1);
+        assert_eq!(view.area.as_deref(), Some("Montreal"));
+        assert_eq!(view.begin_year, Some(2020));
+        assert_eq!(view.end_year, Some(2024));
+        assert_eq!(view.feed_count, None);
+        assert_eq!(view.track_count, None);
+        assert_eq!(view.aliases, vec!["A. Example"]);
+        assert_eq!(view.tags, vec!["podcast"]);
+    }
+
+    #[test]
+    fn artist_source_fact_drops_out_of_range_years() {
+        let view = ArtistView::from_artist_source_fact(db::ArtistSourceFactRow {
+            source: "musicindex".into(),
+            source_artist_id: "artist-123".into(),
+            begin_year: Some(i64::from(i32::MAX) + 1),
+            end_year: Some(i64::from(i32::MIN) - 1),
+            name: Some("Alice".into()),
+            sort_name: None,
+            image_url: None,
+            website_url: None,
+            aliases: Vec::new(),
+            tags: Vec::new(),
+            area: None,
+            observed_at: None,
+            raw_json: None,
+            source_links: Vec::new(),
+            source_ids: Vec::new(),
+        });
+
+        assert_eq!(view.begin_year, None);
+        assert_eq!(view.end_year, None);
     }
 }
