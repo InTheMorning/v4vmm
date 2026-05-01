@@ -56,6 +56,7 @@ The target module shape is:
 src/ui/
   tokens.rs              existing semantic token base
   theme_bridge.rs        existing gpui-component bridge
+  theme_profiles.rs      profile-specific semantic color resolution
   style.rs               fixed geometry + bridge-aware compatibility roles
   icons.rs               semantic icon catalog and Icon primitive facade
   control_styles.rs      role mapping for the native Button primitive
@@ -112,12 +113,13 @@ resolution to callers:
 pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App)
 ```
 
-`theme_bridge` owns the mapping from `ThemeProfile` to `Appearance` and any
-future profile-specific role resolution that needs GPUI/token types. Current
-theme-install call sites must pass `ThemeProfile::Dark` until config/profile
-selection exists. Keeping `install_theme(appearance, scale, cx)` as the primary
-API is not allowed after Task 001, because downstream icon and control code
-need one profile-driven theme contract.
+`ui::theme_profiles` owns the mapping from `ThemeProfile` to `Appearance` and
+profile-specific semantic color resolution. `theme_bridge` installs those
+resolved colors into `gpui_component`. Current theme-install call sites must
+pass `ThemeProfile::Dark` until config/profile selection exists. Keeping
+`install_theme(appearance, scale, cx)` as the primary API is not allowed after
+Task 001, because downstream icon and control code need one profile-driven
+theme contract.
 
 ### Icon boundary
 
@@ -443,6 +445,8 @@ helpers.
   visual helpers after each phase has a replacement.
 - Keep existing WCAG contrast matrix tests for dark and light appearances.
 - Add contrast tests for any high-contrast theme profiles before exposing them.
+- High-contrast profiles must be visually distinct from the base Dark/Light
+  palettes, not just aliases that reuse the same contrast matrix.
 - Task 001 must add high-contrast profile coverage to the existing contrast
   matrix or an equivalent focused matrix.
 - Add focused unit tests for icon role metadata where the icon catalog carries
@@ -481,7 +485,8 @@ This ADR is fulfilled when:
   architecture tests.
 - Entity/status badges use typed roles rather than string-keyed color maps.
 - Light and dark profiles pass the existing contrast tests.
-- High-contrast profiles pass contrast tests before being exposed as settings.
+- High-contrast profiles pass contrast tests and are visually distinct from
+  base Dark/Light before being exposed as settings.
 - Runtime profile changes reinstall the theme and refresh windows without
   screen-specific theme code.
 - Phase 6 retirement gate: migrated screen files have zero `theme::color::*`,

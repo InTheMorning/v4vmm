@@ -267,7 +267,7 @@ mod tests {
     use super::*;
     use crate::theme_profile::ThemeProfile;
     use crate::ui::icons::IconName;
-    use crate::ui::theme_bridge::appearance_for_profile;
+    use crate::ui::theme_profiles::resolve_profile_color;
     use crate::ui::tokens::{Appearance, SemanticColor};
 
     /// Sanity: black-on-white is the WCAG reference at 21 : 1.
@@ -326,11 +326,10 @@ mod tests {
     }
 
     fn check_profile_matrix(profile: ThemeProfile) {
-        let appearance = appearance_for_profile(profile);
         let mut failures = Vec::new();
         for pair in REQUIRED_PAIRS {
-            let fg = pair.fg.resolve(appearance);
-            let bg = pair.bg.resolve(appearance);
+            let fg = resolve_profile_color(profile, pair.fg);
+            let bg = resolve_profile_color(profile, pair.bg);
             let actual = ratio(fg, bg);
             let required = pair.level.min_ratio();
             if actual + 0.005 < required {
@@ -367,6 +366,28 @@ mod tests {
     #[test]
     fn high_contrast_light_profile_meets_wcag() {
         check_profile_matrix(ThemeProfile::HighContrastLight);
+    }
+
+    #[test]
+    fn high_contrast_profiles_are_distinct_from_base_profiles() {
+        for token in [
+            SemanticColor::SecondaryLabel,
+            SemanticColor::Separator,
+            SemanticColor::Accent,
+            SemanticColor::Focus,
+            SemanticColor::SelectedContent,
+        ] {
+            assert_ne!(
+                resolve_profile_color(ThemeProfile::HighContrastDark, token),
+                resolve_profile_color(ThemeProfile::Dark, token),
+                "{token:?} should differ in high-contrast dark"
+            );
+            assert_ne!(
+                resolve_profile_color(ThemeProfile::HighContrastLight, token),
+                resolve_profile_color(ThemeProfile::Light, token),
+                "{token:?} should differ in high-contrast light"
+            );
+        }
     }
 
     #[test]

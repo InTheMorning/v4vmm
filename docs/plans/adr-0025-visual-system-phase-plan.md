@@ -60,6 +60,7 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
 - `src/ui/tokens.rs`
 - `src/ui/style.rs`
 - `src/ui/theme_bridge.rs`
+- `src/ui/theme_profiles.rs`
 - `src/theme_profile.rs`
 - `src/ui/control_styles.rs`
 - `src/ui/primitives/button.rs`
@@ -129,6 +130,16 @@ unconditional.
 Status: implemented by
 `docs/tasks/adr-0025-task-006-retire-theme-shim.md`.
 
+### Phase 7 - profile-specific theme roles
+
+Move semantic color resolution behind a `ThemeProfile` resolver so high
+contrast profiles are not aliases for base Dark and Light. Keep
+`ThemeProfile` GPUI-free and keep high contrast hidden from Settings until a
+profile-specific visual smoke pass is complete.
+
+Status: implemented by
+`docs/tasks/adr-0025-task-007-profile-specific-theme-roles.md`.
+
 ## Schema/API Implications
 
 No database schema changes are expected. Phase 5 may extend `Config` with a
@@ -144,8 +155,7 @@ migration.
 - `ControlStyle` can become an unreviewed collection of one-off styles. New
   roles require at least two unrelated call sites or a state/contrast rule that
   a generic chain cannot express.
-- Runtime profile selection can expose incomplete light/high-contrast paths too
-  early.
+- Runtime profile selection can expose incomplete profile paths too early.
 
 ## Test Strategy
 
@@ -168,6 +178,8 @@ Discover, Settings, and playback controls in the current dark profile.
 - Task 005 must wait until major render paths no longer depend on dark-only
   helpers.
 - Task 006 must wait until Phases 1-5 are complete or explicitly deferred.
+- High-contrast Settings exposure must wait until Task 007 and a manual
+  high-contrast visual smoke pass are complete.
 
 ## Rollback Strategy
 

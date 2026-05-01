@@ -22,6 +22,7 @@ use gpui_component::{Theme, ThemeMode};
 
 use crate::config::UiScale;
 use crate::theme_profile::ThemeProfile;
+use crate::ui::theme_profiles::{appearance_for_profile, resolve_profile_color};
 use crate::ui::tokens::{Appearance, ScaleFactor, SemanticColor};
 
 impl From<UiScale> for ScaleFactor {
@@ -47,13 +48,18 @@ impl From<UiScale> for ScaleFactor {
 )]
 pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App) {
     let appearance = appearance_for_profile(profile);
-    crate::ui::style::install_appearance(appearance);
+    crate::ui::style::install_profile(profile);
 
     // Install the bundled Environment so every component can read appearance
     // and scale through the single SwiftUI-style accessor. Mirrors the scale
     // into the legacy `ScaleFactor` global for any code still reading it
     // directly during the migration.
-    crate::ui::tokens::Environment { appearance, scale }.install(cx);
+    crate::ui::tokens::Environment {
+        profile,
+        appearance,
+        scale,
+    }
+    .install(cx);
 
     let mode = match appearance {
         Appearance::Dark => ThemeMode::Dark,
@@ -66,30 +72,30 @@ pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App) {
     let theme = Theme::global_mut(cx);
 
     // Backgrounds.
-    let bg = hsla(SemanticColor::SystemBackground.resolve(appearance));
-    let bg2 = hsla(SemanticColor::SecondarySystemBackground.resolve(appearance));
-    let bg3 = hsla(SemanticColor::TertiarySystemBackground.resolve(appearance));
+    let bg = hsla(resolve(profile, SemanticColor::SystemBackground));
+    let bg2 = hsla(resolve(profile, SemanticColor::SecondarySystemBackground));
+    let bg3 = hsla(resolve(profile, SemanticColor::TertiarySystemBackground));
 
     // Labels.
-    let label = hsla(SemanticColor::Label.resolve(appearance));
-    let label2 = hsla(SemanticColor::SecondaryLabel.resolve(appearance));
+    let label = hsla(resolve(profile, SemanticColor::Label));
+    let label2 = hsla(resolve(profile, SemanticColor::SecondaryLabel));
 
     // Fills / accents / borders.
-    let fill = hsla(SemanticColor::SystemFill.resolve(appearance));
-    let separator = hsla(SemanticColor::Separator.resolve(appearance));
-    let opaque_sep = hsla(SemanticColor::OpaqueSeparator.resolve(appearance));
-    let accent = hsla(SemanticColor::Accent.resolve(appearance));
-    let accent_h = hsla(SemanticColor::AccentHover.resolve(appearance));
-    let accent_p = hsla(SemanticColor::AccentPressed.resolve(appearance));
-    let on_accent = hsla(SemanticColor::OnAccent.resolve(appearance));
-    let focus = hsla(SemanticColor::Focus.resolve(appearance));
-    let selected = hsla(SemanticColor::SelectedContent.resolve(appearance));
+    let fill = hsla(resolve(profile, SemanticColor::SystemFill));
+    let separator = hsla(resolve(profile, SemanticColor::Separator));
+    let opaque_sep = hsla(resolve(profile, SemanticColor::OpaqueSeparator));
+    let accent = hsla(resolve(profile, SemanticColor::Accent));
+    let accent_h = hsla(resolve(profile, SemanticColor::AccentHover));
+    let accent_p = hsla(resolve(profile, SemanticColor::AccentPressed));
+    let on_accent = hsla(resolve(profile, SemanticColor::OnAccent));
+    let focus = hsla(resolve(profile, SemanticColor::Focus));
+    let selected = hsla(resolve(profile, SemanticColor::SelectedContent));
 
     // Status.
-    let success = hsla(SemanticColor::Success.resolve(appearance));
-    let danger = hsla(SemanticColor::Danger.resolve(appearance));
-    let warning = hsla(SemanticColor::Warning.resolve(appearance));
-    let info = hsla(SemanticColor::Info.resolve(appearance));
+    let success = hsla(resolve(profile, SemanticColor::Success));
+    let danger = hsla(resolve(profile, SemanticColor::Danger));
+    let warning = hsla(resolve(profile, SemanticColor::Warning));
+    let info = hsla(resolve(profile, SemanticColor::Info));
 
     // Window / canvas.
     theme.background = bg;
@@ -208,14 +214,8 @@ pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App) {
     cx.refresh_windows();
 }
 
-#[must_use]
-pub const fn appearance_for_profile(profile: ThemeProfile) -> Appearance {
-    match profile {
-        ThemeProfile::System | ThemeProfile::Dark | ThemeProfile::HighContrastDark => {
-            Appearance::Dark
-        }
-        ThemeProfile::Light | ThemeProfile::HighContrastLight => Appearance::Light,
-    }
+fn resolve(profile: ThemeProfile, token: SemanticColor) -> Rgba {
+    resolve_profile_color(profile, token)
 }
 
 /// Convert our `Rgba` token output to gpui's `Hsla` that the theme stores.

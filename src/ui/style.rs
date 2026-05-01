@@ -1,7 +1,7 @@
 //! Visual roles and fixed geometry used while screens finish migrating.
 //!
 //! This module replaces the old `ui::theme` compatibility shim. Color roles
-//! resolve through the appearance installed by `theme_bridge`, so runtime theme
+//! resolve through the profile installed by `theme_bridge`, so runtime theme
 //! changes repaint without dark-only helper calls. The spacing, radius,
 //! typography, and layout constants are fixed geometry kept for legacy screen
 //! parity until those call sites move fully onto token enums.
@@ -12,27 +12,38 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use gpui::{px, FontWeight, Pixels, Rgba, Styled};
 
-use crate::ui::tokens::{Appearance, SemanticColor};
+use crate::theme_profile::ThemeProfile;
+use crate::ui::theme_profiles::resolve_profile_color;
+use crate::ui::tokens::SemanticColor;
 
-static CURRENT_APPEARANCE: AtomicU8 = AtomicU8::new(0);
+static CURRENT_PROFILE: AtomicU8 = AtomicU8::new(profile_to_raw(ThemeProfile::Dark));
 
-pub(crate) fn install_appearance(appearance: Appearance) {
-    let raw = match appearance {
-        Appearance::Dark => 0,
-        Appearance::Light => 1,
-    };
-    CURRENT_APPEARANCE.store(raw, Ordering::Relaxed);
+pub(crate) fn install_profile(profile: ThemeProfile) {
+    CURRENT_PROFILE.store(profile_to_raw(profile), Ordering::Relaxed);
 }
 
-fn current_appearance() -> Appearance {
-    match CURRENT_APPEARANCE.load(Ordering::Relaxed) {
-        1 => Appearance::Light,
-        _ => Appearance::Dark,
+const fn profile_to_raw(profile: ThemeProfile) -> u8 {
+    match profile {
+        ThemeProfile::System => 0,
+        ThemeProfile::Dark => 1,
+        ThemeProfile::Light => 2,
+        ThemeProfile::HighContrastDark => 3,
+        ThemeProfile::HighContrastLight => 4,
+    }
+}
+
+fn current_profile() -> ThemeProfile {
+    match CURRENT_PROFILE.load(Ordering::Relaxed) {
+        0 => ThemeProfile::System,
+        2 => ThemeProfile::Light,
+        3 => ThemeProfile::HighContrastDark,
+        4 => ThemeProfile::HighContrastLight,
+        _ => ThemeProfile::Dark,
     }
 }
 
 fn role(token: SemanticColor) -> Rgba {
-    token.resolve(current_appearance())
+    resolve_profile_color(current_profile(), token)
 }
 
 pub mod color {

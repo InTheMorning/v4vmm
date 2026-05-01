@@ -2,8 +2,9 @@
 //!
 //! Inspired by Apple Human Interface Guidelines: every value has a semantic name
 //! (`Label`, `SecondaryLabel`, `SystemBackground`, `SystemFill`, `Separator`,
-//! `Accent`, …) rather than a raw hex literal. Each color token resolves
-//! against an [`Appearance`] (`Light` or `Dark`).
+//! `Accent`, …) rather than a raw hex literal. Base color tokens resolve
+//! against an [`Appearance`] (`Light` or `Dark`); app rendering resolves them
+//! through the active [`crate::theme_profile::ThemeProfile`].
 //!
 //! Call sites should never use raw `rgb(0x…)` literals. Use:
 //!
@@ -20,6 +21,8 @@
 use gpui::{px, App, FontWeight, Pixels, Rgba};
 
 use gpui_component::ActiveTheme;
+
+use crate::theme_profile::ThemeProfile;
 
 /// Visual appearance scheme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -248,7 +251,7 @@ impl SemanticColor {
 /// Resolve a semantic color against the current appearance.
 #[must_use]
 pub fn color(cx: &App, token: SemanticColor) -> Rgba {
-    token.resolve(Appearance::current(cx))
+    crate::ui::theme_profiles::resolve_profile_color(Environment::current(cx).profile, token)
 }
 
 // -----------------------------------------------------------------------------
@@ -516,11 +519,15 @@ impl gpui::Global for ScaleFactor {}
 /// ```ignore
 /// use crate::ui::tokens::Environment;
 /// let env = Environment::current(cx);
-/// let bg = SemanticColor::SystemBackground.resolve(env.appearance);
+/// let bg = crate::ui::theme_profiles::resolve_profile_color(
+///     env.profile,
+///     SemanticColor::SystemBackground,
+/// );
 /// let pad = Spacing::Md.scaled(cx);   // reads env.scale internally
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Environment {
+    pub profile: ThemeProfile,
     pub appearance: Appearance,
     pub scale: ScaleFactor,
 }

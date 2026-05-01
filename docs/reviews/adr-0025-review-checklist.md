@@ -42,6 +42,7 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 - [x] Theme-profile contract preserves current dark default behavior.
 - [x] High-contrast profile tests exist before high contrast is exposed.
+- [x] High-contrast profiles are visually distinct from base Dark/Light.
 - [x] Architecture gates ratchet deprecated helper usage without false
       positives that block planned migrations.
 - [x] Brand/protocol icon colors have non-text contrast coverage.
