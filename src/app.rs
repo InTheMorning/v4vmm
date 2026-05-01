@@ -13,7 +13,7 @@ use gpui_component::input::{Input, InputState};
 use gpui_component::{Root, Size};
 use rusqlite::Connection;
 
-use crate::application::{ApplicationEvent, ApplicationEventSubscriber, ApplicationServices};
+use crate::application::{ApplicationEventSubscriber, ApplicationServices};
 use crate::config;
 use crate::db;
 use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryAppEvent};
@@ -22,13 +22,14 @@ use crate::media::ImageCache;
 use crate::playback;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
-use crate::presentation::{GpuiCommandRunner, GpuiEventBridge, PresentationEventBridge};
+use crate::presentation::{GpuiCommandRunner, GpuiEventBridge};
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::layout;
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size as TokenSize, Spacing};
 use crate::view_models::library::LibraryTree;
 
+mod events;
 mod keyboard;
 mod playback_bar;
 
@@ -337,28 +338,6 @@ impl TopApp {
         }
     }
 
-    fn defer_application_event_drain(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.application_event_bridge.pending_event_count() == 0 {
-            return;
-        }
-        cx.defer_in(window, |this, _window, cx| {
-            this.drain_application_events(cx);
-        });
-    }
-
-    fn drain_application_events(&mut self, cx: &mut Context<Self>) {
-        let events = self.application_event_bridge.drain_events();
-        if events.is_empty() {
-            return;
-        }
-        if events.iter().any(affects_library_surfaces) {
-            self.reload_cached();
-            self.library.update(cx, LibraryApp::refresh);
-            self.search.update(cx, SearchApp::refresh_application_state);
-        }
-        cx.notify();
-    }
-
     fn delete_cached_file(&mut self, path: &str) {
         if let Err(err) = std::fs::remove_file(path) {
             if err.kind() != std::io::ErrorKind::NotFound {
@@ -404,17 +383,6 @@ impl TopApp {
         drop(conn);
         self.reload_cached();
     }
-}
-
-fn affects_library_surfaces(event: &ApplicationEvent) -> bool {
-    matches!(
-        event,
-        ApplicationEvent::Library(_)
-            | ApplicationEvent::Playlist(_)
-            | ApplicationEvent::Feed(_)
-            | ApplicationEvent::Download(_)
-            | ApplicationEvent::Metadata(_)
-    )
 }
 
 impl Render for TopApp {
