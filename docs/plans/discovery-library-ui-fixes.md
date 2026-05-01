@@ -6,12 +6,23 @@ Imported from: `/home/citizen/.claude/plans/typing-a-backslash-stateless-sun.md`
 
 Related docs:
 
+- [ADR 0030: Discovery and Library UI correctness fixes](../adr/0030-discovery-library-ui-fixes.md)
 - [ADR 0023: Design system and view models](../adr/0023-design-system-and-view-models.md)
 - [ADR 0025: Theme icon style boundary](../adr/0025-theme-icon-style-boundary.md)
 - [ADR 0026: Shared entity projection layer](../adr/0026-shared-entity-projection-layer.md)
 - [ADR 0027: Shared entity action state](../adr/0027-shared-entity-action-state.md)
 - [Shared entity projection phase plan](adr-0026-shared-entity-projection-phase-plan.md)
 - [Unify Discover and Library views](unify-discover-library-views.md)
+
+Task packets:
+
+- [Task 001: Discovery backslash search](../tasks/adr-0030-task-001-backslash-search.md)
+- [Task 002: Discovery recents labels](../tasks/adr-0030-task-002-recents-labels.md)
+- [Task 003: Feed header parity](../tasks/adr-0030-task-003-feed-header-parity.md)
+- [Task 004: Discovery compare actions](../tasks/adr-0030-task-004-discovery-compare-actions.md)
+- [Task 005: Contributor tree metadata](../tasks/adr-0030-task-005-contributor-tree-metadata.md)
+- [Task 006: Scroll containers](../tasks/adr-0030-task-006-scroll-containers.md)
+- [ADR 0030 review checklist](../reviews/adr-0030-review-checklist.md)
 
 ## Review Summary
 

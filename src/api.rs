@@ -688,7 +688,7 @@ fn sanitize_api_query_value(value: &str) -> String {
     value
         .chars()
         .map(|ch| {
-            if ch == '\0' || ch.is_control() {
+            if ch == '\0' || ch == '\\' || ch.is_control() {
                 ' '
             } else {
                 ch
@@ -807,6 +807,36 @@ mod tests {
 
         let query_pairs = url.query_pairs().collect::<Vec<_>>();
         assert_eq!(query_pairs, vec![("q".into(), "Den+ did this".into())]);
+    }
+
+    #[test]
+    fn build_url_sanitizes_backslash_query_values() {
+        let client = Client::new();
+        let url = client
+            .build_url(
+                &["v1", "search"],
+                &[
+                    ("q", r"john\doe".into()),
+                    ("slashes", r"\\".into()),
+                    ("mixed", r"one\\two\three".into()),
+                ],
+            )
+            .expect("url");
+
+        assert!(
+            !url.as_str().contains("%5C"),
+            "url should not contain encoded backslashes: {url}"
+        );
+
+        let query_pairs = url.query_pairs().collect::<Vec<_>>();
+        assert_eq!(
+            query_pairs,
+            vec![
+                ("q".into(), "john doe".into()),
+                ("slashes".into(), "".into()),
+                ("mixed".into(), "one two three".into()),
+            ]
+        );
     }
 
     #[test]
