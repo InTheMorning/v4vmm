@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready.
+Applied - 2026-05-01.
 
 ## Goal
 
@@ -58,12 +58,23 @@ and existing projections before designing ADR 0029 schema.
 
 ## Acceptance Criteria
 
-- [ ] Review file exists under `docs/reviews/`.
-- [ ] Preservation matrix covers MusicIndex artist, MusicIndex contributor, RSS
+- [x] Review file exists under `docs/reviews/`.
+- [x] Preservation matrix covers MusicIndex artist, MusicIndex contributor, RSS
   person, local Library artist rows, and `ArtistView`.
-- [ ] Explicit durable keys are separated from display-only names.
-- [ ] Recommended schema direction is stated with risks.
-- [ ] No runtime behavior changes.
+- [x] Explicit durable keys are separated from display-only names.
+- [x] Recommended schema direction is stated with risks.
+- [x] No runtime behavior changes.
+
+## Applied Summary
+
+- Added `docs/reviews/adr-0029-task-001-source-inventory-review.md`.
+- Confirmed MusicIndex artists have explicit `artist_id` keys and artist-only
+  fields, while MusicIndex contributors and RSS persons remain owner-scoped
+  facts without durable person ids.
+- Recommended split schema tracks: explicit artist source-fact persistence
+  first, with contributor/person facts remaining owner-scoped until a durable
+  person key and merge policy exist.
+- No runtime files or migrations changed.
 
 ## Test Commands
 

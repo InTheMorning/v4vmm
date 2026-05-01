@@ -42,18 +42,20 @@ provenance-first data used by Discover.
 
 ## Proposed Sequence
 
-1. Source inventory and schema decision.
+1. Source inventory and schema decision. Applied 2026-05-01.
    Task: `docs/tasks/adr-0029-task-001-source-inventory.md`.
-2. Schema and DB helpers, only after Task 001 resolves the subject shape.
+2. Artist source-fact schema and DB helpers for explicit artist subjects.
+   Task: `docs/tasks/adr-0029-task-002-artist-source-schema.md`.
 3. Ingest persistence for explicit MusicIndex/RSS artist/person facts.
 4. Local view hydration for `ArtistView` and related Library projections.
 5. Visual smoke and final architecture gates.
 
 ## Schema/API Implications
 
-Expected but not approved yet. Task 001 must decide whether one
-source-scoped subject fact family can cover both artists and people, or whether
-artists and contributors/persons need separate table families.
+Expected for explicit artist subjects. Task 001 recommends split schema tracks:
+artist source-fact storage first, with contributor/person facts remaining
+owner-scoped under ADR 0028 until a source provides explicit durable person ids
+and a later ADR defines merge policy.
 
 Any eventual schema must define:
 

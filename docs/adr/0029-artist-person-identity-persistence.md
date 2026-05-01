@@ -25,24 +25,30 @@ source facts and read-model projections, not as ad hoc screen inference.
 
 ## Decision
 
-Introduce artist/person identity persistence only as source-scoped identity
-facts first. Do not introduce a global canonical artist/person registry in the
+Introduce artist/person identity persistence as split source-scoped fact
+families. Do not introduce a global canonical artist/person registry in the
 first implementation.
 
-The first accepted implementation should persist explicit source identity facts
-for artist/person-like subjects when a source provides them directly:
+The first accepted runtime implementation should persist explicit artist source
+facts keyed by `(source, source_artist_id)`, where the source id is an explicit
+MusicIndex `artist_id` or an equivalent future source-provided artist key.
+These artist facts may include:
 
-- MusicIndex artist records.
-- MusicIndex contributor/person records if the API exposes durable ids or
-  explicit identity links.
-- RSS `podcast:person` rows where attributes are present without inference.
-- Existing local feed/track/contributor source facts that can be attached to a
-  subject without guessing.
+- display name and sort name
+- image URL
+- website URL
+- aliases
+- area
+- active years
+- source links and source ids when the source exposes them
+- raw source payload for provenance
 
-Subject records are facts from a source, not canonical people. They may be
-grouped for display only when an explicit durable key matches, such as a source
-id, Nostr public key, MusicBrainz id, or exact source-provided stable id.
-Display-name equality alone is not an identity match.
+Contributor/person facts remain owner-scoped under ADR 0028 unless a source
+provides an explicit durable person key. MusicIndex contributors and RSS
+`podcast:person` rows currently provide useful person-like fields such as
+`href`, `img`, and `npub`, but not a durable person id. Their display name,
+role, group, and source-order position must not be promoted into a global
+person identity.
 
 Local Library artist views may hydrate richer display facts from these
 source-scoped records, but they must surface conflicts rather than silently
@@ -62,6 +68,8 @@ for convenience while retaining every raw source fact for inspection.
   replacement semantics and cascade behavior.
 - Contributor identity remains source-order scoped unless a source provides an
   explicit durable person key.
+- MusicIndex `artist_id` is a durable source key; local artist display names are
+  not.
 
 ## Non-Goals
 
@@ -76,13 +84,13 @@ for convenience while retaining every raw source fact for inspection.
 
 - Library artist views can eventually render offline identity facts that
   Discover already knows, without making the UI depend on MusicIndex API rows.
-- The data model will be more verbose than a name-based artist table, but it
-  avoids irreversible false merges.
+- The first schema can be narrower than a generic subject graph, but it avoids
+  forcing explicit artist records and owner-scoped contributor rows into one
+  ambiguous table.
 - A later canonical-identity ADR can build on preserved source facts if product
   behavior needs merging, conflict resolution, or operator curation.
-- Implementation must begin with an inventory task before schema work, because
-  the current API/source field shape determines whether artists and people can
-  share tables or need separate fact families.
+- Person-level global persistence remains deferred until a source provides
+  durable person keys or a later ADR defines merge and conflict policy.
 
 ## Alternatives Considered
 
@@ -104,8 +112,9 @@ Library artist views poorer than Discover and blocks offline identity parity.
 
 ## Follow-Up Work
 
-- Task 001 inventories source artist/person fields and current local loss
-  points before schema is designed.
-- Task 002 should revise or accept the schema plan based on the inventory.
-- Runtime implementation must not start until the inventory resolves whether
-  artist and person facts share one table family or need separate schemas.
+- Task 001 inventoried source artist/person fields and recommended split schema
+  tracks.
+- Task 002 should add artist source-fact schema and DB helpers for explicit
+  artist subjects only.
+- Runtime person/global-identity implementation must wait for durable person
+  keys and a merge policy.
