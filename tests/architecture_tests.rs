@@ -164,15 +164,15 @@ const DEPRECATED_VISUAL_HELPERS: &[DeprecatedVisualHelper] = &[
 const DIRECT_COMPONENT_BUTTON_BASELINES: &[DirectComponentButtonBaseline] = &[
     DirectComponentButtonBaseline {
         file: "src/app.rs",
-        max_unmarked_count: 4,
+        max_unmarked_count: 0,
     },
     DirectComponentButtonBaseline {
         file: "src/library.rs",
-        max_unmarked_count: 15,
+        max_unmarked_count: 0,
     },
     DirectComponentButtonBaseline {
         file: "src/search.rs",
-        max_unmarked_count: 9,
+        max_unmarked_count: 0,
     },
 ];
 

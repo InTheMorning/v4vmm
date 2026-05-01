@@ -52,10 +52,13 @@ use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
     EntityKind, ListRow, SplitPane, TagBadge, Thumbnail, ThumbnailSize,
 };
+use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
 use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::SectionHeader;
-use crate::ui::primitives::{Image as ImagePrimitive, ImageSize, Label, MultilineText};
+use crate::ui::primitives::{
+    Button as UiButton, Image as ImagePrimitive, ImageSize, Label, MultilineText,
+};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::badges;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
@@ -1710,6 +1713,7 @@ impl Render for SearchApp {
                             .items_center()
                             .gap(spacing::SM)
                             .child(
+                                // CONTROL-COMPAT(reason): native Button does not yet expose loading state.
                                 Button::new("search-btn")
                                     .label(search_label)
                                     .primary()
@@ -1721,19 +1725,24 @@ impl Render for SearchApp {
                                     })),
                             )
                             .child(
-                                Button::new("fuzzy-toggle")
-                                    .label(if fuzzy_search {
-                                        "Fuzzy: On"
+                                UiButton::styled(
+                                    "fuzzy-toggle",
+                                    if fuzzy_search {
+                                        ControlStyle::Pill
                                     } else {
-                                        "Fuzzy: Off"
-                                    })
-                                    .scaled(Size::Small, cx)
-                                    .when(fuzzy_search, |button| button.primary())
-                                    .when(!fuzzy_search, |button| button.ghost())
-                                    .text_color(color::text_on_accent())
-                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        ControlStyle::Ghost
+                                    },
+                                )
+                                .label(if fuzzy_search {
+                                    "Fuzzy: On"
+                                } else {
+                                    "Fuzzy: Off"
+                                })
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
                                         this.toggle_fuzzy_search(cx);
-                                    })),
+                                    },
+                                )),
                             ),
                     )
                     .child(
@@ -1778,11 +1787,8 @@ impl Render for SearchApp {
                             })
                             .when(has_more && !is_loading, |el| {
                                 el.child(
-                                    Button::new("load-more")
+                                    UiButton::styled("load-more", ControlStyle::Ghost)
                                         .label("Load more")
-                                        .ghost()
-                                        .scaled(Size::Small, cx)
-                                        .text_color(color::text_on_accent())
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.do_search(true, cx);
                                         })),
@@ -2249,22 +2255,25 @@ fn render_filter_button(
     selected: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    Button::new(("type-filter", idx))
-        .label(SharedString::from(label.to_string()))
-        .scaled(Size::Small, cx)
-        .when(selected, |button| button.primary())
-        .when(!selected, |button| button.ghost())
-        .text_color(color::text_on_accent())
-        .on_click(cx.listener(move |this, _, _, cx| {
-            if this.vm.set_type_filter_if_changed(idx) {
-                let has_query = !this.input.read(cx).value().trim().is_empty();
-                cx.notify();
-                if has_query {
-                    this.do_search(false, cx);
-                }
+    UiButton::styled(
+        ("type-filter", idx),
+        if selected {
+            ControlStyle::Pill
+        } else {
+            ControlStyle::Ghost
+        },
+    )
+    .label(SharedString::from(label.to_string()))
+    .on_click(cx.listener(move |this, _, _, cx| {
+        if this.vm.set_type_filter_if_changed(idx) {
+            let has_query = !this.input.read(cx).value().trim().is_empty();
+            cx.notify();
+            if has_query {
+                this.do_search(false, cx);
             }
-        }))
-        .into_any_element()
+        }
+    }))
+    .into_any_element()
 }
 
 fn render_result_item(
@@ -2360,11 +2369,8 @@ fn render_inspector(
                 .gap(spacing::SM)
                 .when(show_back, |el| {
                     el.child(
-                        Button::new("inspector-back")
+                        UiButton::styled("inspector-back", ControlStyle::Ghost)
                             .label("← Back")
-                            .ghost()
-                            .scaled(Size::Small, cx)
-                            .text_color(color::text_on_accent())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.inspector_back(cx);
                             })),
@@ -3078,6 +3084,7 @@ fn render_musicbrainz_title_bar(
         || "No MusicBrainz release".into(),
         musicbrainz_release_summary,
     );
+    // CONTROL-COMPAT(reason): native Button does not yet expose dropdown_menu, full-width alignment, and custom badge fill styling.
     let trigger = Button::new("musicbrainz-release-picker")
         .label(SharedString::from(format!("MusicBrainz: {label}")))
         .scaled(Size::XSmall, cx)
@@ -4813,6 +4820,7 @@ pub(crate) fn render_play_icon_button_with_id(
     let tooltip = url.clone().unwrap_or_else(|| "No audio URL".into());
     let click_url = url.clone();
 
+    // CONTROL-COMPAT(reason): native Button does not yet expose tooltip plus fixed square icon-button geometry.
     Button::new(id)
         .label("▶")
         .scaled(Size::XSmall, cx)
@@ -4879,6 +4887,7 @@ pub(crate) fn render_track_download_button(
     let track_for_click = track.clone();
     let feed_for_click = feed.clone();
 
+    // CONTROL-COMPAT(reason): native Button does not yet expose tooltip plus fixed square icon-button geometry.
     Button::new(id)
         .label(label)
         .scaled(Size::XSmall, cx)
@@ -5244,11 +5253,8 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
         .when(has_more && !loading, |el| {
             el.child(
                 div().pt(spacing::SM).child(
-                    Button::new("recent-load-more")
+                    UiButton::styled("recent-load-more", ControlStyle::Ghost)
                         .label("Load more")
-                        .ghost()
-                        .scaled(Size::Small, cx)
-                        .text_color(color::text_on_accent())
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.load_recent_feeds(true, cx);
                         })),

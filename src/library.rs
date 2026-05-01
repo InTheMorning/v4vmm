@@ -29,7 +29,6 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::DropdownMenu as _;
-use gpui_component::Disableable;
 use gpui_component::Size;
 
 use crate::api::Track;
@@ -69,7 +68,8 @@ use crate::ui::composites::{
     EntityKind, ListRow, ReleaseDetailSurface, SplitPane, Thumbnail, ThumbnailSize,
     TrackRow as TrackRowComposite,
 };
-use crate::ui::primitives::{Image as ImagePrimitive, Label, MultilineText};
+use crate::ui::control_styles::ControlStyle;
+use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::library::{
@@ -1721,21 +1721,15 @@ impl Render for LibraryApp {
                         .gap(spacing::XS)
                         .items_center()
                         .child(
-                            Button::new("playlists-sort")
+                            UiButton::styled("playlists-sort", ControlStyle::ToolbarIcon)
                                 .label(playlist_sidebar.sort_label)
-                                .ghost()
-                                .scaled(Size::XSmall, cx)
-                                .text_color(color::text_muted())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.cycle_playlist_sort(cx);
                                 })),
                         )
                         .child(
-                            Button::new("playlists-add")
+                            UiButton::styled("playlists-add", ControlStyle::ToolbarIcon)
                                 .label("+")
-                                .ghost()
-                                .scaled(Size::XSmall, cx)
-                                .text_color(color::text_primary())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.vm.toggle_creating_playlist();
                                     cx.notify();
@@ -1795,11 +1789,8 @@ impl Render for LibraryApp {
                                 .scaled(Size::Small, cx),
                         )
                         .child(
-                            Button::new("playlist-add-btn")
+                            UiButton::styled("playlist-add-btn", ControlStyle::Primary)
                                 .label("Add")
-                                .primary()
-                                .scaled(Size::XSmall, cx)
-                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.create_playlist(cx);
                                 })),
@@ -1843,11 +1834,8 @@ impl Render for LibraryApp {
                             .scaled(Size::Small, cx),
                     )
                     .child(
-                        Button::new("lib-search-btn")
+                        UiButton::styled("lib-search-btn", ControlStyle::Primary)
                             .label("Search")
-                            .primary()
-                            .scaled(Size::Small, cx)
-                            .text_color(color::text_on_accent())
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.apply_search(cx);
                             })),
@@ -1890,23 +1878,19 @@ impl Render for LibraryApp {
                             }),
                     )
                     .child(if has_stale {
-                        Button::new("apply-feed-updates")
+                        UiButton::styled("apply-feed-updates", ControlStyle::Primary)
                             .label(format!("Apply updates ({stale_count})"))
-                            .primary()
-                            .scaled(Size::XSmall, cx)
-                            .text_color(color::text_on_accent())
                             .disabled(phase != FeedUpdatePhase::Idle)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.apply_all_feed_updates(cx);
                             }))
                     } else {
-                        Button::new("check-all-feeds")
+                        UiButton::styled("check-all-feeds", ControlStyle::Secondary)
                             .label(if phase == FeedUpdatePhase::Checking {
                                 "Checking..."
                             } else {
                                 "Check all feeds"
                             })
-                            .scaled(Size::XSmall, cx)
                             .disabled(phase != FeedUpdatePhase::Idle)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.check_all_feeds(cx);
@@ -2485,23 +2469,25 @@ fn render_library_track_row(
         .and_then(|url| album_thumbs.get(url.as_str()))
         .and_then(|opt| opt.clone());
 
-    let toggle_button = Button::new(SharedString::from(format!("lib-toggle-{track_id}")))
-        .label(vm.primary_action_label(is_busy))
-        .scaled(Size::XSmall, cx)
-        .compact()
-        .when(in_library, |btn| {
-            btn.danger().text_color(color::text_on_accent())
-        })
-        .when(!in_library, |btn| btn.ghost().text_color(color::accent()))
-        .disabled(is_busy)
-        .on_click(cx.listener(move |this, _, _, cx| {
-            if in_library {
-                this.remove_track(track_id, cx);
-            } else {
-                this.subscribe_track(track_for_click.clone(), cx);
-            }
-            cx.notify();
-        }));
+    let toggle_style = if in_library {
+        ControlStyle::Destructive
+    } else {
+        ControlStyle::RowAction
+    };
+    let toggle_button = UiButton::styled(
+        SharedString::from(format!("lib-toggle-{track_id}")),
+        toggle_style,
+    )
+    .label(vm.primary_action_label(is_busy))
+    .disabled(is_busy)
+    .on_click(cx.listener(move |this, _, _, cx| {
+        if in_library {
+            this.remove_track(track_id, cx);
+        } else {
+            this.subscribe_track(track_for_click.clone(), cx);
+        }
+        cx.notify();
+    }));
 
     let mut row = TrackRowComposite::new(SharedString::from(format!("album-track-{track_id}")))
         .number(vm.number_label())
@@ -2530,15 +2516,15 @@ fn render_library_track_row(
     }
 
     row = row.trailing_child(
-        Button::new(SharedString::from(format!("album-track-add-{track_id}")))
-            .label(vm.playlist_action_label(popup_open))
-            .ghost()
-            .scaled(Size::XSmall, cx)
-            .text_color(color::accent())
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.vm.toggle_album_track_picker(track_id);
-                cx.notify();
-            })),
+        UiButton::styled(
+            SharedString::from(format!("album-track-add-{track_id}")),
+            ControlStyle::RowAction,
+        )
+        .label(vm.playlist_action_label(popup_open))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.vm.toggle_album_track_picker(track_id);
+            cx.notify();
+        })),
     );
 
     if popup_open {
@@ -2671,45 +2657,40 @@ fn render_playlist_detail(
                     .and_then(|url| album_thumbs.get(url))
                     .and_then(|opt| opt.clone());
 
-                let up_btn = Button::new(SharedString::from(format!(
-                    "playlist-up-{pl_id}-{position}"
-                )))
+                let up_btn = UiButton::styled(
+                    SharedString::from(format!("playlist-up-{pl_id}-{position}")),
+                    ControlStyle::RowAction,
+                )
                 .label("▲")
-                .ghost()
-                .scaled(Size::Small, cx)
                 .disabled(!row.can_move_up())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position - 1, cx);
                 }));
 
-                let down_btn = Button::new(SharedString::from(format!(
-                    "playlist-down-{pl_id}-{position}"
-                )))
+                let down_btn = UiButton::styled(
+                    SharedString::from(format!("playlist-down-{pl_id}-{position}")),
+                    ControlStyle::RowAction,
+                )
                 .label("▼")
-                .ghost()
-                .scaled(Size::Small, cx)
                 .disabled(!row.can_move_down())
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position + 1, cx);
                 }));
 
-                let remove_btn = Button::new(SharedString::from(format!(
-                    "playlist-remove-{pl_id}-{position}"
-                )))
+                let remove_btn = UiButton::styled(
+                    SharedString::from(format!("playlist-remove-{pl_id}-{position}")),
+                    ControlStyle::Destructive,
+                )
                 .label("✕")
-                .ghost()
-                .danger()
-                .scaled(Size::Small, cx)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.remove_playlist_track_at(pl_id, position, cx);
                 }));
 
-                let play_btn = Button::new(SharedString::from(format!(
-                    "playlist-play-{pl_id}-{position}"
-                )))
+                let play_btn = UiButton::styled(
+                    SharedString::from(format!("playlist-play-{pl_id}-{position}")),
+                    ControlStyle::RowAction,
+                )
                 .label("▶")
-                .ghost()
-                .scaled(Size::Small, cx)
                 .disabled(!can_play)
                 .on_click(cx.listener(move |_this, _, _, cx| {
                     cx.emit(LibraryAppEvent::PlayPlaylistAt {
@@ -2798,23 +2779,25 @@ fn render_playlist_detail(
     let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
     let playlist_for_rename = playlist_id;
     buttons = buttons.child(
-        Button::new(SharedString::from(format!("playlist-rename-{playlist_id}")))
-            .label("Rename")
-            .ghost()
-            .scaled(Size::Small, cx)
-            .on_click(cx.listener(move |_this, _, _, cx| {
-                // TODO Stage 3: implement inline rename modal/input
-                cx.notify();
-            })),
+        UiButton::styled(
+            SharedString::from(format!("playlist-rename-{playlist_id}")),
+            ControlStyle::Ghost,
+        )
+        .label("Rename")
+        .on_click(cx.listener(move |_this, _, _, cx| {
+            // TODO Stage 3: implement inline rename modal/input
+            cx.notify();
+        })),
     );
     buttons = buttons.child(
-        Button::new(SharedString::from(format!("playlist-delete-{playlist_id}")))
-            .label("Delete")
-            .danger()
-            .scaled(Size::Small, cx)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.delete_playlist(playlist_for_rename, cx);
-            })),
+        UiButton::styled(
+            SharedString::from(format!("playlist-delete-{playlist_id}")),
+            ControlStyle::Destructive,
+        )
+        .label("Delete")
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.delete_playlist(playlist_for_rename, cx);
+        })),
     );
 
     div()
@@ -3344,6 +3327,7 @@ fn render_musicbrainz_title_bar(
         .unwrap_or_default();
     let app = cx.weak_entity();
 
+    // CONTROL-COMPAT(reason): native Button does not yet expose dropdown_menu, full-width alignment, and custom badge fill styling.
     Button::new("musicbrainz-release-picker")
         .label(SharedString::from(format!("MusicBrainz: {label}")))
         .scaled(Size::XSmall, cx)

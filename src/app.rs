@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{div, prelude::*, Context, Entity, Render, SharedString, Styled, Window};
-use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
 use rusqlite::Connection;
@@ -19,6 +18,8 @@ use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
 use crate::presentation::{GpuiCommandRunner, GpuiEventBridge};
 use crate::search::{SearchApp, SearchAppEvent};
+use crate::ui::control_styles::ControlStyle;
+use crate::ui::primitives::Button as UiButton;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::layout;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
@@ -550,21 +551,15 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .items_center()
                         .gap(Spacing::SM.scaled(cx))
                         .child(
-                            Button::new("settings-save")
+                            UiButton::styled("settings-save", ControlStyle::Primary)
                                 .label("Save")
-                                .primary()
-                                .scaled(Size::Small, cx)
-                                .text_color(color(cx, SemanticColor::OnAccent))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.save_settings(window, cx);
                                 })),
                         )
                         .child(
-                            Button::new("settings-default")
+                            UiButton::styled("settings-default", ControlStyle::Ghost)
                                 .label("Use Defaults")
-                                .ghost()
-                                .scaled(Size::Small, cx)
-                                .text_color(color(cx, SemanticColor::OnAccent))
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.endpoint_input.update(cx, |input, cx| {
                                         input.set_value(crate::api::DEFAULT_BASE_URL, window, cx);
@@ -639,11 +634,11 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                                 .child(SharedString::from(title.to_string()))
                                         )
                                         .child(
-                                            Button::new(SharedString::from(format!("del-cached-{}", track.id)))
+                                            UiButton::styled(
+                                                SharedString::from(format!("del-cached-{}", track.id)),
+                                                ControlStyle::Destructive,
+                                            )
                                                 .label("Delete")
-                                                .danger()
-                                                .scaled(Size::XSmall, cx)
-                                                .text_color(color(cx, SemanticColor::OnAccent))
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     this.delete_cached_file(path_clone.clone(), cx);
                                                 }))
@@ -664,11 +659,8 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                 .when(!cached_is_empty, |el| {
                     el.child(
                         div().pt(Spacing::SM.scaled(cx)).child(
-                            Button::new("delete-all-cached-settings")
+                            UiButton::styled("delete-all-cached-settings", ControlStyle::Destructive)
                                 .label("Delete All Cached")
-                                .danger()
-                                .scaled(Size::XSmall, cx)
-                                .text_color(color(cx, SemanticColor::OnAccent))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.delete_all_cached(cx);
                                 })),
