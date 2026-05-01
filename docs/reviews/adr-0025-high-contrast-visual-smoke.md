@@ -9,8 +9,8 @@ Pass - 2026-05-01.
 - High Contrast Dark via isolated config.
 - High Contrast Light via isolated config.
 - Library, Discover, Settings, and header playback controls.
-- Settings selector exposure for Dark, Light, High Contrast Dark, and High
-  Contrast Light.
+- Settings selector exposure for System, Dark, Light, High Contrast Dark, and
+  High Contrast Light.
 - Runtime repaint from High Contrast Dark to High Contrast Light.
 
 ## Findings
@@ -23,5 +23,5 @@ No blocking contrast, layout, text-overlap, or repaint issues were observed.
   the user's normal v4vmm config and database were not touched.
 - Screenshots were captured locally during review for inspection but are not
   committed.
-- `ThemeProfile::System` remains hidden because it still resolves to the app's
-  default dark behavior instead of following OS appearance.
+- Follow-up System smoke confirmed the selector is exposed and repaints through
+  GPUI window appearance.

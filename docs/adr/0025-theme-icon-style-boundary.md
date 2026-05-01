@@ -91,9 +91,9 @@ choice without importing the UI layer:
 - `ThemeProfile::HighContrastDark`
 - `ThemeProfile::HighContrastLight`
 
-The first implementation may make `System` resolve to the app's current default
-dark appearance until OS appearance detection exists. The type must still leave
-room for system-following behavior.
+`System` follows GPUI's reported window appearance and resolves to the matching
+Dark or Light profile at install time. The app observes window appearance
+changes and reinstalls the profile when System is selected.
 
 `ThemeProfile` must not be a bag of arbitrary user-provided hex strings in the
 first slice. Custom accent color can be introduced later after the semantic
@@ -428,8 +428,8 @@ boundary so color and glyph are not chosen independently in screen code.
 After screens no longer rely on dark-only helpers for reusable visual roles,
 persist a theme profile setting and route changes through `theme_bridge` /
 `Environment`. Verify high-contrast profile tests before exposing high contrast
-in settings, and expose only visually distinct profiles. `System` remains
-hidden until OS appearance detection exists.
+in settings, and expose only visually distinct profiles. Expose `System` only
+after GPUI window appearance drives the installed profile.
 
 ### Phase 6 - retire compatibility shims
 
@@ -499,7 +499,6 @@ This ADR is fulfilled when:
 
 - Decide whether custom accent color should be user-editable after role-level
   contrast validation exists.
-- Decide whether OS appearance detection should drive `ThemeProfile::System`.
 - Decide whether `ui/layouts/` should split layout composites such as
   `SplitPane`, inspector stack, and scroll-list shells out of
   `ui/composites/`.

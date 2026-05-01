@@ -38,8 +38,8 @@ semantic visual boundaries.
 ## Constraints
 
 - Do not expose high contrast unless high-contrast profile tests exist.
-- Do not expose `ThemeProfile::System` while it resolves to a no-op dark
-  profile; exposing a no-op control is misleading.
+- Do not expose `ThemeProfile::System` unless it follows GPUI/system window
+  appearance; exposing a no-op control is misleading.
 - Persist settings compatibly with existing config behavior.
 - Runtime changes must reinstall the theme and refresh windows.
 - Avoid screen-specific repaint code.
@@ -67,9 +67,9 @@ semantic visual boundaries.
 - Added `theme_profile` to config with a backward-compatible default of
   `dark`.
 - Startup now installs the configured profile after config load.
-- Settings exposes only `Dark` and `Light`; `System` remains hidden because it
-  still resolves to the dark fallback, and high-contrast remains hidden until
-  it has distinct profile values.
+- Settings initially exposed only `Dark` and `Light`; later ADR 0025 work
+  exposed `System` after GPUI window appearance drove the installed profile,
+  and exposed high-contrast profiles after they gained distinct tested values.
 - Selecting theme or scale reinstalls through `theme_bridge`, which refreshes
   windows centrally.
 
@@ -95,8 +95,8 @@ semantic visual boundaries.
 - Existing render paths still use dark-only helpers widely enough that runtime
   profile switching would expose a broken theme.
 - High-contrast profiles do not pass contrast tests.
-- `ThemeProfile::System` still resolves to Dark and would be user-visible as a
-  no-op setting.
+- `ThemeProfile::System` does not follow GPUI/system window appearance and
+  would be user-visible as a no-op setting.
 
 ## Prompt for lower-context coding model
 

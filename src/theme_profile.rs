@@ -12,10 +12,7 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemeProfile {
-    /// Follow the platform appearance once OS detection exists.
-    ///
-    /// Until then, this resolves to the app's current default dark profile and
-    /// should not be exposed as a visible no-op setting.
+    /// Follow the platform light/dark appearance.
     System,
     /// Current v4vmm default profile.
     #[default]
@@ -29,7 +26,8 @@ pub enum ThemeProfile {
 }
 
 impl ThemeProfile {
-    pub const USER_SELECTABLE: [Self; 4] = [
+    pub const USER_SELECTABLE: [Self; 5] = [
+        Self::System,
         Self::Dark,
         Self::Light,
         Self::HighContrastDark,

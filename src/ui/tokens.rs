@@ -18,7 +18,7 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{px, App, FontWeight, Pixels, Rgba};
+use gpui::{px, App, FontWeight, Pixels, Rgba, WindowAppearance};
 
 use gpui_component::ActiveTheme;
 
@@ -47,6 +47,15 @@ impl Appearance {
             Self::Dark
         } else {
             Self::Light
+        }
+    }
+}
+
+impl From<WindowAppearance> for Appearance {
+    fn from(appearance: WindowAppearance) -> Self {
+        match appearance {
+            WindowAppearance::Light | WindowAppearance::VibrantLight => Self::Light,
+            WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::Dark,
         }
     }
 }
@@ -251,7 +260,12 @@ impl SemanticColor {
 /// Resolve a semantic color against the current appearance.
 #[must_use]
 pub fn color(cx: &App, token: SemanticColor) -> Rgba {
-    crate::ui::theme_profiles::resolve_profile_color(Environment::current(cx).profile, token)
+    let env = Environment::current(cx);
+    crate::ui::theme_profiles::resolve_profile_color_for_appearance(
+        env.profile,
+        env.appearance,
+        token,
+    )
 }
 
 /// Resolve a semantic color for a render context, honoring an explicit

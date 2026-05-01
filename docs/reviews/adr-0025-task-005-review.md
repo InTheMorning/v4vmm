@@ -16,11 +16,9 @@ Pass.
 
 ## Optional Improvements
 
-- High-contrast profiles remain hidden because they currently resolve to the
-  base light/dark palettes. Expose them only after profile-specific role
-  values make them visually distinct.
-- `ThemeProfile::System` remains hidden until OS appearance detection is
-  implemented.
+- Completed by later ADR 0025 tasks: high-contrast profiles are exposed after
+  profile-specific values and visual smoke, and `ThemeProfile::System` is
+  exposed after GPUI window appearance drives the installed profile.
 
 ## Architectural Drift
 

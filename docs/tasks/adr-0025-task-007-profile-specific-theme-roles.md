@@ -22,8 +22,7 @@ Dark and Light while keeping `ThemeProfile` GPUI-free.
 ## Constraints
 
 - Keep `src/theme_profile.rs` GPUI-free.
-- Keep `ThemeProfile::System` hidden from Settings until it follows real
-  system appearance.
+- Expose `ThemeProfile::System` only after it follows GPUI window appearance.
 - Keep high-contrast profiles hidden from Settings until profile-specific
   colors pass contrast tests and visual smoke. They may be exposed after that
   gate is complete.
@@ -43,6 +42,8 @@ Dark and Light while keeping `ThemeProfile` GPUI-free.
 - Added real high-contrast dark and high-contrast light palettes.
 - Extended contrast tests so high-contrast profiles must pass the WCAG matrix
   and differ from their base Dark/Light profiles.
+- Added System profile resolution through GPUI window appearance and a
+  window-appearance observer that reinstalls the theme while System is active.
 
 ## Acceptance Criteria
 
@@ -61,6 +62,8 @@ Dark and Light while keeping `ThemeProfile` GPUI-free.
       gate.
 - [x] Design-system primitives and composites resolve default colors through
       the active `ThemeProfile`, not only the light/dark `Appearance`.
+- [x] `ThemeProfile::System` follows GPUI window appearance and is exposed in
+      Settings.
 - [x] No custom theme editor or arbitrary color input is added.
 
 ## Test Commands
@@ -75,7 +78,4 @@ Dark and Light while keeping `ThemeProfile` GPUI-free.
 - Manual visual smoke for High Contrast Dark and High Contrast Light across
   Library, Discover, Settings, and playback controls.
 - Manual visual smoke for the exposed Settings theme selector.
-
-## Follow-Up Work
-
-- `ThemeProfile::System` remains hidden until OS appearance detection exists.
+- Manual visual smoke for the exposed System theme selector.

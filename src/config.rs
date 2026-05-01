@@ -362,7 +362,8 @@ db_path = "{}"
 # MusicIndex API endpoint
 musicindex_endpoint = "{}"
 
-# Visual profile. Runtime settings currently expose "dark" and "light".
+# Visual profile. Supported values: "system", "dark", "light",
+# "high-contrast-dark", and "high-contrast-light".
 theme_profile = "dark"
 
 # Optional override for the `flac` CLI used to silently upgrade WAV downloads
@@ -496,6 +497,25 @@ theme_profile = "light"
         let cfg = load_config(&cfg_path).expect("load config");
 
         assert_eq!(cfg.theme_profile, ThemeProfile::Light);
+    }
+
+    #[test]
+    fn load_config_parses_system_theme_profile() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+theme_profile = "system"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(cfg.theme_profile, ThemeProfile::System);
     }
 
     #[test]

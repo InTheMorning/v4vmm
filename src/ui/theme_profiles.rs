@@ -14,22 +14,64 @@ use crate::ui::tokens::{Appearance, SemanticColor};
 /// Resolve a semantic color through a named visual profile.
 #[must_use]
 pub fn resolve_profile_color(profile: ThemeProfile, token: SemanticColor) -> Rgba {
+    resolve_concrete_profile_color(profile, token)
+}
+
+/// Resolve a semantic color through a named visual profile, using
+/// `system_appearance` when the profile follows the platform.
+#[must_use]
+pub fn resolve_profile_color_for_appearance(
+    profile: ThemeProfile,
+    system_appearance: Appearance,
+    token: SemanticColor,
+) -> Rgba {
+    resolve_concrete_profile_color(effective_profile(profile, system_appearance), token)
+}
+
+/// Resolve `System` to the concrete light/dark profile currently in effect.
+#[must_use]
+pub const fn effective_profile(
+    profile: ThemeProfile,
+    system_appearance: Appearance,
+) -> ThemeProfile {
     match profile {
-        ThemeProfile::System | ThemeProfile::Dark => token.resolve(Appearance::Dark),
-        ThemeProfile::Light => token.resolve(Appearance::Light),
-        ThemeProfile::HighContrastDark => high_contrast_dark(token),
-        ThemeProfile::HighContrastLight => high_contrast_light(token),
+        ThemeProfile::System => match system_appearance {
+            Appearance::Light => ThemeProfile::Light,
+            Appearance::Dark => ThemeProfile::Dark,
+        },
+        ThemeProfile::Dark
+        | ThemeProfile::Light
+        | ThemeProfile::HighContrastDark
+        | ThemeProfile::HighContrastLight => profile,
     }
 }
 
 /// Resolve a profile to its base light/dark appearance.
 #[must_use]
-pub const fn appearance_for_profile(profile: ThemeProfile) -> Appearance {
+pub const fn appearance_for_profile(
+    profile: ThemeProfile,
+    system_appearance: Appearance,
+) -> Appearance {
+    appearance_for_concrete_profile(effective_profile(profile, system_appearance))
+}
+
+/// Resolve a concrete profile to its base light/dark appearance.
+#[must_use]
+pub const fn appearance_for_concrete_profile(profile: ThemeProfile) -> Appearance {
     match profile {
         ThemeProfile::System | ThemeProfile::Dark | ThemeProfile::HighContrastDark => {
             Appearance::Dark
         }
         ThemeProfile::Light | ThemeProfile::HighContrastLight => Appearance::Light,
+    }
+}
+
+fn resolve_concrete_profile_color(profile: ThemeProfile, token: SemanticColor) -> Rgba {
+    match profile {
+        ThemeProfile::System | ThemeProfile::Dark => token.resolve(Appearance::Dark),
+        ThemeProfile::Light => token.resolve(Appearance::Light),
+        ThemeProfile::HighContrastDark => high_contrast_dark(token),
+        ThemeProfile::HighContrastLight => high_contrast_light(token),
     }
 }
 
@@ -146,5 +188,58 @@ const fn hex(rgb: u32) -> Rgba {
         g: ((rgb >> 8) & 0xff) as f32 / 255.0,
         b: (rgb & 0xff) as f32 / 255.0,
         a: 1.0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn system_profile_follows_supplied_appearance() {
+        assert_eq!(
+            effective_profile(ThemeProfile::System, Appearance::Light),
+            ThemeProfile::Light
+        );
+        assert_eq!(
+            effective_profile(ThemeProfile::System, Appearance::Dark),
+            ThemeProfile::Dark
+        );
+        assert_eq!(
+            appearance_for_profile(ThemeProfile::System, Appearance::Light),
+            Appearance::Light
+        );
+    }
+
+    #[test]
+    fn explicit_profiles_ignore_system_appearance() {
+        assert_eq!(
+            effective_profile(ThemeProfile::HighContrastDark, Appearance::Light),
+            ThemeProfile::HighContrastDark
+        );
+        assert_eq!(
+            appearance_for_profile(ThemeProfile::HighContrastDark, Appearance::Light),
+            Appearance::Dark
+        );
+    }
+
+    #[test]
+    fn system_color_resolution_uses_supplied_appearance() {
+        assert_eq!(
+            resolve_profile_color_for_appearance(
+                ThemeProfile::System,
+                Appearance::Light,
+                SemanticColor::SystemBackground,
+            ),
+            SemanticColor::SystemBackground.resolve(Appearance::Light)
+        );
+        assert_eq!(
+            resolve_profile_color_for_appearance(
+                ThemeProfile::System,
+                Appearance::Dark,
+                SemanticColor::SystemBackground,
+            ),
+            SemanticColor::SystemBackground.resolve(Appearance::Dark)
+        );
     }
 }

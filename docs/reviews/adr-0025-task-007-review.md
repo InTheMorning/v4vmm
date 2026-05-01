@@ -28,6 +28,8 @@ Pass.
 - Design-system primitives and composites now resolve default token colors
   through the active `ThemeProfile`; explicit light/dark appearance overrides
   remain available for tests and previews.
+- `ThemeProfile::System` resolves through GPUI window appearance and is
+  reinstalled on window appearance changes while System is active.
 - High-contrast profiles passed a dedicated Library, Discover, Settings, and
   playback-control smoke pass, then were exposed in Settings.
 
@@ -45,13 +47,15 @@ Pass.
 - Manual visual smoke for High Contrast Dark and High Contrast Light across
   Library, Discover, Settings, and playback controls.
 - Manual visual smoke for the exposed Settings theme selector.
+- Manual visual smoke for the exposed System theme selector.
 
 ## Residual Risk
 
 High-contrast values are token-level and automated-contrast verified, and they
 now have a manual visual smoke pass across Library, Discover, Settings, and
-playback controls. `ThemeProfile::System` remains hidden until OS appearance
-detection exists.
+playback controls. `ThemeProfile::System` follows GPUI window appearance; a
+future pass can add platform-specific appearance-change smoke on macOS/Windows
+when those environments are available.
 
 ## Merge Recommendation
 

@@ -63,8 +63,8 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 - [x] Runtime profile selection exposes only tested profiles.
 - [x] Runtime profile selection exposes high-contrast profiles only after
       automated contrast tests and manual visual smoke.
-- [x] `ThemeProfile::System` is not exposed unless it follows real OS/system
-      appearance.
+- [x] `ThemeProfile::System` follows GPUI window appearance before it is
+      exposed.
 - [x] Phase 6 reduces `theme.rs` to documented layout constants only or removes
       it.
 
@@ -105,9 +105,9 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 - High Contrast Dark and High Contrast Light: Library, Discover, Settings, and
   playback controls rendered without blocking contrast, layout, text-overlap,
   or repaint issues.
-- Settings selector: Dark, Light, High Contrast Dark, and High Contrast Light
-  fit in the existing theme control; switching from High Contrast Dark to High
-  Contrast Light repainted through `theme_bridge`.
+- Settings selector: System, Dark, Light, High Contrast Dark, and High Contrast
+  Light fit in the existing theme control; switching from High Contrast Dark to
+  High Contrast Light repainted through `theme_bridge`.
 
 ## Optional Improvements
 

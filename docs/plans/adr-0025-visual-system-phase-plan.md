@@ -191,9 +191,6 @@ working migrations.
 
 ## Open Questions
 
-- When should `ThemeProfile::System` start following OS appearance? Until that
-  platform integration exists, it may resolve internally to the default profile
-  but must not be exposed as a user-visible no-op setting.
 - Should custom accent color be allowed only from a fixed palette or from an
   arbitrary color picker after contrast validation exists?
 - Should icon assets remain inline SVG strings inside `ui::icons`, or should

@@ -68,6 +68,7 @@ pub struct TopApp {
     settings_tab_focus: gpui::FocusHandle,
     _search_sub: gpui::Subscription,
     _library_sub: gpui::Subscription,
+    _appearance_sub: gpui::Subscription,
     playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
     conn: Arc<Mutex<Connection>>,
     cached_tree: LibraryTree,
@@ -102,6 +103,12 @@ impl TopApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        crate::ui::theme_bridge::install_theme_for_window(
+            theme_profile,
+            ui_scale.into(),
+            window,
+            cx,
+        );
         let search_conn = Arc::clone(&conn);
         let search_cache = Arc::clone(&image_cache);
         let library_cache = Arc::clone(&image_cache);
@@ -160,6 +167,17 @@ impl TopApp {
                 } => this.play_playlist_at(*playlist_id, *playlist_position, cx),
             },
         );
+        let appearance_sub = cx.observe_window_appearance(window, |this, window, cx| {
+            if this.theme_profile == ThemeProfile::System {
+                crate::ui::theme_bridge::install_theme_for_window(
+                    ThemeProfile::System,
+                    this.ui_scale.into(),
+                    window,
+                    cx,
+                );
+                cx.notify();
+            }
+        });
         let endpoint_default = musicindex_endpoint.clone();
         let endpoint_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx)
@@ -198,6 +216,7 @@ impl TopApp {
             settings_tab_focus: cx.focus_handle(),
             _search_sub: search_sub,
             _library_sub: library_sub,
+            _appearance_sub: appearance_sub,
             playback_owner,
             conn,
             cached_tree: LibraryTree::default(),
@@ -257,21 +276,41 @@ impl TopApp {
         }
     }
 
-    fn set_ui_scale(&mut self, scale: crate::config::UiScale, cx: &mut Context<Self>) {
+    fn set_ui_scale(
+        &mut self,
+        scale: crate::config::UiScale,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.ui_scale == scale {
             return;
         }
         self.ui_scale = scale;
-        crate::ui::theme_bridge::install_theme(self.theme_profile, scale.into(), cx);
+        crate::ui::theme_bridge::install_theme_for_window(
+            self.theme_profile,
+            scale.into(),
+            window,
+            cx,
+        );
         cx.notify();
     }
 
-    fn set_theme_profile(&mut self, profile: ThemeProfile, cx: &mut Context<Self>) {
+    fn set_theme_profile(
+        &mut self,
+        profile: ThemeProfile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.theme_profile == profile {
             return;
         }
         self.theme_profile = profile;
-        crate::ui::theme_bridge::install_theme(profile, self.ui_scale.into(), cx);
+        crate::ui::theme_bridge::install_theme_for_window(
+            profile,
+            self.ui_scale.into(),
+            window,
+            cx,
+        );
         cx.notify();
     }
 
@@ -325,8 +364,13 @@ impl TopApp {
                 self.flac_path_input.update(cx, |input, cx| {
                     input.set_value(flac_display, window, cx);
                 });
-                // Apply scale change immediately so the UI reflects it.
-                crate::ui::theme_bridge::install_theme(saved_profile, saved_scale.into(), cx);
+                // Apply scale/profile change immediately so the UI reflects it.
+                crate::ui::theme_bridge::install_theme_for_window(
+                    saved_profile,
+                    saved_scale.into(),
+                    window,
+                    cx,
+                );
                 self.settings_status = format!(
                     "Saved settings. Music files download under {}/artists",
                     cfg.music_dir.display()
@@ -444,9 +488,9 @@ fn render_ui_scale_picker(
     let entity = cx.entity();
     SegmentedControl::new(current)
         .segments(segments)
-        .on_select(move |scale, _window, cx| {
+        .on_select(move |scale, window, cx| {
             let scale = *scale;
-            entity.update(cx, |this, cx| this.set_ui_scale(scale, cx));
+            entity.update(cx, |this, cx| this.set_ui_scale(scale, window, cx));
         })
         .into_any_element()
 }
@@ -463,9 +507,9 @@ fn render_theme_profile_picker(
     let entity = cx.entity();
     SegmentedControl::new(current)
         .segments(segments)
-        .on_select(move |profile, _window, cx| {
+        .on_select(move |profile, window, cx| {
             let profile = *profile;
-            entity.update(cx, |this, cx| this.set_theme_profile(profile, cx));
+            entity.update(cx, |this, cx| this.set_theme_profile(profile, window, cx));
         })
         .into_any_element()
 }
@@ -623,8 +667,12 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                     this.flac_path_input.update(cx, |input, cx| {
                                         input.set_value("", window, cx);
                                     });
-                                    this.set_ui_scale(crate::config::UiScale::Medium, cx);
-                                    this.set_theme_profile(ThemeProfile::default(), cx);
+                                    this.set_ui_scale(
+                                        crate::config::UiScale::Medium,
+                                        window,
+                                        cx,
+                                    );
+                                    this.set_theme_profile(ThemeProfile::default(), window, cx);
                                     match config::default_music_dir() {
                                         Ok(default_music_dir) => {
                                             this.music_dir_input.update(cx, |input, cx| {
