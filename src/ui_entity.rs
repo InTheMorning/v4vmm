@@ -19,7 +19,8 @@ use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorListVm, ContributorRowVm, EntitySurfaceKind, ReleaseDetailVm, SharedTrackRowVm,
+    ContributorListVm, ContributorPersonVm, ContributorRowVm, EntitySurfaceKind, ReleaseDetailVm,
+    SharedTrackRowVm,
 };
 
 #[derive(Default)]
@@ -136,23 +137,27 @@ pub fn render_contributor_rows(
     mut row_slot: impl FnMut(&ContributorRowVm<'_>) -> ContributorRowSlot,
 ) -> Vec<AnyElement> {
     let mut rows = Vec::new();
-    for group in contributors.groups() {
-        if let Some(group) = group.group {
-            rows.push(contributor_group_heading(group));
-        }
-        for contributor in group.contributors {
-            let slot = row_slot(&contributor);
-            rows.push(render_contributor_row(&contributor, slot));
+    for person in contributors.people() {
+        let Some(primary) = person.primary() else {
+            continue;
+        };
+        let slot = row_slot(primary);
+        rows.push(render_contributor_person_row(&person, slot));
+        for role in person.roles() {
+            rows.push(render_contributor_role_row(person.name(), &role));
         }
     }
     rows
 }
 
-fn render_contributor_row(
-    contributor: &ContributorRowVm<'_>,
+fn render_contributor_person_row(
+    person: &ContributorPersonVm<'_>,
     slot: ContributorRowSlot,
 ) -> AnyElement {
-    let label = contributor.full_label();
+    let Some(contributor) = person.primary() else {
+        return div().into_any_element();
+    };
+    let label = person.name().to_string();
     let mut detail = div().flex_1().min_w_0().child(
         Label::new(label.clone())
             .size(FontSize::Micro)
@@ -188,13 +193,15 @@ fn render_contributor_row(
     row.into_any_element()
 }
 
-fn contributor_group_heading(label: String) -> AnyElement {
+fn render_contributor_role_row(person: &str, role: &str) -> AnyElement {
     div()
+        .id(SharedString::from(format!(
+            "contributor-role:{person}:{role}"
+        )))
+        .pl(spacing::XL)
         .text_size(typography::SIZE_MICRO)
-        .font_weight(gpui::FontWeight::SEMIBOLD)
         .text_color(color::text_muted())
-        .mt(spacing::SM)
-        .child(SharedString::from(label))
+        .child(SharedString::from(format!("- {role}")))
         .into_any_element()
 }
 

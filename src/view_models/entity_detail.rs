@@ -601,18 +601,19 @@ impl<'a> ContributorRowVm<'a> {
 
     #[must_use]
     pub fn display_name(&self) -> String {
-        self.contributor
-            .name
-            .clone()
-            .unwrap_or_else(|| "Unknown".to_string())
+        nonempty(self.contributor.name.as_deref())
+            .map_or_else(|| "Unknown".to_string(), str::to_string)
     }
 
     #[must_use]
     pub fn role_suffix(&self) -> String {
-        self.contributor
-            .role
-            .as_ref()
+        self.role_label()
             .map_or_else(String::new, |role| format!(" ({role})"))
+    }
+
+    #[must_use]
+    pub fn role_label(&self) -> Option<String> {
+        nonempty(self.contributor.role.as_deref()).map(str::to_string)
     }
 
     #[must_use]
@@ -636,12 +637,6 @@ impl<'a> ContributorRowVm<'a> {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContributorGroupVm<'a> {
-    pub group: Option<String>,
-    pub contributors: Vec<ContributorRowVm<'a>>,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ContributorListVm<'a> {
     contributors: &'a [ContributorView],
@@ -659,21 +654,48 @@ impl<'a> ContributorListVm<'a> {
     }
 
     #[must_use]
-    pub fn groups(&self) -> Vec<ContributorGroupVm<'a>> {
-        let mut grouped = BTreeMap::<Option<String>, Vec<ContributorRowVm<'a>>>::new();
+    pub fn people(&self) -> Vec<ContributorPersonVm<'a>> {
+        let mut grouped = BTreeMap::<String, Vec<ContributorRowVm<'a>>>::new();
         for contributor in self.contributors {
-            grouped
-                .entry(nonempty(contributor.group_name.as_deref()).map(str::to_string))
-                .or_default()
-                .push(ContributorRowVm::new(contributor));
+            let row = ContributorRowVm::new(contributor);
+            grouped.entry(row.display_name()).or_default().push(row);
         }
         grouped
             .into_iter()
-            .map(|(group, contributors)| ContributorGroupVm {
-                group,
-                contributors,
-            })
+            .map(|(name, contributors)| ContributorPersonVm { name, contributors })
             .collect()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContributorPersonVm<'a> {
+    name: String,
+    contributors: Vec<ContributorRowVm<'a>>,
+}
+
+impl<'a> ContributorPersonVm<'a> {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn primary(&self) -> Option<&ContributorRowVm<'a>> {
+        self.contributors.first()
+    }
+
+    #[must_use]
+    pub fn roles(&self) -> Vec<String> {
+        let mut roles = Vec::new();
+        for contributor in &self.contributors {
+            let role = contributor
+                .role_label()
+                .unwrap_or_else(|| "Contributor".to_string());
+            if !roles.contains(&role) {
+                roles.push(role);
+            }
+        }
+        roles
     }
 }
 
@@ -883,25 +905,52 @@ mod tests {
     }
 
     #[test]
-    fn contributor_list_groups_by_group_name() {
+    fn contributor_list_groups_roles_by_person() {
         let feed = feed_view();
-        let groups = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover)
+        let people = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover)
             .contributors()
-            .groups();
+            .people();
 
-        assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].group.as_deref(), Some("Band"));
-        assert_eq!(groups[0].contributors.len(), 2);
-        assert_eq!(groups[0].contributors[0].full_label(), "Alice (vocals)");
+        assert_eq!(people.len(), 2);
+        assert_eq!(people[0].name(), "Alice");
+        assert_eq!(people[0].roles(), vec!["vocals".to_string()]);
+        let alice = people[0]
+            .primary()
+            .expect("person group should expose a primary contributor");
+        assert_eq!(alice.href(), Some("https://example.test/alice"));
+        assert_eq!(alice.image_url(), Some("https://example.test/alice.jpg"));
+        assert_eq!(alice.nostr_npub(), Some("npub1alice"));
+        assert_eq!(people[1].name(), "Bob");
+        assert_eq!(people[1].roles(), vec!["drums".to_string()]);
+    }
+
+    #[test]
+    fn contributor_list_combines_multiple_roles_for_same_person() {
+        let contributors = [
+            ContributorView {
+                name: Some("Alice".into()),
+                role: Some("vocals".into()),
+                ..ContributorView::default()
+            },
+            ContributorView {
+                name: Some("Alice".into()),
+                role: Some("producer".into()),
+                ..ContributorView::default()
+            },
+            ContributorView {
+                name: Some("Alice".into()),
+                role: Some("vocals".into()),
+                ..ContributorView::default()
+            },
+        ];
+        let people = ContributorListVm::new(&contributors).people();
+
+        assert_eq!(people.len(), 1);
+        assert_eq!(people[0].name(), "Alice");
         assert_eq!(
-            groups[0].contributors[0].href(),
-            Some("https://example.test/alice")
+            people[0].roles(),
+            vec!["vocals".to_string(), "producer".to_string()]
         );
-        assert_eq!(
-            groups[0].contributors[0].image_url(),
-            Some("https://example.test/alice.jpg")
-        );
-        assert_eq!(groups[0].contributors[0].nostr_npub(), Some("npub1alice"));
     }
 
     #[test]
