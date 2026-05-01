@@ -258,7 +258,7 @@ const SHARED_VIEW_FACT_FORBIDDEN_PUBLIC_FIELDS: &[&str] = &[
     "pub source_ids: Vec<api::SourceEntityId>",
 ];
 
-const DISCOVER_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS: &[&str] = &[
+const SCREEN_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS: &[&str] = &[
     "ContributorVm",
     "contributors: LazyPanel<Vec<Contributor>>",
     "contributors: LazyPanel<Vec<api::Contributor>>",
@@ -445,16 +445,18 @@ fn shared_view_facts_do_not_expose_api_identity_rows() {
 }
 
 #[test]
-fn discover_contributor_panel_uses_shared_projection_facts() {
-    let source = read_source(&manifest_path("src/search.rs"));
+fn screen_contributor_panels_use_shared_projection_facts() {
     let mut violations = Vec::new();
 
-    for (line_number, line) in code_lines(&source) {
-        for pattern in DISCOVER_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS {
-            if line.contains(pattern) {
-                violations.push(format!(
-                    "src/search.rs:{line_number}: ADR 0026 contributor panels must use `ContributorView` and shared contributor projections, not `{pattern}`: `{line}`"
-                ));
+    for file in ["src/search.rs", "src/library.rs"] {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for pattern in SCREEN_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: ADR 0026/0028 contributor panels must use `ContributorView` and shared contributor projections, not `{pattern}`: `{line}`"
+                    ));
+                }
             }
         }
     }

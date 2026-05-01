@@ -62,6 +62,7 @@ use crate::ui::primitives::{
 };
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
+use crate::ui_entity::{render_contributor_rows, ContributorRowSlot};
 use crate::view_models::entity_detail::{
     ContributorListVm, ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone,
     MetadataPanelState, TrackMetadataActionState,
@@ -2957,41 +2958,17 @@ fn contributor_elements(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> Vec<AnyElement> {
-    let mut all_elements: Vec<AnyElement> = Vec::new();
-    for group in ContributorListVm::new(contributors).groups() {
-        if let Some(group) = group.group {
-            all_elements.push(group_heading(group));
+    render_contributor_rows(ContributorListVm::new(contributors), |contributor| {
+        let thumbnail = app.thumbnail_for_url(contributor.image_url(), cx);
+        ContributorRowSlot {
+            thumbnail,
+            actions: contributor_identity_actions(contributor),
         }
-        for contributor in group.contributors {
-            let thumbnail = app.thumbnail_for_url(contributor.image_url(), cx);
-            all_elements.push(render_contributor_row(&contributor, thumbnail));
-        }
-    }
-
-    all_elements
+    })
 }
 
-fn render_contributor_row(
-    contributor: &ContributorRowVm<'_>,
-    thumbnail: Option<Arc<Image>>,
-) -> AnyElement {
+fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<AnyElement> {
     let label = contributor.full_label();
-    let mut detail = div().flex_1().min_w_0().child(
-        Label::new(label.clone())
-            .size(FontSize::Micro)
-            .weight(FontWeight::MEDIUM)
-            .truncated(),
-    );
-
-    if let Some(href) = contributor.href() {
-        detail = detail.child(
-            Label::new(href.to_string())
-                .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel)
-                .truncated(),
-        );
-    }
-
     let mut actions = Vec::new();
     if let Some(href) = contributor.href().map(str::to_string) {
         let href_for_click = href.clone();
@@ -3020,23 +2997,7 @@ fn render_contributor_row(
         );
     }
 
-    let mut row = ListRow::compact(SharedString::from(format!("contributor:{label}")))
-        .child(Thumbnail::new(EntityKind::Artist, ThumbnailSize::Sm).image(thumbnail))
-        .child(detail);
-
-    if !actions.is_empty() {
-        row = row.child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(spacing::XS)
-                .flex_shrink_0()
-                .children(actions),
-        );
-    }
-
-    row.into_any_element()
+    actions
 }
 
 fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {

@@ -7,13 +7,20 @@
 
 use std::sync::Arc;
 
-use gpui::{div, AnyElement, Image, IntoElement, ParentElement, SharedString, Styled};
+use gpui::{
+    div, AnyElement, Image, InteractiveElement, IntoElement, ParentElement, SharedString, Styled,
+};
 
 use crate::ui::composites::{
-    DetailGrid, DetailHeader, DetailRow, EntityKind, ReleaseDetailSurface, TrackRow,
+    DetailGrid, DetailHeader, DetailRow, EntityKind, ListRow, ReleaseDetailSurface, Thumbnail,
+    ThumbnailSize, TrackRow,
 };
-use crate::ui::style::spacing;
-use crate::view_models::entity_detail::{EntitySurfaceKind, ReleaseDetailVm, SharedTrackRowVm};
+use crate::ui::primitives::Label;
+use crate::ui::style::{color, spacing, typography};
+use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::view_models::entity_detail::{
+    ContributorListVm, ContributorRowVm, EntitySurfaceKind, ReleaseDetailVm, SharedTrackRowVm,
+};
 
 #[derive(Default)]
 pub struct TrackRowActionSlot {
@@ -23,6 +30,12 @@ pub struct TrackRowActionSlot {
 pub struct TrackSectionSlot {
     pub summary: SharedString,
     pub rows: Vec<AnyElement>,
+}
+
+#[derive(Default)]
+pub struct ContributorRowSlot {
+    pub thumbnail: Option<Arc<Image>>,
+    pub actions: Vec<AnyElement>,
 }
 
 #[derive(Default)]
@@ -83,6 +96,106 @@ pub fn render_release_detail_shell(
     }
 
     surface.into_any_element()
+}
+
+pub fn render_contributor_panel(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    contributors: ContributorListVm<'_>,
+    row_slot: impl FnMut(&ContributorRowVm<'_>) -> ContributorRowSlot,
+) -> Option<AnyElement> {
+    if contributors.is_empty() {
+        return None;
+    }
+
+    Some(
+        div()
+            .id(id.into())
+            .flex()
+            .flex_col()
+            .gap(spacing::SM)
+            .child(
+                div()
+                    .text_size(typography::SIZE_CAPTION)
+                    .text_color(color::text_muted())
+                    .child(title.into()),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(spacing::XXS)
+                    .children(render_contributor_rows(contributors, row_slot)),
+            )
+            .into_any_element(),
+    )
+}
+
+pub fn render_contributor_rows(
+    contributors: ContributorListVm<'_>,
+    mut row_slot: impl FnMut(&ContributorRowVm<'_>) -> ContributorRowSlot,
+) -> Vec<AnyElement> {
+    let mut rows = Vec::new();
+    for group in contributors.groups() {
+        if let Some(group) = group.group {
+            rows.push(contributor_group_heading(group));
+        }
+        for contributor in group.contributors {
+            let slot = row_slot(&contributor);
+            rows.push(render_contributor_row(&contributor, slot));
+        }
+    }
+    rows
+}
+
+fn render_contributor_row(
+    contributor: &ContributorRowVm<'_>,
+    slot: ContributorRowSlot,
+) -> AnyElement {
+    let label = contributor.full_label();
+    let mut detail = div().flex_1().min_w_0().child(
+        Label::new(label.clone())
+            .size(FontSize::Micro)
+            .weight(gpui::FontWeight::MEDIUM)
+            .truncated(),
+    );
+
+    if let Some(href) = contributor.href() {
+        detail = detail.child(
+            Label::new(href.to_string())
+                .size(FontSize::Micro)
+                .color(SemanticColor::TertiaryLabel)
+                .truncated(),
+        );
+    }
+
+    let mut row = ListRow::compact(SharedString::from(format!("contributor:{label}")))
+        .child(Thumbnail::new(EntityKind::Artist, ThumbnailSize::Sm).image(slot.thumbnail))
+        .child(detail);
+
+    if !slot.actions.is_empty() {
+        row = row.child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(spacing::XS)
+                .flex_shrink_0()
+                .children(slot.actions),
+        );
+    }
+
+    row.into_any_element()
+}
+
+fn contributor_group_heading(label: String) -> AnyElement {
+    div()
+        .text_size(typography::SIZE_MICRO)
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+        .text_color(color::text_muted())
+        .mt(spacing::SM)
+        .child(SharedString::from(label))
+        .into_any_element()
 }
 
 fn render_default_header(
@@ -174,5 +287,33 @@ mod tests {
         assert!(slots.track_actions.is_empty());
         assert!(slots.track_section.is_none());
         assert!(slots.after_section.is_empty());
+    }
+
+    #[test]
+    fn contributor_panel_skips_empty_lists() {
+        let contributors = ContributorListVm::new(&[]);
+
+        assert!(
+            render_contributor_panel("contributors", "Contributors", contributors, |_| {
+                ContributorRowSlot::default()
+            },)
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn contributor_rows_use_shared_projection_groups() {
+        let contributors = [crate::views::ContributorView {
+            name: Some("Alice".into()),
+            role: Some("vocals".into()),
+            group_name: Some("Band".into()),
+            href: Some("https://example.test/alice".into()),
+            ..Default::default()
+        }];
+        let rows = render_contributor_rows(ContributorListVm::new(&contributors), |_| {
+            ContributorRowSlot::default()
+        });
+
+        assert_eq!(rows.len(), 2);
     }
 }

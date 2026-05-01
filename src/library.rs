@@ -73,9 +73,12 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
-use crate::ui_entity::{render_release_detail_shell, ReleaseDetailSlots, TrackSectionSlot};
+use crate::ui_entity::{
+    render_contributor_panel, render_release_detail_shell, ContributorRowSlot, ReleaseDetailSlots,
+    TrackSectionSlot,
+};
 use crate::view_models::entity_detail::{
-    EntityActionKind, EntityActionTarget, EntityActionTone, EntitySurfaceContext,
+    ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone, EntitySurfaceContext,
     MetadataPanelState, ReleaseDetailVm, TrackMetadataActionState,
 };
 use crate::view_models::library::{
@@ -1652,6 +1655,13 @@ impl Render for LibraryApp {
                     album
                         .image_href
                         .iter()
+                        .chain(
+                            album
+                                .identity_facts
+                                .contributors
+                                .iter()
+                                .filter_map(|contributor| contributor.image_url.as_ref()),
+                        )
                         .chain(album.tracks.iter().filter_map(|track| {
                             track
                                 .track_image_href
@@ -2466,6 +2476,9 @@ fn render_album_detail(
     if let Some(panel) = feed_popup {
         slots.panels.push(panel);
     }
+    if let Some(panel) = render_library_contributors_panel(&projection, album_thumbs) {
+        slots.after_section.push(panel);
+    }
     render_release_detail_shell("album-detail-scroll", &projection, slots)
 }
 
@@ -2491,6 +2504,62 @@ fn render_library_identity_actions(view: &FeedView) -> Vec<AnyElement> {
         actions.push(
             identity_action_button(
                 SharedString::from(format!("library-feed-nostr:{npub}")),
+                IdentityActionKind::Nostr,
+            )
+            .on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
+            })
+            .into_any_element(),
+        );
+    }
+
+    actions
+}
+
+fn render_library_contributors_panel(
+    projection: &ReleaseDetailVm<'_>,
+    album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+) -> Option<AnyElement> {
+    render_contributor_panel(
+        "library-contributors",
+        "Contributors",
+        projection.contributors(),
+        |contributor| {
+            let thumbnail = contributor
+                .image_url()
+                .and_then(|url| album_thumbs.get(url))
+                .and_then(Clone::clone);
+            ContributorRowSlot {
+                thumbnail,
+                actions: library_contributor_identity_actions(contributor),
+            }
+        },
+    )
+}
+
+fn library_contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<AnyElement> {
+    let label = contributor.full_label();
+    let mut actions = Vec::new();
+
+    if let Some(href) = contributor.href().map(str::to_string) {
+        let href_for_click = href.clone();
+        actions.push(
+            identity_action_button(
+                SharedString::from(format!("library-contributor-website:{label}:{href}")),
+                IdentityActionKind::Website,
+            )
+            .on_click(move |_, _, _| {
+                let _ = open::that(&href_for_click);
+            })
+            .into_any_element(),
+        );
+    }
+
+    if let Some(npub) = contributor.nostr_npub().map(str::to_string) {
+        let npub_for_click = npub.clone();
+        actions.push(
+            identity_action_button(
+                SharedString::from(format!("library-contributor-nostr:{label}:{npub}")),
                 IdentityActionKind::Nostr,
             )
             .on_click(move |_, _, cx| {
