@@ -114,9 +114,10 @@ playback workflows.
    `DownloadManager` port. No matching CLI subscription/download commands exist
    to migrate in this slice.
 5. In progress `adr-0024-task-005-metadata-feed-update-slice`: feed update
-   checks/apply and single-track Library `MusicBrainz` lookup/staging route
-   through commands and local feed queries; album release lookup and any
-   remaining staged metadata query cleanup remain.
+   checks/apply, single-track Library `MusicBrainz` lookup/staging, and album
+   release lookup route through commands and local feed queries. Remaining
+   cleanup is limited to deciding whether staged metadata needs a durable read
+   model or should stay as transient GPUI-free view-model state.
 6. `adr-0024-task-006-playback-slice`: route playback transport commands and
    playback snapshots through the application layer while preserving the
    existing playback owner/driver boundary.

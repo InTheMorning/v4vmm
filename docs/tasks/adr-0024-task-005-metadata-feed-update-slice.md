@@ -20,10 +20,9 @@ events, and local queries while preserving metadata provenance.
   refresh paths can react to tag/feed changes.
 - Single-track Library `MusicBrainz` lookup and staging now dispatch metadata
   commands instead of calling `feed_service` directly from the screen.
-- Album batch `MusicBrainz` still owns its release-search/progress loop in
-  `library.rs`; the per-track staging helpers used by that loop now route
-  through metadata commands, but the album-level `lookup_releases` call remains
-  to migrate.
+- Album batch `MusicBrainz` still owns its GPUI progress loop in `library.rs`,
+  but album release lookup and per-track staging now route through metadata
+  commands.
 - Discover/Search `MusicBrainz` lookup remains deferred as remote-only lookup
   unless a later task treats its inspector state as command lifecycle state.
 
@@ -73,14 +72,15 @@ events, and local queries while preserving metadata provenance.
 
 ## Implementation Steps
 
-1. In progress: define metadata/feed update commands and results. Feed update
-   commands and single-track `MusicBrainz` commands are present; album release
-   lookup remains.
+1. Done: define metadata/feed update commands and results. Feed update,
+   single-track `MusicBrainz`, album release lookup, and staging commands are
+   present.
 2. In progress: add metadata/feed update event families. Feed apply emits
    metadata/feed/library events; single-track staging emits metadata events.
-3. In progress: add local query APIs for staged `MusicBrainz` and feed update
-   state. Feed stale-check rows are query-backed; staged `MusicBrainz`
-   snapshot reads remain in the library view-model state.
+3. Partially done: add local query APIs for feed update state. Feed stale-check
+   rows are query-backed; staged `MusicBrainz` remains in the library
+   view-model snapshot because it is screen-local transient state, not a
+   durable read model.
 4. In progress: wrap existing metadata/feed services without moving them.
 5. In progress: migrate screen call sites through commands and event/query
    refresh.
@@ -91,8 +91,10 @@ events, and local queries while preserving metadata provenance.
 ## Acceptance Criteria
 
 - Migrated metadata/feed update paths dispatch commands.
-- Staged MusicBrainz/feed update snapshots are read through
+- Feed update snapshots that come from local persistence are read through
   `ApplicationQueryService`.
+- Staged MusicBrainz transient state remains GPUI-free view-model data until a
+  durable read model exists.
 - Metadata provenance behavior is preserved.
 - Architecture tests prevent migrated direct service-call regression.
 

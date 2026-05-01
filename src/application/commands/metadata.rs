@@ -8,7 +8,9 @@ use crate::application::events::ApplicationEvent;
 use crate::db::TrackRow;
 use crate::feed_service::{self, StagedMusicBrainzLookup};
 use crate::metadata::MusicBrainzLookupResult;
-use crate::musicbrainz::MusicBrainzCandidate;
+use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
+
+use reqwest::blocking::Client as ReqwestClient;
 
 /// Looks up `MusicBrainz` candidates for one local library track.
 #[derive(Clone, Debug)]
@@ -34,6 +36,41 @@ impl ApplicationCommand for LookupMusicBrainzTrack {
         let result = feed_service::lookup_musicbrainz_library_track(&self.track)
             .map_err(|error| metadata_command_error(&error))?;
         Ok(CommandOutcome::without_events(result))
+    }
+}
+
+/// Looks up `MusicBrainz` release candidates for album-level staging.
+#[derive(Clone, Debug)]
+pub struct LookupMusicBrainzAlbumReleases {
+    metadata: LookupMetadata,
+    limit: i32,
+}
+
+impl LookupMusicBrainzAlbumReleases {
+    /// Creates an album release lookup command.
+    #[must_use]
+    pub const fn new(metadata: LookupMetadata, limit: i32) -> Self {
+        Self { metadata, limit }
+    }
+}
+
+impl ApplicationCommand for LookupMusicBrainzAlbumReleases {
+    type Output = Vec<MusicBrainzCandidate>;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let musicbrainz_client = ReqwestClient::builder()
+            .user_agent(format!(
+                "v4vmm/{} (MusicBrainz metadata lookup)",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .build()
+            .map_err(|error| CommandError::Metadata(format!("{error:#}")))?;
+        let candidates = lookup_releases(&musicbrainz_client, &self.metadata, self.limit)
+            .map_err(|error| metadata_command_error(&error))?;
+        Ok(CommandOutcome::without_events(candidates))
     }
 }
 
@@ -145,6 +182,18 @@ mod tests {
                 &cancelled_context(),
             )
             .expect_err("cancelled lookup should fail before service call");
+
+        assert_eq!(error, CommandError::Cancelled);
+    }
+
+    #[test]
+    fn lookup_musicbrainz_album_releases_honors_cancelled_context() {
+        let error = CommandBus::new()
+            .execute(
+                LookupMusicBrainzAlbumReleases::new(LookupMetadata::default(), 3),
+                &cancelled_context(),
+            )
+            .expect_err("cancelled album lookup should fail before network call");
 
         assert_eq!(error, CommandError::Cancelled);
     }

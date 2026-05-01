@@ -31,7 +31,6 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::menu::DropdownMenu as _;
 use gpui_component::Disableable;
 use gpui_component::Size;
-use reqwest::blocking::Client as ReqwestClient;
 
 use crate::api::Track;
 use crate::application::commands::download::{
@@ -42,7 +41,8 @@ use crate::application::commands::feed::{
     ApplyFeedUpdates, CheckFeedStaleness, CheckSubscribedFeeds, UnsubscribeFeedById,
 };
 use crate::application::commands::metadata::{
-    LookupMusicBrainzTrack, StageMusicBrainzCandidate, StageMusicBrainzTrack,
+    LookupMusicBrainzAlbumReleases, LookupMusicBrainzTrack, StageMusicBrainzCandidate,
+    StageMusicBrainzTrack,
 };
 use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
@@ -62,7 +62,7 @@ use crate::metadata::{
     summarize_contributor_value, track_metadata_rows, AlignedCompareRow, MetadataColumn,
     MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
 };
-use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
+use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
@@ -1261,6 +1261,7 @@ impl LibraryApp {
         let feed_id = album.feed_id.unwrap_or(0);
         let feed_title = Some(album.name.clone());
         let total_count = downloadable.len();
+        let command_bus = self.application_services.command_bus();
         cx.spawn(
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
                 // Build album-level metadata from feed + first track.
@@ -1280,13 +1281,11 @@ impl LibraryApp {
                 let release_candidates = cx
                     .background_executor()
                     .spawn(async move {
-                        let mb_client = ReqwestClient::builder()
-                            .user_agent(format!(
-                                "v4vmm/{} (MusicBrainz metadata lookup)",
-                                env!("CARGO_PKG_VERSION")
-                            ))
-                            .build()?;
-                        lookup_releases(&mb_client, &meta_clone, 3)
+                        let outcome = command_bus.execute(
+                            LookupMusicBrainzAlbumReleases::new(meta_clone, 3),
+                            &CommandContext::next(),
+                        )?;
+                        Ok::<_, crate::application::CommandError>(outcome.into_parts().0)
                     })
                     .await;
 

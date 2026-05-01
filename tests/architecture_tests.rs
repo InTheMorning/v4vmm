@@ -45,6 +45,7 @@ const SCREEN_METADATA_FEED_FORBIDDEN_PATTERNS: &[&str] = &[
     "feed_service::lookup_musicbrainz_library_track(",
     "feed_service::lookup_musicbrainz_stage_for_track(",
     "feed_service::stage_candidate_for_track(",
+    "lookup_releases(",
 ];
 
 const SCREEN_FILES: &[&str] = &["src/app.rs", "src/library.rs", "src/search.rs"];
