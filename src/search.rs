@@ -49,8 +49,9 @@ use crate::subscribe_service::{
 };
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
-    action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
+    action_button, identity_action_button, DetailGrid, DetailHeader,
+    DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, IdentityActionKind, ListRow,
+    ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -61,14 +62,16 @@ use crate::ui::primitives::{
 };
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
+use crate::view_models::entity_detail::{ContributorListVm, ContributorRowVm};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
-    artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ContributorVm,
-    LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm,
-    ResultRow, SearchBatch, SearchSubscriptionCommand, SearchViewModel, TrackInspectorHeaderVm,
+    artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, LazyPanel,
+    PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm, ResultRow,
+    SearchBatch, SearchSubscriptionCommand, SearchViewModel, TrackInspectorHeaderVm,
     TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
+use crate::views::ContributorView;
 
 #[derive(Clone, Debug)]
 pub(crate) enum InspectorDetail {
@@ -95,7 +98,7 @@ pub(crate) struct InspectorFrame {
     pub title: String,
     pub detail: InspectorDetail,
     pub image: Option<Arc<Image>>,
-    pub contributors: LazyPanel<Vec<Contributor>>,
+    pub contributors: LazyPanel<Vec<ContributorView>>,
     pub contributors_collapsed: bool,
     pub value_routes: LazyPanel<Vec<PaymentRoute>>,
     pub value_routes_collapsed: bool,
@@ -635,6 +638,12 @@ impl SearchApp {
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
                         if let Some(frame) = this.inspector_stack.last_mut() {
+                            let contributors = contributors.map(|contributors| {
+                                contributors
+                                    .into_iter()
+                                    .map(ContributorView::from)
+                                    .collect()
+                            });
                             frame.contributors =
                                 LazyPanel::from_items_result(contributors, "No contributors found");
                         }
@@ -2455,7 +2464,7 @@ fn render_discover_feed_inspector(
     if let Some(section) = podroll_section(frame, app, cx) {
         panels.push(section);
     }
-    panels.push(render_lazy_sections(frame, cx));
+    panels.push(render_lazy_sections(frame, app, cx));
 
     crate::ui_feed::render_feed_view(&view, &tracks, &ctx, frame, panels, app, cx)
 }
@@ -2595,7 +2604,7 @@ fn render_discover_track_inspector(
                 track.description.clone().unwrap_or_default(),
             ))
         })
-        .child(render_lazy_sections(frame, cx))
+        .child(render_lazy_sections(frame, app, cx))
         .into_any_element()
 }
 
@@ -2824,21 +2833,33 @@ fn render_add_to_playlist_panel_search(
     panel.into_any_element()
 }
 
-fn render_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
-    render_rss_lazy_sections(frame, cx)
+fn render_lazy_sections(
+    frame: &InspectorFrame,
+    app: &mut SearchApp,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    render_rss_lazy_sections(frame, app, cx)
 }
 
-fn render_rss_lazy_sections(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
+fn render_rss_lazy_sections(
+    frame: &InspectorFrame,
+    app: &mut SearchApp,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(render_lazy_contributors(frame, cx))
+        .child(render_lazy_contributors(frame, app, cx))
         .child(render_lazy_value_routes(frame, cx))
         .into_any_element()
 }
 
-fn render_lazy_contributors(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
+fn render_lazy_contributors(
+    frame: &InspectorFrame,
+    app: &mut SearchApp,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     let collapsed = frame.contributors_collapsed || matches!(frame.contributors, LazyPanel::Hidden);
 
     div()
@@ -2847,7 +2868,7 @@ fn render_lazy_contributors(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
         .gap(spacing::XS)
         .child(render_contributors_heading(collapsed, cx))
         .when(!collapsed, |el| match &frame.contributors {
-            LazyPanel::Loaded(items) => el.children(contributor_elements(items, cx)),
+            LazyPanel::Loaded(items) => el.children(contributor_elements(items, app, cx)),
             LazyPanel::Loading => el.child(render_loading("Loading contributors...")),
             LazyPanel::Empty(label) => el.child(muted_line(label)),
             LazyPanel::Hidden => el,
@@ -2873,53 +2894,90 @@ fn render_lazy_value_routes(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
 }
 
 fn contributor_elements(
-    contributors: &[Contributor],
+    contributors: &[ContributorView],
+    app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> Vec<AnyElement> {
-    let mut groups = BTreeMap::<String, Vec<&Contributor>>::new();
-    for contributor in contributors {
-        groups
-            .entry(ContributorVm::new(contributor).group().to_string())
-            .or_default()
-            .push(contributor);
-    }
-
     let mut all_elements: Vec<AnyElement> = Vec::new();
-    for (group, members) in groups {
-        if !group.is_empty() {
+    for group in ContributorListVm::new(contributors).groups() {
+        if let Some(group) = group.group {
             all_elements.push(group_heading(group));
         }
-        for contributor in members {
-            let vm = ContributorVm::new(contributor);
-            let label = vm.full_label();
-
-            if let Some(href) = vm.href().map(str::to_string) {
-                let href_for_click = href.clone();
-                let id = SharedString::from(format!("contrib-link:{label}:{href}"));
-                all_elements.push(
-                    div()
-                        .id(id)
-                        .text_size(typography::SIZE_MICRO)
-                        .text_color(color::accent())
-                        .cursor_pointer()
-                        .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
-                            let _ = open::that(&href_for_click);
-                        }))
-                        .child(SharedString::from(label))
-                        .into_any_element(),
-                );
-            } else {
-                all_elements.push(
-                    div()
-                        .text_size(typography::SIZE_MICRO)
-                        .child(SharedString::from(label))
-                        .into_any_element(),
-                );
-            }
+        for contributor in group.contributors {
+            let thumbnail = app.thumbnail_for_url(contributor.image_url(), cx);
+            all_elements.push(render_contributor_row(&contributor, thumbnail));
         }
     }
 
     all_elements
+}
+
+fn render_contributor_row(
+    contributor: &ContributorRowVm<'_>,
+    thumbnail: Option<Arc<Image>>,
+) -> AnyElement {
+    let label = contributor.full_label();
+    let mut detail = div().flex_1().min_w_0().child(
+        Label::new(label.clone())
+            .size(FontSize::Micro)
+            .weight(FontWeight::MEDIUM)
+            .truncated(),
+    );
+
+    if let Some(href) = contributor.href() {
+        detail = detail.child(
+            Label::new(href.to_string())
+                .size(FontSize::Micro)
+                .color(SemanticColor::TertiaryLabel)
+                .truncated(),
+        );
+    }
+
+    let mut actions = Vec::new();
+    if let Some(href) = contributor.href().map(str::to_string) {
+        let href_for_click = href.clone();
+        actions.push(
+            identity_action_button(
+                SharedString::from(format!("contributor-website:{label}:{href}")),
+                IdentityActionKind::Website,
+            )
+            .on_click(move |_, _, _| {
+                let _ = open::that(&href_for_click);
+            })
+            .into_any_element(),
+        );
+    }
+    if let Some(npub) = contributor.nostr_npub().map(str::to_string) {
+        let npub_for_click = npub.clone();
+        actions.push(
+            identity_action_button(
+                SharedString::from(format!("contributor-nostr:{label}:{npub}")),
+                IdentityActionKind::Nostr,
+            )
+            .on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
+            })
+            .into_any_element(),
+        );
+    }
+
+    let mut row = ListRow::compact(SharedString::from(format!("contributor:{label}")))
+        .child(Thumbnail::new(EntityKind::Artist, ThumbnailSize::Sm).image(thumbnail))
+        .child(detail);
+
+    if !actions.is_empty() {
+        row = row.child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(spacing::XS)
+                .flex_shrink_0()
+                .children(actions),
+        );
+    }
+
+    row.into_any_element()
 }
 
 fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {

@@ -55,6 +55,7 @@ feeds/items/tracks, and contributors.
 - `src/view_models/mod.rs`
 - `src/view_models/entity_detail.rs`
 - `src/ui_entity.rs`
+- `src/ui/composites/identity_action.rs`
 - `src/ui_feed.rs`
 - `src/ui_track.rs`
 - `src/search.rs`
@@ -125,8 +126,9 @@ where remove already implies membership.
 
 ### Phase 6 — Contributor Identity UI
 
-Task file to create after Phase 5 review:
-`docs/tasks/adr-0026-task-006-contributor-identity-ui.md`.
+Status: Implemented.
+
+Task: `docs/tasks/adr-0026-task-006-contributor-identity-ui.md`
 
 Render contributor images, webpages, and Nostr identity actions through shared
 identity-action composites. Use ADR 0025 icon/control roles.
@@ -197,6 +199,9 @@ changes action semantics.
   public identity/provenance fields.
 - Feed and track view facts expose contributor identity through
   `ContributorView`.
+- Discover contributor panels store local `ContributorView` rows and render
+  image, website, and Nostr affordances from shared contributor projections and
+  identity-action composites.
 - `ReleaseDetailVm` and shared track-row projections are GPUI-free and covered
   by unit tests.
 - `src/ui_entity.rs` uses slot-based action binding and imports no screen or

@@ -536,58 +536,6 @@ impl<'a> TrackInspectorHeaderVm<'a> {
     }
 }
 
-/// Borrow-only projection of one [`api::Contributor`] entry inside the
-/// inspector's contributors panel. Owns the `Unknown` name fallback and
-/// the `" (role)"` suffix the screen used to inline.
-pub(crate) struct ContributorVm<'a> {
-    contributor: &'a api::Contributor,
-}
-
-impl<'a> ContributorVm<'a> {
-    #[must_use]
-    pub(crate) fn new(contributor: &'a api::Contributor) -> Self {
-        Self { contributor }
-    }
-
-    /// Display name with `"Unknown"` fallback.
-    #[must_use]
-    pub(crate) fn display_name(&self) -> String {
-        self.contributor
-            .name
-            .clone()
-            .unwrap_or_else(|| "Unknown".to_string())
-    }
-
-    /// `" (role)"` suffix when the contributor has a role, otherwise
-    /// empty.
-    #[must_use]
-    pub(crate) fn role_suffix(&self) -> String {
-        self.contributor
-            .role
-            .as_ref()
-            .map_or(String::new(), |r| format!(" ({r})"))
-    }
-
-    /// `"<name>{ (role)}"` — what the contributor row renders.
-    #[must_use]
-    pub(crate) fn full_label(&self) -> String {
-        format!("{}{}", self.display_name(), self.role_suffix())
-    }
-
-    /// Optional clickable href for the row.
-    #[must_use]
-    pub(crate) fn href(&self) -> Option<&str> {
-        self.contributor.href.as_deref()
-    }
-
-    /// Group key (used by the screen to bucket contributors). Empty
-    /// string means "ungrouped".
-    #[must_use]
-    pub(crate) fn group(&self) -> &str {
-        self.contributor.group_name.as_deref().unwrap_or("")
-    }
-}
-
 /// Borrow-only projection of one [`api::PaymentRoute`] entry inside the
 /// inspector's value-routes panel. Owns the `"Unnamed recipient"` /
 /// `"route"` fallbacks, the fee-vs-split classification, and the
@@ -2048,50 +1996,6 @@ mod tests {
         };
         let vm = TrackInspectorHeaderVm::new(&track);
         assert_eq!(vm.feed_link_label("fallback"), "fallback");
-    }
-
-    #[test]
-    fn contributor_vm_falls_back_to_unknown_name() {
-        let c = api::Contributor::default();
-        let vm = ContributorVm::new(&c);
-        assert_eq!(vm.display_name(), "Unknown");
-        assert_eq!(vm.role_suffix(), "");
-        assert_eq!(vm.full_label(), "Unknown");
-        assert_eq!(vm.href(), None);
-    }
-
-    #[test]
-    fn contributor_vm_combines_name_and_role_suffix() {
-        let c = api::Contributor {
-            name: Some("Ada".into()),
-            role: Some("producer".into()),
-            ..api::Contributor::default()
-        };
-        let vm = ContributorVm::new(&c);
-        assert_eq!(vm.display_name(), "Ada");
-        assert_eq!(vm.role_suffix(), " (producer)");
-        assert_eq!(vm.full_label(), "Ada (producer)");
-    }
-
-    #[test]
-    fn contributor_vm_omits_role_when_absent() {
-        let c = api::Contributor {
-            name: Some("Ada".into()),
-            ..api::Contributor::default()
-        };
-        let vm = ContributorVm::new(&c);
-        assert_eq!(vm.full_label(), "Ada");
-    }
-
-    #[test]
-    fn contributor_vm_exposes_href_when_present() {
-        let c = api::Contributor {
-            name: Some("Ada".into()),
-            href: Some("https://x".into()),
-            ..api::Contributor::default()
-        };
-        let vm = ContributorVm::new(&c);
-        assert_eq!(vm.href(), Some("https://x"));
     }
 
     #[test]

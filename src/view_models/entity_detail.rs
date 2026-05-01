@@ -561,6 +561,11 @@ mod tests {
             groups[0].contributors[0].href(),
             Some("https://example.test/alice")
         );
+        assert_eq!(
+            groups[0].contributors[0].image_url(),
+            Some("https://example.test/alice.jpg")
+        );
+        assert_eq!(groups[0].contributors[0].nostr_npub(), Some("npub1alice"));
     }
 
     #[test]
