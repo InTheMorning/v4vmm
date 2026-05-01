@@ -59,7 +59,16 @@ const SCREEN_PLAYBACK_FORBIDDEN_PATTERNS: &[&str] = &[
     "StartPlayback",
 ];
 
-const SCREEN_FILES: &[&str] = &["src/app.rs", "src/library.rs", "src/search.rs"];
+const SCREEN_FILES: &[&str] = &[
+    "src/app.rs",
+    "src/app/bootstrap.rs",
+    "src/app/events.rs",
+    "src/app/keyboard.rs",
+    "src/app/playback_bar.rs",
+    "src/app/tab_bar.rs",
+    "src/library.rs",
+    "src/search.rs",
+];
 
 #[test]
 fn view_models_do_not_import_gpui_or_screen_layers() {
@@ -302,11 +311,13 @@ fn contains_numeric_px_literal(line: &str) -> bool {
 
 fn appearance_dark_is_approved(file: &str, source: &str, line_number: usize) -> bool {
     match file {
-        "src/app.rs" => nearby_source_mentions(
+        "src/app.rs" => {
+            nearby_source_mentions(source, line_number, &["Apply scale change immediately"])
+        }
+        "src/app/bootstrap.rs" => nearby_source_mentions(
             source,
             line_number,
             &[
-                "Apply scale change immediately",
                 "Pre-config: install with default scale",
                 "Re-apply theme now that config has provided",
             ],

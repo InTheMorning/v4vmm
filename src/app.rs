@@ -4,22 +4,17 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use gpui::{
-    div, prelude::*, size, Application, Bounds, Context, Entity, Render, SharedString, Styled,
-    Window, WindowBounds, WindowOptions,
-};
+use gpui::{div, prelude::*, Context, Entity, Render, SharedString, Styled, Window};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
-use gpui_component::{Root, Size};
+use gpui_component::Size;
 use rusqlite::Connection;
 
 use crate::application::{ApplicationEventSubscriber, ApplicationServices};
 use crate::config;
-use crate::db;
 use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryAppEvent};
 use crate::library_service;
 use crate::media::ImageCache;
-use crate::playback;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
 use crate::presentation::{GpuiCommandRunner, GpuiEventBridge};
@@ -29,10 +24,13 @@ use crate::ui::theme::layout;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::library::LibraryTree;
 
+mod bootstrap;
 mod events;
 mod keyboard;
 mod playback_bar;
 mod tab_bar;
+
+pub use bootstrap::run_app;
 
 use playback_bar::build_playback_bar;
 use tab_bar::render_tab_bar;
@@ -696,135 +694,4 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                 }),
         )
         .into_any_element()
-}
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
-
-/// Run the desktop GPUI application.
-///
-/// # Panics
-///
-/// Panics if the config path, config file, `MusicIndex` endpoint, database,
-/// playback driver, or initial window cannot be initialized.
-#[expect(
-    clippy::too_many_lines,
-    reason = "application bootstrap owns one-time GPUI setup and resource wiring"
-)]
-pub fn run_app() {
-    let app = Application::new().with_assets(gpui_component_assets::Assets);
-
-    app.run(move |cx| {
-        gpui_component::init(cx);
-        // Pre-config: install with default scale so the loading window is
-        // themed; we re-install with the user's preference once config is
-        // loaded a few lines below.
-        crate::ui::theme_bridge::install_theme(
-            crate::ui::tokens::Appearance::Dark,
-            crate::ui::tokens::ScaleFactor::Medium,
-            cx,
-        );
-
-        // Load config + open DB
-        let cfg_path = config::config_path().expect("config path");
-        let cfg = config::load_config(&cfg_path).expect("load config");
-        let musicindex_endpoint =
-            config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
-        config::ensure_dirs(&cfg).expect("ensure dirs");
-
-        // Re-apply theme now that config has provided the user's UI scale.
-        crate::ui::theme_bridge::install_theme(
-            crate::ui::tokens::Appearance::Dark,
-            cfg.ui_scale.into(),
-            cx,
-        );
-        let conn = db::open_db(&cfg).expect("open db");
-        let conn = Arc::new(Mutex::new(conn));
-        let playback_driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)
-            .expect("configure playback driver");
-        let playback_owner = Arc::new(Mutex::new(PlaybackOwner::new(
-            playback_driver,
-            playback::DEFAULT_SESSION_ID,
-        )));
-
-        let thumbnail_cache_dir = cfg_path
-            .parent()
-            .expect("config path has parent")
-            .join("thumbnail-cache");
-        let http = reqwest::blocking::Client::new();
-        let image_cache = ImageCache::new(http, thumbnail_cache_dir);
-
-        let window_handle = cx
-            .open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                        None,
-                        size(layout::WINDOW_WIDTH, layout::WINDOW_HEIGHT),
-                        cx,
-                    ))),
-                    ..Default::default()
-                },
-                |window, cx| {
-                    let view = cx.new(|cx| {
-                        let mut app = TopApp::new(
-                            conn,
-                            image_cache,
-                            cfg_path,
-                            musicindex_endpoint,
-                            cfg.music_dir,
-                            cfg.flac_path,
-                            cfg.ui_scale,
-                            playback_owner,
-                            window,
-                            cx,
-                        );
-                        app.maybe_start_playback_polling(cx);
-                        app
-                    });
-                    let root = cx.new(|cx| Root::new(view, window, cx));
-                    window.refresh();
-                    root
-                },
-            )
-            .expect("failed to open window");
-        let window_handle = gpui::AnyWindowHandle::from(window_handle);
-        window_handle
-            .update(cx, |_, window, cx| {
-                window.activate_window();
-                window.refresh();
-                cx.refresh_windows();
-            })
-            .expect("activate initial window");
-        cx.activate(true);
-        cx.refresh_windows();
-        cx.defer(move |cx| {
-            let _ = window_handle.update(cx, |_, window, cx| {
-                window.activate_window();
-                window.refresh();
-                cx.refresh_windows();
-            });
-            cx.activate(true);
-            cx.refresh_windows();
-        });
-        cx.spawn(async move |cx: &mut gpui::AsyncApp| {
-            cx.background_executor()
-                .timer(Duration::from_millis(16))
-                .await;
-            let _ = cx.update(|cx| {
-                let _ = window_handle.update(cx, |_, window, cx| {
-                    window.activate_window();
-                    window.refresh();
-                    cx.refresh_windows();
-                });
-                cx.activate(true);
-                cx.refresh_windows();
-            });
-            cx.background_executor()
-                .timer(Duration::from_millis(100))
-                .await;
-            let _ = cx.refresh();
-        })
-        .detach();
-    });
 }

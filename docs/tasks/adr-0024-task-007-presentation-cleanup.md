@@ -24,6 +24,8 @@ low-risk.
 - Top-level tab bar/chrome rendering moved out of `app.rs` into
   `src/app/tab_bar.rs`. This is render-only app chrome plus the existing tab
   click refresh behavior.
+- Public GPUI bootstrap moved out of `app.rs` into `src/app/bootstrap.rs`.
+  `crate::app::run_app` remains re-exported from `src/app.rs`.
 - Keep live-driver polling in `app.rs` for now because it still supervises
   `PlaybackOwner<D>` directly.
 - Library cleanup candidates are command-binding adapters and render-only
@@ -39,6 +41,7 @@ low-risk.
 - `docs/adr/0024-command-query-event-application-layer.md`
 - `docs/plans/adr-0024-application-layer-phase-plan.md`
 - `src/app.rs`
+- `src/app/bootstrap.rs`
 - `src/app/events.rs`
 - `src/app/keyboard.rs`
 - `src/app/playback_bar.rs`
@@ -83,9 +86,12 @@ low-risk.
    `src/app/playback_bar.rs`; top-level keyboard routing has moved to
    `src/app/keyboard.rs`; top-level event drain handling has moved to
    `src/app/events.rs`; top-level tab bar rendering has moved to
-   `src/app/tab_bar.rs`.
+   `src/app/tab_bar.rs`; public GPUI bootstrap has moved to
+   `src/app/bootstrap.rs`.
 3. Keep view-models and application modules GPUI-free.
-4. Update architecture tests and docs for any path changes.
+4. In progress: update architecture tests and docs for any path changes.
+   Screen-boundary source scans now cover the extracted `src/app/*.rs`
+   presentation modules.
 5. Run full verification.
 
 ## Acceptance Criteria
