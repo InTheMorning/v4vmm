@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-01. Tasks 001-004 implemented and verified.
+Implemented - 2026-05-01. Tasks 001-005 implemented and verified.
 
 ## Goal
 
@@ -64,6 +64,7 @@ in screen/application adapters.
 4. Destructive row control treatment under ADR 0025. Implemented by
    `docs/tasks/adr-0027-task-004-destructive-row-control.md`.
 5. Final visual smoke against the same Library/Discover release fixture.
+   Implemented by `docs/tasks/adr-0027-task-005-final-visual-smoke.md`.
 
 ## Schema/API Implications
 

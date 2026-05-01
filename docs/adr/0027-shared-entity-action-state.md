@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-01.
+Implemented - 2026-05-01.
 
 ## Context
 
@@ -10,17 +10,17 @@ ADR 0026 introduced shared entity projections and a shared release-detail shell.
 The post-ADR 0026 visual smoke compared `The Heycitizen Experience` in Library
 and Discover at the same viewport and confirmed that the shell now aligns.
 
-The remaining mismatch is not primarily layout. Equivalent entity actions are
-still modeled and rendered through screen-local state:
+Before this ADR, the remaining mismatch was not primarily layout. Equivalent
+entity actions were still modeled and rendered through screen-local state:
 
-- Discover renders a quiet `Remove Feed` action while Library renders a
+- Discover rendered a quiet `Remove Feed` action while Library rendered a
   prominent destructive `Unsubscribe Feed` action for the same release.
-- Discover track rows render quiet icon removal, playlist, and selection
-  affordances while Library track rows render large repeated `Remove` buttons.
-- Library still renders detail state such as `Downloaded 19` even when Library
-  membership is already implied by the row removal affordance.
+- Discover track rows rendered quiet icon removal, playlist, and selection
+  affordances while Library track rows rendered large repeated `Remove` buttons.
+- Library rendered detail state such as `Downloaded 19` even when Library
+  membership was already implied by the row removal affordance.
 - MusicBrainz, playlist popovers, in-flight download/remove state, and
-  membership state are still composed from screen-local view-models.
+  membership state were composed from screen-local view-models.
 
 ADR 0026 already has `EntityActionVm`, `EntityActionKind`,
 `EntityActionTarget`, and `EntityActionTone`, but those descriptors are not yet

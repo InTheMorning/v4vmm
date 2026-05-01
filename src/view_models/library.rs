@@ -1431,18 +1431,11 @@ impl<'a> LibraryAlbumDetailVm<'a> {
         fmt_total_runtime_clock(self.total_duration_seconds())
     }
 
-    /// Number of tracks downloaded to disk.
-    #[must_use]
-    pub(crate) fn downloaded_count(&self) -> usize {
-        self.tracks
-            .iter()
-            .filter(|t| t.local_path.is_some())
-            .count()
-    }
-
     /// Detail-grid rows in display order: `Artist`, `Tracks` (with
-    /// pluralised count), `Duration` (only when total > 0), and
-    /// `Downloaded` (only when at least one track is downloaded).
+    /// pluralised count), and `Duration` (only when total > 0).
+    ///
+    /// Downloaded count is intentionally omitted: Library membership is already
+    /// expressed by the release and row removal actions.
     #[must_use]
     pub(crate) fn detail_rows(&self) -> Vec<(String, String)> {
         let track_count = self.track_count();
@@ -1455,10 +1448,6 @@ impl<'a> LibraryAlbumDetailVm<'a> {
         ];
         if let Some(label) = self.total_duration_label() {
             rows.push(("Duration".to_string(), label));
-        }
-        let downloaded = self.downloaded_count();
-        if downloaded > 0 {
-            rows.push(("Downloaded".to_string(), downloaded.to_string()));
         }
         rows
     }
@@ -2233,7 +2222,7 @@ mod tests {
     }
 
     #[test]
-    fn album_detail_vm_includes_downloaded_count_when_any_local_path_present() {
+    fn album_detail_vm_omits_downloaded_count_when_membership_actions_cover_state() {
         let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
         let mut t = row();
@@ -2241,7 +2230,7 @@ mod tests {
         let tracks = [t, row()];
         let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
         let rows = vm.detail_rows();
-        assert!(rows.iter().any(|(k, v)| k == "Downloaded" && v == "1"));
+        assert!(!rows.iter().any(|(k, _)| k == "Downloaded"));
     }
 
     #[test]

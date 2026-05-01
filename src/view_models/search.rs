@@ -514,22 +514,6 @@ impl<'a> TrackRowActionVm<'a> {
     }
 
     #[must_use]
-    pub(crate) fn download_label(&self) -> &'static str {
-        match self.primary_action().kind {
-            EntityActionKind::Remove => "🗑",
-            _ => "⬇",
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn download_tooltip(&self) -> &'static str {
-        match self.primary_action().kind {
-            EntityActionKind::Remove => "Remove from library",
-            _ => "Download track",
-        }
-    }
-
-    #[must_use]
     pub(crate) fn is_in_flight(&self) -> bool {
         self.is_in_flight
     }
@@ -1937,14 +1921,12 @@ mod tests {
         let track = Track::default();
         let vm = TrackRowActionVm::new(&track, false, true);
         assert_eq!(vm.busy_tooltip(), "Downloading...");
-        assert_eq!(vm.download_label(), "⬇");
-        assert_eq!(vm.download_tooltip(), "Download track");
+        assert_eq!(vm.primary_action().label, "Downloading...");
         assert!(vm.is_in_flight());
 
         let vm = TrackRowActionVm::new(&track, true, true);
         assert_eq!(vm.busy_tooltip(), "Removing...");
-        assert_eq!(vm.download_label(), "🗑");
-        assert_eq!(vm.download_tooltip(), "Remove from library");
+        assert_eq!(vm.primary_action().label, "Removing...");
     }
 
     #[test]

@@ -4993,30 +4993,15 @@ pub(crate) fn render_track_download_button(
 
     let id = SharedString::from(format!("track-row-download:{key}"));
     let action = action_vm.primary_action();
-    let label = action_vm.download_label();
-    let tooltip = action_vm.download_tooltip();
-    let border = match action.tone {
-        EntityActionTone::DestructiveQuiet => StatusRole::Danger.color(cx),
-        _ => color::accent(),
+    let style = match action.tone {
+        EntityActionTone::DestructiveQuiet => ControlStyle::DestructiveRowAction,
+        _ => ControlStyle::RowAction,
     };
     let track_for_click = track.clone();
     let feed_for_click = feed.clone();
 
-    // CONTROL-COMPAT(reason): native Button does not yet expose tooltip plus fixed square icon-button geometry.
-    Button::new(id)
-        .label(label)
-        .scaled(Size::XSmall, cx)
-        .compact()
-        .ghost()
-        .w(layout::ACTION_ICON_SIZE)
-        .h(layout::ACTION_ICON_SIZE)
-        .px(spacing::NONE)
-        .py(spacing::NONE)
-        .text_color(color::text_on_accent())
-        .rounded(radius::SM)
-        .border_1()
-        .border_color(border)
-        .tooltip(tooltip)
+    UiButton::styled(id, style)
+        .label(action.label.clone())
         .disabled(!action.enabled)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             if is_downloaded {
