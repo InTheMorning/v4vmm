@@ -474,7 +474,7 @@ already true at merge of PR #5; others are explicitly tracked in
       membership is already represented by the `Remove` action.
 - [x] Remaining high-noise screen status/command setup is represented by
       narrow intent/result values where it materially thins the screens.
-- [ ] Automated architecture tests enforce GPUI-free `view_models`, token
+- [x] Automated architecture tests enforce GPUI-free `view_models`, token
       literal rules in screen modules, and no hardcoded dark render defaults.
 - [x] `docs/tasks/adr-0023-*.md` task packets exist for the remaining
       screen-VM, shell, surface, and boundary-gate slices, and each slice

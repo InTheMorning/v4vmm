@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Completed 2026-04-30.
 
 ## Task Goal
 
@@ -56,12 +56,23 @@ audit claims.
 
 ## Acceptance Criteria
 
-- Boundary tests fail on GPUI imports in `view_models`.
-- Boundary tests fail on raw `rgb(...)` or numeric `px(...)` literals in
+- [x] Boundary tests fail on GPUI imports in `view_models`.
+- [x] Boundary tests fail on raw `rgb(...)` or numeric `px(...)` literals in
   `app.rs`, `library.rs`, and `search.rs`.
-- Boundary tests fail on hardcoded `Appearance::Dark` in screen render paths
+- [x] Boundary tests fail on hardcoded `Appearance::Dark` in screen render paths
   unless explicitly allowlisted with a documented reason.
-- Existing full test suite remains green.
+- [x] Existing full test suite remains green.
+
+## Result
+
+- Added `tests/architecture_tests.rs` with three ADR 0023 boundary gates.
+- The view-model gate scans every Rust file under `src/view_models/` and
+  rejects GPUI, GPUI Component, UI-layer, and screen-module dependencies.
+- The screen literal gate rejects raw `rgb(...)` and numeric `px(...)`
+  literals in `src/app.rs`, `src/library.rs`, and `src/search.rs`.
+- The appearance gate rejects new hardcoded `Appearance::Dark` screen defaults
+  except for the explicitly documented bootstrap/settings compatibility paths
+  that exist today.
 
 ## Test Commands
 

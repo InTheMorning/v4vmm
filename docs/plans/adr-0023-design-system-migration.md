@@ -136,7 +136,8 @@ The projection view-model layer is partially migrated:
   CommandBus without a separate ADR.
 - `boundary-gates`: add automated tests for no GPUI imports under
   `view_models`, no screen-level raw `rgb(...)` / numeric `px(...)` literals,
-  and no hardcoded dark render defaults in screen modules.
+  and no hardcoded dark render defaults in screen modules. Completed
+  2026-04-30.
 
 ### Track G — Thin The Screens
 
@@ -216,7 +217,7 @@ The projection view-model layer is partially migrated:
    and move remaining row semantics into projections.
 - [x] `command-intent-finish`: finish narrow intent/result extraction where it
    materially reduces screen glue.
-- [ ] `boundary-gates`: add automated architecture tests for ADR 0023 import
+- [x] `boundary-gates`: add automated architecture tests for ADR 0023 import
    and token-literal boundaries.
 - [ ] `final-review`: reconcile ADR, plan, task, and review documents after
    implementation.

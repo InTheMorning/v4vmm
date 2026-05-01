@@ -33,6 +33,8 @@ architecture without fighting screen-specific UI drift.
 - High-noise Library `MusicBrainz` status transitions and Discover inspector
   subscribe/unsubscribe begin/error messages now route through GPUI-free
   view-model command/status helpers.
+- Automated `architecture_tests` enforce the GPUI-free view-model boundary,
+  screen raw-literal rules, and hardcoded dark-default allowlist.
 - The old `docs/reviews/adr-0023-final-implementation-review.md` is too
   optimistic and is superseded by this finalization plan.
 
@@ -91,7 +93,7 @@ architecture without fighting screen-specific UI drift.
    projections.
 4. Completed `adr-0023-task-009-command-intent-finish`: add narrow command intents for
    the remaining high-noise screen workflows, without building a broad bus.
-5. `adr-0023-task-010-boundary-gates`: add automated architecture tests for
+5. Completed `adr-0023-task-010-boundary-gates`: add automated architecture tests for
    GPUI-free view-models, no screen-level raw color/layout literals, and no
    hardcoded dark render defaults.
 6. `adr-0023-task-011-final-review`: reconcile ADR status, migration docs, and
