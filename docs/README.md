@@ -11,6 +11,7 @@ Start here:
 - [Storage and metadata model](schema/storage-and-metadata.md): SQLite tables, file layout, metadata sources, and current limits
 - [ADR 0023 migration plan](plans/adr-0023-design-system-migration.md): remaining design-system and view-model work
 - [Discovery and Library UI fixes plan](plans/discovery-library-ui-fixes.md): reviewed follow-up plan for search, recents, shared headers, contributor display, compare actions, and scrolling
+- [ADR 0031: Release detail presentation contract](adr/0031-release-detail-presentation-contract.md): proposed contract for composing Library and Discovery release detail pages
 - [Pre-UI and download manager preparation plan](plans/pre-ui-download-prep.md): service, schema, and CLI work to land before a UI/download revamp
 
 Historical architecture decisions still live in [`docs/adr/`](adr/).
