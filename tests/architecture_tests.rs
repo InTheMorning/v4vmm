@@ -19,6 +19,7 @@ const ENTITY_DETAIL_FORBIDDEN_PATTERNS: &[&str] = &[
     "use gpui_component",
     "gpui_component::",
     "crate::api",
+    "crate::db",
     "crate::ui::",
     "crate::ui_",
     "crate::library::",
@@ -30,6 +31,7 @@ const ENTITY_DETAIL_FORBIDDEN_PATTERNS: &[&str] = &[
     "crate::playlist_service",
     "crate::subscribe_service",
     "crate::track_compare",
+    "rusqlite",
 ];
 
 const UI_ENTITY_FORBIDDEN_PATTERNS: &[&str] = &[
@@ -335,7 +337,7 @@ fn entity_detail_projection_does_not_import_api_ui_or_services() {
         for pattern in ENTITY_DETAIL_FORBIDDEN_PATTERNS {
             if line.contains(pattern) {
                 violations.push(format!(
-                    "src/view_models/entity_detail.rs:{line_number}: ADR 0026 shared projections must use `views` facts and stay UI/service-free; found `{pattern}` in `{line}`"
+                    "src/view_models/entity_detail.rs:{line_number}: ADR 0026/0027 shared projections must use `views` facts and stay UI/service-free; found `{pattern}` in `{line}`"
                 ));
             }
         }

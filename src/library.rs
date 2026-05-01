@@ -73,12 +73,12 @@ use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, 
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{render_release_detail_shell, ReleaseDetailSlots, TrackSectionSlot};
-use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
+use crate::view_models::entity_detail::{EntityActionKind, EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
-    LibraryTrackActionVm, LibraryTrackPrimaryAction, LibraryTrackRowVm, LibraryTree,
-    LibraryViewModel, MbStatusKind, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
-    PlaylistDetailVm, TrackSubscribeOutcome,
+    LibraryTrackActionVm, LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind,
+    MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm,
+    TrackSubscribeOutcome,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::FeedView;
@@ -2463,8 +2463,8 @@ fn render_library_track_row(
     let is_busy = busy_track == Some(track_id);
     let popup_open = add_open_track == Some(track_id);
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
-    let primary_action = vm.primary_action();
-    let in_library = primary_action == LibraryTrackPrimaryAction::Remove;
+    let primary_action = vm.primary_action_vm(is_busy);
+    let in_library = primary_action.kind == EntityActionKind::Remove;
     let mb_text = vm.mb_status_text();
     let mb_kind = vm.mb_status_kind();
     let thumbnail = track
@@ -2474,17 +2474,12 @@ fn render_library_track_row(
         .and_then(|url| album_thumbs.get(url.as_str()))
         .and_then(|opt| opt.clone());
 
-    let toggle_style = if in_library {
-        ControlStyle::Destructive
-    } else {
-        ControlStyle::RowAction
-    };
     let toggle_button = UiButton::styled(
         SharedString::from(format!("lib-toggle-{track_id}")),
-        toggle_style,
+        ControlStyle::RowAction,
     )
-    .label(vm.primary_action_label(is_busy))
-    .disabled(is_busy)
+    .label(primary_action.label.clone())
+    .disabled(!primary_action.enabled)
     .on_click(cx.listener(move |this, _, _, cx| {
         if in_library {
             this.remove_track(track_id, cx);

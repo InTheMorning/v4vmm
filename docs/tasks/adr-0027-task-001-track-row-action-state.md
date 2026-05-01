@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Implemented.
 
 ## Goal
 
@@ -63,13 +63,37 @@ from one shared descriptor vocabulary.
 
 ## Acceptance Criteria
 
-- Shared projection tests cover track-row action labels, tone, and disabled or
+- [x] Shared projection tests cover track-row action labels, tone, and disabled or
   busy state.
-- Library and Discover row actions use the same descriptor vocabulary for
+- [x] Library and Discover row actions use the same descriptor vocabulary for
   download/remove/playlist actions.
-- Existing command behavior is unchanged.
-- Shared projection modules remain GPUI-free.
-- Required verification commands pass.
+- [x] Existing command behavior is unchanged.
+- [x] Shared projection modules remain GPUI-free.
+- [x] Required verification commands pass.
+
+## Implementation Summary
+
+- Added GPUI-free `TrackActionState`, `TrackMembershipState`, and
+  `PlaylistActionState` inputs to `src/view_models/entity_detail.rs`.
+- Updated shared track-row projections to emit actions through
+  `TrackActionState`.
+- Updated Discover `TrackRowActionVm` and Library `LibraryTrackRowVm` to adapt
+  screen-local membership/busy/popup state into the shared descriptors.
+- Updated Library album track rows to use the descriptor label/enabled state and
+  quiet row-action treatment for repeated remove actions.
+- Tightened the entity-detail architecture test to forbid `crate::db` and
+  `rusqlite` imports at the shared projection boundary.
+
+## Files Changed
+
+- `src/view_models/entity_detail.rs`
+- `src/view_models/search.rs`
+- `src/view_models/library.rs`
+- `src/search.rs`
+- `src/library.rs`
+- `tests/architecture_tests.rs`
+- `docs/tasks/adr-0027-task-001-track-row-action-state.md`
+- `docs/reviews/adr-0027-task-001-review.md`
 
 ## Test Commands
 

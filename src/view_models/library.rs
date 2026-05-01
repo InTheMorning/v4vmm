@@ -23,9 +23,12 @@ use std::fmt::Write as _;
 use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
+use crate::view_models::entity_detail::{
+    EntityActionTarget, EntityActionVm, PlaylistActionState, TrackActionState, TrackMembershipState,
+};
 use crate::view_models::format::{fmt_total_runtime_clock, plural};
 use crate::view_models::SplitPaneState;
-use crate::views::FeedView;
+use crate::views::{FeedView, TrackRef};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 
@@ -59,13 +62,6 @@ pub(crate) enum MbStatusKind {
     Warning,
     Danger,
     Muted,
-}
-
-/// Primary library-row action without GPUI styling details.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LibraryTrackPrimaryAction {
-    Download,
-    Remove,
 }
 
 /// One artist node in the library sidebar tree. Owns a flat list of
@@ -1171,40 +1167,49 @@ impl<'a> LibraryTrackRowVm<'a> {
             .map(|seconds| format!("{}:{:02}", seconds / 60, seconds % 60))
     }
 
-    /// Primary row action derived from library membership.
-    #[must_use]
-    pub(crate) fn primary_action(&self) -> LibraryTrackPrimaryAction {
-        if self.track.is_in_library {
-            LibraryTrackPrimaryAction::Remove
-        } else {
-            LibraryTrackPrimaryAction::Download
-        }
-    }
-
-    /// Primary action button label, including the shared busy state.
-    #[must_use]
-    pub(crate) fn primary_action_label(&self, is_busy: bool) -> &'static str {
-        if is_busy {
-            return "Working...";
-        }
-        match self.primary_action() {
-            LibraryTrackPrimaryAction::Download => "Download",
-            LibraryTrackPrimaryAction::Remove => "Remove",
-        }
-    }
-
     /// Add-to-playlist action label for the row.
-    #[expect(
-        clippy::unused_self,
-        reason = "kept as a row projection accessor so screen label formatting stays out of library.rs"
-    )]
     #[must_use]
     pub(crate) fn playlist_action_label(&self, is_open: bool) -> &'static str {
-        if is_open {
-            "+ Playlist ▴"
-        } else {
-            "+ Playlist"
+        match self
+            .track_action_state(false, is_open)
+            .playlist_action(EntityActionTarget::Track(self.track_ref()))
+            .map(|action| action.label)
+            .as_deref()
+        {
+            Some("+ Playlist ▴") => "+ Playlist ▴",
+            _ => "+ Playlist",
         }
+    }
+
+    #[must_use]
+    pub(crate) fn primary_action_vm(&self, is_busy: bool) -> EntityActionVm {
+        self.track_action_state(is_busy, false)
+            .primary_action(EntityActionTarget::Track(self.track_ref()))
+    }
+
+    #[must_use]
+    pub(crate) fn track_action_state(
+        &self,
+        is_busy: bool,
+        playlist_open: bool,
+    ) -> TrackActionState {
+        let membership = match (self.track.is_in_library, is_busy) {
+            (true, true) => TrackMembershipState::Removing,
+            (true, false) => TrackMembershipState::InLibrary,
+            (false, true) => TrackMembershipState::Downloading,
+            (false, false) => TrackMembershipState::RemoteOnly,
+        };
+        let playlist = if playlist_open {
+            PlaylistActionState::Open
+        } else {
+            PlaylistActionState::Closed
+        };
+        TrackActionState::new(membership, playlist)
+    }
+
+    #[must_use]
+    fn track_ref(&self) -> TrackRef {
+        TrackRef::LocalTrackId(self.track.id)
     }
 
     /// Concatenated single-line label: `"{n}. {title}  (M:SS)"`.
@@ -1735,15 +1740,68 @@ mod tests {
     fn library_track_row_vm_primary_action_follows_membership_and_busy_state() {
         let mut r = row();
         let vm = LibraryTrackRowVm::new(&r, None);
-        assert_eq!(vm.primary_action(), LibraryTrackPrimaryAction::Download);
-        assert_eq!(vm.primary_action_label(false), "Download");
-        assert_eq!(vm.primary_action_label(true), "Working...");
+        let action = vm.primary_action_vm(false);
+        assert_eq!(
+            action.kind,
+            crate::view_models::entity_detail::EntityActionKind::Download
+        );
+        assert_eq!(action.label, "Download");
+        assert!(action.enabled);
+
+        let action = vm.primary_action_vm(true);
+        assert_eq!(action.label, "Downloading...");
+        assert!(!action.enabled);
 
         r.is_in_library = true;
         let vm = LibraryTrackRowVm::new(&r, None);
-        assert_eq!(vm.primary_action(), LibraryTrackPrimaryAction::Remove);
-        assert_eq!(vm.primary_action_label(false), "Remove");
-        assert_eq!(vm.primary_action_label(true), "Working...");
+        let action = vm.primary_action_vm(false);
+        assert_eq!(
+            action.kind,
+            crate::view_models::entity_detail::EntityActionKind::Remove
+        );
+        assert_eq!(action.label, "Remove");
+        assert!(action.enabled);
+
+        let action = vm.primary_action_vm(true);
+        assert_eq!(action.label, "Removing...");
+        assert!(!action.enabled);
+    }
+
+    #[test]
+    fn library_track_row_vm_projects_shared_primary_action() {
+        let mut r = row();
+        r.id = 42;
+        let vm = LibraryTrackRowVm::new(&r, None);
+        let action = vm.primary_action_vm(false);
+        assert_eq!(
+            action.target,
+            EntityActionTarget::Track(TrackRef::LocalTrackId(42))
+        );
+        assert_eq!(
+            action.kind,
+            crate::view_models::entity_detail::EntityActionKind::Download
+        );
+        assert_eq!(
+            action.tone,
+            crate::view_models::entity_detail::EntityActionTone::Secondary
+        );
+
+        r.is_in_library = true;
+        let vm = LibraryTrackRowVm::new(&r, None);
+        let action = vm.primary_action_vm(false);
+        assert_eq!(
+            action.kind,
+            crate::view_models::entity_detail::EntityActionKind::Remove
+        );
+        assert_eq!(
+            action.tone,
+            crate::view_models::entity_detail::EntityActionTone::DestructiveQuiet
+        );
+        assert!(action.enabled);
+
+        let action = vm.primary_action_vm(true);
+        assert_eq!(action.label, "Removing...");
+        assert!(!action.enabled);
     }
 
     #[test]
@@ -1759,7 +1817,7 @@ mod tests {
         let mut r = row();
         r.local_path = Some("/music/track.mp3".into());
         let vm = LibraryTrackRowVm::new(&r, None);
-        assert_eq!(vm.primary_action_label(false), "Download");
+        assert_eq!(vm.primary_action_vm(false).label, "Download");
         assert_eq!(vm.playlist_action_label(false), "+ Playlist");
     }
 

@@ -62,7 +62,7 @@ use crate::ui::primitives::{
 };
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
-use crate::view_models::entity_detail::{ContributorListVm, ContributorRowVm};
+use crate::view_models::entity_detail::{ContributorListVm, ContributorRowVm, EntityActionTone};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, LazyPanel,
@@ -4916,14 +4916,13 @@ pub(crate) fn render_track_download_button(
     }
 
     let id = SharedString::from(format!("track-row-download:{key}"));
+    let action = action_vm.primary_action();
     let label = action_vm.download_label();
     let tooltip = action_vm.download_tooltip();
-    let border = if is_downloaded {
-        StatusRole::Danger.color(cx)
-    } else {
-        color::accent()
+    let border = match action.tone {
+        EntityActionTone::DestructiveQuiet => StatusRole::Danger.color(cx),
+        _ => color::accent(),
     };
-    let disabled = track.enclosure_url.is_none();
     let track_for_click = track.clone();
     let feed_for_click = feed.clone();
 
@@ -4942,7 +4941,7 @@ pub(crate) fn render_track_download_button(
         .border_1()
         .border_color(border)
         .tooltip(tooltip)
-        .disabled(disabled)
+        .disabled(!action.enabled)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             if is_downloaded {
                 this.remove_track_row(track_for_click.clone(), feed_for_click.clone(), cx);

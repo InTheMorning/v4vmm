@@ -12,8 +12,13 @@ use std::fmt::Write as _;
 
 use crate::api::{self, Artist, EntityDetail, Feed, PaymentRoute, Publisher, Track};
 use crate::db;
+use crate::view_models::entity_detail::{
+    EntityActionKind, EntityActionTarget, EntityActionVm, PlaylistActionState, TrackActionState,
+    TrackMembershipState,
+};
 use crate::view_models::track::TrackVm;
 use crate::view_models::SplitPaneState;
+use crate::views::TrackRef;
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 
@@ -451,34 +456,60 @@ impl<'a> TrackRowActionVm<'a> {
 
     #[must_use]
     pub(crate) fn busy_tooltip(&self) -> &'static str {
-        if self.is_downloaded {
-            "Removing..."
-        } else {
-            "Downloading..."
+        match self.primary_action().kind {
+            EntityActionKind::Remove => "Removing...",
+            _ => "Downloading...",
         }
     }
 
     #[must_use]
     pub(crate) fn download_label(&self) -> &'static str {
-        if self.is_downloaded {
-            "🗑"
-        } else {
-            "⬇"
+        match self.primary_action().kind {
+            EntityActionKind::Remove => "🗑",
+            _ => "⬇",
         }
     }
 
     #[must_use]
     pub(crate) fn download_tooltip(&self) -> &'static str {
-        if self.is_downloaded {
-            "Remove from library"
-        } else {
-            "Download track"
+        match self.primary_action().kind {
+            EntityActionKind::Remove => "Remove from library",
+            _ => "Download track",
         }
     }
 
     #[must_use]
     pub(crate) fn is_in_flight(&self) -> bool {
         self.is_in_flight
+    }
+
+    #[must_use]
+    pub(crate) fn primary_action(&self) -> EntityActionVm {
+        self.action_state()
+            .primary_action(EntityActionTarget::Track(self.track_ref()))
+    }
+
+    #[must_use]
+    pub(crate) fn action_state(&self) -> TrackActionState {
+        let membership = match (self.is_downloaded, self.is_in_flight) {
+            (true, true) => TrackMembershipState::Removing,
+            (true, false) => TrackMembershipState::InLibrary,
+            (false, true) => TrackMembershipState::Downloading,
+            (false, false) => TrackMembershipState::RemoteOnly,
+        };
+        TrackActionState::new(membership, PlaylistActionState::Closed)
+            .with_download_available(self.track.enclosure_url.is_some())
+    }
+
+    #[must_use]
+    fn track_ref(&self) -> TrackRef {
+        TrackRef::Musicindex(
+            self.track
+                .track_guid
+                .clone()
+                .or_else(|| self.track.enclosure_url.clone())
+                .unwrap_or_default(),
+        )
     }
 }
 
@@ -1861,6 +1892,45 @@ mod tests {
         assert_eq!(vm.busy_tooltip(), "Removing...");
         assert_eq!(vm.download_label(), "🗑");
         assert_eq!(vm.download_tooltip(), "Remove from library");
+    }
+
+    #[test]
+    fn track_row_action_vm_projects_shared_action_state() {
+        let track = Track {
+            track_guid: Some("track-guid".into()),
+            enclosure_url: Some("https://example.test/track.mp3".into()),
+            ..Track::default()
+        };
+        let remote = TrackRowActionVm::new(&track, false, false).primary_action();
+        assert_eq!(remote.kind, EntityActionKind::Download);
+        assert_eq!(remote.label, "Download");
+        assert_eq!(
+            remote.tone,
+            crate::view_models::entity_detail::EntityActionTone::Secondary
+        );
+        assert!(remote.enabled);
+
+        let removing = TrackRowActionVm::new(&track, true, true).primary_action();
+        assert_eq!(removing.kind, EntityActionKind::Remove);
+        assert_eq!(removing.label, "Removing...");
+        assert_eq!(
+            removing.tone,
+            crate::view_models::entity_detail::EntityActionTone::DestructiveQuiet
+        );
+        assert!(!removing.enabled);
+    }
+
+    #[test]
+    fn track_row_action_vm_disables_download_when_track_has_no_enclosure() {
+        let track = Track {
+            track_guid: Some("track-guid".into()),
+            enclosure_url: None,
+            ..Track::default()
+        };
+        let action = TrackRowActionVm::new(&track, false, false).primary_action();
+
+        assert_eq!(action.kind, EntityActionKind::Download);
+        assert!(!action.enabled);
     }
 
     #[test]
