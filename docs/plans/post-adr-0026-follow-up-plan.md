@@ -238,8 +238,9 @@ separate files and neither requires a schema/cache contract decision first.
   entity action state. `docs/adr/0027-shared-entity-action-state.md` is now
   proposed with a phase plan, review checklist, and Task 001 packet.
 - Task 002 identity audit found concrete local data-loss paths for contributor
-  identity and source-fact provenance. A schema/persistence ADR is required if
-  offline/local identity preservation becomes a product contract.
+  identity and source-fact provenance. ADR 0028 now proposes additive local
+  source-fact persistence so Library can hydrate known identity facts while
+  offline.
 - Task 003 artwork audit found that `ArtworkRef::Url` is the only constructed
   and supported variant. Non-URL artwork variants should stay unsupported until
   a future ADR defines resolver and storage ownership.
