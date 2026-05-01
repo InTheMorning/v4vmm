@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gpui::{
     div, img, prelude::*, size, Application, Bounds, Context, Entity, Image, ImageFormat,
-    KeyDownEvent, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputState};
@@ -29,7 +29,9 @@ use crate::ui::theme::layout;
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size as TokenSize, Spacing};
 use crate::view_models::library::LibraryTree;
 
+mod keyboard;
 mod playback_bar;
+
 use playback_bar::build_playback_bar;
 
 // ---------------------------------------------------------------------------
@@ -440,72 +442,7 @@ impl Render for TopApp {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                let modifiers = event.keystroke.modifiers;
-                let key = event.keystroke.key.as_str();
-
-                if modifiers.platform {
-                    match key {
-                        "1" => {
-                            this.tab = AppTab::Library;
-                            cx.notify();
-                        }
-                        "2" => {
-                            this.tab = AppTab::Discover;
-                            cx.notify();
-                        }
-                        "3" => {
-                            this.tab = AppTab::Settings;
-                            cx.notify();
-                        }
-                        "f" => match this.tab {
-                            AppTab::Library => {
-                                this.library
-                                    .update(cx, |lib, cx| lib.focus_search(window, cx));
-                            }
-                            AppTab::Discover => {
-                                this.search
-                                    .update(cx, |search, cx| search.focus_search(window, cx));
-                            }
-                            AppTab::Settings => {}
-                        },
-                        "r" => {
-                            if this.tab == AppTab::Library {
-                                this.library.update(cx, LibraryApp::refresh);
-                            }
-                        }
-                        _ => {}
-                    }
-                } else {
-                    match key {
-                        "escape" => match this.tab {
-                            AppTab::Library => {
-                                this.library.update(cx, LibraryApp::pop_inspector);
-                            }
-                            AppTab::Discover => {
-                                this.search.update(cx, SearchApp::pop_inspector);
-                            }
-                            AppTab::Settings => {}
-                        },
-                        "up" => match this.tab {
-                            AppTab::Library => this.library.update(cx, LibraryApp::move_up),
-                            AppTab::Discover => this.search.update(cx, SearchApp::move_up),
-                            AppTab::Settings => {}
-                        },
-                        "down" => match this.tab {
-                            AppTab::Library => this.library.update(cx, LibraryApp::move_down),
-                            AppTab::Discover => this.search.update(cx, SearchApp::move_down),
-                            AppTab::Settings => {}
-                        },
-                        "enter" => match this.tab {
-                            AppTab::Library => this.library.update(cx, LibraryApp::confirm),
-                            AppTab::Discover => this.search.update(cx, SearchApp::confirm),
-                            AppTab::Settings => {}
-                        },
-                        _ => {}
-                    }
-                }
-            }))
+            .on_key_down(cx.listener(TopApp::handle_key_down))
             // Top-level tab bar
             .child(
                 div()

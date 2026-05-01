@@ -15,6 +15,9 @@ low-risk.
 - First implemented cleanup: top-level playback bar command/query binding moved
   out of `app.rs` into `src/app/playback_bar.rs`. This code already used ADR
   0024 commands and `ApplicationQueryService`, so the move is presentation-only.
+- Top-level keyboard routing moved out of `app.rs` into
+  `src/app/keyboard.rs`. This is presentation-only tab/search/navigation
+  dispatch over existing Library and Search screen methods.
 - Keep live-driver polling in `app.rs` for now because it still supervises
   `PlaybackOwner<D>` directly.
 - Library cleanup candidates are command-binding adapters and render-only
@@ -30,6 +33,7 @@ low-risk.
 - `docs/adr/0024-command-query-event-application-layer.md`
 - `docs/plans/adr-0024-application-layer-phase-plan.md`
 - `src/app.rs`
+- `src/app/keyboard.rs`
 - `src/app/playback_bar.rs`
 - `src/library.rs`
 - `src/search.rs`
@@ -68,7 +72,8 @@ low-risk.
    dispatch commands, or bridge events.
 2. In progress: split or rename presentation modules only where it improves
    comprehension. Top-level playback bar binding has moved to
-   `src/app/playback_bar.rs`.
+   `src/app/playback_bar.rs`; top-level keyboard routing has moved to
+   `src/app/keyboard.rs`.
 3. Keep view-models and application modules GPUI-free.
 4. Update architecture tests and docs for any path changes.
 5. Run full verification.
