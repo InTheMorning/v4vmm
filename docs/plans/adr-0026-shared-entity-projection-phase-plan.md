@@ -65,6 +65,8 @@ feeds/items/tracks, and contributors.
 
 ### Phase 1 — Identity Facts
 
+Status: Implemented.
+
 Task: `docs/tasks/adr-0026-task-001-identity-facts.md`
 
 Extend API and view fact types so MusicIndex identity data is deserialized and

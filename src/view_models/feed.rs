@@ -14,7 +14,7 @@
 
 use crate::api::{Feed, Track};
 use crate::view_models::format::{fmt_date, fmt_runtime};
-use crate::views::FeedView;
+use crate::views::{contributor_views_to_api, FeedView};
 
 /// Display-ready projection of a [`FeedView`].
 pub struct FeedVm<'a> {
@@ -192,7 +192,7 @@ impl<'a> FeedVm<'a> {
             publisher_text: self.view.publisher_text.clone(),
             description: self.view.description.clone(),
             payment_routes: Some(self.view.payment_routes.clone()),
-            source_contributors: Some(self.view.contributors.clone()),
+            source_contributors: Some(contributor_views_to_api(&self.view.contributors)),
             ..Feed::default()
         }
     }

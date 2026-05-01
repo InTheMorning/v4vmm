@@ -219,6 +219,8 @@ pub struct Contributor {
     pub name: Option<String>,
     pub role: Option<String>,
     pub href: Option<String>,
+    pub img: Option<String>,
+    pub npub: Option<String>,
     pub group_name: Option<String>,
 }
 
@@ -836,6 +838,34 @@ mod tests {
         assert_eq!(hydrated.source_ids.as_ref().map(Vec::len), Some(1));
         assert_eq!(hydrated.source_contributors.as_ref().map(Vec::len), Some(1));
         assert_eq!(hydrated.payment_routes.as_ref().map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn contributor_deserializes_identity_fields() {
+        let contributor: Contributor = serde_json::from_str(
+            r#"{
+                "name": "Alice",
+                "role": "vocals",
+                "group_name": "Band",
+                "href": "https://example.com/alice",
+                "img": "https://example.com/alice.jpg",
+                "npub": "npub1alice"
+            }"#,
+        )
+        .expect("contributor identity JSON should deserialize");
+
+        assert_eq!(contributor.name.as_deref(), Some("Alice"));
+        assert_eq!(contributor.role.as_deref(), Some("vocals"));
+        assert_eq!(contributor.group_name.as_deref(), Some("Band"));
+        assert_eq!(
+            contributor.href.as_deref(),
+            Some("https://example.com/alice")
+        );
+        assert_eq!(
+            contributor.img.as_deref(),
+            Some("https://example.com/alice.jpg")
+        );
+        assert_eq!(contributor.npub.as_deref(), Some("npub1alice"));
     }
 
     #[test]

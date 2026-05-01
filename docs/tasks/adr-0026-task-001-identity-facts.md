@@ -1,5 +1,9 @@
 # ADR 0026 Task 001: Identity Facts
 
+## Status
+
+Implemented.
+
 ## Goal
 
 Extend the API and source-normalized view fact layer so MusicIndex identity
@@ -21,6 +25,17 @@ shared projections.
 
 - `src/api.rs`
 - `src/views.rs`
+- `src/view_models/feed.rs`
+- `tests/architecture_tests.rs`
+
+## Files Changed
+
+- `src/api.rs`
+- `src/views.rs`
+- `src/view_models/feed.rs`
+- `tests/architecture_tests.rs`
+- `docs/tasks/adr-0026-task-001-identity-facts.md`
+- `docs/reviews/adr-0026-task-001-review.md`
 
 ## Do Not Touch
 
@@ -44,6 +59,20 @@ shared projections.
 - Prefer small helper functions with focused unit tests over screen-level
   extraction logic.
 - Follow existing Rust style and keep clippy pedantic clean for touched code.
+
+## Implementation Summary
+
+- Added MusicIndex contributor identity fields `img` and `npub`.
+- Added local `IdentityLinkFact`, `IdentityIdFact`, `ArtworkRef`,
+  `ContributorView`, and `EntityIdentityLinks` view fact types.
+- Converted feed/track view contributors from `api::Contributor` to
+  `ContributorView`.
+- Preserved raw source links and ids through local fact structs while exposing
+  convenience Nostr, website, image, and artwork fields.
+- Added a compatibility conversion for the existing `FeedVm::header_feed`
+  shim so current render behavior remains unchanged.
+- Added an architecture test that rejects re-exposing API identity/contributor
+  row types from shared view facts.
 
 ## Implementation Steps
 
@@ -76,17 +105,17 @@ shared projections.
 
 ## Acceptance Criteria
 
-- New MusicIndex identity fields deserialize without dropping unknown or raw
+- [x] New MusicIndex identity fields deserialize without dropping unknown or raw
   source facts.
-- `ArtistView`, `FeedView`, `TrackView`, and `ContributorView` expose identity
+- [x] `ArtistView`, `FeedView`, `TrackView`, and `ContributorView` expose identity
   facts without importing GPUI.
-- Shared view fact fields use local source fact types rather than public
+- [x] Shared view fact fields use local source fact types rather than public
   `api::*` source row fields.
-- Feed and track view contributor collections use `ContributorView`, not
+- [x] Feed and track view contributor collections use `ContributorView`, not
   `api::Contributor`.
-- Existing Discover and Library behavior is unchanged.
-- Tests cover positive and missing-field cases.
-- `cargo fmt -- --check`, `cargo check`, targeted tests, architecture tests,
+- [x] Existing Discover and Library behavior is unchanged.
+- [x] Tests cover positive and missing-field cases.
+- [x] `cargo fmt -- --check`, `cargo check`, targeted tests, architecture tests,
   and clippy pass.
 
 ## Test Commands

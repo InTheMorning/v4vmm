@@ -216,6 +216,12 @@ const PROVENANCE_DIFF_HELPER_BASELINES: &[DiffHelperBaseline] = &[
     },
 ];
 
+const SHARED_VIEW_FACT_FORBIDDEN_PUBLIC_FIELDS: &[&str] = &[
+    "pub contributors: Vec<api::Contributor>",
+    "pub source_links: Vec<api::SourceEntityLink>",
+    "pub source_ids: Vec<api::SourceEntityId>",
+];
+
 const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/bootstrap.rs",
@@ -324,6 +330,28 @@ fn core_non_ui_modules_do_not_import_ui_modules() {
     assert!(
         violations.is_empty(),
         "ADR 0025 core non-UI boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn shared_view_facts_do_not_expose_api_identity_rows() {
+    let source = read_source(&manifest_path("src/views.rs"));
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        for pattern in SHARED_VIEW_FACT_FORBIDDEN_PUBLIC_FIELDS {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/views.rs:{line_number}: ADR 0026 shared view facts must use local identity/contributor facts, not `{pattern}`: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0026 shared view fact boundary violations:\n{}",
         violations.join("\n")
     );
 }

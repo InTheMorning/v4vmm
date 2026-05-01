@@ -19,12 +19,65 @@ pub enum TrackRef {
     LocalTrackId(i64),
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct IdentityLinkFact {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub position: Option<i64>,
+    pub link_type: Option<String>,
+    pub url: Option<String>,
+    pub source: Option<String>,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct IdentityIdFact {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<String>,
+    pub position: Option<i64>,
+    pub scheme: Option<String>,
+    pub value: Option<String>,
+    pub source: Option<String>,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ArtworkRef {
+    Url(String),
+    CacheKey(String),
+    LocalPath(String),
+    EmbeddedBytesKey(String),
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ContributorView {
+    pub name: Option<String>,
+    pub role: Option<String>,
+    pub group_name: Option<String>,
+    pub href: Option<String>,
+    pub image_url: Option<String>,
+    pub nostr_npub: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct EntityIdentityLinks {
+    pub nostr_npub: Option<String>,
+    pub website_url: Option<String>,
+    pub image_url: Option<String>,
+    pub source_links: Vec<IdentityLinkFact>,
+    pub source_ids: Vec<IdentityIdFact>,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ArtistView {
     pub id: Option<ArtistRef>,
     pub name: Option<String>,
     pub sort_name: Option<String>,
     pub image_url: Option<String>,
+    pub artwork: Option<ArtworkRef>,
+    pub identity: EntityIdentityLinks,
     pub area: Option<String>,
     pub begin_year: Option<i32>,
     pub end_year: Option<i32>,
@@ -43,6 +96,8 @@ pub struct FeedView {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub image_url: Option<String>,
+    pub artwork: Option<ArtworkRef>,
+    pub identity: EntityIdentityLinks,
     pub release_date: Option<i64>,
     pub language: Option<String>,
     pub explicit: Option<bool>,
@@ -51,7 +106,7 @@ pub struct FeedView {
     pub publisher_text: Option<String>,
     pub description: Option<String>,
     pub payment_routes: Vec<api::PaymentRoute>,
-    pub contributors: Vec<api::Contributor>,
+    pub contributors: Vec<ContributorView>,
     pub tracks: Vec<TrackView>,
 }
 
@@ -72,22 +127,161 @@ pub struct TrackView {
     pub explicit: Option<bool>,
     pub description: Option<String>,
     pub image_url: Option<String>,
+    pub artwork: Option<ArtworkRef>,
+    pub identity: EntityIdentityLinks,
     pub audio_url: Option<String>,
     pub mime: Option<String>,
     pub bytes: Option<i64>,
     pub publisher_text: Option<String>,
-    pub contributors: Vec<api::Contributor>,
+    pub contributors: Vec<ContributorView>,
     pub payment_routes: Vec<api::PaymentRoute>,
     pub transcript_url: Option<String>,
 }
 
+impl From<api::SourceEntityLink> for IdentityLinkFact {
+    fn from(link: api::SourceEntityLink) -> Self {
+        Self {
+            entity_type: link.entity_type,
+            entity_id: link.entity_id,
+            position: link.position,
+            link_type: link.link_type,
+            url: link.url,
+            source: link.source,
+            extraction_path: link.extraction_path,
+            observed_at: link.observed_at,
+        }
+    }
+}
+
+impl From<api::SourceEntityId> for IdentityIdFact {
+    fn from(id: api::SourceEntityId) -> Self {
+        Self {
+            entity_type: id.entity_type,
+            entity_id: id.entity_id,
+            position: id.position,
+            scheme: id.scheme,
+            value: id.value,
+            source: id.source,
+            extraction_path: id.extraction_path,
+            observed_at: id.observed_at,
+        }
+    }
+}
+
+impl From<api::Contributor> for ContributorView {
+    fn from(contributor: api::Contributor) -> Self {
+        Self {
+            name: contributor.name,
+            role: contributor.role,
+            group_name: contributor.group_name,
+            href: contributor.href,
+            image_url: contributor.img,
+            nostr_npub: contributor.npub,
+        }
+    }
+}
+
+impl From<ContributorView> for api::Contributor {
+    fn from(contributor: ContributorView) -> Self {
+        Self {
+            name: contributor.name,
+            role: contributor.role,
+            href: contributor.href,
+            img: contributor.image_url,
+            npub: contributor.nostr_npub,
+            group_name: contributor.group_name,
+        }
+    }
+}
+
+impl EntityIdentityLinks {
+    fn from_api_facts(
+        image_url: Option<String>,
+        source_links: Option<Vec<api::SourceEntityLink>>,
+        source_ids: Option<Vec<api::SourceEntityId>>,
+    ) -> Self {
+        let source_links = source_links
+            .unwrap_or_default()
+            .into_iter()
+            .map(IdentityLinkFact::from)
+            .collect();
+        let source_ids = source_ids
+            .unwrap_or_default()
+            .into_iter()
+            .map(IdentityIdFact::from)
+            .collect();
+        Self::from_source_facts(image_url, source_links, source_ids)
+    }
+
+    #[must_use]
+    pub fn from_source_facts(
+        image_url: Option<String>,
+        source_links: Vec<IdentityLinkFact>,
+        source_ids: Vec<IdentityIdFact>,
+    ) -> Self {
+        Self {
+            nostr_npub: nostr_npub_from_ids(&source_ids),
+            website_url: website_url_from_links(&source_links),
+            image_url,
+            source_links,
+            source_ids,
+        }
+    }
+
+    #[must_use]
+    pub fn from_image_url(image_url: Option<String>) -> Self {
+        Self {
+            image_url,
+            ..Self::default()
+        }
+    }
+}
+
+#[must_use]
+pub fn contributor_views_to_api(contributors: &[ContributorView]) -> Vec<api::Contributor> {
+    contributors
+        .iter()
+        .cloned()
+        .map(api::Contributor::from)
+        .collect()
+}
+
+fn nostr_npub_from_ids(ids: &[IdentityIdFact]) -> Option<String> {
+    ids.iter().find_map(|id| {
+        if id.scheme.as_deref() == Some("nostr_npub") {
+            id.value.clone()
+        } else {
+            None
+        }
+    })
+}
+
+fn website_url_from_links(links: &[IdentityLinkFact]) -> Option<String> {
+    links.iter().find_map(|link| {
+        if link.link_type.as_deref() == Some("website") {
+            link.url.clone()
+        } else {
+            None
+        }
+    })
+}
+
+fn artwork_from_url(url: &Option<String>) -> Option<ArtworkRef> {
+    url.clone().map(ArtworkRef::Url)
+}
+
 impl ArtistView {
     pub fn from_api(a: api::Artist) -> Self {
+        let image_url = a.image_url;
+        let mut identity = EntityIdentityLinks::from_image_url(image_url.clone());
+        identity.website_url = a.url.clone();
         Self {
             id: a.artist_id.map(ArtistRef::Musicindex),
             name: a.name,
             sort_name: a.sort_name,
-            image_url: a.image_url,
+            image_url: image_url.clone(),
+            artwork: artwork_from_url(&image_url),
+            identity,
             area: a.area,
             begin_year: a.begin_year,
             end_year: a.end_year,
@@ -115,7 +309,9 @@ impl ArtistView {
             id: Some(ArtistRef::LocalArtistName(name.into())),
             name: Some(name.into()),
             sort_name: None,
-            image_url,
+            image_url: image_url.clone(),
+            artwork: artwork_from_url(&image_url),
+            identity: EntityIdentityLinks::from_image_url(image_url),
             area: None,
             begin_year: None,
             end_year: None,
@@ -130,13 +326,18 @@ impl ArtistView {
 
 impl FeedView {
     pub fn from_api(f: api::Feed) -> Self {
+        let image_url = f.image_url;
+        let identity =
+            EntityIdentityLinks::from_api_facts(image_url.clone(), f.source_links, f.source_ids);
         Self {
             id: f.feed_guid.clone().map(FeedRef::Musicindex),
             feed_guid: f.feed_guid,
             feed_url: f.feed_url,
             title: f.title.or(f.name),
             artist: f.release_artist,
-            image_url: f.image_url,
+            image_url: image_url.clone(),
+            artwork: artwork_from_url(&image_url),
+            identity,
             release_date: f.release_date,
             language: f.language,
             explicit: f.explicit,
@@ -145,7 +346,12 @@ impl FeedView {
             publisher_text: f.publisher_text,
             description: f.description,
             payment_routes: f.payment_routes.unwrap_or_default(),
-            contributors: f.source_contributors.unwrap_or_default(),
+            contributors: f
+                .source_contributors
+                .unwrap_or_default()
+                .into_iter()
+                .map(ContributorView::from)
+                .collect(),
             tracks: f
                 .tracks
                 .unwrap_or_default()
@@ -166,7 +372,9 @@ impl FeedView {
             feed_url: Some(f.feed_url),
             title: f.title,
             artist,
-            image_url: f.album_image_href,
+            image_url: f.album_image_href.clone(),
+            artwork: artwork_from_url(&f.album_image_href),
+            identity: EntityIdentityLinks::from_image_url(f.album_image_href),
             release_date: None,
             language: None,
             explicit: None,
@@ -183,9 +391,9 @@ impl FeedView {
 
 impl TrackView {
     pub fn from_api(t: api::Track) -> Self {
+        let source_links = t.source_links;
         // Find transcript_url from source_links
-        let transcript_url = t
-            .source_links
+        let transcript_url = source_links
             .as_ref()
             .and_then(|links| {
                 links
@@ -193,6 +401,9 @@ impl TrackView {
                     .find(|l| l.link_type.as_deref() == Some("transcript"))
             })
             .and_then(|link| link.url.clone());
+        let image_url = t.image_url;
+        let identity =
+            EntityIdentityLinks::from_api_facts(image_url.clone(), source_links, t.source_ids);
 
         Self {
             id: t.track_guid.clone().map(TrackRef::Musicindex),
@@ -209,18 +420,26 @@ impl TrackView {
             pub_date: t.pub_date,
             explicit: t.explicit,
             description: t.description,
-            image_url: t.image_url,
+            image_url: image_url.clone(),
+            artwork: artwork_from_url(&image_url),
+            identity,
             audio_url: t.enclosure_url,
             mime: t.enclosure_type,
             bytes: t.enclosure_bytes,
             publisher_text: t.publisher_text,
-            contributors: t.source_contributors.unwrap_or_default(),
+            contributors: t
+                .source_contributors
+                .unwrap_or_default()
+                .into_iter()
+                .map(ContributorView::from)
+                .collect(),
             payment_routes: t.payment_routes.unwrap_or_default(),
             transcript_url,
         }
     }
 
     pub fn from_local(t: db::TrackRow) -> Self {
+        let image_url = t.track_image_href.or(t.album_image_href);
         Self {
             id: Some(TrackRef::LocalTrackId(t.id)),
             track_guid: Some(t.item_guid),
@@ -236,7 +455,9 @@ impl TrackView {
             pub_date: None,
             explicit: None,
             description: None,
-            image_url: t.track_image_href.or(t.album_image_href),
+            image_url: image_url.clone(),
+            artwork: artwork_from_url(&image_url),
+            identity: EntityIdentityLinks::from_image_url(image_url),
             audio_url: t.enclosure_url,
             mime: t.enclosure_type,
             bytes: None,
@@ -277,6 +498,115 @@ mod tests {
             view.id,
             Some(TrackRef::Musicindex(ref s)) if s == "abc"
         ));
+    }
+
+    #[test]
+    fn from_api_feed_preserves_identity_facts() {
+        let feed = api::Feed {
+            image_url: Some("https://example.test/feed.jpg".into()),
+            source_links: Some(vec![
+                api::SourceEntityLink {
+                    link_type: Some("website".into()),
+                    url: Some("https://example.test/artist".into()),
+                    extraction_path: Some("feed.link".into()),
+                    ..Default::default()
+                },
+                api::SourceEntityLink {
+                    link_type: Some("donate".into()),
+                    url: Some("https://example.test/donate".into()),
+                    ..Default::default()
+                },
+            ]),
+            source_ids: Some(vec![api::SourceEntityId {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1feed".into()),
+                source: Some("rss".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+
+        let view = FeedView::from_api(feed);
+
+        assert_eq!(
+            view.identity.image_url.as_deref(),
+            Some("https://example.test/feed.jpg")
+        );
+        assert_eq!(
+            view.identity.website_url.as_deref(),
+            Some("https://example.test/artist")
+        );
+        assert_eq!(view.identity.nostr_npub.as_deref(), Some("npub1feed"));
+        assert_eq!(view.identity.source_links.len(), 2);
+        assert_eq!(
+            view.identity.source_links[0].extraction_path.as_deref(),
+            Some("feed.link")
+        );
+        assert_eq!(view.identity.source_ids[0].source.as_deref(), Some("rss"));
+    }
+
+    #[test]
+    fn from_api_track_converts_contributors_to_view_facts() {
+        let track = api::Track {
+            source_contributors: Some(vec![api::Contributor {
+                name: Some("Alice".into()),
+                role: Some("guitar".into()),
+                group_name: Some("Band".into()),
+                href: Some("https://example.test/alice".into()),
+                img: Some("https://example.test/alice.jpg".into()),
+                npub: Some("npub1alice".into()),
+            }]),
+            ..Default::default()
+        };
+
+        let view = TrackView::from_api(track);
+        let contributor = view
+            .contributors
+            .first()
+            .expect("track contributor should project");
+
+        assert_eq!(contributor.name.as_deref(), Some("Alice"));
+        assert_eq!(contributor.role.as_deref(), Some("guitar"));
+        assert_eq!(contributor.group_name.as_deref(), Some("Band"));
+        assert_eq!(
+            contributor.href.as_deref(),
+            Some("https://example.test/alice")
+        );
+        assert_eq!(
+            contributor.image_url.as_deref(),
+            Some("https://example.test/alice.jpg")
+        );
+        assert_eq!(contributor.nostr_npub.as_deref(), Some("npub1alice"));
+    }
+
+    #[test]
+    fn contributor_view_round_trips_to_api_for_legacy_shims() {
+        let contributors = vec![ContributorView {
+            name: Some("Alice".into()),
+            role: Some("vocals".into()),
+            group_name: Some("Band".into()),
+            href: Some("https://example.test/alice".into()),
+            image_url: Some("https://example.test/alice.jpg".into()),
+            nostr_npub: Some("npub1alice".into()),
+        }];
+
+        let api_contributors = contributor_views_to_api(&contributors);
+        let contributor = api_contributors
+            .first()
+            .expect("contributor should convert to legacy API shape");
+
+        assert_eq!(contributor.name.as_deref(), Some("Alice"));
+        assert_eq!(contributor.role.as_deref(), Some("vocals"));
+        assert_eq!(contributor.group_name.as_deref(), Some("Band"));
+        assert_eq!(
+            contributor.href.as_deref(),
+            Some("https://example.test/alice")
+        );
+        assert_eq!(
+            contributor.img.as_deref(),
+            Some("https://example.test/alice.jpg")
+        );
+        assert_eq!(contributor.npub.as_deref(), Some("npub1alice"));
     }
 
     #[test]
