@@ -34,7 +34,10 @@ use gpui_component::Size;
 use reqwest::blocking::Client as ReqwestClient;
 
 use crate::api::Track;
-use crate::application::commands::download::{RemoveTrackFromLibrary, SetTrackLibraryMembership};
+use crate::application::commands::download::{
+    RemoveTrackFromLibrary, SetTrackLibraryMembership, SubscribeThenAppendToPlaylist,
+    SubscribeTrack,
+};
 use crate::application::commands::feed::UnsubscribeFeedById;
 use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
@@ -539,45 +542,32 @@ impl LibraryApp {
         let track_ids = intent.track_ids().to_vec();
         cx.notify();
 
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        library_service::subscribe_then_append_to_playlist(
-                            conn,
-                            playlist_id,
-                            track_ids,
-                        )
-                    })
-                    .await;
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        match result {
-                            Ok(outcome) => {
-                                this.vm.finish_playlist_append(
-                                    &intent,
-                                    PlaylistAppendOutcome::new(
-                                        outcome.appended,
-                                        outcome.downloaded,
-                                        outcome.failed.len(),
-                                    ),
-                                );
-                            }
-                            Err(err) => {
-                                this.vm.fail_playlist_append(err);
-                            }
-                        }
-                        this.reload_playlists();
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = SubscribeThenAppendToPlaylist::new(
+            Arc::clone(&self.conn),
+            self.application_services.download_manager(),
+            playlist_id,
+            track_ids,
+        );
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, outcome, _cx| {
+                this.vm.finish_playlist_append(
+                    &intent,
+                    PlaylistAppendOutcome::new(
+                        outcome.appended(),
+                        outcome.downloaded(),
+                        outcome.failed().len(),
+                    ),
+                );
+                this.reload_playlists();
             },
-        )
-        .detach();
+            |this, err, _cx| {
+                this.vm.fail_playlist_append(err);
+                this.reload_playlists();
+            },
+        );
     }
 
     fn thumbnail_for_url(
@@ -901,43 +891,27 @@ impl LibraryApp {
         self.vm.begin_busy_track(track_id, "Subscribing track...");
         cx.notify();
 
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        subscribe_service::subscribe_track(
-                            conn,
-                            SubscribeTrackRequest::LibraryTrack {
-                                track: Box::new(track),
-                            },
-                        )
-                    })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        match result {
-                            Ok(outcome) => {
-                                this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
-                                    outcome.path.display().to_string(),
-                                    outcome.format_warning,
-                                ));
-                                this.reload();
-                            }
-                            Err(error) => {
-                                this.vm.fail_track_subscribe(error);
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = SubscribeTrack::new(
+            Arc::clone(&self.conn),
+            self.application_services.download_manager(),
+            SubscribeTrackRequest::LibraryTrack {
+                track: Box::new(track),
             },
-        )
-        .detach();
+            "Downloaded track",
+        );
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            |this, outcome, _cx| {
+                this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
+                    outcome.path().to_string(),
+                    outcome.format_warning().map(str::to_string),
+                ));
+                this.reload();
+            },
+            |this, error, _cx| this.vm.fail_track_subscribe(error),
+        );
     }
 
     fn selected_track_frame_mut(&mut self) -> Option<&mut InspectorFrame> {

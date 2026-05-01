@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::application::application_event_bus::ApplicationEventBus;
 use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::command_bus::CommandBus;
-use crate::application::ports::download_manager::{DownloadManager, UnavailableDownloadManager};
+use crate::application::ports::download_manager::{DownloadManager, ServiceDownloadManager};
 
 /// Explicit root wiring for application-layer dependencies.
 #[derive(Clone, Debug)]
@@ -18,17 +18,17 @@ pub struct ApplicationServices {
 }
 
 impl ApplicationServices {
-    /// Builds local application services with downloads disabled.
+    /// Builds local application services with the current service adapters.
     ///
     /// # Errors
     ///
     /// Returns an error if the root service graph is incomplete.
-    pub fn local_without_downloads() -> Result<Self, ApplicationServicesBuildError> {
+    pub fn local_with_service_adapters() -> Result<Self, ApplicationServicesBuildError> {
         Self::builder()
             .command_bus(Arc::new(CommandBus::new()))
             .query_service(Arc::new(ApplicationQueryService::new()))
             .event_bus(Arc::new(ApplicationEventBus::new()))
-            .download_manager(Arc::new(UnavailableDownloadManager::new()))
+            .download_manager(Arc::new(ServiceDownloadManager::new()))
             .build()
     }
 

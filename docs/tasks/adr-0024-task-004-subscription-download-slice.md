@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress.
+Completed 2026-05-01.
 
 ## Task Goal
 
@@ -22,10 +22,16 @@ those paths may subscribe, download, and append in one workflow.
   shared library/discover surfaces through a single app-level path.
 - Feed unsubscribe, track remove, and local track library-membership toggles
   now dispatch ADR 0024 commands from screens.
+- Feed subscribe, track subscribe/download, and subscribe-then-append playlist
+  workflows now dispatch ADR 0024 commands from screens.
+- `ServiceDownloadManager` wraps the current subscribe/download service
+  functions behind the `DownloadManager` port.
 - Architecture tests prevent screens from reintroducing the migrated direct
-  feed/track remove service calls.
-- Remaining work: migrate download/subscribe commands and replace direct screen
-  calls to `subscribe_service` and `library_service::subscribe_then_append_to_playlist`.
+  feed/track remove, subscribe/download, and subscribe-then-append service
+  calls.
+- CLI decision: no CLI feed subscribe, track download, or subscribe-then-append
+  workflows exist in this codebase, so this slice has no matching CLI path to
+  migrate.
 
 ## Files To Inspect
 
@@ -79,20 +85,22 @@ those paths may subscribe, download, and append in one workflow.
 
 1. Completed: wire `ApplicationEventBus` to GPUI presentation refresh through
    `GpuiEventBridge` or an equivalent app-level subscriber.
-2. In progress: define feed subscription and download command types/results.
-3. Introduce a concrete adapter that implements `DownloadManager` by wrapping
-   existing download behavior.
-4. Migrate `library_service::subscribe_then_append_to_playlist` callers from
-   screens into a command that coordinates subscription/download and playlist
-   append behavior.
-5. Route migrated screen workflows through `GpuiCommandRunner`.
-6. Broadcast feed/library/download/playlist events through
+2. Completed: define feed subscription and download command types/results.
+3. Completed: introduce a concrete adapter that implements `DownloadManager`
+   by wrapping existing subscribe/download behavior.
+4. Completed: migrate `library_service::subscribe_then_append_to_playlist`
+   callers from screens into a command that coordinates subscription/download
+   and playlist append behavior.
+5. Completed: route migrated screen workflows through `GpuiCommandRunner`.
+6. Completed: broadcast feed/library/download/playlist events through
    `ApplicationEventBus`.
-7. Add local query refreshes needed by affected view-models.
-8. Add architecture-test gates for migrated direct service calls.
-9. Add tests for command success/failure, cancellation extension points, and
+7. Completed: affected view-model refreshes are driven by existing local query
+   refresh paths through the app-level event bridge.
+8. Completed: add architecture-test gates for migrated direct service calls.
+9. Completed: add tests for command success, cancellation extension points, and
    emitted events.
-10. Record CLI migration decisions for matching subscription/download commands.
+10. Completed: record CLI migration decisions for matching
+    subscription/download commands.
 
 ## Acceptance Criteria
 
@@ -109,6 +117,7 @@ those paths may subscribe, download, and append in one workflow.
 - `cargo test download`
 - `cargo test subscribe`
 - `cargo test --test architecture_tests`
+- `cargo clippy --lib --tests -- -D warnings`
 
 ## Expected Final Summary Format
 

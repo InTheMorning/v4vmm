@@ -110,7 +110,7 @@ impl TopApp {
         let library_cache = Arc::clone(&image_cache);
         let search_endpoint = musicindex_endpoint.clone();
         let application_services = Arc::new(
-            ApplicationServices::local_without_downloads()
+            ApplicationServices::local_with_service_adapters()
                 .expect("application services are fully wired"),
         );
         let application_event_bridge = Arc::new(GpuiEventBridge::new());

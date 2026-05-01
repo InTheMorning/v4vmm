@@ -10,10 +10,212 @@ use crate::application::errors::command::CommandError;
 use crate::application::events::download::DownloadEvent;
 use crate::application::events::feed::FeedEvent;
 use crate::application::events::library::LibraryEvent;
+use crate::application::events::playlist::PlaylistEvent;
 use crate::application::events::ApplicationEvent;
+use crate::application::ports::download_manager::{DownloadError, DownloadManager};
 use crate::library_service;
+use crate::library_service::AppendToPlaylistOutcome;
+use crate::metadata::TagCompareResult;
+use crate::subscribe_service::{SubscribeTrackOutcome, SubscribeTrackRequest};
 
 type SharedConnection = Arc<Mutex<Connection>>;
+
+/// Command result for subscribing/downloading a track.
+#[derive(Clone, Debug)]
+pub struct SubscribeTrackResult {
+    path: String,
+    format_warning: Option<String>,
+    applied_edits: usize,
+    marked_downloaded: bool,
+    compare: Option<TagCompareResult>,
+    message: String,
+}
+
+impl SubscribeTrackResult {
+    /// Creates a track subscription result from the service outcome.
+    #[must_use]
+    pub fn from_outcome(outcome: SubscribeTrackOutcome, message: String) -> Self {
+        Self {
+            path: outcome.path.display().to_string(),
+            format_warning: outcome.format_warning,
+            applied_edits: outcome.applied_edits,
+            marked_downloaded: outcome.marked_downloaded,
+            compare: outcome.compare,
+            message,
+        }
+    }
+
+    /// Returns the downloaded path.
+    #[must_use]
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// Returns the download format warning, if any.
+    #[must_use]
+    pub fn format_warning(&self) -> Option<&str> {
+        self.format_warning.as_deref()
+    }
+
+    /// Returns how many ID3 edits were applied.
+    #[must_use]
+    pub const fn applied_edits(&self) -> usize {
+        self.applied_edits
+    }
+
+    /// Returns whether local state was marked downloaded.
+    #[must_use]
+    pub const fn marked_downloaded(&self) -> bool {
+        self.marked_downloaded
+    }
+
+    /// Returns the optional tag comparison result.
+    #[must_use]
+    pub const fn compare(&self) -> Option<&TagCompareResult> {
+        self.compare.as_ref()
+    }
+
+    /// Consumes the result and returns the optional tag comparison result.
+    #[must_use]
+    pub fn into_compare(self) -> Option<TagCompareResult> {
+        self.compare
+    }
+
+    /// Returns the user-facing completion message.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+/// Subscribes/downloads one track.
+pub struct SubscribeTrack {
+    conn: SharedConnection,
+    download_manager: Arc<dyn DownloadManager>,
+    request: SubscribeTrackRequest,
+    success_message: String,
+}
+
+impl SubscribeTrack {
+    /// Creates a track subscription command.
+    #[must_use]
+    pub fn new(
+        conn: SharedConnection,
+        download_manager: Arc<dyn DownloadManager>,
+        request: SubscribeTrackRequest,
+        success_message: impl Into<String>,
+    ) -> Self {
+        Self {
+            conn,
+            download_manager,
+            request,
+            success_message: success_message.into(),
+        }
+    }
+}
+
+impl ApplicationCommand for SubscribeTrack {
+    type Output = SubscribeTrackResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        let outcome = self
+            .download_manager
+            .subscribe_track(self.conn, self.request, context)
+            .map_err(download_error)?;
+        Ok(CommandOutcome::new(
+            SubscribeTrackResult::from_outcome(outcome, self.success_message),
+            download_changed_events(),
+        ))
+    }
+}
+
+/// Command result for subscribing/downloading tracks and appending to a playlist.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SubscribeThenAppendToPlaylistResult {
+    appended: usize,
+    downloaded: usize,
+    already_in_library: usize,
+    failed: Vec<String>,
+}
+
+impl SubscribeThenAppendToPlaylistResult {
+    /// Creates a playlist append result from the service outcome.
+    #[must_use]
+    pub fn from_outcome(outcome: AppendToPlaylistOutcome) -> Self {
+        Self {
+            appended: outcome.appended,
+            downloaded: outcome.downloaded,
+            already_in_library: outcome.already_in_library,
+            failed: outcome.failed,
+        }
+    }
+
+    /// Returns how many tracks were appended.
+    #[must_use]
+    pub const fn appended(&self) -> usize {
+        self.appended
+    }
+
+    /// Returns how many tracks were downloaded.
+    #[must_use]
+    pub const fn downloaded(&self) -> usize {
+        self.downloaded
+    }
+
+    /// Returns how many tracks were already in the library.
+    #[must_use]
+    pub const fn already_in_library(&self) -> usize {
+        self.already_in_library
+    }
+
+    /// Returns failed item messages.
+    #[must_use]
+    pub fn failed(&self) -> &[String] {
+        &self.failed
+    }
+}
+
+/// Subscribes/downloads missing tracks and appends them to a playlist.
+#[derive(Clone)]
+pub struct SubscribeThenAppendToPlaylist {
+    conn: SharedConnection,
+    download_manager: Arc<dyn DownloadManager>,
+    playlist_id: i64,
+    track_ids: Vec<i64>,
+}
+
+impl SubscribeThenAppendToPlaylist {
+    /// Creates a subscribe-then-append command.
+    #[must_use]
+    pub fn new(
+        conn: SharedConnection,
+        download_manager: Arc<dyn DownloadManager>,
+        playlist_id: i64,
+        track_ids: Vec<i64>,
+    ) -> Self {
+        Self {
+            conn,
+            download_manager,
+            playlist_id,
+            track_ids,
+        }
+    }
+}
+
+impl ApplicationCommand for SubscribeThenAppendToPlaylist {
+    type Output = SubscribeThenAppendToPlaylistResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        let outcome = self
+            .download_manager
+            .subscribe_then_append_to_playlist(self.conn, self.playlist_id, self.track_ids, context)
+            .map_err(download_error)?;
+        Ok(CommandOutcome::new(
+            SubscribeThenAppendToPlaylistResult::from_outcome(outcome),
+            playlist_download_changed_events(self.playlist_id),
+        ))
+    }
+}
 
 /// Command result for removing a track from the local library.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -200,6 +402,23 @@ fn track_removed_events(feed_changed: bool) -> Vec<ApplicationEvent> {
     events
 }
 
+fn download_changed_events() -> Vec<ApplicationEvent> {
+    vec![
+        ApplicationEvent::Download(DownloadEvent::Changed),
+        ApplicationEvent::Library(LibraryEvent::Changed),
+        ApplicationEvent::Feed(FeedEvent::Changed),
+    ]
+}
+
+fn playlist_download_changed_events(playlist_id: i64) -> Vec<ApplicationEvent> {
+    vec![
+        ApplicationEvent::Download(DownloadEvent::Changed),
+        ApplicationEvent::Library(LibraryEvent::Changed),
+        ApplicationEvent::Feed(FeedEvent::Changed),
+        ApplicationEvent::Playlist(PlaylistEvent::TracksChanged { playlist_id }),
+    ]
+}
+
 fn download_lock_error() -> CommandError {
     CommandError::Download("database lock poisoned".to_string())
 }
@@ -208,12 +427,24 @@ fn download_command_error(error: &anyhow::Error) -> CommandError {
     CommandError::Download(format!("{error:#}"))
 }
 
+fn download_error(error: DownloadError) -> CommandError {
+    match error {
+        DownloadError::Cancelled => CommandError::Cancelled,
+        DownloadError::Failed(message) => CommandError::Download(message),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    use crate::api::Track;
     use crate::application::command_bus::CommandBus;
     use crate::application::command_context::CommandContext;
+    use crate::application::ports::download_manager::{DownloadOutcome, DownloadRequest};
     use crate::db;
+    use crate::metadata::TrackContext;
 
     fn setup_test_db() -> anyhow::Result<SharedConnection> {
         let conn = Connection::open_in_memory()?;
@@ -248,6 +479,58 @@ mod tests {
         Ok(conn.last_insert_rowid())
     }
 
+    #[derive(Debug)]
+    struct FakeDownloadManager;
+
+    impl DownloadManager for FakeDownloadManager {
+        fn download(
+            &self,
+            _request: DownloadRequest,
+            _context: &CommandContext,
+        ) -> Result<DownloadOutcome, DownloadError> {
+            Ok(DownloadOutcome::new(PathBuf::from("/tmp/fake.mp3")))
+        }
+
+        fn subscribe_track(
+            &self,
+            _conn: SharedConnection,
+            _request: SubscribeTrackRequest,
+            _context: &CommandContext,
+        ) -> Result<SubscribeTrackOutcome, DownloadError> {
+            Ok(SubscribeTrackOutcome {
+                path: PathBuf::from("/tmp/fake.mp3"),
+                format_warning: Some("format warning".to_string()),
+                applied_edits: 2,
+                marked_downloaded: true,
+                compare: None,
+            })
+        }
+
+        fn subscribe_feed(
+            &self,
+            _conn: SharedConnection,
+            _request: crate::subscribe_service::SubscribeFeedRequest,
+            _context: &CommandContext,
+        ) -> Result<crate::subscribe_service::SubscribeFeedOutcome, DownloadError> {
+            Err(DownloadError::Failed("not used".to_string()))
+        }
+
+        fn subscribe_then_append_to_playlist(
+            &self,
+            _conn: SharedConnection,
+            _playlist_id: i64,
+            _track_ids: Vec<i64>,
+            _context: &CommandContext,
+        ) -> Result<AppendToPlaylistOutcome, DownloadError> {
+            Ok(AppendToPlaylistOutcome {
+                appended: 2,
+                downloaded: 1,
+                already_in_library: 1,
+                failed: vec!["skip".to_string()],
+            })
+        }
+    }
+
     #[test]
     fn remove_track_by_id_updates_library_state() -> anyhow::Result<()> {
         let conn = setup_test_db()?;
@@ -267,6 +550,63 @@ mod tests {
         let db = conn.lock().expect("lock test db");
         let track = db::track_row_by_id(&db, track_id)?.expect("track exists");
         assert!(!track.is_in_library);
+
+        Ok(())
+    }
+
+    #[test]
+    fn subscribe_track_uses_download_manager_port_and_emits_events() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let request = SubscribeTrackRequest::SearchTrack {
+            track_context: Box::new(TrackContext {
+                track: Track::default(),
+                feed: None,
+            }),
+            edits: Vec::new(),
+            musicindex_endpoint: "https://api.example.test".to_string(),
+            mark_feed_subscribed: false,
+            return_tag_compare: false,
+        };
+
+        let outcome = CommandBus::new().execute(
+            SubscribeTrack::new(
+                Arc::clone(&conn),
+                Arc::new(FakeDownloadManager),
+                request,
+                "Downloaded track",
+            ),
+            &CommandContext::next(),
+        )?;
+
+        assert_eq!(outcome.value().path(), "/tmp/fake.mp3");
+        assert_eq!(outcome.value().format_warning(), Some("format warning"));
+        assert_eq!(outcome.value().applied_edits(), 2);
+        assert!(outcome.value().marked_downloaded());
+        assert_eq!(outcome.value().message(), "Downloaded track");
+        assert_eq!(outcome.events(), download_changed_events());
+
+        Ok(())
+    }
+
+    #[test]
+    fn subscribe_then_append_uses_download_manager_port_and_emits_events() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+
+        let outcome = CommandBus::new().execute(
+            SubscribeThenAppendToPlaylist::new(
+                Arc::clone(&conn),
+                Arc::new(FakeDownloadManager),
+                42,
+                vec![1, 2],
+            ),
+            &CommandContext::next(),
+        )?;
+
+        assert_eq!(outcome.value().appended(), 2);
+        assert_eq!(outcome.value().downloaded(), 1);
+        assert_eq!(outcome.value().already_in_library(), 1);
+        assert_eq!(outcome.value().failed(), &["skip".to_string()]);
+        assert_eq!(outcome.events(), playlist_download_changed_events(42));
 
         Ok(())
     }

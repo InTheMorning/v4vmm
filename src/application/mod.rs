@@ -22,5 +22,6 @@ pub use command_context::{CancellationToken, CommandContext, OperationId, TraceI
 pub use errors::command::CommandError;
 pub use events::ApplicationEvent;
 pub use ports::download_manager::{
-    DownloadError, DownloadManager, DownloadOutcome, DownloadRequest, UnavailableDownloadManager,
+    DownloadError, DownloadManager, DownloadOutcome, DownloadRequest, ServiceDownloadManager,
+    UnavailableDownloadManager,
 };

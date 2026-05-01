@@ -33,6 +33,9 @@ const SCREEN_SUBSCRIPTION_FORBIDDEN_PATTERNS: &[&str] = &[
     "db::unsubscribe_feed_tracks(",
     "library_service::set_track_in_library(",
     "library_service::set_track_in_library_by_match(",
+    "library_service::subscribe_then_append_to_playlist(",
+    "subscribe_service::subscribe_feed(",
+    "subscribe_service::subscribe_track(",
 ];
 
 const SCREEN_FILES: &[&str] = &["src/app.rs", "src/library.rs", "src/search.rs"];

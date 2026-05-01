@@ -25,8 +25,10 @@ use gpui_component::{Disableable, Root, Size};
 use rusqlite::Connection;
 
 use crate::api::*;
-use crate::application::commands::download::RemoveTrackFromLibraryByMatch;
-use crate::application::commands::feed::UnsubscribeFeedByUrl;
+use crate::application::commands::download::{
+    RemoveTrackFromLibraryByMatch, SubscribeThenAppendToPlaylist, SubscribeTrack,
+};
+use crate::application::commands::feed::{SubscribeFeed, UnsubscribeFeedByUrl};
 use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::{ApplicationServices, CommandContext};
 #[cfg(test)]
@@ -898,43 +900,37 @@ impl SearchApp {
         if !self.vm.begin_track_operation(key.clone()) {
             return;
         }
-        let request = SearchSubscribeRequest::Track(
-            Box::new(TrackContext {
-                track: track.clone(),
-                feed,
-            }),
-            Vec::new(),
-            self.musicindex_endpoint.clone(),
-            false,
+        let command = SubscribeTrack::new(
+            Arc::clone(&self.conn),
+            self.application_services.download_manager(),
+            SubscribeTrackRequest::SearchTrack {
+                track_context: Box::new(TrackContext {
+                    track: track.clone(),
+                    feed,
+                }),
+                edits: Vec::new(),
+                musicindex_endpoint: self.musicindex_endpoint.clone(),
+                mark_feed_subscribed: false,
+                return_tag_compare: true,
+            },
+            "Downloaded track",
         );
-        let conn = Arc::clone(&self.conn);
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { run_search_subscribe(conn, request) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        match result {
-                            Ok(outcome) => {
-                                this.vm.finish_track_download(&key, outcome.message);
-                                this.refresh_inspector_subscription_state(cx);
-                                cx.emit(SearchAppEvent::LibraryMutated);
-                            }
-                            Err(error) => this.vm.fail_track_download(&key, error),
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let success_key = key.clone();
+        let error_key = key;
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, outcome, cx| {
+                this.vm
+                    .finish_track_download(&success_key, outcome.message());
+                this.refresh_inspector_subscription_state(cx);
+                cx.emit(SearchAppEvent::LibraryMutated);
             },
-        )
-        .detach();
+            move |this, error, _cx| this.vm.fail_track_download(&error_key, error),
+        );
     }
 
     pub(crate) fn remove_track_row(
@@ -1024,56 +1020,132 @@ impl SearchApp {
             | InspectorDetail::Publisher(_) => return,
         };
 
-        let command = SearchSubscriptionCommand::Download;
+        let subscription_command = SearchSubscriptionCommand::Download;
         frame.subscription_busy = true;
-        frame.subscription_message = Some(command.begin_message().into());
+        frame.subscription_message = Some(subscription_command.begin_message().into());
         cx.notify();
 
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { run_search_subscribe(conn, request) })
-                    .await;
-
-                this.update(
+        match request {
+            SearchSubscribeRequest::Feed(feed, musicindex_endpoint) => {
+                let app_command = SubscribeFeed::new(
+                    Arc::clone(&self.conn),
+                    self.application_services.download_manager(),
+                    subscribe_service::SubscribeFeedRequest {
+                        feed: *feed,
+                        musicindex_endpoint,
+                    },
+                );
+                let success_entity_type = entity_type.clone();
+                let success_entity_id = entity_id.clone();
+                let error_entity_type = entity_type;
+                let error_entity_id = entity_id;
+                self.command_runner.run(
+                    app_command,
+                    CommandContext::next(),
                     cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                    move |this, outcome, cx| {
                         let mut library_mutated = false;
                         if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                            if frame.entity_type == success_entity_type
+                                && frame.entity_id == success_entity_id
+                            {
                                 frame.subscription_busy = false;
-                                match result {
-                                    Ok(outcome) => {
-                                        frame.local_subscription = Some(true);
-                                        frame.subscription_message = Some(outcome.message);
-                                        if let Some(compare) = outcome.compare {
-                                            frame.tag_compare = LazyPanel::Loaded(compare);
-                                            frame.pending_id3_edits.clear();
-                                            frame.suppressed_auto_id3_edits.clear();
-                                            frame.id3_apply_error = None;
-                                        }
-                                        library_mutated = true;
-                                    }
-                                    Err(error) => {
-                                        frame.subscription_message =
-                                            Some(command.error_message(error));
-                                    }
-                                }
+                                frame.local_subscription = Some(true);
+                                frame.subscription_message = Some(outcome.message().into());
+                                library_mutated = true;
                             }
                         }
                         if library_mutated {
                             this.refresh_inspector_subscription_state(cx);
                             cx.emit(SearchAppEvent::LibraryMutated);
                         }
-                        cx.notify();
                     },
-                )
-                .ok();
-            },
-        )
-        .detach();
+                    move |this, error, _cx| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == error_entity_type
+                                && frame.entity_id == error_entity_id
+                            {
+                                frame.subscription_busy = false;
+                                frame.subscription_message =
+                                    Some(subscription_command.error_message(error));
+                            }
+                        }
+                    },
+                );
+            }
+            SearchSubscribeRequest::Track(
+                track_context,
+                edits,
+                musicindex_endpoint,
+                mark_feed_subscribed,
+            ) => {
+                let app_command = SubscribeTrack::new(
+                    Arc::clone(&self.conn),
+                    self.application_services.download_manager(),
+                    SubscribeTrackRequest::SearchTrack {
+                        track_context,
+                        edits,
+                        musicindex_endpoint,
+                        mark_feed_subscribed,
+                        return_tag_compare: true,
+                    },
+                    "Downloaded track",
+                );
+                let success_entity_type = entity_type.clone();
+                let success_entity_id = entity_id.clone();
+                let error_entity_type = entity_type;
+                let error_entity_id = entity_id;
+                self.command_runner.run(
+                    app_command,
+                    CommandContext::next(),
+                    cx,
+                    move |this, outcome, cx| {
+                        let mut library_mutated = false;
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == success_entity_type
+                                && frame.entity_id == success_entity_id
+                            {
+                                frame.subscription_busy = false;
+                                frame.local_subscription = Some(true);
+                                let edit_text = if outcome.applied_edits() == 0 {
+                                    String::new()
+                                } else {
+                                    format!(
+                                        ", applied {} ID3 edit{}",
+                                        outcome.applied_edits(),
+                                        plural(outcome.applied_edits())
+                                    )
+                                };
+                                frame.subscription_message =
+                                    Some(format!("Downloaded track{edit_text}"));
+                                if let Some(compare) = outcome.into_compare() {
+                                    frame.tag_compare = LazyPanel::Loaded(compare);
+                                    frame.pending_id3_edits.clear();
+                                    frame.suppressed_auto_id3_edits.clear();
+                                    frame.id3_apply_error = None;
+                                }
+                                library_mutated = true;
+                            }
+                        }
+                        if library_mutated {
+                            this.refresh_inspector_subscription_state(cx);
+                            cx.emit(SearchAppEvent::LibraryMutated);
+                        }
+                    },
+                    move |this, error, _cx| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == error_entity_type
+                                && frame.entity_id == error_entity_id
+                            {
+                                frame.subscription_busy = false;
+                                frame.subscription_message =
+                                    Some(subscription_command.error_message(error));
+                            }
+                        }
+                    },
+                );
+            }
+        }
     }
 
     fn unsubscribe_current(&mut self, cx: &mut Context<Self>) {
@@ -1346,46 +1418,34 @@ impl SearchApp {
         let track_ids = intent.track_ids().to_vec();
         cx.notify();
 
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        library_service::subscribe_then_append_to_playlist(
-                            conn,
-                            playlist_id,
-                            track_ids,
-                        )
-                    })
-                    .await;
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        match result {
-                            Ok(outcome) => {
-                                this.vm.finish_playlist_append(
-                                    &intent,
-                                    PlaylistAppendOutcome::new(
-                                        outcome.appended,
-                                        outcome.downloaded,
-                                        outcome.failed.len(),
-                                    ),
-                                );
-                            }
-                            Err(err) => {
-                                this.vm.fail_playlist_append(err);
-                            }
-                        }
-                        this.load_playlists();
-                        cx.emit(SearchAppEvent::LibraryMutated);
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = SubscribeThenAppendToPlaylist::new(
+            Arc::clone(&self.conn),
+            self.application_services.download_manager(),
+            playlist_id,
+            track_ids,
+        );
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, outcome, cx| {
+                this.vm.finish_playlist_append(
+                    &intent,
+                    PlaylistAppendOutcome::new(
+                        outcome.appended(),
+                        outcome.downloaded(),
+                        outcome.failed().len(),
+                    ),
+                );
+                this.load_playlists();
+                cx.emit(SearchAppEvent::LibraryMutated);
             },
-        )
-        .detach();
+            |this, err, cx| {
+                this.vm.fail_playlist_append(err);
+                this.load_playlists();
+                cx.emit(SearchAppEvent::LibraryMutated);
+            },
+        );
     }
 
     fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
@@ -2143,80 +2203,6 @@ enum SearchUnsubscribeRequest {
         item_guid: Option<String>,
         enclosure_url: Option<String>,
     },
-}
-
-struct SearchSubscribeOutcome {
-    message: String,
-    compare: Option<TagCompareResult>,
-}
-
-fn run_search_subscribe(
-    conn: Arc<Mutex<Connection>>,
-    request: SearchSubscribeRequest,
-) -> Result<SearchSubscribeOutcome> {
-    match request {
-        SearchSubscribeRequest::Feed(feed, musicindex_endpoint) => {
-            let outcome = subscribe_service::subscribe_feed(
-                conn,
-                subscribe_service::SubscribeFeedRequest {
-                    feed: *feed,
-                    musicindex_endpoint,
-                },
-            )?;
-            let message = if outcome.skipped == 0 {
-                format!(
-                    "Downloaded feed; downloaded {} track{}, applied {} ID3 edit{}",
-                    outcome.downloaded,
-                    plural(outcome.downloaded),
-                    outcome.applied_edits,
-                    plural(outcome.applied_edits)
-                )
-            } else {
-                format!(
-                    "Downloaded feed; downloaded {} track{}, applied {} ID3 edit{}, skipped {}",
-                    outcome.downloaded,
-                    plural(outcome.downloaded),
-                    outcome.applied_edits,
-                    plural(outcome.applied_edits),
-                    outcome.skipped
-                )
-            };
-            Ok(SearchSubscribeOutcome {
-                message,
-                compare: None,
-            })
-        }
-        SearchSubscribeRequest::Track(
-            track_context,
-            edits,
-            musicindex_endpoint,
-            mark_feed_subscribed,
-        ) => {
-            let outcome = subscribe_service::subscribe_track(
-                conn,
-                SubscribeTrackRequest::SearchTrack {
-                    track_context,
-                    edits,
-                    musicindex_endpoint,
-                    mark_feed_subscribed,
-                    return_tag_compare: true,
-                },
-            )?;
-            let edit_text = if outcome.applied_edits == 0 {
-                String::new()
-            } else {
-                format!(
-                    ", applied {} ID3 edit{}",
-                    outcome.applied_edits,
-                    plural(outcome.applied_edits)
-                )
-            };
-            Ok(SearchSubscribeOutcome {
-                message: format!("Downloaded track{edit_text}"),
-                compare: outcome.compare,
-            })
-        }
-    }
 }
 
 fn local_subscription_for_detail(
@@ -5403,7 +5389,7 @@ pub fn run_search_app() {
         let http = reqwest::blocking::Client::new();
         let image_cache = ImageCache::new(http, thumbnail_cache_dir);
         let application_services = Arc::new(
-            ApplicationServices::local_without_downloads()
+            ApplicationServices::local_with_service_adapters()
                 .expect("application services are fully wired"),
         );
 
