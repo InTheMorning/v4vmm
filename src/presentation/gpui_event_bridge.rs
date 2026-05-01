@@ -43,6 +43,16 @@ impl GpuiEventBridge {
         cx.notify();
     }
 
+    /// Drains queued events as a batch.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the pending-event lock is poisoned.
+    #[must_use]
+    pub fn drain_events(&self) -> Vec<ApplicationEvent> {
+        self.take_pending_events()
+    }
+
     fn take_pending_events(&self) -> Vec<ApplicationEvent> {
         let mut pending = self
             .pending_events
@@ -76,5 +86,24 @@ impl fmt::Debug for GpuiEventBridge {
         f.debug_struct("GpuiEventBridge")
             .field("pending_event_count", &self.pending_event_count())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::application::events::library::LibraryEvent;
+
+    #[test]
+    fn event_bridge_queues_and_drains_event_batches() {
+        let bridge = GpuiEventBridge::new();
+        bridge.on_application_events(&[ApplicationEvent::Library(LibraryEvent::Changed)]);
+
+        assert_eq!(bridge.pending_event_count(), 1);
+        assert_eq!(
+            bridge.drain_events(),
+            vec![ApplicationEvent::Library(LibraryEvent::Changed)]
+        );
+        assert_eq!(bridge.pending_event_count(), 0);
     }
 }

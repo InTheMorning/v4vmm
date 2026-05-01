@@ -59,6 +59,7 @@ impl GpuiCommandRunner {
                 cx.notify();
             })
             .ok();
+            cx.refresh().ok();
         })
         .detach();
     }

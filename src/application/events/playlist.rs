@@ -5,4 +5,9 @@
 pub enum PlaylistEvent {
     /// One or more playlists changed.
     Changed,
+    /// Tracks in a playlist changed.
+    TracksChanged {
+        /// Playlist whose tracks changed.
+        playlist_id: i64,
+    },
 }

@@ -2,13 +2,26 @@
 
 ## Status
 
-Planned.
+In progress.
 
 ## Task Goal
 
 Migrate feed subscribe/unsubscribe, track download/remove, and library
 membership workflows through ADR 0024 commands, events, local queries, and the
 `DownloadManager` port.
+
+This task also owns the remaining screen add-to-playlist flows that currently
+route through `library_service::subscribe_then_append_to_playlist`, because
+those paths may subscribe, download, and append in one workflow.
+
+## Progress Notes
+
+- App-level consumption of `ApplicationEventBus` is wired through
+  `GpuiEventBridge`, `GpuiCommandRunner`, and `TopApp` draining.
+- Library, playlist, feed, and download application events now refresh the
+  shared library/discover surfaces through a single app-level path.
+- Remaining work: migrate subscription/download commands and replace direct
+  screen calls to subscription/download services.
 
 ## Files To Inspect
 
@@ -20,6 +33,7 @@ membership workflows through ADR 0024 commands, events, local queries, and the
 - `src/subscribe_service.rs`
 - `src/feed_service.rs`
 - `src/library_service.rs`
+- `src/playlist_service.rs`
 - `src/audio_format.rs`
 - `src/audio_tags.rs`
 - `tests/common/mod.rs`
@@ -54,19 +68,27 @@ membership workflows through ADR 0024 commands, events, local queries, and the
 - Commands depend on `DownloadManager`, not a concrete download implementation.
 - Source facts and tag provenance must not be discarded.
 - GPUI screens must not call migrated subscription/download service paths.
+- App-level event consumption must be wired before replacing the remaining
+  cross-view refresh paths.
 
 ## Implementation Steps
 
-1. Define feed subscription and download command types/results.
-2. Introduce a concrete adapter that implements `DownloadManager` by wrapping
+1. Completed: wire `ApplicationEventBus` to GPUI presentation refresh through
+   `GpuiEventBridge` or an equivalent app-level subscriber.
+2. Define feed subscription and download command types/results.
+3. Introduce a concrete adapter that implements `DownloadManager` by wrapping
    existing download behavior.
-3. Route migrated screen workflows through `GpuiCommandRunner`.
-4. Broadcast feed/library/download events through `ApplicationEventBus`.
-5. Add local query refreshes needed by affected view-models.
-6. Add architecture-test gates for migrated direct service calls.
-7. Add tests for command success/failure, cancellation extension points, and
+4. Migrate `library_service::subscribe_then_append_to_playlist` callers from
+   screens into a command that coordinates subscription/download and playlist
+   append behavior.
+5. Route migrated screen workflows through `GpuiCommandRunner`.
+6. Broadcast feed/library/download/playlist events through
+   `ApplicationEventBus`.
+7. Add local query refreshes needed by affected view-models.
+8. Add architecture-test gates for migrated direct service calls.
+9. Add tests for command success/failure, cancellation extension points, and
    emitted events.
-8. Record CLI migration decisions for matching subscription/download commands.
+10. Record CLI migration decisions for matching subscription/download commands.
 
 ## Acceptance Criteria
 

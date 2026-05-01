@@ -7,9 +7,10 @@ checkpoint.
 
 ## Pass / Fail
 
-- Status: Not reviewed.
-- Reviewer:
-- Date:
+- Status: Phase 2 checkpoint passed with Task 004 adjustment.
+- Reviewer: Codex
+- Date: 2026-04-30
+- Review: `docs/reviews/adr-0024-phase-2-checkpoint.md`
 
 ## Architectural Invariants
 

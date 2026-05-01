@@ -100,14 +100,17 @@ playback workflows.
 1. Completed `adr-0024-task-001-application-skeleton`: add application modules, root
    wiring types, command context/outcome/error/event/query shapes, the GPUI
    runner/bridge skeleton, and architecture tests. Do not migrate workflows.
-2. `adr-0024-task-002-playlist-vertical-slice`: migrate playlist create/delete/
-   rename/reorder/append through commands, local queries, and app events.
-3. `adr-0024-task-003-phase-2-checkpoint`: review the playlist slice against
-   ADR 0024 and decide whether to revise the ADR/task packets before widening
-   the blast radius.
-4. `adr-0024-task-004-subscription-download-slice`: migrate feed
-   subscribe/unsubscribe, track download/remove, and library membership changes;
-   introduce and use the `DownloadManager` port.
+2. Completed `adr-0024-task-002-playlist-vertical-slice`: migrate playlist
+   create/delete/rename/reorder/remove and existing-local-track append through
+   commands, local queries, and app events. Subscription/download-backed
+   playlist append paths remain in Task 004.
+3. Completed `adr-0024-task-003-phase-2-checkpoint`: playlist commands,
+   queries, and architecture gates validated the boundary, but Task 004 must
+   wire app-level event consumption before widening the blast radius.
+4. In progress `adr-0024-task-004-subscription-download-slice`: app-level
+   application-event consumption is wired; next migrate feed
+   subscribe/unsubscribe, track download/remove, and library membership
+   changes; introduce and use the `DownloadManager` port.
 5. `adr-0024-task-005-metadata-feed-update-slice`: migrate MusicBrainz staging
    and feed update workflows; preserve source facts and metadata provenance.
 6. `adr-0024-task-006-playback-slice`: route playback transport commands and

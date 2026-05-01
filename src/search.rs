@@ -25,6 +25,8 @@ use gpui_component::{Disableable, Root, Size};
 use rusqlite::Connection;
 
 use crate::api::*;
+use crate::application::commands::playlist::CreatePlaylist;
+use crate::application::{ApplicationServices, CommandContext};
 #[cfg(test)]
 use crate::audio_tags::Id3Field;
 use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
@@ -35,7 +37,7 @@ use crate::library_service;
 use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::*;
 use crate::musicbrainz::MusicBrainzCandidate;
-use crate::playlist_service;
+use crate::presentation::GpuiCommandRunner;
 use crate::rss;
 use crate::subscribe_service::{
     self, compare_downloaded_track_path, download_image, enrich_track_context_from_rss,
@@ -179,6 +181,8 @@ enum ThumbnailState {
 
 pub struct SearchApp {
     conn: Arc<Mutex<Connection>>,
+    application_services: Arc<ApplicationServices>,
+    command_runner: GpuiCommandRunner,
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
     input: Entity<InputState>,
@@ -219,6 +223,7 @@ impl SearchApp {
         conn: Arc<Mutex<Connection>>,
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
+        application_services: Arc<ApplicationServices>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -226,9 +231,15 @@ impl SearchApp {
             InputState::new(window, cx).placeholder("Discover artists, feeds, and tracks...")
         });
         let input_sub = cx.subscribe(&input, Self::on_input_event);
+        let command_runner = GpuiCommandRunner::new(
+            application_services.command_bus(),
+            application_services.event_bus(),
+        );
 
         let mut this = Self {
             conn,
+            application_services,
+            command_runner,
             cache,
             musicindex_endpoint,
             input,
@@ -869,6 +880,12 @@ impl SearchApp {
         }
     }
 
+    pub fn refresh_application_state(&mut self, cx: &mut Context<Self>) {
+        self.load_playlists();
+        self.refresh_inspector_subscription_state(cx);
+        cx.notify();
+    }
+
     pub(crate) fn download_track_row(
         &mut self,
         track: Track,
@@ -1147,7 +1164,7 @@ impl SearchApp {
 
     fn load_playlists(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match playlist_service::list(&conn) {
+        match self.application_services.query_service().playlists(&conn) {
             Ok(list) => self.vm.replace_playlists(list),
             Err(err) => self.vm.fail_playlist_load(err),
         }
@@ -1205,20 +1222,26 @@ impl SearchApp {
         track_guid: &str,
         cx: &mut Context<Self>,
     ) {
-        let playlist_id = {
-            let db = self.conn.lock().expect("lock db");
-            match playlist_service::create(&db, name) {
-                Ok(id) => id,
-                Err(err) => {
-                    self.vm.fail_playlist_create(err);
-                    cx.notify();
-                    return;
-                }
-            }
-        };
-        self.load_playlists();
-        cx.notify();
-        self.add_search_track_to_playlist(feed_guid, feed_url, track_guid, playlist_id, cx);
+        let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
+        let feed_guid = feed_guid.to_string();
+        let feed_url = feed_url.map(str::to_string);
+        let track_guid = track_guid.to_string();
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                this.load_playlists();
+                this.add_search_track_to_playlist(
+                    &feed_guid,
+                    feed_url.as_deref(),
+                    &track_guid,
+                    result.playlist_id(),
+                    cx,
+                );
+            },
+            |this, err, _cx| this.vm.fail_playlist_create(err),
+        );
     }
 
     pub(crate) fn add_search_track_to_playlist(
@@ -5370,6 +5393,10 @@ pub fn run_search_app() {
             .join("thumbnail-cache");
         let http = reqwest::blocking::Client::new();
         let image_cache = ImageCache::new(http, thumbnail_cache_dir);
+        let application_services = Arc::new(
+            ApplicationServices::local_without_downloads()
+                .expect("application services are fully wired"),
+        );
 
         cx.open_window(
             WindowOptions {
@@ -5381,8 +5408,16 @@ pub fn run_search_app() {
                 ..Default::default()
             },
             |window, cx| {
-                let view =
-                    cx.new(|cx| SearchApp::new(conn, image_cache, musicindex_endpoint, window, cx));
+                let view = cx.new(|cx| {
+                    SearchApp::new(
+                        conn,
+                        image_cache,
+                        musicindex_endpoint,
+                        application_services,
+                        window,
+                        cx,
+                    )
+                });
                 cx.new(|cx| Root::new(view, window, cx))
             },
         )

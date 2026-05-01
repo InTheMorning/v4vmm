@@ -25,6 +25,9 @@ const APPLICATION_FORBIDDEN_PATTERNS: &[&str] = &[
     "crate::app::",
 ];
 
+const SCREEN_PLAYLIST_SERVICE_FORBIDDEN_PATTERNS: &[&str] =
+    &["use crate::playlist_service", "playlist_service::"];
+
 const SCREEN_FILES: &[&str] = &["src/app.rs", "src/library.rs", "src/search.rs"];
 
 #[test]
@@ -98,6 +101,30 @@ fn screens_do_not_reintroduce_raw_color_or_numeric_px_literals() {
     assert!(
         violations.is_empty(),
         "ADR 0023 screen literal boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_call_migrated_playlist_service_paths() {
+    let mut violations = Vec::new();
+    for file in SCREEN_FILES {
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in SCREEN_PLAYLIST_SERVICE_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: migrated playlist workflows must go through ADR 0024 commands/queries, not `{pattern}`: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0024 playlist screen boundary violations:\n{}",
         violations.join("\n")
     );
 }

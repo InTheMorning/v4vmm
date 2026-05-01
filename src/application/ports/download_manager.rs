@@ -88,3 +88,27 @@ pub trait DownloadManager: fmt::Debug + Send + Sync + 'static {
         context: &CommandContext,
     ) -> Result<DownloadOutcome, DownloadError>;
 }
+
+/// Placeholder download port used before ADR 0024 Task 004 wires downloads.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UnavailableDownloadManager;
+
+impl UnavailableDownloadManager {
+    /// Creates an unavailable download manager.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl DownloadManager for UnavailableDownloadManager {
+    fn download(
+        &self,
+        _request: DownloadRequest,
+        _context: &CommandContext,
+    ) -> Result<DownloadOutcome, DownloadError> {
+        Err(DownloadError::Failed(
+            "download manager is not configured".to_string(),
+        ))
+    }
+}

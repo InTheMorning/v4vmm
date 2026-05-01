@@ -13,6 +13,7 @@ use gpui_component::input::{Input, InputState};
 use gpui_component::{Root, Size};
 use rusqlite::Connection;
 
+use crate::application::{ApplicationEvent, ApplicationEventSubscriber, ApplicationServices};
 use crate::config;
 use crate::db;
 use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryAppEvent};
@@ -21,6 +22,7 @@ use crate::media::ImageCache;
 use crate::playback;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
+use crate::presentation::{GpuiEventBridge, PresentationEventBridge};
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::composites::{NowPlayingBar, NowPlayingData, NowPlayingState};
 use crate::ui::sizable_bridge::SizableScaled;
@@ -72,6 +74,7 @@ pub struct TopApp {
     playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
     conn: Arc<Mutex<Connection>>,
     cached_tree: LibraryTree,
+    application_event_bridge: Arc<GpuiEventBridge>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -106,13 +109,34 @@ impl TopApp {
         let search_cache = Arc::clone(&image_cache);
         let library_cache = Arc::clone(&image_cache);
         let search_endpoint = musicindex_endpoint.clone();
-        let search =
-            cx.new(|cx| SearchApp::new(search_conn, search_cache, search_endpoint, window, cx));
+        let application_services = Arc::new(
+            ApplicationServices::local_without_downloads()
+                .expect("application services are fully wired"),
+        );
+        let application_event_bridge = Arc::new(GpuiEventBridge::new());
+        let application_event_subscriber: Arc<dyn ApplicationEventSubscriber> =
+            application_event_bridge.clone();
+        application_services
+            .event_bus()
+            .subscribe(application_event_subscriber);
+        let search_services = Arc::clone(&application_services);
+        let library_services = Arc::clone(&application_services);
+        let search = cx.new(|cx| {
+            SearchApp::new(
+                search_conn,
+                search_cache,
+                search_endpoint,
+                search_services,
+                window,
+                cx,
+            )
+        });
         let library = cx.new(|cx| {
             LibraryApp::new(
                 conn.clone(),
                 library_cache,
                 musicindex_endpoint.clone(),
+                library_services,
                 window,
                 cx,
             )
@@ -175,6 +199,7 @@ impl TopApp {
             playback_owner,
             conn,
             cached_tree: LibraryTree::default(),
+            application_event_bridge,
         }
     }
 
@@ -388,6 +413,28 @@ impl TopApp {
         }
     }
 
+    fn defer_application_event_drain(&mut self, window: &Window, cx: &mut Context<Self>) {
+        if self.application_event_bridge.pending_event_count() == 0 {
+            return;
+        }
+        cx.defer_in(window, |this, _window, cx| {
+            this.drain_application_events(cx);
+        });
+    }
+
+    fn drain_application_events(&mut self, cx: &mut Context<Self>) {
+        let events = self.application_event_bridge.drain_events();
+        if events.is_empty() {
+            return;
+        }
+        if events.iter().any(affects_library_surfaces) {
+            self.reload_cached();
+            self.library.update(cx, LibraryApp::refresh);
+            self.search.update(cx, SearchApp::refresh_application_state);
+        }
+        cx.notify();
+    }
+
     fn delete_cached_file(&mut self, path: &str) {
         if let Err(err) = std::fs::remove_file(path) {
             if err.kind() != std::io::ErrorKind::NotFound {
@@ -435,12 +482,23 @@ impl TopApp {
     }
 }
 
+fn affects_library_surfaces(event: &ApplicationEvent) -> bool {
+    matches!(
+        event,
+        ApplicationEvent::Library(_)
+            | ApplicationEvent::Playlist(_)
+            | ApplicationEvent::Feed(_)
+            | ApplicationEvent::Download(_)
+    )
+}
+
 impl Render for TopApp {
     #[expect(
         clippy::too_many_lines,
         reason = "top-level render consolidates many UI sections"
     )]
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.defer_application_event_drain(window, cx);
         let playback_bar = build_playback_bar(self, cx);
         let bg_canvas = color(cx, SemanticColor::SystemBackground);
         let text_primary = color(cx, SemanticColor::Label);

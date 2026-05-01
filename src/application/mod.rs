@@ -12,6 +12,7 @@ pub mod commands;
 pub mod errors;
 pub mod events;
 pub mod ports;
+pub mod queries;
 
 pub use application_event_bus::{ApplicationEventBus, ApplicationEventSubscriber};
 pub use application_query_service::ApplicationQueryService;
@@ -20,3 +21,6 @@ pub use command_bus::{ApplicationCommand, CommandBus, CommandOutcome, CommandRes
 pub use command_context::{CancellationToken, CommandContext, OperationId, TraceId};
 pub use errors::command::CommandError;
 pub use events::ApplicationEvent;
+pub use ports::download_manager::{
+    DownloadError, DownloadManager, DownloadOutcome, DownloadRequest, UnavailableDownloadManager,
+};

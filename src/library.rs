@@ -34,6 +34,10 @@ use gpui_component::Size;
 use reqwest::blocking::Client as ReqwestClient;
 
 use crate::api::Track;
+use crate::application::commands::playlist::{
+    CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
+};
+use crate::application::{ApplicationServices, CommandContext};
 use crate::audio_tags::write_id3v24_edits;
 use crate::config;
 use crate::db::{self, TrackRow};
@@ -49,7 +53,7 @@ use crate::metadata::{
     MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
 };
 use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
-use crate::playlist_service;
+use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
@@ -178,6 +182,8 @@ enum ThumbnailState {
 
 pub struct LibraryApp {
     conn: Arc<Mutex<Connection>>,
+    application_services: Arc<ApplicationServices>,
+    command_runner: GpuiCommandRunner,
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
     /// Stateful screen view-model. Owns all pure UI state and loaded
@@ -212,6 +218,7 @@ impl LibraryApp {
         conn: Arc<Mutex<Connection>>,
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
+        application_services: Arc<ApplicationServices>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -222,8 +229,14 @@ impl LibraryApp {
         let new_playlist_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder("New playlist name…")
         });
+        let command_runner = GpuiCommandRunner::new(
+            application_services.command_bus(),
+            application_services.event_bus(),
+        );
         let mut app = Self {
             conn,
+            application_services,
+            command_runner,
             cache,
             musicindex_endpoint,
             vm: LibraryViewModel::new(),
@@ -353,7 +366,7 @@ impl LibraryApp {
 
     fn reload_playlists(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match playlist_service::list(&conn) {
+        match self.application_services.query_service().playlists(&conn) {
             Ok(list) => self.vm.replace_playlists(list),
             Err(err) => self.vm.fail_playlist_load(err),
         }
@@ -369,7 +382,11 @@ impl LibraryApp {
         self.vm.select_playlist(id);
         let conn = self.conn.lock().expect("lock db");
         let playlist = self.vm.playlist_by_id(id);
-        let tracks = playlist_service::tracks(&conn, id).unwrap_or_default();
+        let tracks = self
+            .application_services
+            .query_service()
+            .playlist_tracks(&conn, id)
+            .unwrap_or_default();
         drop(conn);
         if let Some(playlist) = playlist {
             self.detail = LibraryDetail::Playlist(PlaylistDetail {
@@ -387,17 +404,18 @@ impl LibraryApp {
         if name.is_empty() {
             return;
         }
-        let conn = self.conn.lock().expect("lock db");
-        match playlist_service::create(&conn, name) {
-            Ok(id) => {
-                drop(conn);
-                self.vm.close_creating_playlist();
-                self.reload_playlists();
-                self.select_playlist(id, cx);
-            }
-            Err(err) => self.vm.fail_playlist_create(err),
-        }
-        cx.notify();
+        let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            |this, result, cx| {
+                this.vm.close_creating_playlist();
+                this.reload_playlists();
+                this.select_playlist(result.playlist_id(), cx);
+            },
+            |this, err, _cx| this.vm.fail_playlist_create(err),
+        );
     }
 
     #[allow(dead_code)]
@@ -406,31 +424,35 @@ impl LibraryApp {
         if trimmed.is_empty() {
             return;
         }
-        let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = playlist_service::rename(&conn, id, trimmed) {
-            self.vm.fail_playlist_rename(err);
-            return;
-        }
-        drop(conn);
-        self.reload_playlists();
-        if self.vm.is_playlist_selected(id) {
-            self.select_playlist(id, cx);
-        }
-        cx.notify();
+        let command = RenamePlaylist::new(Arc::clone(&self.conn), id, trimmed.to_string());
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, (), cx| {
+                this.reload_playlists();
+                if this.vm.is_playlist_selected(id) {
+                    this.select_playlist(id, cx);
+                }
+            },
+            |this, err, _cx| this.vm.fail_playlist_rename(err),
+        );
     }
 
     fn delete_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = playlist_service::delete(&conn, id) {
-            self.vm.fail_playlist_delete(err);
-            return;
-        }
-        drop(conn);
-        if self.vm.clear_playlist_selection_if(id) {
-            self.detail = LibraryDetail::None;
-        }
-        self.reload_playlists();
-        cx.notify();
+        let command = DeletePlaylist::new(Arc::clone(&self.conn), id);
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, (), _cx| {
+                if this.vm.clear_playlist_selection_if(id) {
+                    this.detail = LibraryDetail::None;
+                }
+                this.reload_playlists();
+            },
+            |this, err, _cx| this.vm.fail_playlist_delete(err),
+        );
     }
 
     fn remove_playlist_track_at(
@@ -439,17 +461,19 @@ impl LibraryApp {
         position: i64,
         cx: &mut Context<Self>,
     ) {
-        let mut conn = self.conn.lock().expect("lock db");
-        if let Err(err) = playlist_service::remove_track_at(&mut conn, playlist_id, position) {
-            self.vm.fail_playlist_track_remove(err);
-            return;
-        }
-        drop(conn);
-        self.reload_playlists();
-        if self.vm.is_playlist_selected(playlist_id) {
-            self.select_playlist(playlist_id, cx);
-        }
-        cx.notify();
+        let command = RemovePlaylistTrackAt::new(Arc::clone(&self.conn), playlist_id, position);
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, (), cx| {
+                this.reload_playlists();
+                if this.vm.is_playlist_selected(playlist_id) {
+                    this.select_playlist(playlist_id, cx);
+                }
+            },
+            |this, err, _cx| this.vm.fail_playlist_track_remove(err),
+        );
     }
 
     fn move_playlist_track(
@@ -462,16 +486,18 @@ impl LibraryApp {
         if from == to {
             return;
         }
-        let mut conn = self.conn.lock().expect("lock db");
-        if let Err(err) = playlist_service::reorder(&mut conn, playlist_id, from, to) {
-            self.vm.fail_playlist_track_reorder(err);
-            return;
-        }
-        drop(conn);
-        if self.vm.is_playlist_selected(playlist_id) {
-            self.select_playlist(playlist_id, cx);
-        }
-        cx.notify();
+        let command = ReorderPlaylistTrack::new(Arc::clone(&self.conn), playlist_id, from, to);
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, (), cx| {
+                if this.vm.is_playlist_selected(playlist_id) {
+                    this.select_playlist(playlist_id, cx);
+                }
+            },
+            |this, err, _cx| this.vm.fail_playlist_track_reorder(err),
+        );
     }
 
     fn add_track_to_playlist(&mut self, track_id: i64, playlist_id: i64, cx: &mut Context<Self>) {

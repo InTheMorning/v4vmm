@@ -2,12 +2,21 @@
 
 ## Status
 
-Planned.
+Completed.
 
 ## Task Goal
 
 Review the application-layer boundary after the playlist vertical slice before
 migrating subscription/download, metadata/feed update, or playback workflows.
+
+## Checkpoint Result
+
+Recorded in `docs/reviews/adr-0024-phase-2-checkpoint.md`.
+
+Decision: proceed to Task 004 with one required sequencing adjustment. Task 004
+must wire app-level consumption of `ApplicationEventBus` events before widening
+the migration to subscription/download workflows. ADR 0024 does not need a
+semantic rewrite before Phase 3.
 
 ## Files To Inspect
 

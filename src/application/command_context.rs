@@ -1,7 +1,9 @@
 //! Command execution context.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+
+static NEXT_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Stable identifier for one application command operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -73,6 +75,17 @@ pub struct CommandContext {
 }
 
 impl CommandContext {
+    /// Creates a command context with generated operation and trace ids.
+    #[must_use]
+    pub fn next() -> Self {
+        let id = NEXT_OPERATION_ID.fetch_add(1, Ordering::Relaxed);
+        Self::new(
+            OperationId::new(id),
+            CancellationToken::new(),
+            TraceId::new(id),
+        )
+    }
+
     /// Creates a command context with caller-provided identifiers.
     #[must_use]
     pub const fn new(

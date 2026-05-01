@@ -2,12 +2,27 @@
 
 ## Status
 
-Planned.
+Completed.
 
 ## Task Goal
 
 Migrate playlist create/delete/rename/reorder/append workflows through the ADR
 0024 application layer.
+
+## Completion Notes
+
+- Implemented typed playlist commands for create, rename, delete, reorder,
+  remove-at-position, and appending existing local tracks.
+- Added local playlist query APIs on `ApplicationQueryService`.
+- Wired `SearchApp` and `LibraryApp` to root `ApplicationServices` and
+  `GpuiCommandRunner` for migrated playlist operations.
+- Added playlist track-change events and architecture tests preventing screens
+  from reintroducing direct `playlist_service` calls.
+- Left subscription/download-backed "add to playlist" flows that call
+  `library_service::subscribe_then_append_to_playlist` for Task 004, because
+  they are not pure playlist mutations.
+- CLI playlist paths were not migrated in this task; CLI parity remains a
+  named follow-up for a later ADR 0024 slice.
 
 ## Files To Inspect
 
@@ -74,7 +89,7 @@ Migrate playlist create/delete/rename/reorder/append workflows through the ADR
 - Migrated playlist workflows dispatch commands instead of calling
   `playlist_service` directly from screens.
 - Playlist snapshots are read through `ApplicationQueryService`.
-- `ApplicationEventBus` broadcasts playlist/library events to app-level
+- `ApplicationEventBus` can broadcast playlist/library events to app-level
   subscribers.
 - Existing playlist UI and CLI behavior is preserved, except for intentionally
   documented internal routing changes.
