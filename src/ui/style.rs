@@ -101,16 +101,6 @@ pub mod color {
         role(SemanticColor::Focus)
     }
 
-    pub fn status_success() -> Rgba {
-        role(SemanticColor::Success)
-    }
-    pub fn status_warning() -> Rgba {
-        role(SemanticColor::Warning)
-    }
-    pub fn status_danger() -> Rgba {
-        role(SemanticColor::Danger)
-    }
-
     pub fn diff_match() -> Rgba {
         role(SemanticColor::DiffMatch)
     }
@@ -132,33 +122,6 @@ pub mod color {
     }
     pub fn id3_frame_unknown() -> Rgba {
         gpui::rgb(0x00ff_8a65)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StatusRole {
-    Success,
-    Warning,
-    Danger,
-}
-
-impl StatusRole {
-    #[must_use]
-    pub fn color(self) -> Rgba {
-        match self {
-            Self::Success => color::status_success(),
-            Self::Warning => color::status_warning(),
-            Self::Danger => color::status_danger(),
-        }
-    }
-
-    #[must_use]
-    pub const fn glyph(self) -> &'static str {
-        match self {
-            Self::Success => "\u{2713}",
-            Self::Warning => "\u{26A0}",
-            Self::Danger => "\u{2717}",
-        }
     }
 }
 

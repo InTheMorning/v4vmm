@@ -65,8 +65,8 @@ use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, ProvenanceRole, ReleaseDetailSurface, SplitPane, TagBadge, Thumbnail,
-    ThumbnailSize, TrackRow as TrackRowComposite,
+    EntityKind, ListRow, ProvenanceRole, ReleaseDetailSurface, SplitPane, StatusRole, TagBadge,
+    Thumbnail, ThumbnailSize, TrackRow as TrackRowComposite,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, MultilineText};
@@ -1627,7 +1627,7 @@ impl Render for LibraryApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let status_text = self.vm.status().to_string();
         let status_color = if status_text.starts_with("Error:") {
-            color::status_danger()
+            StatusRole::Danger.color(cx)
         } else {
             color::text_muted()
         };
@@ -2501,9 +2501,9 @@ fn render_library_track_row(
 
     if let Some(text) = mb_text {
         let status_color = match mb_kind {
-            Some(MbStatusKind::Success) => color::status_success(),
-            Some(MbStatusKind::Danger) => color::status_danger(),
-            Some(MbStatusKind::Warning) => color::status_warning(),
+            Some(MbStatusKind::Success) => StatusRole::Success.color(cx),
+            Some(MbStatusKind::Danger) => StatusRole::Danger.color(cx),
+            Some(MbStatusKind::Warning) => StatusRole::Warning.color(cx),
             _ => color::text_muted(),
         };
         row = row.trailing_child(
@@ -3006,7 +3006,7 @@ fn render_action_row(
                     .text_size(typography::SIZE_MICRO)
                     .line_height(typography::LINE_TIGHT)
                     .text_color(if subscription_message_is_error {
-                        color::status_danger()
+                        StatusRole::Danger.color(cx)
                     } else {
                         color::text_muted()
                     })
@@ -3081,7 +3081,7 @@ fn render_action_row(
                                     .max_w(layout::CONFLICT_MESSAGE_WIDTH)
                                     .text_size(typography::SIZE_MICRO)
                                     .line_height(typography::LINE_TIGHT)
-                                    .text_color(color::status_danger())
+                                    .text_color(StatusRole::Danger.color(cx))
                                     .child(SharedString::from(format!(
                                         "Duplicate target: {conflict_text}"
                                     ))),
@@ -3106,7 +3106,7 @@ fn render_action_row(
                     .max_w(layout::ACTION_MESSAGE_WIDTH)
                     .text_size(typography::SIZE_MICRO)
                     .line_height(typography::LINE_TIGHT)
-                    .text_color(color::status_danger())
+                    .text_color(StatusRole::Danger.color(cx))
                     .child(SharedString::from(error)),
             )
         })

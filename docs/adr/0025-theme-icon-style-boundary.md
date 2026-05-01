@@ -256,6 +256,10 @@ may consume icons from `ui::icons`, but the semantic role belongs with the
 badge/status visual-role layer so color, glyph/icon, label, and accessibility
 text are resolved together.
 
+General status message roles follow the same rule. `StatusRole` lives with the
+typed visual roles exported by `ui::composites`, not in `ui::style`, so status
+color and glyph semantics are resolved together.
+
 ### Runtime settings
 
 The Settings tab may eventually expose appearance/profile and accent choices,
@@ -440,6 +444,13 @@ fixed geometry to `ui::layouts`, and kept bridge-aware compatibility color
 roles in `ui::style`. Architecture tests should fail if screens reintroduce
 deprecated visual helpers or the old `ui::style::layout` namespace.
 
+### Phase 9 - status role boundary
+
+Move `StatusRole` out of `ui::style` and into typed visual roles so status
+color and glyph semantics resolve together. Remove the old
+`style::color::status_*` helpers and add an architecture gate against
+reintroducing status roles in `ui::style`.
+
 ## Test strategy
 
 - Keep `cargo test --test architecture_tests` as the main boundary gate.
@@ -486,6 +497,8 @@ This ADR is fulfilled when:
   exceptions use `CONTROL-COMPAT(reason): ...` and are enforced by
   architecture tests.
 - Entity/status badges use typed roles rather than string-keyed color maps.
+- Status message color and glyph semantics live in typed UI roles, not
+  `ui::style`.
 - Light and dark profiles pass the existing contrast tests.
 - High-contrast profiles pass contrast tests and are visually distinct from
   base Dark/Light before being exposed as settings.
@@ -493,6 +506,8 @@ This ADR is fulfilled when:
   screen-specific theme code.
 - Layout constants used by screens and composites live in `ui::layouts`, not
   `ui::style::layout`.
+- General status message roles live outside `ui::style`, and architecture
+  tests prevent reintroducing `StatusRole` or `style::color::status_*`.
 - Phase 6 retirement gate: migrated screen files have zero `theme::color::*`,
   `theme::badges`, and `theme::glyphs` call sites; `theme.rs` has been
   removed; and the architecture gate forbidding those deprecated namespaces is

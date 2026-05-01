@@ -172,6 +172,41 @@ impl ProvenanceRole {
     }
 }
 
+/// Visual role for general status messages.
+///
+/// Color and glyph resolve together so status does not rely on color alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusRole {
+    Success,
+    Warning,
+    Danger,
+}
+
+impl StatusRole {
+    #[must_use]
+    pub fn color_token(self) -> SemanticColor {
+        match self {
+            Self::Success => SemanticColor::Success,
+            Self::Warning => SemanticColor::Warning,
+            Self::Danger => SemanticColor::Danger,
+        }
+    }
+
+    #[must_use]
+    pub fn color(self, cx: &App) -> Rgba {
+        color(cx, self.color_token())
+    }
+
+    #[must_use]
+    pub const fn glyph(self) -> &'static str {
+        match self {
+            Self::Success => "\u{2713}",
+            Self::Warning => "\u{26A0}",
+            Self::Danger => "\u{2717}",
+        }
+    }
+}
+
 #[derive(IntoElement)]
 #[must_use]
 pub struct TagBadge {
@@ -220,5 +255,20 @@ impl RenderOnce for TagBadge {
             .py(Spacing::XXS.scaled(cx))
             .rounded(Radius::SM.scaled(cx))
             .child(label)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_roles_resolve_color_and_glyph_together() {
+        assert_eq!(StatusRole::Success.color_token(), SemanticColor::Success);
+        assert_eq!(StatusRole::Warning.color_token(), SemanticColor::Warning);
+        assert_eq!(StatusRole::Danger.color_token(), SemanticColor::Danger);
+        assert_eq!(StatusRole::Success.glyph(), "\u{2713}");
+        assert_eq!(StatusRole::Warning.glyph(), "\u{26A0}");
+        assert_eq!(StatusRole::Danger.glyph(), "\u{2717}");
     }
 }

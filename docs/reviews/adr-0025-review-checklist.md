@@ -6,10 +6,10 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Pass / Fail
 
-- Status: Reviewed through Task 008.
+- Status: Reviewed through Task 009.
 - Reviewer: Codex
 - Date: 2026-05-01
-- Review: ADR 0025 implementation slices 001-008 pass automated verification.
+- Review: ADR 0025 implementation slices 001-009 pass automated verification.
 
 ## Architectural Invariants
 
@@ -30,6 +30,8 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 - [x] `ActionButton` uses the shared control-style boundary.
 - [x] Entity/status/provenance badges use typed roles, not string-keyed color
       maps.
+- [x] General status message color and glyph semantics resolve through
+      `StatusRole` exported by `ui::composites`, not through `ui::style`.
 - [x] Color is not the sole indicator for destructive, success, warning, diff,
       disabled, or pending states.
 - [x] Runtime visual changes flow through `theme_bridge` / `Environment`.
@@ -70,6 +72,8 @@ Use this checklist for ADR 0025 implementation diffs and final review.
       it.
 - [x] Layout-boundary architecture tests reject reintroducing
       `ui::style::layout`.
+- [x] Status-role architecture tests reject reintroducing `StatusRole` or
+      `style::color::status_*` in `ui::style`.
 
 ## Tests And Verification
 

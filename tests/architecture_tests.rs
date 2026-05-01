@@ -620,6 +620,31 @@ fn ui_style_does_not_reintroduce_layout_namespace() {
 }
 
 #[test]
+fn ui_style_does_not_reintroduce_status_roles() {
+    let path = manifest_path("src/ui/style.rs");
+    let source = read_source(&path);
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        if line.contains("StatusRole")
+            || line.contains("status_success")
+            || line.contains("status_warning")
+            || line.contains("status_danger")
+        {
+            violations.push(format!(
+                "src/ui/style.rs:{line_number}: status color and glyph semantics belong in typed UI roles, not `ui::style`: `{line}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 status-role boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn screens_do_not_grow_unmarked_direct_component_button_usage() {
     let mut violations = Vec::new();
     for file in SCREEN_FILES {

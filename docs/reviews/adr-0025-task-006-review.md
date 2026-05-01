@@ -16,13 +16,13 @@ Pass.
 
 ## Optional Improvements
 
-- `ui::style` still carries compatibility geometry and no-argument color role
-  helpers for legacy render paths. It now follows the installed appearance, but
-  future work should continue moving those call sites to direct token,
-  primitive, and composite APIs.
-- `Style::StatusRole` currently covers the status role needed to remove
-  `theme::glyphs`. Additional typed status roles can move closer to composites
-  if more reusable status UI appears.
+- `ui::style` still carries no-argument color role helpers for legacy render
+  paths. It now follows the installed appearance, but future work should
+  continue moving those call sites to direct token, primitive, and composite
+  APIs.
+- Completed by later ADR 0025 work: fixed geometry moved to `ui::layouts`, and
+  `StatusRole` moved out of `ui::style` into typed UI roles exported by
+  `ui::composites`.
 
 ## Architectural Drift
 

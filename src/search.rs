@@ -50,7 +50,7 @@ use crate::subscribe_service::{
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, ProvenanceRole, SplitPane, TagBadge, Thumbnail, ThumbnailSize,
+    EntityKind, ListRow, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -1634,7 +1634,7 @@ impl Render for SearchApp {
             snapshot.status.text.clone()
         };
         let status_color = if snapshot.status.is_error {
-            StatusRole::Danger.color()
+            StatusRole::Danger.color(cx)
         } else {
             color::text_muted()
         };
@@ -4861,7 +4861,7 @@ pub(crate) fn render_track_download_button(
     let label = action_vm.download_label();
     let tooltip = action_vm.download_tooltip();
     let border = if is_downloaded {
-        color::status_danger()
+        StatusRole::Danger.color(cx)
     } else {
         color::accent()
     };
@@ -5304,7 +5304,7 @@ fn join_values(values: &[String]) -> Option<String> {
 }
 
 use crate::ui::layouts as layout;
-use crate::ui::style::{color, radius, spacing, typography, StatusRole};
+use crate::ui::style::{color, radius, spacing, typography};
 
 pub fn run_search_app() {
     let app = Application::new().with_assets(gpui_component_assets::Assets);

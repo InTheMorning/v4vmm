@@ -41,6 +41,6 @@ pub use playlist_popover::AddToPlaylistPopover;
 pub use release_detail_surface::ReleaseDetailSurface;
 pub use segmented_control::{Segment, SegmentedControl};
 pub use split_pane::SplitPane;
-pub use tag_badge::{EntityKind, ProvenanceRole, TagBadge};
+pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge};
 pub use thumbnail::{Thumbnail, ThumbnailSize};
 pub use track_row::TrackRow;

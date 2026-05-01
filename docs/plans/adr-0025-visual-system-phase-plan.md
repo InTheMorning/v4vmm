@@ -150,6 +150,16 @@ architecture gate against reintroducing `ui::style::layout`.
 Status: implemented by
 `docs/tasks/adr-0025-task-008-layout-boundary.md`.
 
+### Phase 9 - status role boundary
+
+Move general status color/glyph semantics out of `ui::style` into typed visual
+roles exported by `ui::composites`, remove the old
+`style::color::status_*` helpers, and add an architecture gate against
+reintroducing status roles in `ui::style`.
+
+Status: implemented by
+`docs/tasks/adr-0025-task-009-status-role-boundary.md`.
+
 ## Schema/API Implications
 
 No database schema changes are expected. Phase 5 may extend `Config` with a
