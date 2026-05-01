@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 
 use gpui::{
-    div, prelude::*, px, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
+    div, prelude::*, px, AnyElement, ClickEvent, ClipboardItem, Context, Entity, FontWeight, Image,
     InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render,
     SharedString, Styled, Window,
 };
@@ -64,8 +64,9 @@ use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
-    action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
+    action_button, identity_action_button, DetailGrid, DetailHeader,
+    DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, IdentityActionKind, ListRow,
+    ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
     TrackRow as TrackRowComposite,
 };
 use crate::ui::control_styles::ControlStyle;
@@ -84,7 +85,10 @@ use crate::view_models::library::{
     TrackSubscribeOutcome,
 };
 use crate::view_models::track::TrackVm;
-use crate::views::{FeedView, TrackRef};
+use crate::views::{
+    ContributorView, FeedView, IdentityIdFact, IdentityLinkFact, LocalIdentityFacts, TrackRef,
+    TrackView,
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1610,6 +1614,9 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         feed_id,
                         feed_url,
                         image_href,
+                        identity_facts: feed_id
+                            .map(|fid| local_feed_identity_facts(conn, fid))
+                            .unwrap_or_default(),
                         tracks,
                     }
                 })
@@ -1622,6 +1629,58 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
         .collect();
 
     LibraryTree { artists }
+}
+
+fn local_feed_identity_facts(conn: &Connection, feed_id: i64) -> LocalIdentityFacts {
+    let identity_owner = db::LocalIdentityOwner::Feed(feed_id);
+    let entity_owner = db::LocalEntityOwner::Feed(feed_id);
+
+    let source_links = db::local_identity_links(conn, identity_owner)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| IdentityLinkFact {
+            entity_type: row.entity_type,
+            entity_id: row.entity_id,
+            position: row.position,
+            link_type: row.link_type,
+            url: row.url,
+            source: Some(row.source),
+            extraction_path: row.extraction_path,
+            observed_at: row.observed_at,
+        })
+        .collect();
+    let source_ids = db::local_identity_ids(conn, identity_owner)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| IdentityIdFact {
+            entity_type: row.entity_type,
+            entity_id: row.entity_id,
+            position: row.position,
+            scheme: row.scheme,
+            value: row.value,
+            source: Some(row.source),
+            extraction_path: row.extraction_path,
+            observed_at: row.observed_at,
+        })
+        .collect();
+    let contributors = db::local_contributors(conn, entity_owner)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| ContributorView {
+            name: row.name,
+            role: row.role,
+            group_name: row.group_name,
+            href: row.href,
+            image_url: row.image_url,
+            nostr_npub: row.nostr_npub,
+        })
+        .collect();
+
+    LocalIdentityFacts {
+        source_links,
+        source_ids,
+        contributors,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2346,7 +2405,16 @@ fn render_album_detail(
         album_image_href: album.image_href.clone(),
         is_subscribed: false, // Library view, not used
     };
-    let feed_view = FeedView::from_local(feed_row, album.tracks.clone());
+    let feed_view = FeedView::from_local_with_identity(
+        feed_row,
+        album
+            .tracks
+            .clone()
+            .into_iter()
+            .map(TrackView::from_local)
+            .collect(),
+        album.identity_facts.clone(),
+    );
 
     let thumb_image = album
         .image_href
@@ -2434,6 +2502,7 @@ fn render_album_detail(
                 .into_any_element(),
         ),
         action_row: Some(buttons.into_any_element()),
+        identity_actions: render_library_identity_actions(&feed_view),
         details: Some(
             DetailGrid::new(
                 vm.detail_rows()
@@ -2453,6 +2522,40 @@ fn render_album_detail(
         slots.panels.push(panel);
     }
     render_release_detail_shell("album-detail-scroll", &projection, slots)
+}
+
+fn render_library_identity_actions(view: &FeedView) -> Vec<AnyElement> {
+    let mut actions = Vec::new();
+
+    if let Some(url) = view.identity.website_url.clone() {
+        let url_for_click = url.clone();
+        actions.push(
+            identity_action_button(
+                SharedString::from(format!("library-feed-website:{url}")),
+                IdentityActionKind::Website,
+            )
+            .on_click(move |_, _, _| {
+                let _ = open::that(&url_for_click);
+            })
+            .into_any_element(),
+        );
+    }
+
+    if let Some(npub) = view.identity.nostr_npub.clone() {
+        let npub_for_click = npub.clone();
+        actions.push(
+            identity_action_button(
+                SharedString::from(format!("library-feed-nostr:{npub}")),
+                IdentityActionKind::Nostr,
+            )
+            .on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
+            })
+            .into_any_element(),
+        );
+    }
+
+    actions
 }
 
 fn render_library_track_row(

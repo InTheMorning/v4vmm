@@ -10,7 +10,7 @@ use crate::ui_entity::{render_release_detail_shell, ReleaseDetailSlots, TrackSec
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::feed::FeedVm;
 use crate::views::FeedView;
-use gpui::{prelude::*, AnyElement, Context};
+use gpui::{prelude::*, AnyElement, ClipboardItem, Context, SharedString};
 use std::collections::BTreeMap;
 
 pub(crate) fn render_feed_view(
@@ -54,6 +54,7 @@ pub(crate) fn render_feed_view(
             cx,
         )),
         action_row: Some(render_action_row(frame, &BTreeMap::new(), app, cx)),
+        identity_actions: render_identity_actions(view),
         details: Some(
             DetailGrid::new(rows.into_iter().map(Into::into).collect::<Vec<_>>())
                 .into_any_element(),
@@ -96,4 +97,38 @@ pub(crate) fn render_feed_view(
     }
 
     render_release_detail_shell("discover-feed-detail", &projection, slots)
+}
+
+fn render_identity_actions(view: &FeedView) -> Vec<AnyElement> {
+    let mut actions = Vec::new();
+
+    if let Some(url) = view.identity.website_url.clone() {
+        let url_for_click = url.clone();
+        actions.push(
+            crate::ui::composites::identity_action_button(
+                SharedString::from(format!("discover-feed-website:{url}")),
+                crate::ui::composites::IdentityActionKind::Website,
+            )
+            .on_click(move |_, _, _| {
+                let _ = open::that(&url_for_click);
+            })
+            .into_any_element(),
+        );
+    }
+
+    if let Some(npub) = view.identity.nostr_npub.clone() {
+        let npub_for_click = npub.clone();
+        actions.push(
+            crate::ui::composites::identity_action_button(
+                SharedString::from(format!("discover-feed-nostr:{npub}")),
+                crate::ui::composites::IdentityActionKind::Nostr,
+            )
+            .on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
+            })
+            .into_any_element(),
+        );
+    }
+
+    actions
 }

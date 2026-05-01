@@ -60,7 +60,7 @@ the same GPUI-free identity projections as Discover when facts are known.
 3. Local view hydration for feed, track, and contributor facts.
    Task: `docs/tasks/adr-0028-task-003-local-view-hydration.md`.
 4. Library/Discover identity visual smoke.
-   Task to create after local hydration is wired.
+   Task: `docs/tasks/adr-0028-task-004-identity-visual-smoke.md`.
 5. Cleanup and architecture gates.
    Task to create only if phases 1-4 add compatibility shims.
 

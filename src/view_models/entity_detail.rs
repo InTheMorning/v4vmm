@@ -872,6 +872,17 @@ mod tests {
     }
 
     #[test]
+    fn identity_actions_are_shared_across_surface_contexts() {
+        let feed = feed_view();
+        let discover_actions =
+            ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).identity_actions();
+        let library_actions =
+            ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).identity_actions();
+
+        assert_eq!(discover_actions, library_actions);
+    }
+
+    #[test]
     fn contributor_list_groups_by_group_name() {
         let feed = feed_view();
         let groups = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover)

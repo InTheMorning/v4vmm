@@ -4836,7 +4836,6 @@ pub(crate) fn render_feed_header(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let rss_url = feed_rss_url(feed);
-    let npub = feed_nostr(feed);
     let mut header =
         DetailHeader::new(EntityKind::Feed, title.to_string()).image(frame.image.clone());
     if let Some(subtitle) = subtitle.filter(|value| !value.trim().is_empty()) {
@@ -4855,8 +4854,7 @@ pub(crate) fn render_feed_header(
                 .items_center()
                 .gap(spacing::SM)
                 .justify_start()
-                .child(render_rss_icon_button(rss_url, cx))
-                .child(render_nostr_icon_button(npub, "feed", cx)),
+                .child(render_rss_icon_button(rss_url, cx)),
         )
         .into_any_element()
 }

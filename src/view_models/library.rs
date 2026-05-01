@@ -29,7 +29,7 @@ use crate::view_models::entity_detail::{
 };
 use crate::view_models::format::{fmt_total_runtime_clock, plural};
 use crate::view_models::SplitPaneState;
-use crate::views::{FeedRef, FeedView, TrackRef};
+use crate::views::{FeedRef, FeedView, LocalIdentityFacts, TrackRef};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 
@@ -82,6 +82,7 @@ pub(crate) struct AlbumNode {
     pub(crate) feed_id: Option<i64>,
     pub(crate) feed_url: Option<String>,
     pub(crate) image_href: Option<String>,
+    pub(crate) identity_facts: LocalIdentityFacts,
     pub(crate) tracks: Vec<TrackRow>,
 }
 
@@ -1093,6 +1094,7 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
                     feed_id: album.feed_id,
                     feed_url: album.feed_url.clone(),
                     image_href: album.image_href.clone(),
+                    identity_facts: album.identity_facts.clone(),
                     tracks,
                 });
             }
@@ -2145,6 +2147,7 @@ mod tests {
                             feed_id: Some(10),
                             feed_url: Some("https://example.test/saw.xml".into()),
                             image_href: Some("saw.jpg".into()),
+                            identity_facts: LocalIdentityFacts::default(),
                             tracks: vec![rhubarb, cliffs],
                         },
                         AlbumNode {
@@ -2152,6 +2155,7 @@ mod tests {
                             feed_id: Some(20),
                             feed_url: None,
                             image_href: None,
+                            identity_facts: LocalIdentityFacts::default(),
                             tracks: vec![windowlicker],
                         },
                     ],
@@ -2163,6 +2167,7 @@ mod tests {
                         feed_id: Some(30),
                         feed_url: None,
                         image_href: None,
+                        identity_facts: LocalIdentityFacts::default(),
                         tracks: vec![row()],
                     }],
                 },
