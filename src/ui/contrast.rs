@@ -265,8 +265,9 @@ pub const REQUIRED_PAIRS: &[ContrastPair] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme_profile::ThemeProfile;
     use crate::ui::icons::IconName;
-    use crate::ui::theme_profile::ThemeProfile;
+    use crate::ui::theme_bridge::appearance_for_profile;
     use crate::ui::tokens::{Appearance, SemanticColor};
 
     /// Sanity: black-on-white is the WCAG reference at 21 : 1.
@@ -325,10 +326,11 @@ mod tests {
     }
 
     fn check_profile_matrix(profile: ThemeProfile) {
+        let appearance = appearance_for_profile(profile);
         let mut failures = Vec::new();
         for pair in REQUIRED_PAIRS {
-            let fg = profile.resolve(pair.fg);
-            let bg = profile.resolve(pair.bg);
+            let fg = pair.fg.resolve(appearance);
+            let bg = pair.bg.resolve(appearance);
             let actual = ratio(fg, bg);
             let required = pair.level.min_ratio();
             if actual + 0.005 < required {

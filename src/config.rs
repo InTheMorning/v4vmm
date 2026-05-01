@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::api::DEFAULT_BASE_URL;
-use crate::ui::theme_profile::ThemeProfile;
+use crate::theme_profile::ThemeProfile;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {

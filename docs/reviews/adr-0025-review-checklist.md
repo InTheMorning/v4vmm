@@ -13,52 +13,52 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Architectural Invariants
 
-- [ ] Screens do not introduce raw colors, inline icon SVG, or string glyphs
+- [x] Screens do not introduce raw colors, inline icon SVG, or string glyphs
       for reusable visual roles.
 - [x] New screen code does not call `theme::color::*`, `theme::badges`, or
       `theme::glyphs`.
-- [ ] Semantic icons are requested through `ui::icons`.
-- [ ] Brand/protocol icon colors live inside the icon catalog.
-- [ ] Reusable button/action styling flows through named control style roles.
-- [ ] `ControlStyle` maps to `ui::primitives::Button`; it does not create a
+- [x] Semantic icons are requested through `ui::icons`.
+- [x] Brand/protocol icon colors live inside the icon catalog.
+- [x] Reusable button/action styling flows through named control style roles.
+- [x] `ControlStyle` maps to `ui::primitives::Button`; it does not create a
       third button vocabulary beside the native primitive and
       `gpui_component::Button`.
-- [ ] Remaining direct `gpui_component::Button` styling in screens is explicitly
+- [x] Remaining direct `gpui_component::Button` styling in screens is explicitly
       marked with `CONTROL-COMPAT(reason): ...` compatibility debt.
-- [ ] Architecture tests reject unmarked direct screen-level
+- [x] Architecture tests reject unmarked direct screen-level
       `gpui_component::Button` usage.
-- [ ] `ActionButton` uses the shared control-style boundary.
-- [ ] Entity/status/provenance badges use typed roles, not string-keyed color
+- [x] `ActionButton` uses the shared control-style boundary.
+- [x] Entity/status/provenance badges use typed roles, not string-keyed color
       maps.
-- [ ] Color is not the sole indicator for destructive, success, warning, diff,
+- [x] Color is not the sole indicator for destructive, success, warning, diff,
       disabled, or pending states.
 - [x] Runtime visual changes flow through `theme_bridge` / `Environment`.
 - [x] `theme_bridge::install_theme` takes `ThemeProfile`.
 - [x] `theme::glyphs` does not exist.
-- [ ] View-models, application, service, domain, and infrastructure layers do
-      not import UI modules.
+- [x] View-models, application, config, and core service/domain modules do not
+      import UI modules.
 
 ## Slice-Specific Checks
 
-- [ ] Theme-profile contract preserves current dark default behavior.
-- [ ] High-contrast profile tests exist before high contrast is exposed.
-- [ ] Architecture gates ratchet deprecated helper usage without false
+- [x] Theme-profile contract preserves current dark default behavior.
+- [x] High-contrast profile tests exist before high contrast is exposed.
+- [x] Architecture gates ratchet deprecated helper usage without false
       positives that block planned migrations.
-- [ ] Brand/protocol icon colors have non-text contrast coverage.
-- [ ] Icon migration preserves size, alignment, colors, and click targets.
-- [ ] Control-style migration preserves labels, behavior, disabled states, and
+- [x] Brand/protocol icon colors have non-text contrast coverage.
+- [x] Icon migration preserves size, alignment, colors, and click targets.
+- [x] Control-style migration preserves labels, behavior, disabled states, and
       focus affordances.
-- [ ] Control-style roles satisfy the admission rule: at least two unrelated
+- [x] Control-style roles satisfy the admission rule: at least two unrelated
       call sites, or a state/contrast requirement that generic chains cannot
       express.
-- [ ] Screen button sweep final report includes the inventory and disposition of
+- [x] Screen button sweep final report includes the inventory and disposition of
       direct `gpui_component::Button` chains.
-- [ ] Badge migration preserves label meaning and contrast.
-- [ ] Badge roles cover all current `EntityKind` variants: feed, track, artist,
+- [x] Badge migration preserves label meaning and contrast.
+- [x] Badge roles cover all current `EntityKind` variants: feed, track, artist,
       publisher, release, recording, playlist, and generic.
-- [ ] Provenance/diff roles resolve color plus non-color cue together.
-- [ ] Runtime profile selection exposes only tested profiles.
-- [ ] `ThemeProfile::System` is not exposed unless it follows real OS/system
+- [x] Provenance/diff roles resolve color plus non-color cue together.
+- [x] Runtime profile selection exposes only tested profiles.
+- [x] `ThemeProfile::System` is not exposed unless it follows real OS/system
       appearance.
 - [x] Phase 6 reduces `theme.rs` to documented layout constants only or removes
       it.
@@ -82,7 +82,8 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Optional Improvements
 
-- None recorded.
+- Decide whether `src/media` is presentation infrastructure or a reusable
+  non-UI media layer before adding it to the core non-UI architecture audit.
 
 ## Merge Recommendation
 

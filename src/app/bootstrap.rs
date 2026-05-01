@@ -35,7 +35,7 @@ pub fn run_app() {
         // themed; we re-install with the user's preference once config is
         // loaded a few lines below.
         crate::ui::theme_bridge::install_theme(
-            crate::ui::theme_profile::ThemeProfile::Dark,
+            crate::theme_profile::ThemeProfile::Dark,
             crate::ui::tokens::ScaleFactor::Medium,
             cx,
         );

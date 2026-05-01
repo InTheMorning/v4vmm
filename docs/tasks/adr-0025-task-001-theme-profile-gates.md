@@ -22,7 +22,7 @@ current visual behavior.
 
 ## Files Likely To Change
 
-- `src/ui/theme_profile.rs`
+- `src/theme_profile.rs`
 - `src/ui/mod.rs`
 - `src/ui/theme_bridge.rs`
 - `src/ui/theme.rs`
@@ -47,7 +47,8 @@ current visual behavior.
 - Preserve current visual behavior.
 - Do not migrate call sites in this task.
 - Do not introduce user-facing settings yet.
-- Keep the new type GPUI-light; only bridge code should need `App`.
+- Keep the new type GPUI-free; only bridge code should need `App` or token
+  appearance resolution.
 - Do not add arbitrary custom color input.
 - `theme_bridge::install_theme` must take `ThemeProfile`, not leave the
   signature decision to the implementer.
@@ -78,17 +79,17 @@ current visual behavior.
 
 ## Acceptance Criteria
 
-- [ ] `ThemeProfile` exists and compiles.
-- [ ] `theme_bridge::install_theme` takes `ThemeProfile`.
-- [ ] All theme-install call sites pass `ThemeProfile::Dark`.
-- [ ] High-contrast profile contrast tests exist and pass.
-- [ ] Existing `theme::glyphs` usage is counted as temporary compatibility
+- [x] `ThemeProfile` exists and compiles.
+- [x] `theme_bridge::install_theme` takes `ThemeProfile`.
+- [x] All theme-install call sites pass `ThemeProfile::Dark`.
+- [x] High-contrast profile contrast tests exist and pass.
+- [x] Existing `theme::glyphs` usage is counted as temporary compatibility
       debt and cannot grow.
-- [ ] Current default dark behavior is unchanged.
-- [ ] Architecture tests still pass.
-- [ ] The tests make it possible to ratchet down deprecated helper usage in
+- [x] Current default dark behavior is unchanged.
+- [x] Architecture tests still pass.
+- [x] The tests make it possible to ratchet down deprecated helper usage in
       later tasks.
-- [ ] No screen behavior or layout changes.
+- [x] No screen behavior or layout changes.
 
 ## Test Commands
 

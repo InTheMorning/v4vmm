@@ -62,11 +62,11 @@ helpers behind it.
 
 ## Acceptance Criteria
 
-- [ ] RSS and Nostr icons render through `ui::icons`.
-- [ ] Migrated icons preserve current colors, sizes, and click behavior.
-- [ ] Brand/protocol icon colors have non-text contrast coverage.
-- [ ] No workflow behavior changes.
-- [ ] New screen-level inline icon SVG helpers are rejected or documented as
+- [x] RSS and Nostr icons render through `ui::icons`.
+- [x] Migrated icons preserve current colors, sizes, and click behavior.
+- [x] Brand/protocol icon colors have non-text contrast coverage.
+- [x] No workflow behavior changes.
+- [x] New screen-level inline icon SVG helpers are rejected or documented as
       temporary allowlist debt.
 
 ## Test Commands

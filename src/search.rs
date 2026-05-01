@@ -5311,7 +5311,7 @@ pub fn run_search_app() {
     app.run(move |cx| {
         gpui_component::init(cx);
         crate::ui::theme_bridge::install_theme(
-            crate::ui::theme_profile::ThemeProfile::Dark,
+            crate::theme_profile::ThemeProfile::Dark,
             crate::ui::tokens::ScaleFactor::Medium,
             cx,
         );

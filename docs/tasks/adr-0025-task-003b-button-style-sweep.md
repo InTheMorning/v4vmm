@@ -73,15 +73,15 @@ Migrate reusable screen-level `gpui_component::Button` style chains in
 
 ## Acceptance Criteria
 
-- [ ] Reusable direct styled `gpui_component::Button` chains in `app.rs`,
+- [x] Reusable direct styled `gpui_component::Button` chains in `app.rs`,
       `library.rs`, and `search.rs` are migrated to `ControlStyle`.
-- [ ] Remaining direct `gpui_component::Button` style chains have
+- [x] Remaining direct `gpui_component::Button` style chains have
       `CONTROL-COMPAT(reason): ...` markers.
-- [ ] Architecture tests reject unmarked direct screen-file
+- [x] Architecture tests reject unmarked direct screen-file
       `gpui_component::Button` usage.
-- [ ] The final report includes the inventory of direct button chains found,
+- [x] The final report includes the inventory of direct button chains found,
       with per-call disposition: migrated, compatibility debt, or one-off.
-- [ ] Current behavior, labels, disabled states, focus behavior, and layout are
+- [x] Current behavior, labels, disabled states, focus behavior, and layout are
       preserved.
 
 ## Test Commands

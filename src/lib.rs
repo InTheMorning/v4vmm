@@ -24,6 +24,7 @@ pub mod search;
 pub mod sources;
 pub mod subscribe_service;
 pub mod tag_field;
+pub mod theme_profile;
 pub mod track_compare;
 pub mod track_identity;
 pub mod ui;

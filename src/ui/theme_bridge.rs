@@ -21,7 +21,7 @@ use gpui::{App, Hsla, Rgba};
 use gpui_component::{Theme, ThemeMode};
 
 use crate::config::UiScale;
-use crate::ui::theme_profile::ThemeProfile;
+use crate::theme_profile::ThemeProfile;
 use crate::ui::tokens::{Appearance, ScaleFactor, SemanticColor};
 
 impl From<UiScale> for ScaleFactor {
@@ -46,7 +46,7 @@ impl From<UiScale> for ScaleFactor {
     reason = "flat field-by-field assignment list is clearer than splitting"
 )]
 pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App) {
-    let appearance = profile.appearance();
+    let appearance = appearance_for_profile(profile);
     crate::ui::style::install_appearance(appearance);
 
     // Install the bundled Environment so every component can read appearance
@@ -206,6 +206,16 @@ pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App) {
     // picked up immediately. Without this, the next user interaction (or a
     // background timer) would be needed before any visual change.
     cx.refresh_windows();
+}
+
+#[must_use]
+pub const fn appearance_for_profile(profile: ThemeProfile) -> Appearance {
+    match profile {
+        ThemeProfile::System | ThemeProfile::Dark | ThemeProfile::HighContrastDark => {
+            Appearance::Dark
+        }
+        ThemeProfile::Light | ThemeProfile::HighContrastLight => Appearance::Light,
+    }
 }
 
 /// Convert our `Rgba` token output to gpui's `Hsla` that the theme stores.

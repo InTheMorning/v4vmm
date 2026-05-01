@@ -534,7 +534,7 @@ mod tests {
     use crate::audio_format::AudioFormat;
     use crate::audio_tags::AudioTags;
     use crate::config::{Config, PlaybackConfig};
-    use crate::ui::theme_profile::ThemeProfile;
+    use crate::theme_profile::ThemeProfile;
 
     fn track() -> Track {
         Track {

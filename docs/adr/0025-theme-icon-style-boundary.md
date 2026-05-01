@@ -57,7 +57,6 @@ src/ui/
   tokens.rs              existing semantic token base
   theme_bridge.rs        existing gpui-component bridge
   style.rs               fixed geometry + bridge-aware compatibility roles
-  theme_profile.rs       named theme profiles and role resolution
   icons.rs               semantic icon catalog and Icon primitive facade
   control_styles.rs      role mapping for the native Button primitive
   primitives/
@@ -72,14 +71,18 @@ The names above are normative unless implementation finds a clearer local
 module split. The architecture boundary is more important than exact file
 placement: semantic visual intent belongs in `ui/`, not in screens.
 
+`src/theme_profile.rs` owns the GPUI-free persisted profile enum. UI bridge
+code maps that profile to token appearances when installing a theme.
+
 ### Theme profile boundary
 
 `tokens.rs` remains the lowest-level source of truth for semantic dimensions:
 `SemanticColor`, `Spacing`, `Radius`, `FontSize`, `Size`, `Appearance`,
 `ScaleFactor`, and `Environment`.
 
-Add a theme-profile layer that defines complete, named visual profiles and
-resolves all app roles for an appearance:
+Add a theme-profile layer that defines complete, named visual profiles. The
+profile type itself must stay GPUI-free so config and non-UI code can carry the
+choice without importing the UI layer:
 
 - `ThemeProfile::System`
 - `ThemeProfile::Dark`
@@ -109,12 +112,12 @@ resolution to callers:
 pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App)
 ```
 
-`ThemeProfile` owns the mapping to `Appearance` and any future profile-specific
-role resolution. Current theme-install call sites must pass
-`ThemeProfile::Dark` until config/profile selection exists. Keeping
-`install_theme(appearance, scale, cx)` as the primary API is not allowed after
-Task 001, because downstream icon and control code need one profile-driven
-theme contract.
+`theme_bridge` owns the mapping from `ThemeProfile` to `Appearance` and any
+future profile-specific role resolution that needs GPUI/token types. Current
+theme-install call sites must pass `ThemeProfile::Dark` until config/profile
+selection exists. Keeping `install_theme(appearance, scale, cx)` as the primary
+API is not allowed after Task 001, because downstream icon and control code
+need one profile-driven theme contract.
 
 ### Icon boundary
 

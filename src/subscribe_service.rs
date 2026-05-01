@@ -539,7 +539,7 @@ mod tests {
     use super::*;
     use crate::api::SourceEnclosure;
     use crate::config::{Config, PlaybackConfig};
-    use crate::ui::theme_profile::ThemeProfile;
+    use crate::theme_profile::ThemeProfile;
 
     fn cfg(temp: &std::path::Path) -> Config {
         Config {

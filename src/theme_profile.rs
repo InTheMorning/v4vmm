@@ -1,15 +1,12 @@
 //! Named theme profiles for the visual system boundary.
 //!
-//! [`ThemeProfile`] is the screen-facing appearance choice. It resolves to the
-//! lower-level [`Appearance`] tokens today and leaves one place for future
-//! profile-specific role mapping.
+//! [`ThemeProfile`] is the persisted appearance choice. It stays GPUI-free so
+//! config, command tests, and non-UI callers can carry the profile without
+//! importing the UI layer.
 
 #![warn(clippy::pedantic)]
 
-use gpui::Rgba;
 use serde::Deserialize;
-
-use crate::ui::tokens::{Appearance, SemanticColor};
 
 /// Complete visual profiles supported by the design-system boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
@@ -33,26 +30,6 @@ pub enum ThemeProfile {
 
 impl ThemeProfile {
     pub const USER_SELECTABLE: [Self; 2] = [Self::Dark, Self::Light];
-
-    /// Resolve this profile to the base semantic-token appearance.
-    #[must_use]
-    pub const fn appearance(self) -> Appearance {
-        match self {
-            Self::System | Self::Dark | Self::HighContrastDark => Appearance::Dark,
-            Self::Light | Self::HighContrastLight => Appearance::Light,
-        }
-    }
-
-    /// Resolve a semantic token through this profile.
-    ///
-    /// High-contrast profiles intentionally share the current base palettes
-    /// until ADR 0025 later phases introduce profile-specific role values. The
-    /// profile-level API is still valuable now because tests and bridge code no
-    /// longer bypass the named theme contract.
-    #[must_use]
-    pub fn resolve(self, token: SemanticColor) -> Rgba {
-        token.resolve(self.appearance())
-    }
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {

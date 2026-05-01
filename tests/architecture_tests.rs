@@ -25,6 +25,23 @@ const APPLICATION_FORBIDDEN_PATTERNS: &[&str] = &[
     "crate::app::",
 ];
 
+const NON_UI_CORE_PATHS: &[&str] = &[
+    "src/config.rs",
+    "src/feed_service.rs",
+    "src/library_service.rs",
+    "src/metadata.rs",
+    "src/metadata_service.rs",
+    "src/musicbrainz.rs",
+    "src/playback.rs",
+    "src/playback_driver",
+    "src/playlist_service.rs",
+    "src/rss",
+    "src/sources.rs",
+    "src/subscribe_service.rs",
+    "src/track_compare.rs",
+    "src/track_identity.rs",
+];
+
 const SCREEN_PLAYLIST_SERVICE_FORBIDDEN_PATTERNS: &[&str] =
     &["use crate::playlist_service", "playlist_service::"];
 
@@ -283,6 +300,30 @@ fn application_layer_does_not_import_gpui_or_screen_layers() {
     assert!(
         violations.is_empty(),
         "ADR 0024 application-layer boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn core_non_ui_modules_do_not_import_ui_modules() {
+    let mut violations = Vec::new();
+    for path in non_ui_core_rust_files() {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in APPLICATION_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{}:{line_number}: core non-UI code must stay UI-free; found `{pattern}` in `{line}`",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 core non-UI boundary violations:\n{}",
         violations.join("\n")
     );
 }
@@ -564,6 +605,20 @@ fn rust_files_under(relative_dir: &str) -> Vec<PathBuf> {
     let root = manifest_path(relative_dir);
     let mut files = Vec::new();
     collect_rust_files(&root, &mut files);
+    files.sort();
+    files
+}
+
+fn non_ui_core_rust_files() -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for relative_path in NON_UI_CORE_PATHS {
+        let path = manifest_path(relative_path);
+        if path.is_dir() {
+            collect_rust_files(&path, &mut files);
+        } else {
+            files.push(path);
+        }
+    }
     files.sort();
     files
 }

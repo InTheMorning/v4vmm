@@ -8,5 +8,4 @@ pub mod primitives;
 pub mod sizable_bridge;
 pub mod style;
 pub mod theme_bridge;
-pub mod theme_profile;
 pub mod tokens;

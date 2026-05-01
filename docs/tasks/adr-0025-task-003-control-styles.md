@@ -75,14 +75,14 @@ tests. The screen-level button style-chain sweep is split into
 
 ## Acceptance Criteria
 
-- [ ] `ActionButton` depends on the shared control-style boundary.
-- [ ] `ControlStyle` maps to `ui::primitives::Button`.
-- [ ] Pure role mapping tests exist.
-- [ ] `CONTROL-COMPAT(reason):` marker semantics are documented and enforced by
+- [x] `ActionButton` depends on the shared control-style boundary.
+- [x] `ControlStyle` maps to `ui::primitives::Button`.
+- [x] Pure role mapping tests exist.
+- [x] `CONTROL-COMPAT(reason):` marker semantics are documented and enforced by
       architecture-test support for later screen-sweep work.
-- [ ] Initial non-obvious role examples are documented before roles are added.
-- [ ] No behavior changes.
-- [ ] No new one-off control style roles are introduced.
+- [x] Initial non-obvious role examples are documented before roles are added.
+- [x] No behavior changes.
+- [x] No new one-off control style roles are introduced.
 
 ## Test Commands
 

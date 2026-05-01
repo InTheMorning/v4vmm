@@ -34,7 +34,8 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
 
 ## Target State
 
-- Named theme profiles resolve appearances and visual roles.
+- Named theme profiles are GPUI-free persisted choices; `theme_bridge` resolves
+  them to appearances and visual roles.
 - `theme_bridge::install_theme` accepts `ThemeProfile`.
 - Screens do not add new deprecated theme helper usage.
 - Icons are requested by semantic role.
@@ -59,7 +60,7 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
 - `src/ui/tokens.rs`
 - `src/ui/style.rs`
 - `src/ui/theme_bridge.rs`
-- `src/ui/theme_profile.rs`
+- `src/theme_profile.rs`
 - `src/ui/control_styles.rs`
 - `src/ui/primitives/button.rs`
 - `src/ui/composites/action_button.rs`
