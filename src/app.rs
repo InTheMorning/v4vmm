@@ -542,7 +542,9 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
 
     div()
         .id("settings-scroll")
-        .size_full()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
         .bg(color(cx, SemanticColor::SystemBackground))
         .p(Spacing::XL.scaled(cx))
         .overflow_y_scroll()

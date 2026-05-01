@@ -1832,6 +1832,11 @@ impl Render for LibraryApp {
         );
 
         let leading_pane = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .overflow_hidden()
             .child(
                 div()
                     .p(spacing::MD)
@@ -1919,6 +1924,7 @@ impl Render for LibraryApp {
                 div()
                     .id("library-list")
                     .flex_1()
+                    .min_h_0()
                     .overflow_y_scroll()
                     .p(spacing::SM)
                     .child(
@@ -1947,7 +1953,15 @@ impl Render for LibraryApp {
             )
             .into_any_element();
 
-        let trailing_pane = div().child(detail_pane).into_any_element();
+        let trailing_pane = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .overflow_hidden()
+            .child(detail_pane)
+            .into_any_element();
         let split_pane = SplitPane::new("library-pane-container")
             .resize_handle_id("library-resize-handle")
             .leading_width(px(self.vm.split_pane_width()))
@@ -2310,7 +2324,9 @@ fn render_library_artist_detail(
 
     div()
         .id("artist-detail-scroll")
-        .size_full()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
         .overflow_y_scroll()
         .p(spacing::LG)
         .flex()
@@ -2925,7 +2941,9 @@ fn render_playlist_detail(
 
     div()
         .id("playlist-detail-scroll")
-        .size_full()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
         .overflow_y_scroll()
         .p(spacing::LG)
         .flex()
@@ -2962,7 +2980,9 @@ fn render_track_detail(
     };
     div()
         .id("track-detail-scroll")
-        .size_full()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
         .overflow_y_scroll()
         .p(spacing::LG)
         .child(render_track_window(frame, context, result, playlists, cx))

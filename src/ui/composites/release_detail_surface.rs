@@ -87,14 +87,19 @@ impl ReleaseDetailSurface {
 
 impl RenderOnce for ReleaseDetailSurface {
     fn render(self, _window: &mut gpui::Window, _cx: &mut gpui::App) -> impl IntoElement {
-        let mut root = div()
-            .id(self.id)
-            .flex()
-            .flex_col()
-            .gap(spacing::LG)
-            .when(self.scrollable, |el| {
-                el.size_full().overflow_y_scroll().p(spacing::LG)
-            });
+        let mut root =
+            div()
+                .id(self.id)
+                .flex()
+                .flex_col()
+                .gap(spacing::LG)
+                .when(self.scrollable, |el| {
+                    el.flex_1()
+                        .min_h_0()
+                        .min_w_0()
+                        .overflow_y_scroll()
+                        .p(spacing::LG)
+                });
 
         if let Some(header) = self.header {
             root = root.child(header);

@@ -2,7 +2,7 @@
 
 ## Status
 
-Pending.
+Implemented.
 
 ## Goal
 
@@ -40,12 +40,33 @@ bounded GPUI flex layouts.
 
 ## Implementation Steps
 
-1. Update the scrollable branch in `ReleaseDetailSurface`.
-2. Update direct detail scroll containers that use `size_full()` in flex
+1. [x] Update the scrollable branch in `ReleaseDetailSurface`.
+2. [x] Update direct detail scroll containers that use `size_full()` in flex
    contexts.
-3. Build and run focused tests.
-4. Perform manual smoke for wheel, scrollbar, and keyboard scrolling when a GUI
-   run is available.
+3. [x] Build and run focused tests.
+4. [ ] Perform manual smoke for wheel, scrollbar, and keyboard scrolling when a
+   GUI run is available.
+
+## Implementation Summary
+
+- Changed `ReleaseDetailSurface` scrollable mode to use bounded flex sizing:
+  `flex_1().min_h_0().min_w_0().overflow_y_scroll()`.
+- Added bounded flex ancestors for Library and Discovery split-pane content.
+- Updated Library artist, playlist, and track detail scroll leaves to use
+  bounded flex sizing.
+- Added `min_h_0()` to Library, Discovery results, and inspector scroll leaves.
+- Updated Settings scrolling to use bounded flex sizing inside the active tab.
+
+## Verification
+
+Green on 2026-05-01:
+
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test --test architecture_tests`
+- `cargo clippy -- -D warnings`
+
+Manual GUI smoke was not run in this packet.
 
 ## Acceptance Criteria
 

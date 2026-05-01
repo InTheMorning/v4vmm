@@ -1697,6 +1697,11 @@ impl Render for SearchApp {
         let search_label = "Search Index";
 
         let leading_pane = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .overflow_hidden()
             .child(
                 div()
                     .p(spacing::MD)
@@ -1776,6 +1781,7 @@ impl Render for SearchApp {
                     .id("results-scroll")
                     .track_focus(&self.list_focus)
                     .flex_1()
+                    .min_h_0()
                     .overflow_y_scroll()
                     .p(spacing::SM)
                     .child(
@@ -1817,7 +1823,15 @@ impl Render for SearchApp {
             )
             .into_any_element();
 
-        let trailing_pane = div().child(inspector).into_any_element();
+        let trailing_pane = div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .overflow_hidden()
+            .child(inspector)
+            .into_any_element();
         let split_pane = SplitPane::new("pane-container")
             .resize_handle_id("resize-handle")
             .leading_width(px(self.vm.split_pane_width()))
@@ -2386,7 +2400,9 @@ fn render_inspector(
     div()
         .flex()
         .flex_col()
-        .size_full()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
         .overflow_hidden()
         .child(
             div()
@@ -2422,6 +2438,7 @@ fn render_inspector(
             div()
                 .id("inspector-scroll")
                 .flex_1()
+                .min_h_0()
                 .overflow_y_scroll()
                 .p(spacing::LG)
                 .child(match frame {
