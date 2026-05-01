@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Applied.
 
 ## Goal
 
@@ -60,12 +60,20 @@ visual preference alone.
 
 ## Acceptance Criteria
 
-- A visual smoke review exists under `docs/reviews/`.
-- The review references Discover and Library screenshots captured at the same
+- [x] A visual smoke review exists under `docs/reviews/`.
+- [x] The review references Discover and Library screenshots captured at the same
   viewport.
-- Every observed mismatch is classified and routed to a follow-up track.
-- No new architecture ADR is proposed unless the review identifies a durable
+- [x] Every observed mismatch is classified and routed to a follow-up track.
+- [x] No new architecture ADR is proposed unless the review identifies a durable
   boundary change.
+
+## Applied Summary
+
+- Added `docs/reviews/post-adr-0026-task-001-visual-smoke-review.md`.
+- Captured local screenshots for `The Heycitizen Experience` in Library and
+  Discover from a copied config/database under `/tmp`.
+- Routed remaining differences to ADR 0027 action state, ADR 0025 control
+  treatment, identity/source-fact persistence, and possible ADR 0024 thinning.
 
 ## Test Commands
 

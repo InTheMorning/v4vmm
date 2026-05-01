@@ -2,7 +2,7 @@
 
 ## Status
 
-Active follow-up index -- 2026-05-01.
+Active follow-up index -- 2026-05-01. Tasks 001-003 applied.
 
 ## Goal
 
@@ -21,8 +21,8 @@ less coupled to GPUI screen state.
 - `src/views.rs` and `src/view_models/entity_detail.rs` remain GPUI-free.
 - Screens still own command dispatch, popover state, image-cache resolution,
   and service calls.
-- Screenshot smoke coverage has not been added for the shared release-detail
-  surfaces.
+- Screenshot smoke coverage now exists as a local manual review for one shared
+  release-detail fixture.
 
 ## Planning Rule
 
@@ -87,12 +87,12 @@ Acceptance gate:
 
 Priority: P1.
 
-Likely ADR:
+ADR:
 
 - `docs/adr/0027-shared-entity-action-state.md`
 
-Create this ADR only if Track 1 shows the shared projection lacks state needed
-to render consistent rows/actions.
+Created because Track 1 showed the shared projection lacks state needed to
+render consistent rows/actions.
 
 Candidate scope:
 
@@ -217,19 +217,32 @@ Acceptance gate:
 
 ## Triage Outcomes From Track 1
 
-Use the visual smoke review to route work:
+The visual smoke review routed work as follows:
 
 - Styling or contrast mismatch: create a bounded ADR 0025 task.
-- Missing projection/action state: draft ADR 0027.
+- Missing projection/action state: ADR 0027 is proposed.
 - Screen-owned service/fetch behavior blocks consistency: create the ADR 0024
   query/service thinning plan.
 - Remote identity facts are lost in local Library data: create an identity
   persistence/schema ADR.
-- Artwork cannot render from a non-URL source: create the artwork expansion
-  task or ADR.
+- Artwork cannot render from a non-URL source: defer until a producer/resolver
+  contract exists.
 
 Track 4 and Track 5 are both P2 and may proceed in parallel if they touch
 separate files and neither requires a schema/cache contract decision first.
+
+## Applied Outcomes
+
+- Task 001 visual smoke found that ADR 0026 shell parity is working, but row
+  actions and detail state still differ enough to justify ADR 0027 shared
+  entity action state. `docs/adr/0027-shared-entity-action-state.md` is now
+  proposed with a phase plan, review checklist, and Task 001 packet.
+- Task 002 identity audit found concrete local data-loss paths for contributor
+  identity and source-fact provenance. A schema/persistence ADR is required if
+  offline/local identity preservation becomes a product contract.
+- Task 003 artwork audit found that `ArtworkRef::Url` is the only constructed
+  and supported variant. Non-URL artwork variants should stay unsupported until
+  a future ADR defines resolver and storage ownership.
 
 ## Verification
 

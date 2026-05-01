@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Applied.
 
 ## Goal
 
@@ -57,11 +57,19 @@ survive local Library workflows without loss.
 
 ## Acceptance Criteria
 
-- A preservation matrix exists under `docs/reviews/`.
-- The matrix explicitly covers contributor `href`, `img`, `npub`,
+- [x] A preservation matrix exists under `docs/reviews/`.
+- [x] The matrix explicitly covers contributor `href`, `img`, `npub`,
   `source_links`, and `source_ids`.
-- Any proposed schema work is backed by a concrete data-loss path.
-- No code or schema changes are made as part of the audit.
+- [x] Any proposed schema work is backed by a concrete data-loss path.
+- [x] No code or schema changes are made as part of the audit.
+
+## Applied Summary
+
+- Added `docs/reviews/post-adr-0026-task-002-identity-persistence-audit.md`.
+- Confirmed ADR 0026 projections can represent identity facts that local
+  Library rows do not durably preserve today.
+- Recommended a future schema/persistence ADR only if offline/local identity
+  preservation is an intended product contract.
 
 ## Test Commands
 

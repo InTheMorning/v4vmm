@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Applied.
 
 ## Goal
 
@@ -57,11 +57,22 @@ without moving GPUI image handles or cache access into shared projections.
 
 ## Acceptance Criteria
 
-- Each supported artwork source has an adapter path in the owning screen layer.
-- Unsupported variants are documented explicitly.
-- Shared projections remain GPUI-free.
-- Any new boundary rule is covered by an architecture test.
-- Required verification commands pass for runtime changes.
+- [x] Each supported artwork source has an adapter path in the owning screen layer.
+- [x] Unsupported variants are documented explicitly.
+- [x] Shared projections remain GPUI-free.
+- [x] No new boundary rule was introduced, so no architecture-test update was
+  needed.
+- [x] No runtime changes were made, so runtime verification commands were not
+  required.
+
+## Applied Summary
+
+- Added `docs/reviews/post-adr-0026-task-003-artwork-source-expansion-review.md`.
+- Confirmed `ArtworkRef::Url` is the only constructed and supported variant.
+- Documented `CacheKey`, `LocalPath`, and `EmbeddedBytesKey` as unsupported
+  until their resolver/storage contracts are defined.
+- No architecture-test change was needed because runtime boundaries did not
+  change.
 
 ## Test Commands
 
