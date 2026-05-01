@@ -51,7 +51,7 @@ after verification gates pass.
 - Keep architecture tests source-scan based, matching ADR 0023/0025 precedent.
 - Mark ADR 0028 implemented only after all task gates are represented in code,
   docs, and verification.
-- Keep deferred contributor-panel and artist/person identity work explicit.
+- Keep deferred artist/person identity work explicit.
 
 ## Implementation Summary
 
@@ -60,8 +60,8 @@ after verification gates pass.
   mapper.
 - Added `src/local_identity.rs` to the non-UI core architecture-test boundary.
 - Marked ADR 0028 and its phase plan implemented.
-- Documented remaining deferred work as contributor-panel visibility and future
-  artist/person identity reconciliation.
+- Documented remaining deferred work as future artist/person identity
+  reconciliation.
 
 ## Acceptance Criteria
 

@@ -25,7 +25,7 @@ Pass with follow-up noted - 2026-05-01.
 | Local feed identity hydration | Library renders `Website` and `Nostr` actions from persisted local `entity_identity_links` and `entity_identity_ids` rows. | Pass |
 | Discover identity parity | Discover renders the same Website/Nostr action vocabulary from the API-backed projection path. | Pass |
 | Shared styling | Both surfaces use the shared identity-action composite. The Nostr action includes the Nostr icon plus text, so the state is not color-only. | Pass |
-| Contributor fixture | The copied DB contains a persisted contributor row, and the local projection tests cover hydration. Library release detail does not yet have a contributor panel slot, so this is not visible in the screenshot. | Follow-up |
+| Contributor fixture | The copied DB contains a persisted contributor row, and local projection tests cover hydration. Post-ADR 0028 Task 001 later added the Library contributor panel slot. | Resolved |
 | Visual parity outside identity facts | Library and Discover still differ in metadata density and action placement. Those differences predate ADR 0028 and are not source-fact persistence failures. | Deferred |
 | Architecture | Shared projections remain GPUI-free and database-free. Library loads identity facts while building the screen-owned album snapshot, then renders from pure data. | Pass |
 
@@ -46,9 +46,8 @@ cargo test
 
 ## Follow-Up
 
-- Add a bounded contributor panel slot for Library release detail if we want
-  persisted local contributor identity facts to be visually inspectable without
-  opening a Discover lazy panel.
+- Library contributor-panel visibility was completed by
+  `docs/tasks/post-adr-0028-task-001-library-contributor-panel.md`.
 - Keep non-identity Library/Discover visual differences under the shared
   projection/action-state follow-up track rather than expanding ADR 0028.
 

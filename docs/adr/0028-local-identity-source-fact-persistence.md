@@ -313,7 +313,7 @@ Task 001, the task should stop and revise this ADR before implementation.
 - Task 003: local view hydration and projection tests.
 - Task 004: Library/Discover identity visual smoke.
 - Task 005: cleanup and architecture gates.
-- A bounded Library contributor-panel task may surface already-hydrated local
-  contributor facts visually; the facts already persist and hydrate.
+- Post-ADR 0028 Task 001 surfaced already-hydrated local contributor facts in
+  Library release detail through the shared contributor panel.
 - A later ADR may introduce global artist/person identity if product behavior
   requires reconciliation across feeds.

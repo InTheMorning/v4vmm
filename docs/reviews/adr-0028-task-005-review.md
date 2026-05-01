@@ -20,7 +20,7 @@ Pass - 2026-05-01.
 | Projection boundary | `src/views.rs` and `src/view_models/entity_detail.rs` remain database-free and GPUI-free. | Pass |
 | Screen boundary | Library still builds screen-owned album snapshots from DB data, but no longer duplicates source-fact row mapping. | Pass |
 | Architecture gates | `src/local_identity.rs` is scanned as non-UI core code, so future UI imports fail architecture tests. | Pass |
-| Deferred work | Library can hydrate contributor facts, but a contributor panel slot is still deferred. Artist/person reconciliation remains a later ADR. | Accepted |
+| Deferred work | Library contributor visibility was completed by Post-ADR 0028 Task 001. Artist/person reconciliation remains a later ADR. | Accepted |
 
 ## Verification
 

@@ -137,8 +137,7 @@ Run broader `cargo test` before marking a task implemented.
 
 ## Deferred Work
 
-- Library contributor facts are persisted and hydrated, but Library release
-  detail still needs a bounded contributor-panel slot if those facts should be
-  visually inspectable there.
+- Library contributor visibility was completed by
+  `docs/tasks/post-adr-0028-task-001-library-contributor-panel.md`.
 - Artist-level local identity remains deferred to a future artist/person
   persistence ADR.

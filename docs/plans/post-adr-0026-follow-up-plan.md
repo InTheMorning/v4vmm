@@ -2,7 +2,8 @@
 
 ## Status
 
-Active follow-up index -- 2026-05-01. Tasks 001-003 applied.
+Active follow-up index -- 2026-05-01. Tasks 001-003 applied. Current deferred
+work is indexed in `docs/plans/deferred-architecture-work-index.md`.
 
 ## Goal
 
@@ -244,6 +245,8 @@ separate files and neither requires a schema/cache contract decision first.
 - Task 003 artwork audit found that `ArtworkRef::Url` is the only constructed
   and supported variant. Non-URL artwork variants should stay unsupported until
   a future ADR defines resolver and storage ownership.
+- Post-ADR 0028 Task 001 completed Library contributor identity visibility.
+- ADR 0029 now proposes the artist/person identity persistence follow-up.
 
 ## Verification
 
