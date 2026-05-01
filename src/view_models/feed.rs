@@ -5,10 +5,9 @@
 //! inspector renders. Same rules as [`super`]: no GPUI imports, no
 //! service mutation.
 //!
-//! The screen still owns the publisher-row interactivity (it's an
-//! `AnyElement` with click handlers); the VM exposes the trimmed
-//! publisher *string* and a flag, and the screen builds the
-//! interactive row at the binding boundary.
+//! Feed identity facts such as publisher, website, Nostr, and description are
+//! projected by `view_models::entity_detail` into the shared header. This
+//! module keeps the feed-specific detail-grid and track-list projections.
 
 #![warn(clippy::pedantic)]
 
@@ -22,10 +21,7 @@ pub struct FeedVm<'a> {
     tracks: &'a [Track],
 }
 
-/// One scalar key/value entry in the feed-inspector detail grid. The
-/// publisher row is *not* included here because it carries an
-/// interactive link element; the screen inserts that row using
-/// [`FeedVm::publisher_text`].
+/// One scalar key/value entry in the feed-inspector detail grid.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DetailEntry {
     pub key: &'static str,
@@ -113,15 +109,6 @@ impl<'a> FeedVm<'a> {
             });
         }
         rows
-    }
-
-    /// Index in the rendered detail-grid row vector at which the
-    /// publisher row should be inserted. Currently always `1` (right
-    /// after Release Kind), matching the legacy layout. Centralised
-    /// here so screens don't repeat the magic number.
-    #[must_use]
-    pub fn publisher_row_index(&self) -> usize {
-        1
     }
 
     /// Tracks sorted for inspector display: ascending track number

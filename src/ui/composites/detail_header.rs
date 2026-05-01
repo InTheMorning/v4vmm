@@ -10,7 +10,8 @@ use gpui::{
     Window,
 };
 
-use crate::ui::primitives::{HStack, VStack};
+use crate::ui::layouts as layout;
+use crate::ui::primitives::{HStack, MultilineText, VStack};
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 
 use super::tag_badge::{EntityKind, TagBadge};
@@ -22,8 +23,15 @@ pub struct DetailHeader {
     kind: EntityKind,
     title: SharedString,
     subtitle: Option<SharedString>,
+    data_rows: Vec<DetailHeaderDataRow>,
     image: Option<Arc<Image>>,
     appearance: Option<Appearance>,
+}
+
+struct DetailHeaderDataRow {
+    label: SharedString,
+    value: SharedString,
+    max_lines: usize,
 }
 
 impl DetailHeader {
@@ -32,6 +40,7 @@ impl DetailHeader {
             kind,
             title: title.into(),
             subtitle: None,
+            data_rows: Vec::new(),
             image: None,
             appearance: None,
         }
@@ -39,6 +48,20 @@ impl DetailHeader {
 
     pub fn subtitle(mut self, subtitle: impl Into<SharedString>) -> Self {
         self.subtitle = Some(subtitle.into());
+        self
+    }
+
+    pub fn data_row(
+        mut self,
+        label: impl Into<SharedString>,
+        value: impl Into<SharedString>,
+        max_lines: usize,
+    ) -> Self {
+        self.data_rows.push(DetailHeaderDataRow {
+            label: label.into(),
+            value: value.into(),
+            max_lines: max_lines.max(1),
+        });
         self
     }
 
@@ -57,6 +80,7 @@ impl RenderOnce for DetailHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let title_color = resolve_color(cx, SemanticColor::Label, self.appearance);
         let subtitle_color = resolve_color(cx, SemanticColor::SecondaryLabel, self.appearance);
+        let metadata_label_color = resolve_color(cx, SemanticColor::TertiaryLabel, self.appearance);
         let mut badge = TagBadge::new(self.kind);
         if let Some(appearance) = self.appearance {
             badge = badge.appearance(appearance);
@@ -83,10 +107,56 @@ impl RenderOnce for DetailHeader {
             );
         }
 
+        if !self.data_rows.is_empty() {
+            let mut metadata = VStack::new().spacing(Spacing::XXS).leading();
+            for row in self.data_rows {
+                metadata = metadata.child(header_data_row(
+                    row.label,
+                    row.value,
+                    row.max_lines,
+                    metadata_label_color,
+                    self.appearance,
+                ));
+            }
+            text_block = text_block.child(metadata);
+        }
+
         HStack::new()
             .spacing(Spacing::LG)
             .top()
             .child(Thumbnail::new(self.kind, ThumbnailSize::Lg).image(self.image))
             .child(div().flex_1().min_w_0().child(text_block))
     }
+}
+
+fn header_data_row(
+    label: SharedString,
+    value: SharedString,
+    max_lines: usize,
+    label_color: gpui::Rgba,
+    appearance: Option<Appearance>,
+) -> impl IntoElement {
+    let mut value_text = MultilineText::new(value)
+        .max_lines(max_lines)
+        .size(FontSize::Micro)
+        .color(SemanticColor::SecondaryLabel);
+    if let Some(appearance) = appearance {
+        value_text = value_text.appearance(appearance);
+    }
+
+    div()
+        .flex()
+        .flex_row()
+        .gap(Spacing::SM.px())
+        .min_w_0()
+        .child(
+            div()
+                .w(layout::COMPACT_COLUMN_WIDTH)
+                .flex_shrink_0()
+                .text_size(FontSize::Micro.px())
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(label_color)
+                .child(label),
+        )
+        .child(div().min_w_0().flex_1().child(value_text))
 }

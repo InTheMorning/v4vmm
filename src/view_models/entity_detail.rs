@@ -436,6 +436,7 @@ pub struct EntityHeaderVm<'a> {
     pub kind: EntitySurfaceKind,
     pub title: String,
     pub subtitle: Option<String>,
+    pub data_rows: Vec<EntityDetailRow>,
     pub artwork: Option<&'a ArtworkRef>,
     pub identity: IdentityLinksVm<'a>,
 }
@@ -506,6 +507,7 @@ impl<'a> ReleaseDetailVm<'a> {
             kind: EntitySurfaceKind::Feed,
             title: self.title(),
             subtitle: self.view.artist.clone(),
+            data_rows: self.header_data_rows(),
             artwork: self.view.artwork.as_ref(),
             identity: IdentityLinksVm::new(&self.view.identity),
         }
@@ -530,12 +532,6 @@ impl<'a> ReleaseDetailVm<'a> {
                 .clone()
                 .unwrap_or_else(|| "Unknown".to_string()),
         });
-        if let Some(publisher) = nonempty(self.view.publisher_text.as_deref()) {
-            rows.push(EntityDetailRow {
-                key: "Publisher",
-                value: publisher.to_string(),
-            });
-        }
         if let Some(language) = nonempty(self.view.language.as_deref()) {
             rows.push(EntityDetailRow {
                 key: "Language",
@@ -552,6 +548,36 @@ impl<'a> ReleaseDetailVm<'a> {
             rows.push(EntityDetailRow {
                 key: "Tracks",
                 value: count.to_string(),
+            });
+        }
+        rows
+    }
+
+    #[must_use]
+    fn header_data_rows(&self) -> Vec<EntityDetailRow> {
+        let mut rows = Vec::with_capacity(4);
+        if let Some(publisher) = nonempty(self.view.publisher_text.as_deref()) {
+            rows.push(EntityDetailRow {
+                key: "Publisher",
+                value: publisher.to_string(),
+            });
+        }
+        if let Some(description) = nonempty(self.view.description.as_deref()) {
+            rows.push(EntityDetailRow {
+                key: "Description",
+                value: description.to_string(),
+            });
+        }
+        if let Some(npub) = nonempty(self.view.identity.nostr_npub.as_deref()) {
+            rows.push(EntityDetailRow {
+                key: "Nostr",
+                value: npub.to_string(),
+            });
+        }
+        if let Some(website) = nonempty(self.view.identity.website_url.as_deref()) {
+            rows.push(EntityDetailRow {
+                key: "Website",
+                value: website.to_string(),
             });
         }
         rows
@@ -798,6 +824,7 @@ mod tests {
             artist: Some("Artist".into()),
             release_kind: Some("album".into()),
             publisher_text: Some("Publisher".into()),
+            description: Some("Release description".into()),
             language: Some("en".into()),
             explicit: Some(true),
             episode_count: Some(2),
@@ -861,6 +888,19 @@ mod tests {
         assert_eq!(header.kind, EntitySurfaceKind::Feed);
         assert_eq!(header.title, "Release");
         assert_eq!(header.subtitle.as_deref(), Some("Artist"));
+        assert_eq!(
+            header
+                .data_rows
+                .iter()
+                .map(|row| (row.key, row.value.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Publisher", "Publisher"),
+                ("Description", "Release description"),
+                ("Nostr", "npub1artist"),
+                ("Website", "https://example.test"),
+            ]
+        );
         assert!(header.identity.has_any());
     }
 
@@ -871,13 +911,7 @@ mod tests {
 
         assert_eq!(
             rows.iter().map(|row| row.key).collect::<Vec<_>>(),
-            vec![
-                "Release Kind",
-                "Publisher",
-                "Language",
-                "Explicit",
-                "Tracks"
-            ]
+            vec!["Release Kind", "Language", "Explicit", "Tracks"]
         );
     }
 

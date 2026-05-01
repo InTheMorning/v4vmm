@@ -1398,6 +1398,13 @@ impl<'a> LibraryAlbumDetailVm<'a> {
 
     /// Album title with the legacy `"Untitled"` fallback.
     #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept as the pure legacy title contract while shared release headers absorb album rendering"
+        )
+    )]
     pub(crate) fn title(&self) -> String {
         self.feed_view
             .title

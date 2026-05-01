@@ -215,7 +215,18 @@ fn render_default_header(
     if let Some(subtitle) = header.subtitle {
         header_el = header_el.subtitle(subtitle);
     }
+    for row in header.data_rows {
+        header_el = header_el.data_row(row.key, row.value, header_data_max_lines(row.key));
+    }
     header_el.into_any_element()
+}
+
+fn header_data_max_lines(key: &str) -> usize {
+    if key == "Description" {
+        2
+    } else {
+        1
+    }
 }
 
 fn render_default_details(projection: &ReleaseDetailVm<'_>) -> AnyElement {

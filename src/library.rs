@@ -2450,12 +2450,7 @@ fn render_album_detail(
 
     let projection = ReleaseDetailVm::new(&feed_view, EntitySurfaceContext::Library);
     let mut slots = ReleaseDetailSlots {
-        header: Some(
-            DetailHeader::new(EntityKind::Feed, vm.title())
-                .subtitle(vm.artist())
-                .image(thumb_image.clone())
-                .into_any_element(),
-        ),
+        header_image: thumb_image.clone(),
         action_row: Some(buttons.into_any_element()),
         identity_actions: render_library_identity_actions(&feed_view),
         details: Some(

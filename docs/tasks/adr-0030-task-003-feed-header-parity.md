@@ -2,7 +2,7 @@
 
 ## Status
 
-Pending.
+Implemented - 2026-05-01.
 
 ## Goal
 
@@ -54,9 +54,21 @@ while keeping actions in explicit action slots.
 
 ## Acceptance Criteria
 
-- Library and Discovery feed headers use one structure.
-- Data fields do not appear interleaved with action buttons.
-- Existing feed actions still work from screen-owned handlers.
+- [x] Library and Discovery feed headers use one structure.
+- [x] Data fields do not appear interleaved with action buttons.
+- [x] Existing feed actions still work from screen-owned handlers.
+
+## Implementation Summary
+
+- Extended `DetailHeader` additively with metadata data rows.
+- Added shared release-header data projection for publisher, description,
+  Nostr npub, and website in `ReleaseDetailVm`.
+- Routed Library and Discovery feed detail through the shared default release
+  header while preserving screen-owned action rows and identity action handlers.
+- Removed Discovery's publisher detail-grid insertion so publisher now belongs
+  to the shared header data area.
+- Kept the full Discovery description panel for expanded reading while showing
+  a compact description row in the header.
 
 ## Test Commands
 
@@ -67,6 +79,8 @@ cargo test view_models::entity_detail
 cargo test --test architecture_tests
 cargo clippy -- -D warnings
 ```
+
+Verified 2026-05-01.
 
 ## Prompt for lower-context coding model
 

@@ -1,10 +1,9 @@
 use crate::api::Track;
 use crate::search::{
-    detail_rows_from_strings, render_action_row, render_collapsed_text_section, render_feed_header,
-    render_publisher_link_value, render_track_list_rows, InspectorFrame, SearchApp,
+    detail_rows_from_strings, render_action_row, render_collapsed_text_section,
+    render_track_list_rows, InspectorFrame, SearchApp,
 };
 use crate::ui::composites::DetailGrid;
-use crate::ui::detail_row::DetailRow;
 use crate::ui_context::ViewContext;
 use crate::ui_entity::{render_release_detail_shell, ReleaseDetailSlots, TrackSectionSlot};
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
@@ -29,23 +28,11 @@ pub(crate) fn render_feed_view(
         .into_iter()
         .map(|e| (e.key.to_string(), e.value))
         .collect();
-    let mut rows = detail_rows_from_strings(scalar_pairs);
-
-    let publisher_row = match vm.publisher_text() {
-        Some(publisher) => DetailRow {
-            key: "Publisher".into(),
-            value: render_publisher_link_value(publisher, cx),
-        },
-        None => detail_rows_from_strings(vec![("Publisher".into(), "Unknown".into())]).remove(0),
-    };
-    rows.insert(vm.publisher_row_index(), publisher_row);
-
-    let title = vm.title();
-    let artist = vm.artist_label();
+    let rows = detail_rows_from_strings(scalar_pairs);
 
     let projection = ReleaseDetailVm::new(view, EntitySurfaceContext::Discover);
     let mut slots = ReleaseDetailSlots {
-        header: Some(render_feed_header(frame, &title, Some(artist.as_str()))),
+        header_image: frame.image.clone(),
         action_row: Some(render_action_row(frame, &BTreeMap::new(), app, cx)),
         identity_actions: render_identity_actions(view),
         details: Some(
