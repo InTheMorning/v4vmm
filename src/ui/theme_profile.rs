@@ -7,11 +7,13 @@
 #![warn(clippy::pedantic)]
 
 use gpui::Rgba;
+use serde::Deserialize;
 
 use crate::ui::tokens::{Appearance, SemanticColor};
 
 /// Complete visual profiles supported by the design-system boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum ThemeProfile {
     /// Follow the platform appearance once OS detection exists.
     ///
@@ -30,6 +32,8 @@ pub enum ThemeProfile {
 }
 
 impl ThemeProfile {
+    pub const USER_SELECTABLE: [Self; 2] = [Self::Dark, Self::Light];
+
     /// Resolve this profile to the base semantic-token appearance.
     #[must_use]
     pub const fn appearance(self) -> Appearance {
@@ -48,5 +52,27 @@ impl ThemeProfile {
     #[must_use]
     pub fn resolve(self, token: SemanticColor) -> Rgba {
         token.resolve(self.appearance())
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Dark => "dark",
+            Self::Light => "light",
+            Self::HighContrastDark => "high-contrast-dark",
+            Self::HighContrastLight => "high-contrast-light",
+        }
+    }
+
+    #[must_use]
+    pub const fn settings_label(self) -> &'static str {
+        match self {
+            Self::System => "System",
+            Self::Dark => "Dark",
+            Self::Light => "Light",
+            Self::HighContrastDark => "High Contrast Dark",
+            Self::HighContrastLight => "High Contrast Light",
+        }
     }
 }

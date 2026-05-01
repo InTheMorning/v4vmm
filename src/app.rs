@@ -22,6 +22,7 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::theme::layout;
+use crate::ui::theme_profile::ThemeProfile;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::library::LibraryTree;
 
@@ -59,6 +60,7 @@ pub struct TopApp {
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
     ui_scale: crate::config::UiScale,
+    theme_profile: ThemeProfile,
     cfg_path: PathBuf,
     settings_status: String,
     library_tab_focus: gpui::FocusHandle,
@@ -95,6 +97,7 @@ impl TopApp {
         music_dir: PathBuf,
         flac_path: Option<PathBuf>,
         ui_scale: crate::config::UiScale,
+        theme_profile: ThemeProfile,
         playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -187,6 +190,7 @@ impl TopApp {
             music_dir_input,
             flac_path_input,
             ui_scale,
+            theme_profile,
             cfg_path,
             settings_status: String::new(),
             library_tab_focus: cx.focus_handle(),
@@ -258,6 +262,16 @@ impl TopApp {
             return;
         }
         self.ui_scale = scale;
+        crate::ui::theme_bridge::install_theme(self.theme_profile, scale.into(), cx);
+        cx.notify();
+    }
+
+    fn set_theme_profile(&mut self, profile: ThemeProfile, cx: &mut Context<Self>) {
+        if self.theme_profile == profile {
+            return;
+        }
+        self.theme_profile = profile;
+        crate::ui::theme_bridge::install_theme(profile, self.ui_scale.into(), cx);
         cx.notify();
     }
 
@@ -266,9 +280,22 @@ impl TopApp {
         let music_dir = self.music_dir_input.read(cx).value().to_string();
         let flac_path = self.flac_path_input.read(cx).value().to_string();
         let ui_scale = self.ui_scale;
-        match config::save_app_settings(&self.cfg_path, &endpoint, &music_dir, &flac_path, ui_scale)
-        {
-            Ok((normalized_endpoint, normalized_music_dir, normalized_flac_path, saved_scale)) => {
+        let theme_profile = self.theme_profile;
+        match config::save_app_settings(
+            &self.cfg_path,
+            &endpoint,
+            &music_dir,
+            &flac_path,
+            ui_scale,
+            theme_profile,
+        ) {
+            Ok((
+                normalized_endpoint,
+                normalized_music_dir,
+                normalized_flac_path,
+                saved_scale,
+                saved_profile,
+            )) => {
                 let cfg = match config::load_config(&self.cfg_path)
                     .and_then(|cfg| config::ensure_dirs(&cfg).map(|()| cfg))
                 {
@@ -299,11 +326,7 @@ impl TopApp {
                     input.set_value(flac_display, window, cx);
                 });
                 // Apply scale change immediately so the UI reflects it.
-                crate::ui::theme_bridge::install_theme(
-                    crate::ui::theme_profile::ThemeProfile::Dark,
-                    saved_scale.into(),
-                    cx,
-                );
+                crate::ui::theme_bridge::install_theme(saved_profile, saved_scale.into(), cx);
                 self.settings_status = format!(
                     "Saved settings. Music files download under {}/artists",
                     cfg.music_dir.display()
@@ -428,6 +451,25 @@ fn render_ui_scale_picker(
         .into_any_element()
 }
 
+fn render_theme_profile_picker(
+    current: ThemeProfile,
+    cx: &mut Context<TopApp>,
+) -> gpui::AnyElement {
+    use crate::ui::composites::{Segment, SegmentedControl};
+
+    let segments = ThemeProfile::USER_SELECTABLE
+        .map(|profile| Segment::new(profile.as_str(), profile, profile.settings_label()));
+
+    let entity = cx.entity();
+    SegmentedControl::new(current)
+        .segments(segments)
+        .on_select(move |profile, _window, cx| {
+            let profile = *profile;
+            entity.update(cx, |this, cx| this.set_theme_profile(profile, cx));
+        })
+        .into_any_element()
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "settings screen remains a single legacy render function during ADR 0023 migration"
@@ -541,8 +583,22 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .text_size(FontSize::Caption.scaled(cx))
                         .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child(
-                            "Scales every dimension token (spacing, radius, font, sizes). Click Save to persist.",
+                            "Scales every dimension token. Applies immediately; click Save to persist.",
                         ),
+                )
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
+                        .child("Theme"),
+                )
+                .child(render_theme_profile_picker(app.theme_profile, cx))
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
+                        .child("Applies immediately. Click Save to persist."),
                 )
                 .child(
                     div()
@@ -567,6 +623,8 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                     this.flac_path_input.update(cx, |input, cx| {
                                         input.set_value("", window, cx);
                                     });
+                                    this.set_ui_scale(crate::config::UiScale::Medium, cx);
+                                    this.set_theme_profile(ThemeProfile::default(), cx);
                                     match config::default_music_dir() {
                                         Ok(default_music_dir) => {
                                             this.music_dir_input.update(cx, |input, cx| {

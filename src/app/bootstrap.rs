@@ -48,11 +48,7 @@ pub fn run_app() {
         config::ensure_dirs(&cfg).expect("ensure dirs");
 
         // Re-apply theme now that config has provided the user's UI scale.
-        crate::ui::theme_bridge::install_theme(
-            crate::ui::theme_profile::ThemeProfile::Dark,
-            cfg.ui_scale.into(),
-            cx,
-        );
+        crate::ui::theme_bridge::install_theme(cfg.theme_profile, cfg.ui_scale.into(), cx);
         let conn = db::open_db(&cfg).expect("open db");
         let conn = Arc::new(Mutex::new(conn));
         let playback_driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)
@@ -89,6 +85,7 @@ pub fn run_app() {
                             cfg.music_dir,
                             cfg.flac_path,
                             cfg.ui_scale,
+                            cfg.theme_profile,
                             playback_owner,
                             window,
                             cx,

@@ -5323,11 +5323,7 @@ pub fn run_search_app() {
         let musicindex_endpoint =
             config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
 
-        crate::ui::theme_bridge::install_theme(
-            crate::ui::theme_profile::ThemeProfile::Dark,
-            cfg.ui_scale.into(),
-            cx,
-        );
+        crate::ui::theme_bridge::install_theme(cfg.theme_profile, cfg.ui_scale.into(), cx);
 
         let thumbnail_cache_dir = cfg_path
             .parent()

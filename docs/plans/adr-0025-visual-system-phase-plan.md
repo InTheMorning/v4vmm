@@ -113,6 +113,9 @@ Persist selected theme profile and route changes through `theme_bridge`.
 Expose settings only after major render paths no longer depend on dark-only
 helpers.
 
+Status: implemented by
+`docs/tasks/adr-0025-task-005-runtime-profile-selection.md`.
+
 ### Phase 6 - retire compatibility shims
 
 Remove or sharply narrow `theme.rs`, update docs, and harden architecture

@@ -426,7 +426,8 @@ boundary so color and glyph are not chosen independently in screen code.
 After screens no longer rely on dark-only helpers for reusable visual roles,
 persist a theme profile setting and route changes through `theme_bridge` /
 `Environment`. Verify high-contrast profile tests before exposing high contrast
-in settings.
+in settings, and expose only visually distinct profiles. `System` remains
+hidden until OS appearance detection exists.
 
 ### Phase 6 - retire compatibility shims
 

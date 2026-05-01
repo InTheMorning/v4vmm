@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Implemented.
 
 ## Task Goal
 
@@ -55,12 +55,23 @@ semantic visual boundaries.
 
 ## Acceptance Criteria
 
-- [ ] Theme profile is persisted.
-- [ ] Default behavior remains compatible with existing config.
-- [ ] Runtime profile changes repaint without screen-specific theme code.
-- [ ] Only tested profiles are exposed.
-- [ ] `ThemeProfile::System` is not exposed unless it follows real OS/system
+- [x] Theme profile is persisted.
+- [x] Default behavior remains compatible with existing config.
+- [x] Runtime profile changes repaint without screen-specific theme code.
+- [x] Only tested profiles are exposed.
+- [x] `ThemeProfile::System` is not exposed unless it follows real OS/system
       appearance.
+
+## Implementation Notes
+
+- Added `theme_profile` to config with a backward-compatible default of
+  `dark`.
+- Startup now installs the configured profile after config load.
+- Settings exposes only `Dark` and `Light`; `System` remains hidden because it
+  still resolves to the dark fallback, and high-contrast remains hidden until
+  it has distinct profile values.
+- Selecting theme or scale reinstalls through `theme_bridge`, which refreshes
+  windows centrally.
 
 ## Test Commands
 
