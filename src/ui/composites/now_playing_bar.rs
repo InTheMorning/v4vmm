@@ -17,6 +17,7 @@ use std::sync::Arc;
 use gpui::{div, prelude::*, App, Image, IntoElement, RenderOnce, SharedString, Styled, Window};
 
 use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
+use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::Label;
 use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 
@@ -134,9 +135,9 @@ impl RenderOnce for NowPlayingBar {
         let state = self.data.state;
         let thumbnail = self.data.thumbnail.clone();
 
-        let play_pause_glyph = match state {
-            Some(PlaybackState::Playing) => "\u{23F8}", // ⏸
-            _ => "\u{25B6}",                            // ▶
+        let play_pause_icon = match state {
+            Some(PlaybackState::Playing) => IconName::Pause,
+            _ => IconName::Play,
         };
 
         let is_active = state.is_some_and(|s| s != PlaybackState::Stopped);
@@ -189,28 +190,28 @@ impl RenderOnce for NowPlayingBar {
                     .gap(Spacing::SM.scaled(cx))
                     .child(transport_btn(
                         "np-prev",
-                        "\u{23EE}",
+                        IconName::Previous,
                         self.on_prev,
                         is_active,
                         cx,
                     ))
                     .child(transport_btn(
                         "np-playpause",
-                        play_pause_glyph,
+                        play_pause_icon,
                         self.on_play_pause,
                         is_active,
                         cx,
                     ))
                     .child(transport_btn(
                         "np-next",
-                        "\u{23ED}",
+                        IconName::Next,
                         self.on_next,
                         is_active,
                         cx,
                     ))
                     .child(transport_btn(
                         "np-stop",
-                        "\u{23F9}",
+                        IconName::Stop,
                         self.on_stop,
                         is_active,
                         cx,
@@ -221,7 +222,7 @@ impl RenderOnce for NowPlayingBar {
 
 fn transport_btn(
     id: &'static str,
-    glyph: &'static str,
+    icon: IconName,
     handler: Option<ClickCallback>,
     enabled: bool,
     cx: &App,
@@ -242,7 +243,7 @@ fn transport_btn(
         .justify_center()
         .text_color(color)
         .text_size(FontSize::Body.scaled(cx))
-        .child(SharedString::from(glyph));
+        .child(Icon::new(icon).size(IconSize::Transport).color(color));
 
     if enabled {
         if let Some(h) = handler {
@@ -286,11 +287,9 @@ mod tests {
     }
 
     #[test]
-    fn play_pause_glyph_is_pause_when_playing() {
-        // The glyph selection is tested indirectly through render, but we
-        // can at least pin the Unicode code points we depend on.
-        let pause = "\u{23F8}";
-        let play = "\u{25B6}";
+    fn play_pause_icon_is_pause_when_playing() {
+        let pause = IconName::Pause;
+        let play = IconName::Play;
         assert_ne!(pause, play);
     }
 }

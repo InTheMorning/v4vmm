@@ -265,8 +265,9 @@ pub const REQUIRED_PAIRS: &[ContrastPair] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::icons::IconName;
     use crate::ui::theme_profile::ThemeProfile;
-    use crate::ui::tokens::Appearance;
+    use crate::ui::tokens::{Appearance, SemanticColor};
 
     /// Sanity: black-on-white is the WCAG reference at 21 : 1.
     #[test]
@@ -364,5 +365,21 @@ mod tests {
     #[test]
     fn high_contrast_light_profile_meets_wcag() {
         check_profile_matrix(ThemeProfile::HighContrastLight);
+    }
+
+    #[test]
+    fn brand_protocol_icon_fills_contrast_on_current_dark_canvas() {
+        let bg = SemanticColor::SystemBackground.resolve(Appearance::Dark);
+        let required = ContrastLevel::LargeOrGraphic.min_ratio();
+        for icon in [IconName::Rss, IconName::Nostr] {
+            let fill = icon
+                .brand_fill()
+                .expect("brand/protocol icon exposes fill color");
+            let actual = ratio(fill, bg);
+            assert!(
+                actual + 0.005 >= required,
+                "{icon:?} brand fill = {actual:.2}:1 on dark canvas; need {required:.2}:1"
+            );
+        }
     }
 }

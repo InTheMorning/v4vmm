@@ -426,6 +426,28 @@ fn screens_do_not_grow_deprecated_visual_helper_usage() {
     );
 }
 
+#[test]
+fn screens_do_not_define_inline_icon_svg_helpers() {
+    let mut violations = Vec::new();
+    for file in SCREEN_FILES {
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("ImageFormat::Svg") || line.contains("<svg") {
+                violations.push(format!(
+                    "{file}:{line_number}: screen-level inline SVG icons must move behind `ui::icons`: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 inline icon SVG violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 fn rust_files_under(relative_dir: &str) -> Vec<PathBuf> {
     let root = manifest_path(relative_dir);
     let mut files = Vec::new();

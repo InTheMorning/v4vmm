@@ -7,14 +7,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use gpui::{
-    div, img, prelude::*, px, size, AnyElement, App, Application, Bounds, ClickEvent,
-    ClipboardItem, Context, Entity, FontWeight, Image, ImageFormat, InteractiveElement,
-    IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, Pixels,
-    Point, Render, Rgba, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, size, AnyElement, App, Application, Bounds, ClickEvent, ClipboardItem,
+    Context, Entity, FontWeight, Image, InteractiveElement, IntoElement, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Render, Rgba, SharedString,
+    Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -53,6 +53,7 @@ use crate::ui::composites::{
     EntityKind, ListRow, SplitPane, TagBadge, Thumbnail, ThumbnailSize,
 };
 use crate::ui::detail_row::DetailRow;
+use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::SectionHeader;
 use crate::ui::primitives::{Image as ImagePrimitive, ImageSize, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
@@ -4760,35 +4761,13 @@ fn render_rss_icon_button(url: Option<String>, cx: &mut Context<SearchApp>) -> A
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .when(url.is_some(), |el| el.cursor_pointer())
         .when(url.is_none(), |el| el.opacity(0.45))
-        .child(
-            img(rss_icon_image())
-                .w(layout::ACTION_ICON_INNER_SIZE)
-                .h(layout::ACTION_ICON_INNER_SIZE)
-                .object_fit(ObjectFit::Contain),
-        )
+        .child(Icon::new(IconName::Rss).size(IconSize::Action))
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
             if let Some(url) = &click_url {
                 let _ = open::that(url);
             }
         }))
         .into_any_element()
-}
-
-fn rss_icon_image() -> Arc<Image> {
-    static RSS_ICON: OnceLock<Arc<Image>> = OnceLock::new();
-
-    Arc::clone(RSS_ICON.get_or_init(|| {
-        Arc::new(Image::from_bytes(
-            ImageFormat::Svg,
-            br##"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
-<rect width="18" height="18" rx="4" fill="#f39a2e"/>
-<circle cx="5" cy="13" r="1.7" fill="#ffffff"/>
-<path d="M4 9.4A4.6 4.6 0 0 1 8.6 14" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-<path d="M4 5.2A8.8 8.8 0 0 1 12.8 14" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
-</svg>"##
-                .to_vec(),
-        ))
-    }))
 }
 
 fn render_nostr_icon_button(
@@ -4817,33 +4796,13 @@ fn render_nostr_icon_button(
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .when(npub.is_some(), |el| el.cursor_pointer())
         .when(npub.is_none(), |el| el.opacity(0.45))
-        .child(
-            img(nostr_icon_image())
-                .w(layout::ACTION_ICON_INNER_SIZE)
-                .h(layout::ACTION_ICON_INNER_SIZE)
-                .object_fit(ObjectFit::Contain),
-        )
+        .child(Icon::new(IconName::Nostr).size(IconSize::Action))
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, cx| {
             if let Some(npub) = &click_npub {
                 cx.write_to_clipboard(ClipboardItem::new_string(npub.clone()));
             }
         }))
         .into_any_element()
-}
-
-fn nostr_icon_image() -> Arc<Image> {
-    static NOSTR_ICON: OnceLock<Arc<Image>> = OnceLock::new();
-
-    Arc::clone(NOSTR_ICON.get_or_init(|| {
-        Arc::new(Image::from_bytes(
-            ImageFormat::Svg,
-            br##"<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
-<rect width="18" height="18" rx="4" fill="#8e30eb"/>
-<path d="M10.8 2.5l-5 7.5h3.4l-1 5.5 5-7.5h-3.4z" fill="#ffffff"/>
-</svg>"##
-                .to_vec(),
-        ))
-    }))
 }
 
 pub(crate) fn render_play_icon_button_with_id(

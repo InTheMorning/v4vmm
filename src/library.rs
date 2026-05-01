@@ -210,7 +210,7 @@ pub struct LibraryApp {
     new_playlist_input: Entity<InputState>,
 }
 
-use crate::ui::render_rss_icon_link;
+use crate::ui::icons::render_rss_icon_link;
 use crate::ui::theme::badges;
 use crate::ui::theme::color;
 use crate::ui::theme::radius;
