@@ -32,6 +32,20 @@ const ENTITY_DETAIL_FORBIDDEN_PATTERNS: &[&str] = &[
     "crate::track_compare",
 ];
 
+const UI_ENTITY_FORBIDDEN_PATTERNS: &[&str] = &[
+    "crate::library::",
+    "crate::search::",
+    "crate::app::",
+    "crate::api::",
+    "crate::db::",
+    "crate::feed_service",
+    "crate::library_service",
+    "crate::metadata_service",
+    "crate::playlist_service",
+    "crate::subscribe_service",
+    "crate::track_compare",
+];
+
 const APPLICATION_FORBIDDEN_PATTERNS: &[&str] = &[
     "use gpui",
     "gpui::",
@@ -324,6 +338,29 @@ fn entity_detail_projection_does_not_import_api_ui_or_services() {
     assert!(
         violations.is_empty(),
         "ADR 0026 entity-detail projection boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn ui_entity_shell_does_not_import_screens_or_services() {
+    let path = manifest_path("src/ui_entity.rs");
+    let source = read_source(&path);
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        for pattern in UI_ENTITY_FORBIDDEN_PATTERNS {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/ui_entity.rs:{line_number}: ADR 0026 UI shell must stay slot-based and avoid screen/service imports; found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0026 ui_entity shell boundary violations:\n{}",
         violations.join("\n")
     );
 }

@@ -30,6 +30,7 @@ pub mod track_identity;
 pub mod ui;
 pub mod ui_artist;
 pub mod ui_context;
+pub mod ui_entity;
 pub mod ui_feed;
 pub mod ui_track;
 pub mod view_models;

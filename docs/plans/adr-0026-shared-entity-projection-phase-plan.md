@@ -89,6 +89,8 @@ architecture tests blocking GPUI, UI, API-client, screen, and service imports.
 
 ### Phase 3 — Slot-Based UI Shells
 
+Status: Implemented.
+
 Task file to create after Phase 2 review:
 `docs/tasks/adr-0026-task-003-slot-based-ui-shells.md`.
 
