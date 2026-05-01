@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-01.
+In progress - 2026-05-01. Tasks 001-002 implemented.
 
 ## Goal
 
@@ -38,13 +38,14 @@ provenance-first data used by Discover.
 - `src/rss/subscribe.rs`
 - `src/view_models/artist.rs`
 - `tests/architecture_tests.rs`
-- `migrations/`
+- existing `src/db.rs` migration registry
 
 ## Proposed Sequence
 
 1. Source inventory and schema decision. Applied 2026-05-01.
    Task: `docs/tasks/adr-0029-task-001-source-inventory.md`.
 2. Artist source-fact schema and DB helpers for explicit artist subjects.
+   Implemented 2026-05-01.
    Task: `docs/tasks/adr-0029-task-002-artist-source-schema.md`.
 3. Ingest persistence for explicit MusicIndex/RSS artist/person facts.
 4. Local view hydration for `ArtistView` and related Library projections.

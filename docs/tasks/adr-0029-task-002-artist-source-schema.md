@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready.
+Implemented - 2026-05-01.
 
 ## Goal
 
@@ -19,12 +19,11 @@ by `(source, source_artist_id)`.
 - `src/views.rs`
 - `src/local_identity.rs`
 - `tests/architecture_tests.rs`
-- `migrations/`
+- existing `src/db.rs` migration registry
 
 ## Files Likely To Change
 
 - `src/db.rs`
-- `migrations/`
 - `tests/architecture_tests.rs`
 - `docs/tasks/adr-0029-task-002-artist-source-schema.md`
 - `docs/reviews/adr-0029-task-002-review.md`
@@ -48,7 +47,7 @@ by `(source, source_artist_id)`.
 
 ## Implementation Steps
 
-1. Add an additive migration for artist source facts.
+1. Add an additive `src/db.rs` registry migration for artist source facts.
 2. Add DB input/row structs and replacement/read helpers.
 3. Store typed artist display fields: name, sort name, image URL, website URL,
    aliases, tags, area, begin year, end year, observed time, raw JSON.
@@ -59,13 +58,25 @@ by `(source, source_artist_id)`.
 
 ## Acceptance Criteria
 
-- [ ] New schema is additive and migration-tested.
-- [ ] Replacement is source-scoped and does not rely on display name.
-- [ ] DB helpers can round-trip typed artist fields plus raw JSON.
-- [ ] Source links/ids can be stored without using feed/track owner tables.
-- [ ] No UI, MusicIndex ingest, RSS ingest, or `ArtistView` hydration behavior
+- [x] New schema is additive and migration-tested.
+- [x] Replacement is source-scoped and does not rely on display name.
+- [x] DB helpers can round-trip typed artist fields plus raw JSON.
+- [x] Source links/ids can be stored without using feed/track owner tables.
+- [x] No UI, MusicIndex ingest, RSS ingest, or `ArtistView` hydration behavior
   changes.
-- [ ] Required verification commands pass.
+- [x] Required verification commands pass.
+
+## Implementation Summary
+
+- Added additive `artist_source_facts`, `artist_source_links`, and
+  `artist_source_ids` schema creation under the existing `src/db.rs` migration
+  registry.
+- Added `ArtistSourceFactInput` / `ArtistSourceFactRow` and source-scoped
+  replacement/read helpers keyed by `(source, source_artist_id)`.
+- Stored artist display facts, aliases, tags, source links, source ids, and raw
+  JSON without linking to local name-derived Library artists.
+- Added focused DB tests for schema creation, round trip, replacement, and
+  invalid keys.
 
 ## Test Commands
 
@@ -77,6 +88,8 @@ cargo test --test architecture_tests
 cargo clippy --lib --tests -- -D warnings
 cargo test
 ```
+
+Verified 2026-05-01.
 
 ## Prompt for lower-context coding model
 
@@ -93,7 +106,7 @@ Read:
 - `src/views.rs`
 - `src/local_identity.rs`
 - `tests/architecture_tests.rs`
-- `migrations/`
+- existing `src/db.rs` migration registry
 
 Goal:
 - Add additive SQLite schema and DB helpers for explicit artist source facts.

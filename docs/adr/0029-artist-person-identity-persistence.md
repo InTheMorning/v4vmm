@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-01.
+Accepted - 2026-05-01. Tasks 001-002 implemented; remaining phases pending.
 
 ## Context
 
@@ -114,7 +114,9 @@ Library artist views poorer than Discover and blocks offline identity parity.
 
 - Task 001 inventoried source artist/person fields and recommended split schema
   tracks.
-- Task 002 should add artist source-fact schema and DB helpers for explicit
-  artist subjects only.
+- Task 002 added artist source-fact schema and DB helpers for explicit artist
+  subjects only.
+- Task 003 should persist explicit MusicIndex artist records into the artist
+  source-fact tables.
 - Runtime person/global-identity implementation must wait for durable person
   keys and a merge policy.
