@@ -29,7 +29,12 @@ pub enum ThemeProfile {
 }
 
 impl ThemeProfile {
-    pub const USER_SELECTABLE: [Self; 2] = [Self::Dark, Self::Light];
+    pub const USER_SELECTABLE: [Self; 4] = [
+        Self::Dark,
+        Self::Light,
+        Self::HighContrastDark,
+        Self::HighContrastLight,
+    ];
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {

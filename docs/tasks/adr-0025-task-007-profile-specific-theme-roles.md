@@ -25,7 +25,8 @@ Dark and Light while keeping `ThemeProfile` GPUI-free.
 - Keep `ThemeProfile::System` hidden from Settings until it follows real
   system appearance.
 - Keep high-contrast profiles hidden from Settings until profile-specific
-  colors pass contrast tests and visual smoke.
+  colors pass contrast tests and visual smoke. They may be exposed after that
+  gate is complete.
 - Preserve existing Dark and Light behavior.
 - Do not add arbitrary custom colors or user theme editing.
 
@@ -55,6 +56,9 @@ Dark and Light while keeping `ThemeProfile` GPUI-free.
 - [x] High-contrast dark and high-contrast light are visually distinct from
       base Dark/Light.
 - [x] High-contrast profiles pass the contrast matrix.
+- [x] High-contrast profiles passed manual visual smoke.
+- [x] High-contrast profiles are exposed in Settings after the visual-smoke
+      gate.
 - [x] No custom theme editor or arbitrary color input is added.
 
 ## Test Commands
@@ -65,10 +69,11 @@ Dark and Light while keeping `ThemeProfile` GPUI-free.
 - `cargo test --test architecture_tests`
 - `cargo test`
 - `cargo clippy --lib --tests -- -D warnings`
+- `cargo build`
+- Manual visual smoke for High Contrast Dark and High Contrast Light across
+  Library, Discover, Settings, and playback controls.
+- Manual visual smoke for the exposed Settings theme selector.
 
-## Residual Work
+## Follow-Up Work
 
-- High-contrast profiles remain hidden from Settings until a dedicated visual
-  smoke pass covers Library, Discover, Settings, and playback controls in both
-  high-contrast profiles.
 - `ThemeProfile::System` remains hidden until OS appearance detection exists.

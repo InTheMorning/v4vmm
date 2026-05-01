@@ -134,11 +134,12 @@ Status: implemented by
 
 Move semantic color resolution behind a `ThemeProfile` resolver so high
 contrast profiles are not aliases for base Dark and Light. Keep
-`ThemeProfile` GPUI-free and keep high contrast hidden from Settings until a
+`ThemeProfile` GPUI-free. Expose high contrast in Settings only after a
 profile-specific visual smoke pass is complete.
 
 Status: implemented by
-`docs/tasks/adr-0025-task-007-profile-specific-theme-roles.md`.
+`docs/tasks/adr-0025-task-007-profile-specific-theme-roles.md`; high contrast
+has passed visual smoke and is exposed in Settings.
 
 ## Schema/API Implications
 
@@ -178,8 +179,8 @@ Discover, Settings, and playback controls in the current dark profile.
 - Task 005 must wait until major render paths no longer depend on dark-only
   helpers.
 - Task 006 must wait until Phases 1-5 are complete or explicitly deferred.
-- High-contrast Settings exposure must wait until Task 007 and a manual
-  high-contrast visual smoke pass are complete.
+- High-contrast Settings exposure waited until Task 007 and a manual
+  high-contrast visual smoke pass were complete.
 
 ## Rollback Strategy
 

@@ -25,8 +25,8 @@ Pass.
   `tokens::color(cx, ...)` to respect profile-specific palettes.
 - `ui::style` compatibility colors now follow the installed profile, so legacy
   render paths do not silently bypass high-contrast palettes.
-- High-contrast profiles are still hidden from Settings, which is correct
-  until a dedicated high-contrast visual smoke pass is complete.
+- High-contrast profiles passed a dedicated Library, Discover, Settings, and
+  playback-control smoke pass, then were exposed in Settings.
 
 ## Tests Run
 
@@ -36,14 +36,18 @@ Pass.
 - `cargo test --test architecture_tests`
 - `cargo test`
 - `cargo clippy --lib --tests -- -D warnings`
+- `cargo build`
 - `git diff --check`
+- Manual visual smoke for High Contrast Dark and High Contrast Light across
+  Library, Discover, Settings, and playback controls.
+- Manual visual smoke for the exposed Settings theme selector.
 
 ## Residual Risk
 
-High-contrast values are token-level and automated-contrast verified, but they
-have not yet had a manual visual smoke pass across Library, Discover, Settings,
-and playback controls. Keep high contrast hidden from Settings until that pass
-is complete.
+High-contrast values are token-level and automated-contrast verified, and they
+now have a manual visual smoke pass across Library, Discover, Settings, and
+playback controls. `ThemeProfile::System` remains hidden until OS appearance
+detection exists.
 
 ## Merge Recommendation
 

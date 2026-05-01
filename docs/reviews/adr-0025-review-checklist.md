@@ -59,6 +59,8 @@ Use this checklist for ADR 0025 implementation diffs and final review.
       publisher, release, recording, playlist, and generic.
 - [x] Provenance/diff roles resolve color plus non-color cue together.
 - [x] Runtime profile selection exposes only tested profiles.
+- [x] Runtime profile selection exposes high-contrast profiles only after
+      automated contrast tests and manual visual smoke.
 - [x] `ThemeProfile::System` is not exposed unless it follows real OS/system
       appearance.
 - [x] Phase 6 reduces `theme.rs` to documented layout constants only or removes
@@ -76,6 +78,8 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 - [x] `cargo clippy --lib --tests -- -D warnings` passed.
 - [x] Manual visual smoke completed for Library, Discover, Settings, and
       playback controls when the slice changes visible UI.
+- [x] Manual visual smoke completed for High Contrast Dark and High Contrast
+      Light before exposing them in Settings.
 
 ## Required Fixes
 
@@ -96,6 +100,12 @@ Use this checklist for ADR 0025 implementation diffs and final review.
   `theme_bridge`; controls remained readable. Dark was restored without saving.
 - Playback controls stayed visible and readable in both dark and light smoke
   passes.
+- High Contrast Dark and High Contrast Light: Library, Discover, Settings, and
+  playback controls rendered without blocking contrast, layout, text-overlap,
+  or repaint issues.
+- Settings selector: Dark, Light, High Contrast Dark, and High Contrast Light
+  fit in the existing theme control; switching from High Contrast Dark to High
+  Contrast Light repainted through `theme_bridge`.
 
 ## Optional Improvements
 
