@@ -108,9 +108,9 @@ playback workflows.
    queries, and architecture gates validated the boundary, but Task 004 must
    wire app-level event consumption before widening the blast radius.
 4. In progress `adr-0024-task-004-subscription-download-slice`: app-level
-   application-event consumption is wired; next migrate feed
-   subscribe/unsubscribe, track download/remove, and library membership
-   changes; introduce and use the `DownloadManager` port.
+   application-event consumption, feed unsubscribe, track remove, and local
+   library-membership commands are wired; next migrate download/subscribe
+   workflows and introduce the concrete `DownloadManager` port.
 5. `adr-0024-task-005-metadata-feed-update-slice`: migrate MusicBrainz staging
    and feed update workflows; preserve source facts and metadata provenance.
 6. `adr-0024-task-006-playback-slice`: route playback transport commands and

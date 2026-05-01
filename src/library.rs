@@ -34,6 +34,8 @@ use gpui_component::Size;
 use reqwest::blocking::Client as ReqwestClient;
 
 use crate::api::Track;
+use crate::application::commands::download::{RemoveTrackFromLibrary, SetTrackLibraryMembership};
+use crate::application::commands::feed::UnsubscribeFeedById;
 use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
 };
@@ -869,28 +871,26 @@ impl LibraryApp {
         self.vm.toggle_album(artist, album);
     }
 
-    fn unsubscribe_feed(&mut self, feed_id: i64) {
-        let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = db::set_feed_subscribed(&conn, feed_id, false) {
-            self.vm.set_error_status(err);
-            return;
-        }
-        if let Err(err) = db::unsubscribe_feed_tracks(&conn, feed_id) {
-            self.vm.set_error_status(err);
-            return;
-        }
-        drop(conn);
-        self.reload();
+    fn unsubscribe_feed(&mut self, feed_id: i64, cx: &mut Context<Self>) {
+        let command = UnsubscribeFeedById::new(Arc::clone(&self.conn), feed_id);
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            |this, _result, _cx| this.reload(),
+            |this, err, _cx| this.vm.set_error_status(err),
+        );
     }
 
-    fn remove_track(&mut self, track_id: i64) {
-        let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = library_service::set_track_in_library(&conn, track_id, false) {
-            self.vm.set_error_status(err);
-            return;
-        }
-        drop(conn);
-        self.reload();
+    fn remove_track(&mut self, track_id: i64, cx: &mut Context<Self>) {
+        let command = RemoveTrackFromLibrary::new(Arc::clone(&self.conn), track_id);
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            |this, _result, _cx| this.reload(),
+            |this, err, _cx| this.vm.set_error_status(err),
+        );
     }
 
     fn subscribe_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
@@ -1096,24 +1096,25 @@ impl LibraryApp {
         };
         cx.notify();
 
-        let result = {
-            let db = self.conn.lock().expect("lock db");
-            library_service::set_track_in_library(&db, track_id, subscribe)
-        };
-        if let Some(frame) = self.selected_track_frame_mut() {
-            if frame.entity_id == track_id {
-                frame.subscription_busy = false;
-                match result {
-                    Ok(()) => {
-                        frame.local_subscription = subscribe;
-                        frame.track.is_in_library = subscribe;
-                        frame.subscription_message = Some(if subscribe {
-                            "Subscribed track".into()
-                        } else {
-                            "Unsubscribed track".into()
-                        });
+        let command = SetTrackLibraryMembership::new(Arc::clone(&self.conn), track_id, subscribe);
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, _cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == track_id {
+                        frame.subscription_busy = false;
+                        frame.local_subscription = result.in_library();
+                        frame.track.is_in_library = result.in_library();
+                        frame.subscription_message = Some(result.message().into());
                     }
-                    Err(err) => {
+                }
+            },
+            move |this, err, _cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == track_id {
+                        frame.subscription_busy = false;
                         let action = if subscribe {
                             "Subscribe"
                         } else {
@@ -1122,9 +1123,8 @@ impl LibraryApp {
                         frame.subscription_message = Some(format!("{action} error: {err:#}"));
                     }
                 }
-            }
-        }
-        cx.notify();
+            },
+        );
     }
 
     fn toggle_tag_compare(&mut self, cx: &mut Context<Self>) {
@@ -2498,7 +2498,7 @@ fn render_album_detail(
     if let Some(fid) = feed_id {
         buttons = buttons.child(action_button("Unsubscribe Feed", cx).danger().on_click(
             cx.listener(move |this, _, _, cx| {
-                this.unsubscribe_feed(fid);
+                this.unsubscribe_feed(fid, cx);
                 cx.notify();
             }),
         ));
@@ -2597,7 +2597,7 @@ fn render_library_track_row(
         .disabled(is_busy)
         .on_click(cx.listener(move |this, _, _, cx| {
             if in_library {
-                this.remove_track(track_id);
+                this.remove_track(track_id, cx);
             } else {
                 this.subscribe_track(track_for_click.clone(), cx);
             }

@@ -25,6 +25,8 @@ use gpui_component::{Disableable, Root, Size};
 use rusqlite::Connection;
 
 use crate::api::*;
+use crate::application::commands::download::RemoveTrackFromLibraryByMatch;
+use crate::application::commands::feed::UnsubscribeFeedByUrl;
 use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::{ApplicationServices, CommandContext};
 #[cfg(test)]
@@ -945,42 +947,30 @@ impl SearchApp {
         if !self.vm.begin_track_operation(key.clone()) {
             return;
         }
-        let request = SearchUnsubscribeRequest::Track {
-            feed_url: track
+        let command = RemoveTrackFromLibraryByMatch::new(
+            Arc::clone(&self.conn),
+            track
                 .feed_url
                 .clone()
                 .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone())),
-            item_guid: track.track_guid.clone(),
-            enclosure_url: track.enclosure_url.clone(),
-        };
-        let conn = Arc::clone(&self.conn);
+            track.track_guid.clone(),
+            track.enclosure_url.clone(),
+        );
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { unsubscribe_search_request(conn, request) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        match result {
-                            Ok(message) => {
-                                this.vm.finish_track_remove(&key, message);
-                                this.refresh_inspector_subscription_state(cx);
-                                cx.emit(SearchAppEvent::LibraryMutated);
-                            }
-                            Err(error) => this.vm.fail_track_remove(&key, error),
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let success_key = key.clone();
+        let error_key = key;
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                this.vm.finish_track_remove(&success_key, result.message());
+                this.refresh_inspector_subscription_state(cx);
+                cx.emit(SearchAppEvent::LibraryMutated);
             },
-        )
-        .detach();
+            move |this, error, _cx| this.vm.fail_track_remove(&error_key, error),
+        );
     }
 
     fn subscribe_current(&mut self, cx: &mut Context<Self>) {
@@ -1116,50 +1106,102 @@ impl SearchApp {
             | InspectorDetail::Publisher(_) => return,
         };
 
-        let command = SearchSubscriptionCommand::Remove;
+        let subscription_command = SearchSubscriptionCommand::Remove;
         frame.subscription_busy = true;
-        frame.subscription_message = Some(command.begin_message().into());
+        frame.subscription_message = Some(subscription_command.begin_message().into());
         cx.notify();
 
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { unsubscribe_search_request(conn, request) })
-                    .await;
-
-                this.update(
+        match request {
+            SearchUnsubscribeRequest::Feed { feed_url } => {
+                let command = UnsubscribeFeedByUrl::new(Arc::clone(&self.conn), feed_url);
+                let success_entity_type = entity_type.clone();
+                let success_entity_id = entity_id.clone();
+                let error_entity_type = entity_type.clone();
+                let error_entity_id = entity_id.clone();
+                self.command_runner.run(
+                    command,
+                    CommandContext::next(),
                     cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                    move |this, result, cx| {
                         let mut library_mutated = false;
                         if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                            if frame.entity_type == success_entity_type
+                                && frame.entity_id == success_entity_id
+                            {
                                 frame.subscription_busy = false;
-                                match result {
-                                    Ok(message) => {
-                                        frame.local_subscription = Some(false);
-                                        frame.subscription_message = Some(message);
-                                        library_mutated = true;
-                                    }
-                                    Err(error) => {
-                                        frame.subscription_message =
-                                            Some(command.error_message(error));
-                                    }
-                                }
+                                frame.local_subscription = Some(false);
+                                frame.subscription_message = Some(result.message().into());
+                                library_mutated = true;
                             }
                         }
                         if library_mutated {
                             this.refresh_inspector_subscription_state(cx);
                             cx.emit(SearchAppEvent::LibraryMutated);
                         }
-                        cx.notify();
                     },
-                )
-                .ok();
-            },
-        )
-        .detach();
+                    move |this, error, _cx| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == error_entity_type
+                                && frame.entity_id == error_entity_id
+                            {
+                                frame.subscription_busy = false;
+                                frame.subscription_message =
+                                    Some(subscription_command.error_message(error));
+                            }
+                        }
+                    },
+                );
+            }
+            SearchUnsubscribeRequest::Track {
+                feed_url,
+                item_guid,
+                enclosure_url,
+            } => {
+                let command = RemoveTrackFromLibraryByMatch::new(
+                    Arc::clone(&self.conn),
+                    feed_url,
+                    item_guid,
+                    enclosure_url,
+                );
+                let success_entity_type = entity_type.clone();
+                let success_entity_id = entity_id.clone();
+                let error_entity_type = entity_type;
+                let error_entity_id = entity_id;
+                self.command_runner.run(
+                    command,
+                    CommandContext::next(),
+                    cx,
+                    move |this, result, cx| {
+                        let mut library_mutated = false;
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == success_entity_type
+                                && frame.entity_id == success_entity_id
+                            {
+                                frame.subscription_busy = false;
+                                frame.local_subscription = Some(false);
+                                frame.subscription_message = Some(result.message().into());
+                                library_mutated = true;
+                            }
+                        }
+                        if library_mutated {
+                            this.refresh_inspector_subscription_state(cx);
+                            cx.emit(SearchAppEvent::LibraryMutated);
+                        }
+                    },
+                    move |this, error, _cx| {
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == error_entity_type
+                                && frame.entity_id == error_entity_id
+                            {
+                                frame.subscription_busy = false;
+                                frame.subscription_message =
+                                    Some(subscription_command.error_message(error));
+                            }
+                        }
+                    },
+                );
+            }
+        }
     }
 
     fn load_playlists(&mut self) {
@@ -2173,39 +2215,6 @@ fn run_search_subscribe(
                 message: format!("Downloaded track{edit_text}"),
                 compare: outcome.compare,
             })
-        }
-    }
-}
-
-fn unsubscribe_search_request(
-    conn: Arc<Mutex<Connection>>,
-    request: SearchUnsubscribeRequest,
-) -> Result<String> {
-    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-    match request {
-        SearchUnsubscribeRequest::Feed { feed_url } => {
-            let feed_url = feed_url.ok_or_else(|| anyhow!("feed has no RSS URL"))?;
-            db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
-            Ok("Removed feed".into())
-        }
-        SearchUnsubscribeRequest::Track {
-            feed_url,
-            item_guid,
-            enclosure_url,
-        } => {
-            library_service::set_track_in_library_by_match(
-                &db,
-                feed_url.as_deref(),
-                item_guid.as_deref(),
-                enclosure_url.as_deref(),
-                false,
-            )?;
-            if let Some(feed_url) = feed_url.as_deref() {
-                // Removing one track means the feed is no longer fully
-                // subscribed; reconcile to keep state coherent.
-                db::reconcile_feed_subscription_by_url(&db, feed_url)?;
-            }
-            Ok("Removed track".into())
         }
     }
 }

@@ -20,8 +20,12 @@ those paths may subscribe, download, and append in one workflow.
   `GpuiEventBridge`, `GpuiCommandRunner`, and `TopApp` draining.
 - Library, playlist, feed, and download application events now refresh the
   shared library/discover surfaces through a single app-level path.
-- Remaining work: migrate subscription/download commands and replace direct
-  screen calls to subscription/download services.
+- Feed unsubscribe, track remove, and local track library-membership toggles
+  now dispatch ADR 0024 commands from screens.
+- Architecture tests prevent screens from reintroducing the migrated direct
+  feed/track remove service calls.
+- Remaining work: migrate download/subscribe commands and replace direct screen
+  calls to `subscribe_service` and `library_service::subscribe_then_append_to_playlist`.
 
 ## Files To Inspect
 
@@ -75,7 +79,7 @@ those paths may subscribe, download, and append in one workflow.
 
 1. Completed: wire `ApplicationEventBus` to GPUI presentation refresh through
    `GpuiEventBridge` or an equivalent app-level subscriber.
-2. Define feed subscription and download command types/results.
+2. In progress: define feed subscription and download command types/results.
 3. Introduce a concrete adapter that implements `DownloadManager` by wrapping
    existing download behavior.
 4. Migrate `library_service::subscribe_then_append_to_playlist` callers from
