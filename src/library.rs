@@ -65,13 +65,15 @@ use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup,
-    EntityKind, ListRow, ProvenanceRole, ReleaseDetailSurface, SplitPane, StatusRole, TagBadge,
-    Thumbnail, ThumbnailSize, TrackRow as TrackRowComposite,
+    EntityKind, ListRow, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
+    TrackRow as TrackRowComposite,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
+use crate::ui_entity::{render_release_detail_shell, ReleaseDetailSlots, TrackSectionSlot};
+use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
     LibraryTrackActionVm, LibraryTrackPrimaryAction, LibraryTrackRowVm, LibraryTree,
@@ -2416,16 +2418,16 @@ fn render_album_detail(
         |duration| format!("{track_count} total · {duration}"),
     );
 
-    let mut surface = ReleaseDetailSurface::new("album-detail-scroll")
-        .scrollable(true)
-        .header(
+    let projection = ReleaseDetailVm::new(&feed_view, EntitySurfaceContext::Library);
+    let mut slots = ReleaseDetailSlots {
+        header: Some(
             DetailHeader::new(EntityKind::Feed, vm.title())
                 .subtitle(vm.artist())
                 .image(thumb_image.clone())
                 .into_any_element(),
-        )
-        .actions(buttons.into_any_element())
-        .details(
+        ),
+        action_row: Some(buttons.into_any_element()),
+        details: Some(
             DetailGrid::new(
                 vm.detail_rows()
                     .into_iter()
@@ -2433,13 +2435,17 @@ fn render_album_detail(
                     .collect::<Vec<_>>(),
             )
             .into_any_element(),
-        );
+        ),
+        track_section: Some(TrackSectionSlot {
+            summary: track_summary.into(),
+            rows: track_rows,
+        }),
+        ..ReleaseDetailSlots::default()
+    };
     if let Some(panel) = feed_popup {
-        surface = surface.panel(panel);
+        slots.panels.push(panel);
     }
-    surface
-        .track_section("Tracks", track_summary, track_rows)
-        .into_any_element()
+    render_release_detail_shell("album-detail-scroll", &projection, slots)
 }
 
 fn render_library_track_row(

@@ -113,6 +113,8 @@ and async dispatch in `src/search.rs`.
 
 ### Phase 5 — Library Adoption
 
+Status: Implemented.
+
 Task file to create after Phase 4 review:
 `docs/tasks/adr-0026-task-005-library-projection-adoption.md`.
 
