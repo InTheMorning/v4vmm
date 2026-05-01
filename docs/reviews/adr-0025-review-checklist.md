@@ -1,0 +1,89 @@
+# ADR 0025 Review Checklist
+
+## Reviewed Artifact
+
+Use this checklist for ADR 0025 implementation diffs and final review.
+
+## Pass / Fail
+
+- Status: Not reviewed.
+- Reviewer:
+- Date:
+- Review:
+
+## Architectural Invariants
+
+- [ ] Screens do not introduce raw colors, inline icon SVG, or string glyphs
+      for reusable visual roles.
+- [ ] New screen code does not call `theme::color::*`, `theme::badges`, or
+      `theme::glyphs`.
+- [ ] Semantic icons are requested through `ui::icons`.
+- [ ] Brand/protocol icon colors live inside the icon catalog.
+- [ ] Reusable button/action styling flows through named control style roles.
+- [ ] `ControlStyle` maps to `ui::primitives::Button`; it does not create a
+      third button vocabulary beside the native primitive and
+      `gpui_component::Button`.
+- [ ] Remaining direct `gpui_component::Button` styling in screens is explicitly
+      marked with `CONTROL-COMPAT(reason): ...` compatibility debt.
+- [ ] Architecture tests reject unmarked direct screen-level
+      `gpui_component::Button` usage.
+- [ ] `ActionButton` uses the shared control-style boundary.
+- [ ] Entity/status/provenance badges use typed roles, not string-keyed color
+      maps.
+- [ ] Color is not the sole indicator for destructive, success, warning, diff,
+      disabled, or pending states.
+- [ ] Runtime visual changes flow through `theme_bridge` / `Environment`.
+- [ ] `theme_bridge::install_theme` takes `ThemeProfile`.
+- [ ] `theme::glyphs` does not exist.
+- [ ] View-models, application, service, domain, and infrastructure layers do
+      not import UI modules.
+
+## Slice-Specific Checks
+
+- [ ] Theme-profile contract preserves current dark default behavior.
+- [ ] High-contrast profile tests exist before high contrast is exposed.
+- [ ] Architecture gates ratchet deprecated helper usage without false
+      positives that block planned migrations.
+- [ ] Brand/protocol icon colors have non-text contrast coverage.
+- [ ] Icon migration preserves size, alignment, colors, and click targets.
+- [ ] Control-style migration preserves labels, behavior, disabled states, and
+      focus affordances.
+- [ ] Control-style roles satisfy the admission rule: at least two unrelated
+      call sites, or a state/contrast requirement that generic chains cannot
+      express.
+- [ ] Screen button sweep final report includes the inventory and disposition of
+      direct `gpui_component::Button` chains.
+- [ ] Badge migration preserves label meaning and contrast.
+- [ ] Badge roles cover all current `EntityKind` variants: feed, track, artist,
+      publisher, release, recording, playlist, and generic.
+- [ ] Provenance/diff roles resolve color plus non-color cue together.
+- [ ] Runtime profile selection exposes only tested profiles.
+- [ ] `ThemeProfile::System` is not exposed unless it follows real OS/system
+      appearance.
+- [ ] Phase 6 reduces `theme.rs` to documented layout constants only or removes
+      it.
+
+## Tests And Verification
+
+- [ ] `cargo fmt -- --check` passed.
+- [ ] `cargo check` passed.
+- [ ] `cargo test --test architecture_tests` passed.
+- [ ] relevant contrast tests passed.
+- [ ] high-contrast profile contrast tests passed before exposure.
+- [ ] relevant focused unit tests passed.
+- [ ] pure control role mapping tests passed.
+- [ ] `cargo clippy --lib --tests -- -D warnings` passed.
+- [ ] Manual visual smoke completed for Library, Discover, Settings, and
+      playback controls when the slice changes visible UI.
+
+## Required Fixes
+
+- None recorded.
+
+## Optional Improvements
+
+- None recorded.
+
+## Merge Recommendation
+
+- Pending implementation review.
