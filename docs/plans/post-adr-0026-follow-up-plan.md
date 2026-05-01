@@ -59,7 +59,7 @@ Priority: P0.
 
 First artifact:
 
-- `docs/tasks/post-adr-0026-task-001-visual-smoke.md` (to be created)
+- `docs/tasks/post-adr-0026-task-001-visual-smoke.md`
 
 Purpose:
 
@@ -121,7 +121,7 @@ Acceptance gate:
 Priority: P1 after Track 2, or P2 if Track 1 shows no major screen-coupling
 problem.
 
-Likely plan:
+Candidate plan, to be created only if Track 1 routes work here:
 
 - `docs/plans/adr-0024-query-service-thinning-plan.md`
 
@@ -157,8 +157,7 @@ Priority: P2.
 
 First artifact:
 
-- `docs/tasks/post-adr-0026-task-002-identity-persistence-audit.md` (to be
-  created)
+- `docs/tasks/post-adr-0026-task-002-identity-persistence-audit.md`
 
 Likely ADR:
 
@@ -188,8 +187,7 @@ Priority: P2.
 
 Likely task first:
 
-- `docs/tasks/post-adr-0026-task-003-artwork-source-expansion.md` (to be
-  created)
+- `docs/tasks/post-adr-0026-task-003-artwork-source-expansion.md`
 
 Likely ADR:
 
