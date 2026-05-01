@@ -2380,12 +2380,14 @@ fn render_album_detail(
         feed_url,
     ));
     if let Some(fid) = feed_id {
-        buttons = buttons.child(action_button("Unsubscribe Feed", cx).danger().on_click(
-            cx.listener(move |this, _, _, cx| {
+        let remove_action = vm.primary_action_vm(fid, false);
+        let remove_label = remove_action.label;
+        buttons = buttons.child(action_button(&remove_label, cx).on_click(cx.listener(
+            move |this, _, _, cx| {
                 this.unsubscribe_feed(fid, cx);
                 cx.notify();
-            }),
-        ));
+            },
+        )));
     }
     buttons = buttons.child(
         action_button("MusicBrainz", cx)
@@ -2395,15 +2397,17 @@ fn render_album_detail(
             })),
     );
     if let Some(fid) = feed_id {
-        buttons = buttons.child(
-            action_button(vm.add_to_playlist_label(add_open_feed), cx).on_click(cx.listener(
-                move |this, _, _, cx| {
-                    this.vm.toggle_album_feed_picker();
-                    let _ = fid;
-                    cx.notify();
-                },
-            )),
-        );
+        let playlist_action = vm
+            .playlist_action_vm(fid, add_open_feed)
+            .expect("library feed playlist action should render for local feeds");
+        let playlist_label = playlist_action.label;
+        buttons = buttons.child(action_button(&playlist_label, cx).on_click(cx.listener(
+            move |this, _, _, cx| {
+                this.vm.toggle_album_feed_picker();
+                let _ = fid;
+                cx.notify();
+            },
+        )));
     }
 
     let feed_popup: Option<AnyElement> = if add_open_feed {

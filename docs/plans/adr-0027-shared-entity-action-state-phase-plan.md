@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-01. Task 001 implemented.
+Proposed - 2026-05-01. Tasks 001-002 implemented and verified.
 
 ## Goal
 
@@ -57,7 +57,8 @@ in screen/application adapters.
 
 1. Track-row membership action state. Implemented by
    `docs/tasks/adr-0027-task-001-track-row-action-state.md`.
-2. Release-level membership and playlist action state.
+2. Release-level membership and playlist action state. Implemented by
+   `docs/tasks/adr-0027-task-002-release-action-state.md`.
 3. MusicBrainz and compare/provenance action state.
 4. Destructive row control treatment under ADR 0025, if needed after shared
    descriptors land.

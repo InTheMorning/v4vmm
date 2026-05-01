@@ -65,6 +65,14 @@ pub enum TrackMembershipState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReleaseMembershipState {
+    RemoteOnly,
+    Downloading,
+    InLibrary,
+    Removing,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlaylistActionState {
     Hidden,
     Closed,
@@ -177,6 +185,97 @@ impl TrackActionState {
             "Play",
             EntityActionTone::Quiet,
         ));
+        actions
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReleaseActionState {
+    pub membership: ReleaseMembershipState,
+    pub playlist: PlaylistActionState,
+}
+
+impl ReleaseActionState {
+    #[must_use]
+    pub const fn new(membership: ReleaseMembershipState, playlist: PlaylistActionState) -> Self {
+        Self {
+            membership,
+            playlist,
+        }
+    }
+
+    #[must_use]
+    pub const fn for_context(context: EntitySurfaceContext) -> Self {
+        match context {
+            EntitySurfaceContext::Discover => Self::new(
+                ReleaseMembershipState::RemoteOnly,
+                PlaylistActionState::Closed,
+            ),
+            EntitySurfaceContext::Library => Self::new(
+                ReleaseMembershipState::InLibrary,
+                PlaylistActionState::Closed,
+            ),
+        }
+    }
+
+    #[must_use]
+    pub fn primary_action(&self, target: EntityActionTarget) -> EntityActionVm {
+        match self.membership {
+            ReleaseMembershipState::RemoteOnly => EntityActionVm::new(
+                EntityActionKind::Download,
+                target,
+                "Download Feed",
+                EntityActionTone::Secondary,
+            ),
+            ReleaseMembershipState::Downloading => EntityActionVm::new(
+                EntityActionKind::Download,
+                target,
+                "Downloading...",
+                EntityActionTone::Secondary,
+            )
+            .disabled(),
+            ReleaseMembershipState::InLibrary => EntityActionVm::new(
+                EntityActionKind::Remove,
+                target,
+                "Remove Feed",
+                EntityActionTone::DestructiveQuiet,
+            ),
+            ReleaseMembershipState::Removing => EntityActionVm::new(
+                EntityActionKind::Remove,
+                target,
+                "Removing...",
+                EntityActionTone::DestructiveQuiet,
+            )
+            .disabled(),
+        }
+    }
+
+    #[must_use]
+    pub fn playlist_action(&self, target: EntityActionTarget) -> Option<EntityActionVm> {
+        match self.playlist {
+            PlaylistActionState::Hidden => None,
+            PlaylistActionState::Closed => Some(EntityActionVm::new(
+                EntityActionKind::AddToPlaylist,
+                target,
+                "Add feed to playlist ▾",
+                EntityActionTone::Quiet,
+            )),
+            PlaylistActionState::Open => Some(EntityActionVm::new(
+                EntityActionKind::AddToPlaylist,
+                target,
+                "Add feed to playlist ▴",
+                EntityActionTone::Quiet,
+            )),
+        }
+    }
+
+    #[must_use]
+    pub fn actions(&self, target: EntityActionTarget) -> Vec<EntityActionVm> {
+        let primary = self.primary_action(target.clone());
+        let mut actions = vec![primary];
+        if let Some(action) = self.playlist_action(target) {
+            actions.push(action);
+        }
         actions
     }
 }
@@ -351,6 +450,19 @@ impl<'a> ReleaseDetailVm<'a> {
         self.view.id.clone().map_or_else(Vec::new, |id| {
             IdentityLinksVm::new(&self.view.identity).actions(EntityActionTarget::Feed(id))
         })
+    }
+
+    #[must_use]
+    pub fn actions(&self) -> Vec<EntityActionVm> {
+        self.actions_with_state(ReleaseActionState::for_context(self.context))
+    }
+
+    #[must_use]
+    pub fn actions_with_state(&self, state: ReleaseActionState) -> Vec<EntityActionVm> {
+        self.view
+            .id
+            .clone()
+            .map_or_else(Vec::new, |id| state.actions(EntityActionTarget::Feed(id)))
     }
 
     #[must_use]
@@ -704,6 +816,25 @@ mod tests {
     }
 
     #[test]
+    fn release_actions_change_by_context_without_changing_layout_contract() {
+        let feed = feed_view();
+        let discover_actions =
+            ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).actions();
+        let library_actions = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).actions();
+
+        assert_eq!(discover_actions[0].kind, EntityActionKind::Download);
+        assert_eq!(discover_actions[0].label, "Download Feed");
+        assert_eq!(discover_actions[0].tone, EntityActionTone::Secondary);
+        assert_eq!(library_actions[0].kind, EntityActionKind::Remove);
+        assert_eq!(library_actions[0].label, "Remove Feed");
+        assert_eq!(library_actions[0].tone, EntityActionTone::DestructiveQuiet);
+        assert_eq!(discover_actions[1].kind, EntityActionKind::AddToPlaylist);
+        assert_eq!(library_actions[1].kind, EntityActionKind::AddToPlaylist);
+        assert_eq!(discover_actions[1].label, "Add feed to playlist ▾");
+        assert_eq!(library_actions[1].label, "Add feed to playlist ▾");
+    }
+
+    #[test]
     fn track_action_state_projects_busy_and_disabled_membership_actions() {
         let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
         let remote_unavailable = TrackActionState::new(
@@ -750,6 +881,35 @@ mod tests {
         assert_eq!(closed.label, "+ Playlist");
         assert_eq!(open.label, "+ Playlist ▴");
         assert_eq!(closed.tone, EntityActionTone::Quiet);
+    }
+
+    #[test]
+    fn release_action_state_projects_busy_and_playlist_open_state() {
+        let target = EntityActionTarget::Feed(FeedRef::Musicindex("feed-1".into()));
+        let downloading = ReleaseActionState::new(
+            ReleaseMembershipState::Downloading,
+            PlaylistActionState::Hidden,
+        )
+        .primary_action(target.clone());
+        let removing = ReleaseActionState::new(
+            ReleaseMembershipState::Removing,
+            PlaylistActionState::Hidden,
+        )
+        .primary_action(target.clone());
+        let open =
+            ReleaseActionState::new(ReleaseMembershipState::InLibrary, PlaylistActionState::Open)
+                .playlist_action(target)
+                .expect("open playlist action should render");
+
+        assert_eq!(downloading.kind, EntityActionKind::Download);
+        assert_eq!(downloading.label, "Downloading...");
+        assert!(!downloading.enabled);
+        assert_eq!(removing.kind, EntityActionKind::Remove);
+        assert_eq!(removing.label, "Removing...");
+        assert_eq!(removing.tone, EntityActionTone::DestructiveQuiet);
+        assert!(!removing.enabled);
+        assert_eq!(open.label, "Add feed to playlist ▴");
+        assert_eq!(open.tone, EntityActionTone::Quiet);
     }
 
     #[test]

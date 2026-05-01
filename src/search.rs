@@ -62,7 +62,9 @@ use crate::ui::primitives::{
 };
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
-use crate::view_models::entity_detail::{ContributorListVm, ContributorRowVm, EntityActionTone};
+use crate::view_models::entity_detail::{
+    ContributorListVm, ContributorRowVm, EntityActionTarget, EntityActionTone,
+};
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, LazyPanel,
@@ -71,7 +73,7 @@ use crate::view_models::search::{
     TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
-use crate::views::ContributorView;
+use crate::views::{ContributorView, FeedRef};
 
 #[derive(Clone, Debug)]
 pub(crate) enum InspectorDetail {
@@ -2643,11 +2645,47 @@ pub(crate) fn render_action_row(
         frame.subscription_busy,
         frame.local_subscription,
         frame.subscription_message.as_deref(),
+        frame.add_to_playlist_open,
     );
 
     if !vm.is_visible() {
         return div().into_any_element();
     }
+
+    let is_feed = frame.entity_type == "feed";
+    let release_target = EntityActionTarget::Feed(FeedRef::Musicindex(frame.entity_id.clone()));
+    let release_subscription_action = vm.release_primary_action(release_target.clone());
+    let subscription_label = if is_feed {
+        release_subscription_action.label.clone()
+    } else {
+        vm.subscription_button_label()
+    };
+    let subscription_disabled = if is_feed {
+        !release_subscription_action.enabled
+    } else {
+        frame.subscription_busy
+    };
+    let release_playlist_action = if is_feed {
+        vm.release_playlist_action(release_target)
+    } else {
+        None
+    };
+    let playlist_label = if is_feed {
+        release_playlist_action.as_ref().map_or_else(
+            || vm.add_to_playlist_label().to_string(),
+            |action| action.label.clone(),
+        )
+    } else {
+        vm.add_to_playlist_label().to_string()
+    };
+    let playlist_disabled = if is_feed {
+        frame.subscription_busy
+            || release_playlist_action
+                .as_ref()
+                .is_some_and(|action| !action.enabled)
+    } else {
+        frame.subscription_busy
+    };
 
     div()
         .flex()
@@ -2655,15 +2693,15 @@ pub(crate) fn render_action_row(
         .items_start()
         .gap(spacing::XS)
         .child(
-            action_button(&vm.subscription_button_label(), cx)
-                .disabled(frame.subscription_busy)
+            action_button(&subscription_label, cx)
+                .disabled(subscription_disabled)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_local_subscription(cx);
                 })),
         )
         .child(
-            action_button(vm.add_to_playlist_label(), cx)
-                .disabled(frame.subscription_busy)
+            action_button(&playlist_label, cx)
+                .disabled(playlist_disabled)
                 .on_click(cx.listener(|this, _, _, cx| {
                     if let Some(frame) = this.inspector_stack.last_mut() {
                         frame.add_to_playlist_open = !frame.add_to_playlist_open;

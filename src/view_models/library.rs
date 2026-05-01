@@ -24,11 +24,12 @@ use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
 use crate::view_models::entity_detail::{
-    EntityActionTarget, EntityActionVm, PlaylistActionState, TrackActionState, TrackMembershipState,
+    EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseActionState,
+    ReleaseMembershipState, TrackActionState, TrackMembershipState,
 };
 use crate::view_models::format::{fmt_total_runtime_clock, plural};
 use crate::view_models::SplitPaneState;
-use crate::views::{FeedView, TrackRef};
+use crate::views::{FeedRef, FeedView, TrackRef};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 
@@ -1471,20 +1472,42 @@ impl<'a> LibraryAlbumDetailVm<'a> {
             .any(|s| matches!(s, MbTrackStatus::Pending | MbTrackStatus::Processing))
     }
 
-    /// Label for the "Add album to playlist" toggle button. The
-    /// caret glyph reflects whether the picker panel is currently
-    /// expanded.
+    #[must_use]
+    pub(crate) fn primary_action_vm(&self, feed_id: i64, is_busy: bool) -> EntityActionVm {
+        self.release_action_state(is_busy, PlaylistActionState::Hidden)
+            .primary_action(EntityActionTarget::Feed(FeedRef::LocalFeedId(feed_id)))
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_action_vm(&self, feed_id: i64, open: bool) -> Option<EntityActionVm> {
+        self.release_action_state(
+            false,
+            if open {
+                PlaylistActionState::Open
+            } else {
+                PlaylistActionState::Closed
+            },
+        )
+        .playlist_action(EntityActionTarget::Feed(FeedRef::LocalFeedId(feed_id)))
+    }
+
+    #[must_use]
     #[expect(
         clippy::unused_self,
-        reason = "kept as a method for API symmetry with the other accessors"
+        reason = "kept on the album VM while Library action wiring is migrated"
     )]
-    #[must_use]
-    pub(crate) fn add_to_playlist_label(&self, open: bool) -> &'static str {
-        if open {
-            "Add album to playlist ▴"
+    fn release_action_state(
+        &self,
+        is_busy: bool,
+        playlist: PlaylistActionState,
+    ) -> ReleaseActionState {
+        let membership = if is_busy {
+            ReleaseMembershipState::Removing
         } else {
-            "Add album to playlist ▾"
-        }
+            ReleaseMembershipState::InLibrary
+        };
+
+        ReleaseActionState::new(membership, playlist)
     }
 }
 
@@ -2950,11 +2973,36 @@ mod tests {
     }
 
     #[test]
-    fn album_detail_vm_add_to_playlist_label_flips_arrow_glyph_when_open() {
+    fn album_detail_vm_playlist_action_label_flips_arrow_glyph_when_open() {
         let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
         let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
-        assert_eq!(vm.add_to_playlist_label(false), "Add album to playlist ▾");
-        assert_eq!(vm.add_to_playlist_label(true), "Add album to playlist ▴");
+        let closed = vm
+            .playlist_action_vm(7, false)
+            .expect("closed playlist action should render");
+        let open = vm
+            .playlist_action_vm(7, true)
+            .expect("open playlist action should render");
+
+        assert_eq!(closed.label, "Add feed to playlist ▾");
+        assert_eq!(open.label, "Add feed to playlist ▴");
+    }
+
+    #[test]
+    fn album_detail_vm_release_actions_use_shared_feed_vocabulary() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let primary = vm.primary_action_vm(7, false);
+        let busy = vm.primary_action_vm(7, true);
+        let playlist = vm
+            .playlist_action_vm(7, true)
+            .expect("playlist action should render");
+
+        assert_eq!(primary.label, "Remove Feed");
+        assert!(primary.enabled);
+        assert_eq!(busy.label, "Removing...");
+        assert!(!busy.enabled);
+        assert_eq!(playlist.label, "Add feed to playlist ▴");
     }
 }
