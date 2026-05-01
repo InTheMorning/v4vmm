@@ -20,6 +20,8 @@ use crate::ui::tokens::FontSize;
 /// Semantic icon names understood by the design system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum IconName {
+    Add,
+    Back,
     Rss,
     Nostr,
     Play,
@@ -35,13 +37,21 @@ impl IconName {
         match self {
             Self::Rss => Some(rss_icon_image()),
             Self::Nostr => Some(nostr_icon_image()),
-            Self::Play | Self::Pause | Self::Stop | Self::Previous | Self::Next => None,
+            Self::Add
+            | Self::Back
+            | Self::Play
+            | Self::Pause
+            | Self::Stop
+            | Self::Previous
+            | Self::Next => None,
         }
     }
 
     #[must_use]
     fn glyph(self) -> Option<&'static str> {
         match self {
+            Self::Add => Some("\u{002B}"),
+            Self::Back => Some("\u{2190}"),
             Self::Play => Some("\u{25B6}"),
             Self::Pause => Some("\u{23F8}"),
             Self::Stop => Some("\u{23F9}"),
@@ -57,7 +67,13 @@ impl IconName {
         match self {
             Self::Rss => Some(gpui::rgb(0xf3_9a2e)),
             Self::Nostr => Some(gpui::rgb(0x8e_30eb)),
-            Self::Play | Self::Pause | Self::Stop | Self::Previous | Self::Next => None,
+            Self::Add
+            | Self::Back
+            | Self::Play
+            | Self::Pause
+            | Self::Stop
+            | Self::Previous
+            | Self::Next => None,
         }
     }
 }
@@ -215,6 +231,8 @@ mod tests {
 
     #[test]
     fn transport_icons_are_glyphs_not_svg_assets() {
+        assert_eq!(IconName::Add.glyph(), Some("\u{002B}"));
+        assert_eq!(IconName::Back.glyph(), Some("\u{2190}"));
         assert_eq!(IconName::Play.glyph(), Some("\u{25B6}"));
         assert_eq!(IconName::Pause.glyph(), Some("\u{23F8}"));
         assert!(IconName::Play.image().is_none());

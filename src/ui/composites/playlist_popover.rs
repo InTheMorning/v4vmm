@@ -20,6 +20,7 @@ use gpui_component::{
 };
 
 use crate::db;
+use crate::ui::icons::IconName;
 use crate::ui::primitives::{
     Button, ButtonSize, Divider, Popover, PopoverAlignment, PopoverPlacement,
 };
@@ -171,7 +172,7 @@ fn build_list_mode(
 
     let new_btn = Button::plain("pl-new")
         .full_width()
-        .leading_glyph("\u{FF0B}")
+        .leading_icon(IconName::Add)
         .label("New Playlist")
         .on_click({
             let state = state.clone();
@@ -216,7 +217,7 @@ fn build_create_mode(
 ) -> Div {
     let back_btn = Button::plain("pl-back")
         .full_width()
-        .leading_glyph("\u{2190}")
+        .leading_icon(IconName::Back)
         .label("Back")
         .on_click({
             let state = state.clone();

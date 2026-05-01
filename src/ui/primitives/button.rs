@@ -16,10 +16,11 @@ use std::rc::Rc;
 
 use gpui::{
     div, prelude::*, px, App, ClickEvent, ElementId, FontWeight, IntoElement, MouseButton, Pixels,
-    RenderOnce, SharedString, Window,
+    RenderOnce, Window,
 };
 
 use crate::ui::control_styles::ControlStyle;
+use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::tokens::{Appearance, FontSize, Radius, SemanticColor, Spacing};
 
 /// HIG button styles.
@@ -58,8 +59,8 @@ pub struct Button {
     id: ElementId,
     variant: ButtonVariant,
     size: ButtonSize,
-    label: Option<SharedString>,
-    leading_glyph: Option<SharedString>,
+    label: Option<gpui::SharedString>,
+    leading_icon: Option<IconName>,
     on_click: Option<ClickHandler>,
     appearance: Option<Appearance>,
     radius: Option<Radius>,
@@ -78,7 +79,7 @@ impl Button {
             variant,
             size: ButtonSize::Md,
             label: None,
-            leading_glyph: None,
+            leading_icon: None,
             on_click: None,
             appearance: None,
             radius: None,
@@ -104,13 +105,13 @@ impl Button {
         Self::new(id, ButtonVariant::Destructive)
     }
 
-    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
+    pub fn label(mut self, label: impl Into<gpui::SharedString>) -> Self {
         self.label = Some(label.into());
         self
     }
 
-    pub fn leading_glyph(mut self, glyph: impl Into<SharedString>) -> Self {
-        self.leading_glyph = Some(glyph.into());
+    pub const fn leading_icon(mut self, icon: IconName) -> Self {
+        self.leading_icon = Some(icon);
         self
     }
 
@@ -246,7 +247,7 @@ impl RenderOnce for Button {
         }
 
         let label = self.label.clone().unwrap_or_default();
-        let glyph = self.leading_glyph.clone();
+        let leading_icon = self.leading_icon;
         let on_click = self.on_click.clone();
         let disabled = self.disabled;
         let full_width = self.full_width;
@@ -287,9 +288,21 @@ impl RenderOnce for Button {
             }
         }
 
-        if let Some(g) = glyph {
-            row = row.child(div().child(g));
+        if let Some(icon) = leading_icon {
+            row = row.child(Icon::new(icon).size(IconSize::Transport).color(fg));
         }
         row.child(label)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leading_icon_uses_semantic_icon_role() {
+        let button = Button::plain("new-playlist").leading_icon(IconName::Add);
+
+        assert_eq!(button.leading_icon, Some(IconName::Add));
     }
 }

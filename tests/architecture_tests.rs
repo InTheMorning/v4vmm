@@ -548,6 +548,28 @@ fn screens_do_not_define_inline_icon_svg_helpers() {
 }
 
 #[test]
+fn ui_buttons_do_not_reintroduce_raw_leading_glyphs() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src/ui") {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("leading_glyph") {
+                violations.push(format!(
+                    "{}:{line_number}: button leading icons must use `IconName`, not raw glyphs: `{line}`",
+                    rel_path(&path)
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 button icon role violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn screens_do_not_grow_unmarked_direct_component_button_usage() {
     let mut violations = Vec::new();
     for file in SCREEN_FILES {

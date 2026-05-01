@@ -30,9 +30,12 @@ None.
   `ui::icons`.
 - Now-playing transport controls use semantic playback icons instead of local
   glyph literals.
+- Native `ui::primitives::Button` leading icons use semantic `IconName` roles
+  instead of accepting raw glyph strings.
 - Brand/protocol icon fills have contrast coverage against the current dark
   canvas.
 - Architecture tests reject new screen-level inline SVG icon helpers.
+- Architecture tests reject reintroducing raw button-leading glyphs in `src/ui`.
 
 ## Tests Run
 

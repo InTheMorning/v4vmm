@@ -6,10 +6,10 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Pass / Fail
 
-- Status: Reviewed through Task 006.
+- Status: Reviewed through Task 007.
 - Reviewer: Codex
 - Date: 2026-05-01
-- Review: ADR 0025 implementation slices 001-006 pass automated verification.
+- Review: ADR 0025 implementation slices 001-007 pass automated verification.
 
 ## Architectural Invariants
 
@@ -114,4 +114,4 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Merge Recommendation
 
-- Mergeable through Task 006.
+- Mergeable through Task 007.
