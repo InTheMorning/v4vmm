@@ -6,10 +6,10 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Pass / Fail
 
-- Status: Reviewed through Task 009.
+- Status: Reviewed through Task 010.
 - Reviewer: Codex
 - Date: 2026-05-01
-- Review: ADR 0025 implementation slices 001-009 pass automated verification.
+- Review: ADR 0025 implementation slices 001-010 pass automated verification.
 
 ## Architectural Invariants
 
@@ -63,6 +63,7 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 - [x] Badge roles cover all current `EntityKind` variants: feed, track, artist,
       publisher, release, recording, playlist, and generic.
 - [x] Provenance/diff roles resolve color plus non-color cue together.
+- [x] No screen or `ui::style` call site uses loose `color::diff_*` helpers.
 - [x] Runtime profile selection exposes only tested profiles.
 - [x] Runtime profile selection exposes high-contrast profiles only after
       automated contrast tests and manual visual smoke.
@@ -74,6 +75,8 @@ Use this checklist for ADR 0025 implementation diffs and final review.
       `ui::style::layout`.
 - [x] Status-role architecture tests reject reintroducing `StatusRole` or
       `style::color::status_*` in `ui::style`.
+- [x] Provenance helper architecture tests reject reintroducing
+      `style::color::diff_*`.
 
 ## Tests And Verification
 

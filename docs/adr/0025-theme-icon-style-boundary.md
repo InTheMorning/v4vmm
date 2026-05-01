@@ -260,6 +260,10 @@ General status message roles follow the same rule. `StatusRole` lives with the
 typed visual roles exported by `ui::composites`, not in `ui::style`, so status
 color and glyph semantics are resolved together.
 
+The old `style::color::diff_*` compatibility helpers are removed after all
+screen call sites route through `ProvenanceRole`; architecture tests keep the
+screen baseline and `ui::style` helper count at zero.
+
 ### Runtime settings
 
 The Settings tab may eventually expose appearance/profile and accent choices,
@@ -451,6 +455,13 @@ color and glyph semantics resolve together. Remove the old
 `style::color::status_*` helpers and add an architecture gate against
 reintroducing status roles in `ui::style`.
 
+### Phase 10 - provenance helper retirement
+
+Remove the final loose `style::color::diff_*` compatibility helpers and route
+the remaining screen call site through `ProvenanceRole`. Tighten the
+architecture baseline to zero and prevent `ui::style` from reintroducing diff
+role helpers.
+
 ## Test strategy
 
 - Keep `cargo test --test architecture_tests` as the main boundary gate.
@@ -508,6 +519,8 @@ This ADR is fulfilled when:
   `ui::style::layout`.
 - General status message roles live outside `ui::style`, and architecture
   tests prevent reintroducing `StatusRole` or `style::color::status_*`.
+- Provenance/diff display has zero `style::color::diff_*` helpers or screen
+  call sites; `ProvenanceRole` owns those semantics.
 - Phase 6 retirement gate: migrated screen files have zero `theme::color::*`,
   `theme::badges`, and `theme::glyphs` call sites; `theme.rs` has been
   removed; and the architecture gate forbidding those deprecated namespaces is

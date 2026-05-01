@@ -101,16 +101,6 @@ pub mod color {
         role(SemanticColor::Focus)
     }
 
-    pub fn diff_match() -> Rgba {
-        role(SemanticColor::DiffMatch)
-    }
-    pub fn diff_different() -> Rgba {
-        role(SemanticColor::DiffDifferent)
-    }
-    pub fn diff_missing() -> Rgba {
-        role(SemanticColor::DiffMissing)
-    }
-
     pub fn id3_frame_v22() -> Rgba {
         gpui::rgb(0x00b0_6cf4)
     }

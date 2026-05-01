@@ -2675,7 +2675,7 @@ pub(crate) fn render_action_row(
                         .text_size(typography::SIZE_MICRO)
                         .line_height(typography::LINE_TIGHT)
                         .text_color(if is_error {
-                            color::diff_missing()
+                            ProvenanceRole::Missing.color(cx)
                         } else {
                             color::text_muted()
                         })

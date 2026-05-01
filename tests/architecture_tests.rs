@@ -207,7 +207,7 @@ const PROVENANCE_DIFF_HELPER_BASELINES: &[DiffHelperBaseline] = &[
     DiffHelperBaseline {
         file: "src/search.rs",
         pattern: "color::diff_",
-        max_count: 1,
+        max_count: 0,
     },
     DiffHelperBaseline {
         file: "src/search.rs",
@@ -640,6 +640,30 @@ fn ui_style_does_not_reintroduce_status_roles() {
     assert!(
         violations.is_empty(),
         "ADR 0025 status-role boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn ui_style_does_not_reintroduce_provenance_diff_roles() {
+    let path = manifest_path("src/ui/style.rs");
+    let source = read_source(&path);
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        if line.contains("diff_match")
+            || line.contains("diff_different")
+            || line.contains("diff_missing")
+        {
+            violations.push(format!(
+                "src/ui/style.rs:{line_number}: provenance/diff color and glyph semantics belong in `ProvenanceRole`, not `ui::style`: `{line}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 provenance-role style-boundary violations:\n{}",
         violations.join("\n")
     );
 }

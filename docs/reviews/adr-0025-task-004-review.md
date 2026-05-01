@@ -16,11 +16,9 @@ Pass.
 
 ## Optional Improvements
 
-- The remaining `color::diff_missing()` in `src/search.rs` is a status-message
-  error color, not metadata provenance. A later status-role task should migrate
-  it into a typed status role instead of leaving it under the general color shim.
-- `theme::badges` remains in `src/ui/theme.rs` as compatibility debt. Task 006
-  should retire it once the broader `theme.rs` shim removal is in scope.
+- Completed by later ADR 0025 work: the remaining `color::diff_missing()`
+  screen call site moved behind `ProvenanceRole`, and the broader
+  `theme.rs`/`theme::badges` compatibility shim was removed.
 
 ## Architectural Drift
 

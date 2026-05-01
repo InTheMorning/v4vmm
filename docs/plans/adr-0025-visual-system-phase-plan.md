@@ -160,6 +160,16 @@ reintroducing status roles in `ui::style`.
 Status: implemented by
 `docs/tasks/adr-0025-task-009-status-role-boundary.md`.
 
+### Phase 10 - provenance helper retirement
+
+Remove the final loose `style::color::diff_*` helper path and route remaining
+screen error/provenance coloring through `ProvenanceRole`. Tighten architecture
+tests so screen `color::diff_*` usage and `ui::style` diff helpers remain at
+zero.
+
+Status: implemented by
+`docs/tasks/adr-0025-task-010-provenance-helper-retirement.md`.
+
 ## Schema/API Implications
 
 No database schema changes are expected. Phase 5 may extend `Config` with a
