@@ -13,6 +13,25 @@ const VIEW_MODEL_FORBIDDEN_PATTERNS: &[&str] = &[
     "crate::app::",
 ];
 
+const ENTITY_DETAIL_FORBIDDEN_PATTERNS: &[&str] = &[
+    "use gpui",
+    "gpui::",
+    "use gpui_component",
+    "gpui_component::",
+    "crate::api",
+    "crate::ui::",
+    "crate::ui_",
+    "crate::library::",
+    "crate::search::",
+    "crate::app::",
+    "crate::feed_service",
+    "crate::library_service",
+    "crate::metadata_service",
+    "crate::playlist_service",
+    "crate::subscribe_service",
+    "crate::track_compare",
+];
+
 const APPLICATION_FORBIDDEN_PATTERNS: &[&str] = &[
     "use gpui",
     "gpui::",
@@ -282,6 +301,29 @@ fn view_models_do_not_import_gpui_or_screen_layers() {
     assert!(
         violations.is_empty(),
         "ADR 0023 view-model boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn entity_detail_projection_does_not_import_api_ui_or_services() {
+    let path = manifest_path("src/view_models/entity_detail.rs");
+    let source = read_source(&path);
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        for pattern in ENTITY_DETAIL_FORBIDDEN_PATTERNS {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/view_models/entity_detail.rs:{line_number}: ADR 0026 shared projections must use `views` facts and stay UI/service-free; found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0026 entity-detail projection boundary violations:\n{}",
         violations.join("\n")
     );
 }

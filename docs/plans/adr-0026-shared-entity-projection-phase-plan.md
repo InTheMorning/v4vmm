@@ -77,6 +77,8 @@ preservation.
 
 ### Phase 2 — Shared Projection VMs
 
+Status: Implemented.
+
 Task file to create after Phase 1 review:
 `docs/tasks/adr-0026-task-002-shared-projection-vms.md`.
 

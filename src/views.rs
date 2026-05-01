@@ -1,19 +1,19 @@
 use crate::api;
 use crate::db;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArtistRef {
     Musicindex(String),
     LocalArtistName(String),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FeedRef {
     Musicindex(String),
     LocalFeedId(i64),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TrackRef {
     Musicindex(String),
     LocalTrackId(i64),

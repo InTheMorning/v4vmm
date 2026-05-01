@@ -61,6 +61,7 @@
 #![warn(clippy::pedantic)]
 
 pub mod artist;
+pub mod entity_detail;
 pub mod feed;
 pub mod format;
 pub mod library;
