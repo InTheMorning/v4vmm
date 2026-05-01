@@ -214,7 +214,7 @@ The projection view-model layer is partially migrated:
    with one shared detail-surface contract.
 - [x] `library-row-semantics`: remove redundant Library row downloaded labels
    and move remaining row semantics into projections.
-- [ ] `command-intent-finish`: finish narrow intent/result extraction where it
+- [x] `command-intent-finish`: finish narrow intent/result extraction where it
    materially reduces screen glue.
 - [ ] `boundary-gates`: add automated architecture tests for ADR 0023 import
    and token-literal boundaries.

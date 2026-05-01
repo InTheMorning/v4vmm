@@ -221,12 +221,12 @@ Shipped view-models:
   handles, service dispatch, and several direct VM field transitions during
   the migration. Endpoint-reset and recent-feed loading transitions now
   route through VM methods and pure command intent; main search
-  loading/result application and playlist append state now follow the same
-  pattern.
+  loading/result application, playlist append state, and inspector
+  subscribe/unsubscribe command messages now follow the same pattern.
 - `view_models::library::{LibraryViewModel, LibrarySnapshot}` — stateful
   library screen VM owning pure read snapshots (`tree`, playlists, playlist
-  tracks), staged `MusicBrainz` lookups, per-track MB status, and feed-update
-  workflow state.
+  tracks), staged `MusicBrainz` lookups, per-track MB status, `MusicBrainz`
+  lookup status transitions, and feed-update workflow state.
 - `view_models::library::LibraryTreeProjection` — filtered tree plus render
   expansion state for the library sidebar.
 - `view_models::library::PlaylistSidebarVm` — playlist sidebar header and
@@ -472,7 +472,7 @@ already true at merge of PR #5; others are explicitly tracked in
       detail-surface contract rather than parallel page skeletons.
 - [x] Library album track rows do not show redundant downloaded labels when
       membership is already represented by the `Remove` action.
-- [ ] Remaining high-noise screen status/command setup is represented by
+- [x] Remaining high-noise screen status/command setup is represented by
       narrow intent/result values where it materially thins the screens.
 - [ ] Automated architecture tests enforce GPUI-free `view_models`, token
       literal rules in screen modules, and no hardcoded dark render defaults.

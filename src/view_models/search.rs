@@ -316,6 +316,13 @@ pub(crate) struct ActionRowVm<'a> {
     subscription_message: Option<&'a str>,
 }
 
+/// Pure command label/message semantics for inspector subscription actions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SearchSubscriptionCommand {
+    Download,
+    Remove,
+}
+
 /// Display and identity projection for per-track row actions in Discover.
 ///
 /// The screen owns GPUI buttons and service dispatch. This VM owns the stable
@@ -402,6 +409,24 @@ impl<'a> ActionRowVm<'a> {
             // `to_lowercase` only happens once and only on the message.
             m.to_lowercase().contains("error")
         })
+    }
+}
+
+impl SearchSubscriptionCommand {
+    #[must_use]
+    pub(crate) fn begin_message(self) -> &'static str {
+        match self {
+            Self::Download => "Downloading...",
+            Self::Remove => "Removing...",
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn error_message(self, error: impl std::fmt::Display) -> String {
+        match self {
+            Self::Download => format!("Download error: {error:#}"),
+            Self::Remove => format!("Remove error: {error:#}"),
+        }
     }
 }
 
@@ -2686,6 +2711,26 @@ mod tests {
         assert!(vm.begin_track_operation("track:1"));
         assert!(vm.is_track_operation_in_flight("track:1"));
         assert!(!vm.begin_track_operation("track:1"));
+    }
+
+    #[test]
+    fn search_subscription_command_formats_begin_and_error_messages() {
+        assert_eq!(
+            SearchSubscriptionCommand::Download.begin_message(),
+            "Downloading..."
+        );
+        assert_eq!(
+            SearchSubscriptionCommand::Remove.begin_message(),
+            "Removing..."
+        );
+        assert_eq!(
+            SearchSubscriptionCommand::Download.error_message("offline"),
+            "Download error: offline"
+        );
+        assert_eq!(
+            SearchSubscriptionCommand::Remove.error_message("locked"),
+            "Remove error: locked"
+        );
     }
 
     #[test]

@@ -662,10 +662,6 @@ impl LibraryViewModel {
         &self.search_query
     }
 
-    pub(crate) fn set_status(&mut self, status: impl Into<String>) {
-        self.status = status.into();
-    }
-
     pub(crate) fn set_error_status(&mut self, error: impl std::fmt::Display) {
         self.status = format!("Error: {error:#}");
     }
@@ -777,6 +773,85 @@ impl LibraryViewModel {
 
     pub(crate) fn clear_mb_status(&mut self) {
         self.snapshot.mb_status.clear();
+    }
+
+    pub(crate) fn begin_musicbrainz_track_lookup(&mut self, track_id: i64) -> bool {
+        if self.has_mb_status(track_id) {
+            return false;
+        }
+        self.set_mb_status(track_id, MbTrackStatus::Processing);
+        self.status = "MusicBrainz lookup...".into();
+        true
+    }
+
+    pub(crate) fn finish_musicbrainz_track_lookup(&mut self, track_id: i64, edit_count: usize) {
+        self.set_mb_status(track_id, MbTrackStatus::Done(edit_count));
+        self.status = format!(
+            "MusicBrainz: staged {edit_count} edit{}",
+            plural(edit_count)
+        );
+    }
+
+    pub(crate) fn fail_musicbrainz_track_lookup(
+        &mut self,
+        track_id: i64,
+        error: impl std::fmt::Display,
+    ) {
+        self.set_mb_status(track_id, MbTrackStatus::Skipped(format!("{error:#}")));
+        self.status = format!("MusicBrainz error: {error:#}");
+    }
+
+    pub(crate) fn begin_musicbrainz_album_lookup(
+        &mut self,
+        track_ids: impl IntoIterator<Item = i64>,
+    ) -> bool {
+        let track_ids: Vec<i64> = track_ids.into_iter().collect();
+        if track_ids.is_empty() {
+            self.status = "No downloaded tracks to process".into();
+            return false;
+        }
+        self.mark_musicbrainz_pending(track_ids.iter().copied());
+        self.status = format!(
+            "MusicBrainz: album lookup for {} tracks...",
+            track_ids.len()
+        );
+        true
+    }
+
+    pub(crate) fn fail_musicbrainz_album_lookup_with_fallback(
+        &mut self,
+        error: impl std::fmt::Display,
+    ) {
+        self.status = format!("Album lookup failed ({error:#}), falling back to per-track...");
+    }
+
+    pub(crate) fn fallback_empty_musicbrainz_album_lookup(&mut self) {
+        self.status = "Album lookup: no results, falling back to per-track...".into();
+    }
+
+    pub(crate) fn begin_musicbrainz_album_track_stage(
+        &mut self,
+        track_id: i64,
+        progress: usize,
+        total_count: usize,
+    ) {
+        self.set_mb_status(track_id, MbTrackStatus::Processing);
+        self.status = format!("MusicBrainz: staging track {progress}/{total_count} ...");
+    }
+
+    pub(crate) fn finish_musicbrainz_album_track_stage(
+        &mut self,
+        track_id: i64,
+        status: MbTrackStatus,
+    ) {
+        self.set_mb_status(track_id, status);
+    }
+
+    pub(crate) fn finish_musicbrainz_album_lookup(&mut self, total_edits: usize, processed: usize) {
+        self.status = format!(
+            "MusicBrainz: staged {total_edits} edit{} across {processed} tracks",
+            plural(total_edits)
+        );
     }
 
     #[must_use]
@@ -2450,10 +2525,10 @@ mod tests {
     #[test]
     fn library_view_model_playlist_append_ignores_empty_track_ids() {
         let mut vm = LibraryViewModel::new();
-        vm.set_status("Ready");
+        vm.finish_library_reload(1);
 
         assert!(vm.begin_playlist_append(12, Vec::new()).is_none());
-        assert_eq!(vm.status(), "Ready");
+        assert_eq!(vm.status(), "1 library track");
     }
 
     #[test]
@@ -2637,10 +2712,8 @@ mod tests {
     }
 
     #[test]
-    fn library_view_model_status_helpers_set_plain_and_error_text() {
+    fn library_view_model_status_helper_sets_error_text() {
         let mut vm = LibraryViewModel::new();
-        vm.set_status("Ready");
-        assert_eq!(vm.status(), "Ready");
         vm.set_error_status("broken");
         assert_eq!(vm.status(), "Error: broken");
     }
@@ -2681,6 +2754,78 @@ mod tests {
 
         vm.clear_mb_status();
         assert!(vm.mb_status().is_empty());
+    }
+
+    #[test]
+    fn library_view_model_musicbrainz_track_lookup_transitions_are_pure() {
+        let mut vm = LibraryViewModel::new();
+        assert!(vm.begin_musicbrainz_track_lookup(7));
+        assert!(!vm.begin_musicbrainz_track_lookup(7));
+        assert_eq!(vm.status(), "MusicBrainz lookup...");
+        assert!(matches!(
+            vm.mb_status().get(&7),
+            Some(MbTrackStatus::Processing)
+        ));
+
+        vm.finish_musicbrainz_track_lookup(7, 1);
+        assert_eq!(vm.status(), "MusicBrainz: staged 1 edit");
+        assert!(matches!(
+            vm.mb_status().get(&7),
+            Some(MbTrackStatus::Done(1))
+        ));
+
+        vm.fail_musicbrainz_track_lookup(8, "offline");
+        assert_eq!(vm.status(), "MusicBrainz error: offline");
+        assert!(matches!(
+            vm.mb_status().get(&8),
+            Some(MbTrackStatus::Skipped(message)) if message == "offline"
+        ));
+    }
+
+    #[test]
+    fn library_view_model_musicbrainz_album_lookup_transitions_are_pure() {
+        let mut vm = LibraryViewModel::new();
+        assert!(!vm.begin_musicbrainz_album_lookup([]));
+        assert_eq!(vm.status(), "No downloaded tracks to process");
+
+        assert!(vm.begin_musicbrainz_album_lookup([7, 8]));
+        assert_eq!(vm.status(), "MusicBrainz: album lookup for 2 tracks...");
+        assert!(matches!(
+            vm.mb_status().get(&7),
+            Some(MbTrackStatus::Pending)
+        ));
+        assert!(matches!(
+            vm.mb_status().get(&8),
+            Some(MbTrackStatus::Pending)
+        ));
+
+        vm.fail_musicbrainz_album_lookup_with_fallback("offline");
+        assert_eq!(
+            vm.status(),
+            "Album lookup failed (offline), falling back to per-track..."
+        );
+        vm.fallback_empty_musicbrainz_album_lookup();
+        assert_eq!(
+            vm.status(),
+            "Album lookup: no results, falling back to per-track..."
+        );
+
+        vm.begin_musicbrainz_album_track_stage(7, 1, 2);
+        assert_eq!(vm.status(), "MusicBrainz: staging track 1/2 ...");
+        assert!(matches!(
+            vm.mb_status().get(&7),
+            Some(MbTrackStatus::Processing)
+        ));
+        vm.finish_musicbrainz_album_track_stage(7, MbTrackStatus::Done(2));
+        assert!(matches!(
+            vm.mb_status().get(&7),
+            Some(MbTrackStatus::Done(2))
+        ));
+
+        vm.finish_musicbrainz_album_lookup(1, 2);
+        assert_eq!(vm.status(), "MusicBrainz: staged 1 edit across 2 tracks");
+        vm.finish_musicbrainz_album_lookup(3, 2);
+        assert_eq!(vm.status(), "MusicBrainz: staged 3 edits across 2 tracks");
     }
 
     #[test]

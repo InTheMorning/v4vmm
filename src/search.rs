@@ -56,7 +56,8 @@ use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, search_result_type_is_visible, ActionRowVm, ContributorVm,
     LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm,
-    ResultRow, SearchBatch, SearchViewModel, TrackInspectorHeaderVm, TrackRowActionVm,
+    ResultRow, SearchBatch, SearchSubscriptionCommand, SearchViewModel, TrackInspectorHeaderVm,
+    TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
 
@@ -1016,8 +1017,9 @@ impl SearchApp {
             | InspectorDetail::Publisher(_) => return,
         };
 
+        let command = SearchSubscriptionCommand::Download;
         frame.subscription_busy = true;
-        frame.subscription_message = Some("Downloading...".into());
+        frame.subscription_message = Some(command.begin_message().into());
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -1049,7 +1051,7 @@ impl SearchApp {
                                     }
                                     Err(error) => {
                                         frame.subscription_message =
-                                            Some(format!("Download error: {error:#}"));
+                                            Some(command.error_message(error));
                                     }
                                 }
                             }
@@ -1097,8 +1099,9 @@ impl SearchApp {
             | InspectorDetail::Publisher(_) => return,
         };
 
+        let command = SearchSubscriptionCommand::Remove;
         frame.subscription_busy = true;
-        frame.subscription_message = Some("Removing...".into());
+        frame.subscription_message = Some(command.begin_message().into());
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -1124,7 +1127,7 @@ impl SearchApp {
                                     }
                                     Err(error) => {
                                         frame.subscription_message =
-                                            Some(format!("Remove error: {error:#}"));
+                                            Some(command.error_message(error));
                                     }
                                 }
                             }

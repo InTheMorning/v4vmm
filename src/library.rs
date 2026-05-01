@@ -1269,11 +1269,9 @@ impl LibraryApp {
 
     #[allow(dead_code)]
     fn musicbrainz_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
-        if self.vm.has_mb_status(track.id) {
+        if !self.vm.begin_musicbrainz_track_lookup(track.id) {
             return;
         }
-        self.vm.set_mb_status(track.id, MbTrackStatus::Processing);
-        self.vm.set_status("MusicBrainz lookup...");
         cx.notify();
 
         let track_id = track.id;
@@ -1292,18 +1290,10 @@ impl LibraryApp {
                             Ok(staged) => {
                                 let n = staged.edit_count;
                                 this.stage_musicbrainz_lookup_for_track(track_id, staged.lookup);
-                                this.vm.set_mb_status(track_id, MbTrackStatus::Done(n));
-                                this.vm.set_status(format!(
-                                    "MusicBrainz: staged {n} edit{}",
-                                    if n == 1 { "" } else { "s" }
-                                ));
+                                this.vm.finish_musicbrainz_track_lookup(track_id, n);
                             }
                             Err(err) => {
-                                this.vm.set_mb_status(
-                                    track_id,
-                                    MbTrackStatus::Skipped(format!("{err:#}")),
-                                );
-                                this.vm.set_status(format!("MusicBrainz error: {err:#}"));
+                                this.vm.fail_musicbrainz_track_lookup(track_id, err);
                             }
                         }
                         cx.notify();
@@ -1321,17 +1311,13 @@ impl LibraryApp {
             .into_iter()
             .filter(|t| t.local_path.is_some())
             .collect();
-        if downloadable.is_empty() {
-            self.vm.set_status("No downloaded tracks to process");
+        if !self
+            .vm
+            .begin_musicbrainz_album_lookup(downloadable.iter().map(|track| track.id))
+        {
             cx.notify();
             return;
         }
-        self.vm
-            .mark_musicbrainz_pending(downloadable.iter().map(|track| track.id));
-        self.vm.set_status(format!(
-            "MusicBrainz: album lookup for {} tracks...",
-            downloadable.len()
-        ));
         cx.notify();
 
         let conn = Arc::clone(&self.conn);
@@ -1374,9 +1360,7 @@ impl LibraryApp {
                         this.update(
                             cx,
                             move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                                this.vm.set_status(format!(
-                                    "Album lookup failed ({err:#}), falling back to per-track..."
-                                ));
+                                this.vm.fail_musicbrainz_album_lookup_with_fallback(err);
                                 cx.notify();
                             },
                         )
@@ -1398,9 +1382,7 @@ impl LibraryApp {
                     this.update(
                         cx,
                         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                            this.vm.set_status(
-                                "Album lookup: no results, falling back to per-track...",
-                            );
+                            this.vm.fallback_empty_musicbrainz_album_lookup();
                             cx.notify();
                         },
                     )
@@ -1426,10 +1408,11 @@ impl LibraryApp {
                     this.update(
                         cx,
                         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                            this.vm.set_mb_status(track_id, MbTrackStatus::Processing);
-                            this.vm.set_status(format!(
-                                "MusicBrainz: staging track {progress}/{total_count} ...",
-                            ));
+                            this.vm.begin_musicbrainz_album_track_stage(
+                                track_id,
+                                progress,
+                                total_count,
+                            );
                             cx.notify();
                         },
                     )
@@ -1475,7 +1458,8 @@ impl LibraryApp {
                     this.update(
                         cx,
                         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                            this.vm.set_mb_status(track_id, status_clone);
+                            this.vm
+                                .finish_musicbrainz_album_track_stage(track_id, status_clone);
                             cx.notify();
                         },
                     )
@@ -1485,11 +1469,8 @@ impl LibraryApp {
                 this.update(
                     cx,
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        this.vm.set_status(format!(
-                            "MusicBrainz: staged {total_edits} edit{} across {} tracks",
-                            if total_edits == 1 { "" } else { "s" },
-                            processed,
-                        ));
+                        this.vm
+                            .finish_musicbrainz_album_lookup(total_edits, processed);
                         cx.notify();
                     },
                 )
@@ -1572,10 +1553,8 @@ async fn musicbrainz_feed_per_track(
         this.update(
             cx,
             move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                this.vm.set_mb_status(track_id, MbTrackStatus::Processing);
-                this.vm.set_status(format!(
-                    "MusicBrainz: staging track {progress}/{total_count} ...",
-                ));
+                this.vm
+                    .begin_musicbrainz_album_track_stage(track_id, progress, total_count);
                 cx.notify();
             },
         )
@@ -1610,7 +1589,8 @@ async fn musicbrainz_feed_per_track(
         this.update(
             cx,
             move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                this.vm.set_mb_status(track_id, status_clone);
+                this.vm
+                    .finish_musicbrainz_album_track_stage(track_id, status_clone);
                 cx.notify();
             },
         )
@@ -1626,11 +1606,8 @@ async fn musicbrainz_feed_per_track(
     this.update(
         cx,
         move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-            this.vm.set_status(format!(
-                "MusicBrainz: staged {total_edits} edit{} across {} tracks",
-                if total_edits == 1 { "" } else { "s" },
-                processed,
-            ));
+            this.vm
+                .finish_musicbrainz_album_lookup(total_edits, processed);
             cx.notify();
         },
     )

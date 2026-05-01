@@ -30,6 +30,9 @@ architecture without fighting screen-specific UI drift.
   `ReleaseDetailSurface` layout contract.
 - Library album rows no longer expose redundant per-row downloaded text;
   membership is expressed by the `Remove` or `Download` action.
+- High-noise Library `MusicBrainz` status transitions and Discover inspector
+  subscribe/unsubscribe begin/error messages now route through GPUI-free
+  view-model command/status helpers.
 - The old `docs/reviews/adr-0023-final-implementation-review.md` is too
   optimistic and is superseded by this finalization plan.
 
@@ -86,7 +89,7 @@ architecture without fighting screen-specific UI drift.
 3. Completed `adr-0023-task-008-library-row-semantics`: remove redundant Library row
    downloaded labels and move remaining album-row labels/actions into
    projections.
-4. `adr-0023-task-009-command-intent-finish`: add narrow command intents for
+4. Completed `adr-0023-task-009-command-intent-finish`: add narrow command intents for
    the remaining high-noise screen workflows, without building a broad bus.
 5. `adr-0023-task-010-boundary-gates`: add automated architecture tests for
    GPUI-free view-models, no screen-level raw color/layout literals, and no

@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Completed 2026-04-30.
 
 ## Task Goal
 
@@ -60,12 +60,23 @@ without introducing a broad command bus.
 
 ## Acceptance Criteria
 
-- The largest remaining duplicated status/command setup paths are mediated by
+- [x] The largest remaining duplicated status/command setup paths are mediated by
   view-model intent/result values.
-- No GPUI imports are added to `view_models`.
-- No broad command bus or event bus is introduced.
-- User-visible behavior is preserved except for intentionally improved copy
+- [x] No GPUI imports are added to `view_models`.
+- [x] No broad command bus or event bus is introduced.
+- [x] User-visible behavior is preserved except for intentionally improved copy
   documented in the final report.
+
+## Result
+
+- Moved Library `MusicBrainz` track and album lookup status/state transitions
+  into `LibraryViewModel` methods. The screen still performs lookup dispatch,
+  candidate matching, staging, and persistence.
+- Moved Discover inspector subscribe/unsubscribe begin/error message
+  formatting into `SearchSubscriptionCommand`.
+- Removed the generic Library VM `set_status` backdoor after the remaining
+  callers moved to typed transitions.
+- Added focused Library/Search VM tests for the new pure transitions.
 
 ## Test Commands
 
