@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-01.
+Implemented - 2026-05-01.
 
 ## Goal
 
@@ -62,7 +62,19 @@ the same GPUI-free identity projections as Discover when facts are known.
 4. Library/Discover identity visual smoke.
    Task: `docs/tasks/adr-0028-task-004-identity-visual-smoke.md`.
 5. Cleanup and architecture gates.
-   Task to create only if phases 1-4 add compatibility shims.
+   Task: `docs/tasks/adr-0028-task-005-cleanup-and-gates.md`.
+
+## Implemented State
+
+- Local source-fact tables and source-scoped DB helpers exist for identity
+  links, identity ids, and contributors.
+- MusicIndex and RSS ingest/update paths persist known source facts without
+  inference.
+- Local feed and track hydration returns GPUI-free `views::*` identity facts.
+- Library and Discover release details both render shared Website/Nostr
+  identity actions when facts are available.
+- `src/local_identity.rs` owns the SQLite-row to `views::*` mapping and is
+  covered by the non-UI architecture-test boundary.
 
 ## Task 001 Scope
 
@@ -101,6 +113,10 @@ the same GPUI-free identity projections as Discover when facts are known.
 - Architecture tests that keep shared projections database-free.
 - Manual visual smoke after Library hydration.
 
+Additional final gate:
+
+- Architecture tests cover the local identity mapper as non-UI core code.
+
 Required verification before each implementation commit:
 
 ```bash
@@ -118,3 +134,11 @@ Run broader `cargo test` before marking a task implemented.
 - If ingest persistence causes incorrect facts, disable the ingest call sites
   while leaving the additive schema harmless.
 - Do not remove existing JSON fields or scalar metadata during this ADR.
+
+## Deferred Work
+
+- Library contributor facts are persisted and hydrated, but Library release
+  detail still needs a bounded contributor-panel slot if those facts should be
+  visually inspectable there.
+- Artist-level local identity remains deferred to a future artist/person
+  persistence ADR.

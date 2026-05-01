@@ -11,6 +11,7 @@ pub mod feed_service;
 pub mod identity_ingest;
 pub mod library;
 pub mod library_service;
+pub(crate) mod local_identity;
 pub mod media;
 pub mod metadata;
 pub mod metadata_service;

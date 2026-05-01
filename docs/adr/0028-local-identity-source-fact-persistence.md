@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-01.
+Implemented - 2026-05-01.
 
 ## Context
 
@@ -312,5 +312,8 @@ Task 001, the task should stop and revise this ADR before implementation.
 - Task 002: MusicIndex and RSS ingest persistence.
 - Task 003: local view hydration and projection tests.
 - Task 004: Library/Discover identity visual smoke.
+- Task 005: cleanup and architecture gates.
+- A bounded Library contributor-panel task may surface already-hydrated local
+  contributor facts visually; the facts already persist and hydrate.
 - A later ADR may introduce global artist/person identity if product behavior
   requires reconciliation across feeds.

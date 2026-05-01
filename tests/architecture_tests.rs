@@ -63,6 +63,7 @@ const APPLICATION_FORBIDDEN_PATTERNS: &[&str] = &[
 const NON_UI_CORE_PATHS: &[&str] = &[
     "src/config.rs",
     "src/feed_service.rs",
+    "src/local_identity.rs",
     "src/library_service.rs",
     "src/metadata.rs",
     "src/metadata_service.rs",

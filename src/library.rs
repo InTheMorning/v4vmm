@@ -85,10 +85,7 @@ use crate::view_models::library::{
     TrackSubscribeOutcome,
 };
 use crate::view_models::track::TrackVm;
-use crate::views::{
-    ContributorView, FeedView, IdentityIdFact, IdentityLinkFact, LocalIdentityFacts, TrackRef,
-    TrackView,
-};
+use crate::views::{FeedView, TrackRef, TrackView};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1615,7 +1612,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         feed_url,
                         image_href,
                         identity_facts: feed_id
-                            .map(|fid| local_feed_identity_facts(conn, fid))
+                            .and_then(|fid| crate::local_identity::feed_facts(conn, fid).ok())
                             .unwrap_or_default(),
                         tracks,
                     }
@@ -1629,58 +1626,6 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
         .collect();
 
     LibraryTree { artists }
-}
-
-fn local_feed_identity_facts(conn: &Connection, feed_id: i64) -> LocalIdentityFacts {
-    let identity_owner = db::LocalIdentityOwner::Feed(feed_id);
-    let entity_owner = db::LocalEntityOwner::Feed(feed_id);
-
-    let source_links = db::local_identity_links(conn, identity_owner)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|row| IdentityLinkFact {
-            entity_type: row.entity_type,
-            entity_id: row.entity_id,
-            position: row.position,
-            link_type: row.link_type,
-            url: row.url,
-            source: Some(row.source),
-            extraction_path: row.extraction_path,
-            observed_at: row.observed_at,
-        })
-        .collect();
-    let source_ids = db::local_identity_ids(conn, identity_owner)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|row| IdentityIdFact {
-            entity_type: row.entity_type,
-            entity_id: row.entity_id,
-            position: row.position,
-            scheme: row.scheme,
-            value: row.value,
-            source: Some(row.source),
-            extraction_path: row.extraction_path,
-            observed_at: row.observed_at,
-        })
-        .collect();
-    let contributors = db::local_contributors(conn, entity_owner)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|row| ContributorView {
-            name: row.name,
-            role: row.role,
-            group_name: row.group_name,
-            href: row.href,
-            image_url: row.image_url,
-            nostr_npub: row.nostr_npub,
-        })
-        .collect();
-
-    LocalIdentityFacts {
-        source_links,
-        source_ids,
-        contributors,
-    }
 }
 
 // ---------------------------------------------------------------------------

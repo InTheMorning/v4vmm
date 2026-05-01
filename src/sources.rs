@@ -5,10 +5,8 @@ use std::sync::{Arc, Mutex};
 use crate::api;
 use crate::db;
 use crate::library_service;
-use crate::views::{
-    ArtistRef, ArtistView, ContributorView, FeedRef, FeedView, IdentityIdFact, IdentityLinkFact,
-    LocalIdentityFacts, TrackRef, TrackView,
-};
+use crate::local_identity;
+use crate::views::{ArtistRef, ArtistView, FeedRef, FeedView, TrackRef, TrackView};
 
 #[derive(Clone, Copy, Debug)]
 pub enum FetchMode {
@@ -106,62 +104,8 @@ impl LocalSource {
     }
 }
 
-fn local_identity_facts(
-    conn: &Connection,
-    identity_owner: db::LocalIdentityOwner,
-    entity_owner: db::LocalEntityOwner,
-) -> Result<LocalIdentityFacts> {
-    let source_links = db::local_identity_links(conn, identity_owner)?
-        .into_iter()
-        .map(|row| IdentityLinkFact {
-            entity_type: row.entity_type,
-            entity_id: row.entity_id,
-            position: row.position,
-            link_type: row.link_type,
-            url: row.url,
-            source: Some(row.source),
-            extraction_path: row.extraction_path,
-            observed_at: row.observed_at,
-        })
-        .collect();
-    let source_ids = db::local_identity_ids(conn, identity_owner)?
-        .into_iter()
-        .map(|row| IdentityIdFact {
-            entity_type: row.entity_type,
-            entity_id: row.entity_id,
-            position: row.position,
-            scheme: row.scheme,
-            value: row.value,
-            source: Some(row.source),
-            extraction_path: row.extraction_path,
-            observed_at: row.observed_at,
-        })
-        .collect();
-    let contributors = db::local_contributors(conn, entity_owner)?
-        .into_iter()
-        .map(|row| ContributorView {
-            name: row.name,
-            role: row.role,
-            group_name: row.group_name,
-            href: row.href,
-            image_url: row.image_url,
-            nostr_npub: row.nostr_npub,
-        })
-        .collect();
-
-    Ok(LocalIdentityFacts {
-        source_links,
-        source_ids,
-        contributors,
-    })
-}
-
 fn local_track_view(conn: &Connection, row: db::TrackRow) -> Result<TrackView> {
-    let facts = local_identity_facts(
-        conn,
-        db::LocalIdentityOwner::Track(row.id),
-        db::LocalEntityOwner::Track(row.id),
-    )?;
+    let facts = local_identity::track_facts(conn, row.id)?;
     Ok(TrackView::from_local_with_identity(row, facts))
 }
 
@@ -174,11 +118,7 @@ fn local_feed_view(
         .into_iter()
         .map(|row| local_track_view(conn, row))
         .collect::<Result<Vec<_>>>()?;
-    let facts = local_identity_facts(
-        conn,
-        db::LocalIdentityOwner::Feed(feed_row.id),
-        db::LocalEntityOwner::Feed(feed_row.id),
-    )?;
+    let facts = local_identity::feed_facts(conn, feed_row.id)?;
     Ok(FeedView::from_local_with_identity(
         feed_row,
         track_views,
