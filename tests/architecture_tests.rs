@@ -48,6 +48,17 @@ const SCREEN_METADATA_FEED_FORBIDDEN_PATTERNS: &[&str] = &[
     "lookup_releases(",
 ];
 
+const SCREEN_PLAYBACK_FORBIDDEN_PATTERNS: &[&str] = &[
+    "playback_owner.play_playlist_at(",
+    "playback_owner.skip_next(",
+    "playback_owner.skip_previous(",
+    "playback_owner.pause(",
+    "playback_owner.stop(",
+    "playback::now_playing_update(",
+    "db::playback_session(",
+    "StartPlayback",
+];
+
 const SCREEN_FILES: &[&str] = &["src/app.rs", "src/library.rs", "src/search.rs"];
 
 #[test]
@@ -193,6 +204,30 @@ fn screens_do_not_call_migrated_feed_update_paths() {
     assert!(
         violations.is_empty(),
         "ADR 0024 feed-update screen boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_call_migrated_playback_paths() {
+    let mut violations = Vec::new();
+    for file in SCREEN_FILES {
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in SCREEN_PLAYBACK_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: migrated playback workflows must go through ADR 0024 commands/queries, not `{pattern}`: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0024 playback screen boundary violations:\n{}",
         violations.join("\n")
     );
 }

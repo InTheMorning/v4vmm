@@ -118,9 +118,10 @@ playback workflows.
    release lookup route through commands and local feed queries. Remaining
    cleanup is limited to deciding whether staged metadata needs a durable read
    model or should stay as transient GPUI-free view-model state.
-6. `adr-0024-task-006-playback-slice`: route playback transport commands and
-   playback snapshots through the application layer while preserving the
-   existing playback owner/driver boundary.
+6. In progress `adr-0024-task-006-playback-slice`: route playback transport
+   commands and playback snapshots through the application layer while
+   preserving the existing playback owner/driver boundary. Volume remains
+   deferred until the playback driver boundary has an approved volume contract.
 7. `adr-0024-task-007-presentation-cleanup`: after migrated workflows leave the
    screens, split or simplify presentation modules only where it improves
    comprehension.

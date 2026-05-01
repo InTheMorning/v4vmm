@@ -13,6 +13,10 @@ use gpui_component::input::{Input, InputState};
 use gpui_component::{Root, Size};
 use rusqlite::Connection;
 
+use crate::application::commands::playback::{
+    PausePlayback, PlayPlaylistAt, ResumePlayback, SkipPlaybackNext, SkipPlaybackPrevious,
+    StopPlayback,
+};
 use crate::application::{ApplicationEvent, ApplicationEventSubscriber, ApplicationServices};
 use crate::config;
 use crate::db;
@@ -22,7 +26,7 @@ use crate::media::ImageCache;
 use crate::playback;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
-use crate::presentation::{GpuiEventBridge, PresentationEventBridge};
+use crate::presentation::{GpuiCommandRunner, GpuiEventBridge, PresentationEventBridge};
 use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::composites::{NowPlayingBar, NowPlayingData, NowPlayingState};
 use crate::ui::sizable_bridge::SizableScaled;
@@ -71,17 +75,12 @@ pub struct TopApp {
     settings_tab_focus: gpui::FocusHandle,
     _search_sub: gpui::Subscription,
     _library_sub: gpui::Subscription,
-    playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
+    playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
     conn: Arc<Mutex<Connection>>,
     cached_tree: LibraryTree,
+    application_services: Arc<ApplicationServices>,
+    command_runner: GpuiCommandRunner,
     application_event_bridge: Arc<GpuiEventBridge>,
-}
-
-#[derive(Clone, Debug, Default)]
-struct PlaybackBarState {
-    active: bool,
-    paused: bool,
-    title: String,
 }
 
 impl TopApp {
@@ -93,6 +92,10 @@ impl TopApp {
         clippy::needless_pass_by_value,
         reason = "bootstrap takes ownership of shared app resources before distributing them to child entities"
     )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "top-level app bootstrap still owns one-time child entity and service wiring"
+    )]
     fn new(
         conn: Arc<Mutex<Connection>>,
         image_cache: Arc<ImageCache>,
@@ -101,7 +104,7 @@ impl TopApp {
         music_dir: PathBuf,
         flac_path: Option<PathBuf>,
         ui_scale: crate::config::UiScale,
-        playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
+        playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -119,6 +122,10 @@ impl TopApp {
         application_services
             .event_bus()
             .subscribe(application_event_subscriber);
+        let command_runner = GpuiCommandRunner::new(
+            application_services.command_bus(),
+            application_services.event_bus(),
+        );
         let search_services = Arc::clone(&application_services);
         let library_services = Arc::clone(&application_services);
         let search = cx.new(|cx| {
@@ -199,17 +206,26 @@ impl TopApp {
             playback_owner,
             conn,
             cached_tree: LibraryTree::default(),
+            application_services,
+            command_runner,
             application_event_bridge,
         }
     }
 
     fn maybe_start_playback_polling(&mut self, cx: &mut Context<Self>) {
-        if !self.playback_owner.driver().is_live_driver() {
+        if !self
+            .playback_owner
+            .lock()
+            .expect("lock playback owner")
+            .driver()
+            .is_live_driver()
+        {
             return;
         }
         {
             let conn = self.conn.lock().expect("lock db");
-            if let Err(error) = self.playback_owner.load_current_session(&conn) {
+            let mut playback_owner = self.playback_owner.lock().expect("lock playback owner");
+            if let Err(error) = playback_owner.load_current_session(&conn) {
                 self.settings_status = format!("Playback error: {error:#}");
             }
         }
@@ -234,7 +250,8 @@ impl TopApp {
 
     fn poll_playback_owner(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.poll(&conn) {
+        let mut playback_owner = self.playback_owner.lock().expect("lock playback owner");
+        match playback_owner.poll(&conn) {
             Ok(PollOutcome::NoSession | PollOutcome::Reconciled(None)) => {}
             Ok(PollOutcome::Reconciled(Some(_)) | PollOutcome::Advanced(_)) => {
                 self.settings_status.clear();
@@ -251,91 +268,69 @@ impl TopApp {
         playlist_position: i64,
         cx: &mut Context<Self>,
     ) {
-        let conn = self.conn.lock().expect("lock db");
-        match self
-            .playback_owner
-            .play_playlist_at(&conn, playlist_id, playlist_position)
-        {
-            Ok(update) => {
-                self.settings_status = format!("Playing {}", update.title);
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
-        cx.notify();
+        let command = PlayPlaylistAt::new(
+            Arc::clone(&self.conn),
+            Arc::clone(&self.playback_owner),
+            playlist_id,
+            playlist_position,
+        );
+        self.run_playback_command(command, cx);
     }
 
     fn skip_playback_next(&mut self, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.skip_next(&conn) {
-            Ok(update) => {
-                self.settings_status = format!("Playing {}", update.title);
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
-        cx.notify();
+        let command =
+            SkipPlaybackNext::new(Arc::clone(&self.conn), Arc::clone(&self.playback_owner));
+        self.run_playback_command(command, cx);
     }
 
     fn skip_playback_previous(&mut self, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.skip_previous(&conn) {
-            Ok(update) => {
-                self.settings_status = format!("Playing {}", update.title);
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
-        cx.notify();
+        let command =
+            SkipPlaybackPrevious::new(Arc::clone(&self.conn), Arc::clone(&self.playback_owner));
+        self.run_playback_command(command, cx);
     }
 
-    fn set_playback_paused(&mut self, paused: bool, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.pause(&conn, paused) {
-            Ok(update) => {
-                let verb = if paused { "Paused" } else { "Playing" };
-                self.settings_status = format!("{verb} {}", update.title);
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
+    fn toggle_playback_paused(&mut self, cx: &mut Context<Self>) {
+        if self.playback_bar_state().is_paused() {
+            let command =
+                ResumePlayback::new(Arc::clone(&self.conn), Arc::clone(&self.playback_owner));
+            self.run_playback_command(command, cx);
+        } else {
+            let command =
+                PausePlayback::new(Arc::clone(&self.conn), Arc::clone(&self.playback_owner));
+            self.run_playback_command(command, cx);
         }
-        cx.notify();
     }
 
-    fn stop_playback_owner(&mut self, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.stop(&conn) {
-            Ok(_) => {
-                self.settings_status = "Playback stopped".to_string();
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
-        cx.notify();
+    fn stop_playback(&mut self, cx: &mut Context<Self>) {
+        let command = StopPlayback::new(Arc::clone(&self.conn), Arc::clone(&self.playback_owner));
+        self.run_playback_command(command, cx);
     }
 
-    fn playback_bar_state(&self) -> PlaybackBarState {
+    fn playback_bar_state(&self) -> crate::application::queries::playback::PlaybackSnapshot {
         let conn = self.conn.lock().expect("lock db");
-        let Ok(Some(session)) = db::playback_session(&conn, playback::DEFAULT_SESSION_ID) else {
-            return PlaybackBarState::default();
-        };
-        if session.state == "stopped" {
-            return PlaybackBarState::default();
-        }
-        let title = playback::now_playing_update(&conn, playback::DEFAULT_SESSION_ID)
-            .ok()
-            .flatten()
-            .map_or_else(|| "Current track".to_string(), |update| update.title);
-        PlaybackBarState {
-            active: true,
-            paused: session.state == "paused",
-            title,
-        }
+        self.application_services
+            .query_service()
+            .playback_snapshot(&conn, playback::DEFAULT_SESSION_ID)
+            .unwrap_or_default()
+    }
+
+    fn run_playback_command<C>(&self, command: C, cx: &mut Context<Self>)
+    where
+        C: crate::application::ApplicationCommand<
+            Output = crate::application::commands::playback::PlaybackCommandResult,
+        >,
+    {
+        self.command_runner.run(
+            command,
+            crate::application::CommandContext::next(),
+            cx,
+            |this, result, _cx| {
+                this.settings_status = result.message().to_string();
+            },
+            |this, error, _cx| {
+                this.settings_status = format!("Playback error: {error:#}");
+            },
+        );
     }
 
     fn set_ui_scale(&mut self, scale: crate::config::UiScale, cx: &mut Context<Self>) {
@@ -961,27 +956,24 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
 
 fn build_playback_bar(app: &TopApp, cx: &mut Context<TopApp>) -> NowPlayingBar {
     let state = app.playback_bar_state();
-    let np_state = if !state.active {
+    let np_state = if !state.is_active() {
         None
-    } else if state.paused {
+    } else if state.is_paused() {
         Some(NowPlayingState::Paused)
     } else {
         Some(NowPlayingState::Playing)
     };
     NowPlayingBar::new()
         .data(NowPlayingData {
-            title: state.active.then_some(state.title),
+            title: state.title().map(str::to_string),
             artist: None,
             state: np_state,
             thumbnail: None,
         })
         .on_prev(cx.listener(|this, _, _, cx| this.skip_playback_previous(cx)))
-        .on_play_pause(cx.listener(|this, _, _, cx| {
-            let toggle = !this.playback_bar_state().paused;
-            this.set_playback_paused(toggle, cx);
-        }))
+        .on_play_pause(cx.listener(|this, _, _, cx| this.toggle_playback_paused(cx)))
         .on_next(cx.listener(|this, _, _, cx| this.skip_playback_next(cx)))
-        .on_stop(cx.listener(|this, _, _, cx| this.stop_playback_owner(cx)))
+        .on_stop(cx.listener(|this, _, _, cx| this.stop_playback(cx)))
 }
 
 fn render_app_tab(
@@ -1078,7 +1070,10 @@ pub fn run_app() {
         let conn = Arc::new(Mutex::new(conn));
         let playback_driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)
             .expect("configure playback driver");
-        let playback_owner = PlaybackOwner::new(playback_driver, playback::DEFAULT_SESSION_ID);
+        let playback_owner = Arc::new(Mutex::new(PlaybackOwner::new(
+            playback_driver,
+            playback::DEFAULT_SESSION_ID,
+        )));
 
         let thumbnail_cache_dir = cfg_path
             .parent()
