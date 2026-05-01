@@ -63,7 +63,8 @@ use crate::ui::primitives::{
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorListVm, ContributorRowVm, EntityActionTarget, EntityActionTone,
+    ContributorListVm, ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone,
+    MetadataPanelState, TrackMetadataActionState,
 };
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
@@ -73,7 +74,7 @@ use crate::view_models::search::{
     TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
-use crate::views::{ContributorView, FeedRef};
+use crate::views::{ContributorView, FeedRef, TrackRef};
 
 #[derive(Clone, Debug)]
 pub(crate) enum InspectorDetail {
@@ -2670,6 +2671,8 @@ pub(crate) fn render_action_row(
     } else {
         None
     };
+    let metadata_target = EntityActionTarget::Track(TrackRef::Musicindex(frame.entity_id.clone()));
+    let metadata_actions = track_metadata_action_state(frame).actions(metadata_target);
     let playlist_label = if is_feed {
         release_playlist_action.as_ref().map_or_else(
             || vm.add_to_playlist_label().to_string(),
@@ -2712,6 +2715,24 @@ pub(crate) fn render_action_row(
         .when(frame.add_to_playlist_open, |el| {
             el.child(render_add_to_playlist_panel_search(frame, app, cx))
         })
+        .children(
+            metadata_actions
+                .into_iter()
+                .map(|action| {
+                    let kind = action.kind.clone();
+                    action_button(&action.label, cx)
+                        .disabled(!action.enabled)
+                        .on_click(cx.listener(move |this, _, _, cx| match kind {
+                            EntityActionKind::CompareMetadata => this.toggle_tag_compare(cx),
+                            EntityActionKind::OpenMusicBrainz => {
+                                this.toggle_musicbrainz_lookup(cx);
+                            }
+                            _ => {}
+                        }))
+                        .into_any_element()
+                })
+                .collect::<Vec<_>>(),
+        )
         .when_some(
             vm.subscription_message().map(str::to_string),
             |el, message| {
@@ -3248,7 +3269,7 @@ fn track_metadata_rows_for_frame(
         LazyPanel::Loaded(lookup) => selected_musicbrainz_candidate(frame, lookup),
         _ => None,
     };
-    let show_musicbrainz = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
+    let show_musicbrainz = track_metadata_action_state(frame).show_musicbrainz_panel();
     let rows = result.map_or_else(
         || track_metadata_rows(track_context, selected_musicbrainz, show_musicbrainz),
         |result| {
@@ -3262,6 +3283,23 @@ fn track_metadata_rows_for_frame(
         },
     );
     expand_woar_metadata_rows(rows)
+}
+
+fn track_metadata_action_state(frame: &InspectorFrame) -> TrackMetadataActionState {
+    TrackMetadataActionState::new(
+        metadata_panel_state(&frame.tag_compare),
+        metadata_panel_state(&frame.musicbrainz_lookup),
+        frame.entity_type == "track",
+    )
+}
+
+fn metadata_panel_state<T>(panel: &LazyPanel<T>) -> MetadataPanelState {
+    match panel {
+        LazyPanel::Hidden => MetadataPanelState::Hidden,
+        LazyPanel::Loading => MetadataPanelState::Loading,
+        LazyPanel::Loaded(_) => MetadataPanelState::Loaded,
+        LazyPanel::Empty(_) => MetadataPanelState::Empty,
+    }
 }
 
 #[expect(

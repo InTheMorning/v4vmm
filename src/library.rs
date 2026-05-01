@@ -73,7 +73,10 @@ use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, 
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{render_release_detail_shell, ReleaseDetailSlots, TrackSectionSlot};
-use crate::view_models::entity_detail::{EntityActionKind, EntitySurfaceContext, ReleaseDetailVm};
+use crate::view_models::entity_detail::{
+    EntityActionKind, EntityActionTarget, EntitySurfaceContext, MetadataPanelState,
+    ReleaseDetailVm, TrackMetadataActionState,
+};
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
     LibraryTrackActionVm, LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind,
@@ -81,7 +84,7 @@ use crate::view_models::library::{
     TrackSubscribeOutcome,
 };
 use crate::view_models::track::TrackVm;
-use crate::views::FeedView;
+use crate::views::{FeedView, TrackRef};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2857,8 +2860,9 @@ fn render_track_window(
     playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let show_id3_panel = !matches!(frame.tag_compare, LazyPanel::Hidden);
-    let show_musicbrainz_panel = !matches!(frame.musicbrainz_lookup, LazyPanel::Hidden);
+    let metadata_state = track_metadata_action_state(frame);
+    let show_id3_panel = metadata_state.show_compare_panel();
+    let show_musicbrainz_panel = metadata_state.show_musicbrainz_panel();
     let columns = 1 + u16::from(show_id3_panel) + u16::from(show_musicbrainz_panel);
     let rows = track_metadata_rows_for_frame(frame, track_context, result);
     let pending_id3_edits = if let Some(result) = result {
@@ -2920,6 +2924,23 @@ fn render_track_window(
         .into_any_element()
 }
 
+fn track_metadata_action_state(frame: &InspectorFrame) -> TrackMetadataActionState {
+    TrackMetadataActionState::new(
+        metadata_panel_state(&frame.tag_compare),
+        metadata_panel_state(&frame.musicbrainz_lookup),
+        frame.track.local_path.is_some(),
+    )
+}
+
+fn metadata_panel_state<T>(panel: &LazyPanel<T>) -> MetadataPanelState {
+    match panel {
+        LazyPanel::Hidden => MetadataPanelState::Hidden,
+        LazyPanel::Loading => MetadataPanelState::Loading,
+        LazyPanel::Loaded(_) => MetadataPanelState::Loaded,
+        LazyPanel::Empty(_) => MetadataPanelState::Empty,
+    }
+}
+
 fn render_track_left_column(
     frame: &InspectorFrame,
     track: &Track,
@@ -2970,6 +2991,10 @@ fn render_action_row(
 ) -> AnyElement {
     let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
     let has_pending_conflicts = !pending_conflicts.is_empty();
+    let metadata_state = track_metadata_action_state(frame);
+    let metadata_target = EntityActionTarget::Track(TrackRef::LocalTrackId(frame.entity_id));
+    let compare_action = metadata_state.compare_action(metadata_target.clone());
+    let musicbrainz_action = metadata_state.musicbrainz_action(metadata_target);
     let action_vm = LibraryTrackActionVm::new(
         frame.subscription_busy,
         frame.local_subscription,
@@ -3018,34 +3043,22 @@ fn render_action_row(
                     .child(SharedString::from(message)),
             )
         })
-        .when(frame.track.local_path.is_some(), |el| {
+        .when_some(compare_action, |el, action| {
             el.child(
-                action_button(
-                    match frame.tag_compare {
-                        LazyPanel::Loaded(_) => "Hide Compare",
-                        LazyPanel::Loading => "Reading ID3...",
-                        LazyPanel::Empty(_) | LazyPanel::Hidden => "Compare ID3",
-                    },
-                    cx,
-                )
-                .disabled(matches!(frame.tag_compare, LazyPanel::Loading))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_tag_compare(cx);
-                })),
+                action_button(&action.label, cx)
+                    .disabled(!action.enabled)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_tag_compare(cx);
+                    })),
             )
-            .child(
-                action_button(
-                    match frame.musicbrainz_lookup {
-                        LazyPanel::Loaded(_) => "Hide MusicBrainz",
-                        LazyPanel::Loading => "Searching MusicBrainz...",
-                        LazyPanel::Empty(_) | LazyPanel::Hidden => "MusicBrainz",
-                    },
-                    cx,
-                )
-                .disabled(matches!(frame.musicbrainz_lookup, LazyPanel::Loading))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_musicbrainz_lookup(cx);
-                })),
+        })
+        .when_some(musicbrainz_action, |el, action| {
+            el.child(
+                action_button(&action.label, cx)
+                    .disabled(!action.enabled)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.toggle_musicbrainz_lookup(cx);
+                    })),
             )
         })
         .when(

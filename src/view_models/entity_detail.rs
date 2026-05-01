@@ -80,6 +80,14 @@ pub enum PlaylistActionState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MetadataPanelState {
+    Hidden,
+    Loading,
+    Loaded,
+    Empty,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TrackActionState {
     pub membership: TrackMembershipState,
     pub playlist: PlaylistActionState,
@@ -185,6 +193,110 @@ impl TrackActionState {
             "Play",
             EntityActionTone::Quiet,
         ));
+        actions
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TrackMetadataActionState {
+    pub compare: MetadataPanelState,
+    pub musicbrainz: MetadataPanelState,
+    pub has_local_file: bool,
+}
+
+impl TrackMetadataActionState {
+    #[must_use]
+    pub const fn new(
+        compare: MetadataPanelState,
+        musicbrainz: MetadataPanelState,
+        has_local_file: bool,
+    ) -> Self {
+        Self {
+            compare,
+            musicbrainz,
+            has_local_file,
+        }
+    }
+
+    #[must_use]
+    pub const fn show_compare_panel(&self) -> bool {
+        !matches!(self.compare, MetadataPanelState::Hidden)
+    }
+
+    #[must_use]
+    pub const fn show_musicbrainz_panel(&self) -> bool {
+        !matches!(self.musicbrainz, MetadataPanelState::Hidden)
+    }
+
+    #[must_use]
+    pub fn compare_action(&self, target: EntityActionTarget) -> Option<EntityActionVm> {
+        if !self.has_local_file {
+            return None;
+        }
+
+        let action = match self.compare {
+            MetadataPanelState::Loaded => EntityActionVm::new(
+                EntityActionKind::CompareMetadata,
+                target,
+                "Hide Compare",
+                EntityActionTone::Quiet,
+            ),
+            MetadataPanelState::Loading => EntityActionVm::new(
+                EntityActionKind::CompareMetadata,
+                target,
+                "Reading ID3...",
+                EntityActionTone::Quiet,
+            )
+            .disabled(),
+            MetadataPanelState::Empty | MetadataPanelState::Hidden => EntityActionVm::new(
+                EntityActionKind::CompareMetadata,
+                target,
+                "Compare ID3",
+                EntityActionTone::Quiet,
+            ),
+        };
+        Some(action)
+    }
+
+    #[must_use]
+    pub fn musicbrainz_action(&self, target: EntityActionTarget) -> Option<EntityActionVm> {
+        if !self.has_local_file {
+            return None;
+        }
+
+        let action = match self.musicbrainz {
+            MetadataPanelState::Loaded => EntityActionVm::new(
+                EntityActionKind::OpenMusicBrainz,
+                target,
+                "Hide MusicBrainz",
+                EntityActionTone::Quiet,
+            ),
+            MetadataPanelState::Loading => EntityActionVm::new(
+                EntityActionKind::OpenMusicBrainz,
+                target,
+                "Searching MusicBrainz...",
+                EntityActionTone::Quiet,
+            )
+            .disabled(),
+            MetadataPanelState::Empty | MetadataPanelState::Hidden => EntityActionVm::new(
+                EntityActionKind::OpenMusicBrainz,
+                target,
+                "MusicBrainz",
+                EntityActionTone::Quiet,
+            ),
+        };
+        Some(action)
+    }
+
+    #[must_use]
+    pub fn actions(&self, target: EntityActionTarget) -> Vec<EntityActionVm> {
+        let mut actions = Vec::new();
+        if let Some(action) = self.compare_action(target.clone()) {
+            actions.push(action);
+        }
+        if let Some(action) = self.musicbrainz_action(target) {
+            actions.push(action);
+        }
         actions
     }
 }
@@ -910,6 +1022,59 @@ mod tests {
         assert!(!removing.enabled);
         assert_eq!(open.label, "Add feed to playlist ▴");
         assert_eq!(open.tone, EntityActionTone::Quiet);
+    }
+
+    #[test]
+    fn track_metadata_action_state_projects_compare_and_musicbrainz_actions() {
+        let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
+        let state = TrackMetadataActionState::new(
+            MetadataPanelState::Hidden,
+            MetadataPanelState::Loading,
+            true,
+        );
+        let compare = state
+            .compare_action(target.clone())
+            .expect("compare action should render for local files");
+        let musicbrainz = state
+            .musicbrainz_action(target.clone())
+            .expect("musicbrainz action should render for local files");
+        let loaded = TrackMetadataActionState::new(
+            MetadataPanelState::Loaded,
+            MetadataPanelState::Loaded,
+            true,
+        )
+        .actions(target);
+
+        assert_eq!(compare.kind, EntityActionKind::CompareMetadata);
+        assert_eq!(compare.label, "Compare ID3");
+        assert!(compare.enabled);
+        assert_eq!(musicbrainz.kind, EntityActionKind::OpenMusicBrainz);
+        assert_eq!(musicbrainz.label, "Searching MusicBrainz...");
+        assert!(!musicbrainz.enabled);
+        assert_eq!(loaded[0].label, "Hide Compare");
+        assert_eq!(loaded[1].label, "Hide MusicBrainz");
+    }
+
+    #[test]
+    fn track_metadata_action_state_projects_panel_visibility_and_local_file_gate() {
+        let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
+        let no_file = TrackMetadataActionState::new(
+            MetadataPanelState::Loaded,
+            MetadataPanelState::Loaded,
+            false,
+        );
+        let hidden = TrackMetadataActionState::new(
+            MetadataPanelState::Hidden,
+            MetadataPanelState::Hidden,
+            true,
+        );
+
+        assert!(no_file.compare_action(target.clone()).is_none());
+        assert!(no_file.musicbrainz_action(target).is_none());
+        assert!(no_file.show_compare_panel());
+        assert!(no_file.show_musicbrainz_panel());
+        assert!(!hidden.show_compare_panel());
+        assert!(!hidden.show_musicbrainz_panel());
     }
 
     #[test]
