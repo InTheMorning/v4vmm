@@ -72,8 +72,8 @@ use crate::view_models::format::{optional_row, plural};
 use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
     ActionRowVm, LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome,
-    PublisherInspectorVm, ResultRow, SearchBatch, SearchSubscriptionCommand, SearchViewModel,
-    TrackInspectorHeaderVm, TrackRowActionVm,
+    PublisherInspectorVm, RecentFeedTileVm, ResultRow, SearchBatch, SearchSubscriptionCommand,
+    SearchViewModel, TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::{ContributorView, FeedRef};
@@ -5215,21 +5215,9 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             Some(guid) if !guid.trim().is_empty() => guid,
             _ => continue,
         };
-        let title = feed_title(&feed);
-        let artist = feed
-            .release_artist
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                feed.publisher_text
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_string)
-            })
-            .unwrap_or_default();
+        let tile_vm = RecentFeedTileVm::new(&feed);
+        let title = tile_vm.title();
+        let artist = tile_vm.subtitle();
         let image_url = feed.image_url.clone();
         let thumbnail = app.thumbnail_for_url(image_url.as_deref(), cx);
         let click_guid = guid.clone();
@@ -5276,7 +5264,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                     .weight(FontWeight::MEDIUM)
                     .truncated(),
             )
-            .when(!artist.is_empty(), |el| {
+            .when_some(artist, |el, artist| {
                 el.child(
                     Label::new(artist)
                         .size(FontSize::Micro)

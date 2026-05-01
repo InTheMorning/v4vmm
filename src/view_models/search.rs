@@ -78,6 +78,30 @@ pub(crate) struct ResultRowDisplay {
     pub(crate) image_url: Option<String>,
 }
 
+/// Borrow-only projection for one recent-feed tile.
+pub(crate) struct RecentFeedTileVm<'a> {
+    feed: &'a Feed,
+}
+
+impl<'a> RecentFeedTileVm<'a> {
+    #[must_use]
+    pub(crate) const fn new(feed: &'a Feed) -> Self {
+        Self { feed }
+    }
+
+    #[must_use]
+    pub(crate) fn title(&self) -> String {
+        feed_title(self.feed)
+    }
+
+    #[must_use]
+    pub(crate) fn subtitle(&self) -> Option<String> {
+        nonempty_text(self.feed.release_artist.as_deref())
+            .or_else(|| nonempty_text(self.feed.publisher_text.as_deref()))
+            .map(str::to_string)
+    }
+}
+
 /// Borrow-only projection for one Discover result row.
 pub(crate) struct ResultRowVm<'a> {
     entity_id: &'a str,
@@ -1634,6 +1658,62 @@ mod tests {
                 image_url: Some("https://example.test/f.png".into()),
             }
         );
+    }
+
+    #[test]
+    fn recent_feed_tile_vm_uses_current_recent_feed_response_labels() {
+        let response: api::RecentFeedsResponse = serde_json::from_str(
+            r#"{
+                "data": [{
+                    "feed_guid": "495c0d0b-f576-5d12-a76a-d806f2e19b7e",
+                    "feed_url": "https://feeds.fountain.fm/ttc59BjLMAAPgxnP2fy2",
+                    "title": "Is Anybody There?",
+                    "raw_medium": "music",
+                    "release_artist": "The Paisley Daze",
+                    "release_artist_sort": null,
+                    "release_date": 1777630024,
+                    "release_kind": "unknown",
+                    "description": null,
+                    "image_url": "https://feeds.fountain.fm/cover.jpg",
+                    "publisher_text": "The Paisley Daze",
+                    "language": "en",
+                    "explicit": false,
+                    "episode_count": 1,
+                    "newest_item_at": 1777630023,
+                    "oldest_item_at": 1777630023,
+                    "created_at": 1777650856,
+                    "updated_at": 1777650856
+                }],
+                "pagination": {
+                    "cursor": "next",
+                    "has_more": true
+                }
+            }"#,
+        )
+        .expect("recent feeds response should deserialize");
+
+        let feed = response.data.first().expect("fixture includes one feed");
+        let vm = RecentFeedTileVm::new(feed);
+
+        assert_eq!(vm.title(), "Is Anybody There?");
+        assert_eq!(vm.subtitle().as_deref(), Some("The Paisley Daze"));
+        assert_eq!(
+            feed.image_url.as_deref(),
+            Some("https://feeds.fountain.fm/cover.jpg")
+        );
+    }
+
+    #[test]
+    fn recent_feed_tile_vm_falls_back_to_publisher_for_subtitle() {
+        let feed = Feed {
+            title: Some("Feed Title".into()),
+            publisher_text: Some("Publisher".into()),
+            ..Feed::default()
+        };
+        let vm = RecentFeedTileVm::new(&feed);
+
+        assert_eq!(vm.title(), "Feed Title");
+        assert_eq!(vm.subtitle().as_deref(), Some("Publisher"));
     }
 
     #[test]

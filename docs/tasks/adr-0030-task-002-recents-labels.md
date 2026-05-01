@@ -2,7 +2,7 @@
 
 ## Status
 
-Pending.
+Implemented - 2026-05-01.
 
 ## Goal
 
@@ -46,9 +46,20 @@ labels from current `/v1/feeds/recent` responses.
 
 ## Acceptance Criteria
 
-- Recent-feed test data populates title and artist or publisher fields.
-- The recents tile path displays labels when those source fields are present.
-- No new metadata inference is introduced.
+- [x] Recent-feed test data populates title and artist or publisher fields.
+- [x] The recents tile path displays labels when those source fields are present.
+- [x] No new metadata inference is introduced.
+
+## Implementation Summary
+
+- Added `RecentFeedTileVm` in `src/view_models/search.rs` so recent tile title
+  and subtitle projection is pure and unit-testable.
+- Routed `render_recent_feeds_tiles` through `RecentFeedTileVm` instead of
+  duplicating inline label fallback logic in the GPUI renderer.
+- Added a current `/v1/feeds/recent`-shaped fixture that verifies `title`,
+  `release_artist`, `publisher_text`, and artwork fields hydrate for tile
+  display.
+- Added publisher fallback coverage for the tile subtitle.
 
 ## Test Commands
 
@@ -59,6 +70,8 @@ cargo test api::tests
 cargo test view_models::search
 cargo clippy -- -D warnings
 ```
+
+Verified 2026-05-01.
 
 ## Prompt for lower-context coding model
 
