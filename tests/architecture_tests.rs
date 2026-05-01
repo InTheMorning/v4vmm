@@ -161,6 +161,21 @@ const DEPRECATED_VISUAL_HELPERS: &[DeprecatedVisualHelper] = &[
     },
 ];
 
+const DIRECT_COMPONENT_BUTTON_BASELINES: &[DirectComponentButtonBaseline] = &[
+    DirectComponentButtonBaseline {
+        file: "src/app.rs",
+        max_unmarked_count: 4,
+    },
+    DirectComponentButtonBaseline {
+        file: "src/library.rs",
+        max_unmarked_count: 15,
+    },
+    DirectComponentButtonBaseline {
+        file: "src/search.rs",
+        max_unmarked_count: 9,
+    },
+];
+
 const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/bootstrap.rs",
@@ -186,6 +201,12 @@ struct DeprecatedVisualHelper {
     helper: &'static str,
     import_patterns: &'static [&'static str],
     usage_pattern: &'static str,
+}
+
+#[derive(Debug)]
+struct DirectComponentButtonBaseline {
+    file: &'static str,
+    max_unmarked_count: usize,
 }
 
 #[test]
@@ -448,6 +469,34 @@ fn screens_do_not_define_inline_icon_svg_helpers() {
     );
 }
 
+#[test]
+fn screens_do_not_grow_unmarked_direct_component_button_usage() {
+    let mut violations = Vec::new();
+    for file in SCREEN_FILES {
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        let unmarked = unmarked_direct_component_button_lines(&source);
+        let max_unmarked_count = direct_component_button_baseline(file).unwrap_or(0);
+        if unmarked.len() > max_unmarked_count {
+            violations.push(format!(
+                "{file}: unmarked direct `gpui_component::Button` usage grew from allowed baseline {max_unmarked_count} to {}",
+                unmarked.len()
+            ));
+            for (line_number, line) in unmarked {
+                violations.push(format!(
+                    "{file}:{line_number}: direct `gpui_component::Button` compatibility usage needs preceding or same-line `CONTROL-COMPAT(reason): ...`: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0025 direct component button compatibility violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 fn rust_files_under(relative_dir: &str) -> Vec<PathBuf> {
     let root = manifest_path(relative_dir);
     let mut files = Vec::new();
@@ -536,6 +585,41 @@ fn deprecated_helper_has_baseline(file: &str, helper: &str) -> bool {
     DEPRECATED_VISUAL_HELPER_BASELINES
         .iter()
         .any(|baseline| baseline.file == file && baseline.helper == helper)
+}
+
+fn direct_component_button_baseline(file: &str) -> Option<usize> {
+    DIRECT_COMPONENT_BUTTON_BASELINES
+        .iter()
+        .find(|baseline| baseline.file == file)
+        .map(|baseline| baseline.max_unmarked_count)
+}
+
+fn unmarked_direct_component_button_lines(source: &str) -> Vec<(usize, String)> {
+    let lines: Vec<&str> = source.lines().collect();
+    let uses_component_button = lines
+        .iter()
+        .any(|line| line.contains("use gpui_component::button::{Button"));
+    if !uses_component_button {
+        return Vec::new();
+    }
+
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, raw)| {
+            let code = strip_line_comment(raw).trim();
+            if !code.contains("Button::new(") {
+                return None;
+            }
+            let has_same_line_marker = raw.contains("CONTROL-COMPAT(reason):");
+            let has_previous_line_marker = index
+                .checked_sub(1)
+                .and_then(|previous| lines.get(previous))
+                .is_some_and(|line| line.contains("CONTROL-COMPAT(reason):"));
+            (!has_same_line_marker && !has_previous_line_marker)
+                .then_some((index + 1, code.to_string()))
+        })
+        .collect()
 }
 
 fn nearby_source_mentions(source: &str, line_number: usize, needles: &[&str]) -> bool {

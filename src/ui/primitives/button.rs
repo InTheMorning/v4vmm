@@ -19,6 +19,7 @@ use gpui::{
     RenderOnce, SharedString, Window,
 };
 
+use crate::ui::control_styles::ControlStyle;
 use crate::ui::tokens::{Appearance, FontSize, Radius, SemanticColor, Spacing};
 
 /// HIG button styles.
@@ -61,6 +62,10 @@ pub struct Button {
     leading_glyph: Option<SharedString>,
     on_click: Option<ClickHandler>,
     appearance: Option<Appearance>,
+    radius: Option<Radius>,
+    font_size: Option<FontSize>,
+    foreground: Option<SemanticColor>,
+    border: Option<SemanticColor>,
     full_width: bool,
     disabled: bool,
     selected: bool,
@@ -76,6 +81,10 @@ impl Button {
             leading_glyph: None,
             on_click: None,
             appearance: None,
+            radius: None,
+            font_size: None,
+            foreground: None,
+            border: None,
             full_width: false,
             disabled: false,
             selected: false,
@@ -108,6 +117,25 @@ impl Button {
     pub fn size(mut self, size: ButtonSize) -> Self {
         self.size = size;
         self
+    }
+
+    pub fn control_style(mut self, style: ControlStyle) -> Self {
+        let spec = style.spec();
+        self.variant = spec.variant;
+        self.size = spec.size;
+        self.font_size = Some(spec.font_size);
+        self.radius = Some(spec.radius);
+        self.foreground = spec.foreground;
+        self.border = spec.border;
+        self
+    }
+
+    pub fn styled(id: impl Into<ElementId>, style: ControlStyle) -> Self {
+        Self::new(id, style.spec().variant).control_style(style)
+    }
+
+    pub fn danger(self) -> Self {
+        self.control_style(ControlStyle::Destructive)
     }
 
     pub fn full_width(mut self) -> Self {
@@ -175,11 +203,11 @@ impl RenderOnce for Button {
         let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let height = self.height();
         let pad = self.px_inset().px();
-        let font = self.font_size().px();
-        let radius = Radius::MD.px();
+        let font = self.font_size.unwrap_or_else(|| self.font_size()).px();
+        let radius = self.radius.unwrap_or(Radius::MD).px();
 
         // Resolve the variant's color triple: (bg, fg, hover_bg).
-        let (bg, fg, hover_bg) = match self.variant {
+        let (bg, mut fg, hover_bg) = match self.variant {
             ButtonVariant::Filled => (
                 SemanticColor::Accent.resolve(appearance),
                 SemanticColor::OnAccent.resolve(appearance),
@@ -213,6 +241,9 @@ impl RenderOnce for Button {
                 },
             ),
         };
+        if let Some(foreground) = self.foreground {
+            fg = foreground.resolve(appearance);
+        }
 
         let label = self.label.clone().unwrap_or_default();
         let glyph = self.leading_glyph.clone();
@@ -235,6 +266,10 @@ impl RenderOnce for Button {
             .text_size(font)
             .font_weight(FontWeight::SEMIBOLD)
             .cursor_pointer();
+
+        if let Some(border) = self.border {
+            row = row.border_1().border_color(border.resolve(appearance));
+        }
 
         if full_width {
             row = row.w_full();

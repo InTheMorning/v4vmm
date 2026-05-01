@@ -1,36 +1,21 @@
-//! Bordered, accent-colored micro action button used by the metadata
-//! inspector panels (subscribe, re-read, lookup `MusicBrainz`, …).
+//! Metadata-action button composite.
 //!
-//! Wraps [`gpui_component::button::Button`] with the v4vmm-specific
-//! styling so call sites stop repeating the same six chained method
-//! calls. Returns the underlying `Button` so callers can keep chaining
-//! `.on_click(...)` and friends as before.
-//!
-//! Sizing flows through [`crate::ui::sizable_bridge::SizableScaled`] so
-//! the chip rescales with the user's `ScaleFactor`.
+//! This is the first consumer of the ADR 0025 control-style boundary. Call
+//! sites still receive a chainable native button, while the visual role maps
+//! through [`crate::ui::control_styles::ControlStyle`].
 
 #![warn(clippy::pedantic)]
 
-use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::tokens::{color, FontSize, Radius, SemanticColor};
-use gpui::{App, SharedString, Styled};
-use gpui_component::button::{Button, ButtonVariants};
-use gpui_component::Size;
+use gpui::{App, SharedString};
+
+use crate::ui::control_styles::ControlStyle;
+use crate::ui::primitives::Button;
 
 /// Build a metadata-action button with the standard accent-bordered style.
-///
-/// The returned [`Button`] already has its id, label, size, ghost variant,
-/// border and colors set. Chain `.on_click(...)` to wire behaviour.
-#[must_use]
-pub fn action_button(label: &str, cx: &App) -> Button {
-    Button::new(SharedString::from(format!("metadata-action:{label}")))
-        .label(SharedString::from(label.to_string()))
-        .scaled(Size::XSmall, cx)
-        .compact()
-        .ghost()
-        .text_color(color(cx, SemanticColor::Accent))
-        .text_size(FontSize::Micro.scaled(cx))
-        .rounded(Radius::SM.scaled(cx))
-        .border_1()
-        .border_color(color(cx, SemanticColor::Accent))
+pub fn action_button(label: &str, _cx: &App) -> Button {
+    Button::styled(
+        SharedString::from(format!("metadata-action:{label}")),
+        ControlStyle::MetadataAction,
+    )
+    .label(SharedString::from(label.to_string()))
 }

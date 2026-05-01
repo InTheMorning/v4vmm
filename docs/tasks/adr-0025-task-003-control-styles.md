@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Implemented - 2026-05-01.
 
 ## Task Goal
 
