@@ -476,10 +476,11 @@ because it performs network I/O and stages local metadata.
 Route playback transport actions and playback-state queries through the
 application layer while preserving the current `PlaybackOwner<D>` and driver
 behavior until a later ADR changes the playback architecture. `PlayTrack`,
-`PausePlayback`, `ResumePlayback`, `StopPlayback`, `SeekPlayback`, and
-`SetPlaybackVolume` become commands; `PlaybackSnapshot` becomes a query.
-Low-level driver callbacks and process supervision stay inside the existing
-playback owner/driver boundary for this ADR.
+`PausePlayback`, `ResumePlayback`, `StopPlayback`, and `SeekPlayback` become
+commands; `PlaybackSnapshot` becomes a query. `SetPlaybackVolume` is deferred
+until the playback driver boundary has an approved volume operation. Low-level
+driver callbacks and process supervision stay inside the existing playback
+owner/driver boundary for this ADR.
 
 ### Phase 6 - presentation cleanup
 

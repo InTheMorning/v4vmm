@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress.
+Completed.
 
 ## Task Goal
 
@@ -75,17 +75,17 @@ events, and local queries while preserving metadata provenance.
 1. Done: define metadata/feed update commands and results. Feed update,
    single-track `MusicBrainz`, album release lookup, and staging commands are
    present.
-2. In progress: add metadata/feed update event families. Feed apply emits
+2. Done: add metadata/feed update event families. Feed apply emits
    metadata/feed/library events; single-track staging emits metadata events.
-3. Partially done: add local query APIs for feed update state. Feed stale-check
+3. Done: add local query APIs for feed update state. Feed stale-check
    rows are query-backed; staged `MusicBrainz` remains in the library
    view-model snapshot because it is screen-local transient state, not a
    durable read model.
-4. In progress: wrap existing metadata/feed services without moving them.
-5. In progress: migrate screen call sites through commands and event/query
+4. Done: wrap existing metadata/feed services without moving them.
+5. Done: migrate screen call sites through commands and event/query
    refresh.
-6. In progress: add architecture tests for migrated direct service calls.
-7. In progress: add tests for successful staging, failure, event emission, and
+6. Done: add architecture tests for migrated direct service calls.
+7. Done: add tests for successful staging, failure, event emission, and
    provenance preservation.
 
 ## Acceptance Criteria

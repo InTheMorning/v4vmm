@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress.
+Completed.
 
 ## Task Goal
 
@@ -76,9 +76,9 @@ application layer while preserving the existing playback owner/driver boundary.
 3. Done: wrap existing playback calls through application handlers.
 4. Done: route root/now-playing UI actions through `GpuiCommandRunner`.
 5. Done: add local playback query refreshes.
-6. In progress: add tests for command naming, event emission, and snapshot
+6. Done: add tests for command naming, event emission, and snapshot
    reads.
-7. In progress: add architecture-test gates for migrated playback direct calls.
+7. Done: add architecture-test gates for migrated playback direct calls.
 
 ## Acceptance Criteria
 

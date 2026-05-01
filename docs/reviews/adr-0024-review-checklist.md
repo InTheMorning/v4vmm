@@ -46,8 +46,9 @@ checkpoint.
 - [ ] Metadata/feed update slice preserves source facts and does not add hidden
       inference.
 - [ ] Playback slice uses `PlayTrack`, `PausePlayback`, `ResumePlayback`,
-      `StopPlayback`, `SeekPlayback`, and `SetPlaybackVolume`; it does not use
-      `StartPlayback` for track playback.
+      `StopPlayback`, and `SeekPlayback`; it does not use `StartPlayback` for
+      track playback. `SetPlaybackVolume` remains deferred until the playback
+      driver boundary has an approved volume operation.
 - [ ] Presentation cleanup happens only after workflow dispatch moved out of the
       affected screen code.
 

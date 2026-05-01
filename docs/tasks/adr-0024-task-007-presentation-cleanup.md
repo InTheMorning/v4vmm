@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+In progress.
 
 ## Task Goal
 
@@ -10,11 +10,27 @@ After migrated workflows leave presentation code, simplify GPUI modules and
 split files only where the application boundary has already made the split
 low-risk.
 
+## Orchestration Findings
+
+- First implemented cleanup: top-level playback bar command/query binding moved
+  out of `app.rs` into `src/app/playback_bar.rs`. This code already used ADR
+  0024 commands and `ApplicationQueryService`, so the move is presentation-only.
+- Keep live-driver polling in `app.rs` for now because it still supervises
+  `PlaybackOwner<D>` directly.
+- Library cleanup candidates are command-binding adapters and render-only
+  sidebar/detail surfaces. Do not move `musicbrainz_feed` fallback/matching,
+  ID3 apply/compare, `build_tree`, or filesystem cleanup in this task.
+- Search cleanup candidates are render-only helpers and command-dispatch row
+  adapters. Do not move remote MusicIndex fetches, remote inspector loads,
+  playlist add paths that still query services directly, or metadata grid
+  provenance/editing helpers in the first cleanup pass.
+
 ## Files To Inspect
 
 - `docs/adr/0024-command-query-event-application-layer.md`
 - `docs/plans/adr-0024-application-layer-phase-plan.md`
 - `src/app.rs`
+- `src/app/playback_bar.rs`
 - `src/library.rs`
 - `src/search.rs`
 - `src/view_models/**`
@@ -48,9 +64,11 @@ low-risk.
 
 ## Implementation Steps
 
-1. Identify remaining presentation methods that now only bind view-models,
+1. Done: identify remaining presentation methods that now only bind view-models,
    dispatch commands, or bridge events.
-2. Split or rename presentation modules only where it improves comprehension.
+2. In progress: split or rename presentation modules only where it improves
+   comprehension. Top-level playback bar binding has moved to
+   `src/app/playback_bar.rs`.
 3. Keep view-models and application modules GPUI-free.
 4. Update architecture tests and docs for any path changes.
 5. Run full verification.

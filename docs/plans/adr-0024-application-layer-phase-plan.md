@@ -113,18 +113,18 @@ playback workflows.
    subscribe-then-append workflows route through commands and the
    `DownloadManager` port. No matching CLI subscription/download commands exist
    to migrate in this slice.
-5. In progress `adr-0024-task-005-metadata-feed-update-slice`: feed update
+5. Completed `adr-0024-task-005-metadata-feed-update-slice`: feed update
    checks/apply, single-track Library `MusicBrainz` lookup/staging, and album
    release lookup route through commands and local feed queries. Remaining
    cleanup is limited to deciding whether staged metadata needs a durable read
    model or should stay as transient GPUI-free view-model state.
-6. In progress `adr-0024-task-006-playback-slice`: route playback transport
+6. Completed `adr-0024-task-006-playback-slice`: route playback transport
    commands and playback snapshots through the application layer while
    preserving the existing playback owner/driver boundary. Volume remains
    deferred until the playback driver boundary has an approved volume contract.
-7. `adr-0024-task-007-presentation-cleanup`: after migrated workflows leave the
-   screens, split or simplify presentation modules only where it improves
-   comprehension.
+7. In progress `adr-0024-task-007-presentation-cleanup`: after migrated
+   workflows leave the screens, split or simplify presentation modules only
+   where it improves comprehension.
 
 ## Schema/API Implications
 
