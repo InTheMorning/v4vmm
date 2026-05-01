@@ -197,8 +197,10 @@ Library artist views poorer than Discover and blocks offline identity parity.
   tracks.
 - Task 002 added artist source-fact schema and DB helpers for explicit artist
   subjects only.
-- Task 003 should persist explicit MusicIndex artist records into the artist
+- Task 003 persists explicit MusicIndex artist records into the artist
   source-fact tables.
+- Task 004 should hydrate local `ArtistView` from explicit source facts for
+  `ArtistRef::Musicindex`.
 - A follow-up ADR must define track-to-artist-subject binding before Library
   can hydrate artist views for name-derived artists.
 - Runtime person/global-identity implementation must wait for durable person

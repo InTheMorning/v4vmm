@@ -4,10 +4,10 @@ use anyhow::Result;
 use rusqlite::Connection;
 use serde::Serialize;
 
-use crate::api::{Contributor, Feed, SourceEntityId, SourceEntityLink, Track};
+use crate::api::{Artist, Contributor, Feed, SourceEntityId, SourceEntityLink, Track};
 use crate::db::{
-    self, LocalContributorInput, LocalEntityOwner, LocalIdentityIdInput, LocalIdentityLinkInput,
-    LocalIdentityOwner,
+    self, ArtistSourceFactInput, LocalContributorInput, LocalEntityOwner, LocalIdentityIdInput,
+    LocalIdentityLinkInput, LocalIdentityOwner,
 };
 
 const MUSICINDEX_SOURCE: &str = "musicindex";
@@ -77,6 +77,38 @@ pub(crate) fn persist_musicindex_track(
         conn,
         LocalEntityOwner::Track(track_id),
         track.source_contributors.as_deref(),
+    )
+}
+
+pub(crate) fn persist_musicindex_artist(conn: &mut Connection, artist: &Artist) -> Result<()> {
+    let Some(source_artist_id) = artist
+        .artist_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return Ok(());
+    };
+
+    db::replace_artist_source_fact(
+        conn,
+        MUSICINDEX_SOURCE,
+        source_artist_id,
+        &ArtistSourceFactInput {
+            name: artist.name.clone(),
+            sort_name: artist.sort_name.clone(),
+            image_url: artist.image_url.clone(),
+            website_url: artist.url.clone(),
+            aliases: artist.aliases.clone().unwrap_or_default(),
+            tags: artist.tags.clone().unwrap_or_default(),
+            area: artist.area.clone(),
+            begin_year: artist.begin_year.map(i64::from),
+            end_year: artist.end_year.map(i64::from),
+            observed_at: artist.updated_at,
+            raw_json: raw_json(artist),
+            source_links: Vec::new(),
+            source_ids: Vec::new(),
+        },
     )
 }
 
@@ -192,6 +224,7 @@ fn raw_json<T: Serialize>(value: &T) -> Option<String> {
 mod tests {
     use super::*;
     use crate::api::{SourceEntityId, SourceEntityLink};
+    use anyhow::Context;
 
     fn setup_test_db() -> Result<Connection> {
         let conn = Connection::open_in_memory()?;
@@ -218,6 +251,13 @@ mod tests {
             ],
         )?;
         Ok((feed_id, conn.last_insert_rowid()))
+    }
+
+    fn table_row_count(conn: &Connection, table: &str) -> Result<i64> {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .context("count table rows")
     }
 
     #[test]
@@ -366,6 +406,159 @@ mod tests {
                     && link.url.as_deref() == Some("https://rss.example")),
             "rss source row should not be deleted by MusicIndex persistence"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_artist_source_fact_persists_explicit_artist_id() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let artist = Artist {
+            artist_id: Some("artist-123".into()),
+            name: Some("Alice".into()),
+            sort_name: Some("Alice, The".into()),
+            image_url: Some("https://example.test/alice.jpg".into()),
+            url: Some("https://example.test/alice".into()),
+            aliases: Some(vec!["A. Example".into()]),
+            tags: Some(vec!["podcast".into()]),
+            area: Some("Montreal".into()),
+            begin_year: Some(2020),
+            end_year: Some(2024),
+            updated_at: Some(1_714_000_000),
+            ..Artist::default()
+        };
+
+        persist_musicindex_artist(&mut conn, &artist)?;
+
+        let row = db::artist_source_fact(&conn, "musicindex", "artist-123")?
+            .context("artist source fact should exist")?;
+        assert_eq!(row.name.as_deref(), Some("Alice"));
+        assert_eq!(row.sort_name.as_deref(), Some("Alice, The"));
+        assert_eq!(
+            row.image_url.as_deref(),
+            Some("https://example.test/alice.jpg")
+        );
+        assert_eq!(
+            row.website_url.as_deref(),
+            Some("https://example.test/alice")
+        );
+        assert_eq!(row.aliases, vec!["A. Example"]);
+        assert_eq!(row.tags, vec!["podcast"]);
+        assert_eq!(row.area.as_deref(), Some("Montreal"));
+        assert_eq!(row.begin_year, Some(2020));
+        assert_eq!(row.end_year, Some(2024));
+        assert_eq!(row.observed_at, Some(1_714_000_000));
+        assert!(
+            row.raw_json
+                .as_deref()
+                .is_some_and(|raw| raw.contains("artist-123")),
+            "raw artist JSON should be retained"
+        );
+        assert!(
+            row.source_links.is_empty(),
+            "artist API has no source_links field yet"
+        );
+        assert!(
+            row.source_ids.is_empty(),
+            "artist API has no source_ids field yet"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_artist_source_fact_skips_missing_artist_id() -> Result<()> {
+        let mut conn = setup_test_db()?;
+
+        persist_musicindex_artist(
+            &mut conn,
+            &Artist {
+                name: Some("Name Only".into()),
+                ..Artist::default()
+            },
+        )?;
+        persist_musicindex_artist(
+            &mut conn,
+            &Artist {
+                artist_id: Some("   ".into()),
+                name: Some("Blank Id".into()),
+                ..Artist::default()
+            },
+        )?;
+
+        assert_eq!(
+            db::artist_source_fact(&conn, "musicindex", "Name Only")?,
+            None
+        );
+        assert_eq!(table_row_count(&conn, "artist_source_facts")?, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_artist_source_fact_replaces_same_musicindex_key() -> Result<()> {
+        let mut conn = setup_test_db()?;
+
+        persist_musicindex_artist(
+            &mut conn,
+            &Artist {
+                artist_id: Some("artist-123".into()),
+                name: Some("Original".into()),
+                aliases: Some(vec!["Old".into()]),
+                updated_at: Some(1),
+                ..Artist::default()
+            },
+        )?;
+        persist_musicindex_artist(
+            &mut conn,
+            &Artist {
+                artist_id: Some("artist-123".into()),
+                name: Some("Updated".into()),
+                aliases: Some(vec!["New".into()]),
+                updated_at: Some(2),
+                ..Artist::default()
+            },
+        )?;
+
+        let row = db::artist_source_fact(&conn, "musicindex", "artist-123")?
+            .context("artist source fact should exist")?;
+        assert_eq!(row.name.as_deref(), Some("Updated"));
+        assert_eq!(row.aliases, vec!["New"]);
+        assert_eq!(row.observed_at, Some(2));
+        assert_eq!(table_row_count(&conn, "artist_source_facts")?, 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_artist_source_fact_preserves_other_source_rows() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        db::replace_artist_source_fact(
+            &mut conn,
+            "rss",
+            "artist-123",
+            &ArtistSourceFactInput {
+                name: Some("RSS Artist".into()),
+                ..ArtistSourceFactInput::default()
+            },
+        )?;
+
+        persist_musicindex_artist(
+            &mut conn,
+            &Artist {
+                artist_id: Some("artist-123".into()),
+                name: Some("MusicIndex Artist".into()),
+                ..Artist::default()
+            },
+        )?;
+
+        let rss_row = db::artist_source_fact(&conn, "rss", "artist-123")?
+            .context("rss artist source fact should exist")?;
+        let musicindex_row = db::artist_source_fact(&conn, "musicindex", "artist-123")?
+            .context("musicindex artist source fact should exist")?;
+        assert_eq!(rss_row.name.as_deref(), Some("RSS Artist"));
+        assert_eq!(musicindex_row.name.as_deref(), Some("MusicIndex Artist"));
+        assert_eq!(table_row_count(&conn, "artist_source_facts")?, 2);
 
         Ok(())
     }

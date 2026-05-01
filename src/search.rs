@@ -37,6 +37,7 @@ use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
 use crate::config;
 use crate::db;
 use crate::feed_service;
+use crate::identity_ingest;
 use crate::library_service;
 use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::*;
@@ -397,7 +398,12 @@ impl SearchApp {
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
                         match batch {
-                            Ok(batch) => this.vm.finish_search_load(batch, append),
+                            Ok(batch) => {
+                                match persist_musicindex_artist_facts(&this.conn, &batch) {
+                                    Ok(()) => this.vm.finish_search_load(batch, append),
+                                    Err(error) => this.vm.fail_search_load(error),
+                                }
+                            }
                             Err(error) => this.vm.fail_search_load(error),
                         }
                         cx.notify();
@@ -2255,6 +2261,20 @@ fn local_subscription_for_detail(
         | InspectorDetail::Artist(_)
         | InspectorDetail::Publisher(_) => Ok(None),
     }
+}
+
+fn persist_musicindex_artist_facts(
+    conn: &Arc<Mutex<Connection>>,
+    batch: &SearchBatch,
+) -> Result<()> {
+    let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+    for row in &batch.rows {
+        let Some(EntityDetail::Artist(artist)) = &row.detail else {
+            continue;
+        };
+        identity_ingest::persist_musicindex_artist(&mut db, artist)?;
+    }
+    Ok(())
 }
 
 fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBrainzLookupResult> {
@@ -5444,6 +5464,7 @@ pub fn run_search_app() {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::{Arc, Mutex};
 
     use super::{
         aligned_compare_rows, aligned_id3_frame_ids, artist_rows_from_result_rows,
@@ -5451,13 +5472,15 @@ mod tests {
         format_drag_value_for_id3v24, id3_frame_group_key, id3_frame_version,
         merge_track_play_fields, metadata_data_row, metadata_drag_value, metadata_field_group_key,
         musicbrainz_remainder_rows, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
-        pending_id3_target_key, search_result_type_is_visible, should_show_inspector_back,
-        track_metadata_rows, unused_id3v24_frames_for_group, AlignedCompareRow, Artist,
-        EntityDetail, Feed, Id3FrameVersion, MetadataColumn, MetadataGridRow, PendingId3Edit,
-        ResultRow, SourceEnclosure, SourceEntityId, SourceEntityLink, TagCompareResult, Track,
-        TrackContext, ID3V24_FRAME_GROUPS, ID3V24_FRAME_IDS,
+        pending_id3_target_key, persist_musicindex_artist_facts, search_result_type_is_visible,
+        should_show_inspector_back, track_metadata_rows, unused_id3v24_frames_for_group,
+        AlignedCompareRow, Artist, EntityDetail, Feed, Id3FrameVersion, MetadataColumn,
+        MetadataGridRow, PendingId3Edit, ResultRow, SearchBatch, SourceEnclosure, SourceEntityId,
+        SourceEntityLink, TagCompareResult, Track, TrackContext, ID3V24_FRAME_GROUPS,
+        ID3V24_FRAME_IDS,
     };
     use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field};
+    use crate::db;
     use crate::metadata::{
         compare_id3_field_values, contributor_id3_rows, display_metadata_value,
         musicindex_contributors_id3_value,
@@ -5499,6 +5522,64 @@ mod tests {
             !search_result_type_is_visible("publisher"),
             "publisher results should only be opened from feed or track links"
         );
+    }
+
+    #[test]
+    fn search_batch_persists_explicit_musicindex_artist_facts() -> anyhow::Result<()> {
+        let conn = rusqlite::Connection::open_in_memory()?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        db::init_schema(&conn)?;
+        db::migrate_schema(&conn)?;
+        let conn = Arc::new(Mutex::new(conn));
+        let batch = SearchBatch {
+            rows: vec![
+                ResultRow::new(
+                    "artist",
+                    "Alice",
+                    Some(EntityDetail::Artist(Artist {
+                        artist_id: Some("artist-123".into()),
+                        name: Some("Alice".into()),
+                        image_url: Some("https://example.test/alice.jpg".into()),
+                        url: Some("https://example.test/alice".into()),
+                        ..Artist::default()
+                    })),
+                ),
+                ResultRow::new(
+                    "artist",
+                    "Name Only",
+                    Some(EntityDetail::Artist(Artist {
+                        name: Some("Name Only".into()),
+                        ..Artist::default()
+                    })),
+                ),
+            ],
+            has_more: false,
+            cursor: None,
+        };
+
+        persist_musicindex_artist_facts(&conn, &batch)?;
+
+        let db = conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+        let row = db::artist_source_fact(&db, "musicindex", "artist-123")?
+            .expect("explicit artist id should be persisted");
+        assert_eq!(row.name.as_deref(), Some("Alice"));
+        assert_eq!(
+            row.image_url.as_deref(),
+            Some("https://example.test/alice.jpg")
+        );
+        assert_eq!(
+            row.website_url.as_deref(),
+            Some("https://example.test/alice")
+        );
+        assert_eq!(
+            db::artist_source_fact(&db, "musicindex", "Name Only")?,
+            None,
+            "synthetic/name-only artist should not be persisted"
+        );
+
+        Ok(())
     }
 
     #[test]

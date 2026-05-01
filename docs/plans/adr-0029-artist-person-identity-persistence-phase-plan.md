@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - 2026-05-01. Tasks 001-002 implemented.
+In progress - 2026-05-01. Tasks 001-003 implemented.
 
 ## Goal
 
@@ -49,7 +49,10 @@ provenance-first data used by Discover. Person identity remains deferred.
    Implemented 2026-05-01.
    Task: `docs/tasks/adr-0029-task-002-artist-source-schema.md`.
 3. Ingest persistence for explicit MusicIndex artist records.
+   Implemented 2026-05-01.
+   Task: `docs/tasks/adr-0029-task-003-musicindex-artist-ingest.md`.
 4. Local explicit-source artist lookup/hydration for `ArtistView`.
+   Next task: `docs/tasks/adr-0029-task-004-local-artist-source-hydration.md`.
 5. Visual smoke and final architecture gates.
 
 ## Schema/API Implications

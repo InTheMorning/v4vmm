@@ -14,7 +14,8 @@ prioritized, and routed to the right governance artifact.
 1. Artist identity persistence; person identity deferred.
    - Status: ADR 0029 accepted and in progress.
    - Artifact: `docs/adr/0029-artist-person-identity-persistence.md`.
-   - Next task: MusicIndex artist ingest persistence under ADR 0029.
+   - Next task:
+     `docs/tasks/adr-0029-task-004-local-artist-source-hydration.md`.
    - Person/global identity remains future ADR work until durable person ids and
      merge policy exist.
 2. Library/Discover data parity for release date, language, explicit state,
