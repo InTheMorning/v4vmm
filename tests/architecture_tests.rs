@@ -72,7 +72,7 @@ const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
             "use crate::ui::theme::{color}",
         ],
         usage_pattern: "color::",
-        max_count: 90,
+        max_count: 0,
     },
     DeprecatedVisualHelperBaseline {
         file: "src/library.rs",
@@ -94,7 +94,7 @@ const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
             "use crate::ui::theme::{glyphs}",
         ],
         usage_pattern: "glyphs::",
-        max_count: 7,
+        max_count: 0,
     },
     DeprecatedVisualHelperBaseline {
         file: "src/search.rs",
@@ -105,7 +105,7 @@ const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
             "use crate::ui::theme::{color}",
         ],
         usage_pattern: "color::",
-        max_count: 96,
+        max_count: 0,
     },
     DeprecatedVisualHelperBaseline {
         file: "src/search.rs",
@@ -127,7 +127,7 @@ const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
             "use crate::ui::theme::{glyphs}",
         ],
         usage_pattern: "glyphs::",
-        max_count: 6,
+        max_count: 0,
     },
 ];
 
@@ -455,12 +455,19 @@ fn screens_do_not_grow_deprecated_visual_helper_usage() {
             if deprecated_helper_has_baseline(file, helper.helper) {
                 continue;
             }
+            let source_imports_helper = source.lines().map(strip_line_comment).any(|line| {
+                helper
+                    .import_patterns
+                    .iter()
+                    .any(|pattern| line.contains(pattern))
+            });
             for (line_number, line) in code_lines(&source) {
                 let imports_helper = helper
                     .import_patterns
                     .iter()
                     .any(|pattern| line.contains(pattern));
-                if imports_helper || line.contains(helper.usage_pattern) {
+                if imports_helper || (source_imports_helper && line.contains(helper.usage_pattern))
+                {
                     violations.push(format!(
                         "{file}:{line_number}: new screen usage of deprecated `{}` helper is not allowed: `{line}`",
                         helper.helper
@@ -624,6 +631,16 @@ fn appearance_dark_is_approved(file: &str, source: &str, line_number: usize) -> 
 }
 
 fn deprecated_helper_count(source: &str, baseline: &DeprecatedVisualHelperBaseline) -> usize {
+    let imports_helper = source.lines().map(strip_line_comment).any(|line| {
+        baseline
+            .import_patterns
+            .iter()
+            .any(|pattern| line.contains(pattern))
+    });
+    if !imports_helper {
+        return 0;
+    }
+
     source
         .lines()
         .map(strip_line_comment)

@@ -8,7 +8,7 @@
 
 use gpui::{div, prelude::*, AnyElement, IntoElement, ParentElement, RenderOnce, SharedString};
 
-use crate::ui::theme::{color, spacing, typography};
+use crate::ui::style::{color, spacing, typography};
 
 /// Shared release detail layout: header, actions, details, panels, rows.
 #[derive(IntoElement)]

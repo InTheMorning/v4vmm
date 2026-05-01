@@ -19,7 +19,9 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
 
 - `tokens.rs` owns semantic dimensions and light/dark color resolution.
 - `theme_bridge.rs` installs those values into `gpui_component`.
-- `theme.rs` is still used as a dark-only compatibility shim.
+- `theme.rs` has been removed. Remaining fixed geometry and bridge-aware
+  compatibility color roles live in `ui::style` while legacy screens continue
+  migrating to direct token use.
 - Screens still use direct `Button::new(...)` plus style chains in many
   reusable contexts.
 - `ui::primitives::Button` exists but is dormant; ADR 0025 makes
@@ -28,8 +30,7 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
 - RSS/Nostr/playback/status iconography is split between inline SVG helpers,
   string glyphs, and badge emoji.
 - `TagBadge`, `EntityKind`, and `ProvenanceRole` cover screen entity and
-  metadata diff roles. `theme::badges` still exists only as a compatibility
-  shim inside `src/ui/theme.rs`.
+  metadata diff roles. `theme::badges` is gone.
 
 ## Target State
 
@@ -56,7 +57,7 @@ and the tokens -> primitives -> composites -> screens architecture from ADR
 ## Affected Modules
 
 - `src/ui/tokens.rs`
-- `src/ui/theme.rs`
+- `src/ui/style.rs`
 - `src/ui/theme_bridge.rs`
 - `src/ui/theme_profile.rs`
 - `src/ui/control_styles.rs`
@@ -123,6 +124,9 @@ tests. This phase has its own task packet and a measurable gate: migrated
 screen files must have zero `theme::color::*`, `theme::badges`, and
 `theme::glyphs` call sites before the deprecated namespace ban becomes
 unconditional.
+
+Status: implemented by
+`docs/tasks/adr-0025-task-006-retire-theme-shim.md`.
 
 ## Schema/API Implications
 

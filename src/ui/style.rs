@@ -1,91 +1,113 @@
-//! Legacy color/spacing/typography helpers. Kept as a backward-compatibility
-//! shim so existing call sites compile unchanged while we migrate the codebase
-//! to the new [`crate::ui::tokens`] system.
+//! Visual roles and fixed geometry used while screens finish migrating.
 //!
-//! New code should prefer `crate::ui::tokens::SemanticColor` and the
-//! primitives in `crate::ui::primitives`. Once all call sites are migrated,
-//! this module can be removed.
+//! This module replaces the old `ui::theme` compatibility shim. Color roles
+//! resolve through the appearance installed by `theme_bridge`, so runtime theme
+//! changes repaint without dark-only helper calls. The spacing, radius,
+//! typography, and layout constants are fixed geometry kept for legacy screen
+//! parity until those call sites move fully onto token enums.
+
+#![warn(clippy::pedantic)]
+
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use gpui::{px, FontWeight, Pixels, Rgba, Styled};
 
-use super::tokens::{Appearance, SemanticColor};
+use crate::ui::tokens::{Appearance, SemanticColor};
 
-/// Resolve a token to its dark-mode value (the only mode v4vmm currently
-/// ships). Once the app supports a runtime appearance switch, the call sites
-/// using the `color::*` helpers below should migrate to
-/// `crate::ui::tokens::color(cx, …)` so they re-resolve automatically.
-fn dark(token: SemanticColor) -> Rgba {
-    token.resolve(Appearance::Dark)
+static CURRENT_APPEARANCE: AtomicU8 = AtomicU8::new(0);
+
+pub(crate) fn install_appearance(appearance: Appearance) {
+    let raw = match appearance {
+        Appearance::Dark => 0,
+        Appearance::Light => 1,
+    };
+    CURRENT_APPEARANCE.store(raw, Ordering::Relaxed);
+}
+
+fn current_appearance() -> Appearance {
+    match CURRENT_APPEARANCE.load(Ordering::Relaxed) {
+        1 => Appearance::Light,
+        _ => Appearance::Dark,
+    }
+}
+
+fn role(token: SemanticColor) -> Rgba {
+    token.resolve(current_appearance())
 }
 
 pub mod color {
-    use super::{dark, Rgba, SemanticColor};
+    #![expect(
+        clippy::must_use_candidate,
+        reason = "compatibility color roles are consumed directly by GPUI builder chains"
+    )]
+
+    use super::{role, Rgba, SemanticColor};
 
     pub fn bg_canvas() -> Rgba {
-        dark(SemanticColor::SystemBackground)
+        role(SemanticColor::SystemBackground)
     }
     pub fn bg_surface() -> Rgba {
-        dark(SemanticColor::SecondarySystemBackground)
+        role(SemanticColor::SecondarySystemBackground)
     }
     pub fn bg_surface_hi() -> Rgba {
-        dark(SemanticColor::TertiarySystemBackground)
+        role(SemanticColor::TertiarySystemBackground)
     }
     pub fn bg_selected() -> Rgba {
-        dark(SemanticColor::SelectedContent)
+        role(SemanticColor::SelectedContent)
     }
 
     pub fn border_subtle() -> Rgba {
-        dark(SemanticColor::Separator)
+        role(SemanticColor::Separator)
     }
     pub fn border_strong() -> Rgba {
-        dark(SemanticColor::OpaqueSeparator)
+        role(SemanticColor::OpaqueSeparator)
     }
 
     pub fn text_primary() -> Rgba {
-        dark(SemanticColor::Label)
+        role(SemanticColor::Label)
     }
     pub fn text_secondary() -> Rgba {
-        dark(SemanticColor::SecondaryLabel)
+        role(SemanticColor::SecondaryLabel)
     }
     pub fn text_muted() -> Rgba {
-        dark(SemanticColor::TertiaryLabel)
+        role(SemanticColor::TertiaryLabel)
     }
     pub fn text_on_accent() -> Rgba {
-        dark(SemanticColor::OnAccent)
+        role(SemanticColor::OnAccent)
     }
 
     pub fn accent() -> Rgba {
-        dark(SemanticColor::Accent)
+        role(SemanticColor::Accent)
     }
     pub fn accent_hover() -> Rgba {
-        dark(SemanticColor::AccentHover)
+        role(SemanticColor::AccentHover)
     }
     pub fn accent_pressed() -> Rgba {
-        dark(SemanticColor::AccentPressed)
+        role(SemanticColor::AccentPressed)
     }
 
     pub fn focus_ring() -> Rgba {
-        dark(SemanticColor::Focus)
+        role(SemanticColor::Focus)
     }
 
     pub fn status_success() -> Rgba {
-        dark(SemanticColor::Success)
+        role(SemanticColor::Success)
     }
     pub fn status_warning() -> Rgba {
-        dark(SemanticColor::Warning)
+        role(SemanticColor::Warning)
     }
     pub fn status_danger() -> Rgba {
-        dark(SemanticColor::Danger)
+        role(SemanticColor::Danger)
     }
 
     pub fn diff_match() -> Rgba {
-        dark(SemanticColor::DiffMatch)
+        role(SemanticColor::DiffMatch)
     }
     pub fn diff_different() -> Rgba {
-        dark(SemanticColor::DiffDifferent)
+        role(SemanticColor::DiffDifferent)
     }
     pub fn diff_missing() -> Rgba {
-        dark(SemanticColor::DiffMissing)
+        role(SemanticColor::DiffMissing)
     }
 
     pub fn id3_frame_v22() -> Rgba {
@@ -102,39 +124,29 @@ pub mod color {
     }
 }
 
-pub mod badges {
-    use super::{dark, Rgba, SemanticColor};
-    use gpui::rgb;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusRole {
+    Success,
+    Warning,
+    Danger,
+}
 
-    pub fn type_color(entity_type: &str) -> Rgba {
-        match entity_type {
-            "feed" => rgb(0xe8943a),
-            "track" => rgb(0x3ac4c4),
-            "publisher" => rgb(0xe84393),
-            "artist" => rgb(0x4caf82),
-            "release" => rgb(0x6c7cff),
-            "recording" => rgb(0xb06cf4),
-            _ => dark(SemanticColor::Accent),
+impl StatusRole {
+    #[must_use]
+    pub fn color(self) -> Rgba {
+        match self {
+            Self::Success => color::status_success(),
+            Self::Warning => color::status_warning(),
+            Self::Danger => color::status_danger(),
         }
     }
 
-    pub fn text_color(entity_type: &str) -> Rgba {
-        match entity_type {
-            // Dark text on bright artist badges keeps WCAG AA contrast
-            // (the green artist colour is too light for white text).
-            "feed" | "track" | "artist" => rgb(0x111318),
-            _ => rgb(0xffffff),
-        }
-    }
-
-    pub fn emoji(entity_type: &str) -> &'static str {
-        match entity_type {
-            "feed" => "\u{1F4E1}",
-            "track" => "\u{1F3B6}",
-            "publisher" => "\u{1F3E2}",
-            "artist" => "\u{1F3A4}",
-            "release" => "\u{1F4BF}",
-            _ => "\u{1F3B5}",
+    #[must_use]
+    pub const fn glyph(self) -> &'static str {
+        match self {
+            Self::Success => "\u{2713}",
+            Self::Warning => "\u{26A0}",
+            Self::Danger => "\u{2717}",
         }
     }
 }
@@ -169,15 +181,6 @@ pub mod layout {
     pub const MENU_MIN_WIDTH: Pixels = px(320.0);
     pub const MENU_MAX_WIDTH: Pixels = px(520.0);
     pub const TRACK_NUMBER_WIDTH: Pixels = px(24.0);
-}
-
-pub mod glyphs {
-    pub const DIFF_MATCH: &str = "=";
-    pub const DIFF_DIFFERENT: &str = "\u{2260}";
-    pub const DIFF_MISSING: &str = "\u{2205}";
-    pub const STATUS_SUCCESS: &str = "\u{2713}";
-    pub const STATUS_WARNING: &str = "\u{26A0}";
-    pub const STATUS_DANGER: &str = "\u{2717}";
 }
 
 pub mod spacing {
@@ -238,45 +241,5 @@ pub mod typography {
 
     pub fn type_micro<T: Styled>(el: T) -> T {
         el.text_size(SIZE_MICRO).font_weight(FontWeight::MEDIUM)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::badges;
-    use gpui::rgb;
-
-    // Dark text marker — kept as a constant so tests reference the same
-    // value used by the production mapping.
-    const DARK: u32 = 0x111318;
-
-    #[test]
-    fn artist_uses_dark_text_for_wcag_contrast() {
-        assert_eq!(badges::text_color("artist"), rgb(DARK));
-    }
-
-    #[test]
-    fn feed_and_track_use_dark_text() {
-        assert_eq!(badges::text_color("feed"), rgb(DARK));
-        assert_eq!(badges::text_color("track"), rgb(DARK));
-    }
-
-    #[test]
-    fn publisher_and_unknown_use_white_text() {
-        assert_eq!(badges::text_color("publisher"), rgb(0xffffff));
-        assert_eq!(badges::text_color("unknown-thing"), rgb(0xffffff));
-    }
-
-    #[test]
-    fn artist_and_release_emojis_are_distinct_from_default() {
-        assert_eq!(badges::emoji("artist"), "\u{1F3A4}");
-        assert_eq!(badges::emoji("release"), "\u{1F4BF}");
-        assert_ne!(badges::emoji("artist"), badges::emoji("unknown"));
-        assert_ne!(badges::emoji("release"), badges::emoji("unknown"));
-    }
-
-    #[test]
-    fn unknown_entity_falls_back_to_default_emoji() {
-        assert_eq!(badges::emoji("unknown"), "\u{1F3B5}");
     }
 }

@@ -6,16 +6,16 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Pass / Fail
 
-- Status: Not reviewed.
-- Reviewer:
-- Date:
-- Review:
+- Status: Reviewed through Task 006.
+- Reviewer: Codex
+- Date: 2026-05-01
+- Review: ADR 0025 implementation slices 001-006 pass automated verification.
 
 ## Architectural Invariants
 
 - [ ] Screens do not introduce raw colors, inline icon SVG, or string glyphs
       for reusable visual roles.
-- [ ] New screen code does not call `theme::color::*`, `theme::badges`, or
+- [x] New screen code does not call `theme::color::*`, `theme::badges`, or
       `theme::glyphs`.
 - [ ] Semantic icons are requested through `ui::icons`.
 - [ ] Brand/protocol icon colors live inside the icon catalog.
@@ -32,9 +32,9 @@ Use this checklist for ADR 0025 implementation diffs and final review.
       maps.
 - [ ] Color is not the sole indicator for destructive, success, warning, diff,
       disabled, or pending states.
-- [ ] Runtime visual changes flow through `theme_bridge` / `Environment`.
-- [ ] `theme_bridge::install_theme` takes `ThemeProfile`.
-- [ ] `theme::glyphs` does not exist.
+- [x] Runtime visual changes flow through `theme_bridge` / `Environment`.
+- [x] `theme_bridge::install_theme` takes `ThemeProfile`.
+- [x] `theme::glyphs` does not exist.
 - [ ] View-models, application, service, domain, and infrastructure layers do
       not import UI modules.
 
@@ -60,19 +60,19 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 - [ ] Runtime profile selection exposes only tested profiles.
 - [ ] `ThemeProfile::System` is not exposed unless it follows real OS/system
       appearance.
-- [ ] Phase 6 reduces `theme.rs` to documented layout constants only or removes
+- [x] Phase 6 reduces `theme.rs` to documented layout constants only or removes
       it.
 
 ## Tests And Verification
 
-- [ ] `cargo fmt -- --check` passed.
-- [ ] `cargo check` passed.
-- [ ] `cargo test --test architecture_tests` passed.
-- [ ] relevant contrast tests passed.
-- [ ] high-contrast profile contrast tests passed before exposure.
-- [ ] relevant focused unit tests passed.
-- [ ] pure control role mapping tests passed.
-- [ ] `cargo clippy --lib --tests -- -D warnings` passed.
+- [x] `cargo fmt -- --check` passed.
+- [x] `cargo check` passed.
+- [x] `cargo test --test architecture_tests` passed.
+- [x] relevant contrast tests passed.
+- [x] high-contrast profile contrast tests passed before exposure.
+- [x] relevant focused unit tests passed.
+- [x] pure control role mapping tests passed.
+- [x] `cargo clippy --lib --tests -- -D warnings` passed.
 - [ ] Manual visual smoke completed for Library, Discover, Settings, and
       playback controls when the slice changes visible UI.
 
@@ -86,4 +86,4 @@ Use this checklist for ADR 0025 implementation diffs and final review.
 
 ## Merge Recommendation
 
-- Pending implementation review.
+- Mergeable through Task 006.

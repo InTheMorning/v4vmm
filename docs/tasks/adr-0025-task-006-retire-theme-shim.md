@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Implemented.
 
 ## Task Goal
 
@@ -69,14 +69,26 @@ control-style, and badge boundaries are in use.
 
 ## Acceptance Criteria
 
-- [ ] `app.rs`, `library.rs`, and `search.rs` have zero
+- [x] `app.rs`, `library.rs`, and `search.rs` have zero
       `theme::color::*`, `theme::badges`, and `theme::glyphs` call sites.
-- [ ] `theme::glyphs` does not exist.
-- [ ] `theme.rs` contains only documented layout/fixed-geometry compatibility
+- [x] `theme::glyphs` does not exist.
+- [x] `theme.rs` contains only documented layout/fixed-geometry compatibility
       constants, or is removed.
-- [ ] Architecture tests unconditionally reject deprecated visual helper usage
+- [x] Architecture tests unconditionally reject deprecated visual helper usage
       in migrated screen files.
-- [ ] Current visual behavior and layout are preserved.
+- [x] Current visual behavior and layout are preserved.
+
+## Implementation Notes
+
+- Removed `src/ui/theme.rs` and the `ui::theme` module export.
+- Added `src/ui/style.rs` for fixed geometry and bridge-aware semantic color
+  roles used by legacy render paths while they continue to migrate to tokens.
+- `theme_bridge::install_theme` now installs the current appearance into
+  `ui::style`, so remaining compatibility color role calls follow runtime
+  profile changes rather than hardcoding dark mode.
+- Replaced the remaining status glyph usage with typed `StatusRole`.
+- Tightened deprecated-helper architecture baselines to zero for migrated
+  screen files.
 
 ## Test Commands
 

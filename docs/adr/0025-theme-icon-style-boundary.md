@@ -20,11 +20,9 @@ theme, icon, and control-style changes boring. The current state is mixed:
   `Appearance`, and `Environment`.
 - `src/ui/theme_bridge.rs` correctly pushes token colors into
   `gpui_component`.
-- `src/ui/theme.rs` remains a dark-only compatibility shim. Render paths still
-  use helpers such as `theme::color::*`, `theme::badges`,
-  `theme::glyphs`, and layout constants. `theme::glyphs` is still used for
-  provenance/status markers in Library and Discover, so it must be retired
-  with the icon/badge migrations rather than deleted in the profile slice.
+- `src/ui/theme.rs` has been removed. Remaining fixed geometry and
+  bridge-aware compatibility color roles live in `src/ui/style.rs` while
+  legacy screens continue moving to direct tokens and primitives.
 - Screens still contain many direct `gpui_component::Button::new(...)` call
   sites and per-call style chains.
 - `src/ui/primitives/button.rs` already defines a token-native button
@@ -58,7 +56,7 @@ The target module shape is:
 src/ui/
   tokens.rs              existing semantic token base
   theme_bridge.rs        existing gpui-component bridge
-  theme.rs               temporary compatibility shim, retired by this ADR
+  style.rs               fixed geometry + bridge-aware compatibility roles
   theme_profile.rs       named theme profiles and role resolution
   icons.rs               semantic icon catalog and Icon primitive facade
   control_styles.rs      role mapping for the native Button primitive
@@ -98,11 +96,11 @@ first slice. Custom accent color can be introduced later after the semantic
 roles are complete and contrast tests can validate it. This keeps the first
 work focused on replacing leaks rather than inventing a theme editor.
 
-The dark-only helper `theme::color::*` is compatibility-only. New code must use
-`tokens::color(cx, SemanticColor::...)`, profile-resolved roles, primitives, or
-composites. Existing screen call sites should migrate away from `theme::color`
-and `theme::badges` until `theme.rs` contains only constants that genuinely
-belong to layout or has been removed.
+The old dark-only `theme::color::*` helper namespace is removed. New code must
+use `tokens::color(cx, SemanticColor::...)`, profile-resolved roles,
+primitives, or composites. Existing fixed-geometry and compatibility color
+roles live in `ui::style` and resolve through the appearance installed by
+`theme_bridge`.
 
 `theme_bridge::install_theme` must take a `ThemeProfile`, not leave profile
 resolution to callers:
@@ -232,9 +230,8 @@ owns the screen-level chain sweep for reusable button/action patterns in
 ### Badge and entity-role boundary
 
 Entity and status badges must use typed roles, not string-keyed color maps.
-`TagBadge` / `EntityKind` are the preferred direction. `theme::badges` is a
-compatibility shim for remaining legacy call sites and should not be used by
-new code.
+`TagBadge` / `EntityKind` are the preferred direction. The former
+`theme::badges` compatibility shim has been removed.
 
 The replacement should distinguish:
 
@@ -431,9 +428,10 @@ hidden until OS appearance detection exists.
 
 ### Phase 6 - retire compatibility shims
 
-Remove or sharply narrow `theme.rs`. Any remaining layout constants should move
-to tokens/layout roles or be documented as fixed geometry. Architecture tests
-should fail if screens reintroduce deprecated visual helpers.
+Remove or sharply narrow `theme.rs`. ADR 0025 removed it and moved remaining
+fixed geometry plus bridge-aware compatibility color roles to `ui::style`.
+Architecture tests should fail if screens reintroduce deprecated visual
+helpers.
 
 ## Test strategy
 
@@ -465,7 +463,7 @@ This ADR is fulfilled when:
 - New screen code cannot add `theme::color::*`, `theme::badges`, or
   `theme::glyphs` call sites without failing architecture tests.
 - `theme::glyphs` is deleted after its Library/Discover provenance and status
-  call sites move behind icon/badge roles.
+  call sites move behind icon/badge/status roles.
 - Reusable icons are requested through semantic icon roles.
 - RSS/Nostr/playback/download/remove/playlist/MusicBrainz/status icons are no
   longer implemented as screen-level inline SVG or glyph helpers.
@@ -483,10 +481,9 @@ This ADR is fulfilled when:
 - High-contrast profiles pass contrast tests before being exposed as settings.
 - Runtime profile changes reinstall the theme and refresh windows without
   screen-specific theme code.
-- Phase 6 retirement gate: after migrated screen files have zero
-  `theme::color::*`, `theme::badges`, and `theme::glyphs` call sites for one
-  full implementation cycle, `theme.rs` is reduced to layout constants only
-  and the architecture gate forbidding those deprecated namespaces is
+- Phase 6 retirement gate: migrated screen files have zero `theme::color::*`,
+  `theme::badges`, and `theme::glyphs` call sites; `theme.rs` has been
+  removed; and the architecture gate forbidding those deprecated namespaces is
   unconditional.
 - The app preserves current behavior while reducing visual duplication.
 

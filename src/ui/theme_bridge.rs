@@ -47,6 +47,7 @@ impl From<UiScale> for ScaleFactor {
 )]
 pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App) {
     let appearance = profile.appearance();
+    crate::ui::style::install_appearance(appearance);
 
     // Install the bundled Environment so every component can read appearance
     // and scale through the single SwiftUI-style accessor. Mirrors the scale

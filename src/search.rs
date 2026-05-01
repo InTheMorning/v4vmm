@@ -1629,12 +1629,12 @@ impl Render for SearchApp {
         let input_is_empty = self.input.read(cx).value().trim().is_empty();
         let snapshot = self.vm.render_snapshot(stack.is_empty(), input_is_empty);
         let status_text = if snapshot.status.is_error {
-            format!("{} {}", glyphs::STATUS_DANGER, snapshot.status.text)
+            format!("{} {}", StatusRole::Danger.glyph(), snapshot.status.text)
         } else {
             snapshot.status.text.clone()
         };
         let status_color = if snapshot.status.is_error {
-            color::status_danger()
+            StatusRole::Danger.color()
         } else {
             color::text_muted()
         };
@@ -5303,7 +5303,7 @@ fn join_values(values: &[String]) -> Option<String> {
     }
 }
 
-use crate::ui::theme::{color, glyphs, layout, radius, spacing, typography};
+use crate::ui::style::{color, layout, radius, spacing, typography, StatusRole};
 
 pub fn run_search_app() {
     let app = Application::new().with_assets(gpui_component_assets::Assets);

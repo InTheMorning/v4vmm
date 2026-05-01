@@ -21,7 +21,7 @@ use crate::search::{SearchApp, SearchAppEvent};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::theme::layout;
+use crate::ui::style::layout;
 use crate::ui::theme_profile::ThemeProfile;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::library::LibraryTree;

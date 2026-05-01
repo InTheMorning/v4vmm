@@ -11,7 +11,7 @@ use gpui::{
     MouseUpEvent, ParentElement, RenderOnce, SharedString, Styled, Window,
 };
 
-use crate::ui::theme::{color, layout};
+use crate::ui::style::{color, layout};
 
 type MouseMoveHandler = Box<dyn Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static>;
 type MouseUpHandler = Box<dyn Fn(&MouseUpEvent, &mut Window, &mut App) + 'static>;
