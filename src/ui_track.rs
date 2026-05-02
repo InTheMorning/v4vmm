@@ -13,7 +13,7 @@ use gpui::{prelude::*, AnyElement, ClickEvent, Context, Image, SharedString};
 use crate::api::{Feed, Track};
 use crate::db;
 use crate::search::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
-use crate::ui::composites::AddToPlaylistPopover;
+use crate::ui::composites::{AddToPlaylistPopover, PlaylistOption};
 use crate::ui_entity::{render_release_track_row, ReleaseTrackRowSlot};
 use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
 use crate::view_models::track::TrackVm;
@@ -22,6 +22,13 @@ use crate::views::TrackView;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TrackRowMode {
     Discover,
+}
+
+fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
+    playlists
+        .iter()
+        .map(|playlist| PlaylistOption::new(playlist.id, playlist.name.clone()))
+        .collect()
 }
 
 #[expect(
@@ -102,7 +109,7 @@ fn render_discover_track_row(
             let track_guid_cre = track_guid_sel.clone();
             let popover = AddToPlaylistPopover::new(
                 SharedString::from(format!("add-pl:{guid}")),
-                playlists.to_vec(),
+                playlist_options(playlists),
             )
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_search_track_to_playlist(

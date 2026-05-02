@@ -65,7 +65,7 @@ use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, identity_action_button, AddToPlaylistPopover, DetailGrid, DetailHeader,
     DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, IdentityActionKind, ListRow,
-    ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
+    PlaylistOption, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, MultilineText};
@@ -2261,6 +2261,13 @@ fn render_detail(
     }
 }
 
+fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
+    playlists
+        .iter()
+        .map(|playlist| PlaylistOption::new(playlist.id, playlist.name.clone()))
+        .collect()
+}
+
 fn render_library_artist_detail(
     detail: &LibraryArtistDetail,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
@@ -2434,7 +2441,7 @@ fn render_album_detail(
         buttons = buttons.child(
             AddToPlaylistPopover::new(
                 SharedString::from(format!("album-feed-add:{fid}")),
-                playlists.to_vec(),
+                playlist_options(playlists),
             )
             .trigger_label(playlist_action.label)
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
@@ -2628,7 +2635,7 @@ fn render_library_track_row(
     actions.push(
         AddToPlaylistPopover::new(
             SharedString::from(format!("album-track-add:{track_id}")),
-            playlists.to_vec(),
+            playlist_options(playlists),
         )
         .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
             this.add_track_to_playlist(track_id, *playlist_id, cx);
@@ -3052,7 +3059,7 @@ fn render_action_row(
         .child(
             AddToPlaylistPopover::new(
                 SharedString::from(format!("track-inspector-add:{track_id}")),
-                playlists.to_vec(),
+                playlist_options(playlists),
             )
             .trigger_label(LibraryTrackActionVm::add_to_playlist_label())
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {

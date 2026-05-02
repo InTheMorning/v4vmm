@@ -48,6 +48,22 @@ const UI_ENTITY_FORBIDDEN_PATTERNS: &[&str] = &[
     "crate::track_compare",
 ];
 
+const SHARED_UI_BACKEND_FORBIDDEN_PATTERNS: &[&str] = &[
+    "crate::application",
+    "crate::api",
+    "crate::db",
+    "crate::feed_service",
+    "crate::library_service",
+    "crate::metadata_service",
+    "crate::playlist_service",
+    "crate::subscribe_service",
+    "crate::track_compare",
+    "rusqlite",
+    "crate::library::",
+    "crate::search::",
+    "crate::app::",
+];
+
 const APPLICATION_FORBIDDEN_PATTERNS: &[&str] = &[
     "use gpui",
     "gpui::",
@@ -320,6 +336,31 @@ const SCREEN_FILES: &[&str] = &[
     "src/search.rs",
 ];
 
+const PRESENTATION_GLUE_FILES: &[&str] = &[
+    "src/app.rs",
+    "src/app/playback_bar.rs",
+    "src/app/tab_bar.rs",
+    "src/library.rs",
+    "src/search.rs",
+    "src/ui_feed.rs",
+    "src/ui_track.rs",
+];
+
+/// Top-level shared-UI shell modules. They live alongside screen modules at
+/// `src/*.rs` rather than under `src/ui/` for legacy reasons, but they are
+/// shared GPUI layout — not screen wiring. Adding a new shared top-level
+/// shell requires adding the file here so the ADR 0033 backstop test can
+/// distinguish it from an unclassified screen.
+const KNOWN_SHARED_UI_SHELL_FILES: &[&str] = &["src/ui_artist.rs", "src/ui_entity.rs"];
+
+const SCREEN_LOCAL_FLOATING_CHROME_FORBIDDEN_PATTERNS: &[&str] = &[
+    "gpui_component::popover",
+    "SurfaceElevation::Floating",
+    ".absolute()",
+    ".fixed()",
+    ".z_index(",
+];
+
 #[derive(Debug)]
 struct DeprecatedVisualHelperBaseline {
     file: &'static str,
@@ -423,6 +464,56 @@ fn ui_entity_shell_does_not_import_screens_or_services() {
     assert!(
         violations.is_empty(),
         "ADR 0026 ui_entity shell boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn shared_ui_components_do_not_import_backend_or_screen_layers() {
+    let mut violations = Vec::new();
+    for relative_dir in ["src/ui/primitives", "src/ui/composites"] {
+        for path in rust_files_under(relative_dir) {
+            let source = read_source(&path);
+            for (line_number, line) in code_lines(&source) {
+                for pattern in SHARED_UI_BACKEND_FORBIDDEN_PATTERNS {
+                    if line.contains(pattern) {
+                        violations.push(format!(
+                            "{}:{line_number}: ADR 0033 shared UI must accept display-ready data and callbacks, not backend/screen dependency `{pattern}`: `{line}`",
+                            rel_path(&path)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 shared UI backend/screen boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn presentation_modules_do_not_hand_roll_floating_chrome() {
+    let mut violations = Vec::new();
+    for file in PRESENTATION_GLUE_FILES {
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in SCREEN_LOCAL_FLOATING_CHROME_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: ADR 0033 floating chrome belongs in shared primitives/composites, not presentation modules; found `{pattern}` in `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 screen-local floating chrome violations:\n{}",
         violations.join("\n")
     );
 }
@@ -1015,6 +1106,109 @@ fn playlist_popover_calls_wire_create_mode() {
         "ADR 0032 playlist popover create-mode violations:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn top_level_gpui_modules_are_classified_as_screen_or_shared_ui() {
+    let mut candidates = Vec::new();
+    let src_dir = manifest_path("src");
+    for entry in fs::read_dir(&src_dir)
+        .unwrap_or_else(|err| panic!("read {}: {err}", src_dir.display()))
+    {
+        let entry = entry.expect("read src entry");
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
+            candidates.push(path);
+        }
+    }
+    let app_dir = manifest_path("src/app");
+    if app_dir.is_dir() {
+        for entry in fs::read_dir(&app_dir)
+            .unwrap_or_else(|err| panic!("read {}: {err}", app_dir.display()))
+        {
+            let entry = entry.expect("read src/app entry");
+            let path = entry.path();
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "rs") {
+                candidates.push(path);
+            }
+        }
+    }
+    candidates.sort();
+
+    let mut unclassified = Vec::new();
+    for path in candidates {
+        let source = read_source(&path);
+        let imports_gpui = source.lines().map(strip_line_comment).any(|line| {
+            line.contains("use gpui") || line.contains("gpui_component::")
+        });
+        if !imports_gpui {
+            continue;
+        }
+        let rel = rel_path(&path);
+        let classified = SCREEN_FILES.iter().any(|file| *file == rel)
+            || PRESENTATION_GLUE_FILES.iter().any(|file| *file == rel)
+            || KNOWN_SHARED_UI_SHELL_FILES.iter().any(|file| *file == rel);
+        if !classified {
+            unclassified.push(rel);
+        }
+    }
+
+    assert!(
+        unclassified.is_empty(),
+        "ADR 0033 backstop: every top-level GPUI-importing module must be classified as a screen, presentation glue, or shared-UI shell. Add the file to `SCREEN_FILES`, `PRESENTATION_GLUE_FILES`, or `KNOWN_SHARED_UI_SHELL_FILES` in tests/architecture_tests.rs in the same change that introduces it. Unclassified files:\n{}",
+        unclassified.join("\n")
+    );
+}
+
+#[test]
+fn shared_ui_callbacks_do_not_smuggle_backend_types() {
+    let mut violations = Vec::new();
+    for relative_dir in ["src/ui/primitives", "src/ui/composites"] {
+        for path in rust_files_under(relative_dir) {
+            let source = read_source(&path);
+            for (line_number, line) in code_lines(&source) {
+                if !line_mentions_callback(&line) {
+                    continue;
+                }
+                for pattern in CALLBACK_BACKEND_TYPE_FORBIDDEN_PATTERNS {
+                    if line.contains(pattern) {
+                        violations.push(format!(
+                            "{}:{line_number}: ADR 0033 shared UI callbacks must not carry backend types; found `{pattern}` in `{line}`",
+                            rel_path(&path)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 callback backend-type smuggling violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+const CALLBACK_BACKEND_TYPE_FORBIDDEN_PATTERNS: &[&str] = &[
+    "db::",
+    "api::",
+    "crate::db",
+    "crate::api",
+    "feed_service::",
+    "library_service::",
+    "metadata_service::",
+    "playlist_service::",
+    "subscribe_service::",
+    "track_compare::",
+    "rusqlite",
+];
+
+fn line_mentions_callback(line: &str) -> bool {
+    line.contains("Fn(")
+        || line.contains("FnMut(")
+        || line.contains("FnOnce(")
+        || line.contains("Fn ->")
+        || line.contains("dyn Fn")
 }
 
 fn rust_files_under(relative_dir: &str) -> Vec<PathBuf> {

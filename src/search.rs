@@ -52,7 +52,7 @@ use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, identity_action_button, AddToPlaylistPopover, DetailGrid, DetailHeader,
     DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, IdentityActionKind, ListRow,
-    ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
+    PlaylistOption, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2768,7 +2768,7 @@ pub(crate) fn render_action_row(
         .child(
             AddToPlaylistPopover::new(
                 SharedString::from(format!("inspector-add:{}", frame.entity_id)),
-                playlists,
+                playlist_options(&playlists),
             )
             .trigger_label(playlist_label)
             .disabled(playlist_disabled || playlist_target.is_none())
@@ -2918,6 +2918,13 @@ fn inspector_playlist_target(
         }),
         _ => None,
     }
+}
+
+fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
+    playlists
+        .iter()
+        .map(|playlist| PlaylistOption::new(playlist.id, playlist.name.clone()))
+        .collect()
 }
 
 fn render_lazy_sections(

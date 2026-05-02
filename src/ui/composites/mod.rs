@@ -39,7 +39,7 @@ pub use disclosure_group::DisclosureGroup;
 pub use identity_action::{identity_action_button, IdentityActionKind};
 pub use list_row::{ListRow, ListRowDensity};
 pub use now_playing_bar::{NowPlayingBar, NowPlayingData, PlaybackState as NowPlayingState};
-pub use playlist_popover::AddToPlaylistPopover;
+pub use playlist_popover::{AddToPlaylistPopover, PlaylistOption};
 pub use release_detail_surface::ReleaseDetailSurface;
 pub use segmented_control::{Segment, SegmentedControl};
 pub use split_pane::SplitPane;

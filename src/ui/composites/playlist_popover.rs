@@ -19,7 +19,6 @@ use gpui_component::{
     v_flex,
 };
 
-use crate::db;
 use crate::ui::icons::IconName;
 use crate::ui::primitives::{
     Button, ButtonSize, Divider, Popover, PopoverAlignment, PopoverPlacement,
@@ -52,16 +51,33 @@ struct AddToPlaylistState {
 #[must_use]
 pub struct AddToPlaylistPopover {
     id: SharedString,
-    playlists: Vec<db::Playlist>,
+    playlists: Vec<PlaylistOption>,
     trigger_label: SharedString,
     disabled: bool,
     on_select: Option<SelectHandler>,
     on_create: Option<CreateHandler>,
 }
 
+/// Display-ready playlist option for the shared playlist popover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistOption {
+    id: i64,
+    name: SharedString,
+}
+
+impl PlaylistOption {
+    /// Create a display-ready playlist option.
+    pub fn new(id: i64, name: impl Into<SharedString>) -> Self {
+        Self {
+            id,
+            name: name.into(),
+        }
+    }
+}
+
 impl AddToPlaylistPopover {
     /// Create a new popover with the given `id` and playlist list.
-    pub fn new(id: impl Into<SharedString>, playlists: Vec<db::Playlist>) -> Self {
+    pub fn new(id: impl Into<SharedString>, playlists: Vec<PlaylistOption>) -> Self {
         Self {
             id: id.into(),
             playlists,
@@ -173,13 +189,13 @@ impl RenderOnce for AddToPlaylistPopover {
 )]
 fn build_list_mode(
     state: Entity<AddToPlaylistState>,
-    playlists: Rc<Vec<db::Playlist>>,
+    playlists: Rc<Vec<PlaylistOption>>,
     on_select: Option<SelectHandler>,
     can_create: bool,
 ) -> Div {
     let playlist_buttons = playlists.iter().map(|p| {
         let playlist_id = p.id;
-        let label = SharedString::from(p.name.clone());
+        let label = p.name.clone();
         let on_select = on_select.clone();
         let state = state.clone();
         Button::plain(SharedString::from(format!("pl-{playlist_id}")))
