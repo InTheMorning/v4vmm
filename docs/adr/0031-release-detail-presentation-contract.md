@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-01
+Accepted - 2026-05-01. Implementation in progress.
 
 ## Context
 
@@ -35,7 +35,7 @@ into the same presentation shape before rendering. The renderer should render
 that shape; it should not decide which raw metadata fields deserve hero
 placement.
 
-The contract should live in the GPUI-free projection layer, probably
+The contract lives in the GPUI-free projection layer,
 `src/view_models/entity_detail.rs`, and should remain independent from command
 dispatch, image-cache lookup, popovers, database reads, and service calls.
 
@@ -214,58 +214,115 @@ Library:
 
 ## Implementation Plan
 
-### Task 001: Contract Types and Projection Tests
+Tasks must be executed in order. Task 002 depends on Task 001. Task 003 covers
+only the visual row template that Task 002 deliberately leaves abstract; if
+Task 002 absorbs row-template parity in practice, Task 003 collapses into it.
 
-Add the canonical presentation contract in the view-model layer.
+### Task 001: Contract Types, Action Projection, and Projection Tests
+
+Add the canonical presentation contract in `src/view_models/entity_detail.rs`,
+either by adapting the existing `ReleaseDetailVm` or by introducing
+`ReleaseDetailPageVm` alongside it with a clear migration path off
+`ReleaseDetailVm`. Implement identity-action projection (Website, Nostr, RSS,
+and similar outbound affordances) from source facts in the same task, since
+the primary/identity action split is part of the contract.
 
 Acceptance criteria:
 
+- `ReleaseDetailPageVm` (or the renamed equivalent) accepts `&FeedView` and
+  `EntitySurfaceContext`, mirroring existing `ReleaseDetailVm::new`.
 - Projection tests prove that hero text excludes raw URLs, `npub` values, long
   GUIDs, and multi-line descriptions.
-- Summary facts are ordered and capped.
+- Summary facts render in the documented order (kind, date, tracks, duration,
+  language/explicitness when relevant) and the visible list is capped at five.
 - Description appears in a panel and not in the hero or summary facts.
+- Website, Nostr, and RSS affordances land in `identity_actions` and never in
+  `primary_actions`, asserted per surface.
 - Discovery and Library produce the same structural zones for equivalent
-  release data.
+  release data; surface-specific differences appear only in action lists.
+- All projection tests are GPUI-free.
 
-### Task 002: Renderer Adoption
+### Task 002: Renderer Adoption and Slot Retirement
 
-Update the shared release detail shell to render the contract zones.
+Update the shared release detail shell (`render_release_detail_shell` in
+`src/ui_entity.rs`) to consume the contract directly and migrate every caller
+(`src/ui_feed.rs` and any Library equivalent) in lock-step. The shell
+signature changes from `ReleaseDetailSlots` to `&ReleaseDetailPageVm`; treat
+this as a breaking change and update all construction sites in the same task.
+Retire or narrow `ReleaseDetailSlots` so it cannot reintroduce the
+screen-local-decision failure mode described in the Context section.
 
 Acceptance criteria:
 
 - Library album/feed and Discovery feed details render through the same page
   contract.
-- Existing action handlers remain screen-owned.
-- No nested vertical scroll views are introduced.
+- The shell reads only from the contract; it does not access `FeedView` or
+  source-fact fields directly.
+- `ReleaseDetailSlots` is either deleted or reduced to slots that cannot carry
+  hero, description, or summary content.
+- Existing action handlers remain screen-owned (callbacks injected via the
+  contract, dispatch resolved by the screen).
+- The single-vertical-scroll invariant from ADR 0030 holds.
 
-### Task 003: Track Section Parity
+### Task 003: Track Row Visual Template
 
-Normalize the release track section's row skeleton across Library and Discovery.
-
-Acceptance criteria:
-
-- Track rows align consistently between surfaces.
-- Surface-specific actions remain available through action slots.
-- Empty/loading states use the same section placement.
-
-### Task 004: Visual Smoke and Cleanup
-
-Run manual smoke against representative Library and Discovery release details.
+Normalize the visual row template of the track section across Library and
+Discovery. Scope is limited to row geometry; the section structure itself is
+expected to already come from Task 002.
 
 Acceptance criteria:
 
-- First viewport has a clear title, creator, restrained actions, compact facts,
-  and visible start of the track section.
-- Description appears once.
-- Raw identity values are available only in demoted panels or copy/open actions.
-- Screenshots are attached or referenced from a review document.
+- Row column order is fixed: number, artwork/thumb, title and secondary
+  metadata, duration, surface action slot.
+- Number column width and row height are constants in one place, applied to
+  both surfaces.
+- The surface action slot lives at one named position on the row; surfaces
+  populate it but cannot reorder it.
+- Empty and loading states are owned by `ReleaseTrackSectionVm` (or the
+  renamed equivalent) and rendered by one shared component on both surfaces.
+
+### Task 004: Visual Smoke, Regression Pass, and Cleanup
+
+Run manual smoke against an enumerated set of representative releases and
+confirm that screen-owned behavior still works after the contract migration.
+Cleanup means removing slot fields, helpers, or screen-local conditionals that
+the new contract makes dead.
+
+Smoke fixture list (each must be exercised on Library and Discovery where
+applicable):
+
+- Release with Website, Nostr, and a multi-paragraph description.
+- Release with an empty description.
+- Release with zero tracks.
+- Release with 100+ tracks.
+- Release with only podcast/RSS identity.
+- Library release with full local-file metadata.
+
+Acceptance criteria:
+
+- First viewport for every fixture has a clear title, creator, restrained
+  primary actions, compact summary facts, and a visible start of the track
+  section.
+- Description appears exactly once on every fixture.
+- Raw identity values appear only in demoted panels or in copy/open actions.
+- Regression check: Library compare, download, playlist add, MusicBrainz
+  lookup, and playback still trigger from the new contract path.
+- Dead `ReleaseDetailSlots` fields, helpers, and screen-local conditionals
+  superseded by the contract are removed.
+- Screenshots for each fixture are attached or referenced from a review
+  document.
 
 ## Review Checklist
 
-- Does the hero contain only human-readable identity?
+- Does the hero contain only the documented identity and orienting visuals
+  (artwork, kind badge, title, subtitle, optional supporting line)?
 - Are raw URLs, `npub` values, GUIDs, and long machine IDs absent from the hero?
-- Does Description render exactly once?
-- Are summary facts capped and ordered?
+- Are primary actions and identity actions visually distinct, with Website,
+  Nostr, and RSS rendered as identity actions?
+- Are identity-detail panels demoted below the summary rather than competing
+  with the title?
+- Does the description render exactly once?
+- Are summary facts capped at five and in the documented order?
 - Do Library and Discovery share the same skeleton?
 - Are differences limited to surface policy and action availability?
 - Are command dispatch and services still screen-owned?
