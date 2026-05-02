@@ -1099,6 +1099,29 @@ fn screens_do_not_inline_value_route_recipient_label_fallbacks() {
 }
 
 #[test]
+fn shared_top_level_ui_shells_do_not_import_screen_modules() {
+    let forbidden = ["crate::search", "crate::library", "SearchApp", "LibraryApp"];
+
+    let mut violations = Vec::new();
+    for file in KNOWN_SHARED_UI_SHELL_FILES {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            if let Some(pattern) = forbidden.iter().find(|pattern| line.contains(**pattern)) {
+                violations.push(format!(
+                    "{file}:{line_number}: shared top-level UI shells must not depend on screen modules; found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 shared UI shell boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn library_release_detail_playlist_popovers_use_shared_composite() {
     let path = manifest_path("src/library.rs");
     let source = read_source(&path);

@@ -2509,15 +2509,16 @@ fn render_artist_inspector(
         .track_count
         .unwrap_or(artist_context.tracks.len() as i32);
 
+    let feed_section = (!artist_context.feeds.is_empty())
+        .then(|| render_feed_list_section("Feeds", artist_context.feeds.clone(), app, cx));
+
     crate::ui_artist::render_artist_view(
         &view,
         &artist_context.feeds,
         frame.image.clone(),
-        &crate::ui_context::ViewContext::Discover,
         artist_context.has_more_tracks,
         Some(track_count),
-        app,
-        cx,
+        feed_section,
     )
 }
 
