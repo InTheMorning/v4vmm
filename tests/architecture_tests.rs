@@ -252,6 +252,48 @@ const PROVENANCE_DIFF_HELPER_BASELINES: &[DiffHelperBaseline] = &[
     },
 ];
 
+const SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES: &[ScreenLocalPlaylistPopoverBaseline] = &[
+    ScreenLocalPlaylistPopoverBaseline {
+        file: "src/library.rs",
+        pattern: "fn render_add_to_playlist_panel(",
+        max_count: 1,
+        note: "legacy Library track-inspector playlist panel",
+    },
+    ScreenLocalPlaylistPopoverBaseline {
+        file: "src/library.rs",
+        pattern: ".when(frame.add_to_playlist_open, |el|",
+        max_count: 1,
+        note: "legacy Library track-inspector playlist panel toggle",
+    },
+    ScreenLocalPlaylistPopoverBaseline {
+        file: "src/search.rs",
+        pattern: "fn render_add_to_playlist_panel_search(",
+        max_count: 1,
+        note: "legacy Discover inspector playlist panel",
+    },
+    ScreenLocalPlaylistPopoverBaseline {
+        file: "src/search.rs",
+        pattern: ".when(frame.add_to_playlist_open, |el|",
+        max_count: 1,
+        note: "legacy Discover inspector playlist panel toggle",
+    },
+    ScreenLocalPlaylistPopoverBaseline {
+        file: "src/search.rs",
+        pattern: "fn render_row_playlist_popup(",
+        max_count: 1,
+        note: "legacy Discover row popup compatibility wrapper",
+    },
+];
+
+const RELEASE_PLAYLIST_POPOVER_FORBIDDEN_PATTERNS: &[&str] = &[
+    "render_album_track_add_panel",
+    "render_album_feed_add_panel",
+    "album_track_picker_open",
+    "album_feed_picker_open",
+    "album_add_open_track",
+    "album_add_open_feed",
+];
+
 const SHARED_VIEW_FACT_FORBIDDEN_PUBLIC_FIELDS: &[&str] = &[
     "pub contributors: Vec<api::Contributor>",
     "pub source_links: Vec<api::SourceEntityLink>",
@@ -302,6 +344,14 @@ struct DiffHelperBaseline {
     file: &'static str,
     pattern: &'static str,
     max_count: usize,
+}
+
+#[derive(Debug)]
+struct ScreenLocalPlaylistPopoverBaseline {
+    file: &'static str,
+    pattern: &'static str,
+    max_count: usize,
+    note: &'static str,
 }
 
 #[test]
@@ -858,6 +908,66 @@ fn screens_do_not_grow_loose_provenance_diff_helpers() {
     assert!(
         violations.is_empty(),
         "ADR 0025 provenance/diff helper violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_grow_screen_local_playlist_popover_panels() {
+    let mut violations = Vec::new();
+    for baseline in SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES {
+        let path = manifest_path(baseline.file);
+        let source = read_source(&path);
+        let matches = source
+            .lines()
+            .map(strip_line_comment)
+            .filter(|line| line.contains(baseline.pattern))
+            .count();
+        if matches > baseline.max_count {
+            violations.push(format!(
+                "{}: screen-local playlist popover pattern `{}` grew from allowed baseline {} to {matches} ({})",
+                baseline.file, baseline.pattern, baseline.max_count, baseline.note
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0032 playlist popover ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn library_release_detail_playlist_popovers_use_shared_composite() {
+    let path = manifest_path("src/library.rs");
+    let source = read_source(&path);
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        for pattern in RELEASE_PLAYLIST_POPOVER_FORBIDDEN_PATTERNS {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/library.rs:{line_number}: ADR 0032 Library release-detail playlist chrome must use `AddToPlaylistPopover`, not `{pattern}`: `{line}`"
+                ));
+            }
+        }
+    }
+
+    let shared_popover_count = source
+        .lines()
+        .map(strip_line_comment)
+        .filter(|line| line.contains("AddToPlaylistPopover::new("))
+        .count();
+    if shared_popover_count < 2 {
+        violations.push(format!(
+            "src/library.rs: ADR 0032 expects Library feed and track release-detail playlist actions to use `AddToPlaylistPopover`; found {shared_popover_count} call(s)"
+        ));
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0032 Library release-detail playlist popover violations:\n{}",
         violations.join("\n")
     );
 }

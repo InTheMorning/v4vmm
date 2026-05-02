@@ -41,10 +41,12 @@ state, and document the boundary rule.
 
 ### Phase 2 - Architecture-Test Enforcement
 
-Status: Planned.
+Status: Completed.
 
 Add architecture tests that prevent new screen-local playlist popover panels
 and make task packets include UI/backend boundary checks.
+
+Task: `docs/tasks/adr-0032-task-002-architecture-test-enforcement.md`
 
 ## Risk Areas
 

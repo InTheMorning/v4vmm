@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted - 2026-05-02.
+Implemented - 2026-05-02.
 
 ## Context
 
@@ -77,9 +77,9 @@ surface, width, arrow, dismissal, list row treatment, and empty state belong to
 
 - Existing hand-rolled playlist panels should migrate to
   `AddToPlaylistPopover`.
-- Architecture tests should grow rules that detect new raw playlist popover
-  panels in screen modules.
-- Task packets touching UI/backend boundaries must include explicit boundary
-  rules and visual smoke expectations.
+- Architecture tests reject new raw playlist popover panel growth in screen
+  modules and hard-ban the Library release-detail regression patterns.
+- Task packets touching UI/backend boundaries include explicit boundary rules
+  and visual smoke expectations.
 - Design regressions like full-width popovers should be treated as boundary
   failures, not merely cosmetic bugs.

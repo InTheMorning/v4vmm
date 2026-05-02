@@ -5,6 +5,7 @@
 - ADR: `docs/adr/0032-ui-backend-boundary-and-popover-contracts.md`
 - Plan: `docs/plans/adr-0032-ui-backend-boundary-phase-plan.md`
 - Task: `docs/tasks/adr-0032-task-001-playlist-popover-contract.md`
+- Task: `docs/tasks/adr-0032-task-002-architecture-test-enforcement.md`
 
 ## Required Checks
 
@@ -16,6 +17,8 @@
 - Are raw full-width screen-local playlist panels removed?
 - Does the change preserve playlist append semantics?
 - Is visual smoke required before closing any popover chrome follow-up?
+- Does the task packet include UI/backend boundary checks when it touches
+  presentation contracts, screens, or shared UI composites?
 
 ## Architectural Drift Checks
 
@@ -24,6 +27,10 @@
 - No GPUI imports added to `src/view_models/library.rs`.
 - No screen-local replacement for `Popover` or `AddToPlaylistPopover`.
 - No row-child panel used as a popover substitute.
+- Architecture tests keep known legacy screen-local playlist popover panels
+  baselined and reject growth.
+- Architecture tests hard-ban the Library release-detail playlist popover
+  helper/state names removed by ADR0032.
 
 ## Merge Recommendation Template
 
