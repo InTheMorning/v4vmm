@@ -364,6 +364,125 @@ const SCREEN_LOCAL_FLOATING_CHROME_FORBIDDEN_PATTERNS: &[&str] = &[
     ".z_index(",
 ];
 
+const COMPOSITE_LOOSE_STRING_SIGNATURE_ALLOWLIST: &[CompositeLooseStringSignatureAllowance] = &[
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/action_button.rs",
+        pattern: "pub fn action_button(label: &str",
+        note: "thin compatibility helper; caller supplies already-approved action label",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/action_row.rs",
+        pattern: "pub fn neutral(text: impl Into<SharedString>)",
+        note: "status message object; view-model or command outcome owns message text",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/action_row.rs",
+        pattern: "pub fn danger(text: impl Into<SharedString>)",
+        note: "status message object; view-model or command outcome owns message text",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/detail_grid.rs",
+        pattern: "pub fn new(key: impl Into<SharedString>, value: impl IntoElement)",
+        note: "generic key/value primitive-composite row; caller supplies display rows",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/detail_grid.rs",
+        pattern: "pub fn text(key: impl Into<SharedString>, value: impl Into<String>",
+        note: "generic key/value text row; caller supplies display rows",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/detail_header.rs",
+        pattern: "pub fn new(kind: EntityKind, title: impl Into<SharedString>)",
+        note: "generic header shell; callers pass VM-owned titles",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/detail_header.rs",
+        pattern: "pub fn subtitle(mut self, subtitle: impl Into<SharedString>)",
+        note: "generic header shell; callers pass VM-owned subtitles",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/disclosure_group.rs",
+        pattern: "pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>)",
+        note: "generic disclosure shell label, not a fallback policy owner",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/playlist_popover.rs",
+        pattern: "pub fn new(id: i64, name: impl Into<SharedString>)",
+        note: "PlaylistOption is the display contract for playlist names",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/playlist_popover.rs",
+        pattern: "pub fn new(id: impl Into<SharedString>, playlists: Vec<PlaylistOption>)",
+        note: "element id plus PlaylistOption display contract",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/playlist_popover.rs",
+        pattern: "pub fn trigger_label(mut self, label: impl Into<SharedString>)",
+        note: "temporary action-label override; create/select chrome still owned here",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/playlist_popover.rs",
+        pattern:
+            "pub fn on_create(mut self, handler: impl Fn(&String, &mut Window, &mut App) + 'static)",
+        note: "callback payload for new playlist name, not display label input",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/segmented_control.rs",
+        pattern: "pub fn new(id: impl Into<ElementId>, key: K, label: impl Into<SharedString>)",
+        note: "generic segment label; caller owns option labels",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/release_detail_surface.rs",
+        pattern: "pub fn new(id: impl Into<SharedString>)",
+        note: "element id, not display copy",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/split_pane.rs",
+        pattern: "pub fn new(id: impl Into<SharedString>)",
+        note: "element id, not display copy",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/split_pane.rs",
+        pattern: "pub fn resize_handle_id(mut self, id: impl Into<SharedString>)",
+        note: "element id, not display copy",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/tag_badge.rs",
+        pattern: "pub fn from_legacy_str(s: &str)",
+        note: "legacy role parser, not display copy",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/tag_badge.rs",
+        pattern: "pub fn label(self) -> &'static str",
+        note: "role enum owns its static label",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/tag_badge.rs",
+        pattern: "pub fn accessibility_label(self) -> &'static str",
+        note: "role enum owns its static accessibility label",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/tag_badge.rs",
+        pattern: "pub fn label(mut self, label: impl Into<SharedString>)",
+        note: "generic badge override; fallback policy must still live in VM",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/track_row.rs",
+        pattern: "pub fn number(mut self, n: impl Into<String>)",
+        note: "TrackRow caller passes TrackVm-owned number label",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/track_row.rs",
+        pattern: "pub fn title(mut self, t: impl Into<String>)",
+        note: "TrackRow caller passes TrackVm-owned title",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/track_row.rs",
+        pattern: "pub fn duration(mut self, d: Option<String>)",
+        note: "TrackRow caller passes TrackVm-owned duration display",
+    },
+];
+
 #[derive(Debug)]
 struct DeprecatedVisualHelperBaseline {
     file: &'static str,
@@ -371,6 +490,13 @@ struct DeprecatedVisualHelperBaseline {
     import_patterns: &'static [&'static str],
     usage_pattern: &'static str,
     max_count: usize,
+}
+
+#[derive(Debug)]
+struct CompositeLooseStringSignatureAllowance {
+    file: &'static str,
+    pattern: &'static str,
+    note: &'static str,
 }
 
 #[derive(Debug)]
@@ -1304,6 +1430,44 @@ fn screens_do_not_coerce_empty_feed_url_to_empty_string() {
     assert!(
         violations.is_empty(),
         "ADR 0033 feed URL fallback violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn composite_loose_string_display_apis_are_allowlisted() {
+    let mut violations = Vec::new();
+
+    for path in rust_files_under("src/ui/composites") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if !line.contains("pub fn") {
+                continue;
+            }
+            let mentions_string_api = line.contains("&str")
+                || line.contains("String")
+                || line.contains("SharedString")
+                || line.contains("Into<String>")
+                || line.contains("Into<SharedString>");
+            if !mentions_string_api {
+                continue;
+            }
+            let allowed_note = COMPOSITE_LOOSE_STRING_SIGNATURE_ALLOWLIST
+                .iter()
+                .find(|allowance| allowance.file == file && line.contains(allowance.pattern))
+                .map(|allowance| allowance.note);
+            if allowed_note.is_none() {
+                violations.push(format!(
+                    "{file}:{line_number}: shared composite string-like public API must be display-contract owned or explicitly allowlisted: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 composite display-contract signature violations:\n{}",
         violations.join("\n")
     );
 }

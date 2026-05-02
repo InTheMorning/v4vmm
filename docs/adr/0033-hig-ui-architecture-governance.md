@@ -124,6 +124,7 @@ update so the contract and its enforcement do not drift apart:
 - `screens_do_not_inline_unknown_artist_or_album_fallbacks`
 - `screens_do_not_inline_untitled_fallbacks`
 - `screens_do_not_coerce_empty_feed_url_to_empty_string`
+- `composite_loose_string_display_apis_are_allowlisted`
 - `screens_do_not_duplicate_render_helpers_without_baseline`
 - `screens_do_not_inline_value_route_recipient_label_fallbacks`
 - `shared_top_level_ui_shells_do_not_import_screen_modules`
