@@ -13,10 +13,9 @@ use gpui::{prelude::*, AnyElement, ClickEvent, Context, Image, SharedString};
 use crate::api::{Feed, Track};
 use crate::db;
 use crate::search::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
-use crate::ui::composites::{AddToPlaylistPopover, PlaylistOption};
-use crate::ui_entity::{render_release_track_row, ReleaseTrackRowSlot};
-use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
+use crate::ui::composites::{AddToPlaylistPopover, PlaylistOption, TrackRow};
 use crate::view_models::track::TrackVm;
+use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::views::TrackView;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,7 +89,7 @@ fn render_discover_track_row(
     let title_for_click = title.clone();
     let feed_guid_owned = feed_guid.map(str::to_string);
     let track_view = TrackView::from_api(track.clone());
-    let row = SharedTrackRowVm::new(&track_view, EntitySurfaceContext::Discover);
+    let row_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover).row();
 
     let download_btn =
         render_track_download_button(track.clone(), feed, is_downloaded, is_in_flight, cx)
@@ -135,19 +134,20 @@ fn render_discover_track_row(
 
     actions.push(play_btn);
 
-    let slot = ReleaseTrackRowSlot {
-        thumbnail,
-        actions,
-        ..ReleaseTrackRowSlot::default()
-    }
-    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-        this.push_inspector(
-            "track".into(),
-            guid_for_click.clone(),
-            title_for_click.clone(),
-            cx,
-        );
-    }));
+    let mut row = TrackRow::from_vm(SharedString::from(format!("track-row:{guid}")), &row_vm)
+        .thumbnail(thumbnail)
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.push_inspector(
+                "track".into(),
+                guid_for_click.clone(),
+                title_for_click.clone(),
+                cx,
+            );
+        }));
 
-    render_release_track_row(SharedString::from(format!("track-row:{guid}")), row, slot)
+    for action in actions {
+        row = row.trailing_child(action);
+    }
+
+    row.into_any_element()
 }

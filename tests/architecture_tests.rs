@@ -1464,7 +1464,7 @@ fn screens_do_not_inline_unknown_artist_or_album_fallbacks() {
 }
 
 #[test]
-fn screens_do_not_inline_untitled_fallbacks() {
+fn screens_do_not_inline_untitled_fallback() {
     let forbidden = ["\"Untitled\"", "\"[untitled]\""];
     let mut violations = Vec::new();
 
@@ -1484,6 +1484,225 @@ fn screens_do_not_inline_untitled_fallbacks() {
     assert!(
         violations.is_empty(),
         "ADR 0033 screen title-fallback violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn track_detail_labels_owns_canonical_field_labels() {
+    let canonical_labels = ["Album", "Feed", "Release", "Tags"];
+    let render_call_patterns = [
+        "Label::new(",
+        "text(",
+        "SectionHeader::new(",
+        "DetailRow::text(",
+        ".label(",
+        ".title(",
+    ];
+    let allowed_composites = [
+        "src/ui/composites/track_detail_surface.rs",
+        "src/ui/composites/track_inspector_pane.rs",
+        "src/ui/composites/track_row.rs",
+    ];
+    let mut violations = Vec::new();
+
+    let screen_paths = SCREEN_FILES.iter().map(|file| manifest_path(file)).chain(
+        rust_files_under("src/ui/composites")
+            .into_iter()
+            .filter(|path| {
+                let rel = rel_path(path);
+                !allowed_composites.contains(&rel.as_str())
+            }),
+    );
+
+    for path in screen_paths {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if !render_call_patterns
+                .iter()
+                .any(|pattern| line.contains(pattern))
+            {
+                continue;
+            }
+            for label in canonical_labels {
+                let literal = format!("\"{label}\"");
+                if line.contains(&literal) {
+                    violations.push(format!(
+                        "{file}:{line_number}: track detail label `{label}` belongs in `TrackDetailLabels`, not local render code: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0035 track-detail label ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn track_surface_slots_are_typed() {
+    let files = [
+        "src/ui/composites/track_detail_surface.rs",
+        "src/ui/composites/track_inspector_pane.rs",
+        "src/ui/composites/track_row.rs",
+    ];
+    let slot_method_markers = [
+        "primary_actions(",
+        "external_links(",
+        "sections(",
+        "section_elements(",
+        "advanced_panels(",
+        "from_vm(",
+    ];
+    let forbidden = ["AnyElement", "impl IntoElement", "gpui::IntoElement"];
+    let mut violations = Vec::new();
+
+    for file in files {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            if !line.contains("pub fn")
+                || !slot_method_markers
+                    .iter()
+                    .any(|marker| line.contains(marker))
+            {
+                continue;
+            }
+            for pattern in forbidden {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: ADR 0035 track surface slot APIs must be typed, not `{pattern}`: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0035 typed track-surface slot violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_define_local_track_detail_surface_chrome() {
+    let forbidden = [
+        "TrackHeader::new(",
+        "TrackHeaderVm::new(",
+        "key: \"Release\"",
+        "key: \"Track #\"",
+        "key: \"Duration\"",
+        "key: \"Publisher\"",
+    ];
+    let mut violations = Vec::new();
+
+    for file in SCREEN_FILES {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for pattern in forbidden {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: track-detail chrome must be owned by `TrackDetailSurface`, not rebuilt in screens; found `{pattern}` in `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0035 screen-local track detail surface chrome violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_define_local_track_row_chrome() {
+    let forbidden = ["TrackRow::new(", "TrackRowComposite::new("];
+    let mut violations = Vec::new();
+
+    for file in SCREEN_FILES {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for pattern in forbidden {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: track row chrome must be owned by `TrackRow` through `TrackRowVm`, not locally rebuilt; found `{pattern}` in `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0035 screen-local track row chrome violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_construct_track_inspector_pane_locally() {
+    let forbidden = ["TrackHeader::new(", "TrackHeaderVm::new("];
+    let mut violations = Vec::new();
+
+    for file in ["src/search.rs", "src/library.rs"] {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for pattern in forbidden {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: track inspector pane chrome belongs in `TrackInspectorPane` / `TrackDetailSurface`, not screen code: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0035 track inspector pane ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn track_surface_consumers_use_track_detail_vm() {
+    let consumers = [
+        (
+            "src/library.rs",
+            "TrackDetailSurface::new(",
+            "TrackDetailVm::new(",
+        ),
+        (
+            "src/search.rs",
+            "TrackDetailSurface::new(",
+            "TrackDetailVm::new(",
+        ),
+        (
+            "src/ui_track.rs",
+            "TrackRow::from_vm(",
+            "TrackDetailVm::new(",
+        ),
+    ];
+    let mut violations = Vec::new();
+
+    for (file, consumer, required_vm) in consumers {
+        let source = read_source(&manifest_path(file));
+        if source.contains(consumer) && !source.contains(required_vm) {
+            violations.push(format!(
+                "{file}: `{consumer}` consumers must be fed from the `TrackDetailVm` family"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0035 track surface VM consumption violations:\n{}",
         violations.join("\n")
     );
 }

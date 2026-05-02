@@ -52,7 +52,8 @@ use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
     IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, RecentFeedTile, SplitPane,
-    StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackHeader, TrackMetadataGrid,
+    StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane,
+    TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -68,7 +69,7 @@ use crate::view_models::entity_detail::{
     ContributorListVm, ContributorRowVm, EntityActionTarget, EntityActionTone,
     EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
 };
-use crate::view_models::format::{optional_row, plural};
+use crate::view_models::format::plural;
 use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::search::{
     artist_rows_from_result_rows, feed_display_title, normalized_search_query,
@@ -76,9 +77,10 @@ use crate::view_models::search::{
     PlaylistAppendOutcome, PublisherInspectorVm, RecentFeedTileVm, ResultRow, SearchBatch,
     SearchSubscriptionCommand, SearchViewModel, TrackInspectorHeaderVm, TrackRowActionVm,
 };
-use crate::view_models::track::{TrackHeaderVm, TrackVm};
+use crate::view_models::track::TrackVm;
+use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
-use crate::views::{ContributorView, FeedRef};
+use crate::views::{ContributorView, FeedRef, TrackView};
 
 #[derive(Clone, Debug)]
 pub(crate) enum InspectorDetail {
@@ -2627,6 +2629,8 @@ fn render_discover_track_inspector(
 ) -> AnyElement {
     let track = &track_context.track;
     let vm = TrackVm::new(track);
+    let track_view = TrackView::from_api(track.clone());
+    let detail_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover);
     let header_vm = TrackInspectorHeaderVm::new(track);
     let feed_guid = track.feed_guid.clone();
     let feed_link_label = feed_guid
@@ -2635,67 +2639,21 @@ fn render_discover_track_inspector(
     let feed_url = header_vm.feed_link_url();
     let audio_url = vm.play_url();
     let npub = track_nostr(track);
-    let track_header = TrackHeader::new(TrackHeaderVm::new(track, None))
-        .image(frame.image.clone())
-        .supplementary_row(render_track_header_subtitle(
-            feed_guid,
-            feed_link_label,
-            feed_url,
-            audio_url,
-            npub,
-            cx,
-        ));
-    let mut rows = vec![DetailRow {
-        key: "Release".to_string(),
-        value: div()
-            .text_size(typography::SIZE_MICRO)
-            .line_height(typography::LINE_DETAIL)
-            .child(SharedString::from(
-                track.feed_title.clone().unwrap_or_else(|| "Unknown".into()),
-            ))
-            .into_any_element(),
-    }];
-    let mut scalar_rows = Vec::new();
-    optional_row(
-        &mut scalar_rows,
-        "Track #",
-        track.track_number.map(|number| number.to_string()),
-    );
-    optional_row(
-        &mut scalar_rows,
-        "Duration",
-        track.duration_secs.map(crate::view_models::track::fmt_dur),
-    );
-    optional_row(
-        &mut scalar_rows,
-        "Release Date",
-        track.pub_date.and_then(fmt_date),
-    );
-    rows.extend(detail_rows_from_strings(scalar_rows));
-    if let Some(publisher) = nonempty_url(track.publisher_text.as_deref()).map(str::to_string) {
-        rows.push(DetailRow {
-            key: "Publisher".into(),
-            value: render_publisher_link_value(publisher, cx),
-        });
-    }
+    let external_links = vec![TrackSurfaceElement::from_element(
+        render_track_header_subtitle(feed_guid, feed_link_label, feed_url, audio_url, npub, cx),
+    )];
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::LG)
-        .child(track_header)
-        .child(discover_inspector_action_row(frame, app, cx))
-        .child(DetailGrid::new(
-            rows.into_iter().map(Into::into).collect::<Vec<_>>(),
-        ))
-        .when(track.description.is_some(), |el| {
-            el.child(render_collapsed_text_section(
-                "Description",
-                track.description.clone().unwrap_or_default(),
-            ))
-        })
-        .child(render_lazy_sections(frame, app, cx))
-        .into_any_element()
+    let surface = TrackDetailSurface::new(&detail_vm)
+        .image(frame.image.clone())
+        .external_links(external_links)
+        .primary_actions(vec![TrackSurfaceElement::from_element(
+            discover_inspector_action_row(frame, app, cx),
+        )])
+        .section_elements(vec![TrackSurfaceElement::from_element(
+            render_lazy_sections(frame, app, cx),
+        )]);
+
+    TrackInspectorPane::new(surface).into_any_element()
 }
 
 fn render_publisher_inspector(

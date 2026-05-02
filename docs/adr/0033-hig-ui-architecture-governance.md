@@ -124,12 +124,18 @@ update so the contract and its enforcement do not drift apart:
 - `playlist_popover_calls_wire_create_mode`
 - `discovery_recent_tiles_use_shared_composite`
 - `screens_do_not_inline_unknown_artist_or_album_fallbacks`
-- `screens_do_not_inline_untitled_fallbacks`
+- `screens_do_not_inline_untitled_fallback`
 - `screens_do_not_coerce_empty_feed_url_to_empty_string`
 - `composite_loose_string_display_apis_are_allowlisted`
 - `screens_do_not_duplicate_render_helpers_without_baseline`
 - `screens_do_not_inline_value_route_recipient_label_fallbacks`
 - `shared_top_level_ui_shells_do_not_import_screen_modules`
+- `screens_do_not_define_local_track_detail_surface_chrome`
+- `screens_do_not_define_local_track_row_chrome`
+- `screens_do_not_construct_track_inspector_pane_locally`
+- `track_surface_consumers_use_track_detail_vm`
+- `track_detail_labels_owns_canonical_field_labels`
+- `track_surface_slots_are_typed`
 
 The tests scope themselves by directory (`src/ui/primitives`,
 `src/ui/composites`) where possible, so adding a new shared component is

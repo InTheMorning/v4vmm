@@ -63,7 +63,8 @@ use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
     FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption, ProvenanceRole,
-    SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackHeader, TrackMetadataGrid,
+    SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackMetadataGrid,
+    TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -72,12 +73,12 @@ use crate::ui::primitives::{
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{
-    render_contributor_panel, render_release_detail_shell, render_release_track_row,
-    ContributorRowSlot, ReleaseDetailBehaviorSlots, ReleaseTrackRowSlot,
+    render_contributor_panel, render_release_detail_shell, ContributorRowSlot,
+    ReleaseDetailBehaviorSlots,
 };
 use crate::view_models::entity_detail::{
     ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone, EntitySurfaceContext,
-    MetadataPanelState, ReleaseDetailVm, SharedTrackRowVm, TrackMetadataActionState,
+    MetadataPanelState, ReleaseDetailVm, TrackMetadataActionState,
 };
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
@@ -87,7 +88,7 @@ use crate::view_models::library::{
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
-use crate::view_models::track::TrackHeaderVm;
+use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
 use crate::views::{FeedView, TrackRef, TrackView};
 
@@ -2635,22 +2636,22 @@ fn render_library_track_row(
     );
 
     let track_view = TrackView::from_local(track.clone());
-    let row_vm = SharedTrackRowVm::new(&track_view, EntitySurfaceContext::Library);
-    let slot = ReleaseTrackRowSlot {
-        thumbnail,
-        actions,
-        ..ReleaseTrackRowSlot::default()
-    }
+    let row_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library).row();
+    let mut row = TrackRowComposite::from_vm(
+        SharedString::from(format!("album-track-{track_id}")),
+        &row_vm,
+    )
+    .thumbnail(thumbnail)
     .on_click(cx.listener(move |this, _, _, cx| {
         this.select_track(&track_for_select, cx);
         cx.notify();
     }));
 
-    render_release_track_row(
-        SharedString::from(format!("album-track-{track_id}")),
-        row_vm,
-        slot,
-    )
+    for action in actions {
+        row = row.trailing_child(action);
+    }
+
+    row.into_any_element()
 }
 
 fn render_playlist_detail(
@@ -2995,20 +2996,15 @@ fn render_track_left_column(
     playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::MD)
-        .child(
-            TrackHeader::new(TrackHeaderVm::new(track, Some(frame.title.as_str())))
-                .image(frame.image.clone()),
-        )
-        .child(library_track_action_row(
-            frame,
-            pending_id3_edits,
-            playlists,
-            cx,
-        ))
+    let track_view = TrackView::from_api(track.clone());
+    let detail_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library)
+        .with_override_title(Some(frame.title.as_str()));
+
+    TrackDetailSurface::new(&detail_vm)
+        .image(frame.image.clone())
+        .primary_actions(vec![TrackSurfaceElement::from_element(
+            library_track_action_row(frame, pending_id3_edits, playlists, cx),
+        )])
         .into_any_element()
 }
 

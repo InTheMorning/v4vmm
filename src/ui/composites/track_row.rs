@@ -41,6 +41,7 @@ use gpui::{
 use crate::ui::composites::{EntityKind, ListRow, Thumbnail, ThumbnailSize};
 use crate::ui::primitives::Label;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
+use crate::view_models::track_detail::TrackRowVm;
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -72,6 +73,14 @@ impl TrackRow {
             on_click: None,
             trailing: Vec::new(),
         }
+    }
+
+    /// Create a row from the shared ADR 0035 row display contract.
+    pub fn from_vm(id: impl Into<ElementId>, vm: &TrackRowVm) -> Self {
+        Self::new(id)
+            .number(vm.number.clone())
+            .title(vm.title.clone())
+            .duration(vm.duration.clone())
     }
 
     /// Track-number label shown in the leading column.
@@ -230,6 +239,22 @@ mod tests {
     fn builder_sets_number() {
         let row = TrackRow::new("test").number("7");
         assert_eq!(row.number, "7");
+    }
+
+    #[test]
+    fn from_vm_projects_row_contract() {
+        let vm = TrackRowVm {
+            element_key: "track:1".to_string(),
+            number: "4".to_string(),
+            title: "Song".to_string(),
+            subtitle: Some("Artist".to_string()),
+            duration: Some("3:00".to_string()),
+        };
+        let row = TrackRow::from_vm("test", &vm);
+
+        assert_eq!(row.number, "4");
+        assert_eq!(row.title, "Song");
+        assert_eq!(row.duration.as_deref(), Some("3:00"));
     }
 
     #[test]
