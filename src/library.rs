@@ -66,6 +66,7 @@ use crate::ui::composites::{
     action_button, identity_action_button, AddToPlaylistPopover, DetailGrid, DetailHeader,
     DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, FileHeader, IdentityActionKind,
     ListRow, PlaylistOption, ProvenanceRole, SplitPane, StatusRole, Thumbnail, ThumbnailSize,
+    TrackHeader,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -88,7 +89,7 @@ use crate::view_models::library::{
     TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::FileHeaderVm;
-use crate::view_models::track::TrackVm;
+use crate::view_models::track::TrackHeaderVm;
 use crate::views::{FeedView, TrackRef, TrackView};
 
 // ---------------------------------------------------------------------------
@@ -3012,7 +3013,10 @@ fn render_track_left_column(
         .flex()
         .flex_col()
         .gap(spacing::MD)
-        .child(render_track_header(frame, track))
+        .child(
+            TrackHeader::new(TrackHeaderVm::new(track, Some(frame.title.as_str())))
+                .image(frame.image.clone()),
+        )
         .child(render_action_row(frame, pending_id3_edits, playlists, cx))
         .into_any_element()
 }
@@ -3026,23 +3030,6 @@ fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
         LazyPanel::Empty(label) => LoadingMessage::new(label.clone()).into_any_element(),
         LazyPanel::Hidden => div().into_any_element(),
     }
-}
-
-fn render_track_header(frame: &InspectorFrame, track: &Track) -> AnyElement {
-    let title = if frame.title.is_empty() {
-        TrackVm::new(track).title()
-    } else {
-        frame.title.clone()
-    };
-    let artist = track
-        .track_artist
-        .clone()
-        .or_else(|| track.release_artist.clone())
-        .unwrap_or_else(|| "Unknown".into());
-    DetailHeader::new(EntityKind::Track, title)
-        .subtitle(artist.as_str().to_string())
-        .image(frame.image.clone())
-        .into_any_element()
 }
 
 fn render_action_row(

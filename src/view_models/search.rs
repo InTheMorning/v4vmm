@@ -569,13 +569,9 @@ impl<'a> TrackRowActionVm<'a> {
     }
 }
 
-/// Derive artist result rows from mixed artist/feed/track results.
-///
 /// Borrow-only projection over the discover track-inspector header.
-/// Owns the artist fallback chain (`track_artist` → `release_artist` →
-/// `"Unknown"`), the feed-link URL fallback (`feed_url` →
-/// `feed_guid`), and the feed-link label fallback (`feed_title` →
-/// caller-provided guid).
+/// Owns the feed-link URL fallback (`feed_url` -> `feed_guid`) and the
+/// feed-link label fallback (`feed_title` -> caller-provided guid).
 pub(crate) struct TrackInspectorHeaderVm<'a> {
     track: &'a Track,
 }
@@ -584,18 +580,6 @@ impl<'a> TrackInspectorHeaderVm<'a> {
     #[must_use]
     pub(crate) fn new(track: &'a Track) -> Self {
         Self { track }
-    }
-
-    /// Header artist — `track_artist` first, else `release_artist`,
-    /// else `"Unknown"`. Matches the legacy
-    /// `render_track_header` fallback chain exactly.
-    #[must_use]
-    pub(crate) fn artist(&self) -> String {
-        self.track
-            .track_artist
-            .clone()
-            .or_else(|| self.track.release_artist.clone())
-            .unwrap_or_else(|| "Unknown".to_string())
     }
 
     /// URL the feed link should target — `feed_url` first, else
@@ -2101,31 +2085,6 @@ mod tests {
         assert!(!vm.recent_has_more);
         assert!(!vm.is_resizing());
         assert_width_eq(vm.split_pane_width(), DEFAULT_SPLIT_PANE_WIDTH);
-    }
-
-    #[test]
-    fn track_inspector_header_vm_artist_falls_through_track_release_then_unknown() {
-        // None of track_artist or release_artist set → Unknown.
-        let track = Track::default();
-        let vm = TrackInspectorHeaderVm::new(&track);
-        assert_eq!(vm.artist(), "Unknown");
-
-        // release_artist alone → that wins.
-        let track = Track {
-            release_artist: Some("Release".into()),
-            ..Track::default()
-        };
-        let vm = TrackInspectorHeaderVm::new(&track);
-        assert_eq!(vm.artist(), "Release");
-
-        // track_artist beats release_artist.
-        let track = Track {
-            track_artist: Some("Track".into()),
-            release_artist: Some("Release".into()),
-            ..Track::default()
-        };
-        let vm = TrackInspectorHeaderVm::new(&track);
-        assert_eq!(vm.artist(), "Track");
     }
 
     #[test]

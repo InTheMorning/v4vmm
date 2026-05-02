@@ -52,6 +52,33 @@ impl<'a> TrackVm<'a> {
             .unwrap_or_else(|| "Untitled".into())
     }
 
+    /// Display title with an optional inspector-provided override.
+    /// Empty overrides preserve the legacy fallback to [`Self::title`].
+    #[must_use]
+    pub fn display_title(&self, override_title: Option<&str>) -> String {
+        override_title.map_or_else(
+            || self.title(),
+            |title| {
+                if title.is_empty() {
+                    self.title()
+                } else {
+                    title.to_string()
+                }
+            },
+        )
+    }
+
+    /// Header artist, with the shared fallback chain
+    /// `track_artist -> release_artist -> "Unknown"`.
+    #[must_use]
+    pub fn artist(&self) -> String {
+        self.track
+            .track_artist
+            .clone()
+            .or_else(|| self.track.release_artist.clone())
+            .unwrap_or_else(|| "Unknown".into())
+    }
+
     /// Track number formatted for the discover-row leading column —
     /// the number itself, or `"·"` when absent.
     #[must_use]
@@ -89,6 +116,23 @@ impl<'a> TrackVm<'a> {
                     .as_deref()
                     .and_then(first_source_enclosure_url)
             })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use]
+pub struct TrackHeaderVm {
+    pub title: String,
+    pub artist: String,
+}
+
+impl TrackHeaderVm {
+    pub fn new(track: &Track, override_title: Option<&str>) -> Self {
+        let vm = TrackVm::new(track);
+        Self {
+            title: vm.display_title(override_title),
+            artist: vm.artist(),
+        }
     }
 }
 
@@ -155,6 +199,48 @@ mod tests {
 
         t.track_guid = None;
         assert_eq!(TrackVm::new(&t).title(), "Untitled");
+    }
+
+    #[test]
+    fn display_title_uses_nonempty_override_else_title_fallback() {
+        let mut t = track();
+        t.title = Some("Track title".into());
+
+        assert_eq!(
+            TrackVm::new(&t).display_title(Some("Inspector title")),
+            "Inspector title"
+        );
+        assert_eq!(TrackVm::new(&t).display_title(Some("")), "Track title");
+        assert_eq!(TrackVm::new(&t).display_title(None), "Track title");
+    }
+
+    #[test]
+    fn artist_prefers_track_then_release_then_unknown() {
+        let mut t = track();
+        t.track_artist = Some("Track Artist".into());
+        t.release_artist = Some("Release Artist".into());
+        assert_eq!(TrackVm::new(&t).artist(), "Track Artist");
+
+        t.track_artist = None;
+        assert_eq!(TrackVm::new(&t).artist(), "Release Artist");
+
+        t.release_artist = None;
+        assert_eq!(TrackVm::new(&t).artist(), "Unknown");
+    }
+
+    #[test]
+    fn track_header_vm_projects_display_contract() {
+        let mut t = track();
+        t.title = Some("Track title".into());
+        t.track_artist = Some("Artist".into());
+
+        assert_eq!(
+            TrackHeaderVm::new(&t, Some("Header title")),
+            TrackHeaderVm {
+                title: "Header title".into(),
+                artist: "Artist".into(),
+            }
+        );
     }
 
     #[test]

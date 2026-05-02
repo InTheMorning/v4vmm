@@ -53,6 +53,7 @@ use crate::ui::composites::{
     action_button, identity_action_button, AddToPlaylistPopover, DetailGrid, DetailHeader,
     DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, IdentityActionKind, ListRow,
     PlaylistOption, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
+    TrackHeader,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -75,7 +76,7 @@ use crate::view_models::search::{
     PublisherInspectorVm, RecentFeedTileVm, ResultRow, SearchBatch, SearchSubscriptionCommand,
     SearchViewModel, TrackInspectorHeaderVm, TrackRowActionVm,
 };
-use crate::view_models::track::TrackVm;
+use crate::view_models::track::{TrackHeaderVm, TrackVm};
 use crate::views::{ContributorView, FeedRef};
 
 #[derive(Clone, Debug)]
@@ -2623,6 +2624,25 @@ fn render_discover_track_inspector(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let track = &track_context.track;
+    let vm = TrackVm::new(track);
+    let header_vm = TrackInspectorHeaderVm::new(track);
+    let feed_guid = track.feed_guid.clone();
+    let feed_link_label = feed_guid
+        .as_deref()
+        .map(|guid| header_vm.feed_link_label(guid));
+    let feed_url = header_vm.feed_link_url();
+    let audio_url = vm.play_url();
+    let npub = track_nostr(track);
+    let track_header = TrackHeader::new(TrackHeaderVm::new(track, None))
+        .image(frame.image.clone())
+        .supplementary_row(render_track_header_subtitle(
+            feed_guid,
+            feed_link_label,
+            feed_url,
+            audio_url,
+            npub,
+            cx,
+        ));
     let mut rows = vec![DetailRow {
         key: "Release".to_string(),
         value: div()
@@ -2661,7 +2681,7 @@ fn render_discover_track_inspector(
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(render_track_header(frame, track, cx))
+        .child(track_header)
         .child(render_action_row(frame, &BTreeMap::new(), app, cx))
         .child(DetailGrid::new(
             rows.into_iter().map(Into::into).collect::<Vec<_>>(),
@@ -4888,59 +4908,6 @@ pub(crate) fn render_feed_list_section(
                 .flex_wrap()
                 .gap(spacing::MD)
                 .children(tiles),
-        )
-        .into_any_element()
-}
-
-fn render_track_header(
-    frame: &InspectorFrame,
-    track: &Track,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let vm = TrackVm::new(track);
-    let header_vm = TrackInspectorHeaderVm::new(track);
-    let title = vm.title();
-    let artist = header_vm.artist();
-    let feed_guid = track.feed_guid.clone();
-    // Resolve the visible link label up-front via the VM so the
-    // subtitle helper does not have to know about `Track` shape.
-    let feed_link_label = feed_guid
-        .as_deref()
-        .map(|guid| header_vm.feed_link_label(guid));
-    let feed_url = header_vm.feed_link_url();
-    let audio_url = vm.play_url();
-    let npub = track_nostr(track);
-
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::LG)
-        .child(Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(frame.image.clone()))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .mb(spacing::SM)
-                        .child(TagBadge::new(EntityKind::Track)),
-                )
-                .child(typography::type_title(div()).child(SharedString::from(title)))
-                .child(
-                    typography::type_headline(div())
-                        .mt(spacing::XS)
-                        .text_color(color::text_muted())
-                        .child(SharedString::from(artist)),
-                )
-                .child(render_track_header_subtitle(
-                    feed_guid,
-                    feed_link_label,
-                    feed_url,
-                    audio_url,
-                    npub,
-                    cx,
-                )),
         )
         .into_any_element()
 }
