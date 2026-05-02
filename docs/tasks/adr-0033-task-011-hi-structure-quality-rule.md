@@ -7,13 +7,16 @@ preserves the app's human-interface structure.
 
 ## Context
 
-The recent-feed tile regression and playlist popover regressions showed that
-local visual patches can make one screenshot look better while leaving the
-underlying UI architecture weak. ADR 0033 already defines backend/UI ownership
-and HIG-style shared chrome boundaries; this task makes the quality bar
-explicit for all future UI work. `AGENTS.md` is an ignored local workspace rule
-file in this repository, so ADR 0033 is the committed durable source. When an
-`AGENTS.md` file is present, mirror the rule there as local operating guidance.
+The recent-feed tile regression and missing `+ New Playlist` playlist-popover
+symptom showed that local visual patches can make one screenshot look better
+while leaving the underlying UI architecture weak. The missing command is not
+itself the structural issue; it is evidence that playlist popover ownership and
+shared composite wiring had drifted. ADR 0033 already defines backend/UI
+ownership and HIG-style shared chrome boundaries; this task makes the quality
+bar explicit for all future UI work. `AGENTS.md` is an ignored local workspace
+rule file in this repository, so ADR 0033 is the committed durable source. When
+an `AGENTS.md` file is present, mirror the rule there as local operating
+guidance.
 
 ## Files to Inspect
 

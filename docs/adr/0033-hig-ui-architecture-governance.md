@@ -65,6 +65,12 @@ structure that produced the interface. A local patch that merely hides a
 visible symptom is rejected unless it is the smallest step toward a stronger
 shared component, view-model contract, token role, or regression guard.
 
+Observed defects are diagnostic signals, not structural causes. For example,
+a missing `+ New Playlist` command is a symptom that playlist popover
+ownership or call-site wiring has drifted; the structural issue is duplicated
+popover chrome and incomplete use of the shared composite contract. Tests may
+assert the visible affordance only as a canary for that ownership boundary.
+
 Every UI change must name at least one structural contract it strengthens:
 
 - HIG-style hierarchy and disclosure: title, subtitle, metadata, state, and

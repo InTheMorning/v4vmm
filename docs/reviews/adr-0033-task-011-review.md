@@ -28,6 +28,9 @@ Pass - 2026-05-02.
   is the committed durable source.
 - The guidance strengthens ADR 0033 by making symptom-only UI patches
   explicitly non-compliant.
+- ADR 0033 now distinguishes visible symptoms, such as a missing
+  `+ New Playlist` command, from the structural cause: duplicated popover
+  ownership and call-site drift away from the shared composite contract.
 
 ## Missing Tests
 
