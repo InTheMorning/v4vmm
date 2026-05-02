@@ -1560,7 +1560,12 @@ fn add_optional_counts(left: Option<i32>, right: Option<i32>) -> Option<i32> {
 }
 
 fn nonempty_text(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
+    value.map(str::trim).filter(|value| {
+        !value.is_empty()
+            && value
+                .chars()
+                .any(|ch| ch != '.' && ch != '\u{2026}' && !ch.is_whitespace())
+    })
 }
 
 #[cfg(test)]
@@ -1702,12 +1707,17 @@ mod tests {
     #[test]
     fn recent_feed_tile_vm_does_not_emit_placeholder_ellipsis() {
         let feed = Feed {
+            title: Some(" … ".into()),
+            name: Some("...".into()),
+            release_artist: Some("...".into()),
+            publisher_text: Some("Publisher".into()),
             feed_guid: Some("feed-guid".into()),
             ..Feed::default()
         };
         let display = RecentFeedTileVm::new(&feed).display();
 
         assert_eq!(display.title, "feed-guid");
+        assert_eq!(display.subtitle.as_deref(), Some("Publisher"));
         assert_ne!(display.title, "...");
         assert_ne!(display.subtitle.as_deref(), Some("..."));
     }

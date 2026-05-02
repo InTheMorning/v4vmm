@@ -108,17 +108,21 @@ impl RenderOnce for RecentFeedTile {
                 }),
         )
         .child(
-            Label::new(self.display.title)
-                .size(FontSize::Caption)
-                .weight(FontWeight::MEDIUM)
-                .truncated(),
+            div().w(layout::THUMBNAIL_XL).min_w_0().child(
+                Label::new(self.display.title)
+                    .size(FontSize::Caption)
+                    .weight(FontWeight::MEDIUM)
+                    .truncated(),
+            ),
         )
         .when_some(self.display.subtitle, |el, subtitle| {
             el.child(
-                Label::new(subtitle)
-                    .size(FontSize::Micro)
-                    .color(SemanticColor::TertiaryLabel)
-                    .truncated(),
+                div().w(layout::THUMBNAIL_XL).min_w_0().child(
+                    Label::new(subtitle)
+                        .size(FontSize::Micro)
+                        .color(SemanticColor::TertiaryLabel)
+                        .truncated(),
+                ),
             )
         })
     }
