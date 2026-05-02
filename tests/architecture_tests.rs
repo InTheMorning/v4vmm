@@ -302,28 +302,7 @@ const SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES: &[ScreenLocalPlaylistPopoverBasel
     },
 ];
 
-const RENDER_HELPER_DUPLICATION_BASELINES: &[RenderHelperDuplicationBaseline] = &[
-    RenderHelperDuplicationBaseline {
-        helper: "render_musicbrainz_panel",
-        files: &["src/library.rs", "src/search.rs"],
-        note: "post-ADR0033 MusicBrainz composite task",
-    },
-    RenderHelperDuplicationBaseline {
-        helper: "render_musicbrainz_lookup",
-        files: &["src/library.rs", "src/search.rs"],
-        note: "post-ADR0033 MusicBrainz composite task",
-    },
-    RenderHelperDuplicationBaseline {
-        helper: "render_musicbrainz_header",
-        files: &["src/library.rs", "src/search.rs"],
-        note: "post-ADR0033 MusicBrainz composite task",
-    },
-    RenderHelperDuplicationBaseline {
-        helper: "render_musicbrainz_title_bar",
-        files: &["src/library.rs", "src/search.rs"],
-        note: "post-ADR0033 MusicBrainz composite task",
-    },
-];
+const RENDER_HELPER_DUPLICATION_BASELINES: &[RenderHelperDuplicationBaseline] = &[];
 
 const PLAYLIST_POPOVER_CALLSITE_FILES: &[&str] =
     &["src/library.rs", "src/search.rs", "src/ui_track.rs"];

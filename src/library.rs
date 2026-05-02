@@ -25,9 +25,7 @@ use gpui::{
     InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render,
     SharedString, Styled, Window,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::menu::DropdownMenu as _;
 use gpui_component::Size;
 
 use crate::api::Track;
@@ -54,8 +52,7 @@ use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
     expand_woar_metadata_rows, expanded_metadata_display_string, id3_frame_base,
-    metadata_field_is_expandable, musicbrainz_release_option_label, musicbrainz_release_summary,
-    musicbrainz_subtitle, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
+    metadata_field_is_expandable, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
     summarize_contributor_value, track_metadata_rows, AlignedCompareRow, MetadataColumn,
     MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
 };
@@ -65,8 +62,8 @@ use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
-    FileHeader, IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, SplitPane, StatusRole,
-    Thumbnail, ThumbnailSize, TrackHeader, TrackMetadataGrid,
+    FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption, ProvenanceRole,
+    SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackHeader, TrackMetadataGrid,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -89,6 +86,7 @@ use crate::view_models::library::{
     TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::FileHeaderVm;
+use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::track::TrackHeaderVm;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
 use crate::views::{FeedView, TrackRef, TrackView};
@@ -2962,7 +2960,7 @@ fn render_track_window(
                     })
                 })
                 .when(show_musicbrainz_panel, |el| {
-                    el.child(render_musicbrainz_panel(frame, cx))
+                    el.child(library_musicbrainz_panel(frame, cx))
                 }),
         )
         .child(library_track_metadata_grid(
@@ -3156,133 +3154,29 @@ fn library_track_action_row(
     row.into_any_element()
 }
 
-fn render_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {
+fn library_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {
     match &frame.musicbrainz_lookup {
-        LazyPanel::Loaded(result) => render_musicbrainz_lookup(frame, result, cx),
+        LazyPanel::Loaded(result) => {
+            let vm = MusicBrainzPanelVm::new(result, frame.musicbrainz_selected);
+            let image = result
+                .image
+                .as_ref()
+                .map(|img| image_from_bytes(img.clone()));
+            let app = cx.weak_entity();
+
+            MusicBrainzPanel::new(vm)
+                .image(image)
+                .on_select(move |idx, _window, cx| {
+                    let _ = app.update(cx, |this, cx| {
+                        this.select_musicbrainz_candidate(idx, cx);
+                    });
+                })
+                .into_any_element()
+        }
         LazyPanel::Loading => LoadingMessage::new("Searching MusicBrainz...").into_any_element(),
         LazyPanel::Empty(label) => LoadingMessage::new(label.clone()).into_any_element(),
         LazyPanel::Hidden => div().into_any_element(),
     }
-}
-
-fn render_musicbrainz_lookup(
-    frame: &InspectorFrame,
-    result: &MusicBrainzLookupResult,
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let selected = selected_musicbrainz_candidate(frame, result);
-    match selected {
-        Some(candidate) => render_musicbrainz_header(frame, result, candidate, cx),
-        None => div()
-            .flex()
-            .flex_col()
-            .gap(spacing::XS)
-            .child(muted_line("No MusicBrainz recording match found"))
-            .into_any_element(),
-    }
-}
-
-fn render_musicbrainz_header(
-    frame: &InspectorFrame,
-    result: &MusicBrainzLookupResult,
-    candidate: &MusicBrainzCandidate,
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::LG)
-        .child(
-            Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(
-                result
-                    .image
-                    .as_ref()
-                    .map(|img| image_from_bytes(img.clone())),
-            ),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(render_musicbrainz_title_bar(result, candidate, cx))
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(typography::LINE_HEADER)
-                        .child(SharedString::from(candidate.title.clone())),
-                )
-                .child(
-                    div()
-                        .text_color(color::text_muted())
-                        .text_size(typography::SIZE_MICRO)
-                        .line_clamp(2)
-                        .child(SharedString::from(musicbrainz_subtitle(
-                            frame.musicbrainz_selected,
-                            result,
-                            candidate,
-                        ))),
-                ),
-        )
-        .into_any_element()
-}
-
-fn render_musicbrainz_title_bar(
-    result: &MusicBrainzLookupResult,
-    selected: &MusicBrainzCandidate,
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let label = musicbrainz_release_summary(selected);
-    let badge_fill = EntityKind::Track.fill_color(cx);
-    let badge_text = EntityKind::Track.on_fill_color(cx);
-    let candidates = result.lookup.candidates.clone();
-    let selected_idx = candidates
-        .iter()
-        .position(|candidate| candidate.release_id == selected.release_id)
-        .unwrap_or_default();
-    let app = cx.weak_entity();
-
-    // CONTROL-COMPAT(reason): native Button does not yet expose dropdown_menu, full-width alignment, and custom badge fill styling.
-    Button::new("musicbrainz-release-picker")
-        .label(SharedString::from(format!("MusicBrainz: {label}")))
-        .scaled(Size::XSmall, cx)
-        .compact()
-        .ghost()
-        .w_full()
-        .justify_start()
-        .bg(badge_fill)
-        .text_color(badge_text)
-        .text_size(typography::SIZE_MICRO)
-        .font_weight(FontWeight::BOLD)
-        .px(spacing::XS)
-        .py(spacing::XXS)
-        .border_1()
-        .border_color(badge_fill)
-        .rounded(radius::SM)
-        .mb(spacing::XS)
-        .dropdown_menu(move |menu, _window, _cx| {
-            candidates.iter().enumerate().fold(
-                menu.min_w(layout::MENU_MIN_WIDTH)
-                    .max_w(layout::MENU_MAX_WIDTH)
-                    .scrollable(true),
-                |menu, (idx, candidate)| {
-                    let app = app.clone();
-                    menu.item(
-                        gpui_component::menu::PopupMenuItem::new(SharedString::from(
-                            musicbrainz_release_option_label(candidate),
-                        ))
-                        .checked(idx == selected_idx)
-                        .on_click(move |_, _, cx| {
-                            let _ = app.update(cx, |this, cx| {
-                                this.select_musicbrainz_candidate(idx, cx);
-                            });
-                        }),
-                    )
-                },
-            )
-        })
-        .into_any_element()
 }
 
 fn selected_musicbrainz_candidate<'a>(
@@ -3975,14 +3869,6 @@ fn pending_source_color(source: MetadataColumn, cx: &mut Context<LibraryApp>) ->
     match source {
         MetadataColumn::Rss | MetadataColumn::MusicBrainz => ProvenanceRole::Match.color(cx),
     }
-}
-
-fn muted_line(value: &str) -> AnyElement {
-    div()
-        .text_color(color::text_muted())
-        .text_size(typography::SIZE_MICRO)
-        .child(SharedString::from(value.to_string()))
-        .into_any_element()
 }
 
 fn compare_library_track(

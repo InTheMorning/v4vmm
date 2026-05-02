@@ -66,6 +66,7 @@ pub mod feed;
 pub mod format;
 pub mod library;
 pub mod metadata;
+pub mod musicbrainz_panel;
 pub mod search;
 pub mod track;
 pub mod track_metadata_grid;
