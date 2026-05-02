@@ -1198,6 +1198,45 @@ fn playlist_popover_calls_wire_create_mode() {
 }
 
 #[test]
+fn discovery_recent_tiles_use_shared_composite() {
+    let source = read_source(&manifest_path("src/search.rs"));
+    let start = source
+        .find("fn render_recent_feeds_tiles(")
+        .expect("Discover recent-feed renderer should exist");
+    let end = source[start..]
+        .find("\nfn render_inspector_empty(")
+        .map_or(source.len(), |offset| start + offset);
+    let body = &source[start..end];
+    let mut violations = Vec::new();
+
+    if !body.contains("RecentFeedTile::new(") {
+        violations.push(
+            "src/search.rs: render_recent_feeds_tiles must compose `RecentFeedTile`".to_string(),
+        );
+    }
+
+    for pattern in [
+        "Label::new(title)",
+        "Label::new(artist)",
+        "EntityKind::Feed.emoji()",
+        "layout::THUMBNAIL_XL",
+        "child(\"...\")",
+    ] {
+        if body.contains(pattern) {
+            violations.push(format!(
+                "src/search.rs: render_recent_feeds_tiles must not own recent tile chrome or placeholder labels; found `{pattern}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 Discovery recent tile ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn top_level_gpui_modules_are_classified_as_screen_or_shared_ui() {
     let mut candidates = Vec::new();
     let src_dir = manifest_path("src");

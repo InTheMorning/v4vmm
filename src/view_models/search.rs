@@ -83,6 +83,14 @@ pub(crate) struct RecentFeedTileVm<'a> {
     feed: &'a Feed,
 }
 
+/// Display-ready content for one Discovery recent-feed tile.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecentFeedTileDisplay {
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub image_url: Option<String>,
+}
+
 impl<'a> RecentFeedTileVm<'a> {
     #[must_use]
     pub(crate) const fn new(feed: &'a Feed) -> Self {
@@ -90,15 +98,14 @@ impl<'a> RecentFeedTileVm<'a> {
     }
 
     #[must_use]
-    pub(crate) fn title(&self) -> String {
-        feed_title(self.feed)
-    }
-
-    #[must_use]
-    pub(crate) fn subtitle(&self) -> Option<String> {
-        nonempty_text(self.feed.release_artist.as_deref())
-            .or_else(|| nonempty_text(self.feed.publisher_text.as_deref()))
-            .map(str::to_string)
+    pub(crate) fn display(&self) -> RecentFeedTileDisplay {
+        RecentFeedTileDisplay {
+            title: feed_title(self.feed),
+            subtitle: nonempty_text(self.feed.release_artist.as_deref())
+                .or_else(|| nonempty_text(self.feed.publisher_text.as_deref()))
+                .map(str::to_string),
+            image_url: self.feed.image_url.clone(),
+        }
     }
 }
 
@@ -1667,11 +1674,12 @@ mod tests {
 
         let feed = response.data.first().expect("fixture includes one feed");
         let vm = RecentFeedTileVm::new(feed);
+        let display = vm.display();
 
-        assert_eq!(vm.title(), "Is Anybody There?");
-        assert_eq!(vm.subtitle().as_deref(), Some("The Paisley Daze"));
+        assert_eq!(display.title, "Is Anybody There?");
+        assert_eq!(display.subtitle.as_deref(), Some("The Paisley Daze"));
         assert_eq!(
-            feed.image_url.as_deref(),
+            display.image_url.as_deref(),
             Some("https://feeds.fountain.fm/cover.jpg")
         );
     }
@@ -1684,9 +1692,23 @@ mod tests {
             ..Feed::default()
         };
         let vm = RecentFeedTileVm::new(&feed);
+        let display = vm.display();
 
-        assert_eq!(vm.title(), "Feed Title");
-        assert_eq!(vm.subtitle().as_deref(), Some("Publisher"));
+        assert_eq!(display.title, "Feed Title");
+        assert_eq!(display.subtitle.as_deref(), Some("Publisher"));
+    }
+
+    #[test]
+    fn recent_feed_tile_vm_does_not_emit_placeholder_ellipsis() {
+        let feed = Feed {
+            feed_guid: Some("feed-guid".into()),
+            ..Feed::default()
+        };
+        let display = RecentFeedTileVm::new(&feed).display();
+
+        assert_eq!(display.title, "feed-guid");
+        assert_ne!(display.title, "...");
+        assert_ne!(display.subtitle.as_deref(), Some("..."));
     }
 
     #[test]

@@ -26,7 +26,7 @@ Status: Not ready for richer playlist/playback feature work until Tasks
 
 | Task | Status | Required Evidence | Notes |
 |---|---|---|---|
-| Task 001 recents surface ownership | Pending | VM/composite label contract, regression guard, Discovery recents visual smoke | Current canary is recent tiles rendering `...`. |
+| Task 001 recents surface ownership | Pass | `RecentFeedTileDisplay`, `RecentFeedTile`, `discovery_recent_tiles_use_shared_composite`; visual smoke still needed before final readiness | Recents tile labels now come from the VM display contract and tile chrome lives in one composite. |
 | Task 002 fallback display accessors | Pending | VM tests, architecture fallback guards, ADR 0033 test-list sync | Blocks feature work on surfaces that still own fallback policy in screens. |
 | Task 003 composite display-contract audit | Pending | Composite contract notes, narrow allowlist or test guard | Blocks feature work through composites with policy-bearing loose strings. |
 | Task 004 feature-readiness gate | Pending | Green checks, visual smoke summary, final gate decision | Records whether richer playlist/playback work may proceed. |

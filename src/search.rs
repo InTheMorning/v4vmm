@@ -51,8 +51,8 @@ use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
-    IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, SplitPane, StatusRole, TagBadge,
-    Thumbnail, ThumbnailSize, TrackHeader, TrackMetadataGrid,
+    IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, RecentFeedTile, SplitPane,
+    StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackHeader, TrackMetadataGrid,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -4809,62 +4809,15 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             _ => continue,
         };
         let tile_vm = RecentFeedTileVm::new(&feed);
-        let title = tile_vm.title();
-        let artist = tile_vm.subtitle();
-        let image_url = feed.image_url.clone();
-        let thumbnail = app.thumbnail_for_url(image_url.as_deref(), cx);
+        let display = tile_vm.display();
+        let thumbnail = app.thumbnail_for_url(display.image_url.as_deref(), cx);
         let click_guid = guid.clone();
-        let click_title = title.clone();
-        let tile = div()
-            .id(SharedString::from(format!("recent-tile:{guid}")))
-            .flex()
-            .flex_col()
-            .gap(spacing::SM)
-            .w(layout::SEARCH_TILE_WIDTH)
-            .p(spacing::SM)
-            .rounded(radius::LG)
-            .cursor_pointer()
-            .hover(|el| el.bg(color::bg_surface()))
+        let click_title = display.title.clone();
+        let tile = RecentFeedTile::new(SharedString::from(format!("recent-tile:{guid}")), display)
+            .thumbnail(thumbnail)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open_recent_feed(click_guid.clone(), click_title.clone(), cx);
             }))
-            .child(
-                div()
-                    .w(layout::THUMBNAIL_XL)
-                    .h(layout::THUMBNAIL_XL)
-                    .rounded(radius::MD)
-                    .overflow_hidden()
-                    .flex_shrink_0()
-                    .when_some(thumbnail, |el, image| {
-                        el.child(
-                            ImagePrimitive::new(image)
-                                .dimension(layout::THUMBNAIL_XL)
-                                .radius(Radius::MD),
-                        )
-                    })
-                    .when(image_url.is_none(), |el| {
-                        el.bg(color::border_subtle())
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(typography::SIZE_ARTWORK_FALLBACK)
-                            .child(EntityKind::Feed.emoji())
-                    }),
-            )
-            .child(
-                Label::new(title)
-                    .size(FontSize::Caption)
-                    .weight(FontWeight::MEDIUM)
-                    .truncated(),
-            )
-            .when_some(artist, |el, artist| {
-                el.child(
-                    Label::new(artist)
-                        .size(FontSize::Micro)
-                        .color(SemanticColor::TertiaryLabel)
-                        .truncated(),
-                )
-            })
             .into_any_element();
         tiles.push(tile);
     }
