@@ -6,7 +6,9 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{div, prelude::*, AnyElement, IntoElement, ParentElement, RenderOnce, SharedString};
+use gpui::{
+    div, prelude::*, AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Window,
+};
 
 use crate::ui::style::{color, spacing, typography};
 
@@ -16,14 +18,14 @@ use crate::ui::style::{color, spacing, typography};
 pub struct ReleaseDetailSurface {
     id: SharedString,
     scrollable: bool,
-    header: Option<AnyElement>,
-    actions: Option<AnyElement>,
-    details: Option<AnyElement>,
-    panels: Vec<AnyElement>,
+    header: Option<ReleaseSurfaceElement>,
+    actions: Option<ReleaseSurfaceElement>,
+    details: Option<ReleaseSurfaceElement>,
+    panels: Vec<ReleaseSurfaceElement>,
     section_title: Option<SharedString>,
     section_summary: Option<SharedString>,
-    section_rows: Vec<AnyElement>,
-    after_section: Vec<AnyElement>,
+    section_rows: Vec<ReleaseSurfaceElement>,
+    after_section: Vec<ReleaseSurfaceElement>,
 }
 
 impl ReleaseDetailSurface {
@@ -47,22 +49,22 @@ impl ReleaseDetailSurface {
         self
     }
 
-    pub fn header(mut self, header: AnyElement) -> Self {
+    pub fn header(mut self, header: ReleaseSurfaceElement) -> Self {
         self.header = Some(header);
         self
     }
 
-    pub fn actions(mut self, actions: AnyElement) -> Self {
+    pub fn actions(mut self, actions: ReleaseSurfaceElement) -> Self {
         self.actions = Some(actions);
         self
     }
 
-    pub fn details(mut self, details: AnyElement) -> Self {
+    pub fn details(mut self, details: ReleaseSurfaceElement) -> Self {
         self.details = Some(details);
         self
     }
 
-    pub fn panel(mut self, panel: AnyElement) -> Self {
+    pub fn panel(mut self, panel: ReleaseSurfaceElement) -> Self {
         self.panels.push(panel);
         self
     }
@@ -71,7 +73,7 @@ impl ReleaseDetailSurface {
         mut self,
         title: impl Into<SharedString>,
         summary: impl Into<SharedString>,
-        rows: Vec<AnyElement>,
+        rows: Vec<ReleaseSurfaceElement>,
     ) -> Self {
         self.section_title = Some(title.into());
         self.section_summary = Some(summary.into());
@@ -79,7 +81,7 @@ impl ReleaseDetailSurface {
         self
     }
 
-    pub fn after_section(mut self, child: AnyElement) -> Self {
+    pub fn after_section(mut self, child: ReleaseSurfaceElement) -> Self {
         self.after_section.push(child);
         self
     }
@@ -127,7 +129,29 @@ impl RenderOnce for ReleaseDetailSurface {
     }
 }
 
-fn track_section(title: SharedString, summary: SharedString, rows: Vec<AnyElement>) -> AnyElement {
+#[derive(IntoElement)]
+#[must_use]
+pub struct ReleaseSurfaceElement {
+    element: AnyElement,
+}
+
+impl ReleaseSurfaceElement {
+    pub fn from_element(element: AnyElement) -> Self {
+        Self { element }
+    }
+}
+
+impl RenderOnce for ReleaseSurfaceElement {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        self.element
+    }
+}
+
+fn track_section(
+    title: SharedString,
+    summary: SharedString,
+    rows: Vec<ReleaseSurfaceElement>,
+) -> AnyElement {
     div()
         .flex()
         .flex_col()

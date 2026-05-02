@@ -63,8 +63,8 @@ use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
     FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption, ProvenanceRole,
-    SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackMetadataGrid,
-    TrackRow as TrackRowComposite, TrackSurfaceElement,
+    ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface,
+    TrackMetadataGrid, TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -2392,11 +2392,18 @@ fn render_album_detail(
         .and_then(|opt| opt.clone());
 
     // Render track rows with library-specific affordances
-    let track_rows: Vec<AnyElement> = album
+    let track_rows: Vec<ReleaseSurfaceElement> = album
         .tracks
         .iter()
         .map(|track| {
-            render_library_track_row(track, mb_status, busy_track, album_thumbs, playlists, cx)
+            ReleaseSurfaceElement::from_element(render_library_track_row(
+                track,
+                mb_status,
+                busy_track,
+                album_thumbs,
+                playlists,
+                cx,
+            ))
         })
         .collect();
 
@@ -2446,23 +2453,27 @@ fn render_album_detail(
     let page = projection.page();
     let mut slots = ReleaseDetailBehaviorSlots {
         hero_image: thumb_image.clone(),
-        primary_actions: vec![buttons.into_any_element()],
+        primary_actions: vec![ReleaseSurfaceElement::from_element(
+            buttons.into_any_element(),
+        )],
         identity_actions: render_library_identity_actions(&feed_view),
         track_rows: Some(track_rows),
         ..ReleaseDetailBehaviorSlots::default()
     };
     if let Some(panel) = render_library_contributors_panel(&projection, album_thumbs) {
-        slots.after_section.push(panel);
+        slots
+            .after_section
+            .push(ReleaseSurfaceElement::from_element(panel));
     }
     render_release_detail_shell("album-detail-scroll", &page, slots)
 }
 
-fn render_library_identity_actions(view: &FeedView) -> Vec<AnyElement> {
+fn render_library_identity_actions(view: &FeedView) -> Vec<ReleaseSurfaceElement> {
     let mut actions = Vec::new();
 
     if let Some(url) = view.identity.website_url.clone() {
         let url_for_click = url.clone();
-        actions.push(
+        actions.push(ReleaseSurfaceElement::from_element(
             identity_action_button(
                 SharedString::from(format!("library-feed-website:{url}")),
                 IdentityActionKind::Website,
@@ -2471,12 +2482,12 @@ fn render_library_identity_actions(view: &FeedView) -> Vec<AnyElement> {
                 let _ = open::that(&url_for_click);
             })
             .into_any_element(),
-        );
+        ));
     }
 
     if let Some(npub) = view.identity.nostr_npub.clone() {
         let npub_for_click = npub.clone();
-        actions.push(
+        actions.push(ReleaseSurfaceElement::from_element(
             identity_action_button(
                 SharedString::from(format!("library-feed-nostr:{npub}")),
                 IdentityActionKind::Nostr,
@@ -2485,12 +2496,12 @@ fn render_library_identity_actions(view: &FeedView) -> Vec<AnyElement> {
                 cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
             })
             .into_any_element(),
-        );
+        ));
     }
 
     if let Some(url) = view.feed_url.clone() {
         let url_for_click = url.clone();
-        actions.push(
+        actions.push(ReleaseSurfaceElement::from_element(
             identity_action_button(
                 SharedString::from(format!("library-feed-rss:{url}")),
                 IdentityActionKind::Rss,
@@ -2499,7 +2510,7 @@ fn render_library_identity_actions(view: &FeedView) -> Vec<AnyElement> {
                 let _ = open::that(&url_for_click);
             })
             .into_any_element(),
-        );
+        ));
     }
 
     actions
@@ -2526,13 +2537,15 @@ fn render_library_contributors_panel(
     )
 }
 
-fn library_contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<AnyElement> {
+fn library_contributor_identity_actions(
+    contributor: &ContributorRowVm<'_>,
+) -> Vec<ReleaseSurfaceElement> {
     let label = contributor.full_label();
     let mut actions = Vec::new();
 
     if let Some(href) = contributor.href().map(str::to_string) {
         let href_for_click = href.clone();
-        actions.push(
+        actions.push(ReleaseSurfaceElement::from_element(
             identity_action_button(
                 SharedString::from(format!("library-contributor-website:{label}:{href}")),
                 IdentityActionKind::Website,
@@ -2541,12 +2554,12 @@ fn library_contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> V
                 let _ = open::that(&href_for_click);
             })
             .into_any_element(),
-        );
+        ));
     }
 
     if let Some(npub) = contributor.nostr_npub().map(str::to_string) {
         let npub_for_click = npub.clone();
-        actions.push(
+        actions.push(ReleaseSurfaceElement::from_element(
             identity_action_button(
                 SharedString::from(format!("library-contributor-nostr:{label}:{npub}")),
                 IdentityActionKind::Nostr,
@@ -2555,7 +2568,7 @@ fn library_contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> V
                 cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
             })
             .into_any_element(),
-        );
+        ));
     }
 
     actions

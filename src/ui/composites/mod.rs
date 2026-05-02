@@ -52,7 +52,7 @@ pub use musicbrainz_panel::MusicBrainzPanel;
 pub use now_playing_bar::{NowPlayingBar, NowPlayingData, PlaybackState as NowPlayingState};
 pub use playlist_popover::{AddToPlaylistPopover, PlaylistOption};
 pub use recent_feed_tile::RecentFeedTile;
-pub use release_detail_surface::ReleaseDetailSurface;
+pub use release_detail_surface::{ReleaseDetailSurface, ReleaseSurfaceElement};
 pub use segmented_control::{Segment, SegmentedControl};
 pub use split_pane::SplitPane;
 pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge};

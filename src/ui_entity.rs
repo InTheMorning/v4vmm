@@ -14,8 +14,8 @@ use gpui::{
 };
 
 use crate::ui::composites::{
-    DetailGrid, DetailHeader, DetailRow, EntityKind, ListRow, ReleaseDetailSurface, Thumbnail,
-    ThumbnailSize, TrackRow,
+    DetailGrid, DetailHeader, DetailRow, EntityKind, ListRow, ReleaseDetailSurface,
+    ReleaseSurfaceElement, Thumbnail, ThumbnailSize, TrackRow,
 };
 use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
@@ -30,15 +30,15 @@ type ReleaseTrackRowClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'sta
 #[derive(Default)]
 pub struct ContributorRowSlot {
     pub thumbnail: Option<Arc<Image>>,
-    pub actions: Vec<AnyElement>,
+    pub actions: Vec<ReleaseSurfaceElement>,
 }
 
 #[derive(Default)]
 pub struct ReleaseTrackRowSlot {
     pub thumbnail: Option<Arc<Image>>,
     pub on_click: Option<ReleaseTrackRowClick>,
-    pub actions: Vec<AnyElement>,
-    pub popover: Option<AnyElement>,
+    pub actions: Vec<ReleaseSurfaceElement>,
+    pub popover: Option<ReleaseSurfaceElement>,
 }
 
 impl ReleaseTrackRowSlot {
@@ -55,11 +55,11 @@ impl ReleaseTrackRowSlot {
 #[derive(Default)]
 pub struct ReleaseDetailBehaviorSlots {
     pub hero_image: Option<Arc<Image>>,
-    pub primary_actions: Vec<AnyElement>,
-    pub identity_actions: Vec<AnyElement>,
-    pub action_overlays: Vec<AnyElement>,
-    pub track_rows: Option<Vec<AnyElement>>,
-    pub after_section: Vec<AnyElement>,
+    pub primary_actions: Vec<ReleaseSurfaceElement>,
+    pub identity_actions: Vec<ReleaseSurfaceElement>,
+    pub action_overlays: Vec<ReleaseSurfaceElement>,
+    pub track_rows: Option<Vec<ReleaseSurfaceElement>>,
+    pub after_section: Vec<ReleaseSurfaceElement>,
 }
 
 #[must_use]
@@ -70,8 +70,13 @@ pub fn render_release_detail_shell(
 ) -> AnyElement {
     let mut surface = ReleaseDetailSurface::new(id)
         .scrollable(true)
-        .header(render_contract_header(&page.hero, slots.hero_image))
-        .details(render_summary_facts(&page.summary_facts));
+        .header(ReleaseSurfaceElement::from_element(render_contract_header(
+            &page.hero,
+            slots.hero_image,
+        )))
+        .details(ReleaseSurfaceElement::from_element(render_summary_facts(
+            &page.summary_facts,
+        )));
 
     if let Some(actions) = render_action_slots(slots.primary_actions, slots.identity_actions) {
         surface = surface.actions(actions);
@@ -82,7 +87,9 @@ pub fn render_release_detail_shell(
     }
 
     for panel in &page.panels {
-        surface = surface.panel(render_release_panel(panel));
+        surface = surface.panel(ReleaseSurfaceElement::from_element(render_release_panel(
+            panel,
+        )));
     }
 
     let rows = slots
@@ -136,7 +143,7 @@ pub fn render_release_track_row(
     id: impl Into<SharedString>,
     row: SharedTrackRowVm<'_>,
     slot: ReleaseTrackRowSlot,
-) -> AnyElement {
+) -> ReleaseSurfaceElement {
     let mut track_row = TrackRow::new(id.into())
         .number(row.number_label())
         .title(row.title())
@@ -153,15 +160,17 @@ pub fn render_release_track_row(
 
     let row = track_row.into_any_element();
     if let Some(popover) = slot.popover {
-        div()
-            .flex()
-            .flex_col()
-            .gap(spacing::XXS)
-            .child(row)
-            .child(popover)
-            .into_any_element()
+        ReleaseSurfaceElement::from_element(
+            div()
+                .flex()
+                .flex_col()
+                .gap(spacing::XXS)
+                .child(row)
+                .child(popover)
+                .into_any_element(),
+        )
     } else {
-        row
+        ReleaseSurfaceElement::from_element(row)
     }
 }
 
@@ -303,9 +312,9 @@ fn render_text_panel(title: &str, value: String) -> AnyElement {
 }
 
 fn render_action_slots(
-    primary_actions: Vec<AnyElement>,
-    identity_actions: Vec<AnyElement>,
-) -> Option<AnyElement> {
+    primary_actions: Vec<ReleaseSurfaceElement>,
+    identity_actions: Vec<ReleaseSurfaceElement>,
+) -> Option<ReleaseSurfaceElement> {
     if primary_actions.is_empty() && identity_actions.is_empty() {
         return None;
     }
@@ -337,10 +346,10 @@ fn render_action_slots(
                 .children(identity_actions),
         );
     }
-    Some(row.into_any_element())
+    Some(ReleaseSurfaceElement::from_element(row.into_any_element()))
 }
 
-fn render_track_rows(rows: Vec<SharedTrackRowVm<'_>>) -> Vec<AnyElement> {
+fn render_track_rows(rows: Vec<SharedTrackRowVm<'_>>) -> Vec<ReleaseSurfaceElement> {
     rows.into_iter()
         .enumerate()
         .map(|(index, row)| {

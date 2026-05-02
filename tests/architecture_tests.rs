@@ -1589,6 +1589,94 @@ fn track_surface_slots_are_typed() {
 }
 
 #[test]
+fn release_surface_slots_are_typed() {
+    let forbidden = [
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "header: Option<AnyElement>",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "actions: Option<AnyElement>",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "details: Option<AnyElement>",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "panels: Vec<AnyElement>",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "section_rows: Vec<AnyElement>",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "after_section: Vec<AnyElement>",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "pub fn header(mut self, header: AnyElement)",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "pub fn actions(mut self, actions: AnyElement)",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "pub fn details(mut self, details: AnyElement)",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "pub fn panel(mut self, panel: AnyElement)",
+        ),
+        (
+            "src/ui/composites/release_detail_surface.rs",
+            "pub fn after_section(mut self, child: AnyElement)",
+        ),
+        ("src/ui_entity.rs", "pub actions: Vec<AnyElement>"),
+        ("src/ui_entity.rs", "pub popover: Option<AnyElement>"),
+        ("src/ui_entity.rs", "pub primary_actions: Vec<AnyElement>"),
+        ("src/ui_entity.rs", "pub identity_actions: Vec<AnyElement>"),
+        ("src/ui_entity.rs", "pub action_overlays: Vec<AnyElement>"),
+        (
+            "src/ui_entity.rs",
+            "pub track_rows: Option<Vec<AnyElement>>",
+        ),
+        ("src/ui_entity.rs", "pub after_section: Vec<AnyElement>"),
+    ];
+    let mut violations = Vec::new();
+
+    for (file, pattern) in forbidden {
+        let source = read_source(&manifest_path(file));
+        if source.contains(pattern) {
+            violations.push(format!(
+                "{file}: ADR 0036 release surface slots must use `ReleaseSurfaceElement`, not `{pattern}`"
+            ));
+        }
+    }
+
+    for file in [
+        "src/ui/composites/release_detail_surface.rs",
+        "src/ui_entity.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        if !source.contains("ReleaseSurfaceElement") {
+            violations.push(format!(
+                "{file}: ADR 0036 release surface slot boundary must name `ReleaseSurfaceElement`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0036 typed release-surface slot violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn screens_do_not_define_local_track_detail_surface_chrome() {
     let forbidden = [
         "TrackHeader::new(",
@@ -1703,6 +1791,38 @@ fn track_surface_consumers_use_track_detail_vm() {
     assert!(
         violations.is_empty(),
         "ADR 0035 track surface VM consumption violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn release_surface_consumers_use_release_detail_vm() {
+    let consumers = [
+        (
+            "src/library.rs",
+            "render_release_detail_shell(",
+            "ReleaseDetailVm::new(",
+        ),
+        (
+            "src/ui_feed.rs",
+            "render_release_detail_shell(",
+            "ReleaseDetailVm::new(",
+        ),
+    ];
+    let mut violations = Vec::new();
+
+    for (file, consumer, required_vm) in consumers {
+        let source = read_source(&manifest_path(file));
+        if source.contains(consumer) && !source.contains(required_vm) {
+            violations.push(format!(
+                "{file}: `{consumer}` consumers must be fed from `ReleaseDetailVm`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0036 release surface VM consumption violations:\n{}",
         violations.join("\n")
     );
 }

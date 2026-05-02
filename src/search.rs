@@ -51,9 +51,9 @@ use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
-    IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, RecentFeedTile, SplitPane,
-    StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane,
-    TrackMetadataGrid, TrackSurfaceElement,
+    IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, RecentFeedTile,
+    ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
+    TrackDetailSurface, TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2954,12 +2954,12 @@ fn contributor_elements(
     })
 }
 
-fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<AnyElement> {
+fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<ReleaseSurfaceElement> {
     let label = contributor.full_label();
     let mut actions = Vec::new();
     if let Some(href) = contributor.href().map(str::to_string) {
         let href_for_click = href.clone();
-        actions.push(
+        actions.push(ReleaseSurfaceElement::from_element(
             identity_action_button(
                 SharedString::from(format!("contributor-website:{label}:{href}")),
                 IdentityActionKind::Website,
@@ -2968,11 +2968,11 @@ fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<AnyEl
                 let _ = open::that(&href_for_click);
             })
             .into_any_element(),
-        );
+        ));
     }
     if let Some(npub) = contributor.nostr_npub().map(str::to_string) {
         let npub_for_click = npub.clone();
-        actions.push(
+        actions.push(ReleaseSurfaceElement::from_element(
             identity_action_button(
                 SharedString::from(format!("contributor-nostr:{label}:{npub}")),
                 IdentityActionKind::Nostr,
@@ -2981,7 +2981,7 @@ fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<AnyEl
                 cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
             })
             .into_any_element(),
-        );
+        ));
     }
 
     actions
