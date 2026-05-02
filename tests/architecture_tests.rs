@@ -483,6 +483,13 @@ const COMPOSITE_LOOSE_STRING_SIGNATURE_ALLOWLIST: &[CompositeLooseStringSignatur
     },
 ];
 
+const SHARED_UI_UNSCALED_TOKEN_PX_ALLOWLIST: &[SharedUiUnscaledTokenPxAllowance] =
+    &[SharedUiUnscaledTokenPxAllowance {
+        file: "src/ui/icons.rs",
+        pattern: "Self::Transport => FontSize::Body.px()",
+        note: "base value for IconSize::scaled; render path uses the scaled helper",
+    }];
+
 #[derive(Debug)]
 struct DeprecatedVisualHelperBaseline {
     file: &'static str,
@@ -494,6 +501,13 @@ struct DeprecatedVisualHelperBaseline {
 
 #[derive(Debug)]
 struct CompositeLooseStringSignatureAllowance {
+    file: &'static str,
+    pattern: &'static str,
+    note: &'static str,
+}
+
+#[derive(Debug)]
+struct SharedUiUnscaledTokenPxAllowance {
     file: &'static str,
     pattern: &'static str,
     note: &'static str,
@@ -626,6 +640,68 @@ fn shared_ui_components_do_not_import_backend_or_screen_layers() {
     assert!(
         violations.is_empty(),
         "ADR 0033 shared UI backend/screen boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn shared_ui_render_paths_use_scale_aware_tokens() {
+    let mut files = Vec::new();
+    files.extend(rust_files_under("src/ui/primitives"));
+    files.extend(rust_files_under("src/ui/composites"));
+    files.push(manifest_path("src/ui/icons.rs"));
+    files.sort();
+
+    let mut violations = Vec::new();
+    for path in files {
+        let relative = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if !contains_unscaled_token_px_call(&line) {
+                continue;
+            }
+            if shared_ui_unscaled_token_px_is_allowed(&relative, &line) {
+                continue;
+            }
+            violations.push(format!(
+                "{relative}:{line_number}: ADR 0034 shared UI render paths must use scale-aware token accessors, not unscaled `.px()`: `{line}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0034 shared UI scale-token violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn shared_header_badges_use_intrinsic_flex_rows() {
+    let mut violations = Vec::new();
+    for file in [
+        "src/ui/composites/detail_header.rs",
+        "src/ui/composites/track_header.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        let compact = compact_source(&source);
+        if compact.contains(".child(div().mb(Spacing::") {
+            violations.push(format!(
+                "{file}: header badges must not sit in block-width margin wrappers; wrap `TagBadge` in an intrinsic flex row"
+            ));
+        }
+        if !compact.contains(".flex().flex_row().items_start().mb(Spacing::")
+            || !compact.contains(".child(badge)")
+        {
+            violations.push(format!(
+                "{file}: expected header badge wrapper to use an intrinsic `.flex().flex_row().items_start()` row"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0034 shared header badge layout violations:\n{}",
         violations.join("\n")
     );
 }
@@ -1624,6 +1700,10 @@ fn strip_line_comment(line: &str) -> &str {
     }
 }
 
+fn compact_source(source: &str) -> String {
+    source.chars().filter(|ch| !ch.is_whitespace()).collect()
+}
+
 fn contains_numeric_px_literal(line: &str) -> bool {
     line.match_indices("px(").any(|(index, _)| {
         line[index + 3..]
@@ -1632,6 +1712,29 @@ fn contains_numeric_px_literal(line: &str) -> bool {
             .next()
             .is_some_and(|ch| ch.is_ascii_digit())
     })
+}
+
+fn contains_unscaled_token_px_call(line: &str) -> bool {
+    line.contains(".px()")
+        && [
+            "Spacing::",
+            "Radius::",
+            "FontSize::",
+            "Size::",
+            ".padding.px()",
+            ".radius.px()",
+            ".size.px()",
+        ]
+        .iter()
+        .any(|pattern| line.contains(pattern))
+}
+
+fn shared_ui_unscaled_token_px_is_allowed(file: &str, line: &str) -> bool {
+    SHARED_UI_UNSCALED_TOKEN_PX_ALLOWLIST
+        .iter()
+        .any(|allowance| {
+            allowance.file == file && line.contains(allowance.pattern) && !allowance.note.is_empty()
+        })
 }
 
 fn appearance_dark_is_approved(file: &str, source: &str, line_number: usize) -> bool {

@@ -15,13 +15,15 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, App, ClickEvent, ElementId, FontWeight, IntoElement, MouseButton, Pixels,
-    RenderOnce, Window,
+    div, prelude::*, App, ClickEvent, ElementId, FontWeight, IntoElement, MouseButton, RenderOnce,
+    Window,
 };
 
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
-use crate::ui::tokens::{resolve_color, Appearance, FontSize, Radius, SemanticColor, Spacing};
+use crate::ui::tokens::{
+    resolve_color, Appearance, FontSize, Radius, SemanticColor, Size, Spacing,
+};
 
 /// HIG button styles.
 ///
@@ -175,11 +177,11 @@ impl gpui_component::Selectable for Button {
 }
 
 impl Button {
-    fn height(&self) -> Pixels {
+    fn height(&self, cx: &App) -> gpui::Pixels {
         match self.size {
-            ButtonSize::Sm => px(28.0),
-            ButtonSize::Md => px(32.0),
-            ButtonSize::Lg => px(40.0),
+            ButtonSize::Sm => Size::ButtonSm.scaled(cx),
+            ButtonSize::Md => Size::ButtonMd.scaled(cx),
+            ButtonSize::Lg => Size::ButtonLg.scaled(cx),
         }
     }
 
@@ -201,10 +203,13 @@ impl Button {
 
 impl RenderOnce for Button {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let height = self.height();
-        let pad = self.px_inset().px();
-        let font = self.font_size.unwrap_or_else(|| self.font_size()).px();
-        let radius = self.radius.unwrap_or(Radius::MD).px();
+        let height = self.height(cx);
+        let pad = self.px_inset().scaled(cx);
+        let font = self
+            .font_size
+            .unwrap_or_else(|| self.font_size())
+            .scaled(cx);
+        let radius = self.radius.unwrap_or(Radius::MD).scaled(cx);
         let appearance = self.appearance;
 
         // Resolve the variant's color triple: (bg, fg, hover_bg).
@@ -263,7 +268,7 @@ impl RenderOnce for Button {
             .flex_row()
             .items_center()
             .justify_center()
-            .gap(Spacing::XS.px())
+            .gap(Spacing::XS.scaled(cx))
             .h(height)
             .px(pad)
             .rounded(radius)

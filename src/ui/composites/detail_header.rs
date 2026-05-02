@@ -89,7 +89,14 @@ impl RenderOnce for DetailHeader {
         let mut text_block = VStack::new()
             .spacing(Spacing::XS)
             .leading()
-            .child(div().mb(Spacing::XS.scaled(cx)).child(badge))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .mb(Spacing::XS.scaled(cx))
+                    .child(badge),
+            )
             .child(
                 div()
                     .text_size(FontSize::Title2.scaled(cx))
@@ -116,6 +123,7 @@ impl RenderOnce for DetailHeader {
                     row.max_lines,
                     metadata_label_color,
                     self.appearance,
+                    cx,
                 ));
             }
             text_block = text_block.child(metadata);
@@ -135,6 +143,7 @@ fn header_data_row(
     max_lines: usize,
     label_color: gpui::Rgba,
     appearance: Option<Appearance>,
+    cx: &App,
 ) -> impl IntoElement {
     let mut value_text = MultilineText::new(value)
         .max_lines(max_lines)
@@ -147,13 +156,13 @@ fn header_data_row(
     div()
         .flex()
         .flex_row()
-        .gap(Spacing::SM.px())
+        .gap(Spacing::SM.scaled(cx))
         .min_w_0()
         .child(
             div()
                 .w(layout::COMPACT_COLUMN_WIDTH)
                 .flex_shrink_0()
-                .text_size(FontSize::Micro.px())
+                .text_size(FontSize::Micro.scaled(cx))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(label_color)
                 .child(label),

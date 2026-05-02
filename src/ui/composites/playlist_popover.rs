@@ -166,13 +166,14 @@ impl RenderOnce for AddToPlaylistPopover {
                 };
 
                 if creating {
-                    build_create_mode(state.clone(), name_input, on_create.clone())
+                    build_create_mode(state.clone(), name_input, on_create.clone(), cx)
                 } else {
                     build_list_mode(
                         state.clone(),
                         playlists.clone(),
                         on_select.clone(),
                         can_create,
+                        cx,
                     )
                 }
             })
@@ -192,6 +193,7 @@ fn build_list_mode(
     playlists: Rc<Vec<PlaylistOption>>,
     on_select: Option<SelectHandler>,
     can_create: bool,
+    cx: &App,
 ) -> Div {
     let playlist_buttons = playlists.iter().map(|p| {
         let playlist_id = p.id;
@@ -213,15 +215,15 @@ fn build_list_mode(
     });
 
     let mut content = v_flex()
-        .w(Size::MenuRegular.px())
-        .max_h(Size::ColumnRegular.px())
-        .gap(Spacing::XXS.px())
+        .w(Size::MenuRegular.scaled(cx))
+        .max_h(Size::ColumnRegular.scaled(cx))
+        .gap(Spacing::XXS.scaled(cx))
         .when(playlists.is_empty(), |el: Div| {
             el.child(
                 div()
-                    .px(Spacing::MD.px())
-                    .py(Spacing::SM.px())
-                    .text_size(FontSize::Caption.px())
+                    .px(Spacing::MD.scaled(cx))
+                    .py(Spacing::SM.scaled(cx))
+                    .text_size(FontSize::Caption.scaled(cx))
                     .child("No playlists yet"),
             )
         })
@@ -242,7 +244,11 @@ fn build_list_mode(
                 }
             });
         content = content
-            .child(div().my(Spacing::XS.px()).child(Divider::horizontal()))
+            .child(
+                div()
+                    .my(Spacing::XS.scaled(cx))
+                    .child(Divider::horizontal()),
+            )
             .child(new_btn);
     }
 
@@ -261,6 +267,7 @@ fn build_create_mode(
     state: Entity<AddToPlaylistState>,
     name_input: Entity<InputState>,
     on_create: Option<CreateHandler>,
+    cx: &App,
 ) -> Div {
     let back_btn = Button::plain("pl-back")
         .full_width()
@@ -302,10 +309,18 @@ fn build_create_mode(
         });
 
     v_flex()
-        .w(Size::MenuRegular.px())
-        .gap(Spacing::XS.px())
+        .w(Size::MenuRegular.scaled(cx))
+        .gap(Spacing::XS.scaled(cx))
         .child(back_btn)
-        .child(div().my(Spacing::XS.px()).child(Divider::horizontal()))
-        .child(div().px(Spacing::XS.px()).child(Input::new(&name_input)))
-        .child(div().px(Spacing::XS.px()).child(create_btn))
+        .child(
+            div()
+                .my(Spacing::XS.scaled(cx))
+                .child(Divider::horizontal()),
+        )
+        .child(
+            div()
+                .px(Spacing::XS.scaled(cx))
+                .child(Input::new(&name_input)),
+        )
+        .child(div().px(Spacing::XS.scaled(cx)).child(create_btn))
 }

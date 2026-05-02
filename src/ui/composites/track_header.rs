@@ -66,7 +66,14 @@ impl RenderOnce for TrackHeader {
         let mut text_block = div()
             .flex_1()
             .min_w_0()
-            .child(div().mb(Spacing::SM.scaled(cx)).child(badge))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_start()
+                    .mb(Spacing::SM.scaled(cx))
+                    .child(badge),
+            )
             .child(
                 div()
                     .text_size(FontSize::Title2.scaled(cx))

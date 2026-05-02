@@ -115,7 +115,7 @@ impl RenderOnce for Label {
         let weight = self.weight.unwrap_or(default_weight);
         let color = self.color.unwrap_or(default_color);
         let mut el = div()
-            .text_size(size.px())
+            .text_size(size.scaled(cx))
             .font_weight(weight)
             .text_color(resolve_color(cx, color, self.appearance));
         if self.truncated {

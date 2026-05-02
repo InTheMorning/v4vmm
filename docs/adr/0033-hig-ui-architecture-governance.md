@@ -114,6 +114,8 @@ update so the contract and its enforcement do not drift apart:
 - `ui_style_does_not_reintroduce_layout_namespace`
 - `ui_style_does_not_reintroduce_status_roles`
 - `ui_style_does_not_reintroduce_provenance_diff_roles`
+- `shared_ui_render_paths_use_scale_aware_tokens`
+- `shared_header_badges_use_intrinsic_flex_rows`
 - `screens_do_not_define_inline_icon_svg_helpers`
 - `ui_buttons_do_not_reintroduce_raw_leading_glyphs`
 - `screens_do_not_grow_unmarked_direct_component_button_usage`

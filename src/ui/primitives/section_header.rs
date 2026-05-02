@@ -57,13 +57,13 @@ impl SectionHeader {
 impl RenderOnce for SectionHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let muted = resolve_color(cx, SemanticColor::SecondaryLabel, self.appearance);
-        let micro = FontSize::Micro.px();
+        let micro = FontSize::Micro.scaled(cx);
 
         let row = div()
             .flex()
             .flex_row()
             .items_center()
-            .gap(Spacing::SM.px())
+            .gap(Spacing::SM.scaled(cx))
             .text_size(micro)
             .text_color(muted);
 

@@ -91,8 +91,8 @@ impl RenderOnce for Surface {
             .bg(resolve_color(cx, bg, self.appearance))
             .border_1()
             .border_color(resolve_color(cx, border, self.appearance))
-            .rounded(self.radius.px())
-            .p(self.padding.px());
+            .rounded(self.radius.scaled(cx))
+            .p(self.padding.scaled(cx));
 
         el.extend(self.children);
         el

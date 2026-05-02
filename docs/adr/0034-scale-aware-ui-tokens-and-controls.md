@@ -87,5 +87,11 @@ In practice:
   assert token roles or named scale outcomes instead.
 - Architecture tests will need a narrow allowlist for legitimate `.px()` uses
   in shared UI.
+- `shared_ui_render_paths_use_scale_aware_tokens` fails when shared
+  primitives or composites use unscaled token `.px()` calls for user-facing
+  dimensions without an explicit allowlist entry.
+- `shared_header_badges_use_intrinsic_flex_rows` fails when shared detail or
+  track headers place entity badges in block-width wrappers that can stretch
+  compact badge chrome.
 - Future UI feature work should be delayed if it depends on popovers, buttons,
   labels, or surface spacing that still bypasses the active scale.

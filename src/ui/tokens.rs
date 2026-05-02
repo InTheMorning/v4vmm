@@ -438,6 +438,12 @@ impl From<Weight> for FontWeight {
 /// when a future `ScaleFactor` token is introduced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Size {
+    /// 28 px — compact button / toolbar affordance.
+    ButtonSm,
+    /// 32 px — default button.
+    ButtonMd,
+    /// 40 px — prominent dialog / sheet button.
+    ButtonLg,
     /// 160 px — compact menu / dropdown.
     MenuCompact,
     /// 220 px — regular menu / popover (default).
@@ -460,6 +466,9 @@ impl Size {
     #[must_use]
     pub const fn px(self) -> Pixels {
         match self {
+            Self::ButtonSm => px(28.0),
+            Self::ButtonMd => px(32.0),
+            Self::ButtonLg => px(40.0),
             Self::MenuCompact => px(160.0),
             Self::MenuRegular => px(220.0),
             Self::MenuWide => px(280.0),

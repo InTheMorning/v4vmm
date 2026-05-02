@@ -739,7 +739,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                                 .flex_1()
                                                 .text_xs()
                                                 .text_color(color(cx, SemanticColor::Label))
-                                                .child(SharedString::from(title.to_string()))
+                                                .child(SharedString::from(title.clone()))
                                         )
                                         .child(
                                             UiButton::styled(

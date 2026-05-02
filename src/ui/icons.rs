@@ -16,7 +16,7 @@ use gpui_component::tooltip::Tooltip;
 
 use crate::ui::layouts as layout;
 use crate::ui::style::radius;
-use crate::ui::tokens::FontSize;
+use crate::ui::tokens::{FontSize, ScaleFactor};
 
 /// Semantic icon names understood by the design system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -96,6 +96,11 @@ impl IconSize {
             Self::Transport => FontSize::Body.px(),
         }
     }
+
+    #[must_use]
+    pub fn scaled(self, cx: &App) -> Pixels {
+        gpui::px(f32::from(self.px()) * ScaleFactor::current(cx).multiplier())
+    }
 }
 
 /// Renderable semantic icon.
@@ -128,8 +133,8 @@ impl Icon {
 }
 
 impl RenderOnce for Icon {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        let size = self.size.px();
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let size = self.size.scaled(cx);
         if let Some(image) = self.name.image() {
             return img(image)
                 .w(size)
