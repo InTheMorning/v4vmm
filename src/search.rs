@@ -50,10 +50,10 @@ use crate::subscribe_service::{
 };
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
-    action_button, identity_action_button, AddToPlaylistPopover, DetailGrid, DetailHeader,
-    DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, IdentityActionKind, ListRow,
-    PlaylistOption, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
-    TrackHeader,
+    action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
+    DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
+    IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, SplitPane, StatusRole, TagBadge,
+    Thumbnail, ThumbnailSize, TrackHeader,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2682,7 +2682,7 @@ fn render_discover_track_inspector(
         .flex_col()
         .gap(spacing::LG)
         .child(track_header)
-        .child(render_action_row(frame, &BTreeMap::new(), app, cx))
+        .child(discover_inspector_action_row(frame, app, cx))
         .child(DetailGrid::new(
             rows.into_iter().map(Into::into).collect::<Vec<_>>(),
         ))
@@ -2720,9 +2720,8 @@ fn render_publisher_inspector(
         .into_any_element()
 }
 
-pub(crate) fn render_action_row(
+pub(crate) fn discover_inspector_action_row(
     frame: &InspectorFrame,
-    _pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
@@ -2775,120 +2774,90 @@ pub(crate) fn render_action_row(
     let create_playlist_target = playlist_target.clone();
     let playlists = app.vm.playlists_snapshot();
 
-    let mut action_controls = div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(spacing::SM)
-        .flex_wrap();
-    action_controls = action_controls
-        .child(
-            action_button(&subscription_label, cx)
-                .disabled(subscription_disabled)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_local_subscription(cx);
-                })),
-        )
-        .child(
-            AddToPlaylistPopover::new(
-                SharedString::from(format!("inspector-add:{}", frame.entity_id)),
-                playlist_options(&playlists),
-            )
-            .trigger_label(playlist_label)
-            .disabled(playlist_disabled || playlist_target.is_none())
-            .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
-                if let Some(target) = &playlist_target {
-                    match target {
-                        InspectorPlaylistTarget::Track(track_id) => {
-                            this.add_track_to_playlist(*track_id, *playlist_id, cx);
-                        }
-                        InspectorPlaylistTarget::TrackPending {
-                            feed_url,
-                            feed_guid,
-                            track_guid,
-                        } => {
-                            this.add_search_track_to_playlist(
-                                feed_guid,
-                                feed_url.as_deref(),
-                                track_guid,
-                                *playlist_id,
-                                cx,
-                            );
-                        }
-                        InspectorPlaylistTarget::Feed {
-                            feed_url,
-                            feed_guid,
-                        } => {
-                            this.add_feed_to_playlist(
-                                feed_guid,
-                                feed_url.as_deref(),
-                                *playlist_id,
-                                cx,
-                            );
-                        }
-                    }
-                }
+    let controls = vec![
+        action_button(&subscription_label, cx)
+            .disabled(subscription_disabled)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_local_subscription(cx);
             }))
-            .on_create(cx.listener(move |this, name: &String, _window, cx| {
-                if let Some(target) = &create_playlist_target {
-                    match target {
-                        InspectorPlaylistTarget::Track(track_id) => {
-                            this.create_playlist_and_add_track(name, *track_id, cx);
-                        }
-                        InspectorPlaylistTarget::TrackPending {
-                            feed_url,
+            .into_any_element(),
+        AddToPlaylistPopover::new(
+            SharedString::from(format!("inspector-add:{}", frame.entity_id)),
+            playlist_options(&playlists),
+        )
+        .trigger_label(playlist_label)
+        .disabled(playlist_disabled || playlist_target.is_none())
+        .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
+            if let Some(target) = &playlist_target {
+                match target {
+                    InspectorPlaylistTarget::Track(track_id) => {
+                        this.add_track_to_playlist(*track_id, *playlist_id, cx);
+                    }
+                    InspectorPlaylistTarget::TrackPending {
+                        feed_url,
+                        feed_guid,
+                        track_guid,
+                    } => {
+                        this.add_search_track_to_playlist(
                             feed_guid,
+                            feed_url.as_deref(),
                             track_guid,
-                        } => {
-                            this.create_playlist_and_add_discover_track(
-                                name,
-                                feed_guid,
-                                feed_url.as_deref(),
-                                track_guid,
-                                cx,
-                            );
-                        }
-                        InspectorPlaylistTarget::Feed {
-                            feed_url,
-                            feed_guid,
-                        } => {
-                            this.create_playlist_and_add_feed(
-                                name,
-                                feed_guid,
-                                feed_url.as_deref(),
-                                cx,
-                            );
-                        }
+                            *playlist_id,
+                            cx,
+                        );
+                    }
+                    InspectorPlaylistTarget::Feed {
+                        feed_url,
+                        feed_guid,
+                    } => {
+                        this.add_feed_to_playlist(feed_guid, feed_url.as_deref(), *playlist_id, cx);
                     }
                 }
-            })),
-        );
+            }
+        }))
+        .on_create(cx.listener(move |this, name: &String, _window, cx| {
+            if let Some(target) = &create_playlist_target {
+                match target {
+                    InspectorPlaylistTarget::Track(track_id) => {
+                        this.create_playlist_and_add_track(name, *track_id, cx);
+                    }
+                    InspectorPlaylistTarget::TrackPending {
+                        feed_url,
+                        feed_guid,
+                        track_guid,
+                    } => {
+                        this.create_playlist_and_add_discover_track(
+                            name,
+                            feed_guid,
+                            feed_url.as_deref(),
+                            track_guid,
+                            cx,
+                        );
+                    }
+                    InspectorPlaylistTarget::Feed {
+                        feed_url,
+                        feed_guid,
+                    } => {
+                        this.create_playlist_and_add_feed(name, feed_guid, feed_url.as_deref(), cx);
+                    }
+                }
+            }
+        }))
+        .into_any_element(),
+    ];
 
-    div()
-        .flex()
-        .flex_col()
-        .items_start()
-        .gap(spacing::XS)
-        .child(action_controls)
-        .when_some(
-            vm.subscription_message().map(str::to_string),
-            |el, message| {
-                let is_error = vm.message_is_error();
-                el.child(
-                    div()
-                        .max_w(layout::STATUS_MESSAGE_WIDTH)
-                        .text_size(typography::SIZE_MICRO)
-                        .line_height(typography::LINE_TIGHT)
-                        .text_color(if is_error {
-                            ProvenanceRole::Missing.color(cx)
-                        } else {
-                            color::text_muted()
-                        })
-                        .child(SharedString::from(message)),
-                )
-            },
-        )
-        .into_any_element()
+    let mut row = ActionRow::new().control_group(controls);
+
+    if let Some(message) = vm.subscription_message().map(str::to_string) {
+        let message = if vm.message_is_error() {
+            ActionRowMessage::danger(message).max_width(layout::STATUS_MESSAGE_WIDTH)
+        } else {
+            ActionRowMessage::neutral(message)
+        };
+        row = row.message(message);
+    }
+
+    row.into_any_element()
 }
 
 #[derive(Clone, Debug)]

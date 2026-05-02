@@ -63,10 +63,10 @@ use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
-    action_button, identity_action_button, AddToPlaylistPopover, DetailGrid, DetailHeader,
-    DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, FileHeader, IdentityActionKind,
-    ListRow, PlaylistOption, ProvenanceRole, SplitPane, StatusRole, Thumbnail, ThumbnailSize,
-    TrackHeader,
+    action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
+    DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
+    FileHeader, IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, SplitPane, StatusRole,
+    Thumbnail, ThumbnailSize, TrackHeader,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -3017,7 +3017,12 @@ fn render_track_left_column(
             TrackHeader::new(TrackHeaderVm::new(track, Some(frame.title.as_str())))
                 .image(frame.image.clone()),
         )
-        .child(render_action_row(frame, pending_id3_edits, playlists, cx))
+        .child(library_track_action_row(
+            frame,
+            pending_id3_edits,
+            playlists,
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -3032,7 +3037,7 @@ fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
     }
 }
 
-fn render_action_row(
+fn library_track_action_row(
     frame: &InspectorFrame,
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     playlists: &[db::Playlist],
@@ -3053,19 +3058,15 @@ fn render_action_row(
     let subscription_message_is_error = action_vm.message_is_error();
     let track_id = frame.entity_id;
 
-    div()
-        .flex()
-        .flex_col()
-        .items_start()
-        .gap(spacing::XS)
-        .child(
+    let mut row = ActionRow::new()
+        .control(
             action_button(action_vm.subscription_button_label(), cx)
                 .disabled(frame.subscription_busy)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_local_subscription(cx);
                 })),
         )
-        .child(
+        .control(
             AddToPlaylistPopover::new(
                 SharedString::from(format!("track-inspector-add:{track_id}")),
                 playlist_options(playlists),
@@ -3077,107 +3078,81 @@ fn render_action_row(
             .on_create(cx.listener(move |this, name: &String, _window, cx| {
                 this.create_playlist_and_add_track(name, track_id, cx);
             })),
-        )
-        .when_some(subscription_message, |el, message| {
-            el.child(
-                div()
-                    .max_w(layout::STATUS_MESSAGE_WIDTH)
-                    .text_size(typography::SIZE_MICRO)
-                    .line_height(typography::LINE_TIGHT)
-                    .text_color(if subscription_message_is_error {
-                        StatusRole::Danger.color(cx)
-                    } else {
-                        color::text_muted()
-                    })
-                    .child(SharedString::from(message)),
-            )
-        })
-        .when_some(compare_action, |el, action| {
-            el.child(
-                action_button(&action.label, cx)
-                    .disabled(!action.enabled)
+        );
+
+    if let Some(message) = subscription_message {
+        let message = if subscription_message_is_error {
+            ActionRowMessage::danger(message).max_width(layout::STATUS_MESSAGE_WIDTH)
+        } else {
+            ActionRowMessage::neutral(message)
+        };
+        row = row.message(message);
+    }
+
+    if let Some(action) = compare_action {
+        row = row.control(
+            action_button(&action.label, cx)
+                .disabled(!action.enabled)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_tag_compare(cx);
+                })),
+        );
+    }
+
+    if let Some(action) = musicbrainz_action {
+        row = row.control(
+            action_button(&action.label, cx)
+                .disabled(!action.enabled)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.toggle_musicbrainz_lookup(cx);
+                })),
+        );
+    }
+
+    if !pending_id3_edits.is_empty() || frame.applying_id3_edits {
+        let count = pending_id3_edits.len();
+        let conflict_text = pending_conflicts.join("; ");
+        let label = if frame.applying_id3_edits {
+            "Applying tags...".to_string()
+        } else {
+            format!("Apply tags ({count})")
+        };
+        let mut staged_controls = ActionRow::new()
+            .message(ActionRowMessage::neutral(format!(
+                "{count} staged tag edit{}",
+                if count == 1 { "" } else { "s" }
+            )))
+            .control(
+                action_button(&label, cx)
+                    .disabled(frame.applying_id3_edits || has_pending_conflicts)
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_tag_compare(cx);
+                        this.apply_pending_id3_edits(cx);
                     })),
-            )
-        })
-        .when_some(musicbrainz_action, |el, action| {
-            el.child(
-                action_button(&action.label, cx)
-                    .disabled(!action.enabled)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_musicbrainz_lookup(cx);
-                    })),
-            )
-        })
-        .when(
-            !pending_id3_edits.is_empty() || frame.applying_id3_edits,
-            |el| {
-                let count = pending_id3_edits.len();
-                let conflict_text = pending_conflicts.join("; ");
-                let label = if frame.applying_id3_edits {
-                    "Applying tags...".to_string()
-                } else {
-                    format!("Apply tags ({count})")
-                };
-                el.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_start()
-                        .gap(spacing::XS)
-                        .child(
-                            div()
-                                .text_size(typography::SIZE_MICRO)
-                                .text_color(color::text_muted())
-                                .child(SharedString::from(format!(
-                                    "{count} staged tag edit{}",
-                                    if count == 1 { "" } else { "s" }
-                                ))),
-                        )
-                        .child(
-                            action_button(&label, cx)
-                                .disabled(frame.applying_id3_edits || has_pending_conflicts)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.apply_pending_id3_edits(cx);
-                                })),
-                        )
-                        .when(has_pending_conflicts, |el| {
-                            el.child(
-                                div()
-                                    .max_w(layout::CONFLICT_MESSAGE_WIDTH)
-                                    .text_size(typography::SIZE_MICRO)
-                                    .line_height(typography::LINE_TIGHT)
-                                    .text_color(StatusRole::Danger.color(cx))
-                                    .child(SharedString::from(format!(
-                                        "Duplicate target: {conflict_text}"
-                                    ))),
-                            )
-                        })
-                        .when(
-                            !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty(),
-                            |el| {
-                                el.child(action_button("Discard staged", cx).on_click(cx.listener(
-                                    |this, _, _, cx| {
-                                        this.clear_pending_id3_edits(cx);
-                                    },
-                                )))
-                            },
-                        ),
-                )
-            },
-        )
-        .when_some(frame.id3_apply_error.clone(), |el, error| {
-            el.child(
-                div()
-                    .max_w(layout::ACTION_MESSAGE_WIDTH)
-                    .text_size(typography::SIZE_MICRO)
-                    .line_height(typography::LINE_TIGHT)
-                    .text_color(StatusRole::Danger.color(cx))
-                    .child(SharedString::from(error)),
-            )
-        })
-        .into_any_element()
+            );
+
+        if has_pending_conflicts {
+            staged_controls = staged_controls.message(
+                ActionRowMessage::danger(format!("Duplicate target: {conflict_text}"))
+                    .max_width(layout::CONFLICT_MESSAGE_WIDTH),
+            );
+        }
+
+        if !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty() {
+            staged_controls = staged_controls.control(
+                action_button("Discard staged", cx).on_click(cx.listener(|this, _, _, cx| {
+                    this.clear_pending_id3_edits(cx);
+                })),
+            );
+        }
+
+        row = row.control(staged_controls);
+    }
+
+    if let Some(error) = frame.id3_apply_error.clone() {
+        row = row.message(ActionRowMessage::danger(error).max_width(layout::ACTION_MESSAGE_WIDTH));
+    }
+
+    row.into_any_element()
 }
 
 fn render_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {

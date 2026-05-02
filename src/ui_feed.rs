@@ -1,12 +1,13 @@
 use crate::api::Track;
-use crate::search::{render_action_row, render_track_list_rows, InspectorFrame, SearchApp};
+use crate::search::{
+    discover_inspector_action_row, render_track_list_rows, InspectorFrame, SearchApp,
+};
 use crate::ui_context::ViewContext;
 use crate::ui_entity::{render_release_detail_shell, ReleaseDetailBehaviorSlots};
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::feed::FeedVm;
 use crate::views::FeedView;
 use gpui::{prelude::*, AnyElement, ClipboardItem, Context, SharedString};
-use std::collections::BTreeMap;
 
 pub(crate) fn render_feed_view(
     view: &FeedView,
@@ -22,7 +23,7 @@ pub(crate) fn render_feed_view(
     let page = projection.page();
     let mut slots = ReleaseDetailBehaviorSlots {
         hero_image: frame.image.clone(),
-        primary_actions: vec![render_action_row(frame, &BTreeMap::new(), app, cx)],
+        primary_actions: vec![discover_inspector_action_row(frame, app, cx)],
         identity_actions: render_identity_actions(view),
         ..ReleaseDetailBehaviorSlots::default()
     };

@@ -18,6 +18,7 @@
 #![warn(clippy::pedantic)]
 
 pub mod action_button;
+pub mod action_row;
 pub mod detail_grid;
 pub mod detail_header;
 pub mod disclosure_group;
@@ -35,6 +36,7 @@ pub mod track_header;
 pub mod track_row;
 
 pub use action_button::action_button;
+pub use action_row::{ActionRow, ActionRowMessage, ActionRowMessageTone};
 pub use detail_grid::{DetailGrid, DetailRow};
 pub use detail_header::DetailHeader;
 pub use disclosure_group::DisclosureGroup;
