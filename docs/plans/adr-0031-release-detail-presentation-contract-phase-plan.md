@@ -70,7 +70,7 @@ Discovery. Scope is row geometry only; Task 002 owns the section structure.
 
 ### Phase 4 - Visual Smoke and Cleanup
 
-Status: Planned.
+Status: Completed with residual fixture gaps.
 
 Task: `docs/tasks/adr-0031-task-004-visual-smoke-and-cleanup.md`
 
@@ -78,6 +78,8 @@ Run representative Library and Discovery visual smoke against the ADR fixture
 list, attach or reference screenshots from a review document, verify
 screen-owned behavior still triggers, and remove obsolete screen-local
 composition paths introduced by earlier fixes.
+
+Result: `docs/reviews/adr-0031-visual-smoke.md`.
 
 ## Schema / API Implications
 

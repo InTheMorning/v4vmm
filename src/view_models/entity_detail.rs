@@ -435,16 +435,6 @@ pub struct EntityDetailRow {
     pub value: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EntityHeaderVm<'a> {
-    pub kind: EntitySurfaceKind,
-    pub title: String,
-    pub subtitle: Option<String>,
-    pub data_rows: Vec<EntityDetailRow>,
-    pub artwork: Option<&'a ArtworkRef>,
-    pub identity: IdentityLinksVm<'a>,
-}
-
 #[derive(Clone, Debug)]
 pub struct ReleaseDetailPageVm<'a> {
     pub hero: ReleaseHeroVm<'a>,
@@ -575,18 +565,6 @@ impl<'a> ReleaseDetailVm<'a> {
     }
 
     #[must_use]
-    pub fn header(&self) -> EntityHeaderVm<'a> {
-        EntityHeaderVm {
-            kind: EntitySurfaceKind::Feed,
-            title: self.title(),
-            subtitle: self.view.artist.clone(),
-            data_rows: self.header_data_rows(),
-            artwork: self.view.artwork.as_ref(),
-            identity: IdentityLinksVm::new(&self.view.identity),
-        }
-    }
-
-    #[must_use]
     pub fn summary_facts(&self) -> Vec<ReleaseFactVm> {
         let mut facts = Vec::with_capacity(MAX_RELEASE_SUMMARY_FACTS);
         facts.push(ReleaseFactVm {
@@ -661,68 +639,6 @@ impl<'a> ReleaseDetailVm<'a> {
             .title
             .clone()
             .unwrap_or_else(|| "Unknown Feed".to_string())
-    }
-
-    #[must_use]
-    pub fn detail_rows(&self) -> Vec<EntityDetailRow> {
-        let mut rows = Vec::with_capacity(5);
-        rows.push(EntityDetailRow {
-            key: "Release Kind",
-            value: self
-                .view
-                .release_kind
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string()),
-        });
-        if let Some(language) = nonempty(self.view.language.as_deref()) {
-            rows.push(EntityDetailRow {
-                key: "Language",
-                value: language.to_string(),
-            });
-        }
-        if self.view.explicit == Some(true) {
-            rows.push(EntityDetailRow {
-                key: "Explicit",
-                value: "Yes".to_string(),
-            });
-        }
-        if let Some(count) = self.view.episode_count {
-            rows.push(EntityDetailRow {
-                key: "Tracks",
-                value: count.to_string(),
-            });
-        }
-        rows
-    }
-
-    #[must_use]
-    fn header_data_rows(&self) -> Vec<EntityDetailRow> {
-        let mut rows = Vec::with_capacity(4);
-        if let Some(publisher) = nonempty(self.view.publisher_text.as_deref()) {
-            rows.push(EntityDetailRow {
-                key: "Publisher",
-                value: publisher.to_string(),
-            });
-        }
-        if let Some(description) = nonempty(self.view.description.as_deref()) {
-            rows.push(EntityDetailRow {
-                key: "Description",
-                value: description.to_string(),
-            });
-        }
-        if let Some(npub) = nonempty(self.view.identity.nostr_npub.as_deref()) {
-            rows.push(EntityDetailRow {
-                key: "Nostr",
-                value: npub.to_string(),
-            });
-        }
-        if let Some(website) = nonempty(self.view.identity.website_url.as_deref()) {
-            rows.push(EntityDetailRow {
-                key: "Website",
-                value: website.to_string(),
-            });
-        }
-        rows
     }
 
     #[must_use]
@@ -1098,42 +1014,6 @@ mod tests {
             ],
             ..FeedView::default()
         }
-    }
-
-    #[test]
-    fn release_header_projects_title_subtitle_and_identity() {
-        let feed = feed_view();
-        let vm = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover);
-        let header = vm.header();
-
-        assert_eq!(header.kind, EntitySurfaceKind::Feed);
-        assert_eq!(header.title, "Release");
-        assert_eq!(header.subtitle.as_deref(), Some("Artist"));
-        assert_eq!(
-            header
-                .data_rows
-                .iter()
-                .map(|row| (row.key, row.value.as_str()))
-                .collect::<Vec<_>>(),
-            vec![
-                ("Publisher", "Publisher"),
-                ("Description", "Release description"),
-                ("Nostr", "npub1artist"),
-                ("Website", "https://example.test"),
-            ]
-        );
-        assert!(header.identity.has_any());
-    }
-
-    #[test]
-    fn release_detail_rows_filter_missing_values() {
-        let feed = feed_view();
-        let rows = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).detail_rows();
-
-        assert_eq!(
-            rows.iter().map(|row| row.key).collect::<Vec<_>>(),
-            vec!["Release Kind", "Language", "Explicit", "Tracks"]
-        );
     }
 
     #[test]

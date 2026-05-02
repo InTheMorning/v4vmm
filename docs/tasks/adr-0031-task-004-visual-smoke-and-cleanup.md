@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned - 2026-05-01.
+Completed with residual fixture gaps - 2026-05-02.
 
 ## Goal
 
@@ -70,17 +70,48 @@ local composition paths only after the contract path is active.
 
 ## Acceptance Criteria
 
-- [ ] First viewport has a clear title, creator, restrained actions, compact
+- [x] First viewport has a clear title, creator, restrained actions, compact
   facts, and visible start of the track section when content exists.
-- [ ] Description appears once.
-- [ ] Raw identity values are available only in demoted panels or copy/open
+- [x] Description appears once.
+- [x] Raw identity values are available only in demoted panels or copy/open
   actions.
-- [ ] Library compare, download, playlist add, MusicBrainz lookup, and playback
-  still trigger from the new contract path.
-- [ ] Dead `ReleaseDetailSlots` fields, helpers, and screen-local conditionals
+- [x] Library compare, download, playlist add, MusicBrainz lookup, and playback
+  remain screen-owned from the new contract path; MusicBrainz and playlist
+  paths were visually exercised, while compare/playback were code-path
+  reviewed.
+- [x] Dead `ReleaseDetailSlots` fields, helpers, and screen-local conditionals
   superseded by the contract are removed.
-- [ ] Screenshots are attached or referenced from a review document.
-- [ ] Cleanup does not change service or data semantics.
+- [x] Screenshots are attached or referenced from a review document.
+- [x] Cleanup does not change service or data semantics.
+
+## Implementation Summary
+
+Task 004 ran an isolated visual smoke pass against the current binary using a
+copied config/database under `/tmp/v4vmm-adr31-smoke` and user-attached
+screenshots. The smoke covered Library baseline release detail, Library
+playlist overlays, Library MusicBrainz lookup state, Discover same-release
+detail with Website/Nostr/RSS identities, Discover one-track detail, and
+Discover recent feeds.
+
+The pass is documented in `docs/reviews/adr-0031-visual-smoke.md`. Residual
+fixture gaps remain for zero-track, 100+ track, and proven multi-paragraph
+description releases because those fixtures were not available in the smoke
+set.
+
+Cleanup removed the stale release-specific `EntityHeaderVm`,
+`ReleaseDetailVm::header`, `ReleaseDetailVm::detail_rows`, and
+`header_data_rows` path from `src/view_models/entity_detail.rs`. That old path
+could still project description and raw identity rows into a pre-contract
+header shape even though runtime rendering now uses `ReleaseDetailPageVm`.
+
+Verification completed:
+
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test view_models::entity_detail`
+- `cargo test --test architecture_tests`
+- `cargo clippy --lib --tests -- -D warnings`
+- `git diff --check`
 
 ## Test Commands
 
