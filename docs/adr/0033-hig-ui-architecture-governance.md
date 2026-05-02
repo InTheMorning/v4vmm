@@ -58,6 +58,35 @@ directories and enforced by named tests in `tests/architecture_tests.rs`:
   popover, overlay, anchored menu, or floating panel, it must use or extend a
   shared primitive/composite.
 
+### Human-interface structure bar
+
+User-visible UI work is acceptable only when it improves or preserves the
+structure that produced the interface. A local patch that merely hides a
+visible symptom is rejected unless it is the smallest step toward a stronger
+shared component, view-model contract, token role, or regression guard.
+
+Every UI change must name at least one structural contract it strengthens:
+
+- HIG-style hierarchy and disclosure: title, subtitle, metadata, state, and
+  actions have predictable placement, weight, and visibility.
+- Shared ownership: repeated chrome, popovers, rows, buttons, menus, and
+  presentation mechanics move to `src/ui/primitives` or `src/ui/composites`
+  before being copied across screens.
+- View-model contract: fallback labels, display strings, availability,
+  command intents, and derived presentation facts live in GPUI-free
+  `src/view_models` or `src/views.rs`.
+- Token and component discipline: spacing, sizing, color, typography, icons,
+  and action roles use named tokens/components rather than raw literals,
+  glyph strings, or ad hoc wrappers.
+- Regression guard: the same change adds or strengthens an architecture test,
+  unit test, visual smoke, or baseline reduction that blocks the regression
+  class.
+- Visual proof: layout, hierarchy, and presentation fixes are inspected in
+  the running UI or a captured screenshot before being described as fixed.
+
+If a UI change cannot satisfy one of these contracts, it must be reframed as a
+structural UI task before implementation.
+
 For the playlist popover family, `AddToPlaylistPopover` (in
 `src/ui/composites/playlist_popover.rs`) accepts `PlaylistOption`, a
 display-ready type co-located with the composite, instead of `db::Playlist`.
@@ -84,7 +113,10 @@ update so the contract and its enforcement do not drift apart:
 - `screens_do_not_grow_unmarked_direct_component_button_usage`
 - `screens_do_not_grow_screen_local_playlist_popover_panels`
 - `library_release_detail_playlist_popovers_use_shared_composite`
+- `playlist_popover_calls_wire_create_mode`
 - `screens_do_not_duplicate_render_helpers_without_baseline`
+- `screens_do_not_inline_value_route_recipient_label_fallbacks`
+- `shared_top_level_ui_shells_do_not_import_screen_modules`
 
 The tests scope themselves by directory (`src/ui/primitives`,
 `src/ui/composites`) where possible, so adding a new shared component is
@@ -121,11 +153,18 @@ follow-up ADR/task note explaining why it cannot yet be consolidated.
   or types co-located with the consuming primitive/composite.
 - New repeated UI affordances must become primitives/composites before they
   appear in more than one screen.
+- User-visible UI fixes must name the structural contract they improve. One-off
+  symptom patches are rejected unless they move the app toward a shared
+  primitive/composite, view-model projection, named token/component, or
+  regression guard.
 - New top-level screen or presentation-glue modules are added to `SCREEN_FILES`
   and `PRESENTATION_GLUE_FILES` in `tests/architecture_tests.rs` in the same
   change that introduces them.
 - Visual changes that touch popovers, overlays, action rows, or release detail
   layout require architecture tests and visual smoke.
+- A user-visible layout or presentation fix is not complete without visual
+  evidence from the affected surface, or an explicit residual-risk note that
+  visual verification remains undone.
 - Existing ADR 0023, 0025, 0031, and 0032 boundaries remain in force.
 
 ## Non-Goals
@@ -167,3 +206,6 @@ follow-up ADR/task note explaining why it cannot yet be consolidated.
   remaining compatibility baselines (e.g. `DEPRECATED_VISUAL_HELPER_BASELINES`,
   `DIRECT_COMPONENT_BUTTON_BASELINES`,
   `SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES`) toward zero.
+- Reviews must reject "looks fixed" UI diffs that do not improve hierarchy,
+  shared ownership, view-model projection, token/component discipline, or
+  regression protection.
