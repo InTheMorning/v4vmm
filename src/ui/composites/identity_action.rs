@@ -15,6 +15,7 @@ use crate::ui::primitives::Button;
 pub enum IdentityActionKind {
     Website,
     Nostr,
+    Rss,
 }
 
 impl IdentityActionKind {
@@ -22,6 +23,7 @@ impl IdentityActionKind {
         match self {
             Self::Website => "Website",
             Self::Nostr => "Nostr",
+            Self::Rss => "RSS",
         }
     }
 
@@ -29,6 +31,7 @@ impl IdentityActionKind {
         match self {
             Self::Website => None,
             Self::Nostr => Some(IconName::Nostr),
+            Self::Rss => Some(IconName::Rss),
         }
     }
 }
@@ -51,6 +54,11 @@ mod tests {
             IdentityActionKind::Nostr.leading_icon(),
             Some(IconName::Nostr)
         );
+    }
+
+    #[test]
+    fn rss_action_uses_brand_icon() {
+        assert_eq!(IdentityActionKind::Rss.leading_icon(), Some(IconName::Rss));
     }
 
     #[test]

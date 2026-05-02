@@ -1,11 +1,7 @@
 use crate::api::Track;
-use crate::search::{
-    detail_rows_from_strings, render_action_row, render_collapsed_text_section,
-    render_track_list_rows, InspectorFrame, SearchApp,
-};
-use crate::ui::composites::DetailGrid;
+use crate::search::{render_action_row, render_track_list_rows, InspectorFrame, SearchApp};
 use crate::ui_context::ViewContext;
-use crate::ui_entity::{render_release_detail_shell, ReleaseDetailSlots, TrackSectionSlot};
+use crate::ui_entity::{render_release_detail_shell, ReleaseDetailBehaviorSlots};
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::feed::FeedVm;
 use crate::views::FeedView;
@@ -22,31 +18,14 @@ pub(crate) fn render_feed_view(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let vm = FeedVm::new(view, tracks);
-
-    let scalar_pairs: Vec<(String, String)> = vm
-        .scalar_detail_entries()
-        .into_iter()
-        .map(|e| (e.key.to_string(), e.value))
-        .collect();
-    let rows = detail_rows_from_strings(scalar_pairs);
-
     let projection = ReleaseDetailVm::new(view, EntitySurfaceContext::Discover);
-    let mut slots = ReleaseDetailSlots {
-        header_image: frame.image.clone(),
-        action_row: Some(render_action_row(frame, &BTreeMap::new(), app, cx)),
+    let page = projection.page();
+    let mut slots = ReleaseDetailBehaviorSlots {
+        hero_image: frame.image.clone(),
+        primary_actions: vec![render_action_row(frame, &BTreeMap::new(), app, cx)],
         identity_actions: render_identity_actions(view),
-        details: Some(
-            DetailGrid::new(rows.into_iter().map(Into::into).collect::<Vec<_>>())
-                .into_any_element(),
-        ),
-        ..ReleaseDetailSlots::default()
+        ..ReleaseDetailBehaviorSlots::default()
     };
-
-    if let Some(description) = vm.description() {
-        slots
-            .panels
-            .push(render_collapsed_text_section("Description", description));
-    }
 
     if vm.has_tracks() {
         let playlists = app.vm.playlists.clone();
@@ -66,17 +45,14 @@ pub(crate) fn render_feed_view(
             app,
             cx,
         );
-        slots.track_section = Some(TrackSectionSlot {
-            summary: vm.track_list_summary().into(),
-            rows,
-        });
+        slots.track_rows = Some(rows);
     }
 
     for panel in panels {
         slots.after_section.push(panel);
     }
 
-    render_release_detail_shell("discover-feed-detail", &projection, slots)
+    render_release_detail_shell("discover-feed-detail", &page, slots)
 }
 
 fn render_identity_actions(view: &FeedView) -> Vec<AnyElement> {
@@ -105,6 +81,20 @@ fn render_identity_actions(view: &FeedView) -> Vec<AnyElement> {
             )
             .on_click(move |_, _, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
+            })
+            .into_any_element(),
+        );
+    }
+
+    if let Some(url) = view.feed_url.clone() {
+        let url_for_click = url.clone();
+        actions.push(
+            crate::ui::composites::identity_action_button(
+                SharedString::from(format!("discover-feed-rss:{url}")),
+                crate::ui::composites::IdentityActionKind::Rss,
+            )
+            .on_click(move |_, _, _| {
+                let _ = open::that(&url_for_click);
             })
             .into_any_element(),
         );

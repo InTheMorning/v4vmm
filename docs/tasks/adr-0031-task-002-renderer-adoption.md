@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned - 2026-05-01.
+Completed - 2026-05-01.
 
 ## Goal
 
@@ -70,16 +70,43 @@ placement decisions that belong to the contract.
 
 ## Acceptance Criteria
 
-- [ ] Library album/feed and Discovery feed details render through the same page
+- [x] Library album/feed and Discovery feed details render through the same page
   contract.
-- [ ] The shell reads only from the contract and not from `FeedView` or raw
+- [x] The shell reads only from the contract and not from `FeedView` or raw
   source-fact fields.
-- [ ] Existing action handlers remain screen-owned.
-- [ ] `ReleaseDetailSlots` is deleted or narrowed so it cannot carry hero,
+- [x] Existing action handlers remain screen-owned.
+- [x] `ReleaseDetailSlots` is deleted or narrowed so it cannot carry hero,
   description, summary, or panel content.
-- [ ] Description is not duplicated by default rendering.
-- [ ] Website, Nostr, and RSS render as identity actions, not primary actions.
-- [ ] No nested vertical scroll views are introduced.
+- [x] Description is not duplicated by default rendering.
+- [x] Website, Nostr, and RSS render as identity actions, not primary actions.
+- [x] No nested vertical scroll views are introduced.
+
+## Implementation Summary
+
+Task 002 changed `render_release_detail_shell` to consume
+`ReleaseDetailPageVm` directly. The shell now renders contract-owned hero,
+summary facts, panels, and track-section structure from the page contract.
+
+The broad `ReleaseDetailSlots` override type was replaced with
+`ReleaseDetailBehaviorSlots`, which can carry only screen-owned behavior and
+assets: resolved hero image handles, primary action elements, identity action
+elements, action overlays, optional pre-rendered track rows, and after-section
+children.
+
+Discovery and Library feed detail call sites now build `ReleaseDetailVm::page()`
+and pass behavior slots. Description and identity details come from the
+contract panels, while Website, Nostr, and RSS render as identity actions.
+Library RSS was moved out of the primary action row.
+
+Verification completed:
+
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test view_models::entity_detail`
+- `cargo test --test architecture_tests`
+- `cargo test ui_entity`
+- `cargo test view_models::library`
+- `cargo clippy --lib --tests -- -D warnings`
 
 ## Test Commands
 

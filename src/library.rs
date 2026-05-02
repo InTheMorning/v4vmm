@@ -74,8 +74,8 @@ use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, 
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{
-    render_contributor_panel, render_release_detail_shell, ContributorRowSlot, ReleaseDetailSlots,
-    TrackSectionSlot,
+    render_contributor_panel, render_release_detail_shell, ContributorRowSlot,
+    ReleaseDetailBehaviorSlots,
 };
 use crate::view_models::entity_detail::{
     ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone, EntitySurfaceContext,
@@ -219,7 +219,6 @@ pub struct LibraryApp {
     new_playlist_input: Entity<InputState>,
 }
 
-use crate::ui::icons::render_rss_icon_link;
 use crate::ui::layouts as layout;
 use crate::ui::style::color;
 use crate::ui::style::radius;
@@ -2414,13 +2413,8 @@ fn render_album_detail(
 
     // Library-specific action buttons
     let album_for_mb = album.clone();
-    let feed_url = album.feed_url.clone();
     let feed_id = album.feed_id;
     let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
-    buttons = buttons.child(render_rss_icon_link(
-        &format!("album-{}", album.feed_id.unwrap_or(0)),
-        feed_url,
-    ));
     if let Some(fid) = feed_id {
         let remove_action = vm.primary_action_vm(fid, false);
         let remove_label = remove_action.label;
@@ -2458,39 +2452,22 @@ fn render_album_detail(
         None
     };
 
-    let track_count = vm.track_count();
-    let track_summary = vm.total_duration_label().map_or_else(
-        || format!("{track_count} total"),
-        |duration| format!("{track_count} total · {duration}"),
-    );
-
     let projection = ReleaseDetailVm::new(&feed_view, EntitySurfaceContext::Library);
-    let mut slots = ReleaseDetailSlots {
-        header_image: thumb_image.clone(),
-        action_row: Some(buttons.into_any_element()),
+    let page = projection.page();
+    let mut slots = ReleaseDetailBehaviorSlots {
+        hero_image: thumb_image.clone(),
+        primary_actions: vec![buttons.into_any_element()],
         identity_actions: render_library_identity_actions(&feed_view),
-        details: Some(
-            DetailGrid::new(
-                vm.detail_rows()
-                    .into_iter()
-                    .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
-                    .collect::<Vec<_>>(),
-            )
-            .into_any_element(),
-        ),
-        track_section: Some(TrackSectionSlot {
-            summary: track_summary.into(),
-            rows: track_rows,
-        }),
-        ..ReleaseDetailSlots::default()
+        track_rows: Some(track_rows),
+        ..ReleaseDetailBehaviorSlots::default()
     };
     if let Some(panel) = feed_popup {
-        slots.panels.push(panel);
+        slots.action_overlays.push(panel);
     }
     if let Some(panel) = render_library_contributors_panel(&projection, album_thumbs) {
         slots.after_section.push(panel);
     }
-    render_release_detail_shell("album-detail-scroll", &projection, slots)
+    render_release_detail_shell("album-detail-scroll", &page, slots)
 }
 
 fn render_library_identity_actions(view: &FeedView) -> Vec<AnyElement> {
@@ -2519,6 +2496,20 @@ fn render_library_identity_actions(view: &FeedView) -> Vec<AnyElement> {
             )
             .on_click(move |_, _, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
+            })
+            .into_any_element(),
+        );
+    }
+
+    if let Some(url) = view.feed_url.clone() {
+        let url_for_click = url.clone();
+        actions.push(
+            identity_action_button(
+                SharedString::from(format!("library-feed-rss:{url}")),
+                IdentityActionKind::Rss,
+            )
+            .on_click(move |_, _, _| {
+                let _ = open::that(&url_for_click);
             })
             .into_any_element(),
         );

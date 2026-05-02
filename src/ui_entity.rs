@@ -19,19 +19,9 @@ use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorListVm, ContributorPersonVm, ContributorRowVm, EntitySurfaceKind, ReleaseDetailVm,
-    SharedTrackRowVm,
+    ContributorListVm, ContributorPersonVm, ContributorRowVm, EntitySurfaceKind,
+    ReleaseDetailPageVm, ReleaseHeroVm, ReleasePanelKind, ReleasePanelVm, SharedTrackRowVm,
 };
-
-#[derive(Default)]
-pub struct TrackRowActionSlot {
-    pub actions: Vec<AnyElement>,
-}
-
-pub struct TrackSectionSlot {
-    pub summary: SharedString,
-    pub rows: Vec<AnyElement>,
-}
 
 #[derive(Default)]
 pub struct ContributorRowSlot {
@@ -40,56 +30,43 @@ pub struct ContributorRowSlot {
 }
 
 #[derive(Default)]
-pub struct ReleaseDetailSlots {
-    pub header: Option<AnyElement>,
-    pub header_image: Option<Arc<Image>>,
-    pub action_row: Option<AnyElement>,
+pub struct ReleaseDetailBehaviorSlots {
+    pub hero_image: Option<Arc<Image>>,
+    pub primary_actions: Vec<AnyElement>,
     pub identity_actions: Vec<AnyElement>,
-    pub details: Option<AnyElement>,
-    pub panels: Vec<AnyElement>,
-    pub track_actions: Vec<TrackRowActionSlot>,
-    pub track_section: Option<TrackSectionSlot>,
+    pub action_overlays: Vec<AnyElement>,
+    pub track_rows: Option<Vec<AnyElement>>,
     pub after_section: Vec<AnyElement>,
 }
 
 #[must_use]
 pub fn render_release_detail_shell(
     id: impl Into<SharedString>,
-    projection: &ReleaseDetailVm<'_>,
-    slots: ReleaseDetailSlots,
+    page: &ReleaseDetailPageVm<'_>,
+    slots: ReleaseDetailBehaviorSlots,
 ) -> AnyElement {
-    let header = slots
-        .header
-        .unwrap_or_else(|| render_default_header(projection, slots.header_image));
-    let details = slots
-        .details
-        .unwrap_or_else(|| render_default_details(projection));
-
     let mut surface = ReleaseDetailSurface::new(id)
         .scrollable(true)
-        .header(header)
-        .details(details);
+        .header(render_contract_header(&page.hero, slots.hero_image))
+        .details(render_summary_facts(&page.summary_facts));
 
-    if let Some(actions) = render_action_slots(slots.action_row, slots.identity_actions) {
+    if let Some(actions) = render_action_slots(slots.primary_actions, slots.identity_actions) {
         surface = surface.actions(actions);
     }
 
-    for panel in slots.panels {
-        surface = surface.panel(panel);
+    for overlay in slots.action_overlays {
+        surface = surface.panel(overlay);
     }
 
-    if let Some(section) = slots.track_section {
-        surface = surface.track_section("Tracks", section.summary, section.rows);
-    } else {
-        let track_list = projection.track_list();
-        let rows = track_list.rows();
-        if !rows.is_empty() {
-            surface = surface.track_section(
-                "Tracks",
-                track_list.summary(),
-                render_track_rows(rows, slots.track_actions),
-            );
-        }
+    for panel in &page.panels {
+        surface = surface.panel(render_release_panel(panel));
+    }
+
+    let rows = slots
+        .track_rows
+        .unwrap_or_else(|| render_track_rows(page.tracks.rows()));
+    if !rows.is_empty() {
+        surface = surface.track_section("Tracks", page.tracks.summary(), rows);
     }
 
     for child in slots.after_section {
@@ -205,76 +182,117 @@ fn render_contributor_role_row(person: &str, role: &str) -> AnyElement {
         .into_any_element()
 }
 
-fn render_default_header(
-    projection: &ReleaseDetailVm<'_>,
-    header_image: Option<Arc<Image>>,
-) -> AnyElement {
-    let header = projection.header();
+fn render_contract_header(hero: &ReleaseHeroVm<'_>, hero_image: Option<Arc<Image>>) -> AnyElement {
     let mut header_el =
-        DetailHeader::new(entity_kind(header.kind), header.title).image(header_image);
-    if let Some(subtitle) = header.subtitle {
-        header_el = header_el.subtitle(subtitle);
+        DetailHeader::new(entity_kind(hero.kind), hero.title.to_string()).image(hero_image);
+    if let Some(subtitle) = hero.subtitle {
+        header_el = header_el.subtitle(subtitle.to_string());
     }
-    for row in header.data_rows {
-        header_el = header_el.data_row(row.key, row.value, header_data_max_lines(row.key));
+    if let Some(supporting_line) = hero.supporting_line {
+        header_el = header_el.data_row("Publisher", supporting_line.to_string(), 1);
     }
     header_el.into_any_element()
 }
 
-fn header_data_max_lines(key: &str) -> usize {
-    if key == "Description" {
-        2
-    } else {
-        1
-    }
-}
-
-fn render_default_details(projection: &ReleaseDetailVm<'_>) -> AnyElement {
+fn render_summary_facts(facts: &[crate::view_models::entity_detail::ReleaseFactVm]) -> AnyElement {
     DetailGrid::new(
-        projection
-            .detail_rows()
-            .into_iter()
-            .map(|row| DetailRow::text(row.key, row.value, 6))
+        facts
+            .iter()
+            .map(|fact| DetailRow::text(fact.key, fact.value.clone(), 6))
             .collect(),
     )
     .into_any_element()
 }
 
+fn render_release_panel(panel: &ReleasePanelVm) -> AnyElement {
+    match panel.kind {
+        ReleasePanelKind::Description => render_text_panel(
+            panel.title,
+            panel.body.as_deref().unwrap_or_default().to_string(),
+        ),
+        ReleasePanelKind::Identity => DetailGrid::new(
+            panel
+                .rows
+                .iter()
+                .map(|row| DetailRow::text(row.key, row.value.clone(), 6))
+                .collect(),
+        )
+        .into_any_element(),
+    }
+}
+
+fn render_text_panel(title: &str, value: String) -> AnyElement {
+    div()
+        .border_1()
+        .border_color(color::border_subtle())
+        .rounded(crate::ui::style::radius::MD)
+        .p(spacing::SM)
+        .child(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .font_weight(gpui::FontWeight::BOLD)
+                .text_color(color::text_muted())
+                .child(SharedString::from(title.to_string())),
+        )
+        .child(
+            div().mt(spacing::XS).child(
+                crate::ui::primitives::MultilineText::new(value)
+                    .max_lines(3)
+                    .size(FontSize::Micro)
+                    .line_height(typography::LINE_DETAIL)
+                    .color(SemanticColor::Label),
+            ),
+        )
+        .into_any_element()
+}
+
 fn render_action_slots(
-    action_row: Option<AnyElement>,
+    primary_actions: Vec<AnyElement>,
     identity_actions: Vec<AnyElement>,
 ) -> Option<AnyElement> {
-    if action_row.is_none() && identity_actions.is_empty() {
+    if primary_actions.is_empty() && identity_actions.is_empty() {
         return None;
     }
 
-    let mut row = div().flex().flex_row().items_center().gap(spacing::SM);
-    if let Some(action_row) = action_row {
-        row = row.child(action_row);
+    let mut row = div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .justify_between()
+        .gap(spacing::SM)
+        .flex_wrap();
+    if !primary_actions.is_empty() {
+        row = row.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(spacing::XS)
+                .children(primary_actions),
+        );
     }
-    row = row.children(identity_actions);
+    if !identity_actions.is_empty() {
+        row = row.child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(spacing::XS)
+                .flex_wrap()
+                .children(identity_actions),
+        );
+    }
     Some(row.into_any_element())
 }
 
-fn render_track_rows(
-    rows: Vec<SharedTrackRowVm<'_>>,
-    mut slots: Vec<TrackRowActionSlot>,
-) -> Vec<AnyElement> {
+fn render_track_rows(rows: Vec<SharedTrackRowVm<'_>>) -> Vec<AnyElement> {
     rows.into_iter()
         .enumerate()
         .map(|(index, row)| {
-            let mut track_row = TrackRow::new(SharedString::from(format!("entity-track:{index}")))
+            TrackRow::new(SharedString::from(format!("entity-track:{index}")))
                 .number(row.number_label())
                 .title(row.title())
-                .duration(row.duration_display());
-
-            if let Some(slot) = slots.get_mut(index) {
-                for action in std::mem::take(&mut slot.actions) {
-                    track_row = track_row.trailing_child(action);
-                }
-            }
-
-            track_row.into_any_element()
+                .duration(row.duration_display())
+                .into_any_element()
         })
         .collect()
 }
@@ -293,17 +311,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_slots_start_empty() {
-        let slots = ReleaseDetailSlots::default();
+    fn behavior_slots_start_empty() {
+        let slots = ReleaseDetailBehaviorSlots::default();
 
-        assert!(slots.header.is_none());
-        assert!(slots.header_image.is_none());
-        assert!(slots.action_row.is_none());
+        assert!(slots.hero_image.is_none());
+        assert!(slots.primary_actions.is_empty());
         assert!(slots.identity_actions.is_empty());
-        assert!(slots.details.is_none());
-        assert!(slots.panels.is_empty());
-        assert!(slots.track_actions.is_empty());
-        assert!(slots.track_section.is_none());
+        assert!(slots.action_overlays.is_empty());
+        assert!(slots.track_rows.is_none());
         assert!(slots.after_section.is_empty());
     }
 

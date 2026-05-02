@@ -2727,24 +2727,12 @@ pub(crate) fn render_action_row(
         frame.subscription_busy
     };
 
-    let feed_rss_action = if is_feed {
-        match &frame.detail {
-            InspectorDetail::Feed(feed) => Some(render_rss_icon_button(feed_rss_url(feed), cx)),
-            _ => None,
-        }
-    } else {
-        None
-    };
-
     let mut action_controls = div()
         .flex()
         .flex_row()
         .items_center()
         .gap(spacing::SM)
         .flex_wrap();
-    if let Some(action) = feed_rss_action {
-        action_controls = action_controls.child(action);
-    }
     action_controls = action_controls
         .child(
             action_button(&subscription_label, cx)
@@ -4845,38 +4833,6 @@ pub(crate) fn render_feed_header(
     }
 
     header.into_any_element()
-}
-
-fn render_rss_icon_button(url: Option<String>, cx: &mut Context<SearchApp>) -> AnyElement {
-    let id = SharedString::from(match url.as_deref() {
-        Some(url) => format!("feed-rss:{url}"),
-        None => "feed-rss:missing".into(),
-    });
-    let tooltip = url.as_ref().map_or_else(
-        || "No RSS feed URL".into(),
-        |url| format!("Open RSS feed: {url}"),
-    );
-    let click_url = url.clone();
-
-    div()
-        .id(id)
-        .w(layout::ACTION_ICON_SIZE)
-        .h(layout::ACTION_ICON_SIZE)
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(radius::SM)
-        .overflow_hidden()
-        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-        .when(url.is_some(), |el| el.cursor_pointer())
-        .when(url.is_none(), |el| el.opacity(0.45))
-        .child(Icon::new(IconName::Rss).size(IconSize::Action))
-        .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
-            if let Some(url) = &click_url {
-                let _ = open::that(url);
-            }
-        }))
-        .into_any_element()
 }
 
 fn render_nostr_icon_button(

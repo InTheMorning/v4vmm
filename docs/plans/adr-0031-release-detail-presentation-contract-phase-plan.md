@@ -50,7 +50,7 @@ shared structural zones across Library and Discovery.
 
 ### Phase 2 - Renderer Adoption
 
-Status: Planned.
+Status: Completed.
 
 Task: `docs/tasks/adr-0031-task-002-renderer-adoption.md`
 
