@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -301,6 +302,49 @@ const SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES: &[ScreenLocalPlaylistPopoverBasel
     },
 ];
 
+const RENDER_HELPER_DUPLICATION_BASELINES: &[RenderHelperDuplicationBaseline] = &[
+    RenderHelperDuplicationBaseline {
+        helper: "render_action_row",
+        files: &["src/library.rs", "src/search.rs"],
+        note: "post-ADR0033 action-row composite task",
+    },
+    RenderHelperDuplicationBaseline {
+        helper: "render_file_header",
+        files: &["src/library.rs", "src/search.rs"],
+        note: "post-ADR0033 file-header composite task",
+    },
+    RenderHelperDuplicationBaseline {
+        helper: "render_track_header",
+        files: &["src/library.rs", "src/search.rs"],
+        note: "post-ADR0033 track-header composite task",
+    },
+    RenderHelperDuplicationBaseline {
+        helper: "render_track_metadata_grid",
+        files: &["src/library.rs", "src/search.rs"],
+        note: "post-ADR0033 metadata-grid composite task",
+    },
+    RenderHelperDuplicationBaseline {
+        helper: "render_musicbrainz_panel",
+        files: &["src/library.rs", "src/search.rs"],
+        note: "post-ADR0033 MusicBrainz composite task",
+    },
+    RenderHelperDuplicationBaseline {
+        helper: "render_musicbrainz_lookup",
+        files: &["src/library.rs", "src/search.rs"],
+        note: "post-ADR0033 MusicBrainz composite task",
+    },
+    RenderHelperDuplicationBaseline {
+        helper: "render_musicbrainz_header",
+        files: &["src/library.rs", "src/search.rs"],
+        note: "post-ADR0033 MusicBrainz composite task",
+    },
+    RenderHelperDuplicationBaseline {
+        helper: "render_musicbrainz_title_bar",
+        files: &["src/library.rs", "src/search.rs"],
+        note: "post-ADR0033 MusicBrainz composite task",
+    },
+];
+
 const PLAYLIST_POPOVER_CALLSITE_FILES: &[&str] =
     &["src/library.rs", "src/search.rs", "src/ui_track.rs"];
 
@@ -395,6 +439,13 @@ struct ScreenLocalPlaylistPopoverBaseline {
     file: &'static str,
     pattern: &'static str,
     max_count: usize,
+    note: &'static str,
+}
+
+#[derive(Debug)]
+struct RenderHelperDuplicationBaseline {
+    helper: &'static str,
+    files: &'static [&'static str],
     note: &'static str,
 }
 
@@ -1033,6 +1084,51 @@ fn screens_do_not_grow_screen_local_playlist_popover_panels() {
 }
 
 #[test]
+fn screens_do_not_duplicate_render_helpers_without_baseline() {
+    let mut helpers: BTreeMap<String, Vec<String>> = BTreeMap::new();
+
+    for file in SCREEN_FILES {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            if let Some(helper) = render_helper_name(&line) {
+                helpers
+                    .entry(helper)
+                    .or_default()
+                    .push(format!("{file}:{line_number}"));
+            }
+        }
+    }
+
+    let mut violations = Vec::new();
+    for (helper, locations) in helpers {
+        let distinct_files = distinct_location_files(&locations);
+        if distinct_files.len() < 2 {
+            continue;
+        }
+        match render_helper_duplication_baseline(&helper) {
+            Some(baseline) if same_file_set(&distinct_files, baseline.files) => {}
+            Some(baseline) => violations.push(format!(
+                "`{helper}` appears in [{}], but its baseline `{}` allows only [{}] ({})",
+                distinct_files.join(", "),
+                baseline.helper,
+                baseline.files.join(", "),
+                baseline.note
+            )),
+            None => violations.push(format!(
+                "`{helper}` appears in multiple screen files at [{}]; move the shared affordance into `src/ui/primitives` or `src/ui/composites` instead of copying render helpers",
+                locations.join(", ")
+            )),
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 render-helper duplication violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn library_release_detail_playlist_popovers_use_shared_composite() {
     let path = manifest_path("src/library.rs");
     let source = read_source(&path);
@@ -1331,6 +1427,44 @@ fn direct_component_button_baseline(file: &str) -> Option<usize> {
         .iter()
         .find(|baseline| baseline.file == file)
         .map(|baseline| baseline.max_unmarked_count)
+}
+
+fn render_helper_duplication_baseline(
+    helper: &str,
+) -> Option<&'static RenderHelperDuplicationBaseline> {
+    RENDER_HELPER_DUPLICATION_BASELINES
+        .iter()
+        .find(|baseline| baseline.helper == helper)
+}
+
+fn render_helper_name(line: &str) -> Option<String> {
+    let code = line.trim_start();
+    let code = code.strip_prefix("pub(crate) ").unwrap_or(code);
+    let code = code.strip_prefix("pub(super) ").unwrap_or(code);
+    let code = code.strip_prefix("pub ").unwrap_or(code);
+    let name_start = code.strip_prefix("fn render_")?;
+    let name_end = name_start.find('(')?;
+    Some(format!("render_{}", &name_start[..name_end]))
+}
+
+fn distinct_location_files(locations: &[String]) -> Vec<String> {
+    let mut files = Vec::new();
+    for location in locations {
+        let Some((file, _line)) = location.rsplit_once(':') else {
+            continue;
+        };
+        if files.iter().all(|existing| existing != file) {
+            files.push(file.to_string());
+        }
+    }
+    files
+}
+
+fn same_file_set(actual: &[String], expected: &[&str]) -> bool {
+    actual.len() == expected.len()
+        && expected
+            .iter()
+            .all(|file| actual.iter().any(|actual_file| actual_file == file))
 }
 
 fn unmarked_direct_component_button_lines(source: &str) -> Vec<(usize, String)> {

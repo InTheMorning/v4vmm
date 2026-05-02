@@ -84,6 +84,7 @@ update so the contract and its enforcement do not drift apart:
 - `screens_do_not_grow_unmarked_direct_component_button_usage`
 - `screens_do_not_grow_screen_local_playlist_popover_panels`
 - `library_release_detail_playlist_popovers_use_shared_composite`
+- `screens_do_not_duplicate_render_helpers_without_baseline`
 
 The tests scope themselves by directory (`src/ui/primitives`,
 `src/ui/composites`) where possible, so adding a new shared component is
@@ -98,6 +99,11 @@ The forbidden-pattern lists in those tests
 `SCREEN_LOCAL_FLOATING_CHROME_FORBIDDEN_PATTERNS`) are not exhaustive. They
 must be extended whenever a new screen-local chrome pattern or backend-leak
 pattern is discovered in review.
+
+The render-helper duplication baseline is temporary consolidation debt, not a
+permission slip for new copy-paste. Any new duplicate `render_*` helper across
+screen files must first become a shared primitive/composite or receive a
+follow-up ADR/task note explaining why it cannot yet be consolidated.
 
 ## Invariants
 
