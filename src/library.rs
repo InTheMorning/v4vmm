@@ -64,8 +64,8 @@ use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, identity_action_button, AddToPlaylistPopover, DetailGrid, DetailHeader,
-    DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, IdentityActionKind, ListRow,
-    PlaylistOption, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
+    DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, FileHeader, IdentityActionKind,
+    ListRow, PlaylistOption, ProvenanceRole, SplitPane, StatusRole, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -87,6 +87,7 @@ use crate::view_models::library::{
     MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm,
     TrackSubscribeOutcome,
 };
+use crate::view_models::metadata::FileHeaderVm;
 use crate::view_models::track::TrackVm;
 use crate::views::{FeedView, TrackRef, TrackView};
 
@@ -2936,7 +2937,24 @@ fn render_track_window(
                 ))
                 .when(show_id3_panel, |el| {
                     el.child(if let Some(result) = result {
-                        render_file_header(result, cx)
+                        FileHeader::new(FileHeaderVm::new(result))
+                            .image(
+                                result
+                                    .file_image
+                                    .as_ref()
+                                    .map(|img| image_from_bytes(img.clone())),
+                            )
+                            .action(action_button("Re-read", cx).on_click(cx.listener(
+                                |this, _, _, cx| {
+                                    this.reread_tag_compare(cx);
+                                },
+                            )))
+                            .action(action_button("Re-download", cx).on_click(cx.listener(
+                                |this, _, _, cx| {
+                                    this.redownload_tag_compare(cx);
+                                },
+                            )))
+                            .into_any_element()
                     } else {
                         render_track_compare_panel(frame)
                     })
@@ -3173,79 +3191,6 @@ fn render_action_row(
             )
         })
         .into_any_element()
-}
-
-fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -> AnyElement {
-    let embedded_label = embedded_tag_label(result);
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::LG)
-        .child(
-            Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(
-                result
-                    .file_image
-                    .as_ref()
-                    .map(|img| image_from_bytes(img.clone())),
-            ),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(spacing::XS)
-                        .mb(spacing::XS)
-                        .child(TagBadge::new(EntityKind::Track).label(embedded_label.clone()))
-                        .child(action_button("Re-read", cx).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.reread_tag_compare(cx);
-                            },
-                        )))
-                        .child(action_button("Re-download", cx).on_click(cx.listener(
-                            |this, _, _, cx| {
-                                this.redownload_tag_compare(cx);
-                            },
-                        ))),
-                )
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .line_height(typography::LINE_HEADER)
-                        .child(SharedString::from(id3_header_title(result))),
-                )
-                .child(
-                    div()
-                        .text_color(color::text_muted())
-                        .text_size(typography::SIZE_MICRO)
-                        .line_clamp(2)
-                        .child(SharedString::from(result.path.clone())),
-                ),
-        )
-        .into_any_element()
-}
-
-fn id3_header_title(result: &TagCompareResult) -> String {
-    result
-        .rows
-        .iter()
-        .find(|row| row.field == "Title")
-        .and_then(|row| row.tag_value.clone())
-        .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| embedded_tag_label(result))
-}
-
-fn embedded_tag_label(result: &TagCompareResult) -> String {
-    result
-        .format
-        .map(|format| format!("Embedded {}", format.display_label()))
-        .unwrap_or_else(|| "Embedded tags".into())
 }
 
 fn render_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {

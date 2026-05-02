@@ -309,11 +309,6 @@ const RENDER_HELPER_DUPLICATION_BASELINES: &[RenderHelperDuplicationBaseline] = 
         note: "post-ADR0033 action-row composite task",
     },
     RenderHelperDuplicationBaseline {
-        helper: "render_file_header",
-        files: &["src/library.rs", "src/search.rs"],
-        note: "post-ADR0033 file-header composite task",
-    },
-    RenderHelperDuplicationBaseline {
         helper: "render_track_header",
         files: &["src/library.rs", "src/search.rs"],
         note: "post-ADR0033 track-header composite task",
