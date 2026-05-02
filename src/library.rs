@@ -64,7 +64,7 @@ use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
-    action_button, identity_action_button, DetailGrid, DetailHeader,
+    action_button, identity_action_button, AddToPlaylistPopover, DetailGrid, DetailHeader,
     DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, IdentityActionKind, ListRow,
     ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
 };
@@ -1824,8 +1824,6 @@ impl Render for LibraryApp {
             self.vm.mb_status(),
             &album_thumbs,
             self.vm.playlists(),
-            self.vm.album_feed_picker_open(),
-            self.vm.album_track_picker_open(),
             cx,
         );
 
@@ -2202,18 +2200,12 @@ pub(crate) fn render_tree(
     items
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "library detail rendering still passes explicit staged UI state"
-)]
 fn render_detail(
     detail: &LibraryDetail,
     busy_track: Option<i64>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
-    album_add_open_feed: bool,
-    album_add_open_track: Option<i64>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -2234,16 +2226,9 @@ fn render_detail(
             render_library_artist_detail(artist, album_thumbs, playlists, cx)
         }
 
-        LibraryDetail::Album(album) => render_album_detail(
-            album,
-            busy_track,
-            mb_status,
-            album_thumbs,
-            playlists,
-            album_add_open_feed,
-            album_add_open_track,
-            cx,
-        ),
+        LibraryDetail::Album(album) => {
+            render_album_detail(album, busy_track, mb_status, album_thumbs, playlists, cx)
+        }
 
         LibraryDetail::Track(frame) => render_track_detail(frame, playlists, cx),
 
@@ -2350,18 +2335,12 @@ fn render_library_artist_detail(
         .into_any_element()
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "album detail rendering still threads explicit UI controls during rollout"
-)]
 fn render_album_detail(
     album: &AlbumNode,
     busy_track: Option<i64>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
-    add_open_feed: bool,
-    add_open_track: Option<i64>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     // Build FeedView from local album data via synthesized FeedRow
@@ -2396,15 +2375,7 @@ fn render_album_detail(
         .tracks
         .iter()
         .map(|track| {
-            render_library_track_row(
-                track,
-                mb_status,
-                busy_track,
-                add_open_track,
-                album_thumbs,
-                playlists,
-                cx,
-            )
+            render_library_track_row(track, mb_status, busy_track, album_thumbs, playlists, cx)
         })
         .collect();
 
@@ -2433,23 +2404,19 @@ fn render_album_detail(
     );
     if let Some(fid) = feed_id {
         let playlist_action = vm
-            .playlist_action_vm(fid, add_open_feed)
+            .playlist_action_vm(fid)
             .expect("library feed playlist action should render for local feeds");
-        let playlist_label = playlist_action.label;
-        buttons = buttons.child(action_button(&playlist_label, cx).on_click(cx.listener(
-            move |this, _, _, cx| {
-                this.vm.toggle_album_feed_picker();
-                let _ = fid;
-                cx.notify();
-            },
-        )));
+        buttons = buttons.child(
+            AddToPlaylistPopover::new(
+                SharedString::from(format!("album-feed-add:{fid}")),
+                playlists.to_vec(),
+            )
+            .trigger_label(playlist_action.label)
+            .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
+                this.add_album_to_playlist(fid, *playlist_id, cx);
+            })),
+        );
     }
-
-    let feed_popup: Option<AnyElement> = if add_open_feed {
-        feed_id.map(|fid| render_album_feed_add_panel(fid, playlists, cx))
-    } else {
-        None
-    };
 
     let projection = ReleaseDetailVm::new(&feed_view, EntitySurfaceContext::Library);
     let page = projection.page();
@@ -2460,9 +2427,6 @@ fn render_album_detail(
         track_rows: Some(track_rows),
         ..ReleaseDetailBehaviorSlots::default()
     };
-    if let Some(panel) = feed_popup {
-        slots.action_overlays.push(panel);
-    }
     if let Some(panel) = render_library_contributors_panel(&projection, album_thumbs) {
         slots.after_section.push(panel);
     }
@@ -2577,7 +2541,6 @@ fn render_library_track_row(
     track: &TrackRow,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     busy_track: Option<i64>,
-    add_open_track: Option<i64>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
@@ -2586,7 +2549,6 @@ fn render_library_track_row(
     let track_for_select = track.clone();
     let track_id = track.id;
     let is_busy = busy_track == Some(track_id);
-    let popup_open = add_open_track == Some(track_id);
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
     let primary_action = vm.primary_action_vm(is_busy);
     let in_library = primary_action.kind == EntityActionKind::Remove;
@@ -2636,21 +2598,19 @@ fn render_library_track_row(
     }
 
     actions.push(
-        UiButton::styled(
-            SharedString::from(format!("album-track-add-{track_id}")),
-            ControlStyle::RowAction,
+        AddToPlaylistPopover::new(
+            SharedString::from(format!("album-track-add:{track_id}")),
+            playlists.to_vec(),
         )
-        .label(vm.playlist_action_label(popup_open))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.vm.toggle_album_track_picker(track_id);
-            cx.notify();
+        .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
+            this.add_track_to_playlist(track_id, *playlist_id, cx);
         }))
         .into_any_element(),
     );
 
     let track_view = TrackView::from_local(track.clone());
     let row_vm = SharedTrackRowVm::new(&track_view, EntitySurfaceContext::Library);
-    let mut slot = ReleaseTrackRowSlot {
+    let slot = ReleaseTrackRowSlot {
         thumbnail,
         actions,
         ..ReleaseTrackRowSlot::default()
@@ -2660,97 +2620,11 @@ fn render_library_track_row(
         cx.notify();
     }));
 
-    if popup_open {
-        slot.popover = Some(render_album_track_add_panel(track_id, playlists, cx));
-    }
-
     render_release_track_row(
         SharedString::from(format!("album-track-{track_id}")),
         row_vm,
         slot,
     )
-}
-
-fn render_album_track_add_panel(
-    track_id: i64,
-    playlists: &[db::Playlist],
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let mut panel = div()
-        .border_1()
-        .border_color(color::border_subtle())
-        .rounded(radius::SM)
-        .bg(color::bg_surface())
-        .p(spacing::SM)
-        .gap(spacing::XS)
-        .flex()
-        .flex_col();
-
-    if playlists.is_empty() {
-        panel = panel.child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(color::text_muted())
-                .child(SharedString::from(
-                    "No playlists yet — create one from the sidebar.",
-                )),
-        );
-        return panel.into_any_element();
-    }
-
-    for p in playlists {
-        let playlist_id = p.id;
-        let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
-            move |this, _, _, cx| {
-                this.vm.close_album_track_picker();
-                this.add_track_to_playlist(track_id, playlist_id, cx);
-            },
-        )));
-    }
-
-    panel.into_any_element()
-}
-
-fn render_album_feed_add_panel(
-    feed_id: i64,
-    playlists: &[db::Playlist],
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let mut panel = div()
-        .border_1()
-        .border_color(color::border_subtle())
-        .rounded(radius::SM)
-        .bg(color::bg_surface())
-        .p(spacing::SM)
-        .gap(spacing::XS)
-        .flex()
-        .flex_col();
-
-    if playlists.is_empty() {
-        panel = panel.child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(color::text_muted())
-                .child(SharedString::from(
-                    "No playlists yet — create one from the sidebar.",
-                )),
-        );
-        return panel.into_any_element();
-    }
-
-    for p in playlists {
-        let playlist_id = p.id;
-        let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
-            move |this, _, _, cx| {
-                this.vm.close_album_feed_picker();
-                this.add_album_to_playlist(feed_id, playlist_id, cx);
-            },
-        )));
-    }
-
-    panel.into_any_element()
 }
 
 fn render_playlist_detail(

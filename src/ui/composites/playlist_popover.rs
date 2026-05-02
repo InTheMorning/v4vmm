@@ -53,6 +53,7 @@ struct AddToPlaylistState {
 pub struct AddToPlaylistPopover {
     id: SharedString,
     playlists: Vec<db::Playlist>,
+    trigger_label: SharedString,
     on_select: Option<SelectHandler>,
     on_create: Option<CreateHandler>,
 }
@@ -63,9 +64,16 @@ impl AddToPlaylistPopover {
         Self {
             id: id.into(),
             playlists,
+            trigger_label: "+ Playlist".into(),
             on_select: None,
             on_create: None,
         }
+    }
+
+    /// Override the trigger label for release-level actions.
+    pub fn trigger_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.trigger_label = label.into();
+        self
     }
 
     /// Called when the user selects an existing playlist (receives its id).
@@ -93,8 +101,10 @@ impl RenderOnce for AddToPlaylistPopover {
 
         let open = state.read(cx).open;
         let playlists = Rc::new(self.playlists);
+        let trigger_label = self.trigger_label;
         let on_select = self.on_select;
         let on_create = self.on_create;
+        let can_create = on_create.is_some();
         let trigger_id = SharedString::from(format!("{}-btn", self.id));
 
         Popover::new(self.id)
@@ -121,7 +131,7 @@ impl RenderOnce for AddToPlaylistPopover {
                 // discoverable than a plain ghost label.
                 Button::tinted(trigger_id)
                     .size(ButtonSize::Sm)
-                    .label("+ Playlist"),
+                    .label(trigger_label),
             )
             .content(move |_window, cx| {
                 let (creating, name_input) = {
@@ -132,7 +142,12 @@ impl RenderOnce for AddToPlaylistPopover {
                 if creating {
                     build_create_mode(state.clone(), name_input, on_create.clone())
                 } else {
-                    build_list_mode(state.clone(), playlists.clone(), on_select.clone())
+                    build_list_mode(
+                        state.clone(),
+                        playlists.clone(),
+                        on_select.clone(),
+                        can_create,
+                    )
                 }
             })
     }
@@ -150,6 +165,7 @@ fn build_list_mode(
     state: Entity<AddToPlaylistState>,
     playlists: Rc<Vec<db::Playlist>>,
     on_select: Option<SelectHandler>,
+    can_create: bool,
 ) -> Div {
     let playlist_buttons = playlists.iter().map(|p| {
         let playlist_id = p.id;
@@ -170,21 +186,7 @@ fn build_list_mode(
             })
     });
 
-    let new_btn = Button::plain("pl-new")
-        .full_width()
-        .leading_icon(IconName::Add)
-        .label("New Playlist")
-        .on_click({
-            let state = state.clone();
-            move |_, _window, cx| {
-                state.update(cx, |s, cx| {
-                    s.creating = true;
-                    cx.notify();
-                });
-            }
-        });
-
-    v_flex()
+    let mut content = v_flex()
         .w(Size::MenuRegular.px())
         .max_h(Size::ColumnRegular.px())
         .gap(Spacing::XXS.px())
@@ -197,9 +199,28 @@ fn build_list_mode(
                     .child("No playlists yet"),
             )
         })
-        .children(playlist_buttons)
-        .child(div().my(Spacing::XS.px()).child(Divider::horizontal()))
-        .child(new_btn)
+        .children(playlist_buttons);
+
+    if can_create {
+        let new_btn = Button::plain("pl-new")
+            .full_width()
+            .leading_icon(IconName::Add)
+            .label("New Playlist")
+            .on_click({
+                let state = state.clone();
+                move |_, _window, cx| {
+                    state.update(cx, |s, cx| {
+                        s.creating = true;
+                        cx.notify();
+                    });
+                }
+            });
+        content = content
+            .child(div().my(Spacing::XS.px()).child(Divider::horizontal()))
+            .child(new_btn);
+    }
+
+    content
 }
 
 // ---------------------------------------------------------------------------

@@ -12,6 +12,8 @@ Start here:
 - [ADR 0023 migration plan](plans/adr-0023-design-system-migration.md): remaining design-system and view-model work
 - [Discovery and Library UI fixes plan](plans/discovery-library-ui-fixes.md): reviewed follow-up plan for search, recents, shared headers, contributor display, compare actions, and scrolling
 - [ADR 0031: Release detail presentation contract](adr/0031-release-detail-presentation-contract.md): implemented contract for composing Library and Discovery release detail pages
+- [ADR 0032: UI backend boundary and popover contracts](adr/0032-ui-backend-boundary-and-popover-contracts.md): boundary rules for projection, screen behavior, shared UI chrome, and popovers
+- [UI backend boundary](architecture/ui-backend-boundary.md): practical guide for keeping services, projections, screens, and UI composites in their lanes
 - [Pre-UI and download manager preparation plan](plans/pre-ui-download-prep.md): service, schema, and CLI work to land before a UI/download revamp
 
 Historical architecture decisions still live in [`docs/adr/`](adr/).

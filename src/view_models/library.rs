@@ -357,9 +357,6 @@ pub(crate) struct LibraryViewModel {
     // Search + playlist creation.
     search_query: String,
     creating_playlist: bool,
-    // Album-detail "Add to playlist" picker toggles.
-    album_add_open_feed: bool,
-    album_add_open_track: Option<i64>,
 }
 
 impl LibraryViewModel {
@@ -383,8 +380,6 @@ impl LibraryViewModel {
             split_pane: SplitPaneState::new(DEFAULT_SPLIT_PANE_WIDTH),
             search_query: String::new(),
             creating_playlist: false,
-            album_add_open_feed: false,
-            album_add_open_track: None,
         }
     }
 
@@ -717,36 +712,6 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn is_playlist_selected(&self, playlist_id: i64) -> bool {
         self.selected_playlist_id == Some(playlist_id)
-    }
-
-    #[must_use]
-    pub(crate) fn album_feed_picker_open(&self) -> bool {
-        self.album_add_open_feed
-    }
-
-    #[must_use]
-    pub(crate) fn album_track_picker_open(&self) -> Option<i64> {
-        self.album_add_open_track
-    }
-
-    pub(crate) fn toggle_album_feed_picker(&mut self) {
-        self.album_add_open_feed = !self.album_add_open_feed;
-    }
-
-    pub(crate) fn close_album_feed_picker(&mut self) {
-        self.album_add_open_feed = false;
-    }
-
-    pub(crate) fn toggle_album_track_picker(&mut self, track_id: i64) {
-        self.album_add_open_track = if self.album_add_open_track == Some(track_id) {
-            None
-        } else {
-            Some(track_id)
-        };
-    }
-
-    pub(crate) fn close_album_track_picker(&mut self) {
-        self.album_add_open_track = None;
     }
 
     #[must_use]
@@ -1142,20 +1107,6 @@ impl<'a> LibraryTrackRowVm<'a> {
             .unwrap_or_default()
     }
 
-    /// Add-to-playlist action label for the row.
-    #[must_use]
-    pub(crate) fn playlist_action_label(&self, is_open: bool) -> &'static str {
-        match self
-            .track_action_state(false, is_open)
-            .playlist_action(EntityActionTarget::Track(self.track_ref()))
-            .map(|action| action.label)
-            .as_deref()
-        {
-            Some("+ Playlist ▴") => "+ Playlist ▴",
-            _ => "+ Playlist",
-        }
-    }
-
     #[must_use]
     pub(crate) fn primary_action_vm(&self, is_busy: bool) -> EntityActionVm {
         self.track_action_state(is_busy, false)
@@ -1365,16 +1316,9 @@ impl<'a> LibraryAlbumDetailVm<'a> {
     }
 
     #[must_use]
-    pub(crate) fn playlist_action_vm(&self, feed_id: i64, open: bool) -> Option<EntityActionVm> {
-        self.release_action_state(
-            false,
-            if open {
-                PlaylistActionState::Open
-            } else {
-                PlaylistActionState::Closed
-            },
-        )
-        .playlist_action(EntityActionTarget::Feed(FeedRef::LocalFeedId(feed_id)))
+    pub(crate) fn playlist_action_vm(&self, feed_id: i64) -> Option<EntityActionVm> {
+        self.release_action_state(false, PlaylistActionState::Closed)
+            .playlist_action(EntityActionTarget::Feed(FeedRef::LocalFeedId(feed_id)))
     }
 
     #[must_use]
@@ -1698,20 +1642,11 @@ mod tests {
     }
 
     #[test]
-    fn library_track_row_vm_playlist_action_label_reflects_open_state() {
-        let r = row();
-        let vm = LibraryTrackRowVm::new(&r, None);
-        assert_eq!(vm.playlist_action_label(false), "+ Playlist");
-        assert_eq!(vm.playlist_action_label(true), "+ Playlist ▴");
-    }
-
-    #[test]
     fn library_track_row_vm_local_path_does_not_change_row_action_text() {
         let mut r = row();
         r.local_path = Some("/music/track.mp3".into());
         let vm = LibraryTrackRowVm::new(&r, None);
         assert_eq!(vm.primary_action_vm(false).label, "Download");
-        assert_eq!(vm.playlist_action_label(false), "+ Playlist");
     }
 
     #[test]
@@ -2083,8 +2018,6 @@ mod tests {
         assert!(vm.status.is_empty());
         assert!(vm.search_query.is_empty());
         assert!(!vm.creating_playlist);
-        assert!(!vm.album_add_open_feed);
-        assert_eq!(vm.album_add_open_track, None);
         assert!(!vm.is_resizing());
         assert_width_eq(vm.split_pane_width(), DEFAULT_SPLIT_PANE_WIDTH);
     }
@@ -2469,30 +2402,6 @@ mod tests {
     }
 
     #[test]
-    fn library_view_model_album_feed_picker_toggles_and_closes() {
-        let mut vm = LibraryViewModel::new();
-        assert!(!vm.album_feed_picker_open());
-        vm.toggle_album_feed_picker();
-        assert!(vm.album_feed_picker_open());
-        vm.close_album_feed_picker();
-        assert!(!vm.album_feed_picker_open());
-    }
-
-    #[test]
-    fn library_view_model_album_track_picker_toggles_by_track_id() {
-        let mut vm = LibraryViewModel::new();
-        assert_eq!(vm.album_track_picker_open(), None);
-        vm.toggle_album_track_picker(10);
-        assert_eq!(vm.album_track_picker_open(), Some(10));
-        vm.toggle_album_track_picker(10);
-        assert_eq!(vm.album_track_picker_open(), None);
-        vm.toggle_album_track_picker(20);
-        assert_eq!(vm.album_track_picker_open(), Some(20));
-        vm.close_album_track_picker();
-        assert_eq!(vm.album_track_picker_open(), None);
-    }
-
-    #[test]
     fn library_view_model_hovered_thumb_reports_only_changes() {
         let mut vm = LibraryViewModel::new();
         assert_eq!(vm.hovered_thumb_url(), None);
@@ -2760,19 +2669,15 @@ mod tests {
     }
 
     #[test]
-    fn album_detail_vm_playlist_action_label_flips_arrow_glyph_when_open() {
+    fn album_detail_vm_playlist_action_uses_shared_feed_vocabulary() {
         let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
         let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
-        let closed = vm
-            .playlist_action_vm(7, false)
-            .expect("closed playlist action should render");
-        let open = vm
-            .playlist_action_vm(7, true)
-            .expect("open playlist action should render");
+        let action = vm
+            .playlist_action_vm(7)
+            .expect("playlist action should render");
 
-        assert_eq!(closed.label, "Add feed to playlist ▾");
-        assert_eq!(open.label, "Add feed to playlist ▴");
+        assert_eq!(action.label, "Add feed to playlist ▾");
     }
 
     #[test]
@@ -2783,13 +2688,13 @@ mod tests {
         let primary = vm.primary_action_vm(7, false);
         let busy = vm.primary_action_vm(7, true);
         let playlist = vm
-            .playlist_action_vm(7, true)
+            .playlist_action_vm(7)
             .expect("playlist action should render");
 
         assert_eq!(primary.label, "Remove Feed");
         assert!(primary.enabled);
         assert_eq!(busy.label, "Removing...");
         assert!(!busy.enabled);
-        assert_eq!(playlist.label, "Add feed to playlist ▴");
+        assert_eq!(playlist.label, "Add feed to playlist ▾");
     }
 }
