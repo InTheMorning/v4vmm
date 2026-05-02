@@ -68,6 +68,7 @@ pub mod library;
 pub mod metadata;
 pub mod search;
 pub mod track;
+pub mod track_metadata_grid;
 
 /// Pure resize state for a two-pane shell.
 ///

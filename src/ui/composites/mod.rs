@@ -33,6 +33,7 @@ pub mod split_pane;
 pub mod tag_badge;
 pub mod thumbnail;
 pub mod track_header;
+pub mod track_metadata_grid;
 pub mod track_row;
 
 pub use action_button::action_button;
@@ -51,4 +52,5 @@ pub use split_pane::SplitPane;
 pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge};
 pub use thumbnail::{Thumbnail, ThumbnailSize};
 pub use track_header::TrackHeader;
+pub use track_metadata_grid::TrackMetadataGrid;
 pub use track_row::TrackRow;

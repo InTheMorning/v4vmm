@@ -66,7 +66,7 @@ use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
     FileHeader, IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, SplitPane, StatusRole,
-    Thumbnail, ThumbnailSize, TrackHeader,
+    Thumbnail, ThumbnailSize, TrackHeader, TrackMetadataGrid,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -90,6 +90,7 @@ use crate::view_models::library::{
 };
 use crate::view_models::metadata::FileHeaderVm;
 use crate::view_models::track::TrackHeaderVm;
+use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
 use crate::views::{FeedView, TrackRef, TrackView};
 
 // ---------------------------------------------------------------------------
@@ -2964,7 +2965,7 @@ fn render_track_window(
                     el.child(render_musicbrainz_panel(frame, cx))
                 }),
         )
-        .child(render_track_metadata_grid(
+        .child(library_track_metadata_grid(
             rows,
             show_id3_panel,
             show_musicbrainz_panel,
@@ -3324,7 +3325,7 @@ fn track_metadata_rows_for_frame(
     clippy::too_many_arguments,
     reason = "metadata grid needs explicit column state and edit state inputs"
 )]
-fn render_track_metadata_grid(
+fn library_track_metadata_grid(
     rows: Vec<MetadataGridRow>,
     show_id3: bool,
     show_musicbrainz: bool,
@@ -3334,27 +3335,21 @@ fn render_track_metadata_grid(
     tag_column_label: &str,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
+    let vm = TrackMetadataGridVm::new(show_id3, show_musicbrainz, tag_column_label);
     let mut cells: Vec<AnyElement> = Vec::new();
-    let columns = 1 + u16::from(show_id3) + u16::from(show_musicbrainz);
-    cells.push(metadata_heading_cell("RSS", 96.0));
-    if show_id3 {
-        cells.push(metadata_heading_cell(tag_column_label, 12.0));
-    }
-    if show_musicbrainz {
-        cells.push(metadata_heading_cell("MusicBrainz", 12.0));
-    }
 
     for row in rows {
         match row {
-            MetadataGridRow::Group(group) => cells.push(metadata_group_cell(group, columns, cx)),
+            MetadataGridRow::Group(group) => {
+                cells.push(metadata_group_cell(group, vm.columns(), cx));
+            }
             MetadataGridRow::Data(row) => {
                 let pending = pending_id3_edits.get(&row.row_id);
-                let rss_expanded = expanded_metadata_cells.contains(&format!("rss:{}", row.row_id));
-                let id3_expanded = expanded_metadata_cells.contains(&format!("id3:{}", row.row_id));
+                let expansion = vm.expansion_for(&row.row_id, expanded_metadata_cells);
                 cells.push(metadata_rss_cell(
                     &row,
                     pending,
-                    rss_expanded,
+                    expansion.rss_expanded,
                     expanded_metadata_cells,
                     cx,
                 ));
@@ -3362,7 +3357,7 @@ fn render_track_metadata_grid(
                     cells.push(metadata_id3_cell(
                         &row,
                         pending,
-                        id3_expanded,
+                        expansion.id3_expanded,
                         expanded_metadata_cells,
                         file_image.as_ref(),
                         cx,
@@ -3375,23 +3370,7 @@ fn render_track_metadata_grid(
         }
     }
 
-    div()
-        .grid()
-        .grid_cols(columns)
-        .gap_x(spacing::XL)
-        .gap_y(spacing::SM)
-        .children(cells)
-        .into_any_element()
-}
-
-fn metadata_heading_cell(label: &str, indent: f32) -> AnyElement {
-    div()
-        .pl(px(indent))
-        .text_color(color::text_muted())
-        .font_weight(FontWeight::BOLD)
-        .text_size(typography::SIZE_MICRO)
-        .child(SharedString::from(label.to_string()))
-        .into_any_element()
+    TrackMetadataGrid::new(vm).cells(cells).into_any_element()
 }
 
 fn metadata_group_cell(

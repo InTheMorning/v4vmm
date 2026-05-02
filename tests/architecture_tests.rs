@@ -304,11 +304,6 @@ const SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES: &[ScreenLocalPlaylistPopoverBasel
 
 const RENDER_HELPER_DUPLICATION_BASELINES: &[RenderHelperDuplicationBaseline] = &[
     RenderHelperDuplicationBaseline {
-        helper: "render_track_metadata_grid",
-        files: &["src/library.rs", "src/search.rs"],
-        note: "post-ADR0033 metadata-grid composite task",
-    },
-    RenderHelperDuplicationBaseline {
         helper: "render_musicbrainz_panel",
         files: &["src/library.rs", "src/search.rs"],
         note: "post-ADR0033 MusicBrainz composite task",

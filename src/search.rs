@@ -53,7 +53,7 @@ use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
     IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, SplitPane, StatusRole, TagBadge,
-    Thumbnail, ThumbnailSize, TrackHeader,
+    Thumbnail, ThumbnailSize, TrackHeader, TrackMetadataGrid,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -77,6 +77,7 @@ use crate::view_models::search::{
     SearchViewModel, TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::{TrackHeaderVm, TrackVm};
+use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
 use crate::views::{ContributorView, FeedRef};
 
 #[derive(Clone, Debug)]
@@ -3295,7 +3296,7 @@ fn metadata_panel_state<T>(panel: &LazyPanel<T>) -> MetadataPanelState {
     clippy::too_many_arguments,
     reason = "metadata grid needs explicit column state and edit state inputs"
 )]
-fn render_track_metadata_grid(
+fn discover_track_metadata_grid(
     rows: Vec<MetadataGridRow>,
     show_id3: bool,
     show_musicbrainz: bool,
@@ -3305,55 +3306,21 @@ fn render_track_metadata_grid(
     tag_column_label: &str,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    render_metadata_grid(
-        rows,
-        show_id3,
-        show_musicbrainz,
-        pending_id3_edits,
-        expanded_metadata_cells,
-        file_image,
-        tag_column_label,
-        cx,
-    )
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "search metadata grid still renders from explicit staged inputs"
-)]
-fn render_metadata_grid(
-    rows: Vec<MetadataGridRow>,
-    show_id3: bool,
-    show_musicbrainz: bool,
-    pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
-    expanded_metadata_cells: &BTreeSet<String>,
-    file_image: Option<Arc<Image>>,
-    tag_column_label: &str,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
+    let vm = TrackMetadataGridVm::new(show_id3, show_musicbrainz, tag_column_label);
     let mut cells: Vec<AnyElement> = Vec::new();
-    let columns = 1 + u16::from(show_id3) + u16::from(show_musicbrainz);
-    cells.push(metadata_heading_cell("RSS", 96.0));
-    if show_id3 {
-        cells.push(metadata_heading_cell(tag_column_label, 12.0));
-    }
-    if show_musicbrainz {
-        cells.push(metadata_heading_cell("MusicBrainz", 12.0));
-    }
 
     for row in rows {
         match row {
             MetadataGridRow::Group(group) => {
-                cells.push(metadata_group_cell(group, columns, cx));
+                cells.push(metadata_group_cell(group, vm.columns(), cx));
             }
             MetadataGridRow::Data(row) => {
                 let pending = pending_id3_edits.get(&row.row_id);
-                let rss_expanded = expanded_metadata_cells.contains(&format!("rss:{}", row.row_id));
-                let id3_expanded = expanded_metadata_cells.contains(&format!("id3:{}", row.row_id));
+                let expansion = vm.expansion_for(&row.row_id, expanded_metadata_cells);
                 cells.push(metadata_rss_cell(
                     &row,
                     pending,
-                    rss_expanded,
+                    expansion.rss_expanded,
                     expanded_metadata_cells,
                     cx,
                 ));
@@ -3361,7 +3328,7 @@ fn render_metadata_grid(
                     cells.push(metadata_id3_cell(
                         &row,
                         pending,
-                        id3_expanded,
+                        expansion.id3_expanded,
                         expanded_metadata_cells,
                         file_image.clone(),
                         cx,
@@ -3374,23 +3341,7 @@ fn render_metadata_grid(
         }
     }
 
-    div()
-        .grid()
-        .grid_cols(columns)
-        .gap_x(spacing::XL)
-        .gap_y(spacing::SM)
-        .children(cells)
-        .into_any_element()
-}
-
-fn metadata_heading_cell(label: &str, indent: f32) -> AnyElement {
-    div()
-        .pl(px(indent))
-        .text_color(color::text_muted())
-        .font_weight(FontWeight::BOLD)
-        .text_size(typography::SIZE_MICRO)
-        .child(SharedString::from(label.to_string()))
-        .into_any_element()
+    TrackMetadataGrid::new(vm).cells(cells).into_any_element()
 }
 
 fn metadata_rss_cell(
