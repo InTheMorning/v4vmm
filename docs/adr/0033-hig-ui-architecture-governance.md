@@ -136,6 +136,8 @@ update so the contract and its enforcement do not drift apart:
 - `track_surface_consumers_use_track_detail_vm`
 - `track_detail_labels_owns_canonical_field_labels`
 - `track_surface_slots_are_typed`
+- `release_surface_consumers_use_release_detail_vm`
+- `release_surface_slots_are_typed`
 
 The tests scope themselves by directory (`src/ui/primitives`,
 `src/ui/composites`) where possible, so adding a new shared component is
