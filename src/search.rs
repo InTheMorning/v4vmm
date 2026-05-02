@@ -71,10 +71,10 @@ use crate::view_models::entity_detail::{
 use crate::view_models::format::{optional_row, plural};
 use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::search::{
-    artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
-    ActionRowVm, LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome,
-    PublisherInspectorVm, RecentFeedTileVm, ResultRow, SearchBatch, SearchSubscriptionCommand,
-    SearchViewModel, TrackInspectorHeaderVm, TrackRowActionVm,
+    artist_rows_from_result_rows, feed_display_title, normalized_search_query,
+    search_result_type_is_visible, ActionRowVm, LazyPanel, PaymentRouteVm, PlaylistAppendIntent,
+    PlaylistAppendOutcome, PublisherInspectorVm, RecentFeedTileVm, ResultRow, SearchBatch,
+    SearchSubscriptionCommand, SearchViewModel, TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::{TrackHeaderVm, TrackVm};
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
@@ -2556,7 +2556,7 @@ fn podroll_section(
             Some(guid) if !guid.trim().is_empty() => guid,
             _ => continue,
         };
-        let title = feed_title(&feed);
+        let title = feed_display_title(&feed);
         let click_title = title.clone();
         let click_guid = guid.clone();
         let thumb = app.thumbnail_for_url(feed.image_url.as_deref(), cx);
@@ -4633,7 +4633,7 @@ pub(crate) fn render_feed_list_section(
         .into_iter()
         .map(|feed| {
             let guid = feed.feed_guid.clone().unwrap_or_default();
-            let title = feed_title(&feed);
+            let title = feed_display_title(&feed);
             let thumb = app.thumbnail_for_url(feed.image_url.as_deref(), cx);
             let episode_note = feed
                 .episode_count
@@ -4654,7 +4654,7 @@ pub(crate) fn render_feed_list_section(
                 .child(Thumbnail::new(EntityKind::Feed, ThumbnailSize::Lg).image(thumb.clone()))
                 .child(
                     div().line_height(typography::LINE_COMPACT).child(
-                        Label::new(feed_title(&feed))
+                        Label::new(feed_display_title(&feed))
                             .size(FontSize::Caption)
                             .weight(FontWeight::MEDIUM)
                             .truncated(),
@@ -4893,27 +4893,6 @@ fn group_heading(label: String) -> AnyElement {
         .mt(spacing::SM)
         .child(SharedString::from(label))
         .into_any_element()
-}
-
-fn feed_title(feed: &Feed) -> String {
-    feed.title
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            feed.name
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
-        .or_else(|| {
-            feed.feed_guid
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
-        .map(str::to_string)
-        .unwrap_or_else(|| "Untitled".into())
 }
 
 #[cfg(test)]

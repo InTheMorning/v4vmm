@@ -100,7 +100,7 @@ impl<'a> RecentFeedTileVm<'a> {
     #[must_use]
     pub(crate) fn display(&self) -> RecentFeedTileDisplay {
         RecentFeedTileDisplay {
-            title: feed_title(self.feed),
+            title: feed_display_title(self.feed),
             subtitle: nonempty_text(self.feed.release_artist.as_deref())
                 .or_else(|| nonempty_text(self.feed.publisher_text.as_deref()))
                 .map(str::to_string),
@@ -208,7 +208,7 @@ fn feed_display(feed: &Feed) -> ResultRowDisplay {
         .episode_count
         .map_or_else(String::new, |count| format!("{count} tracks"));
     ResultRowDisplay {
-        line1: feed_title(feed),
+        line1: feed_display_title(feed),
         line2: nonempty_text(feed.release_artist.as_deref())
             .or_else(|| nonempty_text(feed.publisher_text.as_deref()))
             .map_or_else(|| "Unknown".into(), str::to_string),
@@ -237,7 +237,8 @@ fn count_label(count: i32, noun: &str) -> String {
     format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
 }
 
-fn feed_title(feed: &Feed) -> String {
+#[must_use]
+pub(crate) fn feed_display_title(feed: &Feed) -> String {
     nonempty_text(feed.title.as_deref())
         .or_else(|| nonempty_text(feed.name.as_deref()))
         .or_else(|| nonempty_text(feed.feed_guid.as_deref()))

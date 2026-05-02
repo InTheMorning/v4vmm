@@ -158,11 +158,7 @@ struct InspectorFrame {
 
 impl InspectorFrame {
     fn for_track(track: TrackRow, image: Option<Arc<Image>>) -> Self {
-        let title = track
-            .track_title
-            .clone()
-            .or_else(|| track.feed_title.clone())
-            .unwrap_or_else(|| "Untitled".into());
+        let title = LibraryTrackRowVm::new(&track, None).display_title();
         Self {
             entity_id: track.id,
             title,
@@ -1598,16 +1594,9 @@ async fn musicbrainz_feed_per_track(
 pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree {
     let mut artist_map: BTreeMap<String, BTreeMap<String, Vec<TrackRow>>> = BTreeMap::new();
     for track in tracks {
-        let artist = track
-            .album_artist_name
-            .clone()
-            .or_else(|| track.artist_name.clone())
-            .unwrap_or_else(|| "Unknown Artist".to_string());
-        let album = track
-            .album_title
-            .clone()
-            .or_else(|| track.feed_title.clone())
-            .unwrap_or_else(|| "Unknown Album".to_string());
+        let row_vm = LibraryTrackRowVm::new(track, None);
+        let artist = row_vm.display_artist();
+        let album = row_vm.display_album();
         artist_map
             .entry(artist)
             .or_default()
@@ -2165,11 +2154,7 @@ pub(crate) fn render_tree(
                     for track in &album.tracks {
                         let track_clone_b = track.clone();
                         let is_selected = selected_id == Some(track.id);
-                        let title = track
-                            .track_title
-                            .as_deref()
-                            .unwrap_or("[untitled]")
-                            .to_string();
+                        let title = LibraryTrackRowVm::new(track, None).compact_title();
                         let num = track
                             .track_number
                             .map(|n| format!("{n:02} - "))
@@ -2381,7 +2366,7 @@ fn render_album_detail(
     // Build FeedView from local album data via synthesized FeedRow
     let feed_row = db::FeedRow {
         id: album.feed_id.unwrap_or(0),
-        feed_url: album.feed_url.clone().unwrap_or_default(),
+        feed_url: album.feed_url_for_detail(),
         feed_guid: None,
         title: Some(album.name.clone()),
         description: None,
@@ -2963,23 +2948,25 @@ fn render_track_window(
                     el.child(library_musicbrainz_panel(frame, cx))
                 }),
         )
-        .child(library_track_metadata_grid(
-            rows,
-            show_id3_panel,
-            show_musicbrainz_panel,
-            &pending_id3_edits,
-            &frame.expanded_metadata_cells,
-            result.and_then(|r| {
-                r.file_image
-                    .as_ref()
-                    .map(|img| image_from_bytes(img.clone()))
-            }),
-            result
-                .and_then(|r| r.format)
-                .map(|f| f.display_label())
-                .unwrap_or("Tags"),
-            cx,
-        ))
+        .child({
+            let tag_column_label = TrackMetadataGridVm::tag_column_label(
+                result.and_then(|r| r.format).map(|f| f.display_label()),
+            );
+            library_track_metadata_grid(
+                rows,
+                show_id3_panel,
+                show_musicbrainz_panel,
+                &pending_id3_edits,
+                &frame.expanded_metadata_cells,
+                result.and_then(|r| {
+                    r.file_image
+                        .as_ref()
+                        .map(|img| image_from_bytes(img.clone()))
+                }),
+                tag_column_label,
+                cx,
+            )
+        })
         .into_any_element()
 }
 

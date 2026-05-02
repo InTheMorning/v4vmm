@@ -27,7 +27,7 @@ Status: Not ready for richer playlist/playback feature work until Tasks
 | Task | Status | Required Evidence | Notes |
 |---|---|---|---|
 | Task 001 recents surface ownership | Pass | `RecentFeedTileDisplay`, `RecentFeedTile`, `discovery_recent_tiles_use_shared_composite`; visual smoke still needed before final readiness | Recents tile labels now come from the VM display contract and tile chrome lives in one composite. |
-| Task 002 fallback display accessors | Pending | VM tests, architecture fallback guards, ADR 0033 test-list sync | Blocks feature work on surfaces that still own fallback policy in screens. |
+| Task 002 fallback display accessors | Pass | `LibraryTrackRowVm` display accessors, `feed_display_title`, `TrackMetadataGridVm::tag_column_label`, fallback architecture guards, ADR 0033 test-list sync | Screen-local title/artist/album/feed-title/feed-url/tag fallback policy removed from screen files. |
 | Task 003 composite display-contract audit | Pending | Composite contract notes, narrow allowlist or test guard | Blocks feature work through composites with policy-bearing loose strings. |
 | Task 004 feature-readiness gate | Pending | Green checks, visual smoke summary, final gate decision | Records whether richer playlist/playback work may proceed. |
 

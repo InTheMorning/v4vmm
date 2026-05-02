@@ -1079,6 +1079,49 @@ impl<'a> LibraryTrackRowVm<'a> {
         Self { track, mb }
     }
 
+    /// Display title for inspector/header surfaces:
+    /// `track_title -> feed_title -> "Untitled"`.
+    #[must_use]
+    pub(crate) fn display_title(&self) -> String {
+        self.track
+            .track_title
+            .clone()
+            .or_else(|| self.track.feed_title.clone())
+            .unwrap_or_else(|| "Untitled".to_string())
+    }
+
+    /// Compact row title used by tree-style rows. Kept distinct from
+    /// [`Self::display_title`] to preserve the legacy bracketed empty state.
+    #[must_use]
+    pub(crate) fn compact_title(&self) -> String {
+        self.track
+            .track_title
+            .as_deref()
+            .unwrap_or("[untitled]")
+            .to_string()
+    }
+
+    /// Artist grouping label:
+    /// `album_artist_name -> artist_name -> "Unknown Artist"`.
+    #[must_use]
+    pub(crate) fn display_artist(&self) -> String {
+        self.track
+            .album_artist_name
+            .clone()
+            .or_else(|| self.track.artist_name.clone())
+            .unwrap_or_else(|| "Unknown Artist".to_string())
+    }
+
+    /// Album grouping label: `album_title -> feed_title -> "Unknown Album"`.
+    #[must_use]
+    pub(crate) fn display_album(&self) -> String {
+        self.track
+            .album_title
+            .clone()
+            .or_else(|| self.track.feed_title.clone())
+            .unwrap_or_else(|| "Unknown Album".to_string())
+    }
+
     /// Leading `"{n}. "` segment, empty when there is no track number.
     #[cfg(test)]
     #[must_use]
@@ -1334,6 +1377,16 @@ impl<'a> LibraryAlbumDetailVm<'a> {
     }
 }
 
+impl AlbumNode {
+    /// Feed URL string required by the shared release-detail projection.
+    /// Absence is centralized here so screens do not call `unwrap_or_default`
+    /// on `feed_url`.
+    #[must_use]
+    pub(crate) fn feed_url_for_detail(&self) -> String {
+        self.feed_url.clone().unwrap_or_default()
+    }
+}
+
 /// Display-ready projection of a single row inside a playlist detail
 /// listing. The screen owns the click handlers and button rendering;
 /// the VM owns text fallbacks, duration formatting, and the
@@ -1564,6 +1617,31 @@ mod tests {
     #[test]
     fn duration_suffix_is_empty_when_absent() {
         assert_eq!(LibraryTrackRowVm::new(&row(), None).duration_suffix(), "");
+    }
+
+    #[test]
+    fn library_track_row_vm_owns_title_artist_and_album_fallbacks() {
+        let mut r = row();
+        let vm = LibraryTrackRowVm::new(&r, None);
+        assert_eq!(vm.display_title(), "Untitled");
+        assert_eq!(vm.compact_title(), "[untitled]");
+        assert_eq!(vm.display_artist(), "Unknown Artist");
+        assert_eq!(vm.display_album(), "Unknown Album");
+
+        r.feed_title = Some("Feed Title".into());
+        let vm = LibraryTrackRowVm::new(&r, None);
+        assert_eq!(vm.display_title(), "Feed Title");
+        assert_eq!(vm.display_album(), "Feed Title");
+
+        r.track_title = Some("Track Title".into());
+        r.artist_name = Some("Artist".into());
+        r.album_artist_name = Some("Album Artist".into());
+        r.album_title = Some("Album".into());
+        let vm = LibraryTrackRowVm::new(&r, None);
+        assert_eq!(vm.display_title(), "Track Title");
+        assert_eq!(vm.compact_title(), "Track Title");
+        assert_eq!(vm.display_artist(), "Album Artist");
+        assert_eq!(vm.display_album(), "Album");
     }
 
     #[test]

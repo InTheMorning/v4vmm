@@ -1237,6 +1237,78 @@ fn discovery_recent_tiles_use_shared_composite() {
 }
 
 #[test]
+fn screens_do_not_inline_unknown_artist_or_album_fallbacks() {
+    let forbidden = ["\"Unknown Artist\"", "\"Unknown Album\""];
+    let mut violations = Vec::new();
+
+    for file in SCREEN_FILES {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for pattern in forbidden {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: fallback display labels belong in view-models, not screens; found `{pattern}` in `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 screen fallback-label violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_inline_untitled_fallbacks() {
+    let forbidden = ["\"Untitled\"", "\"[untitled]\""];
+    let mut violations = Vec::new();
+
+    for file in SCREEN_FILES {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for pattern in forbidden {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: title fallback labels belong in view-models, not screens; found `{pattern}` in `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 screen title-fallback violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn screens_do_not_coerce_empty_feed_url_to_empty_string() {
+    let mut violations = Vec::new();
+
+    for file in SCREEN_FILES {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("feed_url") && line.contains("unwrap_or_default") {
+                violations.push(format!(
+                    "{file}:{line_number}: feed URL display/default policy belongs in a view-model, not screen coercion: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0033 feed URL fallback violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn top_level_gpui_modules_are_classified_as_screen_or_shared_ui() {
     let mut candidates = Vec::new();
     let src_dir = manifest_path("src");

@@ -24,7 +24,7 @@ use crate::ui::layouts as layout;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
-use crate::view_models::library::LibraryTree;
+use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 
 mod bootstrap;
 mod events;
@@ -725,7 +725,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         );
                         for album in &artist.albums {
                             for track in &album.tracks {
-                                let title = track.track_title.as_deref().unwrap_or("[untitled]");
+                                let title = LibraryTrackRowVm::new(track, None).compact_title();
                                 let path_clone = track.local_path.clone().unwrap_or_default();
                                 cached_items.push(
                                     div()

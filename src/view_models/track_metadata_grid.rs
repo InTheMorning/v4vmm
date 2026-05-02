@@ -29,6 +29,14 @@ pub struct TrackMetadataGridExpansion {
 }
 
 impl TrackMetadataGridVm {
+    #[must_use]
+    pub fn tag_column_label(format_label: Option<&str>) -> &str {
+        format_label
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+            .unwrap_or("Tags")
+    }
+
     pub fn new(show_id3: bool, show_musicbrainz: bool, tag_column_label: &str) -> Self {
         let mut headings = vec![TrackMetadataGridHeading {
             label: "RSS".to_string(),
@@ -115,6 +123,13 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn tag_column_label_defaults_to_tags_for_missing_or_blank_format() {
+        assert_eq!(TrackMetadataGridVm::tag_column_label(None), "Tags");
+        assert_eq!(TrackMetadataGridVm::tag_column_label(Some("  ")), "Tags");
+        assert_eq!(TrackMetadataGridVm::tag_column_label(Some("MP3")), "MP3");
     }
 
     #[test]

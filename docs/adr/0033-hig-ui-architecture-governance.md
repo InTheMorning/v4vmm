@@ -121,6 +121,9 @@ update so the contract and its enforcement do not drift apart:
 - `library_release_detail_playlist_popovers_use_shared_composite`
 - `playlist_popover_calls_wire_create_mode`
 - `discovery_recent_tiles_use_shared_composite`
+- `screens_do_not_inline_unknown_artist_or_album_fallbacks`
+- `screens_do_not_inline_untitled_fallbacks`
+- `screens_do_not_coerce_empty_feed_url_to_empty_string`
 - `screens_do_not_duplicate_render_helpers_without_baseline`
 - `screens_do_not_inline_value_route_recipient_label_fallbacks`
 - `shared_top_level_ui_shells_do_not_import_screen_modules`
