@@ -48,12 +48,24 @@ and make task packets include UI/backend boundary checks.
 
 Task: `docs/tasks/adr-0032-task-002-architecture-test-enforcement.md`
 
+### Phase 3 - Inspector Playlist Popover Migration
+
+Status: Completed.
+
+Migrate the remaining Library/Discover inspector playlist panels and the stale
+Discover row popup wrapper to `AddToPlaylistPopover`, remove screen-owned
+popover-open state, and tighten the architecture-test baseline to zero.
+
+Task: `docs/tasks/adr-0032-task-003-inspector-popover-migration.md`
+
 ## Risk Areas
 
 - Accidentally changing playlist command semantics while fixing chrome.
 - Moving command dispatch into shared UI composites.
 - Keeping stale view-model state for visual popover open/closed chrome.
 - Reintroducing raw full-width panels as row children.
+- Disabling inspector playlist actions differently while moving from
+  screen-local buttons to the shared composite.
 
 ## Test Strategy
 

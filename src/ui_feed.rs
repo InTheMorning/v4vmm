@@ -29,13 +29,11 @@ pub(crate) fn render_feed_view(
 
     if vm.has_tracks() {
         let playlists = app.vm.playlists.clone();
-        let open_guid = frame.add_to_playlist_open_track_guid.clone();
         let feed_guid = frame.entity_id.clone();
         let feed_url = view.feed_url.clone();
         let feed_context = Some((
             feed_guid.as_str(),
             feed_url.as_deref(),
-            open_guid.as_deref(),
             playlists.as_slice(),
         ));
         let rows = render_track_list_rows(

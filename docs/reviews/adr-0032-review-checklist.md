@@ -6,6 +6,7 @@
 - Plan: `docs/plans/adr-0032-ui-backend-boundary-phase-plan.md`
 - Task: `docs/tasks/adr-0032-task-001-playlist-popover-contract.md`
 - Task: `docs/tasks/adr-0032-task-002-architecture-test-enforcement.md`
+- Task: `docs/tasks/adr-0032-task-003-inspector-popover-migration.md`
 
 ## Required Checks
 
@@ -14,6 +15,8 @@
 - Do screens own command dispatch and callbacks?
 - Does `AddToPlaylistPopover` own playlist popover chrome?
 - Do Library and Discover share the same add-to-playlist popover family?
+- Does every playlist popover include `+ New Playlist` by wiring
+  `.on_create(...)`?
 - Are raw full-width screen-local playlist panels removed?
 - Does the change preserve playlist append semantics?
 - Is visual smoke required before closing any popover chrome follow-up?
@@ -28,9 +31,11 @@
 - No screen-local replacement for `Popover` or `AddToPlaylistPopover`.
 - No row-child panel used as a popover substitute.
 - Architecture tests keep known legacy screen-local playlist popover panels
-  baselined and reject growth.
+  at a zero baseline.
 - Architecture tests hard-ban the Library release-detail playlist popover
   helper/state names removed by ADR0032.
+- Architecture tests reject `AddToPlaylistPopover` call sites without
+  `.on_create(...)`.
 
 ## Merge Recommendation Template
 

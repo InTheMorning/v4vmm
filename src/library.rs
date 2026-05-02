@@ -9,7 +9,6 @@
     clippy::needless_pass_by_value,
     clippy::redundant_closure_for_method_calls,
     clippy::single_match_else,
-    clippy::struct_excessive_bools,
     clippy::too_many_lines,
     clippy::unused_self,
     reason = "legacy screen module is being migrated incrementally under ADR 0023"
@@ -152,7 +151,6 @@ struct InspectorFrame {
     tag_compare: LazyPanel<TagCompareResult>,
     musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     musicbrainz_selected: usize,
-    add_to_playlist_open: bool,
 }
 
 impl InspectorFrame {
@@ -180,7 +178,6 @@ impl InspectorFrame {
             tag_compare: LazyPanel::Hidden,
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
-            add_to_playlist_open: false,
         }
     }
 }
@@ -521,6 +518,20 @@ impl LibraryApp {
         }
     }
 
+    fn create_playlist_and_add_track(&mut self, name: &str, track_id: i64, cx: &mut Context<Self>) {
+        let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                this.reload_playlists();
+                this.add_track_to_playlist(track_id, result.playlist_id(), cx);
+            },
+            |this, err, _cx| this.vm.fail_playlist_create(err),
+        );
+    }
+
     fn add_album_to_playlist(&mut self, feed_id: i64, playlist_id: i64, cx: &mut Context<Self>) {
         let conn = self.conn.lock().expect("lock db");
         let tracks = match db::feed_tracks(&conn, feed_id) {
@@ -541,6 +552,20 @@ impl LibraryApp {
         if let Some(intent) = self.vm.begin_playlist_append(playlist_id, track_ids) {
             self.spawn_subscribe_then_append(intent, cx);
         }
+    }
+
+    fn create_playlist_and_add_album(&mut self, name: &str, feed_id: i64, cx: &mut Context<Self>) {
+        let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                this.reload_playlists();
+                this.add_album_to_playlist(feed_id, result.playlist_id(), cx);
+            },
+            |this, err, _cx| this.vm.fail_playlist_create(err),
+        );
     }
 
     fn spawn_subscribe_then_append(
@@ -2414,6 +2439,9 @@ fn render_album_detail(
             .trigger_label(playlist_action.label)
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_album_to_playlist(fid, *playlist_id, cx);
+            }))
+            .on_create(cx.listener(move |this, name: &String, _window, cx| {
+                this.create_playlist_and_add_album(name, fid, cx);
             })),
         );
     }
@@ -2604,6 +2632,9 @@ fn render_library_track_row(
         )
         .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
             this.add_track_to_playlist(track_id, *playlist_id, cx);
+        }))
+        .on_create(cx.listener(move |this, name: &String, _window, cx| {
+            this.create_playlist_and_add_track(name, track_id, cx);
         }))
         .into_any_element(),
     );
@@ -3000,11 +3031,11 @@ fn render_action_row(
     let action_vm = LibraryTrackActionVm::new(
         frame.subscription_busy,
         frame.local_subscription,
-        frame.add_to_playlist_open,
         frame.subscription_message.as_deref(),
     );
     let subscription_message = action_vm.subscription_message().map(str::to_owned);
     let subscription_message_is_error = action_vm.message_is_error();
+    let track_id = frame.entity_id;
 
     div()
         .flex()
@@ -3019,18 +3050,18 @@ fn render_action_row(
                 })),
         )
         .child(
-            action_button(action_vm.add_to_playlist_label(), cx).on_click(cx.listener(
-                |this, _, _, cx| {
-                    if let Some(frame) = this.selected_track_frame_mut() {
-                        frame.add_to_playlist_open = !frame.add_to_playlist_open;
-                    }
-                    cx.notify();
-                },
-            )),
+            AddToPlaylistPopover::new(
+                SharedString::from(format!("track-inspector-add:{track_id}")),
+                playlists.to_vec(),
+            )
+            .trigger_label(LibraryTrackActionVm::add_to_playlist_label())
+            .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
+                this.add_track_to_playlist(track_id, *playlist_id, cx);
+            }))
+            .on_create(cx.listener(move |this, name: &String, _window, cx| {
+                this.create_playlist_and_add_track(name, track_id, cx);
+            })),
         )
-        .when(frame.add_to_playlist_open, |el| {
-            el.child(render_add_to_playlist_panel(frame, playlists, cx))
-        })
         .when_some(subscription_message, |el, message| {
             el.child(
                 div()
@@ -3131,51 +3162,6 @@ fn render_action_row(
             )
         })
         .into_any_element()
-}
-
-fn render_add_to_playlist_panel(
-    frame: &InspectorFrame,
-    playlists: &[db::Playlist],
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let track_id = frame.entity_id;
-
-    let mut panel = div()
-        .border_1()
-        .border_color(color::border_subtle())
-        .rounded(radius::SM)
-        .bg(color::bg_surface())
-        .p(spacing::SM)
-        .gap(spacing::XS)
-        .flex()
-        .flex_col();
-
-    if playlists.is_empty() {
-        panel = panel.child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .text_color(color::text_muted())
-                .child(SharedString::from(
-                    "No playlists yet — create one from the sidebar.",
-                )),
-        );
-        return panel.into_any_element();
-    }
-
-    for p in playlists {
-        let playlist_id = p.id;
-        let label = format!("{} ({})", p.name, p.track_count);
-        panel = panel.child(action_button(&label, cx).on_click(cx.listener(
-            move |this, _, _, cx| {
-                if let Some(frame) = this.selected_track_frame_mut() {
-                    frame.add_to_playlist_open = false;
-                }
-                this.add_track_to_playlist(track_id, playlist_id, cx);
-            },
-        )));
-    }
-
-    panel.into_any_element()
 }
 
 fn render_file_header(result: &TagCompareResult, cx: &mut Context<LibraryApp>) -> AnyElement {

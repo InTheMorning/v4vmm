@@ -40,7 +40,6 @@ pub(crate) fn render_track_row(
     is_in_flight: bool,
     feed_guid: Option<&str>,
     feed_url: Option<&str>,
-    _open_guid: Option<&str>,
     playlists: &[db::Playlist],
     mode: TrackRowMode,
     cx: &mut Context<SearchApp>,

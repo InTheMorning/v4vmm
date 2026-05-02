@@ -54,6 +54,7 @@ pub struct AddToPlaylistPopover {
     id: SharedString,
     playlists: Vec<db::Playlist>,
     trigger_label: SharedString,
+    disabled: bool,
     on_select: Option<SelectHandler>,
     on_create: Option<CreateHandler>,
 }
@@ -65,6 +66,7 @@ impl AddToPlaylistPopover {
             id: id.into(),
             playlists,
             trigger_label: "+ Playlist".into(),
+            disabled: false,
             on_select: None,
             on_create: None,
         }
@@ -73,6 +75,12 @@ impl AddToPlaylistPopover {
     /// Override the trigger label for release-level actions.
     pub fn trigger_label(mut self, label: impl Into<SharedString>) -> Self {
         self.trigger_label = label.into();
+        self
+    }
+
+    /// Disable the trigger when the surrounding screen action is unavailable.
+    pub const fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
         self
     }
 
@@ -106,6 +114,7 @@ impl RenderOnce for AddToPlaylistPopover {
         let on_create = self.on_create;
         let can_create = on_create.is_some();
         let trigger_id = SharedString::from(format!("{}-btn", self.id));
+        let disabled = self.disabled;
 
         Popover::new(self.id)
             .placement(PopoverPlacement::Below)
@@ -131,7 +140,8 @@ impl RenderOnce for AddToPlaylistPopover {
                 // discoverable than a plain ghost label.
                 Button::tinted(trigger_id)
                     .size(ButtonSize::Sm)
-                    .label(trigger_label),
+                    .label(trigger_label)
+                    .disabled(disabled),
             )
             .content(move |_window, cx| {
                 let (creating, name_input) = {

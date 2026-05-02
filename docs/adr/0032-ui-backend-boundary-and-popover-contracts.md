@@ -37,7 +37,9 @@ Codify a repository-wide UI/backend boundary:
 For playlist popovers specifically, screens may decide which playlists are
 available and what command runs after selection, but the trigger, floating
 surface, width, arrow, dismissal, list row treatment, and empty state belong to
-`AddToPlaylistPopover` and the underlying `Popover` primitive.
+`AddToPlaylistPopover` and the underlying `Popover` primitive. Every playlist
+popover must expose `+ New Playlist`; screens own the create-then-append
+callback via `.on_create(...)`.
 
 ## Invariants
 
@@ -75,10 +77,12 @@ surface, width, arrow, dismissal, list row treatment, and empty state belong to
 
 ## Consequences
 
-- Existing hand-rolled playlist panels should migrate to
-  `AddToPlaylistPopover`.
-- Architecture tests reject new raw playlist popover panel growth in screen
-  modules and hard-ban the Library release-detail regression patterns.
+- Existing hand-rolled playlist panels migrated to `AddToPlaylistPopover`.
+- Architecture tests reject raw playlist popover panel growth in screen modules
+  with a zero baseline and hard-ban the Library release-detail regression
+  patterns.
+- Architecture tests reject playlist popover call sites that omit create-mode
+  wiring.
 - Task packets touching UI/backend boundaries include explicit boundary rules
   and visual smoke expectations.
 - Design regressions like full-width popovers should be treated as boundary

@@ -256,34 +256,37 @@ const SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES: &[ScreenLocalPlaylistPopoverBasel
     ScreenLocalPlaylistPopoverBaseline {
         file: "src/library.rs",
         pattern: "fn render_add_to_playlist_panel(",
-        max_count: 1,
+        max_count: 0,
         note: "legacy Library track-inspector playlist panel",
     },
     ScreenLocalPlaylistPopoverBaseline {
         file: "src/library.rs",
         pattern: ".when(frame.add_to_playlist_open, |el|",
-        max_count: 1,
+        max_count: 0,
         note: "legacy Library track-inspector playlist panel toggle",
     },
     ScreenLocalPlaylistPopoverBaseline {
         file: "src/search.rs",
         pattern: "fn render_add_to_playlist_panel_search(",
-        max_count: 1,
+        max_count: 0,
         note: "legacy Discover inspector playlist panel",
     },
     ScreenLocalPlaylistPopoverBaseline {
         file: "src/search.rs",
         pattern: ".when(frame.add_to_playlist_open, |el|",
-        max_count: 1,
+        max_count: 0,
         note: "legacy Discover inspector playlist panel toggle",
     },
     ScreenLocalPlaylistPopoverBaseline {
         file: "src/search.rs",
         pattern: "fn render_row_playlist_popup(",
-        max_count: 1,
+        max_count: 0,
         note: "legacy Discover row popup compatibility wrapper",
     },
 ];
+
+const PLAYLIST_POPOVER_CALLSITE_FILES: &[&str] =
+    &["src/library.rs", "src/search.rs", "src/ui_track.rs"];
 
 const RELEASE_PLAYLIST_POPOVER_FORBIDDEN_PATTERNS: &[&str] = &[
     "render_album_track_add_panel",
@@ -968,6 +971,48 @@ fn library_release_detail_playlist_popovers_use_shared_composite() {
     assert!(
         violations.is_empty(),
         "ADR 0032 Library release-detail playlist popover violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn playlist_popover_calls_wire_create_mode() {
+    let mut violations = Vec::new();
+
+    for file in PLAYLIST_POPOVER_CALLSITE_FILES {
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        let lines: Vec<&str> = source.lines().collect();
+        for (index, raw) in lines.iter().enumerate() {
+            let line = strip_line_comment(raw);
+            if !line.contains("AddToPlaylistPopover::new(") {
+                continue;
+            }
+            let next_call = lines[index + 1..]
+                .iter()
+                .position(|candidate| {
+                    strip_line_comment(candidate).contains("AddToPlaylistPopover::new(")
+                })
+                .map_or(lines.len(), |offset| index + 1 + offset);
+            let end = (index + 80).min(next_call).min(lines.len());
+            let chain = lines[index..end]
+                .iter()
+                .map(|candidate| strip_line_comment(candidate))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !chain.contains(".on_create(") {
+                violations.push(format!(
+                    "{file}:{}: ADR 0032 playlist popovers must expose `+ New Playlist` via `.on_create(...)`: `{}`",
+                    index + 1,
+                    line.trim()
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0032 playlist popover create-mode violations:\n{}",
         violations.join("\n")
     );
 }
