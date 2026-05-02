@@ -61,7 +61,7 @@ screen modules may still inject callbacks, image handles, and action elements.
 
 ### Phase 3 - Track Section Parity
 
-Status: Planned.
+Status: Completed.
 
 Task: `docs/tasks/adr-0031-task-003-track-section-parity.md`
 

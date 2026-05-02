@@ -1121,18 +1121,6 @@ impl<'a> LibraryTrackRowVm<'a> {
         Self { track, mb }
     }
 
-    /// Display title — the row's `track_title`, or `"[untitled]"` if
-    /// absent. Matches the legacy `library::render_library_track_row`
-    /// fallback exactly.
-    #[must_use]
-    pub(crate) fn title(&self) -> String {
-        self.track
-            .track_title
-            .as_deref()
-            .unwrap_or("[untitled]")
-            .to_string()
-    }
-
     /// Leading `"{n}. "` segment, empty when there is no track number.
     #[cfg(test)]
     #[must_use]
@@ -1141,14 +1129,6 @@ impl<'a> LibraryTrackRowVm<'a> {
             .track_number
             .map(|n| format!("{n}. "))
             .unwrap_or_default()
-    }
-
-    /// Leading track-number label for the shared [`TrackRow`] composite.
-    #[must_use]
-    pub(crate) fn number_label(&self) -> String {
-        self.track
-            .track_number
-            .map_or_else(|| "·".into(), |n| n.to_string())
     }
 
     /// Trailing `"  (M:SS)"` segment, empty when there is no
@@ -1160,14 +1140,6 @@ impl<'a> LibraryTrackRowVm<'a> {
             .duration_seconds
             .map(|s| format!("  ({}:{:02})", s / 60, s % 60))
             .unwrap_or_default()
-    }
-
-    /// Duration label for the shared [`TrackRow`] composite.
-    #[must_use]
-    pub(crate) fn duration_display(&self) -> Option<String> {
-        self.track
-            .duration_seconds
-            .map(|seconds| format!("{}:{:02}", seconds / 60, seconds % 60))
     }
 
     /// Add-to-playlist action label for the row.
@@ -1213,18 +1185,6 @@ impl<'a> LibraryTrackRowVm<'a> {
     #[must_use]
     fn track_ref(&self) -> TrackRef {
         TrackRef::LocalTrackId(self.track.id)
-    }
-
-    /// Concatenated single-line label: `"{n}. {title}  (M:SS)"`.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn full_label(&self) -> String {
-        format!(
-            "{}{}{}",
-            self.number_prefix(),
-            self.title(),
-            self.duration_suffix()
-        )
     }
 
     /// Human-readable `MusicBrainz` status hint, or `None` when no
@@ -1647,21 +1607,11 @@ mod tests {
     }
 
     #[test]
-    fn title_falls_back_to_untitled_marker() {
-        assert_eq!(LibraryTrackRowVm::new(&row(), None).title(), "[untitled]");
-        let mut r = row();
-        r.track_title = Some("Hello".into());
-        assert_eq!(LibraryTrackRowVm::new(&r, None).title(), "Hello");
-    }
-
-    #[test]
     fn number_prefix_renders_only_when_present() {
         assert_eq!(LibraryTrackRowVm::new(&row(), None).number_prefix(), "");
         let mut r = row();
         r.track_number = Some(7);
         assert_eq!(LibraryTrackRowVm::new(&r, None).number_prefix(), "7. ");
-        assert_eq!(LibraryTrackRowVm::new(&r, None).number_label(), "7");
-        assert_eq!(LibraryTrackRowVm::new(&row(), None).number_label(), "·");
     }
 
     #[test]
@@ -1671,12 +1621,6 @@ mod tests {
         assert_eq!(
             LibraryTrackRowVm::new(&r, None).duration_suffix(),
             "  (1:05)"
-        );
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, None)
-                .duration_display()
-                .as_deref(),
-            Some("1:05")
         );
     }
 
@@ -1768,18 +1712,6 @@ mod tests {
         let vm = LibraryTrackRowVm::new(&r, None);
         assert_eq!(vm.primary_action_vm(false).label, "Download");
         assert_eq!(vm.playlist_action_label(false), "+ Playlist");
-    }
-
-    #[test]
-    fn full_label_concatenates_segments() {
-        let mut r = row();
-        r.track_number = Some(3);
-        r.track_title = Some("Track Three".into());
-        r.duration_seconds = Some(245);
-        assert_eq!(
-            LibraryTrackRowVm::new(&r, None).full_label(),
-            "3. Track Three  (4:05)"
-        );
     }
 
     #[test]

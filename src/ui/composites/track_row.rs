@@ -190,7 +190,7 @@ impl RenderOnce for TrackRow {
         for child in self.trailing {
             row = row.child(child);
         }
-        row
+        div().min_h(crate::ui::layouts::ROW_HEIGHT).child(row)
     }
 }
 

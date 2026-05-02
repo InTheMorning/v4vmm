@@ -5,10 +5,12 @@
 
 #![warn(clippy::pedantic)]
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    div, AnyElement, Image, InteractiveElement, IntoElement, ParentElement, SharedString, Styled,
+    div, AnyElement, App, ClickEvent, Image, InteractiveElement, IntoElement, ParentElement,
+    SharedString, Styled, Window,
 };
 
 use crate::ui::composites::{
@@ -23,10 +25,31 @@ use crate::view_models::entity_detail::{
     ReleaseDetailPageVm, ReleaseHeroVm, ReleasePanelKind, ReleasePanelVm, SharedTrackRowVm,
 };
 
+type ReleaseTrackRowClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+
 #[derive(Default)]
 pub struct ContributorRowSlot {
     pub thumbnail: Option<Arc<Image>>,
     pub actions: Vec<AnyElement>,
+}
+
+#[derive(Default)]
+pub struct ReleaseTrackRowSlot {
+    pub thumbnail: Option<Arc<Image>>,
+    pub on_click: Option<ReleaseTrackRowClick>,
+    pub actions: Vec<AnyElement>,
+    pub popover: Option<AnyElement>,
+}
+
+impl ReleaseTrackRowSlot {
+    #[must_use]
+    pub fn on_click<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    {
+        self.on_click = Some(Rc::new(handler));
+        self
+    }
 }
 
 #[derive(Default)]
@@ -107,6 +130,39 @@ pub fn render_contributor_panel(
             )
             .into_any_element(),
     )
+}
+
+pub fn render_release_track_row(
+    id: impl Into<SharedString>,
+    row: SharedTrackRowVm<'_>,
+    slot: ReleaseTrackRowSlot,
+) -> AnyElement {
+    let mut track_row = TrackRow::new(id.into())
+        .number(row.number_label())
+        .title(row.title())
+        .duration(row.duration_display())
+        .thumbnail(slot.thumbnail);
+
+    if let Some(on_click) = slot.on_click {
+        track_row = track_row.on_click(move |event, window, cx| on_click(event, window, cx));
+    }
+
+    for action in slot.actions {
+        track_row = track_row.trailing_child(action);
+    }
+
+    let row = track_row.into_any_element();
+    if let Some(popover) = slot.popover {
+        div()
+            .flex()
+            .flex_col()
+            .gap(spacing::XXS)
+            .child(row)
+            .child(popover)
+            .into_any_element()
+    } else {
+        row
+    }
 }
 
 pub fn render_contributor_rows(
@@ -288,11 +344,11 @@ fn render_track_rows(rows: Vec<SharedTrackRowVm<'_>>) -> Vec<AnyElement> {
     rows.into_iter()
         .enumerate()
         .map(|(index, row)| {
-            TrackRow::new(SharedString::from(format!("entity-track:{index}")))
-                .number(row.number_label())
-                .title(row.title())
-                .duration(row.duration_display())
-                .into_any_element()
+            render_release_track_row(
+                SharedString::from(format!("entity-track:{index}")),
+                row,
+                ReleaseTrackRowSlot::default(),
+            )
         })
         .collect()
 }
@@ -320,6 +376,16 @@ mod tests {
         assert!(slots.action_overlays.is_empty());
         assert!(slots.track_rows.is_none());
         assert!(slots.after_section.is_empty());
+    }
+
+    #[test]
+    fn release_track_row_slot_starts_empty() {
+        let slot = ReleaseTrackRowSlot::default();
+
+        assert!(slot.thumbnail.is_none());
+        assert!(slot.on_click.is_none());
+        assert!(slot.actions.is_empty());
+        assert!(slot.popover.is_none());
     }
 
     #[test]

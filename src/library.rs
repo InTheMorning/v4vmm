@@ -67,19 +67,18 @@ use crate::ui::composites::{
     action_button, identity_action_button, DetailGrid, DetailHeader,
     DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind, IdentityActionKind, ListRow,
     ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
-    TrackRow as TrackRowComposite,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, MultilineText};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{
-    render_contributor_panel, render_release_detail_shell, ContributorRowSlot,
-    ReleaseDetailBehaviorSlots,
+    render_contributor_panel, render_release_detail_shell, render_release_track_row,
+    ContributorRowSlot, ReleaseDetailBehaviorSlots, ReleaseTrackRowSlot,
 };
 use crate::view_models::entity_detail::{
     ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone, EntitySurfaceContext,
-    MetadataPanelState, ReleaseDetailVm, TrackMetadataActionState,
+    MetadataPanelState, ReleaseDetailVm, SharedTrackRowVm, TrackMetadataActionState,
 };
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
@@ -2618,17 +2617,7 @@ fn render_library_track_row(
         }
         cx.notify();
     }));
-
-    let mut row = TrackRowComposite::new(SharedString::from(format!("album-track-{track_id}")))
-        .number(vm.number_label())
-        .title(vm.title())
-        .duration(vm.duration_display())
-        .thumbnail(thumbnail)
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.select_track(&track_for_select, cx);
-            cx.notify();
-        }))
-        .trailing_child(toggle_button);
+    let mut actions = vec![toggle_button.into_any_element()];
 
     if let Some(text) = mb_text {
         let status_color = match mb_kind {
@@ -2637,15 +2626,16 @@ fn render_library_track_row(
             Some(MbStatusKind::Warning) => StatusRole::Warning.color(cx),
             _ => color::text_muted(),
         };
-        row = row.trailing_child(
+        actions.push(
             div()
                 .text_size(typography::SIZE_MICRO)
                 .text_color(status_color)
-                .child(SharedString::from(text.to_string())),
+                .child(SharedString::from(text.to_string()))
+                .into_any_element(),
         );
     }
 
-    row = row.trailing_child(
+    actions.push(
         UiButton::styled(
             SharedString::from(format!("album-track-add-{track_id}")),
             ControlStyle::RowAction,
@@ -2654,21 +2644,31 @@ fn render_library_track_row(
         .on_click(cx.listener(move |this, _, _, cx| {
             this.vm.toggle_album_track_picker(track_id);
             cx.notify();
-        })),
+        }))
+        .into_any_element(),
     );
 
-    if popup_open {
-        let popup = render_album_track_add_panel(track_id, playlists, cx);
-        div()
-            .flex()
-            .flex_col()
-            .gap(spacing::XXS)
-            .child(row)
-            .child(popup)
-            .into_any_element()
-    } else {
-        row.into_any_element()
+    let track_view = TrackView::from_local(track.clone());
+    let row_vm = SharedTrackRowVm::new(&track_view, EntitySurfaceContext::Library);
+    let mut slot = ReleaseTrackRowSlot {
+        thumbnail,
+        actions,
+        ..ReleaseTrackRowSlot::default()
     }
+    .on_click(cx.listener(move |this, _, _, cx| {
+        this.select_track(&track_for_select, cx);
+        cx.notify();
+    }));
+
+    if popup_open {
+        slot.popover = Some(render_album_track_add_panel(track_id, playlists, cx));
+    }
+
+    render_release_track_row(
+        SharedString::from(format!("album-track-{track_id}")),
+        row_vm,
+        slot,
+    )
 }
 
 fn render_album_track_add_panel(

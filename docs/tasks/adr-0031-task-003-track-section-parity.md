@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned - 2026-05-01.
+Completed - 2026-05-01.
 
 ## Goal
 
@@ -61,13 +61,37 @@ already come from Task 002.
 
 ## Acceptance Criteria
 
-- [ ] Track rows align consistently between surfaces.
-- [ ] Row column order is number, artwork/thumb, title and secondary metadata,
+- [x] Track rows align consistently between surfaces.
+- [x] Row column order is number, artwork/thumb, title and secondary metadata,
   duration, surface action slot.
-- [ ] Number column width and row height are constants in one shared place.
-- [ ] Surfaces populate one named action slot and cannot reorder it.
-- [ ] Surface-specific actions remain available through action slots.
-- [ ] Empty/loading states use the same section placement.
+- [x] Number column width and row height are constants in one shared place.
+- [x] Surfaces populate one named action slot and cannot reorder it.
+- [x] Surface-specific actions remain available through action slots.
+- [x] Empty/loading states use the same section placement.
+
+## Implementation Summary
+
+Task 003 introduced `render_release_track_row` and `ReleaseTrackRowSlot` in
+`src/ui_entity.rs` as the shared release-track row template. Library and
+Discovery now populate the same named behavior slot with thumbnails, click
+handlers, trailing actions, and optional row popovers instead of assembling
+`TrackRow` directly in screen modules.
+
+The shared `TrackRow` composite now owns fixed row height via
+`ui::layouts::ROW_HEIGHT`; it already owned the fixed number column through
+`ui::layouts::TRACK_NUMBER_WIDTH`. Library display text fallback moved to
+`SharedTrackRowVm` / `TrackView` projection, leaving Library row view-model code
+focused on action state.
+
+Verification completed:
+
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test ui_entity`
+- `cargo test view_models::entity_detail`
+- `cargo test view_models::library`
+- `cargo test --test architecture_tests`
+- `cargo clippy --lib --tests -- -D warnings`
 
 ## Test Commands
 
