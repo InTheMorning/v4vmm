@@ -7,7 +7,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::view_models::format::fmt_runtime;
+use crate::view_models::format::{fmt_date, fmt_runtime};
 use crate::view_models::track::fmt_dur;
 use crate::views::{
     ArtistRef, ArtworkRef, ContributorView, EntityIdentityLinks, FeedRef, FeedView, TrackRef,
@@ -38,6 +38,7 @@ pub enum EntityActionKind {
     OpenMusicBrainz,
     OpenWebsite,
     CopyNostr,
+    OpenRss,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -444,6 +445,45 @@ pub struct EntityHeaderVm<'a> {
     pub identity: IdentityLinksVm<'a>,
 }
 
+#[derive(Clone, Debug)]
+pub struct ReleaseDetailPageVm<'a> {
+    pub hero: ReleaseHeroVm<'a>,
+    pub primary_actions: Vec<EntityActionVm>,
+    pub identity_actions: Vec<EntityActionVm>,
+    pub summary_facts: Vec<ReleaseFactVm>,
+    pub panels: Vec<ReleasePanelVm>,
+    pub tracks: TrackListVm<'a>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReleaseHeroVm<'a> {
+    pub kind: EntitySurfaceKind,
+    pub artwork: Option<&'a ArtworkRef>,
+    pub title: &'a str,
+    pub subtitle: Option<&'a str>,
+    pub supporting_line: Option<&'a str>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleaseFactVm {
+    pub key: &'static str,
+    pub value: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReleasePanelKind {
+    Description,
+    Identity,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleasePanelVm {
+    pub kind: ReleasePanelKind,
+    pub title: &'static str,
+    pub body: Option<String>,
+    pub rows: Vec<EntityDetailRow>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IdentityLinksVm<'a> {
     identity: &'a EntityIdentityLinks,
@@ -498,10 +538,40 @@ pub struct ReleaseDetailVm<'a> {
     context: EntitySurfaceContext,
 }
 
+const MAX_RELEASE_SUMMARY_FACTS: usize = 5;
+
 impl<'a> ReleaseDetailVm<'a> {
     #[must_use]
     pub const fn new(view: &'a FeedView, context: EntitySurfaceContext) -> Self {
         Self { view, context }
+    }
+
+    #[must_use]
+    pub fn page(&self) -> ReleaseDetailPageVm<'a> {
+        ReleaseDetailPageVm {
+            hero: self.hero(),
+            primary_actions: self.actions(),
+            identity_actions: self.identity_actions(),
+            summary_facts: self.summary_facts(),
+            panels: self.panels(),
+            tracks: self.track_list(),
+        }
+    }
+
+    #[must_use]
+    pub fn hero(&self) -> ReleaseHeroVm<'a> {
+        ReleaseHeroVm {
+            kind: EntitySurfaceKind::Feed,
+            artwork: self.view.artwork.as_ref(),
+            title: self
+                .view
+                .title
+                .as_deref()
+                .and_then(hero_text)
+                .unwrap_or("Unknown Feed"),
+            subtitle: self.view.artist.as_deref().and_then(hero_text),
+            supporting_line: self.view.publisher_text.as_deref().and_then(hero_text),
+        }
     }
 
     #[must_use]
@@ -514,6 +584,75 @@ impl<'a> ReleaseDetailVm<'a> {
             artwork: self.view.artwork.as_ref(),
             identity: IdentityLinksVm::new(&self.view.identity),
         }
+    }
+
+    #[must_use]
+    pub fn summary_facts(&self) -> Vec<ReleaseFactVm> {
+        let mut facts = Vec::with_capacity(MAX_RELEASE_SUMMARY_FACTS);
+        facts.push(ReleaseFactVm {
+            key: "Release Kind",
+            value: self
+                .view
+                .release_kind
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string()),
+        });
+        if let Some(date) = self.view.release_date.and_then(fmt_date) {
+            facts.push(ReleaseFactVm {
+                key: "Release Date",
+                value: date,
+            });
+        }
+        if let Some(count) = self.view.episode_count {
+            facts.push(ReleaseFactVm {
+                key: "Tracks",
+                value: count.to_string(),
+            });
+        }
+        if let Some(duration) = self.total_duration_fact() {
+            facts.push(ReleaseFactVm {
+                key: "Duration",
+                value: duration,
+            });
+        }
+        if let Some(language) = nonempty(self.view.language.as_deref()) {
+            facts.push(ReleaseFactVm {
+                key: "Language",
+                value: language.to_string(),
+            });
+        }
+        if self.view.explicit == Some(true) {
+            facts.push(ReleaseFactVm {
+                key: "Explicit",
+                value: "Yes".to_string(),
+            });
+        }
+        facts.truncate(MAX_RELEASE_SUMMARY_FACTS);
+        facts
+    }
+
+    #[must_use]
+    pub fn panels(&self) -> Vec<ReleasePanelVm> {
+        let mut panels = Vec::with_capacity(2);
+        if let Some(description) = nonempty(self.view.description.as_deref()) {
+            panels.push(ReleasePanelVm {
+                kind: ReleasePanelKind::Description,
+                title: "Description",
+                body: Some(description.to_string()),
+                rows: Vec::new(),
+            });
+        }
+
+        let identity_rows = self.identity_panel_rows();
+        if !identity_rows.is_empty() {
+            panels.push(ReleasePanelVm {
+                kind: ReleasePanelKind::Identity,
+                title: "Identity",
+                body: None,
+                rows: identity_rows,
+            });
+        }
+        panels
     }
 
     #[must_use]
@@ -588,9 +727,21 @@ impl<'a> ReleaseDetailVm<'a> {
 
     #[must_use]
     pub fn identity_actions(&self) -> Vec<EntityActionVm> {
-        self.view.id.clone().map_or_else(Vec::new, |id| {
-            IdentityLinksVm::new(&self.view.identity).actions(EntityActionTarget::Feed(id))
-        })
+        let Some(id) = self.view.id.clone() else {
+            return Vec::new();
+        };
+
+        let target = EntityActionTarget::Feed(id);
+        let mut actions = IdentityLinksVm::new(&self.view.identity).actions(target.clone());
+        if nonempty(self.view.feed_url.as_deref()).is_some() {
+            actions.push(EntityActionVm::new(
+                EntityActionKind::OpenRss,
+                target,
+                "RSS",
+                EntityActionTone::Quiet,
+            ));
+        }
+        actions
     }
 
     #[must_use]
@@ -614,6 +765,47 @@ impl<'a> ReleaseDetailVm<'a> {
     #[must_use]
     pub fn track_list(&self) -> TrackListVm<'a> {
         TrackListVm::new(&self.view.tracks, self.context)
+    }
+
+    #[must_use]
+    fn total_duration_fact(&self) -> Option<String> {
+        let total = self
+            .view
+            .tracks
+            .iter()
+            .filter_map(|track| track.duration_secs)
+            .sum::<i32>();
+        (total > 0).then(|| fmt_runtime(total))
+    }
+
+    #[must_use]
+    fn identity_panel_rows(&self) -> Vec<EntityDetailRow> {
+        let mut rows = Vec::with_capacity(4);
+        if let Some(website) = nonempty(self.view.identity.website_url.as_deref()) {
+            rows.push(EntityDetailRow {
+                key: "Website",
+                value: website.to_string(),
+            });
+        }
+        if let Some(npub) = nonempty(self.view.identity.nostr_npub.as_deref()) {
+            rows.push(EntityDetailRow {
+                key: "Nostr",
+                value: npub.to_string(),
+            });
+        }
+        if let Some(feed_url) = nonempty(self.view.feed_url.as_deref()) {
+            rows.push(EntityDetailRow {
+                key: "Feed URL",
+                value: feed_url.to_string(),
+            });
+        }
+        if let Some(guid) = nonempty(self.view.feed_guid.as_deref()) {
+            rows.push(EntityDetailRow {
+                key: "GUID",
+                value: guid.to_string(),
+            });
+        }
+        rows
     }
 }
 
@@ -815,6 +1007,31 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
+fn hero_text(value: &str) -> Option<&str> {
+    let value = nonempty(Some(value))?;
+    (!is_machine_text(value)).then_some(value)
+}
+
+fn is_machine_text(value: &str) -> bool {
+    value.contains('\n')
+        || value.contains('\r')
+        || is_raw_url(value)
+        || value.to_ascii_lowercase().starts_with("npub1")
+        || is_long_machine_identifier(value)
+}
+
+fn is_raw_url(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    lower.contains("://") || lower.starts_with("www.")
+}
+
+fn is_long_machine_identifier(value: &str) -> bool {
+    value.len() >= 32
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -824,6 +1041,7 @@ mod tests {
         FeedView {
             id: Some(FeedRef::Musicindex("feed-guid".into())),
             title: Some("Release".into()),
+            feed_url: Some("https://feeds.example.test/rss.xml".into()),
             artist: Some("Artist".into()),
             release_kind: Some("album".into()),
             publisher_text: Some("Publisher".into()),
@@ -919,14 +1137,147 @@ mod tests {
     }
 
     #[test]
-    fn identity_actions_include_website_and_nostr() {
+    fn release_page_contract_exposes_canonical_zones() {
+        let feed = feed_view();
+        let page = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).page();
+
+        assert_eq!(page.hero.kind, EntitySurfaceKind::Feed);
+        assert_eq!(page.hero.title, "Release");
+        assert_eq!(page.primary_actions.len(), 2);
+        assert_eq!(page.identity_actions.len(), 3);
+        assert!(!page.summary_facts.is_empty());
+        assert!(!page.panels.is_empty());
+        assert_eq!(page.tracks.rows().len(), 2);
+    }
+
+    #[test]
+    fn release_page_hero_excludes_machine_values_and_descriptions() {
+        let mut feed = feed_view();
+        let long_guid = "0123456789abcdef0123456789abcdef".to_string();
+        feed.feed_guid = Some(long_guid.clone());
+        feed.feed_url = Some("https://feeds.example.test/rss.xml".into());
+        feed.title = Some("https://example.test/release".into());
+        feed.artist = Some("npub1artistmachinevalue".into());
+        feed.publisher_text = Some(long_guid.clone());
+        feed.description = Some("First line\nSecond line".into());
+
+        let page = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).page();
+        let hero_text = [
+            Some(page.hero.title),
+            page.hero.subtitle,
+            page.hero.supporting_line,
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+        assert_eq!(page.hero.title, "Unknown Feed");
+        assert!(!hero_text.contains("https://"));
+        assert!(!hero_text.contains("npub1"));
+        assert!(!hero_text.contains(&long_guid));
+        assert!(!hero_text.contains("First line"));
+        assert!(!hero_text.contains('\n'));
+        assert!(page.panels.iter().any(|panel| {
+            panel.kind == ReleasePanelKind::Description
+                && panel.body.as_deref() == Some("First line\nSecond line")
+        }));
+        assert!(page.panels.iter().any(|panel| {
+            panel.kind == ReleasePanelKind::Identity
+                && panel.rows.iter().any(|row| row.value == long_guid)
+        }));
+    }
+
+    #[test]
+    fn release_page_summary_facts_are_ordered_and_capped() {
+        let mut feed = feed_view();
+        feed.release_date = Some(1_712_275_200);
+
+        let facts = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).summary_facts();
+
+        assert_eq!(facts.len(), 5);
+        assert_eq!(
+            facts
+                .iter()
+                .map(|fact| (fact.key, fact.value.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Release Kind", "album"),
+                ("Release Date", "Apr 5, 2024"),
+                ("Tracks", "2"),
+                ("Duration", "3 min"),
+                ("Language", "en"),
+            ]
+        );
+    }
+
+    #[test]
+    fn release_page_places_description_in_one_panel_only() {
+        let feed = feed_view();
+        let page = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).page();
+        let description_panels = page
+            .panels
+            .iter()
+            .filter(|panel| panel.kind == ReleasePanelKind::Description)
+            .collect::<Vec<_>>();
+
+        assert_eq!(description_panels.len(), 1);
+        assert_eq!(
+            description_panels[0].body.as_deref(),
+            Some("Release description")
+        );
+        assert_ne!(page.hero.title, "Release description");
+        assert_ne!(page.hero.subtitle, Some("Release description"));
+        assert_ne!(page.hero.supporting_line, Some("Release description"));
+        assert!(page
+            .summary_facts
+            .iter()
+            .all(|fact| fact.value != "Release description"));
+    }
+
+    #[test]
+    fn release_page_structural_zones_match_across_surfaces() {
+        let feed = feed_view();
+        let discover = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).page();
+        let library = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).page();
+
+        assert_eq!(discover.hero.kind, library.hero.kind);
+        assert_eq!(discover.hero.artwork, library.hero.artwork);
+        assert_eq!(discover.hero.title, library.hero.title);
+        assert_eq!(discover.hero.subtitle, library.hero.subtitle);
+        assert_eq!(discover.hero.supporting_line, library.hero.supporting_line);
+        assert_eq!(
+            discover.primary_actions.len(),
+            library.primary_actions.len()
+        );
+        assert_eq!(discover.identity_actions, library.identity_actions);
+        assert_eq!(discover.summary_facts, library.summary_facts);
+        assert_eq!(
+            discover
+                .panels
+                .iter()
+                .map(|panel| panel.kind)
+                .collect::<Vec<_>>(),
+            library
+                .panels
+                .iter()
+                .map(|panel| panel.kind)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(discover.tracks.summary(), library.tracks.summary());
+        assert_eq!(discover.tracks.rows().len(), library.tracks.rows().len());
+    }
+
+    #[test]
+    fn identity_actions_include_website_nostr_and_rss() {
         let feed = feed_view();
         let actions =
             ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).identity_actions();
 
-        assert_eq!(actions.len(), 2);
+        assert_eq!(actions.len(), 3);
         assert_eq!(actions[0].kind, EntityActionKind::OpenWebsite);
         assert_eq!(actions[1].kind, EntityActionKind::CopyNostr);
+        assert_eq!(actions[2].kind, EntityActionKind::OpenRss);
         assert!(actions.iter().all(|action| action.enabled));
     }
 
