@@ -85,7 +85,7 @@ use crate::view_models::library::{
     MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm,
     TrackSubscribeOutcome,
 };
-use crate::view_models::metadata::FileHeaderVm;
+use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::track::TrackHeaderVm;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
@@ -3613,13 +3613,9 @@ fn value_routes_tree_elements(
         .into_iter()
         .enumerate()
         .map(|(index, route)| {
-            let name = route
-                .get("recipient_name")
-                .and_then(serde_json::Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or("Unknown");
+            let name = value_route_recipient_label(&route);
             let split = route.get("split").and_then(route_split_label);
-            let label = split.map_or_else(|| name.to_string(), |split| format!("{name} {split}"));
+            let label = split.map_or_else(|| name.clone(), |split| format!("{name} {split}"));
             let sub_key = format!("{column}:{row_id}:{index}");
             let sub_expanded = expanded_cells.contains(&sub_key);
             let sub_glyph = if sub_expanded { "v" } else { ">" };

@@ -33,6 +33,16 @@ impl FileHeaderVm {
     }
 }
 
+#[must_use]
+pub fn value_route_recipient_label(route: &serde_json::Value) -> String {
+    route
+        .get("recipient_name")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map_or_else(|| "Unknown".to_string(), str::to_string)
+}
+
 fn embedded_tag_label(result: &TagCompareResult) -> String {
     result.format.map_or_else(
         || "Embedded tags".into(),
@@ -90,5 +100,21 @@ mod tests {
 
         assert_eq!(vm.badge_label, "Embedded tags");
         assert_eq!(vm.title, "Embedded tags");
+    }
+
+    #[test]
+    fn value_route_recipient_label_trims_and_falls_back() {
+        assert_eq!(
+            value_route_recipient_label(&serde_json::json!({"recipient_name": " Alice "})),
+            "Alice"
+        );
+        assert_eq!(
+            value_route_recipient_label(&serde_json::json!({"recipient_name": "   "})),
+            "Unknown"
+        );
+        assert_eq!(
+            value_route_recipient_label(&serde_json::json!({})),
+            "Unknown"
+        );
     }
 }

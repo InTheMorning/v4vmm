@@ -1088,6 +1088,17 @@ fn screens_do_not_duplicate_render_helpers_without_baseline() {
 }
 
 #[test]
+fn screens_do_not_inline_value_route_recipient_label_fallbacks() {
+    for file in SCREEN_FILES {
+        let source = read_source(&manifest_path(file));
+        assert!(
+            !source.contains(".get(\"recipient_name\")"),
+            "{file}: value-route recipient display labels must be projected by `view_models::metadata::value_route_recipient_label`, not rebuilt in screen code"
+        );
+    }
+}
+
+#[test]
 fn library_release_detail_playlist_popovers_use_shared_composite() {
     let path = manifest_path("src/library.rs");
     let source = read_source(&path);

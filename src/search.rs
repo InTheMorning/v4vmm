@@ -69,6 +69,7 @@ use crate::view_models::entity_detail::{
     EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
 };
 use crate::view_models::format::{optional_row, plural};
+use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
     ActionRowVm, LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome,
@@ -4108,10 +4109,7 @@ fn value_routes_tree_elements(
         .into_iter()
         .enumerate()
         .map(|(i, route)| {
-            let name = route
-                .get("recipient_name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown");
+            let name = value_route_recipient_label(&route);
             let sub_key = format!("{column}:{row_id}:{i}");
             let sub_expanded = expanded_cells.contains(&sub_key);
             let sub_glyph = if sub_expanded { "v" } else { ">" };
@@ -4141,7 +4139,7 @@ fn value_routes_tree_elements(
                     .child(
                         div()
                             .text_color(if sub_expanded { color } else { color::accent() })
-                            .child(SharedString::from(name.to_string())),
+                            .child(SharedString::from(name.clone())),
                     ),
             );
 
