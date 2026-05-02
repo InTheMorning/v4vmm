@@ -59,7 +59,7 @@ use crate::ui::detail_row::DetailRow;
 use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::SectionHeader;
 use crate::ui::primitives::{
-    Button as UiButton, Image as ImagePrimitive, ImageSize, Label, MultilineText,
+    Button as UiButton, Image as ImagePrimitive, ImageSize, Label, LoadingMessage, MultilineText,
 };
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
@@ -2478,8 +2478,12 @@ fn render_inspector_body(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     match &frame.detail {
-        InspectorDetail::Loading(message) => render_loading(message),
-        InspectorDetail::Error(error) => render_loading(&format!("Error: {error}")),
+        InspectorDetail::Loading(message) => {
+            LoadingMessage::new(message.clone()).into_any_element()
+        }
+        InspectorDetail::Error(error) => {
+            LoadingMessage::new(format!("Error: {error}")).into_any_element()
+        }
         InspectorDetail::Artist(artist_context) => {
             render_artist_inspector(frame, artist_context, app, cx)
         }
@@ -2963,7 +2967,7 @@ fn render_lazy_contributors(
         .child(render_contributors_heading(collapsed, cx))
         .when(!collapsed, |el| match &frame.contributors {
             LazyPanel::Loaded(items) => el.children(contributor_elements(items, app, cx)),
-            LazyPanel::Loading => el.child(render_loading("Loading contributors...")),
+            LazyPanel::Loading => el.child(LoadingMessage::new("Loading contributors...")),
             LazyPanel::Empty(label) => el.child(muted_line(label)),
             LazyPanel::Hidden => el,
         })
@@ -2980,7 +2984,7 @@ fn render_lazy_value_routes(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
         .child(render_value_routes_heading(collapsed, cx))
         .when(!collapsed, |el| match &frame.value_routes {
             LazyPanel::Loaded(items) => el.children(value_route_elements(items)),
-            LazyPanel::Loading => el.child(render_loading("Loading value routes...")),
+            LazyPanel::Loading => el.child(LoadingMessage::new("Loading value routes...")),
             LazyPanel::Empty(label) => el.child(muted_line(label)),
             LazyPanel::Hidden => el,
         })
@@ -3116,8 +3120,8 @@ fn render_value_routes_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> 
 fn render_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<SearchApp>) -> AnyElement {
     match &frame.musicbrainz_lookup {
         LazyPanel::Loaded(result) => render_musicbrainz_lookup(frame, result, cx),
-        LazyPanel::Loading => render_loading("Searching MusicBrainz..."),
-        LazyPanel::Empty(label) => render_loading(label),
+        LazyPanel::Loading => LoadingMessage::new("Searching MusicBrainz...").into_any_element(),
+        LazyPanel::Empty(label) => LoadingMessage::new(label.clone()).into_any_element(),
         LazyPanel::Hidden => div().into_any_element(),
     }
 }
@@ -5258,15 +5262,6 @@ fn render_inspector_empty() -> AnyElement {
         .gap(spacing::SM)
         .child(div().text_3xl().opacity(0.4).child("🔍"))
         .child("Select a result to inspect")
-        .into_any_element()
-}
-
-fn render_loading(message: &str) -> AnyElement {
-    div()
-        .text_color(color::text_muted())
-        .italic()
-        .py(spacing::SM)
-        .child(SharedString::from(message.to_string()))
         .into_any_element()
 }
 

@@ -1112,8 +1112,8 @@ fn playlist_popover_calls_wire_create_mode() {
 fn top_level_gpui_modules_are_classified_as_screen_or_shared_ui() {
     let mut candidates = Vec::new();
     let src_dir = manifest_path("src");
-    for entry in fs::read_dir(&src_dir)
-        .unwrap_or_else(|err| panic!("read {}: {err}", src_dir.display()))
+    for entry in
+        fs::read_dir(&src_dir).unwrap_or_else(|err| panic!("read {}: {err}", src_dir.display()))
     {
         let entry = entry.expect("read src entry");
         let path = entry.path();
@@ -1123,8 +1123,8 @@ fn top_level_gpui_modules_are_classified_as_screen_or_shared_ui() {
     }
     let app_dir = manifest_path("src/app");
     if app_dir.is_dir() {
-        for entry in fs::read_dir(&app_dir)
-            .unwrap_or_else(|err| panic!("read {}: {err}", app_dir.display()))
+        for entry in
+            fs::read_dir(&app_dir).unwrap_or_else(|err| panic!("read {}: {err}", app_dir.display()))
         {
             let entry = entry.expect("read src/app entry");
             let path = entry.path();
@@ -1138,9 +1138,10 @@ fn top_level_gpui_modules_are_classified_as_screen_or_shared_ui() {
     let mut unclassified = Vec::new();
     for path in candidates {
         let source = read_source(&path);
-        let imports_gpui = source.lines().map(strip_line_comment).any(|line| {
-            line.contains("use gpui") || line.contains("gpui_component::")
-        });
+        let imports_gpui = source
+            .lines()
+            .map(strip_line_comment)
+            .any(|line| line.contains("use gpui") || line.contains("gpui_component::"));
         if !imports_gpui {
             continue;
         }

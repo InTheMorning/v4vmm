@@ -68,7 +68,9 @@ use crate::ui::composites::{
     PlaylistOption, ProvenanceRole, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, MultilineText};
+use crate::ui::primitives::{
+    Button as UiButton, Image as ImagePrimitive, Label, LoadingMessage, MultilineText,
+};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{
@@ -3000,8 +3002,10 @@ fn render_track_left_column(
 fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
     match &frame.tag_compare {
         LazyPanel::Loaded(_) => div().into_any_element(),
-        LazyPanel::Loading => render_loading("Reading embedded metadata..."),
-        LazyPanel::Empty(label) => render_loading(label),
+        LazyPanel::Loading => {
+            LoadingMessage::new("Reading embedded metadata...").into_any_element()
+        }
+        LazyPanel::Empty(label) => LoadingMessage::new(label.clone()).into_any_element(),
         LazyPanel::Hidden => div().into_any_element(),
     }
 }
@@ -3247,8 +3251,8 @@ fn embedded_tag_label(result: &TagCompareResult) -> String {
 fn render_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp>) -> AnyElement {
     match &frame.musicbrainz_lookup {
         LazyPanel::Loaded(result) => render_musicbrainz_lookup(frame, result, cx),
-        LazyPanel::Loading => render_loading("Searching MusicBrainz..."),
-        LazyPanel::Empty(label) => render_loading(label),
+        LazyPanel::Loading => LoadingMessage::new("Searching MusicBrainz...").into_any_element(),
+        LazyPanel::Empty(label) => LoadingMessage::new(label.clone()).into_any_element(),
         LazyPanel::Hidden => div().into_any_element(),
     }
 }
@@ -4085,15 +4089,6 @@ fn pending_source_color(source: MetadataColumn, cx: &mut Context<LibraryApp>) ->
     match source {
         MetadataColumn::Rss | MetadataColumn::MusicBrainz => ProvenanceRole::Match.color(cx),
     }
-}
-
-fn render_loading(message: &str) -> AnyElement {
-    div()
-        .text_color(color::text_muted())
-        .italic()
-        .py(spacing::SM)
-        .child(SharedString::from(message.to_string()))
-        .into_any_element()
 }
 
 fn muted_line(value: &str) -> AnyElement {
