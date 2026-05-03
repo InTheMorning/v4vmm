@@ -2095,6 +2095,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata ID3 displayed frame label fallback belongs in TrackMetadataGridVm::id3_frame_label",
         ),
         (
+            "src/library.rs",
+            ".child(SharedString::from(row.field.clone()))",
+            "Library metadata field label display belongs in TrackMetadataGridVm::field_label",
+        ),
+        (
+            "src/search.rs",
+            ".child(SharedString::from(row.field.clone()))",
+            "Discover metadata field label display belongs in TrackMetadataGridVm::field_label",
+        ),
+        (
+            "src/library.rs",
+            "label: SharedString::from(frame_id.to_string())",
+            "Library metadata ID3 frame label display belongs in TrackMetadataGridVm::id3_frame_display_label",
+        ),
+        (
+            "src/search.rs",
+            "SharedString::from(frame_label.to_string())",
+            "Discover metadata ID3 frame label display belongs in TrackMetadataGridVm::id3_frame_display_label",
+        ),
+        (
             "src/search.rs",
             "fn compare_row_id(",
             "Discover metadata compare-row slug display belongs in TrackMetadataGridVm::compare_row_id",

@@ -137,6 +137,16 @@ impl TrackMetadataGridVm {
     }
 
     #[must_use]
+    pub fn id3_frame_display_label(frame_id: Option<&str>) -> String {
+        Self::id3_frame_label(frame_id).to_string()
+    }
+
+    #[must_use]
+    pub fn field_label(field: &str) -> String {
+        field.to_string()
+    }
+
+    #[must_use]
     pub fn compare_row_id(field: &str) -> String {
         let mut out = String::new();
         for ch in field.chars().flat_map(char::to_lowercase) {
@@ -661,6 +671,22 @@ mod tests {
         assert_eq!(TrackMetadataGridVm::id3_frame_label(Some("TIT2")), "TIT2");
         assert_eq!(TrackMetadataGridVm::id3_frame_label(Some("")), "");
         assert_eq!(TrackMetadataGridVm::id3_frame_label(None), "");
+    }
+
+    #[test]
+    fn id3_frame_display_label_projects_owned_display_string() {
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_display_label(Some("TIT2")),
+            "TIT2"
+        );
+        assert_eq!(TrackMetadataGridVm::id3_frame_display_label(Some("")), "");
+        assert_eq!(TrackMetadataGridVm::id3_frame_display_label(None), "");
+    }
+
+    #[test]
+    fn field_label_preserves_raw_metadata_field_display() {
+        assert_eq!(TrackMetadataGridVm::field_label("Title"), "Title");
+        assert_eq!(TrackMetadataGridVm::field_label(""), "");
     }
 
     #[test]

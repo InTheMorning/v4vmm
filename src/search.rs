@@ -3223,7 +3223,9 @@ fn metadata_rss_cell(
                 .text_color(color::text_primary())
                 .text_size(typography::SIZE_MICRO)
                 .line_height(typography::LINE_BODY)
-                .child(SharedString::from(row.field.clone())),
+                .child(SharedString::from(TrackMetadataGridVm::field_label(
+                    &row.field,
+                ))),
         )
         .child(div().flex_1().min_w_0().child(value_element));
     if !expandable {
@@ -3766,7 +3768,7 @@ fn expandable_tag_cell(
         TrackMetadataGridVm::discover_expandable_cell_display("id3", field, row_id, expanded);
     let glyph = display.disclosure_glyph;
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
-    let frame_label = TrackMetadataGridVm::id3_frame_label(frame_id);
+    let frame_label = TrackMetadataGridVm::id3_frame_display_label(frame_id);
     let field_kind = TrackMetadataGridVm::expanded_field_kind(field);
 
     let value_el = if expanded {
@@ -3885,7 +3887,7 @@ fn expandable_tag_cell(
                             .text_color(frame_color)
                             .text_size(typography::SIZE_MICRO)
                             .line_height(typography::LINE_BODY)
-                            .child(SharedString::from(frame_label.to_string())),
+                            .child(SharedString::from(frame_label.clone())),
                     )
                     .child(
                         div()
@@ -3929,7 +3931,7 @@ fn expandable_tag_cell(
                 .text_color(frame_color)
                 .text_size(typography::SIZE_MICRO)
                 .line_height(typography::LINE_BODY)
-                .child(SharedString::from(frame_label.to_string())),
+                .child(SharedString::from(frame_label)),
         )
         .child(value_el)
         .into_any_element()
@@ -4150,7 +4152,7 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let frame_label = TrackMetadataGridVm::id3_frame_label(frame_id);
+    let frame_label = TrackMetadataGridVm::id3_frame_display_label(frame_id);
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
 
     let mut body = MultilineText::new(value.to_string())
@@ -4173,7 +4175,7 @@ fn compare_tag_cell(
                 .text_color(frame_color)
                 .text_size(typography::SIZE_MICRO)
                 .line_height(typography::LINE_BODY)
-                .child(SharedString::from(frame_label.to_string())),
+                .child(SharedString::from(frame_label)),
         )
         .child(div().flex_1().min_w_0().child(body))
         .into_any_element()

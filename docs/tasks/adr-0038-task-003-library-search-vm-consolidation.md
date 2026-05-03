@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first ninety-five implementation slices completed on 2026-05-03.
+In progress - first ninety-seven implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -650,7 +650,20 @@ Verified starting notes, 2026-05-03:
     - Remove direct calls to the individual playlist row fallback and
       control accessors from `src/library.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-96. Migrate remaining fallback batches, smallest blast radius first.
+96. Metadata field label display
+    - Add `TrackMetadataGridVm::field_label()` so metadata field labels
+      enter Library and Discover renderers through the metadata-grid VM.
+    - Remove screen-local `row.field.clone()` display labels from
+      metadata field-label cells.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+97. Metadata ID3 frame display label
+    - Add `TrackMetadataGridVm::id3_frame_display_label()` so Library
+      and Discover ID3 frame labels enter renderers as VM-owned display
+      strings.
+    - Remove screen-local frame-label `to_string()` display conversion
+      from Library and Discover metadata tag cells.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+98. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1617,6 +1630,25 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks direct screen-local playlist row
   fallback/control accessor calls from returning.
 
+## Ninety-Fifth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::field_label()` now carries Library and Discover
+  metadata field-label display.
+- Library and Discover still render their field-label cell layouts, but
+  no longer clone raw row fields directly for visible labels.
+- The architecture guard now blocks screen-local `row.field.clone()`
+  field-label display from returning.
+
+## Ninety-Sixth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::id3_frame_display_label()` now carries owned
+  ID3 frame-label display strings for Library and Discover metadata tag
+  cells.
+- Library and Discover still choose GPUI frame colors locally, but no
+  longer stringify frame labels in renderer code.
+- The architecture guard now blocks screen-local ID3 frame label
+  `to_string()` display conversion from returning.
+
 ## Test Commands
 
 ```sh
@@ -1633,6 +1665,8 @@ cargo test id3_cell_value_prefers_pending_then_preserves_empty_vs_missing_displa
 cargo test id3_cell_frame_prefers_pending_then_preserves_empty_vs_missing_display
 cargo test id3_drag_frame_preserves_empty_vs_missing_display
 cargo test id3_frame_label_preserves_empty_vs_missing_display
+cargo test id3_frame_display_label_projects_owned_display_string
+cargo test field_label_preserves_raw_metadata_field_display
 cargo test id3_generated_row_display_projects_ids_and_labels
 cargo test source_drag_display_projects_discover_source_cell_ids
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized

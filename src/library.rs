@@ -3432,7 +3432,7 @@ fn metadata_rss_cell(
         cx,
     );
     TrackMetadataFieldCell::new(TrackMetadataFieldDisplay {
-        label: SharedString::from(row.field.clone()),
+        label: SharedString::from(TrackMetadataGridVm::field_label(&row.field)),
         value: value_element,
     })
     .into_any_element()
@@ -3652,7 +3652,7 @@ fn metadata_tag_cell(
     TrackMetadataTagCell::new(TrackMetadataTagDisplay {
         value,
         frame: frame_id.map(|frame_id| TrackMetadataFrameDisplay {
-            label: SharedString::from(frame_id.to_string()),
+            label: SharedString::from(TrackMetadataGridVm::id3_frame_display_label(Some(frame_id))),
             color: Some(frame_color),
         }),
     })
@@ -3822,7 +3822,7 @@ fn compare_tag_cell(
     let mut cell = TrackMetadataTagCell::new(TrackMetadataTagDisplay {
         value: body.into_any_element(),
         frame: frame_id.map(|frame_id| TrackMetadataFrameDisplay {
-            label: SharedString::from(frame_id.to_string()),
+            label: SharedString::from(TrackMetadataGridVm::id3_frame_display_label(Some(frame_id))),
             color: frame_color,
         }),
     });
