@@ -9,8 +9,9 @@
 
 ## Gate Status
 
-Status: Task 001 implemented with automated evidence green. Visual smoke
-received with a parity blocker. Task 002 not yet started.
+Status: Task 001 implemented with automated evidence green. Visual smoke found
+a Library hydration blocker; follow-up fix implemented and awaiting screenshot
+re-check. Task 002 not yet started.
 
 ## Structural Review Questions
 
@@ -46,7 +47,7 @@ received with a parity blocker. Task 002 not yet started.
 
 | Task | Status | Required Evidence | Notes |
 |---|---|---|---|
-| Task 001 feed identity action parity | Automated checks green; visual blocker | VM payload field + tests, shared helper, architecture guard, checks, four screenshots | Shared feed identity renderer landed; user screenshots show Discover `Website` + `RSS`, but Library `RSS` only for the same feed |
+| Task 001 feed identity action parity | Follow-up fix implemented; visual re-check pending | VM payload field + tests, shared helper, architecture guard, checks, four screenshots | Shared feed identity renderer landed; user screenshots showed Discover identity facts missing from Library; Library album selection now hydrates missing feed source facts by feed GUID |
 | Task 002 track header/action parity   | Not started | TBD when Task 001 lands | Reuses `EntityActionVm.payload` |
 
 ## Visual Smoke
@@ -77,9 +78,12 @@ Received visual evidence:
   `The Heycitizen Experience`.
 - Follow-up Discover screenshots show `Website`, `Nostr`, and `RSS`; follow-up
   Library screenshots show `RSS` only.
-- Result: visual gate is not satisfied. Either the visual smoke fixture must
-  use the same populated identity source facts on both surfaces, or Library
-  identity hydration needs a follow-up if the source data should be equivalent.
+- Follow-up fix: Library album nodes now retain `feed_guid`, selected Library
+  albums with incomplete feed identity facts fetch MusicIndex feed source facts,
+  persist them through `identity_ingest::persist_musicindex_feed`, and update
+  the open album detail snapshot.
+- Result: visual gate needs one more Library/Discover screenshot pass for
+  `The Heycitizen Experience` after the hydration task runs on selection.
 
 ## Automated Checks
 

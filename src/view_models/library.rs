@@ -80,6 +80,7 @@ pub(crate) struct ArtistNode {
 pub(crate) struct AlbumNode {
     pub(crate) name: String,
     pub(crate) feed_id: Option<i64>,
+    pub(crate) feed_guid: Option<String>,
     pub(crate) feed_url: Option<String>,
     pub(crate) image_href: Option<String>,
     pub(crate) identity_facts: LocalIdentityFacts,
@@ -383,6 +384,26 @@ impl LibraryViewModel {
 
     pub(crate) fn replace_tree(&mut self, tree: LibraryTree) {
         self.snapshot.tree = tree;
+    }
+
+    pub(crate) fn update_album_identity_facts(
+        &mut self,
+        feed_id: i64,
+        facts: &LocalIdentityFacts,
+    ) -> bool {
+        let mut updated = false;
+        for album in self
+            .snapshot
+            .tree
+            .artists
+            .iter_mut()
+            .flat_map(|artist| artist.albums.iter_mut())
+            .filter(|album| album.feed_id == Some(feed_id))
+        {
+            album.identity_facts = facts.clone();
+            updated = true;
+        }
+        updated
     }
 
     pub(crate) fn finish_library_reload(&mut self, track_count: usize) {
@@ -1050,6 +1071,7 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
                 albums.push(AlbumNode {
                     name: album.name.clone(),
                     feed_id: album.feed_id,
+                    feed_guid: album.feed_guid.clone(),
                     feed_url: album.feed_url.clone(),
                     image_href: album.image_href.clone(),
                     identity_facts: album.identity_facts.clone(),
@@ -2018,6 +2040,7 @@ mod tests {
                         AlbumNode {
                             name: "Selected Ambient Works".into(),
                             feed_id: Some(10),
+                            feed_guid: Some("saw-guid".into()),
                             feed_url: Some("https://example.test/saw.xml".into()),
                             image_href: Some("saw.jpg".into()),
                             identity_facts: LocalIdentityFacts::default(),
@@ -2026,6 +2049,7 @@ mod tests {
                         AlbumNode {
                             name: "Windowlicker".into(),
                             feed_id: Some(20),
+                            feed_guid: None,
                             feed_url: None,
                             image_href: None,
                             identity_facts: LocalIdentityFacts::default(),
@@ -2038,6 +2062,7 @@ mod tests {
                     albums: vec![AlbumNode {
                         name: "Tri Repetae".into(),
                         feed_id: Some(30),
+                        feed_guid: None,
                         feed_url: None,
                         image_href: None,
                         identity_facts: LocalIdentityFacts::default(),
@@ -2068,6 +2093,36 @@ mod tests {
         mb.insert(20, MbTrackStatus::Skipped("err".into()));
         let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
         assert!(!vm.has_active_musicbrainz());
+    }
+
+    #[test]
+    fn library_view_model_updates_album_identity_facts_by_feed_id() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        let facts = LocalIdentityFacts {
+            source_links: vec![crate::views::IdentityLinkFact {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/saw".into()),
+                ..crate::views::IdentityLinkFact::default()
+            }],
+            source_ids: vec![crate::views::IdentityIdFact {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1saw".into()),
+                ..crate::views::IdentityIdFact::default()
+            }],
+            contributors: Vec::new(),
+        };
+
+        assert!(vm.update_album_identity_facts(10, &facts));
+        let album = &vm.tree().artists[0].albums[0];
+        assert_eq!(
+            album.identity_facts.source_links[0].url.as_deref(),
+            Some("https://example.test/saw")
+        );
+        assert_eq!(
+            album.identity_facts.source_ids[0].value.as_deref(),
+            Some("npub1saw")
+        );
     }
 
     #[test]

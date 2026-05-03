@@ -12,17 +12,21 @@
 
 ## Status
 
-Automated pass with visual smoke blocker - 2026-05-02.
+Automated pass with Library hydration follow-up implemented - 2026-05-02.
 
 ## Findings
 
-- Visual smoke blocker: user-provided screenshots for `Way to Go` show
+- Visual smoke found a blocker: user-provided screenshots for `Way to Go` show
   Discover rendering `Website` and `RSS` identity actions, while Library
   renders only `RSS` for the same feed. No screenshot shows the requested
-  Nostr action. ADR 0037's full visual gate is not satisfied yet.
+  Nostr action.
 - Follow-up screenshots for `The Heycitizen Experience` confirm the blocker:
   Discover renders `Website`, `Nostr`, and `RSS`, while Library renders only
   `RSS`.
+- Follow-up fix implemented: Library album nodes retain `feed_guid`, and
+  selecting a Library album with incomplete feed identity facts hydrates and
+  persists MusicIndex feed source facts before updating the selected album
+  detail.
 
 ## Architectural Review
 
@@ -62,13 +66,15 @@ Automated pass with visual smoke blocker - 2026-05-02.
 - This proves the shared renderer is visible in both themes, but it also
   demonstrates that same-entity identity action parity is blocked by source
   fact availability or Library hydration.
+- The Library hydration follow-up addresses that blocker in code. A new
+  screenshot pass is still needed after selecting the Library album long enough
+  for the background hydration to complete.
 
 ## Required Fixes
 
-- Re-run visual smoke with a fixture whose Library and Discover source facts
-  both include Website, Nostr, and RSS, or add a follow-up to fix Library
-  identity hydration if the `Way to Go` Library view should expose the same
-  Website/Nostr facts as Discover.
+- Re-run visual smoke for `The Heycitizen Experience` after the Library
+  hydration task completes on album selection. Expected result: Library and
+  Discover both show `Website`, `Nostr`, and `RSS`.
 
 ## Verification
 
@@ -79,6 +85,7 @@ cargo fmt -- --check
 cargo check
 cargo test entity_action_vm_carries_identity_payload
 cargo test release_feed_identity_actions_use_shared_renderer
+cargo test library_view_model_updates_album_identity_facts_by_feed_id
 cargo test
 cargo clippy -- -D warnings
 git diff --check
@@ -86,6 +93,6 @@ git diff --check
 
 ## Merge Recommendation
 
-Do not mark Task 001 fully complete until the visual parity blocker is resolved.
-Automated and architectural gates are clean; the remaining issue is whether the
-same feed exposes the same identity actions across Library and Discover.
+Do not mark Task 001 fully complete until the follow-up visual pass confirms
+Library hydrates the same feed identity actions as Discover. Automated and
+architectural gates are clean.

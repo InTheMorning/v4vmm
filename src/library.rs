@@ -28,7 +28,7 @@ use gpui::{
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
 
-use crate::api::Track;
+use crate::api::{Client as MusicIndexClient, Track};
 use crate::application::commands::download::{
     RemoveTrackFromLibrary, SetTrackLibraryMembership, SubscribeThenAppendToPlaylist,
     SubscribeTrack,
@@ -92,7 +92,7 @@ use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
-use crate::views::{FeedView, TrackRef, TrackView};
+use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts, TrackRef, TrackView};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -674,9 +674,53 @@ impl LibraryApp {
             self.vm.clear_library_selection();
         }
         self.detail = LibraryDetail::Album(album.clone());
+        self.hydrate_album_identity_on_view(album, cx);
         if let Some(feed_id) = album.feed_id {
             self.check_feed_on_view(feed_id, cx);
         }
+    }
+
+    fn hydrate_album_identity_on_view(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
+        if album_has_feed_identity_actions(&album.identity_facts) {
+            return;
+        }
+        let (Some(feed_id), Some(feed_guid)) = (album.feed_id, album.feed_guid.clone()) else {
+            return;
+        };
+
+        let conn = Arc::clone(&self.conn);
+        let musicindex_endpoint = self.musicindex_endpoint.clone();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        hydrate_album_identity_facts(
+                            conn,
+                            &musicindex_endpoint,
+                            feed_id,
+                            &feed_guid,
+                        )
+                    })
+                    .await;
+                this.update(
+                    cx,
+                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
+                        if let Ok(facts) = result {
+                            this.vm.update_album_identity_facts(feed_id, &facts);
+                            if let LibraryDetail::Album(album) = &mut this.detail {
+                                if album.feed_id == Some(feed_id) {
+                                    album.identity_facts = facts;
+                                }
+                            }
+                            cx.notify();
+                        }
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
     }
 
     fn select_artist(&mut self, name: &str, _cx: &mut Context<Self>) {
@@ -1617,6 +1661,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                 .map(|(album_name, mut tracks)| {
                     tracks.sort_by(|a, b| a.track_number.cmp(&b.track_number));
                     let feed_id = tracks.first().map(|t| t.feed_id);
+                    let feed_guid = tracks.first().and_then(|t| t.feed_guid.clone());
                     let feed_url = feed_id.and_then(|fid| {
                         feed_url_cache
                             .entry(fid)
@@ -1630,6 +1675,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                     AlbumNode {
                         name: album_name,
                         feed_id,
+                        feed_guid,
                         feed_url,
                         image_href,
                         identity_facts: feed_id
@@ -1647,6 +1693,33 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
         .collect();
 
     LibraryTree { artists }
+}
+
+fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
+    let identity = EntityIdentityLinks::from_source_facts(
+        None,
+        facts.source_links.clone(),
+        facts.source_ids.clone(),
+    );
+    identity.website_url.is_some() && identity.nostr_npub.is_some()
+}
+
+fn hydrate_album_identity_facts(
+    conn: Arc<Mutex<Connection>>,
+    musicindex_endpoint: &str,
+    feed_id: i64,
+    feed_guid: &str,
+) -> anyhow::Result<LocalIdentityFacts> {
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
+    let feed = client.fetch_feed(
+        feed_guid,
+        Some("source_links,source_ids,source_contributors"),
+    )?;
+    let mut db = conn
+        .lock()
+        .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+    crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
+    crate::local_identity::feed_facts(&db, feed_id)
 }
 
 // ---------------------------------------------------------------------------
@@ -2370,7 +2443,7 @@ fn render_album_detail(
     let feed_row = db::FeedRow {
         id: album.feed_id.unwrap_or(0),
         feed_url: album.feed_url_for_detail(),
-        feed_guid: None,
+        feed_guid: album.feed_guid.clone(),
         title: Some(album.name.clone()),
         description: None,
         album_image_href: album.image_href.clone(),
