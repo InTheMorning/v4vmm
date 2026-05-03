@@ -9,6 +9,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::metadata::summarize_contributor_value;
+
 #[derive(Clone, Debug, PartialEq)]
 #[must_use]
 pub struct TrackMetadataGridVm {
@@ -71,6 +73,11 @@ impl TrackMetadataGridVm {
     #[must_use]
     pub fn musicbrainz_cell_value(value: Option<&str>) -> &str {
         value.unwrap_or("")
+    }
+
+    #[must_use]
+    pub fn contributor_summary(raw_value: &str, display_value: &str) -> String {
+        summarize_contributor_value(raw_value).unwrap_or_else(|| display_value.to_string())
     }
 
     pub fn new(show_id3: bool, show_musicbrainz: bool, tag_column_label: &str) -> Self {
@@ -236,6 +243,22 @@ mod tests {
         );
         assert_eq!(TrackMetadataGridVm::musicbrainz_cell_value(Some("")), "");
         assert_eq!(TrackMetadataGridVm::musicbrainz_cell_value(None), "");
+    }
+
+    #[test]
+    fn contributor_summary_falls_back_to_display_value_when_unsummarized() {
+        assert_eq!(
+            TrackMetadataGridVm::contributor_summary(
+                "guitarist: Alice / musician: Alice / audio engineer: Bob",
+                "Alice: guitarist, musician\nBob: audio engineer",
+            ),
+            "2 contributors"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::contributor_summary("", "No contributors"),
+            "No contributors"
+        );
+        assert_eq!(TrackMetadataGridVm::contributor_summary("", ""), "");
     }
 
     #[test]

@@ -3594,9 +3594,7 @@ fn muted_line(value: &str) -> AnyElement {
 
 fn expandable_cell_summary(field: &str, raw_value: &str, display_value: &str) -> String {
     match field {
-        "Contributors" => {
-            summarize_contributor_value(raw_value).unwrap_or_else(|| display_value.to_string())
-        }
+        "Contributors" => TrackMetadataGridVm::contributor_summary(raw_value, display_value),
         "Value Routes" => {
             if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
                 format!("[{} items]", arr.len())

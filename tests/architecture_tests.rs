@@ -2085,6 +2085,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "summarize_contributor_value(raw_value).unwrap_or_else",
+            "metadata contributor summary fallback belongs in TrackMetadataGridVm::contributor_summary",
+        ),
+        (
+            "src/search.rs",
+            "summarize_contributor_value(raw_value).unwrap_or_else",
+            "metadata contributor summary fallback belongs in TrackMetadataGridVm::contributor_summary",
+        ),
+        (
+            "src/library.rs",
             "row.musicbrainz_value.as_deref().unwrap_or(\"\")",
             "metadata MusicBrainz cell value fallback belongs in TrackMetadataGridVm::musicbrainz_cell_value",
         ),

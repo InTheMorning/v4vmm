@@ -53,8 +53,8 @@ use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
     expand_woar_metadata_rows, expanded_metadata_display_string, id3_frame_base,
     metadata_field_is_expandable, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
-    summarize_contributor_value, track_metadata_rows, AlignedCompareRow, MetadataColumn,
-    MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
+    track_metadata_rows, AlignedCompareRow, MetadataColumn, MetadataGridRow,
+    MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
 };
 use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
@@ -3838,9 +3838,7 @@ fn expandable_cell_summary(
     display_value: &str,
 ) -> String {
     match logical_field {
-        "Contributors" => {
-            summarize_contributor_value(raw_value).unwrap_or_else(|| display_value.to_string())
-        }
+        "Contributors" => TrackMetadataGridVm::contributor_summary(raw_value, display_value),
         "Value Routes" => {
             if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
                 format!("[{} items]", arr.len())

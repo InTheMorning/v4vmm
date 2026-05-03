@@ -136,7 +136,14 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `frame_id.unwrap_or_default()` fallbacks from
       Discover metadata tag renderers.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-14. Migrate one remaining fallback at a time, smallest blast radius first.
+14. Metadata contributor summary display
+    - Add `TrackMetadataGridVm::contributor_summary()` so contributor
+      summarization and fallback-to-display-value policy are normalized
+      by the metadata-grid VM.
+    - Remove screen-local `summarize_contributor_value(...).unwrap_or_else(...)`
+      fallbacks from Library and Discover metadata cell summary helpers.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+15. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -296,6 +303,17 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks that screen-local displayed frame
   label fallback from returning to `src/search.rs`.
 
+## Thirteenth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::contributor_summary()` now carries contributor
+  summary display, including fallback to the already-rendered display
+  value when the raw contributor value cannot be summarized.
+- `src/library.rs` and `src/search.rs` no longer call
+  `summarize_contributor_value(raw_value).unwrap_or_else(...)` inside
+  metadata cell summary helpers.
+- The architecture guard now blocks that screen-local contributor
+  summary fallback from returning to either screen.
+
 ## Test Commands
 
 ```sh
@@ -312,6 +330,7 @@ cargo test id3_cell_value_prefers_pending_then_preserves_empty_vs_missing_displa
 cargo test id3_cell_frame_prefers_pending_then_preserves_empty_vs_missing_display
 cargo test id3_drag_frame_preserves_empty_vs_missing_display
 cargo test id3_frame_label_preserves_empty_vs_missing_display
+cargo test contributor_summary_falls_back_to_display_value_when_unsummarized
 cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test
