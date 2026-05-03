@@ -3481,24 +3481,11 @@ fn metadata_data_row(row: AlignedCompareRow) -> MetadataGridRow {
 }
 
 #[cfg(test)]
-fn compare_row_id(field: &str) -> String {
-    let mut out = String::new();
-    for ch in field.chars().flat_map(char::to_lowercase) {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch);
-        } else if !out.ends_with('-') {
-            out.push('-');
-        }
-    }
-    out.trim_matches('-').to_string()
-}
-
-#[cfg(test)]
 #[allow(dead_code)]
 fn id3_unused_frame_row(frame_id: &str) -> MetadataGridRow {
     metadata_data_row(AlignedCompareRow {
-        row_id: format!("id3-unused-{}", compare_row_id(frame_id)),
-        field: format!("ID3 {frame_id}"),
+        row_id: TrackMetadataGridVm::unused_id3_frame_row_id(frame_id),
+        field: TrackMetadataGridVm::id3_field_display_label(frame_id),
         rss_value: None,
         id3_value: None,
         id3_frame: Some(frame_id.into()),
@@ -3513,8 +3500,8 @@ fn id3_unused_frame_row(frame_id: &str) -> MetadataGridRow {
 #[allow(dead_code)]
 fn used_id3_field_row(field: &Id3Field) -> MetadataGridRow {
     metadata_data_row(AlignedCompareRow {
-        row_id: format!("id3-field-{}", compare_row_id(&field.frame_id)),
-        field: format!("ID3 {}", field.frame_id),
+        row_id: TrackMetadataGridVm::used_id3_field_row_id(&field.frame_id),
+        field: TrackMetadataGridVm::id3_field_display_label(&field.frame_id),
         rss_value: None,
         id3_value: Some(field.value.clone()),
         id3_frame: Some(field.frame_id.clone()),
@@ -4892,7 +4879,7 @@ mod tests {
 
     use super::{
         aligned_compare_rows, aligned_id3_frame_ids, artist_rows_from_result_rows,
-        auto_populated_pending_id3_edits, compare_row_id, expand_woar_metadata_rows, feed_rss_url,
+        auto_populated_pending_id3_edits, expand_woar_metadata_rows, feed_rss_url,
         format_drag_value_for_id3v24, id3_frame_group_key, id3_frame_version,
         merge_track_play_fields, metadata_data_row, metadata_drag_value, metadata_field_group_key,
         musicbrainz_remainder_rows, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
@@ -4911,6 +4898,7 @@ mod tests {
     };
     use crate::musicbrainz::MusicBrainzCandidate;
     use crate::track_compare::{ComparisonRow, ComparisonStatus};
+    use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
 
     #[test]
     fn discover_back_button_is_visible_for_any_open_inspector() {
@@ -5674,7 +5662,7 @@ mod tests {
     #[test]
     fn drag_value_does_not_require_source_frame_hint() {
         let row = AlignedCompareRow {
-            row_id: compare_row_id("RSS feed guid"),
+            row_id: TrackMetadataGridVm::compare_row_id("RSS feed guid"),
             field: "RSS feed guid".into(),
             rss_value: Some("feed-guid".into()),
             id3_value: None,
@@ -6387,7 +6375,7 @@ mod tests {
         musicbrainz_value: Option<&str>,
     ) -> AlignedCompareRow {
         AlignedCompareRow {
-            row_id: compare_row_id(field),
+            row_id: TrackMetadataGridVm::compare_row_id(field),
             field: field.into(),
             rss_value: rss_value.map(str::to_string),
             id3_value: id3_value.map(str::to_string),

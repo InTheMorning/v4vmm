@@ -2095,6 +2095,31 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata ID3 displayed frame label fallback belongs in TrackMetadataGridVm::id3_frame_label",
         ),
         (
+            "src/search.rs",
+            "fn compare_row_id(",
+            "Discover metadata compare-row slug display belongs in TrackMetadataGridVm::compare_row_id",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"id3-unused-{}\"",
+            "Discover unused ID3 frame row id belongs in TrackMetadataGridVm::unused_id3_frame_row_id",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"id3-field-{}\"",
+            "Discover used ID3 field row id belongs in TrackMetadataGridVm::used_id3_field_row_id",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"ID3 {frame_id}\")",
+            "Discover unused ID3 frame label belongs in TrackMetadataGridVm::id3_field_display_label",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"ID3 {}\", field.frame_id)",
+            "Discover used ID3 field label belongs in TrackMetadataGridVm::id3_field_display_label",
+        ),
+        (
             "src/library.rs",
             "summarize_contributor_value(raw_value).unwrap_or_else",
             "metadata contributor summary fallback belongs in TrackMetadataGridVm::contributor_summary",

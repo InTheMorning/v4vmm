@@ -118,6 +118,34 @@ impl TrackMetadataGridVm {
     }
 
     #[must_use]
+    pub fn compare_row_id(field: &str) -> String {
+        let mut out = String::new();
+        for ch in field.chars().flat_map(char::to_lowercase) {
+            if ch.is_ascii_alphanumeric() {
+                out.push(ch);
+            } else if !out.ends_with('-') {
+                out.push('-');
+            }
+        }
+        out.trim_matches('-').to_string()
+    }
+
+    #[must_use]
+    pub fn unused_id3_frame_row_id(frame_id: &str) -> String {
+        format!("id3-unused-{}", Self::compare_row_id(frame_id))
+    }
+
+    #[must_use]
+    pub fn used_id3_field_row_id(frame_id: &str) -> String {
+        format!("id3-field-{}", Self::compare_row_id(frame_id))
+    }
+
+    #[must_use]
+    pub fn id3_field_display_label(frame_id: &str) -> String {
+        format!("ID3 {frame_id}")
+    }
+
+    #[must_use]
     pub fn musicbrainz_cell_value(value: Option<&str>) -> &str {
         value.unwrap_or("")
     }
@@ -516,6 +544,30 @@ mod tests {
         assert_eq!(TrackMetadataGridVm::id3_frame_label(Some("TIT2")), "TIT2");
         assert_eq!(TrackMetadataGridVm::id3_frame_label(Some("")), "");
         assert_eq!(TrackMetadataGridVm::id3_frame_label(None), "");
+    }
+
+    #[test]
+    fn id3_generated_row_display_projects_ids_and_labels() {
+        assert_eq!(
+            TrackMetadataGridVm::compare_row_id("RSS feed guid"),
+            "rss-feed-guid"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::compare_row_id("TRCK (Total tracks, Track #)"),
+            "trck-total-tracks-track"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::unused_id3_frame_row_id("TXXX:MusicIndex Feed GUID"),
+            "id3-unused-txxx-musicindex-feed-guid"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::used_id3_field_row_id("TIT2"),
+            "id3-field-tit2"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_field_display_label("TIT2"),
+            "ID3 TIT2"
+        );
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first seventy-nine implementation slices completed on 2026-05-03.
+In progress - first eighty-two implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -541,7 +541,24 @@ Verified starting notes, 2026-05-03:
     - Remove Discover nested Value Routes item id/glyph formatting from
       `src/search.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-80. Migrate remaining fallback batches, smallest blast radius first.
+80. Discover metadata compare-row slug display
+    - Add `TrackMetadataGridVm::compare_row_id()` so test-row slug
+      generation is metadata-grid-owned.
+    - Remove `compare_row_id()` from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+81. Discover generated unused-ID3 row display
+    - Add `TrackMetadataGridVm::unused_id3_frame_row_id()` and
+      `id3_field_display_label()` so generated unused-frame row ids and
+      labels are metadata-grid-owned.
+    - Remove unused-ID3 row id/label formatting from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+82. Discover generated used-ID3 row display
+    - Add `TrackMetadataGridVm::used_id3_field_row_id()` and reuse
+      `id3_field_display_label()` so generated used-frame row ids and
+      labels are metadata-grid-owned.
+    - Remove used-ID3 row id/label formatting from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+83. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1347,6 +1364,35 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local Discover Value Routes
   item chrome from returning.
 
+## Seventy-Ninth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::compare_row_id()` now carries metadata compare
+  row slug generation.
+- Discover tests still create fixture rows in `src/search.rs`, but no
+  longer own the slug-generation rule.
+- The architecture guard now blocks screen-local compare row slug
+  helpers from returning.
+
+## Eightieth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::unused_id3_frame_row_id()` and
+  `id3_field_display_label()` now carry generated unused-ID3 row ids
+  and labels.
+- Discover tests still create unused-ID3 fixture rows in `src/search.rs`,
+  but no longer own the row id or label format.
+- The architecture guard now blocks screen-local unused-ID3 row display
+  formatting from returning.
+
+## Eighty-First-Slice Implementation Notes
+
+- `TrackMetadataGridVm::used_id3_field_row_id()` and
+  `id3_field_display_label()` now carry generated used-ID3 row ids and
+  labels.
+- Discover tests still create used-ID3 fixture rows in `src/search.rs`,
+  but no longer own the row id or label format.
+- The architecture guard now blocks screen-local used-ID3 row display
+  formatting from returning.
+
 ## Test Commands
 
 ```sh
@@ -1363,6 +1409,7 @@ cargo test id3_cell_value_prefers_pending_then_preserves_empty_vs_missing_displa
 cargo test id3_cell_frame_prefers_pending_then_preserves_empty_vs_missing_display
 cargo test id3_drag_frame_preserves_empty_vs_missing_display
 cargo test id3_frame_label_preserves_empty_vs_missing_display
+cargo test id3_generated_row_display_projects_ids_and_labels
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized
 cargo test value_routes_summary_counts_routes_and_owns_fallback_policy
 cargo test group_heading_label_appends_unused_count_only_when_present
