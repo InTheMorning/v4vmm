@@ -3475,10 +3475,10 @@ fn metadata_id3_cell(
     let frame = pending
         .map(|edit| edit.frame.as_str())
         .or(row.id3_frame.as_deref());
-    let value = pending
-        .map(|edit| edit.value.as_str())
-        .or(row.id3_value.as_deref())
-        .unwrap_or("");
+    let value = TrackMetadataGridVm::id3_cell_value(
+        pending.map(|edit| edit.value.as_str()),
+        row.id3_value.as_deref(),
+    );
     let base_display = display_metadata_value(&row.field, value);
     let glyph = if pending.is_some() {
         Some(ProvenanceRole::Match.glyph())

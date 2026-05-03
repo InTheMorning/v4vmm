@@ -2048,6 +2048,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "row.rss_value.as_deref().unwrap_or(\"\")",
             "metadata RSS cell value fallback belongs in TrackMetadataGridVm::rss_cell_value",
         ),
+        (
+            "src/library.rs",
+            ".or(row.id3_value.as_deref())",
+            "metadata ID3 cell value fallback belongs in TrackMetadataGridVm::id3_cell_value",
+        ),
+        (
+            "src/search.rs",
+            ".or(row.id3_value.as_deref())",
+            "metadata ID3 cell value fallback belongs in TrackMetadataGridVm::id3_cell_value",
+        ),
     ];
     let mut violations = Vec::new();
 

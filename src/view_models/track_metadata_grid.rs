@@ -42,6 +42,14 @@ impl TrackMetadataGridVm {
         value.unwrap_or("")
     }
 
+    #[must_use]
+    pub fn id3_cell_value<'a>(
+        pending_value: Option<&'a str>,
+        row_value: Option<&'a str>,
+    ) -> &'a str {
+        pending_value.or(row_value).unwrap_or("")
+    }
+
     pub fn new(show_id3: bool, show_musicbrainz: bool, tag_column_label: &str) -> Self {
         let mut headings = vec![TrackMetadataGridHeading {
             label: "RSS".to_string(),
@@ -142,6 +150,24 @@ mod tests {
         assert_eq!(TrackMetadataGridVm::rss_cell_value(Some("Title")), "Title");
         assert_eq!(TrackMetadataGridVm::rss_cell_value(Some("")), "");
         assert_eq!(TrackMetadataGridVm::rss_cell_value(None), "");
+    }
+
+    #[test]
+    fn id3_cell_value_prefers_pending_then_preserves_empty_vs_missing_display() {
+        assert_eq!(
+            TrackMetadataGridVm::id3_cell_value(Some("Pending"), Some("Stored")),
+            "Pending"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_cell_value(Some(""), Some("Stored")),
+            ""
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_cell_value(None, Some("Stored")),
+            "Stored"
+        );
+        assert_eq!(TrackMetadataGridVm::id3_cell_value(None, Some("")), "");
+        assert_eq!(TrackMetadataGridVm::id3_cell_value(None, None), "");
     }
 
     #[test]
