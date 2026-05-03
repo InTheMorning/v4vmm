@@ -88,9 +88,9 @@ use crate::view_models::entity_detail::{
     MetadataPanelState, ReleaseDetailVm, TrackMetadataActionState,
 };
 use crate::view_models::library::{
-    AlbumNode, ArtistNode, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryArtistDetailVm,
-    LibraryTrackActionVm, LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind,
-    MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm,
+    AlbumNode, ArtistNode, FeedUpdateActionKind, FeedUpdatePhase, LibraryAlbumDetailVm,
+    LibraryArtistDetailVm, LibraryTrackActionVm, LibraryTrackRowVm, LibraryTree, LibraryViewModel,
+    MbStatusKind, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm,
     TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
@@ -243,12 +243,13 @@ impl LibraryApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let chrome = LibraryViewModel::chrome_display();
         let search_input = cx.new(|cx: &mut Context<InputState>| {
-            InputState::new(window, cx).placeholder("Search your library...")
+            InputState::new(window, cx).placeholder(chrome.search_placeholder)
         });
         let search_sub = cx.subscribe(&search_input, Self::on_search_event);
         let new_playlist_input = cx.new(|cx: &mut Context<InputState>| {
-            InputState::new(window, cx).placeholder("New playlist name…")
+            InputState::new(window, cx).placeholder(chrome.new_playlist_placeholder)
         });
         let command_runner = GpuiCommandRunner::new(
             application_services.command_bus(),
@@ -1735,8 +1736,9 @@ fn hydrate_album_identity_facts(
 
 impl Render for LibraryApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let status_text = self.vm.status().to_string();
-        let status_color = if status_text.starts_with("Error:") {
+        let chrome = LibraryViewModel::chrome_display();
+        let status = self.vm.status_snapshot();
+        let status_color = if status.is_error {
             StatusRole::Danger.color(cx)
         } else {
             color::text_muted()
@@ -1827,7 +1829,7 @@ impl Render for LibraryApp {
                             div()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color::text_primary())
-                                .child("Playlists"),
+                                .child(playlist_sidebar.heading),
                         ),
                 )
                 .child(
@@ -1845,7 +1847,7 @@ impl Render for LibraryApp {
                         )
                         .child(
                             UiButton::styled("playlists-add", ControlStyle::ToolbarIcon)
-                                .label("+")
+                                .label(playlist_sidebar.add_label)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.vm.toggle_creating_playlist();
                                     cx.notify();
@@ -1906,7 +1908,7 @@ impl Render for LibraryApp {
                         )
                         .child(
                             UiButton::styled("playlist-add-btn", ControlStyle::Primary)
-                                .label("Add")
+                                .label(playlist_sidebar.new_playlist_add_label)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.create_playlist(cx);
                                 })),
@@ -1924,6 +1926,7 @@ impl Render for LibraryApp {
             self.vm.mb_status(),
             &album_thumbs,
             self.vm.playlists(),
+            chrome.empty_detail_label,
             cx,
         );
 
@@ -1945,7 +1948,7 @@ impl Render for LibraryApp {
                         typography::type_micro(div())
                             .font_weight(FontWeight::BOLD)
                             .text_color(color::text_muted())
-                            .child("Search Library"),
+                            .child(chrome.search_heading),
                     )
                     .child(
                         Input::new(&self.search_input)
@@ -1954,18 +1957,16 @@ impl Render for LibraryApp {
                     )
                     .child(
                         UiButton::styled("lib-search-btn", ControlStyle::Primary)
-                            .label("Search")
+                            .label(chrome.search_button_label)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.apply_search(cx);
                             })),
                     ),
             )
             .child({
-                let feed_update = self.vm.feed_update_state();
-                let has_stale = !feed_update.stale.is_empty();
-                let phase = feed_update.phase.clone();
-                let stale_count = feed_update.stale.len();
+                let feed_update = self.vm.feed_update_display();
                 let feed_status = feed_update.status_message.clone();
+                let action = feed_update.action.clone();
                 div()
                     .flex()
                     .flex_row()
@@ -1985,7 +1986,7 @@ impl Render for LibraryApp {
                                 div()
                                     .text_xs()
                                     .text_color(status_color)
-                                    .child(SharedString::from(status_text)),
+                                    .child(SharedString::from(status.text.clone())),
                             )
                             .when_some(feed_status, |el, msg| {
                                 el.child(
@@ -1996,21 +1997,17 @@ impl Render for LibraryApp {
                                 )
                             }),
                     )
-                    .child(if has_stale {
+                    .child(if action.kind == FeedUpdateActionKind::ApplyUpdates {
                         UiButton::styled("apply-feed-updates", ControlStyle::Primary)
-                            .label(format!("Apply updates ({stale_count})"))
-                            .disabled(phase != FeedUpdatePhase::Idle)
+                            .label(action.label)
+                            .disabled(action.disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.apply_all_feed_updates(cx);
                             }))
                     } else {
                         UiButton::styled("check-all-feeds", ControlStyle::Secondary)
-                            .label(if phase == FeedUpdatePhase::Checking {
-                                "Checking..."
-                            } else {
-                                "Check all feeds"
-                            })
-                            .disabled(phase != FeedUpdatePhase::Idle)
+                            .label(action.label)
+                            .disabled(action.disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.check_all_feeds(cx);
                             }))
@@ -2029,22 +2026,17 @@ impl Render for LibraryApp {
                             .flex_col()
                             .gap(spacing::XXS)
                             .children(left_items)
-                            .when(
-                                filtered_empty && !self.vm.status().starts_with("Error:"),
-                                |el| {
-                                    el.child(
-                                        div()
-                                            .text_center()
-                                            .p(spacing::XXL + spacing::LG)
-                                            .text_color(color::text_muted())
-                                            .child(
-                                                div()
-                                                    .mt(spacing::SM)
-                                                    .child("No library tracks yet"),
-                                            ),
-                                    )
-                                },
-                            ),
+                            .when(self.vm.should_show_empty_library(filtered_empty), |el| {
+                                el.child(
+                                    div()
+                                        .text_center()
+                                        .p(spacing::XXL + spacing::LG)
+                                        .text_color(color::text_muted())
+                                        .child(
+                                            div().mt(spacing::SM).child(chrome.empty_library_label),
+                                        ),
+                                )
+                            }),
                     ),
             )
             .into_any_element();
@@ -2300,6 +2292,7 @@ fn render_detail(
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
+    empty_label: &str,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -2312,7 +2305,7 @@ fn render_detail(
                 div()
                     .text_color(color::text_muted())
                     .text_center()
-                    .child("Select an item to view details"),
+                    .child(SharedString::from(empty_label.to_string())),
             )
             .into_any_element(),
 

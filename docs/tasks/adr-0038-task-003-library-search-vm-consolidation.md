@@ -256,7 +256,34 @@ Verified starting notes, 2026-05-03:
       and value-route panel loading labels are VM-owned.
     - Remove screen-local deferred-panel loading labels from Discover.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-32. Migrate remaining fallback batches, smallest blast radius first.
+32. Library shell chrome display
+    - Add `LibraryViewModel::chrome_display()` so Library search
+      placeholders, search pane labels, empty-list label, and
+      empty-detail label are VM-owned.
+    - Remove screen-local Library shell chrome labels from `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+33. Library playlist sidebar chrome display
+    - Extend `PlaylistSidebarVm` so the playlist heading, add button
+      label, and new-playlist add label are projected with the existing
+      disclosure and sort labels.
+    - Remove screen-local playlist sidebar chrome labels from
+      `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+34. Library feed-update toolbar display
+    - Add `LibraryViewModel::feed_update_display()` so the feed-update
+      action kind, label, disabled state, and status message are
+      VM-owned.
+    - Remove screen-local feed-update action label and disabled-state
+      branching from `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+35. Library status and empty-state display
+    - Add `LibraryViewModel::status_snapshot()` and
+      `LibraryViewModel::should_show_empty_library()` so status
+      severity and empty-list visibility are VM-owned.
+    - Remove screen-local `Error:` prefix checks from Library render
+      glue.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+36. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -605,6 +632,44 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local deferred-panel loading
   labels from returning.
 
+## Thirty-First-Slice Implementation Notes
+
+- `LibraryViewModel::chrome_display()` now carries Library search
+  placeholders, search pane labels, empty-list label, and empty-detail
+  label.
+- `LibraryApp::new()`, the Library render path, and empty detail
+  rendering now consume that display contract.
+- The architecture guard now blocks those Library shell chrome labels
+  from returning to `src/library.rs`.
+
+## Thirty-Second-Slice Implementation Notes
+
+- `PlaylistSidebarVm` now carries the playlist heading, add button
+  label, and new-playlist add label alongside its existing disclosure
+  and sort labels.
+- The Library sidebar renderer now receives those labels from the VM
+  instead of carrying local literals.
+- The architecture guard now blocks playlist sidebar chrome labels from
+  returning to `src/library.rs`.
+
+## Thirty-Third-Slice Implementation Notes
+
+- `LibraryViewModel::feed_update_display()` now carries feed-update
+  toolbar status, action kind, action label, and disabled state.
+- The Library renderer still chooses the GPUI button style and command
+  target, but no longer derives the action label or disabled state.
+- The architecture guard now blocks screen-local feed-update toolbar
+  labels from returning.
+
+## Thirty-Fourth-Slice Implementation Notes
+
+- `LibraryViewModel::status_snapshot()` now carries status text and
+  `Error:` severity classification for the Library shell.
+- `LibraryViewModel::should_show_empty_library()` now carries the
+  empty-list visibility rule.
+- The architecture guard now blocks screen-local Library status
+  severity and empty-list visibility checks from returning.
+
 ## Test Commands
 
 ```sh
@@ -642,6 +707,9 @@ cargo test publisher_link_display_trims_title_and_tooltip
 cargo test inspector_chrome_display_projects_back_and_empty_state
 cargo test inspector_status_messages_are_vm_owned
 cargo test deferred_panel_display_projects_loading_labels
+cargo test library_chrome_display_projects_shell_labels
+cargo test library_status_snapshot_classifies_error_prefix
+cargo test feed_update_display_projects_toolbar_action_labels
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

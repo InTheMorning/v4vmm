@@ -2304,6 +2304,71 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "\"Loading value routes...\"",
             "Discover value-route-panel loading label belongs in SearchViewModel::deferred_panel_display",
         ),
+        (
+            "src/library.rs",
+            "\"Search your library...\"",
+            "Library search placeholder belongs in LibraryViewModel::chrome_display",
+        ),
+        (
+            "src/library.rs",
+            "\"New playlist name\u{2026}\"",
+            "Library new-playlist placeholder belongs in LibraryViewModel::chrome_display",
+        ),
+        (
+            "src/library.rs",
+            "child(\"Playlists\")",
+            "Library playlist sidebar heading belongs in LibraryViewModel::playlist_sidebar",
+        ),
+        (
+            "src/library.rs",
+            "child(\"Search Library\")",
+            "Library search pane heading belongs in LibraryViewModel::chrome_display",
+        ),
+        (
+            "src/library.rs",
+            "label(\"Search\")",
+            "Library search action label belongs in LibraryViewModel::chrome_display",
+        ),
+        (
+            "src/library.rs",
+            "label(\"Add\")",
+            "Library new-playlist action label belongs in LibraryViewModel::playlist_sidebar",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"Apply updates ({stale_count})\")",
+            "Library feed-update action label belongs in LibraryViewModel::feed_update_display",
+        ),
+        (
+            "src/library.rs",
+            "\"Checking...\"",
+            "Library feed-update checking label belongs in LibraryViewModel::feed_update_display",
+        ),
+        (
+            "src/library.rs",
+            "\"Check all feeds\"",
+            "Library feed-update check label belongs in LibraryViewModel::feed_update_display",
+        ),
+        (
+            "src/library.rs",
+            "status_text.starts_with(\"Error:\")",
+            "Library status severity belongs in LibraryViewModel::status_snapshot",
+        ),
+        (
+            "src/library.rs",
+            "self.vm.status().starts_with(\"Error:\")",
+            "Library empty-state visibility belongs in LibraryViewModel::should_show_empty_library",
+        ),
+        (
+            "src/library.rs",
+            "\"No library tracks yet\"",
+            "Library empty-list label belongs in LibraryViewModel::chrome_display",
+        ),
+        (
+            "src/library.rs",
+            "\"Select an item to view details\"",
+            "Library empty-detail label belongs in LibraryViewModel::chrome_display",
+        ),
     ];
     let mut violations = Vec::new();
 

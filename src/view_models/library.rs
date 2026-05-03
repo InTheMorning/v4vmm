@@ -130,7 +130,10 @@ impl LibraryTreeProjection {
 pub(crate) struct PlaylistSidebarVm {
     pub(crate) expanded: bool,
     pub(crate) disclosure_glyph: &'static str,
+    pub(crate) heading: &'static str,
     pub(crate) sort_label: &'static str,
+    pub(crate) add_label: &'static str,
+    pub(crate) new_playlist_add_label: &'static str,
     pub(crate) creating_playlist: bool,
     pub(crate) rows: Vec<PlaylistSidebarRowVm>,
 }
@@ -143,6 +146,67 @@ pub(crate) struct PlaylistSidebarRowVm {
     pub(crate) name: String,
     pub(crate) track_count_label: String,
     pub(crate) selected: bool,
+}
+
+/// Static labels for the Library shell chrome.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryChromeDisplay {
+    pub(crate) search_placeholder: &'static str,
+    pub(crate) new_playlist_placeholder: &'static str,
+    pub(crate) search_heading: &'static str,
+    pub(crate) search_button_label: &'static str,
+    pub(crate) empty_library_label: &'static str,
+    pub(crate) empty_detail_label: &'static str,
+}
+
+impl LibraryChromeDisplay {
+    const VALUE: Self = Self {
+        search_placeholder: "Search your library...",
+        new_playlist_placeholder: "New playlist name\u{2026}",
+        search_heading: "Search Library",
+        search_button_label: "Search",
+        empty_library_label: "No library tracks yet",
+        empty_detail_label: "Select an item to view details",
+    };
+}
+
+/// Status text plus severity for the Library shell.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryStatusSnapshot {
+    pub(crate) text: String,
+    pub(crate) is_error: bool,
+}
+
+impl LibraryStatusSnapshot {
+    #[must_use]
+    fn from_text(text: &str) -> Self {
+        Self {
+            text: text.to_string(),
+            is_error: text.starts_with("Error:"),
+        }
+    }
+}
+
+/// Action kind for the feed-update toolbar.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FeedUpdateActionKind {
+    ApplyUpdates,
+    CheckAllFeeds,
+}
+
+/// Display contract for the feed-update toolbar action.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FeedUpdateActionDisplay {
+    pub(crate) kind: FeedUpdateActionKind,
+    pub(crate) label: String,
+    pub(crate) disabled: bool,
+}
+
+/// Display contract for the feed-update toolbar row.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FeedUpdateDisplay {
+    pub(crate) status_message: Option<String>,
+    pub(crate) action: FeedUpdateActionDisplay,
 }
 
 /// Pure command intent for appending one or more library tracks to a playlist.
@@ -481,7 +545,10 @@ impl LibraryViewModel {
             } else {
                 "\u{25B6}"
             },
+            heading: "Playlists",
             sort_label: self.playlist_sort_label(),
+            add_label: "+",
+            new_playlist_add_label: "Add",
             creating_playlist: self.creating_playlist,
             rows: self
                 .snapshot
@@ -495,6 +562,49 @@ impl LibraryViewModel {
                     selected: self.selected_playlist_id == Some(playlist.id),
                 })
                 .collect(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) const fn chrome_display() -> LibraryChromeDisplay {
+        LibraryChromeDisplay::VALUE
+    }
+
+    #[must_use]
+    pub(crate) fn status_snapshot(&self) -> LibraryStatusSnapshot {
+        LibraryStatusSnapshot::from_text(&self.status)
+    }
+
+    #[must_use]
+    pub(crate) fn should_show_empty_library(&self, filtered_empty: bool) -> bool {
+        filtered_empty && !self.status_snapshot().is_error
+    }
+
+    #[must_use]
+    pub(crate) fn feed_update_display(&self) -> FeedUpdateDisplay {
+        let state = &self.snapshot.feed_update_state;
+        let has_stale = !state.stale.is_empty();
+        let disabled = state.phase != FeedUpdatePhase::Idle;
+        let action = if has_stale {
+            FeedUpdateActionDisplay {
+                kind: FeedUpdateActionKind::ApplyUpdates,
+                label: format!("Apply updates ({})", state.stale.len()),
+                disabled,
+            }
+        } else {
+            FeedUpdateActionDisplay {
+                kind: FeedUpdateActionKind::CheckAllFeeds,
+                label: if state.phase == FeedUpdatePhase::Checking {
+                    "Checking...".into()
+                } else {
+                    "Check all feeds".into()
+                },
+                disabled,
+            }
+        };
+        FeedUpdateDisplay {
+            status_message: state.status_message.clone(),
+            action,
         }
     }
 
@@ -653,6 +763,13 @@ impl LibraryViewModel {
     }
 
     #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept as a focused state accessor for library view-model tests"
+        )
+    )]
     pub(crate) fn status(&self) -> &str {
         &self.status
     }
@@ -2375,7 +2492,10 @@ mod tests {
 
         assert!(sidebar.expanded);
         assert_eq!(sidebar.disclosure_glyph, "\u{25BC}");
+        assert_eq!(sidebar.heading, "Playlists");
         assert_eq!(sidebar.sort_label, "A–Z");
+        assert_eq!(sidebar.add_label, "+");
+        assert_eq!(sidebar.new_playlist_add_label, "Add");
         assert!(sidebar.creating_playlist);
         assert_eq!(sidebar.rows.len(), 2);
         assert_eq!(sidebar.rows[0].id, 10);
@@ -2395,6 +2515,70 @@ mod tests {
 
         assert!(!sidebar.expanded);
         assert_eq!(sidebar.disclosure_glyph, "\u{25B6}");
+    }
+
+    #[test]
+    fn library_chrome_display_projects_shell_labels() {
+        let display = LibraryViewModel::chrome_display();
+        assert_eq!(display.search_placeholder, "Search your library...");
+        assert_eq!(
+            display.new_playlist_placeholder,
+            "New playlist name\u{2026}"
+        );
+        assert_eq!(display.search_heading, "Search Library");
+        assert_eq!(display.search_button_label, "Search");
+        assert_eq!(display.empty_library_label, "No library tracks yet");
+        assert_eq!(display.empty_detail_label, "Select an item to view details");
+    }
+
+    #[test]
+    fn library_status_snapshot_classifies_error_prefix() {
+        let mut vm = LibraryViewModel::new();
+        vm.set_error_status("offline");
+
+        let status = vm.status_snapshot();
+
+        assert_eq!(status.text, "Error: offline");
+        assert!(status.is_error);
+        assert!(!vm.should_show_empty_library(true));
+
+        let mut vm = LibraryViewModel::new();
+        vm.finish_library_reload(0);
+        let status = vm.status_snapshot();
+        assert_eq!(status.text, "0 library tracks");
+        assert!(!status.is_error);
+        assert!(vm.should_show_empty_library(true));
+    }
+
+    #[test]
+    fn feed_update_display_projects_toolbar_action_labels() {
+        let mut vm = LibraryViewModel::new();
+        let display = vm.feed_update_display();
+        assert_eq!(display.status_message, None);
+        assert_eq!(display.action.kind, FeedUpdateActionKind::CheckAllFeeds);
+        assert_eq!(display.action.label, "Check all feeds");
+        assert!(!display.action.disabled);
+
+        vm.begin_all_feed_check(3);
+        let display = vm.feed_update_display();
+        assert_eq!(
+            display.status_message.as_deref(),
+            Some("Checking 3 feeds...")
+        );
+        assert_eq!(display.action.kind, FeedUpdateActionKind::CheckAllFeeds);
+        assert_eq!(display.action.label, "Checking...");
+        assert!(display.action.disabled);
+
+        vm.finish_all_feed_check(vec![feed_service::StaleFeed {
+            feed_id: 1,
+            feed_guid: "feed-1".into(),
+            title: Some("Feed".into()),
+            new_updated_at: 10,
+        }]);
+        let display = vm.feed_update_display();
+        assert_eq!(display.action.kind, FeedUpdateActionKind::ApplyUpdates);
+        assert_eq!(display.action.label, "Apply updates (1)");
+        assert!(!display.action.disabled);
     }
 
     #[test]
