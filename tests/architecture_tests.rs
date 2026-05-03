@@ -2269,6 +2269,41 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "format!(\"Open publisher: {publisher_text}\")",
             "Discover publisher-link tooltip display belongs in PublisherLinkDisplay",
         ),
+        (
+            "src/search.rs",
+            "format!(\"Loading {title}...\")",
+            "Discover inspector loading display belongs in SearchViewModel::inspector_loading_message",
+        ),
+        (
+            "src/search.rs",
+            "LoadingMessage::new(format!(\"Error: {error}\"))",
+            "Discover inspector error display belongs in SearchViewModel::inspector_error_message",
+        ),
+        (
+            "src/search.rs",
+            "\"\u{2190} Back\"",
+            "Discover inspector back label belongs in SearchViewModel::inspector_chrome_display",
+        ),
+        (
+            "src/search.rs",
+            "\"Select a result to inspect\"",
+            "Discover empty-inspector label belongs in SearchViewModel::inspector_chrome_display",
+        ),
+        (
+            "src/search.rs",
+            "text_3xl().opacity(0.4).child(\"\u{1F50D}\")",
+            "Discover empty-inspector icon belongs in SearchViewModel::inspector_chrome_display",
+        ),
+        (
+            "src/search.rs",
+            "\"Loading contributors...\"",
+            "Discover contributor-panel loading label belongs in SearchViewModel::deferred_panel_display",
+        ),
+        (
+            "src/search.rs",
+            "\"Loading value routes...\"",
+            "Discover value-route-panel loading label belongs in SearchViewModel::deferred_panel_display",
+        ),
     ];
     let mut violations = Vec::new();
 

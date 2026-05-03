@@ -239,7 +239,24 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local publisher tooltip formatting and trimming
       from Discover.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-29. Migrate remaining fallback batches, smallest blast radius first.
+29. Discover inspector chrome display
+    - Add `SearchViewModel::inspector_chrome_display()` so the
+      inspector back label and empty-state icon/label are VM-owned.
+    - Remove screen-local inspector back/empty chrome from Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+30. Discover inspector status display
+    - Add `SearchViewModel::inspector_loading_message()` and
+      `SearchViewModel::inspector_error_message()` so inspector loading
+      and error messages are VM-owned.
+    - Remove screen-local inspector loading/error formatting from
+      Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+31. Discover deferred-panel loading display
+    - Add `SearchViewModel::deferred_panel_display()` so contributor
+      and value-route panel loading labels are VM-owned.
+    - Remove screen-local deferred-panel loading labels from Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+32. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -561,6 +578,33 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local publisher-link tooltip
   formatting from returning.
 
+## Twenty-Eighth-Slice Implementation Notes
+
+- `SearchViewModel::inspector_chrome_display()` now carries the
+  Discover inspector back label and empty-state icon/label.
+- `render_inspector()` and `render_inspector_empty()` now render those
+  strings from the VM contract instead of screen-local literals.
+- The architecture guard now blocks the screen-local inspector back and
+  empty-state chrome from returning.
+
+## Twenty-Ninth-Slice Implementation Notes
+
+- `SearchViewModel::inspector_loading_message()` now carries the
+  dynamic `"Loading {title}..."` inspector message.
+- `SearchViewModel::inspector_error_message()` now carries the
+  inspector error display.
+- The architecture guard now blocks screen-local inspector loading and
+  error formatting from returning.
+
+## Thirtieth-Slice Implementation Notes
+
+- `SearchViewModel::deferred_panel_display()` now carries loading
+  labels for deferred contributor and value-route inspector panels.
+- `render_lazy_contributors()` and `render_lazy_value_routes()` now ask
+  the VM for those labels while keeping GPUI loading rendering local.
+- The architecture guard now blocks screen-local deferred-panel loading
+  labels from returning.
+
 ## Test Commands
 
 ```sh
@@ -595,6 +639,9 @@ cargo test search_status_snapshot_prefixes_error_display
 cargo test search_render_snapshot_projects_result_pane_display_labels
 cargo test recent_feeds_snapshot_projects_panel_display_labels
 cargo test publisher_link_display_trims_title_and_tooltip
+cargo test inspector_chrome_display_projects_back_and_empty_state
+cargo test inspector_status_messages_are_vm_owned
+cargo test deferred_panel_display_projects_loading_labels
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

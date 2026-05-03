@@ -1066,6 +1066,47 @@ pub(crate) struct RecentFeedsSnapshot {
     pub(crate) empty: bool,
 }
 
+/// Static labels for the Discover inspector shell.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct InspectorChromeDisplay {
+    pub(crate) back_label: &'static str,
+    pub(crate) empty_icon: &'static str,
+    pub(crate) empty_label: &'static str,
+}
+
+impl InspectorChromeDisplay {
+    const VALUE: Self = Self {
+        back_label: "\u{2190} Back",
+        empty_icon: "\u{1F50D}",
+        empty_label: "Select a result to inspect",
+    };
+}
+
+/// Deferred inspector panel kinds that share [`LazyPanel`] state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DeferredPanelKind {
+    Contributors,
+    ValueRoutes,
+}
+
+/// Static labels for a deferred inspector panel.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DeferredPanelDisplay {
+    pub(crate) loading_label: &'static str,
+}
+
+impl DeferredPanelDisplay {
+    #[must_use]
+    const fn for_kind(kind: DeferredPanelKind) -> Self {
+        Self {
+            loading_label: match kind {
+                DeferredPanelKind::Contributors => "Loading contributors...",
+                DeferredPanelKind::ValueRoutes => "Loading value routes...",
+            },
+        }
+    }
+}
+
 /// Pure command intent for appending one or more tracks to a playlist.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PlaylistAppendIntent {
@@ -1277,6 +1318,26 @@ impl SearchViewModel {
     #[must_use]
     pub(crate) const fn recents_root_title() -> &'static str {
         RecentFeedsDisplay::VALUE.heading
+    }
+
+    #[must_use]
+    pub(crate) const fn inspector_chrome_display() -> InspectorChromeDisplay {
+        InspectorChromeDisplay::VALUE
+    }
+
+    #[must_use]
+    pub(crate) fn inspector_loading_message(title: &str) -> String {
+        format!("Loading {title}...")
+    }
+
+    #[must_use]
+    pub(crate) fn inspector_error_message(error: impl std::fmt::Display) -> String {
+        format!("Error: {error}")
+    }
+
+    #[must_use]
+    pub(crate) const fn deferred_panel_display(kind: DeferredPanelKind) -> DeferredPanelDisplay {
+        DeferredPanelDisplay::for_kind(kind)
     }
 
     /// Reset pure search state after the `MusicIndex` endpoint changes.
@@ -2697,6 +2758,38 @@ mod tests {
         assert_eq!(display.title, "Acme Audio");
         assert_eq!(display.target, "Acme Audio");
         assert_eq!(display.tooltip, "Open publisher: Acme Audio");
+    }
+
+    #[test]
+    fn inspector_chrome_display_projects_back_and_empty_state() {
+        let display = SearchViewModel::inspector_chrome_display();
+        assert_eq!(display.back_label, "\u{2190} Back");
+        assert_eq!(display.empty_icon, "\u{1F50D}");
+        assert_eq!(display.empty_label, "Select a result to inspect");
+    }
+
+    #[test]
+    fn inspector_status_messages_are_vm_owned() {
+        assert_eq!(
+            SearchViewModel::inspector_loading_message("Way to Go"),
+            "Loading Way to Go..."
+        );
+        assert_eq!(
+            SearchViewModel::inspector_error_message("offline"),
+            "Error: offline"
+        );
+    }
+
+    #[test]
+    fn deferred_panel_display_projects_loading_labels() {
+        assert_eq!(
+            SearchViewModel::deferred_panel_display(DeferredPanelKind::Contributors).loading_label,
+            "Loading contributors..."
+        );
+        assert_eq!(
+            SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes).loading_label,
+            "Loading value routes..."
+        );
     }
 
     #[test]

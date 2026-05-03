@@ -76,10 +76,10 @@ use crate::view_models::format::plural;
 use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::search::{
     artist_rows_from_result_rows, feed_display_title, normalized_search_query,
-    search_result_type_is_visible, ActionRowVm, LazyPanel, PaymentRouteVm, PlaylistAppendIntent,
-    PlaylistAppendOutcome, PublisherInspectorVm, PublisherLinkDisplay, RecentFeedTileVm, ResultRow,
-    SearchBatch, SearchSubscriptionCommand, SearchViewModel, TrackFeedLinkDisplay,
-    TrackInspectorHeaderVm, TrackRowActionVm,
+    search_result_type_is_visible, ActionRowVm, DeferredPanelKind, InspectorChromeDisplay,
+    LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm,
+    PublisherLinkDisplay, RecentFeedTileVm, ResultRow, SearchBatch, SearchSubscriptionCommand,
+    SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
@@ -136,7 +136,7 @@ impl InspectorFrame {
             entity_type,
             entity_id,
             title: title.clone(),
-            detail: InspectorDetail::Loading(format!("Loading {title}...")),
+            detail: InspectorDetail::Loading(SearchViewModel::inspector_loading_message(&title)),
             image: None,
             contributors: LazyPanel::Hidden,
             contributors_collapsed: true,
@@ -2422,6 +2422,7 @@ fn render_inspector(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
+    let chrome = SearchViewModel::inspector_chrome_display();
     let title = if show_recents_root && frame.is_none() {
         SearchViewModel::recents_root_title()
     } else {
@@ -2449,7 +2450,7 @@ fn render_inspector(
                 .when(show_back, |el| {
                     el.child(
                         UiButton::styled("inspector-back", ControlStyle::Ghost)
-                            .label("← Back")
+                            .label(chrome.back_label)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.inspector_back(cx);
                             })),
@@ -2474,7 +2475,7 @@ fn render_inspector(
                 .child(match frame {
                     Some(frame) => render_inspector_body(frame, app, cx),
                     None if show_recents_root => render_recent_feeds_tiles(app, cx),
-                    None => render_inspector_empty(),
+                    None => render_inspector_empty(chrome),
                 }),
         )
         .into_any_element()
@@ -2490,7 +2491,7 @@ fn render_inspector_body(
             LoadingMessage::new(message.clone()).into_any_element()
         }
         InspectorDetail::Error(error) => {
-            LoadingMessage::new(format!("Error: {error}")).into_any_element()
+            LoadingMessage::new(SearchViewModel::inspector_error_message(error)).into_any_element()
         }
         InspectorDetail::Artist(artist_context) => {
             render_artist_inspector(frame, artist_context, app, cx)
@@ -2947,7 +2948,10 @@ fn render_lazy_contributors(
         .child(render_contributors_heading(collapsed, cx))
         .when(!collapsed, |el| match &frame.contributors {
             LazyPanel::Loaded(items) => el.children(contributor_elements(items, app, cx)),
-            LazyPanel::Loading => el.child(LoadingMessage::new("Loading contributors...")),
+            LazyPanel::Loading => el.child(LoadingMessage::new(
+                SearchViewModel::deferred_panel_display(DeferredPanelKind::Contributors)
+                    .loading_label,
+            )),
             LazyPanel::Empty(label) => el.child(muted_line(label)),
             LazyPanel::Hidden => el,
         })
@@ -2964,7 +2968,10 @@ fn render_lazy_value_routes(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
         .child(render_value_routes_heading(collapsed, cx))
         .when(!collapsed, |el| match &frame.value_routes {
             LazyPanel::Loaded(items) => el.children(value_route_elements(items)),
-            LazyPanel::Loading => el.child(LoadingMessage::new("Loading value routes...")),
+            LazyPanel::Loading => el.child(LoadingMessage::new(
+                SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes)
+                    .loading_label,
+            )),
             LazyPanel::Empty(label) => el.child(muted_line(label)),
             LazyPanel::Hidden => el,
         })
@@ -4770,7 +4777,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
         .into_any_element()
 }
 
-fn render_inspector_empty() -> AnyElement {
+fn render_inspector_empty(display: InspectorChromeDisplay) -> AnyElement {
     div()
         .size_full()
         .flex()
@@ -4779,8 +4786,8 @@ fn render_inspector_empty() -> AnyElement {
         .justify_center()
         .text_color(color::text_muted())
         .gap(spacing::SM)
-        .child(div().text_3xl().opacity(0.4).child("🔍"))
-        .child("Select a result to inspect")
+        .child(div().text_3xl().opacity(0.4).child(display.empty_icon))
+        .child(display.empty_label)
         .into_any_element()
 }
 
