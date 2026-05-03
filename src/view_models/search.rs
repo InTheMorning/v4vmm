@@ -86,8 +86,10 @@ pub(crate) struct RecentFeedTileVm<'a> {
 /// Display-ready content for one Discovery recent-feed tile.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecentFeedTileDisplay {
+    pub id: String,
     pub title: String,
     pub subtitle: Option<String>,
+    pub episode_note: Option<String>,
     pub image_url: Option<String>,
 }
 
@@ -100,10 +102,15 @@ impl<'a> RecentFeedTileVm<'a> {
     #[must_use]
     pub(crate) fn display(&self) -> RecentFeedTileDisplay {
         RecentFeedTileDisplay {
+            id: self.feed.feed_guid.clone().unwrap_or_default(),
             title: feed_display_title(self.feed),
             subtitle: nonempty_text(self.feed.release_artist.as_deref())
                 .or_else(|| nonempty_text(self.feed.publisher_text.as_deref()))
                 .map(str::to_string),
+            episode_note: self
+                .feed
+                .episode_count
+                .map(|count| format!("{count} tracks")),
             image_url: self.feed.image_url.clone(),
         }
     }
@@ -1734,8 +1741,10 @@ mod tests {
         let vm = RecentFeedTileVm::new(feed);
         let display = vm.display();
 
+        assert_eq!(display.id, "495c0d0b-f576-5d12-a76a-d806f2e19b7e");
         assert_eq!(display.title, "Is Anybody There?");
         assert_eq!(display.subtitle.as_deref(), Some("The Paisley Daze"));
+        assert_eq!(display.episode_note.as_deref(), Some("1 tracks"));
         assert_eq!(
             display.image_url.as_deref(),
             Some("https://feeds.fountain.fm/cover.jpg")
@@ -1754,6 +1763,29 @@ mod tests {
 
         assert_eq!(display.title, "Feed Title");
         assert_eq!(display.subtitle.as_deref(), Some("Publisher"));
+    }
+
+    #[test]
+    fn recent_feed_tile_vm_projects_id_and_episode_note() {
+        let feed = Feed {
+            feed_guid: Some("feed-guid".into()),
+            episode_count: Some(0),
+            ..Feed::default()
+        };
+        let display = RecentFeedTileVm::new(&feed).display();
+
+        assert_eq!(display.id, "feed-guid");
+        assert_eq!(display.episode_note.as_deref(), Some("0 tracks"));
+
+        let feed = Feed {
+            feed_guid: None,
+            episode_count: None,
+            ..Feed::default()
+        };
+        let display = RecentFeedTileVm::new(&feed).display();
+
+        assert_eq!(display.id, "");
+        assert_eq!(display.episode_note, None);
     }
 
     #[test]

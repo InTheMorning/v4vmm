@@ -2018,6 +2018,21 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "let split = vm.split()",
             "payment-route primary summary belongs in PaymentRouteVm::summary",
         ),
+        (
+            "src/search.rs",
+            "feed.feed_guid.clone().unwrap_or_default()",
+            "Discover feed-list tile id fallback belongs in RecentFeedTileVm::display",
+        ),
+        (
+            "src/search.rs",
+            "let episode_note =",
+            "Discover feed-list episode note belongs in RecentFeedTileVm::display",
+        ),
+        (
+            "src/search.rs",
+            "Label::new(feed_display_title(&feed))",
+            "Discover feed-list title fallback belongs in RecentFeedTileVm::display",
+        ),
     ];
     let mut violations = Vec::new();
 

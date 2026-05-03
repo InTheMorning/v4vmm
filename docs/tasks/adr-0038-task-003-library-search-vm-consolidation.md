@@ -82,7 +82,15 @@ Verified starting notes, 2026-05-03:
    - Remove `src/search.rs` render-glue formatting of the primary
      payment-route line.
    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-6. Migrate one remaining fallback at a time, smallest blast radius first.
+6. Discover feed-list tile display
+   - Extend `RecentFeedTileDisplay` with the tile id and episode-count
+     note.
+   - Make `RecentFeedTileVm::display()` own missing-guid and
+     missing-episode-note handling for feed-list tiles.
+   - Remove `src/search.rs` render-glue formatting of the feed tile id,
+     title fallback, and episode note.
+   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+7. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -162,6 +170,18 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now also blocks screen-local payment-route
   summary formatting from returning to `src/search.rs`.
 
+## Fifth-Slice Implementation Notes
+
+- `RecentFeedTileDisplay` now carries the Discover feed-list tile id and
+  optional episode note in addition to title, subtitle, and image URL.
+- `RecentFeedTileVm::display()` owns the legacy
+  `feed_guid.unwrap_or_default()` id fallback and the optional
+  `"{count} tracks"` episode note.
+- `src/search.rs` no longer derives feed-list tile ids, title fallback,
+  or episode notes locally in `render_feed_list_section`.
+- The architecture guard now also blocks screen-local feed-list tile id,
+  title, and episode-note fallback from returning to `src/search.rs`.
+
 ## Test Commands
 
 ```sh
@@ -171,6 +191,7 @@ cargo test track_inspector_header_vm_projects_feed_link_display_contract
 cargo test payment_route_vm_projects_address_without_coercing_presence
 cargo test payment_route_vm_projects_custom_fields_without_coercing_presence
 cargo test payment_route_vm_projects_primary_summary
+cargo test recent_feed_tile_vm_projects_id_and_episode_note
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test
 cargo clippy -- -D warnings

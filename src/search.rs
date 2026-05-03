@@ -4622,13 +4622,10 @@ pub(crate) fn render_feed_list_section(
     let tiles: Vec<AnyElement> = feeds
         .into_iter()
         .map(|feed| {
-            let guid = feed.feed_guid.clone().unwrap_or_default();
-            let title = feed_display_title(&feed);
-            let thumb = app.thumbnail_for_url(feed.image_url.as_deref(), cx);
-            let episode_note = feed
-                .episode_count
-                .map(|n| format!("{n} tracks"))
-                .unwrap_or_default();
+            let display = RecentFeedTileVm::new(&feed).display();
+            let guid = display.id.clone();
+            let title = display.title.clone();
+            let thumb = app.thumbnail_for_url(display.image_url.as_deref(), cx);
             div()
                 .id(SharedString::from(format!("feed-tile:{guid}")))
                 .w(layout::FEED_TILE_WIDTH)
@@ -4644,13 +4641,13 @@ pub(crate) fn render_feed_list_section(
                 .child(Thumbnail::new(EntityKind::Feed, ThumbnailSize::Lg).image(thumb.clone()))
                 .child(
                     div().line_height(typography::LINE_COMPACT).child(
-                        Label::new(feed_display_title(&feed))
+                        Label::new(display.title)
                             .size(FontSize::Caption)
                             .weight(FontWeight::MEDIUM)
                             .truncated(),
                     ),
                 )
-                .when(!episode_note.is_empty(), |el| {
+                .when_some(display.episode_note, |el, episode_note| {
                     el.child(
                         div()
                             .text_color(color::text_muted())
