@@ -25,6 +25,12 @@ pub struct TrackMetadataGridHeading {
     pub indent: f32,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrackMetadataGroupHeadingDisplay {
+    pub label: String,
+    pub disclosure_id: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TrackMetadataGridExpansion {
     pub rss_expanded: bool,
@@ -206,6 +212,18 @@ impl TrackMetadataGridVm {
             label.to_string()
         } else {
             format!("{label} ({unused_count} unused)")
+        }
+    }
+
+    #[must_use]
+    pub fn group_heading_display(
+        label: &str,
+        unused_count: usize,
+        group_key: Option<&str>,
+    ) -> TrackMetadataGroupHeadingDisplay {
+        TrackMetadataGroupHeadingDisplay {
+            label: Self::group_heading_label(label, unused_count),
+            disclosure_id: group_key.map(|key| format!("section:id3-frame-group:{key}")),
         }
     }
 
@@ -590,6 +608,24 @@ mod tests {
         assert_eq!(
             TrackMetadataGridVm::group_heading_label("People", 3),
             "People (3 unused)"
+        );
+    }
+
+    #[test]
+    fn group_heading_display_projects_label_and_disclosure_id() {
+        assert_eq!(
+            TrackMetadataGridVm::group_heading_display("People", 3, Some("people-credits")),
+            TrackMetadataGroupHeadingDisplay {
+                label: "People (3 unused)".to_string(),
+                disclosure_id: Some("section:id3-frame-group:people-credits".to_string()),
+            }
+        );
+        assert_eq!(
+            TrackMetadataGridVm::group_heading_display("People", 0, None),
+            TrackMetadataGroupHeadingDisplay {
+                label: "People".to_string(),
+                disclosure_id: None,
+            }
         );
     }
 

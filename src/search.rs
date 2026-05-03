@@ -3434,16 +3434,21 @@ fn metadata_group_cell(
     columns: u16,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let label = TrackMetadataGridVm::group_heading_label(&group.label, group.unused_count);
+    let group_key = group.key;
+    let display = TrackMetadataGridVm::group_heading_display(
+        &group.label,
+        group.unused_count,
+        group_key.as_deref(),
+    );
 
     let expanded = group.expanded;
     let mut cell = div().col_span(columns).mt(spacing::SM);
-    if let Some(group_key) = group.key {
-        let id = SharedString::from(format!("section:id3-frame-group:{group_key}"));
+    if let (Some(group_key), Some(disclosure_id)) = (group_key, display.disclosure_id.as_deref()) {
+        let id = SharedString::from(disclosure_id.to_string());
         cell = cell.child(
             DisclosureGroup::new(DisclosureGroupDisplay {
                 id: id.into(),
-                label: SharedString::from(label.clone()),
+                label: SharedString::from(display.label),
             })
             .collapsed(!expanded)
             .on_toggle(cx.listener(move |this, _, _, cx| {
@@ -3456,7 +3461,7 @@ fn metadata_group_cell(
                 .text_size(typography::SIZE_MICRO)
                 .font_weight(FontWeight::BOLD)
                 .text_color(color::text_muted())
-                .child(SharedString::from(label)),
+                .child(SharedString::from(display.label)),
         );
     }
     cell.into_any_element()

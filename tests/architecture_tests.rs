@@ -2464,6 +2464,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "format!(\"contributor-nostr:{label}:{npub}\")",
             "Discover contributor Nostr action display belongs in ContributorRowVm::identity_actions",
         ),
+        (
+            "src/library.rs",
+            "\"library-contributors\"",
+            "Library contributor panel id belongs in ReleaseDetailVm::contributor_panel_display",
+        ),
+        (
+            "src/library.rs",
+            "        \"Contributors\",",
+            "Library contributor panel title belongs in ReleaseDetailVm::contributor_panel_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"section:id3-frame-group:{group_key}\")",
+            "Library metadata group disclosure id belongs in TrackMetadataGridVm::group_heading_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"section:id3-frame-group:{group_key}\")",
+            "Discover metadata group disclosure id belongs in TrackMetadataGridVm::group_heading_display",
+        ),
     ];
     let mut violations = Vec::new();
 

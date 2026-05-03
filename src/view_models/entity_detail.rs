@@ -483,6 +483,12 @@ pub struct ReleasePanelVm {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContributorPanelDisplay {
+    pub id: &'static str,
+    pub title: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IdentityLinksVm<'a> {
     identity: &'a EntityIdentityLinks,
 }
@@ -693,6 +699,17 @@ impl<'a> ReleaseDetailVm<'a> {
     #[must_use]
     pub fn contributors(&self) -> ContributorListVm<'a> {
         ContributorListVm::new(&self.view.contributors)
+    }
+
+    #[must_use]
+    pub const fn contributor_panel_display(&self) -> ContributorPanelDisplay {
+        ContributorPanelDisplay {
+            id: match self.context {
+                EntitySurfaceContext::Discover => "discover-contributors",
+                EntitySurfaceContext::Library => "library-contributors",
+            },
+            title: "Contributors",
+        }
     }
 
     #[must_use]
@@ -1253,6 +1270,26 @@ mod tests {
             ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).identity_actions();
 
         assert_eq!(discover_actions, library_actions);
+    }
+
+    #[test]
+    fn contributor_panel_display_projects_surface_chrome() {
+        let feed = feed_view();
+
+        assert_eq!(
+            ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).contributor_panel_display(),
+            ContributorPanelDisplay {
+                id: "library-contributors",
+                title: "Contributors",
+            }
+        );
+        assert_eq!(
+            ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).contributor_panel_display(),
+            ContributorPanelDisplay {
+                id: "discover-contributors",
+                title: "Contributors",
+            }
+        );
     }
 
     #[test]

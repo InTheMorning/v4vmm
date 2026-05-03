@@ -333,7 +333,19 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local deferred-panel heading ids and labels from
       Discover.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-44. Migrate remaining fallback batches, smallest blast radius first.
+44. Library contributor panel chrome display
+    - Add `ReleaseDetailVm::contributor_panel_display()` so Library
+      contributor panel id and heading title are VM-owned.
+    - Remove screen-local Library contributor panel id/title literals
+      from `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+45. Metadata group disclosure display
+    - Add `TrackMetadataGridVm::group_heading_display()` so shared
+      metadata group labels and disclosure ids are VM-owned.
+    - Remove screen-local metadata group disclosure id formatting from
+      `library.rs` and `search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+46. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -794,6 +806,24 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local deferred-panel heading
   ids and labels from returning.
 
+## Forty-Third-Slice Implementation Notes
+
+- `ReleaseDetailVm::contributor_panel_display()` now carries Library
+  contributor panel id and title display.
+- `src/library.rs` still supplies thumbnails and action handlers, but no
+  longer owns the contributor panel chrome literals.
+- The architecture guard now blocks screen-local Library contributor
+  panel id/title literals from returning.
+
+## Forty-Fourth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::group_heading_display()` now carries metadata
+  group labels and disclosure ids.
+- `src/library.rs` and `src/search.rs` still wire disclosure toggles,
+  but no longer format metadata group disclosure ids locally.
+- The architecture guard now blocks screen-local metadata group
+  disclosure id formatting from returning.
+
 ## Test Commands
 
 ```sh
@@ -824,6 +854,7 @@ cargo test comparison_role_maps_compare_statuses
 cargo test display_with_glyph_preserves_empty_values
 cargo test pending_source_role_compares_trimmed_values
 cargo test id3_status_role_suppresses_standalone_id3_values
+cargo test group_heading_display_projects_label_and_disclosure_id
 cargo test search_status_snapshot_prefixes_error_display
 cargo test search_render_snapshot_projects_result_pane_display_labels
 cargo test recent_feeds_snapshot_projects_panel_display_labels
@@ -842,6 +873,7 @@ cargo test album_detail_vm_musicbrainz_action_projects_label_and_disabled_state
 cargo test album_detail_vm_playlist_display_projects_popover_id_and_label
 cargo test contributor_identity_actions_project_ids_kinds_and_targets
 cargo test contributor_identity_actions_omit_absent_targets
+cargo test contributor_panel_display_projects_surface_chrome
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test
