@@ -2667,11 +2667,12 @@ fn render_library_track_row(
         );
     }
 
+    let playlist_display = vm.playlist_display();
     actions.push(
         AddToPlaylistPopover::new(AddToPlaylistDisplay {
-            id: SharedString::from(format!("album-track-add:{track_id}")),
+            id: SharedString::from(playlist_display.popover_id),
             playlists: playlist_options(playlists),
-            trigger_label: SharedString::from("+ Playlist"),
+            trigger_label: SharedString::from(playlist_display.trigger_label),
         })
         .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
             this.add_track_to_playlist(track_id, *playlist_id, cx);
@@ -3117,6 +3118,7 @@ fn library_track_action_row(
     let subscription_message = action_vm.subscription_message().map(str::to_owned);
     let subscription_message_is_error = action_vm.message_is_error();
     let track_id = frame.entity_id;
+    let playlist_display = LibraryTrackActionVm::playlist_display(track_id);
 
     let mut row = ActionRow::new()
         .control(
@@ -3133,9 +3135,9 @@ fn library_track_action_row(
         )
         .control(
             AddToPlaylistPopover::new(AddToPlaylistDisplay {
-                id: SharedString::from(format!("track-inspector-add:{track_id}")),
+                id: SharedString::from(playlist_display.popover_id),
                 playlists: playlist_options(playlists),
-                trigger_label: SharedString::from(LibraryTrackActionVm::add_to_playlist_label()),
+                trigger_label: SharedString::from(playlist_display.trigger_label),
             })
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_track_to_playlist(track_id, *playlist_id, cx);

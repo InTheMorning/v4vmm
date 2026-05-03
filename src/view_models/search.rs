@@ -407,6 +407,19 @@ pub(crate) struct TrackRowActionVm<'a> {
     is_in_flight: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TrackRowDownloadDisplay {
+    pub(crate) busy_indicator_id: String,
+    pub(crate) button_id: String,
+    pub(crate) busy_tooltip: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchInspectorPlaylistDisplay {
+    pub(crate) popover_id: String,
+    pub(crate) trigger_label: String,
+}
+
 impl<'a> ActionRowVm<'a> {
     #[must_use]
     pub(crate) fn new(
@@ -472,6 +485,24 @@ impl<'a> ActionRowVm<'a> {
             "Add feed to playlist"
         } else {
             "Add to playlist"
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn inspector_playlist_display(
+        &self,
+        entity_id: &str,
+        trigger_label: impl Into<String>,
+    ) -> SearchInspectorPlaylistDisplay {
+        let trigger_label = trigger_label.into();
+        let trigger_label = if trigger_label.is_empty() {
+            self.add_to_playlist_label().to_string()
+        } else {
+            trigger_label
+        };
+        SearchInspectorPlaylistDisplay {
+            popover_id: format!("inspector-add:{entity_id}"),
+            trigger_label,
         }
     }
 
@@ -580,6 +611,16 @@ impl<'a> TrackRowActionVm<'a> {
     pub(crate) fn primary_action(&self) -> EntityActionVm {
         self.action_state()
             .primary_action(EntityActionTarget::Track(self.track_ref()))
+    }
+
+    #[must_use]
+    pub(crate) fn download_display(&self) -> TrackRowDownloadDisplay {
+        let key = self.key();
+        TrackRowDownloadDisplay {
+            busy_indicator_id: format!("track-row-download-spin:{key}"),
+            button_id: format!("track-row-download:{key}"),
+            busy_tooltip: self.busy_tooltip(),
+        }
     }
 
     #[must_use]
@@ -2214,6 +2255,31 @@ mod tests {
     }
 
     #[test]
+    fn action_row_vm_inspector_playlist_display_projects_id_and_label() {
+        let vm = ActionRowVm::new("feed", false, None, None);
+        assert_eq!(
+            vm.inspector_playlist_display("feed-1", "Add feed to playlist ▾"),
+            SearchInspectorPlaylistDisplay {
+                popover_id: "inspector-add:feed-1".into(),
+                trigger_label: "Add feed to playlist ▾".into(),
+            }
+        );
+
+        let vm = ActionRowVm::new("track", false, None, None);
+        assert_eq!(
+            vm.inspector_playlist_display("track-1", "Add to playlist"),
+            SearchInspectorPlaylistDisplay {
+                popover_id: "inspector-add:track-1".into(),
+                trigger_label: "Add to playlist".into(),
+            }
+        );
+        assert_eq!(
+            vm.inspector_playlist_display("track-1", "").trigger_label,
+            "Add to playlist"
+        );
+    }
+
+    #[test]
     fn action_row_vm_message_is_error_when_text_contains_error_token() {
         let vm = ActionRowVm::new("feed", false, None, Some("Subscribed!"));
         assert!(!vm.message_is_error());
@@ -2255,6 +2321,27 @@ mod tests {
         let vm = TrackRowActionVm::new(&track, true, true);
         assert_eq!(vm.busy_tooltip(), "Removing...");
         assert_eq!(vm.primary_action().label, "Removing...");
+    }
+
+    #[test]
+    fn track_row_action_vm_download_display_projects_ids_and_tooltip() {
+        let track = Track {
+            enclosure_url: Some("https://example.test/a.mp3".into()),
+            track_guid: Some("guid".into()),
+            ..Track::default()
+        };
+        let vm = TrackRowActionVm::new(&track, false, true);
+        assert_eq!(
+            vm.download_display(),
+            TrackRowDownloadDisplay {
+                busy_indicator_id: "track-row-download-spin:https://example.test/a.mp3".into(),
+                button_id: "track-row-download:https://example.test/a.mp3".into(),
+                busy_tooltip: "Downloading...",
+            }
+        );
+
+        let vm = TrackRowActionVm::new(&track, true, true);
+        assert_eq!(vm.download_display().busy_tooltip, "Removing...");
     }
 
     #[test]

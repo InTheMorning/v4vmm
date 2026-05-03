@@ -357,7 +357,33 @@ Verified starting notes, 2026-05-03:
     - Remove track identity action id formatting and slug mapping from
       `ui::shells::track`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-48. Migrate remaining fallback batches, smallest blast radius first.
+48. Discover track row control display
+    - Add `TrackVm::row_controls_display()` so Discover track row ids,
+      play-button ids, playlist popover ids, and playlist trigger labels
+      are VM-owned.
+    - Remove row-control id formatting and local playlist trigger
+      literals from `ui::shells::track`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+49. Discover track row download display
+    - Add `TrackRowActionVm::download_display()` so download button and
+      busy-spinner ids plus the busy tooltip are VM-owned.
+    - Remove download-control id formatting from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+50. Discover inspector playlist popover display
+    - Add `ActionRowVm::inspector_playlist_display()` so Discover
+      inspector playlist popover ids enter the renderer through a VM
+      display contract while preserving the existing action label.
+    - Remove inspector playlist popover id formatting from
+      `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+51. Library track playlist popover display
+    - Add `LibraryTrackRowVm::playlist_display()` and
+      `LibraryTrackActionVm::playlist_display()` so album-row and track
+      inspector playlist popover ids and trigger labels are VM-owned.
+    - Remove album-row and inspector playlist popover id/label
+      formatting from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+52. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -856,6 +882,47 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks track identity action id formatting
   and slug helpers from returning to the track shell.
 
+## Forty-Seventh-Slice Implementation Notes
+
+- `TrackVm::row_controls_display()` now carries Discover track row ids,
+  play-button ids, playlist popover ids, and playlist trigger labels.
+- `ui::shells::track::render_discover_track_row()` still wires click,
+  playlist select/create, and play behavior, but no longer formats row
+  control ids or owns the playlist trigger literal.
+- The architecture guard now blocks those Discover row-control
+  presentation facts from returning to the track shell.
+
+## Forty-Eighth-Slice Implementation Notes
+
+- `TrackRowActionVm::download_display()` now carries Discover download
+  button ids, busy-spinner ids, and busy tooltips.
+- `src/search.rs` still maps the action tone to button style and wires
+  download/remove callbacks, but no longer formats download-control ids.
+- The architecture guard now blocks screen-local Discover download
+  control id formatting from returning.
+
+## Forty-Ninth-Slice Implementation Notes
+
+- `ActionRowVm::inspector_playlist_display()` now carries Discover
+  inspector playlist popover ids while preserving the existing
+  feed/track action-label contract.
+- `src/search.rs` still determines feed playlist availability from the
+  release action state and wires select/create handlers, but no longer
+  formats inspector playlist popover ids locally.
+- The architecture guard now blocks screen-local Discover inspector
+  playlist popover id formatting from returning.
+
+## Fiftieth-Slice Implementation Notes
+
+- `LibraryTrackRowVm::playlist_display()` now carries Library album-row
+  playlist popover ids and trigger labels.
+- `LibraryTrackActionVm::playlist_display()` now carries Library track
+  inspector playlist popover ids and trigger labels.
+- `src/library.rs` still wires playlist select/create handlers, but no
+  longer formats those playlist popover ids or local trigger labels.
+- The architecture guard now blocks those Library track playlist
+  presentation facts from returning.
+
 ## Test Commands
 
 ```sh
@@ -908,6 +975,11 @@ cargo test contributor_identity_actions_omit_absent_targets
 cargo test contributor_panel_display_projects_surface_chrome
 cargo test identity_action_display_projects_id_kind_and_payload
 cargo test track_detail_identity_action_display_projects_ids
+cargo test row_controls_display_projects_track_row_ids_and_playlist_label
+cargo test track_row_action_vm_download_display_projects_ids_and_tooltip
+cargo test action_row_vm_inspector_playlist_display_projects_id_and_label
+cargo test library_track_row_vm_playlist_display_projects_album_track_controls
+cargo test library_track_action_vm_formats_playlist_label_and_message_status
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

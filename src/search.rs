@@ -2748,6 +2748,7 @@ pub(crate) fn discover_inspector_action_row(
     let playlist_target = inspector_playlist_target(frame, app);
     let create_playlist_target = playlist_target.clone();
     let playlists = app.vm.playlists_snapshot();
+    let playlist_display = vm.inspector_playlist_display(&frame.entity_id, playlist_label);
 
     let controls = vec![
         action_button(
@@ -2762,9 +2763,9 @@ pub(crate) fn discover_inspector_action_row(
         }))
         .into_any_element(),
         AddToPlaylistPopover::new(AddToPlaylistDisplay {
-            id: SharedString::from(format!("inspector-add:{}", frame.entity_id)),
+            id: SharedString::from(playlist_display.popover_id),
             playlists: playlist_options(&playlists),
-            trigger_label: SharedString::from(playlist_label),
+            trigger_label: SharedString::from(playlist_display.trigger_label),
         })
         .disabled(playlist_disabled || playlist_target.is_none())
         .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
@@ -4506,12 +4507,12 @@ pub(crate) fn render_track_download_button(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let action_vm = TrackRowActionVm::new(&track, is_downloaded, is_in_flight);
-    let key = action_vm.key();
+    let display = action_vm.download_display();
 
     if action_vm.is_in_flight() {
-        let tip = SharedString::from(action_vm.busy_tooltip());
+        let tip = SharedString::from(display.busy_tooltip);
         return div()
-            .id(SharedString::from(format!("track-row-download-spin:{key}")))
+            .id(SharedString::from(display.busy_indicator_id))
             .w(layout::ACTION_ICON_SIZE)
             .h(layout::ACTION_ICON_SIZE)
             .flex()
@@ -4529,7 +4530,6 @@ pub(crate) fn render_track_download_button(
             .into_any_element();
     }
 
-    let id = SharedString::from(format!("track-row-download:{key}"));
     let action = action_vm.primary_action();
     let style = match action.tone {
         EntityActionTone::DestructiveQuiet => ControlStyle::DestructiveRowAction,
@@ -4538,7 +4538,7 @@ pub(crate) fn render_track_download_button(
     let track_for_click = track.clone();
     let feed_for_click = feed.clone();
 
-    UiButton::styled(id, style)
+    UiButton::styled(SharedString::from(display.button_id), style)
         .label(action.label.clone())
         .disabled(!action.enabled)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {

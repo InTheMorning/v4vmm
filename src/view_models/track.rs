@@ -29,6 +29,15 @@ pub struct TrackPlayAudioDisplay {
     pub disabled: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use]
+pub struct TrackRowControlsDisplay {
+    pub row_id: String,
+    pub play_button_id: String,
+    pub playlist_popover_id: String,
+    pub playlist_trigger_label: &'static str,
+}
+
 impl<'a> TrackVm<'a> {
     #[must_use]
     pub fn new(track: &'a Track) -> Self {
@@ -134,6 +143,16 @@ impl<'a> TrackVm<'a> {
             url,
             tooltip,
             disabled,
+        }
+    }
+
+    pub fn row_controls_display(&self) -> TrackRowControlsDisplay {
+        let guid = self.guid();
+        TrackRowControlsDisplay {
+            row_id: format!("track-row:{guid}"),
+            play_button_id: format!("track-row-play:{guid}"),
+            playlist_popover_id: format!("add-pl:{guid}"),
+            playlist_trigger_label: "+ Playlist",
         }
     }
 }
@@ -325,6 +344,35 @@ mod tests {
                 url: None,
                 tooltip: "No audio URL".into(),
                 disabled: true,
+            }
+        );
+    }
+
+    #[test]
+    fn row_controls_display_projects_track_row_ids_and_playlist_label() {
+        let mut t = track();
+        t.track_guid = Some("guid-1".into());
+
+        assert_eq!(
+            TrackVm::new(&t).row_controls_display(),
+            TrackRowControlsDisplay {
+                row_id: "track-row:guid-1".into(),
+                play_button_id: "track-row-play:guid-1".into(),
+                playlist_popover_id: "add-pl:guid-1".into(),
+                playlist_trigger_label: "+ Playlist",
+            }
+        );
+    }
+
+    #[test]
+    fn row_controls_display_preserves_empty_guid_ids() {
+        assert_eq!(
+            TrackVm::new(&track()).row_controls_display(),
+            TrackRowControlsDisplay {
+                row_id: "track-row:".into(),
+                play_button_id: "track-row-play:".into(),
+                playlist_popover_id: "add-pl:".into(),
+                playlist_trigger_label: "+ Playlist",
             }
         );
     }

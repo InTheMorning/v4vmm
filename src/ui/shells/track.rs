@@ -124,8 +124,8 @@ fn render_discover_track_row(
     let vm = TrackVm::new(track);
     let guid = vm.guid();
     let title = vm.title();
+    let controls_display = vm.row_controls_display();
     let audio_display = vm.play_audio_display();
-    let play_button_id = SharedString::from(format!("track-row-play:{guid}"));
     let guid_for_click = guid.clone();
     let title_for_click = title.clone();
     let feed_guid_owned = feed_guid.map(str::to_string);
@@ -135,8 +135,12 @@ fn render_discover_track_row(
     let download_btn =
         render_track_download_button(track.clone(), feed, is_downloaded, is_in_flight, cx)
             .into_any_element();
-    let play_btn =
-        render_play_icon_button_with_id(play_button_id, audio_display, cx).into_any_element();
+    let play_btn = render_play_icon_button_with_id(
+        SharedString::from(controls_display.play_button_id.clone()),
+        audio_display,
+        cx,
+    )
+    .into_any_element();
     let mut actions = vec![download_btn];
 
     if let Some(ref fguid) = feed_guid_owned {
@@ -148,9 +152,9 @@ fn render_discover_track_row(
             let feed_url_cre = feed_url_sel.clone();
             let track_guid_cre = track_guid_sel.clone();
             let popover = AddToPlaylistPopover::new(AddToPlaylistDisplay {
-                id: SharedString::from(format!("add-pl:{guid}")),
+                id: SharedString::from(controls_display.playlist_popover_id.clone()),
                 playlists: playlist_options(playlists),
-                trigger_label: SharedString::from("+ Playlist"),
+                trigger_label: SharedString::from(controls_display.playlist_trigger_label),
             })
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_search_track_to_playlist(
@@ -176,7 +180,7 @@ fn render_discover_track_row(
 
     actions.push(play_btn);
 
-    let mut row = TrackRow::from_vm(SharedString::from(format!("track-row:{guid}")), &row_vm)
+    let mut row = TrackRow::from_vm(SharedString::from(controls_display.row_id), &row_vm)
         .thumbnail(thumbnail)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.push_inspector(

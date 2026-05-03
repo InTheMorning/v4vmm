@@ -325,6 +325,12 @@ pub(crate) struct LibraryTrackActionVm<'a> {
     subscription_message: Option<&'a str>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryTrackPlaylistDisplay {
+    pub(crate) popover_id: String,
+    pub(crate) trigger_label: &'static str,
+}
+
 impl<'a> LibraryTrackActionVm<'a> {
     #[must_use]
     pub(crate) fn new(
@@ -352,6 +358,14 @@ impl<'a> LibraryTrackActionVm<'a> {
     #[must_use]
     pub(crate) const fn add_to_playlist_label() -> &'static str {
         "Add to playlist"
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_display(track_id: i64) -> LibraryTrackPlaylistDisplay {
+        LibraryTrackPlaylistDisplay {
+            popover_id: format!("track-inspector-add:{track_id}"),
+            trigger_label: Self::add_to_playlist_label(),
+        }
     }
 
     #[must_use]
@@ -1371,6 +1385,14 @@ impl<'a> LibraryTrackRowVm<'a> {
     }
 
     #[must_use]
+    pub(crate) fn playlist_display(&self) -> LibraryTrackPlaylistDisplay {
+        LibraryTrackPlaylistDisplay {
+            popover_id: format!("album-track-add:{}", self.track.id),
+            trigger_label: "+ Playlist",
+        }
+    }
+
+    #[must_use]
     pub(crate) fn track_action_state(
         &self,
         is_busy: bool,
@@ -1963,6 +1985,20 @@ mod tests {
         let action = vm.primary_action_vm(true);
         assert_eq!(action.label, "Removing...");
         assert!(!action.enabled);
+    }
+
+    #[test]
+    fn library_track_row_vm_playlist_display_projects_album_track_controls() {
+        let mut r = row();
+        r.id = 42;
+
+        assert_eq!(
+            LibraryTrackRowVm::new(&r, None).playlist_display(),
+            LibraryTrackPlaylistDisplay {
+                popover_id: "album-track-add:42".into(),
+                trigger_label: "+ Playlist",
+            }
+        );
     }
 
     #[test]
@@ -2996,6 +3032,13 @@ mod tests {
         assert_eq!(
             LibraryTrackActionVm::add_to_playlist_label(),
             "Add to playlist"
+        );
+        assert_eq!(
+            LibraryTrackActionVm::playlist_display(7),
+            LibraryTrackPlaylistDisplay {
+                popover_id: "track-inspector-add:7".into(),
+                trigger_label: "Add to playlist",
+            }
         );
         assert_eq!(closed.subscription_message(), Some("Subscribed"));
         assert!(!closed.message_is_error());

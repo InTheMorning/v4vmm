@@ -2504,6 +2504,56 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "const fn kind_slug(kind: IdentityActionKind)",
             "track identity action slug display belongs in EntityActionVm::identity_display",
         ),
+        (
+            "src/ui/shells/track.rs",
+            "format!(\"track-row:{guid}\")",
+            "Discover track row id display belongs in TrackVm::row_controls_display",
+        ),
+        (
+            "src/ui/shells/track.rs",
+            "format!(\"track-row-play:{guid}\")",
+            "Discover track play-button id display belongs in TrackVm::row_controls_display",
+        ),
+        (
+            "src/ui/shells/track.rs",
+            "format!(\"add-pl:{guid}\")",
+            "Discover track playlist popover id display belongs in TrackVm::row_controls_display",
+        ),
+        (
+            "src/ui/shells/track.rs",
+            "SharedString::from(\"+ Playlist\")",
+            "Discover track playlist trigger label belongs in TrackVm::row_controls_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"track-row-download-spin:{key}\")",
+            "Discover track download spinner id display belongs in TrackRowActionVm::download_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"track-row-download:{key}\")",
+            "Discover track download button id display belongs in TrackRowActionVm::download_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"inspector-add:{}\", frame.entity_id)",
+            "Discover inspector playlist popover id belongs in ActionRowVm::inspector_playlist_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"album-track-add:{track_id}\")",
+            "Library album-track playlist popover id belongs in LibraryTrackRowVm::playlist_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"track-inspector-add:{track_id}\")",
+            "Library track inspector playlist popover id belongs in LibraryTrackActionVm::playlist_display",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(\"+ Playlist\")",
+            "Library album-track playlist trigger label belongs in LibraryTrackRowVm::playlist_display",
+        ),
     ];
     let mut violations = Vec::new();
 
