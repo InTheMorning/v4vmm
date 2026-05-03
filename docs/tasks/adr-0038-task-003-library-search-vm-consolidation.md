@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first eighty-two implementation slices completed on 2026-05-03.
+In progress - first eighty-six implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -558,7 +558,35 @@ Verified starting notes, 2026-05-03:
       labels are metadata-grid-owned.
     - Remove used-ID3 row id/label formatting from `src/search.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-83. Migrate remaining fallback batches, smallest blast radius first.
+83. Discover metadata source-drag id display
+    - Add `TrackMetadataGridVm::source_drag_display()` so RSS and
+      MusicBrainz source-drag cell ids are metadata-grid-owned.
+    - Remove source-drag id formatting from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+84. Metadata expandable-cell summary display
+    - Add `TrackMetadataGridVm::expandable_cell_summary()` so
+      Contributors, Value Routes, Artwork, and transcript collapsed
+      summary policy is metadata-grid-owned.
+    - Preserve the existing Library/Discover Value Routes fallback
+      difference as the named `ValueRoutesSummaryFallback` context.
+    - Remove summary match/fallback duplication from `src/library.rs`
+      and `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+85. Metadata artwork URL display policy
+    - Add `TrackMetadataGridVm::artwork_url()` and
+      `artwork_summary()` so HTTP/HTTPS artwork URL recognition and
+      filename summary display are metadata-grid-owned.
+    - Remove screen-local URL-prefix checks used for summary and
+      expanded artwork-link activation.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+86. Discover transcript blank-line display
+    - Add `TrackMetadataGridVm::transcript_line_display()` so blank
+      transcript lines keep their visual row without a screen-local
+      fallback.
+    - Remove local blank-line replacement from Discover transcript and
+      JSON line renderers.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+87. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1393,6 +1421,44 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local used-ID3 row display
   formatting from returning.
 
+## Eighty-Second-Slice Implementation Notes
+
+- `TrackMetadataGridVm::source_drag_display()` now carries Discover RSS
+  and MusicBrainz source-drag cell ids.
+- `src/search.rs` still wires drag payloads and callbacks, but no
+  longer owns the draggable-source id formats.
+- The architecture guard now blocks screen-local metadata source-drag
+  id formatting from returning.
+
+## Eighty-Third-Slice Implementation Notes
+
+- `TrackMetadataGridVm::expandable_cell_summary()` now carries
+  collapsed metadata summary policy for Contributors, Value Routes,
+  Artwork, transcript fields, and default display values.
+- Library and Discover retain their named Value Routes fallback context
+  through `ValueRoutesSummaryFallback`, but no longer duplicate the
+  summary match logic.
+- The architecture guard now blocks screen-local artwork URL summary
+  checks from returning.
+
+## Eighty-Fourth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::artwork_url()` and `artwork_summary()` now
+  carry artwork URL recognition and filename summary display.
+- `src/search.rs` still wires the middle-click open behavior for
+  expanded artwork rows, but asks the VM whether the row is a URL.
+- The architecture guard now blocks screen-local artwork URL-prefix
+  checks from returning.
+
+## Eighty-Fifth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::transcript_line_display()` now carries the
+  blank-line visual fallback used by Discover transcript expansion.
+- `src/search.rs` still renders transcript and JSON lines, but no
+  longer owns the empty-line replacement string.
+- The architecture guard now blocks the screen-local blank-line
+  fallback from returning.
+
 ## Test Commands
 
 ```sh
@@ -1410,8 +1476,12 @@ cargo test id3_cell_frame_prefers_pending_then_preserves_empty_vs_missing_displa
 cargo test id3_drag_frame_preserves_empty_vs_missing_display
 cargo test id3_frame_label_preserves_empty_vs_missing_display
 cargo test id3_generated_row_display_projects_ids_and_labels
+cargo test source_drag_display_projects_discover_source_cell_ids
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized
 cargo test value_routes_summary_counts_routes_and_owns_fallback_policy
+cargo test expandable_cell_summary_owns_context_fallbacks
+cargo test artwork_url_and_summary_preserve_legacy_http_policy
+cargo test transcript_line_display_preserves_blank_visual_rows
 cargo test group_heading_label_appends_unused_count_only_when_present
 cargo test value_route_item_label_appends_split_when_present
 cargo test value_route_split_label_formats_percent_and_ignores_empty_values

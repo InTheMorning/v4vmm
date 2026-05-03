@@ -2120,6 +2120,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover used ID3 field label belongs in TrackMetadataGridVm::id3_field_display_label",
         ),
         (
+            "src/search.rs",
+            "format!(\"metadata-rss-drag-{}\"",
+            "Discover RSS metadata source-drag id belongs in TrackMetadataGridVm::source_drag_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"metadata-musicbrainz-drag-{}\"",
+            "Discover MusicBrainz metadata source-drag id belongs in TrackMetadataGridVm::source_drag_display",
+        ),
+        (
             "src/library.rs",
             "summarize_contributor_value(raw_value).unwrap_or_else",
             "metadata contributor summary fallback belongs in TrackMetadataGridVm::contributor_summary",
@@ -2143,6 +2153,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/search.rs",
             "format!(\"[{lines} lines]\")",
             "metadata value-route multiline fallback belongs in TrackMetadataGridVm::value_routes_summary",
+        ),
+        (
+            "src/search.rs",
+            "fn expandable_cell_summary(",
+            "Discover expandable metadata summary policy belongs in TrackMetadataGridVm::expandable_cell_summary",
+        ),
+        (
+            "src/library.rs",
+            "raw_value.starts_with(\"http://\") || raw_value.starts_with(\"https://\")",
+            "metadata artwork URL summary policy belongs in TrackMetadataGridVm::expandable_cell_summary",
+        ),
+        (
+            "src/search.rs",
+            "raw_value.starts_with(\"http://\") || raw_value.starts_with(\"https://\")",
+            "metadata artwork URL summary policy belongs in TrackMetadataGridVm::artwork_url",
+        ),
+        (
+            "src/search.rs",
+            "let line = if line.is_empty() { \" \" } else { line };",
+            "metadata transcript blank-line display belongs in TrackMetadataGridVm::transcript_line_display",
         ),
         (
             "src/library.rs",

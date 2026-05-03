@@ -53,6 +53,11 @@ pub struct TrackMetadataValueRouteItemDisplay {
     pub disclosure_glyph: &'static str,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrackMetadataSourceDragDisplay {
+    pub cell_id: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValueRoutesSummaryFallback {
     DisplayValue,
@@ -251,6 +256,39 @@ impl TrackMetadataGridVm {
     }
 
     #[must_use]
+    pub fn artwork_url(raw_value: &str) -> Option<&str> {
+        raw_value
+            .starts_with("http://")
+            .then_some(raw_value)
+            .or_else(|| raw_value.starts_with("https://").then_some(raw_value))
+    }
+
+    #[must_use]
+    pub fn artwork_summary(raw_value: &str, display_value: &str) -> String {
+        Self::artwork_url(raw_value).map_or_else(
+            || display_value.to_string(),
+            |url| url.rsplit('/').next().unwrap_or(url).to_string(),
+        )
+    }
+
+    #[must_use]
+    pub fn expandable_cell_summary(
+        field: &str,
+        raw_value: &str,
+        display_value: &str,
+        value_routes_fallback: ValueRoutesSummaryFallback,
+    ) -> String {
+        match field {
+            "Contributors" => Self::contributor_summary(raw_value, display_value),
+            "Value Routes" => {
+                Self::value_routes_summary(raw_value, display_value, value_routes_fallback)
+            }
+            "Artwork" => Self::artwork_summary(raw_value, display_value),
+            _ => display_value.to_string(),
+        }
+    }
+
+    #[must_use]
     pub fn group_heading_label(label: &str, unused_count: usize) -> String {
         if unused_count == 0 {
             label.to_string()
@@ -299,6 +337,29 @@ impl TrackMetadataGridVm {
     #[must_use]
     pub fn value_route_field_value_label(value: &serde_json::Value) -> Option<String> {
         json_value_display_label(value)
+    }
+
+    #[must_use]
+    pub fn source_drag_display(
+        column: MetadataColumn,
+        row_id: &str,
+    ) -> TrackMetadataSourceDragDisplay {
+        let column_slug = match column {
+            MetadataColumn::Rss => "rss",
+            MetadataColumn::MusicBrainz => "musicbrainz",
+        };
+        TrackMetadataSourceDragDisplay {
+            cell_id: format!("metadata-{column_slug}-drag-{row_id}"),
+        }
+    }
+
+    #[must_use]
+    pub fn transcript_line_display(line: &str) -> &str {
+        if line.is_empty() {
+            " "
+        } else {
+            line
+        }
     }
 
     #[must_use]
@@ -742,6 +803,75 @@ mod tests {
     }
 
     #[test]
+    fn expandable_cell_summary_owns_context_fallbacks() {
+        assert_eq!(
+            TrackMetadataGridVm::expandable_cell_summary(
+                "Contributors",
+                "role: Alice",
+                "Alice",
+                ValueRoutesSummaryFallback::DisplayValue,
+            ),
+            "1 contributor"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expandable_cell_summary(
+                "Value Routes",
+                r#"[{"recipient_name":"Alice"}]"#,
+                "Alice",
+                ValueRoutesSummaryFallback::DisplayValue,
+            ),
+            "[1 items]"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expandable_cell_summary(
+                "Value Routes",
+                "not json",
+                "Alice\nBob",
+                ValueRoutesSummaryFallback::MultilineCount,
+            ),
+            "[2 lines]"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expandable_cell_summary(
+                "Artwork",
+                "https://cdn.example/art/front.jpg",
+                "Full artwork URL",
+                ValueRoutesSummaryFallback::DisplayValue,
+            ),
+            "front.jpg"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expandable_cell_summary(
+                "Transcript",
+                "raw transcript",
+                "display transcript",
+                ValueRoutesSummaryFallback::DisplayValue,
+            ),
+            "display transcript"
+        );
+    }
+
+    #[test]
+    fn artwork_url_and_summary_preserve_legacy_http_policy() {
+        assert_eq!(
+            TrackMetadataGridVm::artwork_url("https://cdn.example/a/b.png"),
+            Some("https://cdn.example/a/b.png")
+        );
+        assert_eq!(
+            TrackMetadataGridVm::artwork_summary("http://cdn.example/a/b.png", "Artwork"),
+            "b.png"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::artwork_summary("embedded image", "Artwork"),
+            "Artwork"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::artwork_url("ftp://example/a.png"),
+            None
+        );
+    }
+
+    #[test]
     fn group_heading_label_appends_unused_count_only_when_present() {
         assert_eq!(
             TrackMetadataGridVm::group_heading_label("People", 0),
@@ -829,6 +959,28 @@ mod tests {
             TrackMetadataGridVm::value_route_field_value_label(&serde_json::Value::Null),
             None
         );
+    }
+
+    #[test]
+    fn source_drag_display_projects_discover_source_cell_ids() {
+        assert_eq!(
+            TrackMetadataGridVm::source_drag_display(MetadataColumn::Rss, "title"),
+            TrackMetadataSourceDragDisplay {
+                cell_id: "metadata-rss-drag-title".into(),
+            }
+        );
+        assert_eq!(
+            TrackMetadataGridVm::source_drag_display(MetadataColumn::MusicBrainz, "release"),
+            TrackMetadataSourceDragDisplay {
+                cell_id: "metadata-musicbrainz-drag-release".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn transcript_line_display_preserves_blank_visual_rows() {
+        assert_eq!(TrackMetadataGridVm::transcript_line_display("Line"), "Line");
+        assert_eq!(TrackMetadataGridVm::transcript_line_display(""), " ");
     }
 
     #[test]

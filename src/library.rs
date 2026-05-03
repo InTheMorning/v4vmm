@@ -3565,7 +3565,12 @@ fn metadata_value_cell(
         return compare_cell(display_value, Some(color));
     }
     let display = TrackMetadataGridVm::library_expandable_cell_display(column, row_id, expanded);
-    let summary = expandable_cell_summary(logical_field, field, raw_value, display_value);
+    let summary = TrackMetadataGridVm::expandable_cell_summary(
+        logical_field,
+        raw_value,
+        display_value,
+        ValueRoutesSummaryFallback::DisplayValue,
+    );
     if expanded && logical_field == "Value Routes" {
         let header_key = display.cell_key.clone();
         return div()
@@ -3812,30 +3817,6 @@ fn metadata_logical_field(field: &str) -> &str {
         "TXXX:MusicIndex Contributors" => "Contributors",
         "TXXX:MusicIndex Value Routes" => "Value Routes",
         _ => field,
-    }
-}
-
-fn expandable_cell_summary(
-    logical_field: &str,
-    _display_field: &str,
-    raw_value: &str,
-    display_value: &str,
-) -> String {
-    match logical_field {
-        "Contributors" => TrackMetadataGridVm::contributor_summary(raw_value, display_value),
-        "Value Routes" => TrackMetadataGridVm::value_routes_summary(
-            raw_value,
-            display_value,
-            ValueRoutesSummaryFallback::DisplayValue,
-        ),
-        "Artwork" if raw_value.starts_with("http://") || raw_value.starts_with("https://") => {
-            raw_value
-                .rsplit('/')
-                .next()
-                .unwrap_or(raw_value)
-                .to_string()
-        }
-        _ => display_value.to_string(),
     }
 }
 

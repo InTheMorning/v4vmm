@@ -3238,11 +3238,10 @@ fn metadata_rss_cell(
         .child(div().flex_1().min_w_0().child(value_element));
     if !expandable {
         if let Some(drag) = metadata_drag_value(row, MetadataColumn::Rss) {
+            let display =
+                TrackMetadataGridVm::source_drag_display(MetadataColumn::Rss, &row.row_id);
             return cell
-                .id(SharedString::from(format!(
-                    "metadata-rss-drag-{}",
-                    row.row_id
-                )))
+                .id(SharedString::from(display.cell_id))
                 .cursor_move()
                 .hover(|style| style.bg(color::bg_surface()))
                 .on_drag(
@@ -3375,22 +3374,21 @@ fn metadata_musicbrainz_cell(
         None,
     ));
     if let Some(drag) = metadata_drag_value(row, MetadataColumn::MusicBrainz) {
-        cell.id(SharedString::from(format!(
-            "metadata-musicbrainz-drag-{}",
-            row.row_id
-        )))
-        .cursor_move()
-        .hover(|style| style.bg(color::bg_surface()))
-        .on_drag(
-            drag,
-            |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
-                cx.new(|_| MetadataDragPreview {
-                    label: drag.field.clone(),
-                    value: drag.value.clone(),
-                })
-            },
-        )
-        .into_any_element()
+        let display =
+            TrackMetadataGridVm::source_drag_display(MetadataColumn::MusicBrainz, &row.row_id);
+        cell.id(SharedString::from(display.cell_id))
+            .cursor_move()
+            .hover(|style| style.bg(color::bg_surface()))
+            .on_drag(
+                drag,
+                |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
+                    cx.new(|_| MetadataDragPreview {
+                        label: drag.field.clone(),
+                        value: drag.value.clone(),
+                    })
+                },
+            )
+            .into_any_element()
     } else {
         cell.into_any_element()
     }
@@ -3562,27 +3560,6 @@ fn muted_line(value: &str) -> AnyElement {
         .into_any_element()
 }
 
-fn expandable_cell_summary(field: &str, raw_value: &str, display_value: &str) -> String {
-    match field {
-        "Contributors" => TrackMetadataGridVm::contributor_summary(raw_value, display_value),
-        "Value Routes" => TrackMetadataGridVm::value_routes_summary(
-            raw_value,
-            display_value,
-            ValueRoutesSummaryFallback::MultilineCount,
-        ),
-        "Artwork" => {
-            if raw_value.starts_with("http://") || raw_value.starts_with("https://") {
-                let filename = raw_value.rsplit('/').next().unwrap_or(raw_value);
-                filename.to_string()
-            } else {
-                display_value.to_string()
-            }
-        }
-        "Transcript" | "Transcript text" => display_value.to_string(),
-        _ => display_value.to_string(),
-    }
-}
-
 struct ExpandableCellParams<'a> {
     field: &'a str,
     row_id: &'a str,
@@ -3668,9 +3645,7 @@ fn expandable_cell(
         }));
 
     if expanded {
-        if matches!(field, "Artwork")
-            && (raw_value.starts_with("http://") || raw_value.starts_with("https://"))
-        {
+        if matches!(field, "Artwork") && TrackMetadataGridVm::artwork_url(raw_value).is_some() {
             let url = raw_value.to_string();
             container = container
                 .child(
@@ -3745,7 +3720,12 @@ fn expandable_cell(
             );
         }
     } else {
-        let summary = expandable_cell_summary(field, raw_value, display_value);
+        let summary = TrackMetadataGridVm::expandable_cell_summary(
+            field,
+            raw_value,
+            display_value,
+            ValueRoutesSummaryFallback::MultilineCount,
+        );
         container = container.child(
             div()
                 .flex()
@@ -3853,7 +3833,12 @@ fn expandable_tag_cell(
                 .into_any_element()
         }
     } else {
-        let summary = expandable_cell_summary(field, raw_value, display_value);
+        let summary = TrackMetadataGridVm::expandable_cell_summary(
+            field,
+            raw_value,
+            display_value,
+            ValueRoutesSummaryFallback::MultilineCount,
+        );
         div()
             .flex_1()
             .min_w_0()
@@ -3966,7 +3951,7 @@ fn json_tree_elements(raw_value: &str, display_value: &str, color: gpui::Rgba) -
     display_value
         .lines()
         .map(|line| {
-            let line = if line.is_empty() { " " } else { line };
+            let line = TrackMetadataGridVm::transcript_line_display(line);
             div()
                 .truncate()
                 .child(SharedString::from(line.to_string()))
@@ -4146,7 +4131,7 @@ fn transcript_text_elements(raw_value: &str, color: gpui::Rgba) -> Vec<AnyElemen
     raw_value
         .lines()
         .map(|line| {
-            let line = if line.is_empty() { " " } else { line };
+            let line = TrackMetadataGridVm::transcript_line_display(line);
             div()
                 .text_color(color)
                 .child(SharedString::from(line.to_string()))
