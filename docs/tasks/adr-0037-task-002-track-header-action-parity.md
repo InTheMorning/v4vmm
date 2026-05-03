@@ -1,89 +1,211 @@
-# ADR 0037 Task 002: Track Header/Action Parity (Pass 2 Stub)
+# ADR 0037 Task 002: Track External-Link Parity
 
 ## Status
 
-Stub. Not started. Sequenced to land after Task 001 so it can reuse the
-`EntityActionVm.payload` extension introduced there.
+Implemented in code. Automated evidence is green; track-detail visual smoke
+remains pending.
 
 ## Goal
 
-Make the same normal track render an identical header, summary, action row,
-external-link strip, and lazy-section grammar across Library and Discover.
-Library-only advanced metadata panels remain context-specific and visibly
-additive.
+Make the same normal track expose track identity external links from one shared
+VM-backed renderer across Library and Discover. The existing
+`TrackDetailSurface` already owns header and summary grammar; this task removes
+the remaining screen-local Nostr/Website identity-link strip drift.
 
-## Files To Inspect (preliminary — re-audit when starting)
+## Inventory Findings
+
+- `src/ui/composites/track_detail_surface.rs` owns the track header, summary,
+  description, section, and advanced-panel layout.
+- `src/search.rs` builds Discover track external chrome in
+  `render_track_header_subtitle`: feed navigation, audio play, and Nostr copy.
+- `src/library.rs` renders Library track detail through `TrackDetailSurface`
+  but does not supply a matching track identity external-link strip.
+- `TrackDetailVm` does not yet expose track identity actions as
+  `Vec<EntityActionVm>` with payloads.
+
+## Files To Inspect
 
 - `docs/adr/0037-same-entity-surface-parity.md`
 - `docs/plans/adr-0037-same-entity-surface-parity-phase-plan.md`
 - `src/ui_track.rs`
-- `src/library.rs` (track-detail call sites)
-- `src/search.rs` (Discover track-detail call sites)
-- `src/view_models/track.rs`
+- `src/search.rs`
+- `src/library.rs`
 - `src/view_models/track_detail.rs`
-- `src/view_models/entity_detail.rs` (for action-VM patterns)
+- `src/view_models/entity_detail.rs`
+- `src/ui/composites/identity_action.rs`
 - `tests/architecture_tests.rs`
 
-## Open Questions To Resolve Before Implementation
+## Files Likely To Change
 
-1. **Inventory the duplication.** Find every place where Library or Discover
-   builds track-detail header text, action chrome, or external-link buttons
-   locally instead of consuming a shared composite. Record file:line
-   citations before designing the helper.
-2. **External-link payload model.** Track external links (e.g., MusicBrainz
-   URL, source URL, podcast episode link) must consume
-   `EntityActionVm.payload` introduced in Task 001. Confirm the track VM
-   populates payload for each link kind. If the existing track VM does not
-   yet expose external-link actions in `Vec<EntityActionVm>` form, decide
-   whether to (a) extend `TrackDetailVm` with an `external_links` action
-   list, or (b) introduce a parallel contract. Default: (a), matching the
-   feed approach.
-3. **Action-row scope.** Track action rows include playback, download,
-   playlist add, and metadata-panel toggles. Some of these have different
-   states across Library and Discover (download visibility, in-library
-   chip). Decide which are shared chrome vs. screen-specific commands. The
-   ADR allows screen-bound primary actions; the goal is to share the
-   *layout and ordering*, not collapse command dispatch.
-4. **Library-only advanced panels.** Confirm the carve-out: MusicBrainz
-   compare, advanced provenance grid, and similar panels stay
-   Library-bound. Pass 2 must not touch their content.
+- `src/view_models/track_detail.rs` — add track identity action projection and
+  VM tests.
+- `src/ui_track.rs` — add shared renderer for track identity external actions.
+- `src/search.rs` — call the shared renderer and remove screen-local track
+  Nostr button construction from the track detail strip.
+- `src/library.rs` — call the shared renderer for track detail external links.
+- `tests/architecture_tests.rs` — add guard against screen-local track Nostr
+  identity button construction.
+- `docs/reviews/adr-0037-review-checklist.md` — update Task 002 evidence.
+- `docs/reviews/adr-0037-task-002-review.md` — implementation review.
 
-## Sketch of Target State
+## Do Not Touch
 
-- A new `render_track_action_row` (or extension to
-  `render_release_detail_shell` for tracks) consumes the shared track VM
-  and renders header, summary, action row, and external-link strip.
-- Library and Discover track-detail screens supply only:
-  - Hero image
-  - Screen-bound command handlers
-  - Library-only advanced panels (Library only)
-- Architecture guard:
-  `track_external_links_use_shared_renderer` (or similar) blocks screen-local
-  external-link button construction.
+- Backend services
+- Database schema
+- RSS/ID3 parsing or metadata comparison logic
+- Playback driver semantics
+- Playlist behavior
+- Library-only advanced metadata panels and MusicBrainz compare panels
+- Contributor identity rows
 
-## Constraints (carry over from Pass 1)
+## Constraints
 
-- Preserve all click behavior: open, copy, play, download, playlist add,
-  metadata-compare, MusicBrainz lookup.
+- Preserve click behavior for identity links:
+  - Website opens with `open::that(payload)`.
+  - Nostr copies `payload` to the clipboard.
+- Preserve Discover-only feed navigation and audio play controls. They remain
+  screen-bound because they dispatch `SearchApp` navigation/play behavior, not
+  identity external-link behavior.
+- Preserve Library-only advanced metadata panels as additive panels.
+- Use `EntityActionVm.payload` for clickable identity actions.
+- Keep ElementId namespaces distinct per surface:
+  `discover-track-...` and `library-track-...`.
+
+## Implementation Steps
+
+1. In `src/view_models/track_detail.rs`, import
+   `EntityActionKind`, `EntityActionTarget`, `EntityActionTone`, and
+   `EntityActionVm`.
+2. Add `TrackDetailVm::identity_actions(&self) -> Vec<EntityActionVm>`.
+   It should:
+   - build a target from `TrackView.id` when present;
+   - add `OpenWebsite` with label `Website` and payload from
+     `track.identity.website_url`;
+   - add `CopyNostr` with label `Copy Nostr` and payload from
+     `track.identity.nostr_npub`;
+   - return an empty vector when there is no track id.
+3. Add VM tests proving Website/Nostr payloads are present and that an
+   unidentified track emits no identity actions.
+4. In `src/ui_track.rs`, add:
+
+   ```rust
+   #[must_use]
+   pub(crate) fn render_track_identity_actions(
+       detail: &TrackDetailVm<'_>,
+       id_prefix: &str,
+   ) -> Vec<TrackSurfaceElement>;
+   ```
+
+   Map `OpenWebsite` to `IdentityActionKind::Website` and `CopyNostr` to
+   `IdentityActionKind::Nostr`. Skip other action kinds. Click behavior is
+   hardcoded from the payload.
+5. In Discover track detail (`src/search.rs`), append the shared identity
+   action elements to the existing external-link slot and remove the Nostr
+   argument/path from `render_track_header_subtitle`.
+6. In Library track detail (`src/library.rs`), pass
+   `render_track_identity_actions(&detail_vm, "library-track")` into
+   `TrackDetailSurface::external_links`.
+7. Add architecture guard `track_identity_links_use_shared_renderer`:
+   - `src/search.rs` and `src/library.rs` must not contain
+     `IdentityActionKind::Nostr` in track-detail code paths.
+   - `src/ui_track.rs` must define `fn render_track_identity_actions`.
+8. Update the ADR 0037 review checklist and add a task review.
+
+## Acceptance Criteria
+
+- `TrackDetailVm::identity_actions()` returns Website/Nostr actions with
+  payloads for tracks whose identity facts contain those values.
+- Discover and Library track detail both render track identity external links
+  through `render_track_identity_actions`.
+- Discover still keeps feed navigation and audio play behavior.
+- Library advanced panels remain untouched.
+- The architecture guard is green.
+- `cargo fmt -- --check`, `cargo check`, targeted tests, `cargo test`,
+  `cargo clippy -- -D warnings`, and `git diff --check` are green.
+- Light and dark screenshots are reviewed for Library and Discover track detail.
+
+## Test Commands
+
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test track_detail_identity_actions_carry_payloads`
+- `cargo test track_identity_links_use_shared_renderer`
+- `cargo test`
+- `cargo clippy -- -D warnings`
+- `git diff --check`
+
+## Escalation Triggers
+
+- If track Website/Nostr facts are unavailable in Library because local
+  hydration is missing, stop and create a follow-up hydration task rather than
+  inferring metadata in the renderer.
+- If Discover feed navigation or audio play must move into a shared renderer,
+  stop and update the ADR first because those actions are command-bound, not
+  identity external-link actions.
+- If Library-only advanced panels need structural changes, stop and split that
+  into a separate task.
+
+## Prompt for lower-context coding model
+
+You are implementing one bounded task from a larger plan.
+
+Implement only this task. Do not redesign the architecture.
+
+Read:
+- `docs/adr/0037-same-entity-surface-parity.md`
+- `docs/plans/adr-0037-same-entity-surface-parity-phase-plan.md`
+- `docs/tasks/adr-0037-task-002-track-header-action-parity.md`
+- `src/ui_track.rs`
+- `src/search.rs`
+- `src/library.rs`
+- `src/view_models/track_detail.rs`
+- `src/view_models/entity_detail.rs`
+- `src/ui/composites/identity_action.rs`
+- `tests/architecture_tests.rs`
+
+Goal:
+- Add `TrackDetailVm::identity_actions()` returning Website/Nostr
+  `EntityActionVm`s with payloads.
+- Add `ui_track::render_track_identity_actions(detail, id_prefix)`.
+- Route Discover and Library track detail through the helper for Website/Nostr
+  identity external links.
+- Preserve Discover feed navigation/audio play and Library advanced panels.
+
+Constraints:
+- Do not redesign track detail.
+- Do not touch backend, DB schema, RSS/ID3 parsing, playback, playlist, or
+  metadata comparison semantics.
+- Do not move SearchApp feed navigation or audio play into the identity helper.
 - Keep ElementId prefixes distinct per surface.
-- Do not touch backend, schema, RSS/ID3, playback driver, or
-  metadata-comparison logic.
-- Both light and dark screenshots required for any surface this pass
-  changes.
 
-## Definition of Done
+Do not touch:
+- Backend services
+- Database schema
+- RSS/ID3 parsing
+- Playback driver
+- Playlist behavior
+- Library-only advanced metadata panels
+- Contributor identity rows
 
-- Library and Discover track-detail screens use one shared header + action
-  row composite.
-- External links route through `EntityActionVm.payload`.
-- Architecture guard added and green.
-- Light + dark screenshots for both surfaces filed under
-  `docs/reviews/screenshots/adr-0037-{library,discover}-track-detail-{light,dark}.png`.
-- ADR 0037 status moves to Accepted once both passes are landed.
+Acceptance criteria:
+- `TrackDetailVm::identity_actions()` carries Website/Nostr payloads.
+- Discover and Library track detail call
+  `render_track_identity_actions(&detail_vm, ...)`.
+- `track_identity_links_use_shared_renderer` is green.
+- Required cargo checks pass.
 
-## When To Start
+Test commands:
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test track_detail_identity_actions_carry_payloads`
+- `cargo test track_identity_links_use_shared_renderer`
+- `cargo test`
+- `cargo clippy -- -D warnings`
+- `git diff --check`
 
-After Task 001 is merged and the `EntityActionVm.payload` field is available
-on `master`. Before starting, replace this stub with a fully-specified task
-following the same structure as Task 001 (concrete steps, pinned helper
-signature, lower-context model prompt).
+At the end, report:
+1. files changed
+2. tests run
+3. behavior changed
+4. deviations from task
+5. unresolved concerns

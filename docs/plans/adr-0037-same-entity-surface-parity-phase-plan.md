@@ -5,9 +5,9 @@
 Make the same feed or normal track recognizable across Library and Discover by
 removing remaining screen-local identity/action chrome.
 
-This plan covers **Pass 1 of 2** (feed identity actions). Pass 2 (track
-header/action parity) is sequenced separately as Task 002 and reuses the
-`EntityActionVm.payload` extension landed here.
+This plan covers **Pass 1 of 2** (feed identity actions) and records the
+bounded **Pass 2** follow-up (track identity external-link parity). Pass 2
+reuses the `EntityActionVm.payload` extension landed in Pass 1.
 
 ## Non-Goals
 
@@ -20,6 +20,8 @@ header/action parity) is sequenced separately as Task 002 and reuses the
   feedback is a follow-up, not part of this pass.
 
 ## Current State
+
+### Pass 1
 
 - Release and track surfaces route through shared composites
   (`ui::composites::ReleaseSurfaceElement`, `render_release_detail_shell`).
@@ -36,7 +38,20 @@ header/action parity) is sequenced separately as Task 002 and reuses the
   near-identical `Vec<ReleaseSurfaceElement>` lists. Iteration logic and
   click bindings are duplicated; only the `ElementId` prefix differs.
 
+### Pass 2
+
+- `TrackDetailSurface` already owns header, summary, description, and panel
+  layout for normal track detail.
+- Discover still builds track identity external-link chrome locally through
+  `render_track_header_subtitle`, including a Nostr copy button.
+- Library track detail uses `TrackDetailSurface` but does not supply the same
+  track identity Website/Nostr external-link strip.
+- `TrackDetailVm` does not yet expose Website/Nostr identity actions with
+  payloads.
+
 ## Target State
+
+### Pass 1
 
 - `EntityActionVm` carries an `Option<String>` payload populated for the
   three identity kinds (`OpenWebsite`, `CopyNostr`, `OpenRss`).
@@ -51,7 +66,21 @@ header/action parity) is sequenced separately as Task 002 and reuses the
 - Both light and dark theme screenshots verify Library and Discover feed
   detail.
 
+### Pass 2
+
+- `TrackDetailVm::identity_actions()` returns Website/Nostr
+  `EntityActionVm`s with payloads from `TrackView.identity`.
+- `ui_track::render_track_identity_actions(detail, id_prefix)` is the single
+  renderer for track Website/Nostr identity external links.
+- Discover and Library track detail both call the helper. Discover keeps
+  screen-bound feed navigation and audio play controls; Library keeps
+  Library-only advanced metadata panels.
+- One architecture test forbids track-detail Nostr identity button
+  construction from reappearing in `src/search.rs` or `src/library.rs`.
+
 ## Affected Modules
+
+### Pass 1
 
 - `src/view_models/entity_detail.rs` — `EntityActionVm` field + builder,
   `IdentityLinksVm::actions` and the RSS push site populate payload, new
@@ -65,6 +94,17 @@ header/action parity) is sequenced separately as Task 002 and reuses the
   `release_feed_identity_actions_use_shared_renderer` guard.
 - `docs/adr/0037-…`, `docs/reviews/adr-0037-review-checklist.md`,
   `docs/tasks/adr-0037-task-001-…` — update to reflect landed contract.
+
+### Pass 2
+
+- `src/view_models/track_detail.rs` — track identity action projection and
+  tests.
+- `src/ui_track.rs` — shared track identity external-link renderer.
+- `src/search.rs` — replace screen-local track Nostr external-link rendering
+  with the shared helper while preserving feed/audio controls.
+- `src/library.rs` — add the shared track identity external-link strip.
+- `tests/architecture_tests.rs` — new
+  `track_identity_links_use_shared_renderer` guard.
 
 ## Helper Signature (pinned)
 
@@ -118,6 +158,8 @@ impl EntityActionVm {
 
 ## Sequence
 
+### Pass 1
+
 1. Extend `EntityActionVm` with `payload: Option<String>` + `with_payload`.
    Update the three identity push sites. Add VM unit tests asserting payload
    presence/absence.
@@ -129,6 +171,17 @@ impl EntityActionVm {
 5. Add the architecture guard.
 6. Run all checks. Capture light + dark screenshots for Library and Discover
    feed detail.
+
+### Pass 2
+
+1. Add `TrackDetailVm::identity_actions()` for Website/Nostr identity facts.
+2. Add `ui_track::render_track_identity_actions(detail, id_prefix)`.
+3. Route Discover track detail through the helper and remove the local Nostr
+   path from `render_track_header_subtitle`.
+4. Route Library track detail through the helper.
+5. Add the architecture guard.
+6. Run all checks. Capture light + dark screenshots for Library and Discover
+   track detail.
 
 ## Schema/API Implications
 

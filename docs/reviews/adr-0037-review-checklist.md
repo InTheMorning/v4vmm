@@ -5,13 +5,14 @@
 - `docs/adr/0037-same-entity-surface-parity.md`
 - `docs/plans/adr-0037-same-entity-surface-parity-phase-plan.md`
 - `docs/tasks/adr-0037-task-001-feed-identity-action-parity.md`
-- `docs/tasks/adr-0037-task-002-track-header-action-parity.md` (Pass 2 stub)
+- `docs/tasks/adr-0037-task-002-track-header-action-parity.md`
 
 ## Gate Status
 
 Status: Task 001 implemented with automated evidence green. Visual smoke found
 a Library hydration blocker; follow-up fix implemented and awaiting screenshot
-re-check. Task 002 not yet started.
+re-check. Task 002 implemented with automated evidence green; track-detail
+visual smoke pending.
 
 ## Structural Review Questions
 
@@ -42,13 +43,15 @@ re-check. Task 002 not yet started.
 
 - Did visual smoke use user-provided screenshots at the pinned paths?
 - Are both light and dark theme screenshots present (HIG dark-mode parity)?
+- Do track identity actions preserve Discover's feed navigation/audio play
+  controls and Library's advanced panels as contextual, screen-bound actions?
 
 ## Task Results
 
 | Task | Status | Required Evidence | Notes |
 |---|---|---|---|
 | Task 001 feed identity action parity | Follow-up fix implemented; visual re-check pending | VM payload field + tests, shared helper, architecture guard, checks, four screenshots | Shared feed identity renderer landed; user screenshots showed Discover identity facts missing from Library; Library album selection now hydrates missing feed source facts by feed GUID |
-| Task 002 track header/action parity   | Not started | TBD when Task 001 lands | Reuses `EntityActionVm.payload` |
+| Task 002 track header/action parity   | Implemented; visual smoke pending | Track VM payload actions, shared helper, Discover/Library route-through, architecture guard, four screenshots | Reuses `EntityActionVm.payload`; Discover feed navigation/audio play and Library advanced panels remain screen-bound |
 
 ## Visual Smoke
 
@@ -58,6 +61,8 @@ Required screenshot paths (capture both themes):
 |---|---|---|
 | Library feed detail   | `docs/reviews/screenshots/adr-0037-library-feed-identity-light.png` | `docs/reviews/screenshots/adr-0037-library-feed-identity-dark.png` |
 | Discover feed detail  | `docs/reviews/screenshots/adr-0037-discover-feed-identity-light.png` | `docs/reviews/screenshots/adr-0037-discover-feed-identity-dark.png` |
+| Library track detail  | `docs/reviews/screenshots/adr-0037-library-track-detail-light.png` | `docs/reviews/screenshots/adr-0037-library-track-detail-dark.png` |
+| Discover track detail | `docs/reviews/screenshots/adr-0037-discover-track-detail-light.png` | `docs/reviews/screenshots/adr-0037-discover-track-detail-dark.png` |
 
 Capture conditions:
 - Project's standard dev window size (no manual resize).
@@ -84,6 +89,13 @@ Received visual evidence:
   the open album detail snapshot.
 - Result: visual gate needs one more Library/Discover screenshot pass for
   `The Heycitizen Experience` after the hydration task runs on selection.
+- Task 002 track-detail screenshots have not yet been captured. They need a
+  normal track with Website and Nostr identity facts so Library and Discover
+  can be compared in both themes.
+- Attempted Task 002 visual smoke on 2026-05-03 with the local Library track
+  `MoeFactz`; the track detail rendered, but the local SQLite data had no
+  `owner_kind='track'` identity link or ID rows, so there were no structured
+  Website/Nostr buttons to compare.
 
 ## Automated Checks
 
@@ -91,6 +103,8 @@ Received visual evidence:
 - `cargo check`: Green
 - `cargo test entity_action_vm_carries_identity_payload`: Green
 - `cargo test release_feed_identity_actions_use_shared_renderer`: Green
+- `cargo test track_detail_identity_actions_carry_payloads`: Green
+- `cargo test track_identity_links_use_shared_renderer`: Green
 - `cargo test`: Green
 - `cargo clippy -- -D warnings`: Green
 - `git diff --check`: Green

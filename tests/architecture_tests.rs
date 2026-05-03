@@ -1826,6 +1826,52 @@ fn release_feed_identity_actions_use_shared_renderer() {
 }
 
 #[test]
+fn track_identity_links_use_shared_renderer() {
+    let mut violations = Vec::new();
+
+    let search = read_source(&manifest_path("src/search.rs"));
+    if search.contains("render_nostr_icon_button(npub, \"track\"") {
+        violations.push(
+            "src/search.rs: ADR 0037 track Nostr identity links must be rendered by `ui_track::render_track_identity_actions`"
+                .to_string(),
+        );
+    }
+    if !(search.contains("render_track_identity_actions(")
+        && search.contains("&detail_vm")
+        && search.contains("\"discover-track\""))
+    {
+        violations.push(
+            "src/search.rs: ADR 0037 Discover track detail must call `render_track_identity_actions(&detail_vm, \"discover-track\")`"
+                .to_string(),
+        );
+    }
+
+    let library = read_source(&manifest_path("src/library.rs"));
+    if !(library.contains("render_track_identity_actions(")
+        && library.contains("&detail_vm")
+        && library.contains("\"library-track\""))
+    {
+        violations.push(
+            "src/library.rs: ADR 0037 Library track detail must call `render_track_identity_actions(&detail_vm, \"library-track\")`"
+                .to_string(),
+        );
+    }
+
+    let ui_track = read_source(&manifest_path("src/ui_track.rs"));
+    if !ui_track.contains("fn render_track_identity_actions") {
+        violations.push(
+            "src/ui_track.rs: ADR 0037 must define `fn render_track_identity_actions`".to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0037 track identity renderer violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn screens_do_not_define_local_track_detail_surface_chrome() {
     let forbidden = [
         "TrackHeader::new(",

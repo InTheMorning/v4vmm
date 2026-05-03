@@ -3042,6 +3042,10 @@ fn render_track_left_column(
 
     TrackDetailSurface::new(&detail_vm)
         .image(frame.image.clone())
+        .external_links(crate::ui_track::render_track_identity_actions(
+            &detail_vm,
+            "library-track",
+        ))
         .primary_actions(vec![TrackSurfaceElement::from_element(
             library_track_action_row(frame, pending_id3_edits, playlists, cx),
         )])

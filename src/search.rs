@@ -2638,10 +2638,13 @@ fn render_discover_track_inspector(
         .map(|guid| header_vm.feed_link_label(guid));
     let feed_url = header_vm.feed_link_url();
     let audio_url = vm.play_url();
-    let npub = track_nostr(track);
-    let external_links = vec![TrackSurfaceElement::from_element(
-        render_track_header_subtitle(feed_guid, feed_link_label, feed_url, audio_url, npub, cx),
+    let mut external_links = vec![TrackSurfaceElement::from_element(
+        render_track_header_subtitle(feed_guid, feed_link_label, feed_url, audio_url, cx),
     )];
+    external_links.extend(crate::ui_track::render_track_identity_actions(
+        &detail_vm,
+        "discover-track",
+    ));
 
     let surface = TrackDetailSurface::new(&detail_vm)
         .image(frame.image.clone())
@@ -4651,7 +4654,6 @@ fn render_track_header_subtitle(
     feed_link_label: Option<String>,
     feed_url: Option<String>,
     audio_url: Option<String>,
-    npub: Option<String>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     div()
@@ -4669,9 +4671,6 @@ fn render_track_header_subtitle(
             audio_url,
             cx,
         ))
-        .when(npub.is_some(), |el| {
-            el.child(render_nostr_icon_button(npub, "track", cx))
-        })
         .into_any_element()
 }
 

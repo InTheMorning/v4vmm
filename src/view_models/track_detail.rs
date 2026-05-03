@@ -6,6 +6,9 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::view_models::entity_detail::{
+    EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm,
+};
 use crate::view_models::format::fmt_date;
 use crate::view_models::track::fmt_dur;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
@@ -268,6 +271,44 @@ impl<'a> TrackDetailVm<'a> {
         );
         rows
     }
+
+    #[must_use]
+    pub fn identity_actions(&self) -> Vec<EntityActionVm> {
+        let Some(target) = self.track.id.clone().map(EntityActionTarget::Track) else {
+            return Vec::new();
+        };
+
+        let mut actions = Vec::new();
+        if let Some(url) = self
+            .track
+            .identity
+            .website_url
+            .as_deref()
+            .and_then(nonempty)
+        {
+            actions.push(
+                EntityActionVm::new(
+                    EntityActionKind::OpenWebsite,
+                    target.clone(),
+                    "Website",
+                    EntityActionTone::Quiet,
+                )
+                .with_payload(url),
+            );
+        }
+        if let Some(npub) = self.track.identity.nostr_npub.as_deref().and_then(nonempty) {
+            actions.push(
+                EntityActionVm::new(
+                    EntityActionKind::CopyNostr,
+                    target,
+                    "Copy Nostr",
+                    EntityActionTone::Quiet,
+                )
+                .with_payload(npub),
+            );
+        }
+        actions
+    }
 }
 
 /// Row-shaped projection of [`TrackDetailVm`].
@@ -383,7 +424,7 @@ fn nonempty(value: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::views::TrackRef;
+    use crate::views::{EntityIdentityLinks, IdentityIdFact, IdentityLinkFact, TrackRef};
 
     fn track() -> TrackView {
         TrackView {
@@ -399,6 +440,25 @@ mod tests {
             publisher_text: Some("Publisher".to_string()),
             description: Some("Description".to_string()),
             ..TrackView::default()
+        }
+    }
+
+    fn track_with_identity() -> TrackView {
+        TrackView {
+            identity: EntityIdentityLinks::from_source_facts(
+                None,
+                vec![IdentityLinkFact {
+                    link_type: Some("website".into()),
+                    url: Some("https://example.test/track".into()),
+                    ..IdentityLinkFact::default()
+                }],
+                vec![IdentityIdFact {
+                    scheme: Some("nostr_npub".into()),
+                    value: Some("npub1track".into()),
+                    ..IdentityIdFact::default()
+                }],
+            ),
+            ..track()
         }
     }
 
@@ -466,6 +526,37 @@ mod tests {
         assert_eq!(row.title, "Track title");
         assert_eq!(row.subtitle.as_deref(), Some("Artist"));
         assert_eq!(row.duration.as_deref(), Some("2:05"));
+    }
+
+    #[test]
+    fn track_detail_identity_actions_carry_payloads() {
+        let track = track_with_identity();
+        let actions =
+            TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover).identity_actions();
+
+        assert_eq!(
+            actions
+                .iter()
+                .map(|action| (action.kind.clone(), action.payload.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    EntityActionKind::OpenWebsite,
+                    Some("https://example.test/track")
+                ),
+                (EntityActionKind::CopyNostr, Some("npub1track")),
+            ]
+        );
+    }
+
+    #[test]
+    fn track_detail_identity_actions_require_track_target() {
+        let mut track = track_with_identity();
+        track.id = None;
+        let actions =
+            TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library).identity_actions();
+
+        assert!(actions.is_empty());
     }
 
     #[test]

@@ -8,12 +8,16 @@
 
 use std::sync::Arc;
 
-use gpui::{prelude::*, AnyElement, ClickEvent, Context, Image, SharedString};
+use gpui::{prelude::*, AnyElement, ClickEvent, ClipboardItem, Context, Image, SharedString};
 
 use crate::api::{Feed, Track};
 use crate::db;
 use crate::search::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
-use crate::ui::composites::{AddToPlaylistPopover, PlaylistOption, TrackRow};
+use crate::ui::composites::{
+    identity_action_button, AddToPlaylistPopover, IdentityActionKind, PlaylistOption, TrackRow,
+    TrackSurfaceElement,
+};
+use crate::view_models::entity_detail::EntityActionKind;
 use crate::view_models::track::TrackVm;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::views::TrackView;
@@ -28,6 +32,54 @@ fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
         .iter()
         .map(|playlist| PlaylistOption::new(playlist.id, playlist.name.clone()))
         .collect()
+}
+
+#[must_use]
+pub(crate) fn render_track_identity_actions(
+    detail: &TrackDetailVm<'_>,
+    id_prefix: &str,
+) -> Vec<TrackSurfaceElement> {
+    detail
+        .identity_actions()
+        .into_iter()
+        .filter_map(|action| {
+            let payload = action.payload.as_deref()?;
+            let kind = match action.kind {
+                EntityActionKind::OpenWebsite => IdentityActionKind::Website,
+                EntityActionKind::CopyNostr => IdentityActionKind::Nostr,
+                EntityActionKind::Download
+                | EntityActionKind::Remove
+                | EntityActionKind::AddToPlaylist
+                | EntityActionKind::Play
+                | EntityActionKind::CompareMetadata
+                | EntityActionKind::OpenMusicBrainz
+                | EntityActionKind::OpenRss => return None,
+            };
+            let payload_for_click = payload.to_string();
+            let button = identity_action_button(
+                SharedString::from(format!("{id_prefix}-{}:{payload}", kind_slug(kind))),
+                kind,
+            )
+            .on_click(move |_, _, cx| match kind {
+                IdentityActionKind::Website | IdentityActionKind::Rss => {
+                    let _ = open::that(&payload_for_click);
+                }
+                IdentityActionKind::Nostr => {
+                    cx.write_to_clipboard(ClipboardItem::new_string(payload_for_click.clone()));
+                }
+            });
+
+            Some(TrackSurfaceElement::from_element(button.into_any_element()))
+        })
+        .collect()
+}
+
+const fn kind_slug(kind: IdentityActionKind) -> &'static str {
+    match kind {
+        IdentityActionKind::Website => "website",
+        IdentityActionKind::Nostr => "nostr",
+        IdentityActionKind::Rss => "rss",
+    }
 }
 
 #[expect(
