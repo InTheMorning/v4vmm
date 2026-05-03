@@ -9,19 +9,19 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    div, AnyElement, App, ClickEvent, Image, InteractiveElement, IntoElement, ParentElement,
-    SharedString, Styled, Window,
+    div, AnyElement, App, ClickEvent, ClipboardItem, Image, InteractiveElement, IntoElement,
+    ParentElement, SharedString, Styled, Window,
 };
 
 use crate::ui::composites::{
-    DetailGrid, DetailHeader, DetailRow, EntityKind, ListRow, ReleaseDetailSurface,
-    ReleaseSurfaceElement, Thumbnail, ThumbnailSize, TrackRow,
+    identity_action_button, DetailGrid, DetailHeader, DetailRow, EntityKind, IdentityActionKind,
+    ListRow, ReleaseDetailSurface, ReleaseSurfaceElement, Thumbnail, ThumbnailSize, TrackRow,
 };
 use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorListVm, ContributorPersonVm, ContributorRowVm, EntitySurfaceKind,
+    ContributorListVm, ContributorPersonVm, ContributorRowVm, EntityActionKind, EntitySurfaceKind,
     ReleaseDetailPageVm, ReleaseHeroVm, ReleasePanelKind, ReleasePanelVm, SharedTrackRowVm,
 };
 
@@ -104,6 +104,55 @@ pub fn render_release_detail_shell(
     }
 
     surface.into_any_element()
+}
+
+#[must_use]
+pub fn render_feed_identity_actions(
+    page: &ReleaseDetailPageVm<'_>,
+    id_prefix: &str,
+) -> Vec<ReleaseSurfaceElement> {
+    page.identity_actions
+        .iter()
+        .filter_map(|action| {
+            let payload = action.payload.as_deref()?;
+            let kind = match action.kind {
+                EntityActionKind::OpenWebsite => IdentityActionKind::Website,
+                EntityActionKind::CopyNostr => IdentityActionKind::Nostr,
+                EntityActionKind::OpenRss => IdentityActionKind::Rss,
+                EntityActionKind::Download
+                | EntityActionKind::Remove
+                | EntityActionKind::AddToPlaylist
+                | EntityActionKind::Play
+                | EntityActionKind::CompareMetadata
+                | EntityActionKind::OpenMusicBrainz => return None,
+            };
+            let payload_for_click = payload.to_string();
+            let button = identity_action_button(
+                SharedString::from(format!("{id_prefix}-{}:{payload}", kind_slug(kind))),
+                kind,
+            )
+            .on_click(move |_, _, cx| match kind {
+                IdentityActionKind::Website | IdentityActionKind::Rss => {
+                    let _ = open::that(&payload_for_click);
+                }
+                IdentityActionKind::Nostr => {
+                    cx.write_to_clipboard(ClipboardItem::new_string(payload_for_click.clone()));
+                }
+            });
+
+            Some(ReleaseSurfaceElement::from_element(
+                button.into_any_element(),
+            ))
+        })
+        .collect()
+}
+
+const fn kind_slug(kind: IdentityActionKind) -> &'static str {
+    match kind {
+        IdentityActionKind::Website => "website",
+        IdentityActionKind::Nostr => "nostr",
+        IdentityActionKind::Rss => "rss",
+    }
 }
 
 pub fn render_contributor_panel(

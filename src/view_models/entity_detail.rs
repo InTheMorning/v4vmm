@@ -403,6 +403,7 @@ pub struct EntityActionVm {
     pub label: String,
     pub enabled: bool,
     pub tone: EntityActionTone,
+    pub payload: Option<String>,
 }
 
 impl EntityActionVm {
@@ -419,12 +420,19 @@ impl EntityActionVm {
             label: label.into(),
             enabled: true,
             tone,
+            payload: None,
         }
     }
 
     #[must_use]
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
+        self
+    }
+
+    #[must_use]
+    pub fn with_payload(mut self, payload: impl Into<String>) -> Self {
+        self.payload = Some(payload.into());
         self
     }
 }
@@ -503,21 +511,27 @@ impl<'a> IdentityLinksVm<'a> {
     #[must_use]
     pub fn actions(&self, target: EntityActionTarget) -> Vec<EntityActionVm> {
         let mut actions = Vec::new();
-        if self.website_url().is_some() {
-            actions.push(EntityActionVm::new(
-                EntityActionKind::OpenWebsite,
-                target.clone(),
-                "Website",
-                EntityActionTone::Quiet,
-            ));
+        if let Some(url) = self.website_url() {
+            actions.push(
+                EntityActionVm::new(
+                    EntityActionKind::OpenWebsite,
+                    target.clone(),
+                    "Website",
+                    EntityActionTone::Quiet,
+                )
+                .with_payload(url),
+            );
         }
-        if self.nostr_npub().is_some() {
-            actions.push(EntityActionVm::new(
-                EntityActionKind::CopyNostr,
-                target,
-                "Copy Nostr",
-                EntityActionTone::Quiet,
-            ));
+        if let Some(npub) = self.nostr_npub() {
+            actions.push(
+                EntityActionVm::new(
+                    EntityActionKind::CopyNostr,
+                    target,
+                    "Copy Nostr",
+                    EntityActionTone::Quiet,
+                )
+                .with_payload(npub),
+            );
         }
         actions
     }
@@ -649,13 +663,16 @@ impl<'a> ReleaseDetailVm<'a> {
 
         let target = EntityActionTarget::Feed(id);
         let mut actions = IdentityLinksVm::new(&self.view.identity).actions(target.clone());
-        if nonempty(self.view.feed_url.as_deref()).is_some() {
-            actions.push(EntityActionVm::new(
-                EntityActionKind::OpenRss,
-                target,
-                "RSS",
-                EntityActionTone::Quiet,
-            ));
+        if let Some(feed_url) = nonempty(self.view.feed_url.as_deref()) {
+            actions.push(
+                EntityActionVm::new(
+                    EntityActionKind::OpenRss,
+                    target,
+                    "RSS",
+                    EntityActionTone::Quiet,
+                )
+                .with_payload(feed_url),
+            );
         }
         actions
     }
@@ -1159,6 +1176,33 @@ mod tests {
         assert_eq!(actions[1].kind, EntityActionKind::CopyNostr);
         assert_eq!(actions[2].kind, EntityActionKind::OpenRss);
         assert!(actions.iter().all(|action| action.enabled));
+    }
+
+    #[test]
+    fn entity_action_vm_carries_identity_payload() {
+        let feed = feed_view();
+        let projection = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover);
+        let identity_actions = projection.identity_actions();
+
+        assert_eq!(
+            identity_actions
+                .iter()
+                .map(|action| (action.kind.clone(), action.payload.as_deref()))
+                .collect::<Vec<_>>(),
+            vec![
+                (EntityActionKind::OpenWebsite, Some("https://example.test")),
+                (EntityActionKind::CopyNostr, Some("npub1artist")),
+                (
+                    EntityActionKind::OpenRss,
+                    Some("https://feeds.example.test/rss.xml")
+                ),
+            ]
+        );
+
+        assert!(projection
+            .actions()
+            .iter()
+            .all(|action| action.payload.is_none()));
     }
 
     #[test]

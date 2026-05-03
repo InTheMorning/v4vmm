@@ -75,8 +75,8 @@ use crate::ui::primitives::{
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::ui_entity::{
-    render_contributor_panel, render_release_detail_shell, ContributorRowSlot,
-    ReleaseDetailBehaviorSlots,
+    render_contributor_panel, render_feed_identity_actions, render_release_detail_shell,
+    ContributorRowSlot, ReleaseDetailBehaviorSlots,
 };
 use crate::view_models::entity_detail::{
     ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone, EntitySurfaceContext,
@@ -2458,7 +2458,7 @@ fn render_album_detail(
         primary_actions: vec![ReleaseSurfaceElement::from_element(
             buttons.into_any_element(),
         )],
-        identity_actions: render_library_identity_actions(&feed_view),
+        identity_actions: render_feed_identity_actions(&page, "library-feed"),
         track_rows: Some(track_rows),
         ..ReleaseDetailBehaviorSlots::default()
     };
@@ -2468,54 +2468,6 @@ fn render_album_detail(
             .push(ReleaseSurfaceElement::from_element(panel));
     }
     render_release_detail_shell("album-detail-scroll", &page, slots)
-}
-
-fn render_library_identity_actions(view: &FeedView) -> Vec<ReleaseSurfaceElement> {
-    let mut actions = Vec::new();
-
-    if let Some(url) = view.identity.website_url.clone() {
-        let url_for_click = url.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            identity_action_button(
-                SharedString::from(format!("library-feed-website:{url}")),
-                IdentityActionKind::Website,
-            )
-            .on_click(move |_, _, _| {
-                let _ = open::that(&url_for_click);
-            })
-            .into_any_element(),
-        ));
-    }
-
-    if let Some(npub) = view.identity.nostr_npub.clone() {
-        let npub_for_click = npub.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            identity_action_button(
-                SharedString::from(format!("library-feed-nostr:{npub}")),
-                IdentityActionKind::Nostr,
-            )
-            .on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
-            })
-            .into_any_element(),
-        ));
-    }
-
-    if let Some(url) = view.feed_url.clone() {
-        let url_for_click = url.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            identity_action_button(
-                SharedString::from(format!("library-feed-rss:{url}")),
-                IdentityActionKind::Rss,
-            )
-            .on_click(move |_, _, _| {
-                let _ = open::that(&url_for_click);
-            })
-            .into_any_element(),
-        ));
-    }
-
-    actions
 }
 
 fn render_library_contributors_panel(

@@ -4,11 +4,13 @@ use crate::search::{
 };
 use crate::ui::composites::ReleaseSurfaceElement;
 use crate::ui_context::ViewContext;
-use crate::ui_entity::{render_release_detail_shell, ReleaseDetailBehaviorSlots};
+use crate::ui_entity::{
+    render_feed_identity_actions, render_release_detail_shell, ReleaseDetailBehaviorSlots,
+};
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::feed::FeedVm;
 use crate::views::FeedView;
-use gpui::{prelude::*, AnyElement, ClipboardItem, Context, SharedString};
+use gpui::{AnyElement, Context};
 
 pub(crate) fn render_feed_view(
     view: &FeedView,
@@ -27,7 +29,7 @@ pub(crate) fn render_feed_view(
         primary_actions: vec![ReleaseSurfaceElement::from_element(
             discover_inspector_action_row(frame, app, cx),
         )],
-        identity_actions: render_identity_actions(view),
+        identity_actions: render_feed_identity_actions(&page, "discover-feed"),
         ..ReleaseDetailBehaviorSlots::default()
     };
 
@@ -60,52 +62,4 @@ pub(crate) fn render_feed_view(
     }
 
     render_release_detail_shell("discover-feed-detail", &page, slots)
-}
-
-fn render_identity_actions(view: &FeedView) -> Vec<ReleaseSurfaceElement> {
-    let mut actions = Vec::new();
-
-    if let Some(url) = view.identity.website_url.clone() {
-        let url_for_click = url.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            crate::ui::composites::identity_action_button(
-                SharedString::from(format!("discover-feed-website:{url}")),
-                crate::ui::composites::IdentityActionKind::Website,
-            )
-            .on_click(move |_, _, _| {
-                let _ = open::that(&url_for_click);
-            })
-            .into_any_element(),
-        ));
-    }
-
-    if let Some(npub) = view.identity.nostr_npub.clone() {
-        let npub_for_click = npub.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            crate::ui::composites::identity_action_button(
-                SharedString::from(format!("discover-feed-nostr:{npub}")),
-                crate::ui::composites::IdentityActionKind::Nostr,
-            )
-            .on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
-            })
-            .into_any_element(),
-        ));
-    }
-
-    if let Some(url) = view.feed_url.clone() {
-        let url_for_click = url.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            crate::ui::composites::identity_action_button(
-                SharedString::from(format!("discover-feed-rss:{url}")),
-                crate::ui::composites::IdentityActionKind::Rss,
-            )
-            .on_click(move |_, _, _| {
-                let _ = open::that(&url_for_click);
-            })
-            .into_any_element(),
-        ));
-    }
-
-    actions
 }

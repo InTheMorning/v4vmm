@@ -9,7 +9,8 @@
 
 ## Gate Status
 
-Status: Task 001 in progress. Task 002 not yet started.
+Status: Task 001 implemented with automated evidence green. Visual smoke
+received with a parity blocker. Task 002 not yet started.
 
 ## Structural Review Questions
 
@@ -45,7 +46,7 @@ Status: Task 001 in progress. Task 002 not yet started.
 
 | Task | Status | Required Evidence | Notes |
 |---|---|---|---|
-| Task 001 feed identity action parity | In progress | VM payload field + tests, shared helper, architecture guard, checks, four screenshots | Implementation pending |
+| Task 001 feed identity action parity | Automated checks green; visual blocker | VM payload field + tests, shared helper, architecture guard, checks, four screenshots | Shared feed identity renderer landed; user screenshots show Discover `Website` + `RSS`, but Library `RSS` only for the same feed |
 | Task 002 track header/action parity   | Not started | TBD when Task 001 lands | Reuses `EntityActionVm.payload` |
 
 ## Visual Smoke
@@ -65,12 +66,27 @@ Capture conditions:
   so the full button row renders. If no real feed in fixtures has all
   three, document the substitute.
 
+Received visual evidence:
+- User-provided screenshots in chat on 2026-05-02 cover Discover dark,
+  Library dark, Discover light, and Library light for `Way to Go`.
+- Discover dark/light show `Website` and `RSS` feed identity actions.
+- Library dark/light show `RSS` only for the same feed.
+- No screenshot shows a Nostr identity action for this fixture.
+- Follow-up user screenshots in chat on 2026-05-02 cover Discover dark,
+  Library dark, Discover light, and Library light for
+  `The Heycitizen Experience`.
+- Follow-up Discover screenshots show `Website`, `Nostr`, and `RSS`; follow-up
+  Library screenshots show `RSS` only.
+- Result: visual gate is not satisfied. Either the visual smoke fixture must
+  use the same populated identity source facts on both surfaces, or Library
+  identity hydration needs a follow-up if the source data should be equivalent.
+
 ## Automated Checks
 
-- `cargo fmt -- --check`: pending
-- `cargo check`: pending
-- `cargo test entity_action_vm_carries_identity_payload`: pending
-- `cargo test release_feed_identity_actions_use_shared_renderer`: pending
-- `cargo test`: pending
-- `cargo clippy -- -D warnings`: pending
-- `git diff --check`: pending
+- `cargo fmt -- --check`: Green
+- `cargo check`: Green
+- `cargo test entity_action_vm_carries_identity_payload`: Green
+- `cargo test release_feed_identity_actions_use_shared_renderer`: Green
+- `cargo test`: Green
+- `cargo clippy -- -D warnings`: Green
+- `git diff --check`: Green

@@ -1799,6 +1799,33 @@ fn release_surface_slots_are_typed() {
 }
 
 #[test]
+fn release_feed_identity_actions_use_shared_renderer() {
+    let mut violations = Vec::new();
+
+    for file in ["src/ui_feed.rs", "src/library.rs"] {
+        let source = read_source(&manifest_path(file));
+        if source.contains("IdentityActionKind::Rss") {
+            violations.push(format!(
+                "{file}: ADR 0037 feed RSS identity actions must be rendered by `ui_entity::render_feed_identity_actions`"
+            ));
+        }
+    }
+
+    let ui_entity = read_source(&manifest_path("src/ui_entity.rs"));
+    if !ui_entity.contains("fn render_feed_identity_actions") {
+        violations.push(
+            "src/ui_entity.rs: ADR 0037 must define `fn render_feed_identity_actions`".to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0037 feed identity renderer violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn screens_do_not_define_local_track_detail_surface_chrome() {
     let forbidden = [
         "TrackHeader::new(",
