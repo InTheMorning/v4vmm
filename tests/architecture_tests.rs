@@ -422,26 +422,6 @@ const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllow
         pattern: "pub fn label(mut self, label: impl Into<SharedString>)",
         note: "generic badge override; fallback policy must still live in VM",
     },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/track_metadata_grid.rs",
-        pattern: "pub fn new(label: impl Into<SharedString>, columns: u16)",
-        note: "advanced provenance group label; metadata contract owns source-specific label",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/track_metadata_grid.rs",
-        pattern: "pub fn new(label: impl Into<SharedString>, value: impl IntoElement)",
-        note: "advanced provenance field label; metadata contract owns source-specific label",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/track_metadata_grid.rs",
-        pattern: "pub fn frame_label(mut self, label: impl Into<SharedString>)",
-        note: "advanced provenance tag-frame label; metadata contract owns source-specific label",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/track_metadata_grid.rs",
-        pattern: "pub fn new(value: impl Into<SharedString>)",
-        note: "advanced provenance text value; caller supplies normalized metadata display",
-    },
 ];
 
 const SHARED_UI_UNSCALED_TOKEN_PX_ALLOWLIST: &[SharedUiUnscaledTokenPxAllowance] =

@@ -74,11 +74,18 @@ pub struct TrackMetadataGroupCell {
     appearance: Option<Appearance>,
 }
 
+/// Display-ready group-heading fields for a metadata grid row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackMetadataGroupDisplay {
+    pub label: SharedString,
+    pub columns: u16,
+}
+
 impl TrackMetadataGroupCell {
-    pub fn new(label: impl Into<SharedString>, columns: u16) -> Self {
+    pub fn new(display: TrackMetadataGroupDisplay) -> Self {
         Self {
-            label: label.into(),
-            columns,
+            label: display.label,
+            columns: display.columns,
             disclosure: None,
             appearance: None,
         }
@@ -125,11 +132,25 @@ pub struct TrackMetadataFieldCell {
     appearance: Option<Appearance>,
 }
 
+/// Display-ready field-label and value element for a metadata grid cell.
+pub struct TrackMetadataFieldDisplay {
+    pub label: SharedString,
+    pub value: AnyElement,
+}
+
+impl std::fmt::Debug for TrackMetadataFieldDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrackMetadataFieldDisplay")
+            .field("label", &self.label)
+            .finish_non_exhaustive()
+    }
+}
+
 impl TrackMetadataFieldCell {
-    pub fn new(label: impl Into<SharedString>, value: impl IntoElement) -> Self {
+    pub fn new(display: TrackMetadataFieldDisplay) -> Self {
         Self {
-            label: label.into(),
-            value: value.into_any_element(),
+            label: display.label,
+            value: display.value,
             appearance: None,
         }
     }
@@ -203,19 +224,36 @@ pub struct TrackMetadataTagCell {
     appearance: Option<Appearance>,
 }
 
+/// Display-ready tag-frame label and color for a metadata grid tag cell.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackMetadataFrameDisplay {
+    pub label: SharedString,
+    pub color: Option<Rgba>,
+}
+
+/// Display-ready tag value and optional frame metadata.
+pub struct TrackMetadataTagDisplay {
+    pub value: AnyElement,
+    pub frame: Option<TrackMetadataFrameDisplay>,
+}
+
+impl std::fmt::Debug for TrackMetadataTagDisplay {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrackMetadataTagDisplay")
+            .field("frame", &self.frame)
+            .finish_non_exhaustive()
+    }
+}
+
 impl TrackMetadataTagCell {
-    pub fn new(value: impl IntoElement) -> Self {
+    pub fn new(display: TrackMetadataTagDisplay) -> Self {
+        let frame = display.frame;
         Self {
-            frame_label: None,
-            frame_color: None,
-            value: value.into_any_element(),
+            frame_label: frame.as_ref().map(|frame| frame.label.clone()),
+            frame_color: frame.and_then(|frame| frame.color),
+            value: display.value,
             appearance: None,
         }
-    }
-
-    pub fn frame_label(mut self, label: impl Into<SharedString>) -> Self {
-        self.frame_label = Some(label.into());
-        self
     }
 
     pub fn frame_color(mut self, color: Rgba) -> Self {
@@ -258,10 +296,16 @@ pub struct TrackMetadataTextValue {
     max_lines: usize,
 }
 
+/// Display-ready text value for metadata grid body cells.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackMetadataTextDisplay {
+    pub value: SharedString,
+}
+
 impl TrackMetadataTextValue {
-    pub fn new(value: impl Into<SharedString>) -> Self {
+    pub fn new(display: TrackMetadataTextDisplay) -> Self {
         Self {
-            value: value.into(),
+            value: display.value,
             color: None,
             max_lines: 4,
         }
@@ -287,6 +331,61 @@ impl RenderOnce for TrackMetadataTextValue {
             cell = cell.color_raw(color);
         }
         cell
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_cell_uses_display_contract() {
+        let cell = TrackMetadataGroupCell::new(TrackMetadataGroupDisplay {
+            label: SharedString::from("ID3 Frames"),
+            columns: 3,
+        });
+
+        assert_eq!(cell.label, SharedString::from("ID3 Frames"));
+        assert_eq!(cell.columns, 3);
+    }
+
+    #[test]
+    fn field_cell_uses_display_contract() {
+        let cell = TrackMetadataFieldCell::new(TrackMetadataFieldDisplay {
+            label: SharedString::from("Title"),
+            value: div().into_any_element(),
+        });
+
+        assert_eq!(cell.label, SharedString::from("Title"));
+    }
+
+    #[test]
+    fn tag_cell_uses_display_contract() {
+        let color = Rgba {
+            r: 1.0,
+            g: 0.0,
+            b: 0.0,
+            a: 1.0,
+        };
+        let cell = TrackMetadataTagCell::new(TrackMetadataTagDisplay {
+            value: div().into_any_element(),
+            frame: Some(TrackMetadataFrameDisplay {
+                label: SharedString::from("TIT2"),
+                color: Some(color),
+            }),
+        });
+
+        assert_eq!(cell.frame_label, Some(SharedString::from("TIT2")));
+        assert_eq!(cell.frame_color, Some(color));
+    }
+
+    #[test]
+    fn text_value_uses_display_contract() {
+        let cell = TrackMetadataTextValue::new(TrackMetadataTextDisplay {
+            value: SharedString::from("Album title"),
+        });
+
+        assert_eq!(cell.value, SharedString::from("Album title"));
     }
 }
 

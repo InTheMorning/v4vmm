@@ -65,8 +65,10 @@ use crate::ui::composites::{
     DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureGroup,
     EntityKind, FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption,
     PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
-    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataGrid,
-    TrackMetadataGroupCell, TrackMetadataSourceCell, TrackMetadataTagCell, TrackMetadataTextValue,
+    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataFieldDisplay,
+    TrackMetadataFrameDisplay, TrackMetadataGrid, TrackMetadataGroupCell,
+    TrackMetadataGroupDisplay, TrackMetadataSourceCell, TrackMetadataTagCell,
+    TrackMetadataTagDisplay, TrackMetadataTextDisplay, TrackMetadataTextValue,
     TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
@@ -3334,17 +3336,24 @@ fn metadata_group_cell(
     let expanded = group.expanded;
     if let Some(group_key) = group.key {
         let id = SharedString::from(format!("section:id3-frame-group:{group_key}"));
-        return TrackMetadataGroupCell::new(label.clone(), columns)
-            .disclosure(
-                DisclosureGroup::new(id, label.clone())
-                    .collapsed(!expanded)
-                    .on_toggle(cx.listener(move |this, _, _, cx| {
-                        this.toggle_id3_frame_group(group_key.clone(), cx);
-                    })),
-            )
-            .into_any_element();
+        return TrackMetadataGroupCell::new(TrackMetadataGroupDisplay {
+            label: SharedString::from(label.clone()),
+            columns,
+        })
+        .disclosure(
+            DisclosureGroup::new(id, label.clone())
+                .collapsed(!expanded)
+                .on_toggle(cx.listener(move |this, _, _, cx| {
+                    this.toggle_id3_frame_group(group_key.clone(), cx);
+                })),
+        )
+        .into_any_element();
     }
-    TrackMetadataGroupCell::new(label, columns).into_any_element()
+    TrackMetadataGroupCell::new(TrackMetadataGroupDisplay {
+        label: SharedString::from(label),
+        columns,
+    })
+    .into_any_element()
 }
 
 fn metadata_rss_cell(
@@ -3374,7 +3383,11 @@ fn metadata_rss_cell(
         None,
         cx,
     );
-    TrackMetadataFieldCell::new(row.field.clone(), value_element).into_any_element()
+    TrackMetadataFieldCell::new(TrackMetadataFieldDisplay {
+        label: SharedString::from(row.field.clone()),
+        value: value_element,
+    })
+    .into_any_element()
 }
 
 fn metadata_id3_cell(
@@ -3573,11 +3586,15 @@ fn metadata_tag_cell(
         file_image,
         cx,
     );
-    let mut cell = TrackMetadataTagCell::new(value).frame_color(frame_color);
-    if let Some(frame_id) = frame_id {
-        cell = cell.frame_label(frame_id.to_string());
-    }
-    cell.into_any_element()
+    TrackMetadataTagCell::new(TrackMetadataTagDisplay {
+        value,
+        frame: frame_id.map(|frame_id| TrackMetadataFrameDisplay {
+            label: SharedString::from(frame_id.to_string()),
+            color: Some(frame_color),
+        }),
+    })
+    .frame_color(frame_color)
+    .into_any_element()
 }
 
 fn expanded_metadata_value(
@@ -3768,7 +3785,9 @@ fn expandable_cell_summary(
 }
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
-    let mut cell = TrackMetadataTextValue::new(value.to_string());
+    let mut cell = TrackMetadataTextValue::new(TrackMetadataTextDisplay {
+        value: SharedString::from(value.to_string()),
+    });
     if let Some(color) = color {
         cell = cell.color_raw(color);
     }
@@ -3781,14 +3800,19 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let mut body = TrackMetadataTextValue::new(value.to_string());
+    let mut body = TrackMetadataTextValue::new(TrackMetadataTextDisplay {
+        value: SharedString::from(value.to_string()),
+    });
     if let Some(color) = color {
         body = body.color_raw(color);
     }
-    let mut cell = TrackMetadataTagCell::new(body);
-    if let Some(frame_id) = frame_id {
-        cell = cell.frame_label(frame_id.to_string());
-    }
+    let mut cell = TrackMetadataTagCell::new(TrackMetadataTagDisplay {
+        value: body.into_any_element(),
+        frame: frame_id.map(|frame_id| TrackMetadataFrameDisplay {
+            label: SharedString::from(frame_id.to_string()),
+            color: frame_color,
+        }),
+    });
     if let Some(frame_color) = frame_color {
         cell = cell.frame_color(frame_color);
     }

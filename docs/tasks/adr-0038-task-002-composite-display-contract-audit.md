@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first five slices implemented on 2026-05-03.
+In progress - first six slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -63,8 +63,11 @@ test allowlist with a one-line justification.
      constructor allowances.
 6. `TrackMetadataGrid` cells
    - Audit group/field/tag/text labels.
-   - Keep allowed only where `TrackMetadataGridVm` or metadata row VMs own
-     the source-specific strings.
+   - Introduce `TrackMetadataGroupDisplay`,
+     `TrackMetadataFieldDisplay`, `TrackMetadataFrameDisplay`,
+     `TrackMetadataTagDisplay`, and `TrackMetadataTextDisplay`.
+   - Remove loose group, field, tag-frame, and text-value constructor
+     allowances.
 7. Generic control composites
    - Audit `ActionRow`, `DisclosureGroup`, `SegmentedControl`,
      `TagBadge`, and `action_button`.
@@ -88,6 +91,7 @@ test allowlist with a one-line justification.
 - `src/ui/composites/track_detail_surface.rs`
 - `src/ui/composites/release_detail_surface.rs`
 - `src/ui/composites/playlist_popover.rs`
+- `src/ui/composites/track_metadata_grid.rs`
 - `src/ui/shells/artist.rs`
 - `src/ui/shells/entity.rs`
 - `src/ui/shells/track.rs`
@@ -167,6 +171,23 @@ test allowlist with a one-line justification.
   The `on_create` callback allowance remains because it carries a new
   playlist name payload, not display copy.
 
+## Sixth-Slice Implementation Notes
+
+- `TrackMetadataGroupCell` now accepts `TrackMetadataGroupDisplay`
+  instead of loose group label and column parameters.
+- `TrackMetadataFieldCell` now accepts `TrackMetadataFieldDisplay`, so
+  field labels and value elements enter the grid together as a named
+  contract.
+- `TrackMetadataTagCell` now accepts `TrackMetadataTagDisplay` with an
+  optional `TrackMetadataFrameDisplay`; the loose `.frame_label(...)`
+  builder was removed.
+- `TrackMetadataTextValue` now accepts `TrackMetadataTextDisplay`
+  instead of a loose text value.
+- Library advanced-provenance callers construct these display contracts
+  from existing metadata rows and formatted display values.
+- The explicit allowlist shrank by the four former
+  `TrackMetadataGrid` cell string API allowances.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -183,6 +204,9 @@ test allowlist with a one-line justification.
   text as loose parameters.
 - `AddToPlaylistPopover` public display inputs no longer accept trigger
   labels or playlist option names as loose parameters.
+- `TrackMetadataGrid` cell public signatures no longer accept group
+  labels, field labels, tag-frame labels, or text values as loose
+  parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004
