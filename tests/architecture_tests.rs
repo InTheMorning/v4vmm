@@ -2699,6 +2699,51 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "LazyPanel::Empty(format!(\"Error: {error}\"))",
             "Discover deferred-panel error prefix belongs in LazyPanel",
         ),
+        (
+            "src/library.rs",
+            "SharedString::from(\"Re-read\")",
+            "Library file-header re-read label belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(\"Re-download\")",
+            "Library file-header re-download label belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/library.rs",
+            "Resolve duplicate ID3 target{}: {}",
+            "Library duplicate ID3 target message belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/search.rs",
+            "Resolve duplicate ID3 target{}: {}",
+            "Discover duplicate ID3 target message belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"Error applying ID3 edits: {error}\")",
+            "Library ID3 apply error message belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"Error applying ID3 edits: {error}\")",
+            "Discover ID3 apply error message belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/search.rs",
+            "format!(\", applied {} ID3 edit{}\"",
+            "Discover download success ID3 edit suffix belongs in SearchSubscriptionCommand",
+        ),
+        (
+            "src/search.rs",
+            "Some(format!(\"Downloaded track{edit_text}\"))",
+            "Discover download success message belongs in SearchSubscriptionCommand",
+        ),
+        (
+            "src/search.rs",
+            ".child(\"🔍\")",
+            "Discover results empty-state icon belongs in SearchPaneDisplay",
+        ),
     ];
     let mut violations = Vec::new();
 

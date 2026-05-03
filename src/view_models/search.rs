@@ -16,6 +16,7 @@ use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseActionState,
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
 };
+use crate::view_models::format::plural;
 use crate::view_models::track::TrackVm;
 use crate::view_models::SplitPaneState;
 use crate::views::{FeedRef, TrackRef};
@@ -580,6 +581,23 @@ impl SearchSubscriptionCommand {
             Self::Remove => format!("Remove error: {error:#}"),
         }
     }
+
+    #[must_use]
+    pub(crate) fn success_message(self, applied_edits: usize) -> String {
+        match self {
+            Self::Download => {
+                if applied_edits == 0 {
+                    "Downloaded track".into()
+                } else {
+                    format!(
+                        "Downloaded track, applied {applied_edits} ID3 edit{}",
+                        plural(applied_edits)
+                    )
+                }
+            }
+            Self::Remove => "Removed track".into(),
+        }
+    }
 }
 
 impl<'a> TrackRowActionVm<'a> {
@@ -1054,6 +1072,7 @@ pub(crate) struct SearchPaneDisplay {
     pub(crate) heading: &'static str,
     pub(crate) search_button_label: &'static str,
     pub(crate) fuzzy_toggle_label: &'static str,
+    pub(crate) empty_icon: &'static str,
     pub(crate) empty_label: &'static str,
     pub(crate) load_more_label: &'static str,
 }
@@ -1069,6 +1088,7 @@ impl SearchPaneDisplay {
             } else {
                 "Fuzzy: Off"
             },
+            empty_icon: "\u{1F50D}",
             empty_label: "No results",
             load_more_label: "Load more",
         }
@@ -2846,6 +2866,7 @@ mod tests {
         assert_eq!(snapshot.pane_display.heading, "Search Index");
         assert_eq!(snapshot.pane_display.search_button_label, "Search Index");
         assert_eq!(snapshot.pane_display.fuzzy_toggle_label, "Fuzzy: Off");
+        assert_eq!(snapshot.pane_display.empty_icon, "\u{1F50D}");
         assert_eq!(snapshot.pane_display.empty_label, "No results");
         assert_eq!(snapshot.pane_display.load_more_label, "Load more");
         assert_eq!(snapshot.rows.len(), 1);
@@ -3364,6 +3385,18 @@ mod tests {
         assert_eq!(
             SearchSubscriptionCommand::Remove.error_message("locked"),
             "Remove error: locked"
+        );
+        assert_eq!(
+            SearchSubscriptionCommand::Download.success_message(0),
+            "Downloaded track"
+        );
+        assert_eq!(
+            SearchSubscriptionCommand::Download.success_message(2),
+            "Downloaded track, applied 2 ID3 edits"
+        );
+        assert_eq!(
+            SearchSubscriptionCommand::Remove.success_message(0),
+            "Removed track"
         );
     }
 

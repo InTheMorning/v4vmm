@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first fifty-eight slices implemented on 2026-05-03.
+In progress - first sixty-three slices implemented on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -431,7 +431,36 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local deferred-panel `"Error: ..."` formatting from
       `src/search.rs` and `src/library.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-60. Migrate remaining fallback batches, smallest blast radius first.
+60. Library file-header metadata action display
+    - Add `TrackMetadataActionState::file_actions_display()` so
+      Re-read/Re-download file action labels are VM-owned.
+    - Remove file-header metadata action label literals from
+      `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+61. Duplicate ID3 target message display
+    - Add `TrackMetadataActionState::duplicate_id3_target_message()` so
+      duplicate-target singular/plural formatting is VM-owned.
+    - Remove duplicate ID3 target message formatting from
+      `src/library.rs` and `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+62. ID3 apply error display
+    - Add `TrackMetadataActionState::id3_apply_error_message()` so ID3
+      apply error-prefix formatting is VM-owned.
+    - Remove ID3 apply error formatting from `src/library.rs` and
+      `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+63. Discover download success ID3 edit display
+    - Extend `SearchSubscriptionCommand` with `success_message()` so
+      Downloaded-track and applied-ID3-edit success text is VM-owned.
+    - Remove Discover subscription success-message suffix formatting
+      from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+64. Discover results empty-state icon display
+    - Extend `SearchPaneDisplay` with `empty_icon`.
+    - Remove raw Discover result empty-state icon glyphs from
+      `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+65. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1051,6 +1080,52 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local deferred-panel
   `"Error: ..."` formatting from returning in Library and Discover.
 
+## Fifty-Ninth-Slice Implementation Notes
+
+- `TrackMetadataActionState::file_actions_display()` now carries the
+  Library file-header Re-read and Re-download action labels.
+- `src/library.rs` still wires the reload callbacks, but no longer owns
+  those action label literals.
+- The architecture guard now blocks screen-local file-header metadata
+  action labels from returning.
+
+## Sixtieth-Slice Implementation Notes
+
+- `TrackMetadataActionState::duplicate_id3_target_message()` now carries
+  duplicate-ID3-target singular/plural and joined-conflict formatting.
+- `src/library.rs` and `src/search.rs` still decide when duplicate
+  conflicts block an operation, but no longer format that message.
+- The architecture guard now blocks duplicate-target message formatting
+  from returning in both screens.
+
+## Sixty-First-Slice Implementation Notes
+
+- `TrackMetadataActionState::id3_apply_error_message()` now carries the
+  ID3 apply error-prefix display.
+- `src/library.rs` and `src/search.rs` still catch apply failures, but
+  no longer format the operator-facing error prefix locally.
+- The architecture guard now blocks screen-local ID3 apply error
+  formatting from returning.
+
+## Sixty-Second-Slice Implementation Notes
+
+- `SearchSubscriptionCommand::success_message()` now carries the
+  Discover downloaded-track success text and optional applied-ID3-edit
+  suffix.
+- `src/search.rs` still handles the subscription command result and
+  clears metadata state, but no longer formats the success message.
+- The architecture guard now blocks the screen-local downloaded-track
+  ID3 edit suffix from returning.
+
+## Sixty-Third-Slice Implementation Notes
+
+- `SearchPaneDisplay::empty_icon` now carries the Discover result
+  empty-state icon alongside the existing empty label.
+- `src/search.rs` still renders the empty-state layout, but no longer
+  owns the raw search icon glyph.
+- The architecture guard now blocks screen-local Discover result
+  empty-state icon literals from returning.
+
 ## Test Commands
 
 ```sh
@@ -1117,6 +1192,9 @@ cargo test playlist_detail_vm_projects_rename_and_delete_controls
 cargo test track_metadata_action_state_projects_loading_and_staged_id3_display
 cargo test lazy_panel_error_owns_error_prefix_display
 cargo test library_view_model_deferred_panel_error_message_owns_error_prefix
+cargo test track_metadata_action_state_projects_file_actions_and_id3_errors
+cargo test search_subscription_command_formats_begin_and_error_messages
+cargo test search_render_snapshot_projects_result_pane_display_labels
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

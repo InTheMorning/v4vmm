@@ -72,7 +72,6 @@ use crate::view_models::entity_detail::{
     ContributorIdentityActionKind, ContributorListVm, ContributorRowVm, EntityActionTarget,
     EntityActionTone, EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
 };
-use crate::view_models::format::plural;
 use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
@@ -801,10 +800,8 @@ impl SearchApp {
         }
         let conflicts = pending_id3_conflict_descriptions(&pending_id3_edits);
         if !conflicts.is_empty() {
-            frame.id3_apply_error = Some(format!(
-                "Resolve duplicate ID3 target{}: {}",
-                if conflicts.len() == 1 { "" } else { "s" },
-                conflicts.join("; ")
+            frame.id3_apply_error = Some(TrackMetadataActionState::duplicate_id3_target_message(
+                &conflicts,
             ));
             cx.notify();
             return;
@@ -842,8 +839,11 @@ impl SearchApp {
                                         frame.id3_apply_error = None;
                                     }
                                     Err(error) => {
-                                        frame.id3_apply_error =
-                                            Some(format!("Error applying ID3 edits: {error}"));
+                                        frame.id3_apply_error = Some(
+                                            TrackMetadataActionState::id3_apply_error_message(
+                                                error,
+                                            ),
+                                        );
                                     }
                                 }
                             }
@@ -1015,11 +1015,9 @@ impl SearchApp {
                     );
                     let conflicts = pending_id3_conflict_descriptions(&pending);
                     if !conflicts.is_empty() {
-                        frame.subscription_message = Some(format!(
-                            "Resolve duplicate ID3 target{}: {}",
-                            if conflicts.len() == 1 { "" } else { "s" },
-                            conflicts.join("; ")
-                        ));
+                        frame.subscription_message = Some(
+                            TrackMetadataActionState::duplicate_id3_target_message(&conflicts),
+                        );
                         cx.notify();
                         return;
                     }
@@ -1127,17 +1125,9 @@ impl SearchApp {
                             {
                                 frame.subscription_busy = false;
                                 frame.local_subscription = Some(true);
-                                let edit_text = if outcome.applied_edits() == 0 {
-                                    String::new()
-                                } else {
-                                    format!(
-                                        ", applied {} ID3 edit{}",
-                                        outcome.applied_edits(),
-                                        plural(outcome.applied_edits())
-                                    )
-                                };
-                                frame.subscription_message =
-                                    Some(format!("Downloaded track{edit_text}"));
+                                frame.subscription_message = Some(
+                                    subscription_command.success_message(outcome.applied_edits()),
+                                );
                                 if let Some(compare) = outcome.into_compare() {
                                     frame.tag_compare = LazyPanel::Loaded(compare);
                                     frame.pending_id3_edits.clear();
@@ -1819,7 +1809,7 @@ impl Render for SearchApp {
                                         .text_center()
                                         .p(spacing::XXL)
                                         .text_color(color::text_muted())
-                                        .child(div().text_2xl().child("🔍"))
+                                        .child(div().text_2xl().child(pane_display.empty_icon))
                                         .child(
                                             div().mt(spacing::SM).child(pane_display.empty_label),
                                         ),
@@ -1831,7 +1821,7 @@ impl Render for SearchApp {
                                         .text_center()
                                         .p(spacing::XXL)
                                         .text_color(color::text_muted())
-                                        .child(div().text_2xl().child("🔍"))
+                                        .child(div().text_2xl().child(pane_display.empty_icon))
                                         .child(
                                             div().mt(spacing::SM).child(pane_display.empty_label),
                                         ),

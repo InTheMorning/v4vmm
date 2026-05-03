@@ -1029,10 +1029,8 @@ impl LibraryApp {
         }
         let conflicts = pending_id3_conflict_descriptions(&pending_id3_edits);
         if !conflicts.is_empty() {
-            frame.id3_apply_error = Some(format!(
-                "Resolve duplicate ID3 target{}: {}",
-                if conflicts.len() == 1 { "" } else { "s" },
-                conflicts.join("; ")
+            frame.id3_apply_error = Some(TrackMetadataActionState::duplicate_id3_target_message(
+                &conflicts,
             ));
             cx.notify();
             return;
@@ -1069,8 +1067,11 @@ impl LibraryApp {
                                         frame.id3_apply_error = None;
                                     }
                                     Err(error) => {
-                                        frame.id3_apply_error =
-                                            Some(format!("Error applying ID3 edits: {error}"));
+                                        frame.id3_apply_error = Some(
+                                            TrackMetadataActionState::id3_apply_error_message(
+                                                error,
+                                            ),
+                                        );
                                     }
                                 }
                             }
@@ -2981,6 +2982,7 @@ fn render_track_window(
                 ))
                 .when(show_id3_panel, |el| {
                     el.child(if let Some(result) = result {
+                        let file_actions = TrackMetadataActionState::file_actions_display();
                         FileHeader::new(FileHeaderVm::new(result))
                             .image(
                                 result
@@ -2991,7 +2993,7 @@ fn render_track_window(
                             .action(
                                 action_button(
                                     ActionButtonDisplay {
-                                        label: SharedString::from("Re-read"),
+                                        label: SharedString::from(file_actions.reread_label),
                                     },
                                     cx,
                                 )
@@ -3004,7 +3006,7 @@ fn render_track_window(
                             .action(
                                 action_button(
                                     ActionButtonDisplay {
-                                        label: SharedString::from("Re-download"),
+                                        label: SharedString::from(file_actions.redownload_label),
                                     },
                                     cx,
                                 )

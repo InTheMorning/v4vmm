@@ -241,6 +241,12 @@ pub struct StagedId3EditsDisplay {
     pub show_discard: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MetadataFileActionsDisplay {
+    pub reread_label: &'static str,
+    pub redownload_label: &'static str,
+}
+
 impl TrackMetadataActionState {
     #[must_use]
     pub const fn new(
@@ -275,6 +281,28 @@ impl TrackMetadataActionState {
     #[must_use]
     pub const fn musicbrainz_panel_loading_message() -> &'static str {
         "Searching MusicBrainz..."
+    }
+
+    #[must_use]
+    pub const fn file_actions_display() -> MetadataFileActionsDisplay {
+        MetadataFileActionsDisplay {
+            reread_label: "Re-read",
+            redownload_label: "Re-download",
+        }
+    }
+
+    #[must_use]
+    pub fn duplicate_id3_target_message(conflicts: &[String]) -> String {
+        format!(
+            "Resolve duplicate ID3 target{}: {}",
+            if conflicts.len() == 1 { "" } else { "s" },
+            conflicts.join("; ")
+        )
+    }
+
+    #[must_use]
+    pub fn id3_apply_error_message(error: impl std::fmt::Display) -> String {
+        format!("Error applying ID3 edits: {error}")
     }
 
     #[must_use]
@@ -1739,6 +1767,29 @@ mod tests {
                 discard_label: "Discard staged",
                 show_discard: false,
             })
+        );
+    }
+
+    #[test]
+    fn track_metadata_action_state_projects_file_actions_and_id3_errors() {
+        assert_eq!(
+            TrackMetadataActionState::file_actions_display(),
+            MetadataFileActionsDisplay {
+                reread_label: "Re-read",
+                redownload_label: "Re-download",
+            }
+        );
+        assert_eq!(
+            TrackMetadataActionState::duplicate_id3_target_message(&["TIT2".into()]),
+            "Resolve duplicate ID3 target: TIT2"
+        );
+        assert_eq!(
+            TrackMetadataActionState::duplicate_id3_target_message(&["TIT2".into(), "TPE1".into()]),
+            "Resolve duplicate ID3 targets: TIT2; TPE1"
+        );
+        assert_eq!(
+            TrackMetadataActionState::id3_apply_error_message("offline"),
+            "Error applying ID3 edits: offline"
         );
     }
 
