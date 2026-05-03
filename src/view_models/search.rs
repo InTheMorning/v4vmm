@@ -1095,6 +1095,10 @@ impl SearchStatusSnapshot {
 /// Static labels and dynamic toggle label for the Discover results pane.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SearchPaneDisplay {
+    pub(crate) search_button_id: &'static str,
+    pub(crate) fuzzy_toggle_id: &'static str,
+    pub(crate) results_scroll_id: &'static str,
+    pub(crate) load_more_button_id: &'static str,
     pub(crate) heading: &'static str,
     pub(crate) search_button_label: &'static str,
     pub(crate) fuzzy_toggle_label: &'static str,
@@ -1107,6 +1111,10 @@ impl SearchPaneDisplay {
     #[must_use]
     const fn new(fuzzy_search: bool) -> Self {
         Self {
+            search_button_id: "search-btn",
+            fuzzy_toggle_id: "fuzzy-toggle",
+            results_scroll_id: "results-scroll",
+            load_more_button_id: "load-more",
             heading: "Search Index",
             search_button_label: "Search Index",
             fuzzy_toggle_label: if fuzzy_search {
@@ -1143,6 +1151,7 @@ pub(crate) struct SearchRenderSnapshot {
 /// Static labels for the recent-feeds root panel.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RecentFeedsDisplay {
+    pub(crate) load_more_button_id: &'static str,
     pub(crate) heading: &'static str,
     pub(crate) empty_label: &'static str,
     pub(crate) load_more_label: &'static str,
@@ -1150,6 +1159,7 @@ pub(crate) struct RecentFeedsDisplay {
 
 impl RecentFeedsDisplay {
     const VALUE: Self = Self {
+        load_more_button_id: "recent-load-more",
         heading: "Recent Feeds",
         empty_label: "No recent feeds",
         load_more_label: "Load more",
@@ -1170,6 +1180,8 @@ pub(crate) struct RecentFeedsSnapshot {
 /// Static labels for the Discover inspector shell.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InspectorChromeDisplay {
+    pub(crate) back_button_id: &'static str,
+    pub(crate) scroll_id: &'static str,
     pub(crate) back_label: &'static str,
     pub(crate) empty_icon: &'static str,
     pub(crate) empty_label: &'static str,
@@ -1177,6 +1189,8 @@ pub(crate) struct InspectorChromeDisplay {
 
 impl InspectorChromeDisplay {
     const VALUE: Self = Self {
+        back_button_id: "inspector-back",
+        scroll_id: "inspector-scroll",
         back_label: "\u{2190} Back",
         empty_icon: "\u{1F50D}",
         empty_label: "Select a result to inspect",
@@ -2929,6 +2943,13 @@ mod tests {
         assert!(empty_snapshot.empty);
         assert!(empty_snapshot.status.is_empty());
         assert_eq!(empty_snapshot.status.display_text, "");
+        assert_eq!(empty_snapshot.pane_display.search_button_id, "search-btn");
+        assert_eq!(empty_snapshot.pane_display.fuzzy_toggle_id, "fuzzy-toggle");
+        assert_eq!(
+            empty_snapshot.pane_display.results_scroll_id,
+            "results-scroll"
+        );
+        assert_eq!(empty_snapshot.pane_display.load_more_button_id, "load-more");
         assert_eq!(empty_snapshot.pane_display.fuzzy_toggle_label, "Fuzzy: On");
     }
 
@@ -2946,6 +2967,7 @@ mod tests {
         let snapshot = vm.recent_feeds_snapshot();
 
         assert_eq!(snapshot.display.heading, "Recent Feeds");
+        assert_eq!(snapshot.display.load_more_button_id, "recent-load-more");
         assert_eq!(snapshot.display.empty_label, "No recent feeds");
         assert_eq!(snapshot.display.load_more_label, "Load more");
         assert_eq!(snapshot.feeds.len(), 1);
@@ -2967,6 +2989,8 @@ mod tests {
     #[test]
     fn inspector_chrome_display_projects_back_and_empty_state() {
         let display = SearchViewModel::inspector_chrome_display();
+        assert_eq!(display.back_button_id, "inspector-back");
+        assert_eq!(display.scroll_id, "inspector-scroll");
         assert_eq!(display.back_label, "\u{2190} Back");
         assert_eq!(display.empty_icon, "\u{1F50D}");
         assert_eq!(display.empty_label, "Select a result to inspect");

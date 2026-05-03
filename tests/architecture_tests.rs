@@ -2760,6 +2760,41 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover podroll scroll id belongs in PodrollSectionDisplay",
         ),
         (
+            "src/search.rs",
+            "Button::new(\"search-btn\")",
+            "Discover search button id belongs in SearchPaneDisplay",
+        ),
+        (
+            "src/search.rs",
+            "\"fuzzy-toggle\"",
+            "Discover fuzzy-toggle id belongs in SearchPaneDisplay",
+        ),
+        (
+            "src/search.rs",
+            ".id(\"results-scroll\")",
+            "Discover results scroll id belongs in SearchPaneDisplay",
+        ),
+        (
+            "src/search.rs",
+            "UiButton::styled(\"load-more\"",
+            "Discover result load-more id belongs in SearchPaneDisplay",
+        ),
+        (
+            "src/search.rs",
+            "UiButton::styled(\"inspector-back\"",
+            "Discover inspector back id belongs in InspectorChromeDisplay",
+        ),
+        (
+            "src/search.rs",
+            ".id(\"inspector-scroll\")",
+            "Discover inspector scroll id belongs in InspectorChromeDisplay",
+        ),
+        (
+            "src/search.rs",
+            "UiButton::styled(\"recent-load-more\"",
+            "Discover recent-feed load-more id belongs in RecentFeedsDisplay",
+        ),
+        (
             "src/library.rs",
             "format!(\"thumb-{url}\")",
             "Library hover thumbnail id belongs in LibraryViewModel",
@@ -2768,6 +2803,51 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             ".child(\"\\u{1F3B5}\")",
             "Library album thumbnail fallback glyph belongs in LibraryViewModel",
+        ),
+        (
+            "src/library.rs",
+            ".id(\"playlists-header\")",
+            "Library playlist sidebar header id belongs in PlaylistSidebarVm",
+        ),
+        (
+            "src/library.rs",
+            "UiButton::styled(\"playlists-sort\"",
+            "Library playlist sort id belongs in PlaylistSidebarVm",
+        ),
+        (
+            "src/library.rs",
+            "UiButton::styled(\"playlists-add\"",
+            "Library playlist add id belongs in PlaylistSidebarVm",
+        ),
+        (
+            "src/library.rs",
+            ".id(\"playlist-new-input\")",
+            "Library new-playlist input id belongs in PlaylistSidebarVm",
+        ),
+        (
+            "src/library.rs",
+            "UiButton::styled(\"playlist-add-btn\"",
+            "Library new-playlist add id belongs in PlaylistSidebarVm",
+        ),
+        (
+            "src/library.rs",
+            "UiButton::styled(\"lib-search-btn\"",
+            "Library search button id belongs in LibraryChromeDisplay",
+        ),
+        (
+            "src/library.rs",
+            "UiButton::styled(\"apply-feed-updates\"",
+            "Library apply-feed-updates button id belongs in FeedUpdateDisplay",
+        ),
+        (
+            "src/library.rs",
+            "UiButton::styled(\"check-all-feeds\"",
+            "Library check-all-feeds button id belongs in FeedUpdateDisplay",
+        ),
+        (
+            "src/library.rs",
+            ".id(\"library-list\")",
+            "Library list scroll id belongs in LibraryChromeDisplay",
         ),
     ];
     let mut violations = Vec::new();

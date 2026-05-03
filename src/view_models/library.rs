@@ -190,6 +190,11 @@ pub(crate) struct LibraryTreeTrackDisplay {
 /// Display-ready projection for the playlist sidebar section.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct PlaylistSidebarVm {
+    pub(crate) header_id: &'static str,
+    pub(crate) sort_button_id: &'static str,
+    pub(crate) add_button_id: &'static str,
+    pub(crate) new_playlist_input_id: &'static str,
+    pub(crate) new_playlist_add_button_id: &'static str,
     pub(crate) expanded: bool,
     pub(crate) disclosure_glyph: &'static str,
     pub(crate) heading: &'static str,
@@ -213,6 +218,8 @@ pub(crate) struct PlaylistSidebarRowVm {
 /// Static labels for the Library shell chrome.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryChromeDisplay {
+    pub(crate) search_button_id: &'static str,
+    pub(crate) list_scroll_id: &'static str,
     pub(crate) search_placeholder: &'static str,
     pub(crate) new_playlist_placeholder: &'static str,
     pub(crate) search_heading: &'static str,
@@ -223,6 +230,8 @@ pub(crate) struct LibraryChromeDisplay {
 
 impl LibraryChromeDisplay {
     const VALUE: Self = Self {
+        search_button_id: "lib-search-btn",
+        list_scroll_id: "library-list",
         search_placeholder: "Search your library...",
         new_playlist_placeholder: "New playlist name\u{2026}",
         search_heading: "Search Library",
@@ -270,6 +279,7 @@ pub(crate) enum FeedUpdateActionKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FeedUpdateActionDisplay {
     pub(crate) kind: FeedUpdateActionKind,
+    pub(crate) button_id: &'static str,
     pub(crate) label: String,
     pub(crate) disabled: bool,
 }
@@ -632,6 +642,11 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn playlist_sidebar(&self) -> PlaylistSidebarVm {
         PlaylistSidebarVm {
+            header_id: "playlists-header",
+            sort_button_id: "playlists-sort",
+            add_button_id: "playlists-add",
+            new_playlist_input_id: "playlist-new-input",
+            new_playlist_add_button_id: "playlist-add-btn",
             expanded: self.playlists_expanded,
             disclosure_glyph: if self.playlists_expanded {
                 "\u{25BC}"
@@ -700,12 +715,14 @@ impl LibraryViewModel {
         let action = if has_stale {
             FeedUpdateActionDisplay {
                 kind: FeedUpdateActionKind::ApplyUpdates,
+                button_id: "apply-feed-updates",
                 label: format!("Apply updates ({})", state.stale.len()),
                 disabled,
             }
         } else {
             FeedUpdateActionDisplay {
                 kind: FeedUpdateActionKind::CheckAllFeeds,
+                button_id: "check-all-feeds",
                 label: if state.phase == FeedUpdatePhase::Checking {
                     "Checking...".into()
                 } else {
@@ -2892,6 +2909,11 @@ mod tests {
         vm.replace_playlists(vec![zed, alpha]);
         let sidebar = vm.playlist_sidebar();
 
+        assert_eq!(sidebar.header_id, "playlists-header");
+        assert_eq!(sidebar.sort_button_id, "playlists-sort");
+        assert_eq!(sidebar.add_button_id, "playlists-add");
+        assert_eq!(sidebar.new_playlist_input_id, "playlist-new-input");
+        assert_eq!(sidebar.new_playlist_add_button_id, "playlist-add-btn");
         assert!(sidebar.expanded);
         assert_eq!(sidebar.disclosure_glyph, "\u{25BC}");
         assert_eq!(sidebar.heading, "Playlists");
@@ -2922,6 +2944,8 @@ mod tests {
     #[test]
     fn library_chrome_display_projects_shell_labels() {
         let display = LibraryViewModel::chrome_display();
+        assert_eq!(display.search_button_id, "lib-search-btn");
+        assert_eq!(display.list_scroll_id, "library-list");
         assert_eq!(display.search_placeholder, "Search your library...");
         assert_eq!(
             display.new_playlist_placeholder,
@@ -2958,6 +2982,7 @@ mod tests {
         let display = vm.feed_update_display();
         assert_eq!(display.status_message, None);
         assert_eq!(display.action.kind, FeedUpdateActionKind::CheckAllFeeds);
+        assert_eq!(display.action.button_id, "check-all-feeds");
         assert_eq!(display.action.label, "Check all feeds");
         assert!(!display.action.disabled);
 
@@ -2968,6 +2993,7 @@ mod tests {
             Some("Checking 3 feeds...")
         );
         assert_eq!(display.action.kind, FeedUpdateActionKind::CheckAllFeeds);
+        assert_eq!(display.action.button_id, "check-all-feeds");
         assert_eq!(display.action.label, "Checking...");
         assert!(display.action.disabled);
 
@@ -2979,6 +3005,7 @@ mod tests {
         }]);
         let display = vm.feed_update_display();
         assert_eq!(display.action.kind, FeedUpdateActionKind::ApplyUpdates);
+        assert_eq!(display.action.button_id, "apply-feed-updates");
         assert_eq!(display.action.label, "Apply updates (1)");
         assert!(!display.action.disabled);
     }

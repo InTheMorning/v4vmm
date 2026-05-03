@@ -1755,7 +1755,7 @@ impl Render for SearchApp {
                             .gap(spacing::SM)
                             .child(
                                 // CONTROL-COMPAT(reason): native Button does not yet expose loading state.
-                                Button::new("search-btn")
+                                Button::new(pane_display.search_button_id)
                                     .label(search_label)
                                     .primary()
                                     .scaled(Size::Small, cx)
@@ -1767,7 +1767,7 @@ impl Render for SearchApp {
                             )
                             .child(
                                 UiButton::styled(
-                                    "fuzzy-toggle",
+                                    pane_display.fuzzy_toggle_id,
                                     if fuzzy_search {
                                         ControlStyle::Pill
                                     } else {
@@ -1791,7 +1791,7 @@ impl Render for SearchApp {
             )
             .child(
                 div()
-                    .id("results-scroll")
+                    .id(pane_display.results_scroll_id)
                     .track_focus(&self.list_focus)
                     .flex_1()
                     .min_h_0()
@@ -1829,11 +1829,16 @@ impl Render for SearchApp {
                             })
                             .when(has_more && !is_loading, |el| {
                                 el.child(
-                                    UiButton::styled("load-more", ControlStyle::Ghost)
-                                        .label(pane_display.load_more_label)
-                                        .on_click(cx.listener(|this, _, _, cx| {
+                                    UiButton::styled(
+                                        pane_display.load_more_button_id,
+                                        ControlStyle::Ghost,
+                                    )
+                                    .label(pane_display.load_more_label)
+                                    .on_click(cx.listener(
+                                        |this, _, _, cx| {
                                             this.do_search(true, cx);
-                                        })),
+                                        },
+                                    )),
                                 )
                             }),
                     ),
@@ -2437,7 +2442,7 @@ fn render_inspector(
                 .gap(spacing::SM)
                 .when(show_back, |el| {
                     el.child(
-                        UiButton::styled("inspector-back", ControlStyle::Ghost)
+                        UiButton::styled(chrome.back_button_id, ControlStyle::Ghost)
                             .label(chrome.back_label)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.inspector_back(cx);
@@ -2455,7 +2460,7 @@ fn render_inspector(
         )
         .child(
             div()
-                .id("inspector-scroll")
+                .id(chrome.scroll_id)
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
@@ -4758,7 +4763,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
         .when(has_more && !loading, |el| {
             el.child(
                 div().pt(spacing::SM).child(
-                    UiButton::styled("recent-load-more", ControlStyle::Ghost)
+                    UiButton::styled(display.load_more_button_id, ControlStyle::Ghost)
                         .label(display.load_more_label)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.load_recent_feeds(true, cx);

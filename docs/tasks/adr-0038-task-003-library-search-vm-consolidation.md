@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first sixty-seven implementation slices completed on 2026-05-03.
+In progress - first seventy-one implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -480,7 +480,28 @@ Verified starting notes, 2026-05-03:
     - Remove the raw album thumbnail fallback glyph from
       `src/library.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-69. Migrate remaining fallback batches, smallest blast radius first.
+69. Discover results pane control id display
+    - Extend `SearchPaneDisplay` with search, fuzzy-toggle, results
+      scroll, and load-more ids.
+    - Remove results-pane control and scroll id literals from
+      `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+70. Discover inspector chrome id display
+    - Extend `InspectorChromeDisplay` with back-button and scroll ids.
+    - Remove inspector chrome id literals from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+71. Discover recent-feeds load-more id display
+    - Extend `RecentFeedsDisplay` with the recent-feeds load-more id.
+    - Remove the recent-feeds load-more id literal from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+72. Library sidebar, search, feed-update, and list control id display
+    - Extend `PlaylistSidebarVm`, `LibraryChromeDisplay`, and
+      `FeedUpdateActionDisplay` with static control ids used by the
+      Library shell.
+    - Remove those static Library control and scroll id literals from
+      `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+73. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1182,6 +1203,43 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks the screen-local thumbnail fallback
   glyph from returning.
 
+## Sixty-Eighth-Slice Implementation Notes
+
+- `SearchPaneDisplay` now carries Discover results-pane control ids for
+  search, fuzzy toggle, results scrolling, and load more.
+- `src/search.rs` still wires search actions, focus tracking, and load
+  pagination, but no longer owns those static results-pane ids.
+- The architecture guard now blocks those screen-local Discover results
+  id literals from returning.
+
+## Sixty-Ninth-Slice Implementation Notes
+
+- `InspectorChromeDisplay` now carries Discover inspector back-button
+  and scroll ids.
+- `src/search.rs` still wires inspector navigation and body rendering,
+  but no longer owns the inspector chrome ids.
+- The architecture guard now blocks those screen-local inspector id
+  literals from returning.
+
+## Seventieth-Slice Implementation Notes
+
+- `RecentFeedsDisplay` now carries the Discover recent-feeds load-more
+  button id.
+- `src/search.rs` still wires recent-feed pagination, but no longer
+  owns that static id literal.
+- The architecture guard now blocks the screen-local recent-feeds
+  load-more id from returning.
+
+## Seventy-First-Slice Implementation Notes
+
+- `PlaylistSidebarVm`, `LibraryChromeDisplay`, and
+  `FeedUpdateActionDisplay` now carry Library sidebar, search,
+  feed-update, and list-scroll ids.
+- `src/library.rs` still wires Library click handlers and feed-update
+  commands, but no longer owns those static control ids.
+- The architecture guard now blocks the screen-local Library control
+  and scroll id literals from returning.
+
 ## Test Commands
 
 ```sh
@@ -1254,6 +1312,12 @@ cargo test search_render_snapshot_projects_result_pane_display_labels
 cargo test result_row_key_display_and_inspector_title_are_pure
 cargo test podroll_section_display_projects_heading_and_scroll_id
 cargo test library_view_model_projects_thumbnail_display_contracts
+cargo test search_render_snapshot_projects_result_pane_display_labels
+cargo test inspector_chrome_display_projects_back_and_empty_state
+cargo test recent_feeds_snapshot_projects_panel_display_labels
+cargo test library_view_model_playlist_sidebar_projects_rows_and_header_state
+cargo test library_chrome_display_projects_shell_labels
+cargo test feed_update_display_projects_toolbar_action_labels
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

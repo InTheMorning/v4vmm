@@ -1805,7 +1805,7 @@ impl Render for LibraryApp {
 
         left_items.push(
             div()
-                .id("playlists-header")
+                .id(playlist_sidebar.header_id)
                 .px(spacing::SM)
                 .py(spacing::XS)
                 .rounded(spacing::XS)
@@ -1846,19 +1846,25 @@ impl Render for LibraryApp {
                         .gap(spacing::XS)
                         .items_center()
                         .child(
-                            UiButton::styled("playlists-sort", ControlStyle::ToolbarIcon)
-                                .label(playlist_sidebar.sort_label)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.cycle_playlist_sort(cx);
-                                })),
+                            UiButton::styled(
+                                playlist_sidebar.sort_button_id,
+                                ControlStyle::ToolbarIcon,
+                            )
+                            .label(playlist_sidebar.sort_label)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cycle_playlist_sort(cx);
+                            })),
                         )
                         .child(
-                            UiButton::styled("playlists-add", ControlStyle::ToolbarIcon)
-                                .label(playlist_sidebar.add_label)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.vm.toggle_creating_playlist();
-                                    cx.notify();
-                                })),
+                            UiButton::styled(
+                                playlist_sidebar.add_button_id,
+                                ControlStyle::ToolbarIcon,
+                            )
+                            .label(playlist_sidebar.add_label)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.vm.toggle_creating_playlist();
+                                cx.notify();
+                            })),
                         ),
                 )
                 .into_any_element(),
@@ -1900,7 +1906,7 @@ impl Render for LibraryApp {
             if playlist_sidebar.creating_playlist {
                 left_items.push(
                     div()
-                        .id("playlist-new-input")
+                        .id(playlist_sidebar.new_playlist_input_id)
                         .pl(spacing::LG + spacing::XS)
                         .pr(spacing::SM)
                         .py(spacing::XXS)
@@ -1914,11 +1920,14 @@ impl Render for LibraryApp {
                                 .scaled(Size::Small, cx),
                         )
                         .child(
-                            UiButton::styled("playlist-add-btn", ControlStyle::Primary)
-                                .label(playlist_sidebar.new_playlist_add_label)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.create_playlist(cx);
-                                })),
+                            UiButton::styled(
+                                playlist_sidebar.new_playlist_add_button_id,
+                                ControlStyle::Primary,
+                            )
+                            .label(playlist_sidebar.new_playlist_add_label)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.create_playlist(cx);
+                            })),
                         )
                         .into_any_element(),
                 );
@@ -1963,7 +1972,7 @@ impl Render for LibraryApp {
                             .scaled(Size::Small, cx),
                     )
                     .child(
-                        UiButton::styled("lib-search-btn", ControlStyle::Primary)
+                        UiButton::styled(chrome.search_button_id, ControlStyle::Primary)
                             .label(chrome.search_button_label)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.apply_search(cx);
@@ -2005,14 +2014,14 @@ impl Render for LibraryApp {
                             }),
                     )
                     .child(if action.kind == FeedUpdateActionKind::ApplyUpdates {
-                        UiButton::styled("apply-feed-updates", ControlStyle::Primary)
+                        UiButton::styled(action.button_id, ControlStyle::Primary)
                             .label(action.label)
                             .disabled(action.disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.apply_all_feed_updates(cx);
                             }))
                     } else {
-                        UiButton::styled("check-all-feeds", ControlStyle::Secondary)
+                        UiButton::styled(action.button_id, ControlStyle::Secondary)
                             .label(action.label)
                             .disabled(action.disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -2022,7 +2031,7 @@ impl Render for LibraryApp {
             })
             .child(
                 div()
-                    .id("library-list")
+                    .id(chrome.list_scroll_id)
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
