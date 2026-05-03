@@ -2634,6 +2634,71 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             ".label(\"▶\")",
             "Library playlist play glyph belongs in PlaylistTrackRowVm::controls_display",
         ),
+        (
+            "src/library.rs",
+            "format!(\"lib-toggle-{track_id}\")",
+            "Library track toggle id belongs in LibraryTrackRowVm::row_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"album-track-{track_id}\")",
+            "Library album-track row id belongs in LibraryTrackRowVm::row_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"playlist-rename-{playlist_id}\")",
+            "Library playlist rename id belongs in PlaylistDetailVm::actions_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"playlist-delete-{playlist_id}\")",
+            "Library playlist delete id belongs in PlaylistDetailVm::actions_display",
+        ),
+        (
+            "src/library.rs",
+            ".label(\"Rename\")",
+            "Library playlist rename label belongs in PlaylistDetailVm::actions_display",
+        ),
+        (
+            "src/library.rs",
+            ".label(\"Delete\")",
+            "Library playlist delete label belongs in PlaylistDetailVm::actions_display",
+        ),
+        (
+            "src/library.rs",
+            "LoadingMessage::new(\"Reading embedded metadata...\")",
+            "Library metadata compare loading label belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/library.rs",
+            "LoadingMessage::new(\"Searching MusicBrainz...\")",
+            "Library MusicBrainz loading label belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"Apply tags ({count})\")",
+            "Library staged ID3 apply label belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"Duplicate target: {conflict_text}\")",
+            "Library staged ID3 conflict message belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(\"Discard staged\")",
+            "Library staged ID3 discard label belongs in TrackMetadataActionState",
+        ),
+        (
+            "src/library.rs",
+            "LazyPanel::Empty(format!(\"Error: {error}\"))",
+            "Library deferred-panel error prefix belongs in LibraryViewModel",
+        ),
+        (
+            "src/search.rs",
+            "LazyPanel::Empty(format!(\"Error: {error}\"))",
+            "Discover deferred-panel error prefix belongs in LazyPanel",
+        ),
     ];
     let mut violations = Vec::new();
 

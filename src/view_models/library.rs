@@ -331,6 +331,13 @@ pub(crate) struct LibraryTrackPlaylistDisplay {
     pub(crate) trigger_label: &'static str,
 }
 
+/// Display contract for a track row inside an album detail list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryTrackRowDisplay {
+    pub(crate) row_id: String,
+    pub(crate) toggle_button_id: String,
+}
+
 impl<'a> LibraryTrackActionVm<'a> {
     #[must_use]
     pub(crate) fn new(
@@ -644,6 +651,11 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) const fn chrome_display() -> LibraryChromeDisplay {
         LibraryChromeDisplay::VALUE
+    }
+
+    #[must_use]
+    pub(crate) fn deferred_panel_error_message(error: impl std::fmt::Display) -> String {
+        format!("Error: {error}")
     }
 
     #[must_use]
@@ -1385,6 +1397,15 @@ impl<'a> LibraryTrackRowVm<'a> {
     }
 
     #[must_use]
+    pub(crate) fn row_display(&self) -> LibraryTrackRowDisplay {
+        let track_id = self.track.id;
+        LibraryTrackRowDisplay {
+            row_id: format!("album-track-{track_id}"),
+            toggle_button_id: format!("lib-toggle-{track_id}"),
+        }
+    }
+
+    #[must_use]
     pub(crate) fn playlist_display(&self) -> LibraryTrackPlaylistDisplay {
         LibraryTrackPlaylistDisplay {
             popover_id: format!("album-track-add:{}", self.track.id),
@@ -1705,6 +1726,14 @@ pub(crate) struct PlaylistTrackControlsDisplay {
     pub(crate) remove_label: &'static str,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistDetailActionsDisplay {
+    pub(crate) rename_button_id: String,
+    pub(crate) rename_label: &'static str,
+    pub(crate) delete_button_id: String,
+    pub(crate) delete_label: &'static str,
+}
+
 impl PlaylistTrackRowVm<'_> {
     #[must_use]
     pub(crate) fn track(&self) -> &TrackRow {
@@ -1870,6 +1899,17 @@ impl<'a> PlaylistDetailVm<'a> {
         "Empty — add tracks from the library or search"
     }
 
+    #[must_use]
+    pub(crate) fn actions_display(&self) -> PlaylistDetailActionsDisplay {
+        let playlist_id = self.playlist_id();
+        PlaylistDetailActionsDisplay {
+            rename_button_id: format!("playlist-rename-{playlist_id}"),
+            rename_label: "Rename",
+            delete_button_id: format!("playlist-delete-{playlist_id}"),
+            delete_label: "Delete",
+        }
+    }
+
     /// One [`PlaylistTrackRowVm`] per track, in stored order. Returns
     /// an empty vec when the playlist has no tracks (callers can use
     /// [`Self::is_empty`] to branch on the empty-state message).
@@ -2030,6 +2070,20 @@ mod tests {
             LibraryTrackPlaylistDisplay {
                 popover_id: "album-track-add:42".into(),
                 trigger_label: "+ Playlist",
+            }
+        );
+    }
+
+    #[test]
+    fn library_track_row_vm_projects_row_and_toggle_ids() {
+        let mut r = row();
+        r.id = 42;
+
+        assert_eq!(
+            LibraryTrackRowVm::new(&r, None).row_display(),
+            LibraryTrackRowDisplay {
+                row_id: "album-track-42".into(),
+                toggle_button_id: "lib-toggle-42".into(),
             }
         );
     }
@@ -2270,6 +2324,23 @@ mod tests {
         assert_eq!(vm.total_duration_seconds(), 0);
         assert_eq!(vm.total_duration_label(), None);
         assert_eq!(vm.detail_rows(), vec![("Tracks".into(), "0".into())]);
+    }
+
+    #[test]
+    fn playlist_detail_vm_projects_rename_and_delete_controls() {
+        let mut pl = playlist("Mix");
+        pl.id = 42;
+        let vm = PlaylistDetailVm::new(&pl, &[]);
+
+        assert_eq!(
+            vm.actions_display(),
+            PlaylistDetailActionsDisplay {
+                rename_button_id: "playlist-rename-42".into(),
+                rename_label: "Rename",
+                delete_button_id: "playlist-delete-42".into(),
+                delete_label: "Delete",
+            }
+        );
     }
 
     #[test]
@@ -3074,6 +3145,14 @@ mod tests {
 
         vm.clear_busy_track();
         assert_eq!(vm.busy_track(), None);
+    }
+
+    #[test]
+    fn library_view_model_deferred_panel_error_message_owns_error_prefix() {
+        assert_eq!(
+            LibraryViewModel::deferred_panel_error_message("offline"),
+            "Error: offline"
+        );
     }
 
     #[test]

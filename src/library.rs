@@ -1185,7 +1185,9 @@ impl LibraryApp {
                                         frame.source_context = Some(result.track_context);
                                         LazyPanel::Loaded(result.tag_compare)
                                     }
-                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                    Err(error) => LazyPanel::Empty(
+                                        LibraryViewModel::deferred_panel_error_message(error),
+                                    ),
                                 };
                             }
                         }
@@ -1236,7 +1238,9 @@ impl LibraryApp {
                                         frame.source_context = Some(result.track_context);
                                         LazyPanel::Loaded(result.tag_compare)
                                     }
-                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                    Err(error) => LazyPanel::Empty(
+                                        LibraryViewModel::deferred_panel_error_message(error),
+                                    ),
                                 };
                             }
                         }
@@ -1285,7 +1289,8 @@ impl LibraryApp {
             move |this, error, _cx| {
                 if let Some(frame) = this.selected_track_frame_mut() {
                     if frame.entity_id == entity_id {
-                        frame.musicbrainz_lookup = LazyPanel::Empty(format!("Error: {error}"));
+                        frame.musicbrainz_lookup =
+                            LazyPanel::Empty(LibraryViewModel::deferred_panel_error_message(error));
                     }
                 }
             },
@@ -2621,6 +2626,7 @@ fn render_library_track_row(
     let is_busy = busy_track == Some(track_id);
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
     let primary_action = vm.primary_action_vm(is_busy);
+    let row_display = vm.row_display();
     let in_library = primary_action.kind == EntityActionKind::Remove;
     let mb_text = vm.mb_status_text();
     let mb_kind = vm.mb_status_kind();
@@ -2636,7 +2642,7 @@ fn render_library_track_row(
     };
 
     let toggle_button = UiButton::styled(
-        SharedString::from(format!("lib-toggle-{track_id}")),
+        SharedString::from(row_display.toggle_button_id.clone()),
         primary_style,
     )
     .label(primary_action.label.clone())
@@ -2685,15 +2691,12 @@ fn render_library_track_row(
 
     let track_view = TrackView::from_local(track.clone());
     let row_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library).row();
-    let mut row = TrackRowComposite::from_vm(
-        SharedString::from(format!("album-track-{track_id}")),
-        &row_vm,
-    )
-    .thumbnail(thumbnail)
-    .on_click(cx.listener(move |this, _, _, cx| {
-        this.select_track(&track_for_select, cx);
-        cx.notify();
-    }));
+    let mut row = TrackRowComposite::from_vm(SharedString::from(row_display.row_id), &row_vm)
+        .thumbnail(thumbnail)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.select_track(&track_for_select, cx);
+            cx.notify();
+        }));
 
     for action in actions {
         row = row.trailing_child(action);
@@ -2849,15 +2852,16 @@ fn render_playlist_detail(
     };
 
     let detail_rows = vm.detail_rows();
+    let actions_display = vm.actions_display();
 
     let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
     let playlist_for_rename = playlist_id;
     buttons = buttons.child(
         UiButton::styled(
-            SharedString::from(format!("playlist-rename-{playlist_id}")),
+            SharedString::from(actions_display.rename_button_id),
             ControlStyle::Ghost,
         )
-        .label("Rename")
+        .label(actions_display.rename_label)
         .on_click(cx.listener(move |_this, _, _, cx| {
             // TODO Stage 3: implement inline rename modal/input
             cx.notify();
@@ -2865,10 +2869,10 @@ fn render_playlist_detail(
     );
     buttons = buttons.child(
         UiButton::styled(
-            SharedString::from(format!("playlist-delete-{playlist_id}")),
+            SharedString::from(actions_display.delete_button_id),
             ControlStyle::Destructive,
         )
-        .label("Delete")
+        .label(actions_display.delete_label)
         .on_click(cx.listener(move |this, _, _, cx| {
             this.delete_playlist(playlist_for_rename, cx);
         })),
@@ -3086,7 +3090,8 @@ fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
     match &frame.tag_compare {
         LazyPanel::Loaded(_) => div().into_any_element(),
         LazyPanel::Loading => {
-            LoadingMessage::new("Reading embedded metadata...").into_any_element()
+            LoadingMessage::new(TrackMetadataActionState::compare_panel_loading_message())
+                .into_any_element()
         }
         LazyPanel::Empty(label) => LoadingMessage::new(label.clone()).into_any_element(),
         LazyPanel::Hidden => div().into_any_element(),
@@ -3100,7 +3105,6 @@ fn library_track_action_row(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
-    let has_pending_conflicts = !pending_conflicts.is_empty();
     let metadata_state = track_metadata_action_state(frame);
     let metadata_target = EntityActionTarget::Track(TrackRef::LocalTrackId(frame.entity_id));
     let compare_action = metadata_state.compare_action(metadata_target.clone());
@@ -3188,50 +3192,45 @@ fn library_track_action_row(
         );
     }
 
-    if !pending_id3_edits.is_empty() || frame.applying_id3_edits {
-        let count = pending_id3_edits.len();
-        let conflict_text = pending_conflicts.join("; ");
-        let label = if frame.applying_id3_edits {
-            "Applying tags...".to_string()
-        } else {
-            format!("Apply tags ({count})")
-        };
+    let conflict_text = (!pending_conflicts.is_empty()).then(|| pending_conflicts.join("; "));
+    if let Some(staged_display) = metadata_state.staged_id3_edits_display(
+        pending_id3_edits.len(),
+        frame.applying_id3_edits,
+        conflict_text.as_deref(),
+    ) {
         let mut staged_controls = ActionRow::new()
             .message(ActionRowMessage::new(ActionRowMessageDisplay {
-                text: SharedString::from(format!(
-                    "{count} staged tag edit{}",
-                    if count == 1 { "" } else { "s" }
-                )),
+                text: SharedString::from(staged_display.message),
                 tone: ActionRowMessageTone::Neutral,
             }))
             .control(
                 action_button(
                     ActionButtonDisplay {
-                        label: SharedString::from(label),
+                        label: SharedString::from(staged_display.apply_label),
                     },
                     cx,
                 )
-                .disabled(frame.applying_id3_edits || has_pending_conflicts)
+                .disabled(!staged_display.apply_enabled)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.apply_pending_id3_edits(cx);
                 })),
             );
 
-        if has_pending_conflicts {
+        if let Some(conflict_message) = staged_display.conflict_message {
             staged_controls = staged_controls.message(
                 ActionRowMessage::new(ActionRowMessageDisplay {
-                    text: SharedString::from(format!("Duplicate target: {conflict_text}")),
+                    text: SharedString::from(conflict_message),
                     tone: ActionRowMessageTone::Danger,
                 })
                 .max_width(layout::CONFLICT_MESSAGE_WIDTH),
             );
         }
 
-        if !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty() {
+        if staged_display.show_discard {
             staged_controls = staged_controls.control(
                 action_button(
                     ActionButtonDisplay {
-                        label: SharedString::from("Discard staged"),
+                        label: SharedString::from(staged_display.discard_label),
                     },
                     cx,
                 )
@@ -3276,7 +3275,10 @@ fn library_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp
                 })
                 .into_any_element()
         }
-        LazyPanel::Loading => LoadingMessage::new("Searching MusicBrainz...").into_any_element(),
+        LazyPanel::Loading => {
+            LoadingMessage::new(TrackMetadataActionState::musicbrainz_panel_loading_message())
+                .into_any_element()
+        }
         LazyPanel::Empty(label) => LoadingMessage::new(label.clone()).into_any_element(),
         LazyPanel::Hidden => div().into_any_element(),
     }

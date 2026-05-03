@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first Discover feed-link slice implemented on 2026-05-03.
+In progress - first fifty-eight slices implemented on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -401,7 +401,37 @@ Verified starting notes, 2026-05-03:
     - Remove playlist-track control id/glyph formatting from
       `src/library.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-55. Migrate remaining fallback batches, smallest blast radius first.
+55. Library album track row control display
+    - Add `LibraryTrackRowVm::row_display()` so album track row ids and
+      primary toggle button ids are VM-owned.
+    - Remove album-track row and toggle id formatting from
+      `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+56. Library playlist detail action display
+    - Add `PlaylistDetailVm::actions_display()` so playlist rename and
+      delete button ids and labels are VM-owned.
+    - Remove playlist detail action id/label literals from
+      `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+57. Library metadata panel loading display
+    - Add `TrackMetadataActionState` loading-message accessors for ID3
+      compare and MusicBrainz panels.
+    - Remove metadata panel loading label literals from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+58. Library staged ID3 edits display
+    - Add `TrackMetadataActionState::staged_id3_edits_display()` so
+      staged edit count text, apply label, conflict message, discard
+      label, and availability are VM-owned.
+    - Remove staged ID3 action/message formatting from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+59. Deferred-panel error-prefix display
+    - Add `LazyPanel::error()` for Discover deferred panels and
+      `LibraryViewModel::deferred_panel_error_message()` for Library's
+      still-local panel enum.
+    - Remove screen-local deferred-panel `"Error: ..."` formatting from
+      `src/search.rs` and `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+60. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -973,6 +1003,54 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local Library playlist track
   control id/glyph formatting from returning.
 
+## Fifty-Fourth-Slice Implementation Notes
+
+- `LibraryTrackRowVm::row_display()` now carries Library album-track row
+  ids and primary toggle button ids.
+- `src/library.rs` still wires subscribe/remove and selection callbacks,
+  but no longer formats those row/control ids.
+- The architecture guard now blocks screen-local Library album-track row
+  and toggle id formatting from returning.
+
+## Fifty-Fifth-Slice Implementation Notes
+
+- `PlaylistDetailVm::actions_display()` now carries playlist rename and
+  delete button ids and labels.
+- `src/library.rs` still wires playlist delete and the existing rename
+  placeholder callback, but no longer owns those action ids or labels.
+- The architecture guard now blocks screen-local playlist rename/delete
+  id and label literals from returning.
+
+## Fifty-Sixth-Slice Implementation Notes
+
+- `TrackMetadataActionState::compare_panel_loading_message()` and
+  `TrackMetadataActionState::musicbrainz_panel_loading_message()` now
+  carry Library metadata panel loading labels.
+- `src/library.rs` still selects which panel state to render, but no
+  longer owns those loading-message literals.
+- The architecture guard now blocks those screen-local loading labels
+  from returning.
+
+## Fifty-Seventh-Slice Implementation Notes
+
+- `TrackMetadataActionState::staged_id3_edits_display()` now carries
+  staged edit count text, apply label, apply availability, conflict
+  message, discard label, and discard visibility.
+- `src/library.rs` still wires apply/discard callbacks and arranges the
+  action rows, but no longer formats staged ID3 action/message text.
+- The architecture guard now blocks those staged ID3 screen-local labels
+  and messages from returning.
+
+## Fifty-Eighth-Slice Implementation Notes
+
+- Discover deferred-panel errors now use `LazyPanel::error()` for the
+  `"Error: ..."` prefix.
+- Library deferred-panel errors now use
+  `LibraryViewModel::deferred_panel_error_message()` while the local
+  Library panel enum remains in place for a later structural pass.
+- The architecture guard now blocks screen-local deferred-panel
+  `"Error: ..."` formatting from returning in Library and Discover.
+
 ## Test Commands
 
 ```sh
@@ -1034,6 +1112,11 @@ cargo test recent_feed_tile_vm_projects_id_and_episode_note
 cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback
 cargo test track_inspector_header_vm_projects_feed_link_display_contract
 cargo test playlist_track_row_vm_controls_display_projects_ids_labels_and_availability
+cargo test library_track_row_vm_projects_row_and_toggle_ids
+cargo test playlist_detail_vm_projects_rename_and_delete_controls
+cargo test track_metadata_action_state_projects_loading_and_staged_id3_display
+cargo test lazy_panel_error_owns_error_prefix_display
+cargo test library_view_model_deferred_panel_error_message_owns_error_prefix
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

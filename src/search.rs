@@ -1537,7 +1537,7 @@ impl SearchApp {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.tag_compare = match result {
                                     Ok(result) => LazyPanel::Loaded(result),
-                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                    Err(error) => LazyPanel::error(error),
                                 };
                             }
                         }
@@ -1588,7 +1588,7 @@ impl SearchApp {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 frame.tag_compare = match result {
                                     Ok(result) => LazyPanel::Loaded(result),
-                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                    Err(error) => LazyPanel::error(error),
                                 };
                             }
                         }
@@ -1645,7 +1645,7 @@ impl SearchApp {
                                         frame.musicbrainz_selected = 0;
                                         LazyPanel::Loaded(result)
                                     }
-                                    Err(error) => LazyPanel::Empty(format!("Error: {error}")),
+                                    Err(error) => LazyPanel::error(error),
                                 };
                             }
                         }

@@ -231,6 +231,16 @@ pub struct TrackMetadataActionState {
     pub has_local_file: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StagedId3EditsDisplay {
+    pub message: String,
+    pub apply_label: String,
+    pub apply_enabled: bool,
+    pub conflict_message: Option<String>,
+    pub discard_label: &'static str,
+    pub show_discard: bool,
+}
+
 impl TrackMetadataActionState {
     #[must_use]
     pub const fn new(
@@ -255,6 +265,16 @@ impl TrackMetadataActionState {
     #[must_use]
     pub const fn show_musicbrainz_panel(&self) -> bool {
         !matches!(self.musicbrainz, MetadataPanelState::Hidden)
+    }
+
+    #[must_use]
+    pub const fn compare_panel_loading_message() -> &'static str {
+        "Reading embedded metadata..."
+    }
+
+    #[must_use]
+    pub const fn musicbrainz_panel_loading_message() -> &'static str {
+        "Searching MusicBrainz..."
     }
 
     #[must_use]
@@ -327,6 +347,37 @@ impl TrackMetadataActionState {
             actions.push(action);
         }
         actions
+    }
+
+    #[must_use]
+    pub fn staged_id3_edits_display(
+        &self,
+        count: usize,
+        applying: bool,
+        conflict_text: Option<&str>,
+    ) -> Option<StagedId3EditsDisplay> {
+        if self.context != EntitySurfaceContext::Library || (count == 0 && !applying) {
+            return None;
+        }
+
+        let has_conflicts = conflict_text.is_some_and(|text| !text.trim().is_empty());
+        Some(StagedId3EditsDisplay {
+            message: format!(
+                "{count} staged tag edit{}",
+                if count == 1 { "" } else { "s" }
+            ),
+            apply_label: if applying {
+                "Applying tags...".into()
+            } else {
+                format!("Apply tags ({count})")
+            },
+            apply_enabled: !applying && !has_conflicts,
+            conflict_message: conflict_text
+                .filter(|text| !text.trim().is_empty())
+                .map(|text| format!("Duplicate target: {text}")),
+            discard_label: "Discard staged",
+            show_discard: !applying && count > 0,
+        })
     }
 }
 
@@ -1647,6 +1698,48 @@ mod tests {
         assert!(!musicbrainz.enabled);
         assert_eq!(loaded[0].label, "Hide Compare");
         assert_eq!(loaded[1].label, "Hide MusicBrainz");
+    }
+
+    #[test]
+    fn track_metadata_action_state_projects_loading_and_staged_id3_display() {
+        assert_eq!(
+            TrackMetadataActionState::compare_panel_loading_message(),
+            "Reading embedded metadata..."
+        );
+        assert_eq!(
+            TrackMetadataActionState::musicbrainz_panel_loading_message(),
+            "Searching MusicBrainz..."
+        );
+
+        let state = TrackMetadataActionState::new(
+            EntitySurfaceContext::Library,
+            MetadataPanelState::Hidden,
+            MetadataPanelState::Hidden,
+            true,
+        );
+        assert_eq!(state.staged_id3_edits_display(0, false, None), None);
+        assert_eq!(
+            state.staged_id3_edits_display(2, false, Some("TIT2")),
+            Some(StagedId3EditsDisplay {
+                message: "2 staged tag edits".into(),
+                apply_label: "Apply tags (2)".into(),
+                apply_enabled: false,
+                conflict_message: Some("Duplicate target: TIT2".into()),
+                discard_label: "Discard staged",
+                show_discard: true,
+            })
+        );
+        assert_eq!(
+            state.staged_id3_edits_display(1, true, None),
+            Some(StagedId3EditsDisplay {
+                message: "1 staged tag edit".into(),
+                apply_label: "Applying tags...".into(),
+                apply_enabled: false,
+                conflict_message: None,
+                discard_label: "Discard staged",
+                show_discard: false,
+            })
+        );
     }
 
     #[test]

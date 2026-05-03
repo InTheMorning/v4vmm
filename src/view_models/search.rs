@@ -855,6 +855,11 @@ impl LazyPanelToggle {
 }
 
 impl<T> LazyPanel<T> {
+    #[must_use]
+    pub(crate) fn error(error: impl std::fmt::Display) -> Self {
+        Self::Empty(format!("Error: {error}"))
+    }
+
     pub(crate) fn begin_collapsible_toggle(
         &mut self,
         collapsed: &mut bool,
@@ -888,7 +893,7 @@ impl<T> LazyPanel<Vec<T>> {
         match result {
             Ok(items) if items.is_empty() => Self::Empty(empty_label.into()),
             Ok(items) => Self::Loaded(items),
-            Err(error) => Self::Empty(format!("Error: {error}")),
+            Err(error) => LazyPanel::error(error),
         }
     }
 }
@@ -2620,6 +2625,14 @@ mod tests {
         );
         assert_eq!(
             LazyPanel::from_items_result(Result::<Vec<i32>, &str>::Err("offline"), "No rows"),
+            LazyPanel::Empty("Error: offline".into())
+        );
+    }
+
+    #[test]
+    fn lazy_panel_error_owns_error_prefix_display() {
+        assert_eq!(
+            LazyPanel::<Vec<i32>>::error("offline"),
             LazyPanel::Empty("Error: offline".into())
         );
     }
