@@ -96,7 +96,7 @@ use crate::view_models::library::{
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
-use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
+use crate::view_models::track_metadata_grid::{TrackMetadataGridVm, ValueRoutesSummaryFallback};
 use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts, TrackRef, TrackView};
 
 // ---------------------------------------------------------------------------
@@ -3839,13 +3839,11 @@ fn expandable_cell_summary(
 ) -> String {
     match logical_field {
         "Contributors" => TrackMetadataGridVm::contributor_summary(raw_value, display_value),
-        "Value Routes" => {
-            if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
-                format!("[{} items]", arr.len())
-            } else {
-                display_value.to_string()
-            }
-        }
+        "Value Routes" => TrackMetadataGridVm::value_routes_summary(
+            raw_value,
+            display_value,
+            ValueRoutesSummaryFallback::DisplayValue,
+        ),
         "Artwork" if raw_value.starts_with("http://") || raw_value.starts_with("https://") => {
             raw_value
                 .rsplit('/')

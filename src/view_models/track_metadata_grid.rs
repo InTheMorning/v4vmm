@@ -30,6 +30,12 @@ pub struct TrackMetadataGridExpansion {
     pub id3_expanded: bool,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValueRoutesSummaryFallback {
+    DisplayValue,
+    MultilineCount,
+}
+
 impl TrackMetadataGridVm {
     #[must_use]
     pub fn tag_column_label(format_label: Option<&str>) -> &str {
@@ -78,6 +84,29 @@ impl TrackMetadataGridVm {
     #[must_use]
     pub fn contributor_summary(raw_value: &str, display_value: &str) -> String {
         summarize_contributor_value(raw_value).unwrap_or_else(|| display_value.to_string())
+    }
+
+    #[must_use]
+    pub fn value_routes_summary(
+        raw_value: &str,
+        display_value: &str,
+        fallback: ValueRoutesSummaryFallback,
+    ) -> String {
+        if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
+            format!("[{} items]", arr.len())
+        } else {
+            match fallback {
+                ValueRoutesSummaryFallback::DisplayValue => display_value.to_string(),
+                ValueRoutesSummaryFallback::MultilineCount => {
+                    let lines = display_value.lines().count();
+                    if lines > 1 {
+                        format!("[{lines} lines]")
+                    } else {
+                        display_value.to_string()
+                    }
+                }
+            }
+        }
     }
 
     pub fn new(show_id3: bool, show_musicbrainz: bool, tag_column_label: &str) -> Self {
@@ -259,6 +288,42 @@ mod tests {
             "No contributors"
         );
         assert_eq!(TrackMetadataGridVm::contributor_summary("", ""), "");
+    }
+
+    #[test]
+    fn value_routes_summary_counts_routes_and_owns_fallback_policy() {
+        assert_eq!(
+            TrackMetadataGridVm::value_routes_summary(
+                r#"[{"recipient_name":"Alice"},{"recipient_name":"Bob"}]"#,
+                "Alice\nBob",
+                ValueRoutesSummaryFallback::DisplayValue,
+            ),
+            "[2 items]"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_routes_summary(
+                "not json",
+                "Alice\nBob",
+                ValueRoutesSummaryFallback::DisplayValue,
+            ),
+            "Alice\nBob"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_routes_summary(
+                "not json",
+                "Alice\nBob",
+                ValueRoutesSummaryFallback::MultilineCount,
+            ),
+            "[2 lines]"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_routes_summary(
+                "not json",
+                "Alice",
+                ValueRoutesSummaryFallback::MultilineCount,
+            ),
+            "Alice"
+        );
     }
 
     #[test]

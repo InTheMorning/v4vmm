@@ -84,7 +84,7 @@ use crate::view_models::search::{
 };
 use crate::view_models::track::TrackVm;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
-use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
+use crate::view_models::track_metadata_grid::{TrackMetadataGridVm, ValueRoutesSummaryFallback};
 use crate::views::{ContributorView, FeedRef, TrackView};
 
 #[derive(Clone, Debug)]
@@ -3595,18 +3595,11 @@ fn muted_line(value: &str) -> AnyElement {
 fn expandable_cell_summary(field: &str, raw_value: &str, display_value: &str) -> String {
     match field {
         "Contributors" => TrackMetadataGridVm::contributor_summary(raw_value, display_value),
-        "Value Routes" => {
-            if let Ok(arr) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) {
-                format!("[{} items]", arr.len())
-            } else {
-                let lines = display_value.lines().count();
-                if lines > 1 {
-                    format!("[{lines} lines]")
-                } else {
-                    display_value.to_string()
-                }
-            }
-        }
+        "Value Routes" => TrackMetadataGridVm::value_routes_summary(
+            raw_value,
+            display_value,
+            ValueRoutesSummaryFallback::MultilineCount,
+        ),
         "Artwork" => {
             if raw_value.starts_with("http://") || raw_value.starts_with("https://") {
                 let filename = raw_value.rsplit('/').next().unwrap_or(raw_value);

@@ -143,7 +143,16 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `summarize_contributor_value(...).unwrap_or_else(...)`
       fallbacks from Library and Discover metadata cell summary helpers.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-15. Migrate one remaining fallback at a time, smallest blast radius first.
+15. Metadata value-route summary display
+    - Add `TrackMetadataGridVm::value_routes_summary()` so collapsed
+      value-route count and malformed-value fallback policy are
+      normalized by the metadata-grid VM.
+    - Preserve the existing Library and Discover fallback difference as
+      an explicit `ValueRoutesSummaryFallback` context policy.
+    - Remove screen-local `"[N items]"` and Discover `"[N lines]"`
+      summary formatting from metadata cell summary helpers.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+16. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -314,6 +323,19 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks that screen-local contributor
   summary fallback from returning to either screen.
 
+## Fourteenth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::value_routes_summary()` now carries collapsed
+  Value Routes summary display for parsed route arrays and malformed
+  raw values.
+- `ValueRoutesSummaryFallback` makes the existing context difference
+  explicit: Library falls back to the display value; Discover counts
+  multi-line malformed displays before falling back to the display value.
+- `src/library.rs` and `src/search.rs` no longer format collapsed
+  Value Routes summaries locally.
+- The architecture guard now blocks screen-local Value Routes summary
+  count and multiline fallback formatting from returning.
+
 ## Test Commands
 
 ```sh
@@ -331,6 +353,7 @@ cargo test id3_cell_frame_prefers_pending_then_preserves_empty_vs_missing_displa
 cargo test id3_drag_frame_preserves_empty_vs_missing_display
 cargo test id3_frame_label_preserves_empty_vs_missing_display
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized
+cargo test value_routes_summary_counts_routes_and_owns_fallback_policy
 cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test
