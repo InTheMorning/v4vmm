@@ -1,5 +1,7 @@
 //! Detail-view header — thumbnail + entity badge + title + optional
 //! subtitle. Used by the artist / feed / track inspectors.
+//!
+//! ## Display contract: `DetailHeaderDisplay`
 
 #![warn(clippy::pedantic)]
 
@@ -20,49 +22,35 @@ use super::thumbnail::{Thumbnail, ThumbnailSize};
 #[derive(IntoElement)]
 #[must_use]
 pub struct DetailHeader {
-    kind: EntityKind,
-    title: SharedString,
-    subtitle: Option<SharedString>,
-    data_rows: Vec<DetailHeaderDataRow>,
+    display: DetailHeaderDisplay,
     image: Option<Arc<Image>>,
     appearance: Option<Appearance>,
 }
 
-struct DetailHeaderDataRow {
-    label: SharedString,
-    value: SharedString,
-    max_lines: usize,
+/// Display-ready header facts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailHeaderDisplay {
+    pub kind: EntityKind,
+    pub title: SharedString,
+    pub subtitle: Option<SharedString>,
+    pub data_rows: Vec<DetailHeaderDataRow>,
+}
+
+/// Display-ready metadata row shown under a detail header subtitle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailHeaderDataRow {
+    pub label: SharedString,
+    pub value: SharedString,
+    pub max_lines: usize,
 }
 
 impl DetailHeader {
-    pub fn new(kind: EntityKind, title: impl Into<SharedString>) -> Self {
+    pub fn new(display: DetailHeaderDisplay) -> Self {
         Self {
-            kind,
-            title: title.into(),
-            subtitle: None,
-            data_rows: Vec::new(),
+            display,
             image: None,
             appearance: None,
         }
-    }
-
-    pub fn subtitle(mut self, subtitle: impl Into<SharedString>) -> Self {
-        self.subtitle = Some(subtitle.into());
-        self
-    }
-
-    pub fn data_row(
-        mut self,
-        label: impl Into<SharedString>,
-        value: impl Into<SharedString>,
-        max_lines: usize,
-    ) -> Self {
-        self.data_rows.push(DetailHeaderDataRow {
-            label: label.into(),
-            value: value.into(),
-            max_lines: max_lines.max(1),
-        });
-        self
     }
 
     pub fn image(mut self, image: Option<Arc<Image>>) -> Self {
@@ -81,7 +69,7 @@ impl RenderOnce for DetailHeader {
         let title_color = resolve_color(cx, SemanticColor::Label, self.appearance);
         let subtitle_color = resolve_color(cx, SemanticColor::SecondaryLabel, self.appearance);
         let metadata_label_color = resolve_color(cx, SemanticColor::TertiaryLabel, self.appearance);
-        let mut badge = TagBadge::new(self.kind);
+        let mut badge = TagBadge::new(self.display.kind);
         if let Some(appearance) = self.appearance {
             badge = badge.appearance(appearance);
         }
@@ -102,10 +90,10 @@ impl RenderOnce for DetailHeader {
                     .text_size(FontSize::Title2.scaled(cx))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(title_color)
-                    .child(self.title),
+                    .child(self.display.title),
             );
 
-        if let Some(sub) = self.subtitle {
+        if let Some(sub) = self.display.subtitle {
             text_block = text_block.child(
                 div()
                     .text_size(FontSize::Body.scaled(cx))
@@ -114,13 +102,13 @@ impl RenderOnce for DetailHeader {
             );
         }
 
-        if !self.data_rows.is_empty() {
+        if !self.display.data_rows.is_empty() {
             let mut metadata = VStack::new().spacing(Spacing::XXS).leading();
-            for row in self.data_rows {
+            for row in self.display.data_rows {
                 metadata = metadata.child(header_data_row(
                     row.label,
                     row.value,
-                    row.max_lines,
+                    row.max_lines.max(1),
                     metadata_label_color,
                     self.appearance,
                     cx,
@@ -132,7 +120,7 @@ impl RenderOnce for DetailHeader {
         HStack::new()
             .spacing(Spacing::LG)
             .top()
-            .child(Thumbnail::new(self.kind, ThumbnailSize::Lg).image(self.image))
+            .child(Thumbnail::new(self.display.kind, ThumbnailSize::Lg).image(self.image))
             .child(div().flex_1().min_w_0().child(text_block))
     }
 }
@@ -168,4 +156,31 @@ fn header_data_row(
                 .child(label),
         )
         .child(div().min_w_0().flex_1().child(value_text))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn header_uses_display_contract() {
+        let header = DetailHeader::new(DetailHeaderDisplay {
+            kind: EntityKind::Artist,
+            title: "Artist".into(),
+            subtitle: Some("Subtitle".into()),
+            data_rows: vec![DetailHeaderDataRow {
+                label: "Publisher".into(),
+                value: "Label".into(),
+                max_lines: 0,
+            }],
+        });
+
+        assert_eq!(header.display.kind, EntityKind::Artist);
+        assert_eq!(header.display.title, SharedString::from("Artist"));
+        assert_eq!(
+            header.display.subtitle,
+            Some(SharedString::from("Subtitle"))
+        );
+        assert_eq!(header.display.data_rows.len(), 1);
+    }
 }

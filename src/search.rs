@@ -50,10 +50,10 @@ use crate::subscribe_service::{
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
-    DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
-    IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole, RecentFeedTile,
-    ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize,
-    TrackDetailSurface, TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
+    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
+    DisclosureGroup, EntityKind, IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole,
+    RecentFeedTile, ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge, Thumbnail,
+    ThumbnailSize, TrackDetailSurface, TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2671,7 +2671,12 @@ fn render_publisher_inspector(
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(DetailHeader::new(EntityKind::Publisher, vm.title()))
+        .child(DetailHeader::new(DetailHeaderDisplay {
+            kind: EntityKind::Publisher,
+            title: vm.title().into(),
+            subtitle: None,
+            data_rows: Vec::new(),
+        }))
         .child(DetailGrid::new(
             vm.detail_rows()
                 .into_iter()
@@ -4456,13 +4461,16 @@ pub(crate) fn render_feed_header(
     title: &str,
     subtitle: Option<&str>,
 ) -> AnyElement {
-    let mut header =
-        DetailHeader::new(EntityKind::Feed, title.to_string()).image(frame.image.clone());
-    if let Some(subtitle) = subtitle.filter(|value| !value.trim().is_empty()) {
-        header = header.subtitle(subtitle.to_string());
-    }
-
-    header.into_any_element()
+    DetailHeader::new(DetailHeaderDisplay {
+        kind: EntityKind::Feed,
+        title: title.to_string().into(),
+        subtitle: subtitle
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| SharedString::from(value.to_string())),
+        data_rows: Vec::new(),
+    })
+    .image(frame.image.clone())
+    .into_any_element()
 }
 
 fn render_nostr_icon_button(

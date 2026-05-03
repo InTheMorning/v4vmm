@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first slice implemented on 2026-05-03.
+In progress - first and second slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -46,8 +46,8 @@ test allowlist with a one-line justification.
      builder allowances.
 2. `DetailHeader`
    - Audit `new`, `subtitle`, and `data_row`.
-   - Either introduce a header display struct or keep the generic
-     pass-through allowance with VM-call-site evidence.
+   - Introduce `DetailHeaderDisplay` / `DetailHeaderDataRow`.
+   - Remove the loose title/subtitle/data-row builder allowances.
 3. `DetailGrid`
    - Audit `DetailRow::new` and `DetailRow::text`.
    - Prefer keeping generic key/value passthrough only if callers pass
@@ -77,10 +77,15 @@ test allowlist with a one-line justification.
 - `src/view_models/track_detail.rs`
 - `tests/architecture_tests.rs`
 
-## Files Changed In First Slice
+## Files Changed In Current Slices
 
 - `src/ui/composites/track_row.rs`
+- `src/ui/composites/detail_header.rs`
+- `src/ui/composites/mod.rs`
+- `src/ui/shells/artist.rs`
 - `src/ui/shells/entity.rs`
+- `src/library.rs`
+- `src/search.rs`
 - `tests/architecture_tests.rs`
 - `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`
 - `docs/reviews/adr-0038-review-checklist.md`
@@ -104,6 +109,18 @@ test allowlist with a one-line justification.
 - The explicit allowlist remains for genuine passthrough APIs and shrank
   by the three former `TrackRow` string builders.
 
+## Second-Slice Implementation Notes
+
+- `DetailHeader` now accepts `DetailHeaderDisplay`.
+- Header title, subtitle, and metadata rows now enter through
+  `DetailHeaderDisplay` / `DetailHeaderDataRow`, not public loose string
+  builders on the composite.
+- `library.rs`, `search.rs`, `ui::shells::artist`, and
+  `ui::shells::entity` construct the display contract from existing
+  VM-projected values.
+- The explicit allowlist shrank by the three former `DetailHeader`
+  string builders.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -112,6 +129,8 @@ test allowlist with a one-line justification.
   duration as loose strings.
 - `src/ui/shells/entity.rs` consumes the shared row VM instead of
   assembling the row display fields.
+- `DetailHeader` public signatures no longer accept title, subtitle, or
+  metadata-row labels/values as loose string parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004

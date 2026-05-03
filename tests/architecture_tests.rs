@@ -382,21 +382,6 @@ const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllow
         note: "generic key/value text row; caller supplies display rows",
     },
     CompositeStringApiAllowance {
-        file: "src/ui/composites/detail_header.rs",
-        pattern: "pub fn new(kind: EntityKind, title: impl Into<SharedString>)",
-        note: "generic header shell; callers pass VM-owned titles",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/detail_header.rs",
-        pattern: "pub fn subtitle(mut self, subtitle: impl Into<SharedString>)",
-        note: "generic header shell; callers pass VM-owned subtitles",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/detail_header.rs",
-        pattern: "pub fn data_row( mut self, label: impl Into<SharedString>, value: impl Into<SharedString>, max_lines: usize, ) -> Self {",
-        note: "generic header metadata row; callers pass VM-owned facts",
-    },
-    CompositeStringApiAllowance {
         file: "src/ui/composites/disclosure_group.rs",
         pattern: "pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>)",
         note: "generic disclosure shell label, not a fallback policy owner",

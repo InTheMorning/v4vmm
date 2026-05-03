@@ -14,8 +14,9 @@ use gpui::{
 };
 
 use crate::ui::composites::{
-    identity_action_button, DetailGrid, DetailHeader, DetailRow, EntityKind, IdentityActionKind,
-    ListRow, ReleaseDetailSurface, ReleaseSurfaceElement, Thumbnail, ThumbnailSize, TrackRow,
+    identity_action_button, DetailGrid, DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay,
+    DetailRow, EntityKind, IdentityActionKind, ListRow, ReleaseDetailSurface,
+    ReleaseSurfaceElement, Thumbnail, ThumbnailSize, TrackRow,
 };
 use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
@@ -293,15 +294,22 @@ fn render_contributor_role_row(person: &str, role: &str) -> AnyElement {
 }
 
 fn render_contract_header(hero: &ReleaseHeroVm<'_>, hero_image: Option<Arc<Image>>) -> AnyElement {
-    let mut header_el =
-        DetailHeader::new(entity_kind(hero.kind), hero.title.to_string()).image(hero_image);
-    if let Some(subtitle) = hero.subtitle {
-        header_el = header_el.subtitle(subtitle.to_string());
-    }
-    if let Some(supporting_line) = hero.supporting_line {
-        header_el = header_el.data_row("Publisher", supporting_line.to_string(), 1);
-    }
-    header_el.into_any_element()
+    DetailHeader::new(DetailHeaderDisplay {
+        kind: entity_kind(hero.kind),
+        title: hero.title.to_string().into(),
+        subtitle: hero.subtitle.map(|subtitle| subtitle.to_string().into()),
+        data_rows: hero
+            .supporting_line
+            .map(|supporting_line| DetailHeaderDataRow {
+                label: "Publisher".into(),
+                value: supporting_line.to_string().into(),
+                max_lines: 1,
+            })
+            .into_iter()
+            .collect(),
+    })
+    .image(hero_image)
+    .into_any_element()
 }
 
 fn render_summary_facts(facts: &[crate::view_models::entity_detail::ReleaseFactVm]) -> AnyElement {

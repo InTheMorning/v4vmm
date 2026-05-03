@@ -1,5 +1,5 @@
 use crate::api::Feed;
-use crate::ui::composites::{DetailGrid, DetailHeader, DetailRow, EntityKind};
+use crate::ui::composites::{DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, EntityKind};
 use crate::ui::primitives::VStack;
 use crate::ui::tokens::Spacing;
 use crate::view_models::artist::ArtistVm;
@@ -28,9 +28,13 @@ pub fn render_artist_view(
         .spacing(Spacing::LG)
         .stretch()
         .child(
-            DetailHeader::new(EntityKind::Artist, vm.title())
-                .subtitle(vm.subtitle())
-                .image(image),
+            DetailHeader::new(DetailHeaderDisplay {
+                kind: EntityKind::Artist,
+                title: vm.title().into(),
+                subtitle: Some(vm.subtitle().into()),
+                data_rows: Vec::new(),
+            })
+            .image(image),
         )
         .child(DetailGrid::new(rows));
 

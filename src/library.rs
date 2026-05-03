@@ -61,12 +61,12 @@ use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
-    DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
-    FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption, ProvenanceRole,
-    ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface,
-    TrackMetadataFieldCell, TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataSourceCell,
-    TrackMetadataTagCell, TrackMetadataTextValue, TrackRow as TrackRowComposite,
-    TrackSurfaceElement,
+    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
+    DisclosureGroup, EntityKind, FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel,
+    PlaylistOption, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
+    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataGrid,
+    TrackMetadataGroupCell, TrackMetadataSourceCell, TrackMetadataTagCell, TrackMetadataTextValue,
+    TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -2412,10 +2412,12 @@ fn render_library_artist_detail(
         .flex()
         .flex_col()
         .gap(spacing::LG)
-        .child(DetailHeader::new(
-            EntityKind::Artist,
-            vm.artist_name_or_unknown(),
-        ))
+        .child(DetailHeader::new(DetailHeaderDisplay {
+            kind: EntityKind::Artist,
+            title: vm.artist_name_or_unknown().into(),
+            subtitle: None,
+            data_rows: Vec::new(),
+        }))
         .child(DetailGrid::new(
             vm.detail_rows()
                 .into_iter()
@@ -2882,7 +2884,12 @@ fn render_playlist_detail(
         .flex()
         .flex_col()
         .gap(spacing::MD)
-        .child(DetailHeader::new(EntityKind::Playlist, &playlist_name))
+        .child(DetailHeader::new(DetailHeaderDisplay {
+            kind: EntityKind::Playlist,
+            title: SharedString::from(playlist_name.clone()),
+            subtitle: None,
+            data_rows: Vec::new(),
+        }))
         .child(DetailGrid::new(
             detail_rows
                 .into_iter()

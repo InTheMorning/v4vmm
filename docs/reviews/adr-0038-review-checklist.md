@@ -16,8 +16,8 @@
 ## Gate Status
 
 Status: Task 002 (Composite Display-Contract Audit) is in progress.
-The first slice migrates `TrackRow` off public loose string builders and
-tightens the composite display-contract guard.
+The first slices migrate `TrackRow` and `DetailHeader` off public loose
+string builders and tighten the composite display-contract guard.
 
 ## Required Questions For Every UI Change
 
@@ -53,7 +53,7 @@ tightens the composite display-contract guard.
 | # | Task | Status | Required Evidence |
 |---|---|---|---|
 | 1 | Layer Relocation                              | Implemented with visual-proof caveat | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Visual proof remains open; no provisional screenshot artifacts are retained. |
-| 2 | Composite Display-Contract Audit              | In progress - first slice implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow` string builders |
+| 2 | Composite Display-Contract Audit              | In progress - first and second slices implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; `DetailHeader` title/subtitle/data rows now enter through `DetailHeaderDisplay`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow` and `DetailHeader` string builders |
 | 3 | Library/Search VM Consolidation               | Stub           | VM accessors with present/empty/None tests; screen call-site sweep; new guard |
 | 4 | HIG Dark-Mode Parity Audit                    | Stub           | `style.rs` resolution; light + dark screenshots per surface |
 | 5 | HIG Accessibility-Label Contract              | Stub           | A11y labels per interactive composite; new guard; coverage table |
@@ -130,7 +130,7 @@ For Task 001:
 For each subsequent task: re-run the full set, plus the task's
 targeted guard test.
 
-For Task 002 first slice:
+For Task 002 current slices:
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
 
