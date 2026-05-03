@@ -14,6 +14,9 @@ use gpui::{
 
 use crate::ui::layouts as layout;
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
+use crate::view_models::{
+    ActionStatusMessageDisplay, ActionStatusMessageTone, ActionStatusMessageWidth,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ActionRowMessageTone {
@@ -44,6 +47,23 @@ impl ActionRowMessage {
         Self {
             text: display.text,
             tone: display.tone,
+            max_width,
+        }
+    }
+
+    pub(crate) fn from_status_display(display: ActionStatusMessageDisplay) -> Self {
+        let tone = match display.tone {
+            ActionStatusMessageTone::Neutral => ActionRowMessageTone::Neutral,
+            ActionStatusMessageTone::Danger => ActionRowMessageTone::Danger,
+        };
+        let max_width = match display.width {
+            ActionStatusMessageWidth::Status => layout::STATUS_MESSAGE_WIDTH,
+            ActionStatusMessageWidth::Action => layout::ACTION_MESSAGE_WIDTH,
+            ActionStatusMessageWidth::Conflict => layout::CONFLICT_MESSAGE_WIDTH,
+        };
+        Self {
+            text: SharedString::from(display.text),
+            tone,
             max_width,
         }
     }

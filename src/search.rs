@@ -50,13 +50,12 @@ use crate::subscribe_service::{
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowMessage,
-    ActionRowMessageDisplay, ActionRowMessageTone, AddToPlaylistDisplay, AddToPlaylistPopover,
-    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
-    DetailTextRow as CompositeDetailTextRow, DisclosureGroup, DisclosureGroupDisplay, EntityKind,
-    IdentityActionKind, ListRow, PlaylistOption, PlaylistOptionDisplay, ProvenanceRole,
-    RecentFeedTile, ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge, TagBadgeDisplay,
-    Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane, TrackMetadataGrid,
-    TrackSurfaceElement,
+    AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
+    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureGroup,
+    DisclosureGroupDisplay, EntityKind, IdentityActionKind, ListRow, PlaylistOption,
+    PlaylistOptionDisplay, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement, SplitPane,
+    StatusRole, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackDetailSurface,
+    TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2822,20 +2821,8 @@ pub(crate) fn discover_inspector_action_row(
 
     let mut row = ActionRow::new().control_group(controls);
 
-    if let Some(message) = vm.subscription_message().map(str::to_string) {
-        let message = if vm.message_is_error() {
-            ActionRowMessage::new(ActionRowMessageDisplay {
-                text: SharedString::from(message),
-                tone: ActionRowMessageTone::Danger,
-            })
-            .max_width(layout::STATUS_MESSAGE_WIDTH)
-        } else {
-            ActionRowMessage::new(ActionRowMessageDisplay {
-                text: SharedString::from(message),
-                tone: ActionRowMessageTone::Neutral,
-            })
-        };
-        row = row.message(message);
+    if let Some(message) = vm.subscription_message_display() {
+        row = row.message(ActionRowMessage::from_status_display(message));
     }
 
     row.into_any_element()

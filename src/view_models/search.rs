@@ -18,7 +18,7 @@ use crate::view_models::entity_detail::{
 };
 use crate::view_models::format::plural;
 use crate::view_models::track::TrackVm;
-use crate::view_models::SplitPaneState;
+use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{FeedRef, TrackRef};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
@@ -572,22 +572,9 @@ impl<'a> ActionRowVm<'a> {
         ReleaseActionState::new(membership, playlist)
     }
 
-    /// The current subscription status message, if any.
     #[must_use]
-    pub(crate) fn subscription_message(&self) -> Option<&str> {
-        self.subscription_message
-    }
-
-    /// `true` when the current message reads as an error (case-
-    /// insensitive substring match on `"error"`). The screen uses this
-    /// to pick the danger colour for the message line.
-    #[must_use]
-    pub(crate) fn message_is_error(&self) -> bool {
-        self.subscription_message.is_some_and(|m| {
-            // Case-insensitive substring match without an extra alloc:
-            // `to_lowercase` only happens once and only on the message.
-            m.to_lowercase().contains("error")
-        })
+    pub(crate) fn subscription_message_display(&self) -> Option<ActionStatusMessageDisplay> {
+        ActionStatusMessageDisplay::subscription(self.subscription_message)
     }
 }
 
@@ -2392,15 +2379,30 @@ mod tests {
     }
 
     #[test]
-    fn action_row_vm_message_is_error_when_text_contains_error_token() {
+    fn action_row_vm_projects_subscription_message_display() {
         let vm = ActionRowVm::new("feed", false, None, Some("Subscribed!"));
-        assert!(!vm.message_is_error());
+        assert_eq!(
+            vm.subscription_message_display(),
+            Some(ActionStatusMessageDisplay::neutral("Subscribed!"))
+        );
         let vm = ActionRowVm::new("feed", false, None, Some("error: bad request"));
-        assert!(vm.message_is_error());
+        assert_eq!(
+            vm.subscription_message_display(),
+            Some(ActionStatusMessageDisplay::danger(
+                "error: bad request",
+                crate::view_models::ActionStatusMessageWidth::Status,
+            ))
+        );
         let vm = ActionRowVm::new("feed", false, None, Some("Error: bad request"));
-        assert!(vm.message_is_error());
+        assert_eq!(
+            vm.subscription_message_display(),
+            Some(ActionStatusMessageDisplay::danger(
+                "Error: bad request",
+                crate::view_models::ActionStatusMessageWidth::Status,
+            ))
+        );
         let vm = ActionRowVm::new("feed", false, None, None);
-        assert!(!vm.message_is_error());
+        assert_eq!(vm.subscription_message_display(), None);
     }
 
     #[test]

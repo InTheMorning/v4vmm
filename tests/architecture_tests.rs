@@ -2211,6 +2211,46 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "ActionRowMessageDisplay {",
+            "Library action-row message tone/width belongs in VM display contracts",
+        ),
+        (
+            "src/search.rs",
+            "ActionRowMessageDisplay {",
+            "Discover action-row message tone/width belongs in VM display contracts",
+        ),
+        (
+            "src/library.rs",
+            "ActionRowMessageTone::",
+            "Library action-row message tone belongs in VM display contracts",
+        ),
+        (
+            "src/search.rs",
+            "ActionRowMessageTone::",
+            "Discover action-row message tone belongs in VM display contracts",
+        ),
+        (
+            "src/library.rs",
+            "message_is_error()",
+            "Library subscription message severity belongs in LibraryTrackActionVm::subscription_message_display",
+        ),
+        (
+            "src/search.rs",
+            "message_is_error()",
+            "Discover subscription message severity belongs in ActionRowVm::subscription_message_display",
+        ),
+        (
+            "src/library.rs",
+            ".max_width(layout::CONFLICT_MESSAGE_WIDTH)",
+            "Library staged-ID3 conflict message width belongs in TrackMetadataActionState display",
+        ),
+        (
+            "src/library.rs",
+            ".max_width(layout::ACTION_MESSAGE_WIDTH)",
+            "Library ID3 apply-error message width belongs in TrackMetadataActionState display",
+        ),
+        (
+            "src/library.rs",
             "format!(\"{} ({} unused)\", group.label, group.unused_count)",
             "metadata group heading fallback belongs in TrackMetadataGridVm::group_heading_label",
         ),

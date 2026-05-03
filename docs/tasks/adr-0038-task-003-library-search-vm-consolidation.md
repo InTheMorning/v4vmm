@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first eighty-nine implementation slices completed on 2026-05-03.
+In progress - first ninety-two implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -607,7 +607,28 @@ Verified starting notes, 2026-05-03:
       expanded JSON leaves, including `null`, are metadata-grid-owned.
     - Remove screen-local JSON scalar match arms from `src/search.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-90. Migrate remaining fallback batches, smallest blast radius first.
+90. Shared action-row status message display
+    - Add `ActionStatusMessageDisplay` so action-row status message
+      text, severity, and width policy are VM-owned and GPUI-free.
+    - Add a composite binding method that maps the VM contract to
+      `ActionRowMessage` without screen-local severity branching.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+91. Library action-row status message display
+    - Add `LibraryTrackActionVm::subscription_message_display()` so
+      Library track subscription message severity and width are
+      VM-owned.
+    - Move staged-ID3 status, duplicate-target conflict, and ID3
+      apply-error message tone/width into `TrackMetadataActionState`.
+    - Remove screen-local `ActionRowMessageTone` and `max_width`
+      decisions from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+92. Discover action-row status message display
+    - Add `ActionRowVm::subscription_message_display()` so Discover
+      inspector subscription message severity and width are VM-owned.
+    - Remove screen-local `ActionRowMessageTone` and
+      `message_is_error()` branching from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+93. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -616,7 +637,8 @@ Verified starting notes, 2026-05-03:
 - Preserve the empty-vs-unknown distinction. `Option<String>` is
   preferred for fields where an empty state has a different visual
   treatment from a labeled fallback.
-- One fallback at a time per commit.
+- Keep each fallback family independently testable; related slices may
+  batch in one commit when they share a display contract and guard.
 - Existing `screens_do_not_inline_unknown_artist_or_album_fallbacks` and
   related guards must stay green throughout.
 
@@ -1510,6 +1532,37 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local JSON scalar match arms
   from returning.
 
+## Eighty-Ninth-Slice Implementation Notes
+
+- `ActionStatusMessageDisplay` now carries action-row status text,
+  neutral/danger severity, and status/action/conflict width policy as a
+  GPUI-free VM contract.
+- `ActionRowMessage::from_status_display()` is the shared UI binding
+  from that VM contract to concrete tokens.
+- The architecture guard now blocks Library/Discover screen-local
+  `ActionRowMessageDisplay` and `ActionRowMessageTone` branches from
+  returning.
+
+## Ninetieth-Slice Implementation Notes
+
+- `LibraryTrackActionVm::subscription_message_display()` now carries
+  Library track subscription message severity and status-width policy.
+- `TrackMetadataActionState` now carries staged-ID3 neutral messages,
+  duplicate-target danger/conflict messages, and ID3 apply-error
+  danger/action messages.
+- `src/library.rs` still wires controls and callbacks, but no longer
+  chooses action-row message severity or width.
+
+## Ninety-First-Slice Implementation Notes
+
+- `ActionRowVm::subscription_message_display()` now carries Discover
+  inspector subscription message severity and status-width policy.
+- `src/search.rs` still wires the inspector action buttons and playlist
+  target callbacks, but no longer branches on `message_is_error()` to
+  choose message tone.
+- The architecture guard now blocks screen-local subscription message
+  severity checks from returning in both Library and Discover.
+
 ## Test Commands
 
 ```sh
@@ -1536,6 +1589,11 @@ cargo test transcript_line_display_preserves_blank_visual_rows
 cargo test logical_field_maps_raw_musicindex_txxx_fields
 cargo test value_route_child_field_visibility_preserves_screen_contexts
 cargo test json_tree_scalar_label_preserves_raw_json_leaf_display
+cargo test action_status_message_display_classifies_subscription_messages
+cargo test library_track_action_vm_formats_playlist_label_and_message_status
+cargo test action_row_vm_projects_subscription_message_display
+cargo test track_metadata_action_state_projects_file_actions_and_id3_errors
+cargo test track_metadata_action_state_projects_loading_and_staged_id3_display
 cargo test group_heading_label_appends_unused_count_only_when_present
 cargo test value_route_item_label_appends_split_when_present
 cargo test value_route_split_label_formats_percent_and_ignores_empty_values

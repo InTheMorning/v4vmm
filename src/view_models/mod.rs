@@ -72,6 +72,65 @@ pub mod track;
 pub mod track_detail;
 pub mod track_metadata_grid;
 
+/// Semantic tone for action-row status messages.
+///
+/// Screens map this to UI tokens, but the VM owns which messages are neutral
+/// status and which are danger/error status.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionStatusMessageTone {
+    Neutral,
+    Danger,
+}
+
+/// Width policy for action-row status messages.
+///
+/// The VM names the presentation intent; GPUI code maps it to concrete token
+/// widths.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionStatusMessageWidth {
+    Status,
+    Action,
+    Conflict,
+}
+
+/// Display-ready status message for action rows.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionStatusMessageDisplay {
+    pub(crate) text: String,
+    pub(crate) tone: ActionStatusMessageTone,
+    pub(crate) width: ActionStatusMessageWidth,
+}
+
+impl ActionStatusMessageDisplay {
+    #[must_use]
+    pub(crate) fn neutral(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            tone: ActionStatusMessageTone::Neutral,
+            width: ActionStatusMessageWidth::Status,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn danger(text: impl Into<String>, width: ActionStatusMessageWidth) -> Self {
+        Self {
+            text: text.into(),
+            tone: ActionStatusMessageTone::Danger,
+            width,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn subscription(message: Option<&str>) -> Option<Self> {
+        let message = message?;
+        if message.to_lowercase().contains("error") {
+            Some(Self::danger(message, ActionStatusMessageWidth::Status))
+        } else {
+            Some(Self::neutral(message))
+        }
+    }
+}
+
 /// Pure resize state for a two-pane shell.
 ///
 /// Screens own GPUI event wiring and convert framework pixel types into
@@ -116,7 +175,10 @@ impl SplitPaneState {
 
 #[cfg(test)]
 mod tests {
-    use super::SplitPaneState;
+    use super::{
+        ActionStatusMessageDisplay, ActionStatusMessageTone, ActionStatusMessageWidth,
+        SplitPaneState,
+    };
 
     fn assert_width_eq(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < f32::EPSILON);
@@ -146,5 +208,26 @@ mod tests {
 
         state.resize_to(420.0, 200.0, 800.0);
         assert_width_eq(state.leading_width(), 420.0);
+    }
+
+    #[test]
+    fn action_status_message_display_classifies_subscription_messages() {
+        assert_eq!(
+            ActionStatusMessageDisplay::subscription(Some("Downloaded")),
+            Some(ActionStatusMessageDisplay {
+                text: "Downloaded".into(),
+                tone: ActionStatusMessageTone::Neutral,
+                width: ActionStatusMessageWidth::Status,
+            })
+        );
+        assert_eq!(
+            ActionStatusMessageDisplay::subscription(Some("Download error: offline")),
+            Some(ActionStatusMessageDisplay {
+                text: "Download error: offline".into(),
+                tone: ActionStatusMessageTone::Danger,
+                width: ActionStatusMessageWidth::Status,
+            })
+        );
+        assert_eq!(ActionStatusMessageDisplay::subscription(None), None);
     }
 }

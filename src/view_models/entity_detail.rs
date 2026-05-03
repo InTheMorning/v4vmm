@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use crate::view_models::format::{fmt_date, fmt_runtime};
 use crate::view_models::track::fmt_dur;
+use crate::view_models::{ActionStatusMessageDisplay, ActionStatusMessageWidth};
 use crate::views::{
     ArtistRef, ArtworkRef, ContributorView, EntityIdentityLinks, FeedRef, FeedView, TrackRef,
     TrackView,
@@ -233,10 +234,10 @@ pub struct TrackMetadataActionState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagedId3EditsDisplay {
-    pub message: String,
+    pub message: ActionStatusMessageDisplay,
     pub apply_label: String,
     pub apply_enabled: bool,
-    pub conflict_message: Option<String>,
+    pub conflict_message: Option<ActionStatusMessageDisplay>,
     pub discard_label: &'static str,
     pub show_discard: bool,
 }
@@ -390,10 +391,10 @@ impl TrackMetadataActionState {
 
         let has_conflicts = conflict_text.is_some_and(|text| !text.trim().is_empty());
         Some(StagedId3EditsDisplay {
-            message: format!(
+            message: ActionStatusMessageDisplay::neutral(format!(
                 "{count} staged tag edit{}",
                 if count == 1 { "" } else { "s" }
-            ),
+            )),
             apply_label: if applying {
                 "Applying tags...".into()
             } else {
@@ -402,10 +403,20 @@ impl TrackMetadataActionState {
             apply_enabled: !applying && !has_conflicts,
             conflict_message: conflict_text
                 .filter(|text| !text.trim().is_empty())
-                .map(|text| format!("Duplicate target: {text}")),
+                .map(|text| {
+                    ActionStatusMessageDisplay::danger(
+                        format!("Duplicate target: {text}"),
+                        ActionStatusMessageWidth::Conflict,
+                    )
+                }),
             discard_label: "Discard staged",
             show_discard: !applying && count > 0,
         })
+    }
+
+    #[must_use]
+    pub fn id3_apply_error_display(message: impl Into<String>) -> ActionStatusMessageDisplay {
+        ActionStatusMessageDisplay::danger(message, ActionStatusMessageWidth::Action)
     }
 }
 
@@ -1749,10 +1760,13 @@ mod tests {
         assert_eq!(
             state.staged_id3_edits_display(2, false, Some("TIT2")),
             Some(StagedId3EditsDisplay {
-                message: "2 staged tag edits".into(),
+                message: ActionStatusMessageDisplay::neutral("2 staged tag edits"),
                 apply_label: "Apply tags (2)".into(),
                 apply_enabled: false,
-                conflict_message: Some("Duplicate target: TIT2".into()),
+                conflict_message: Some(ActionStatusMessageDisplay::danger(
+                    "Duplicate target: TIT2",
+                    ActionStatusMessageWidth::Conflict,
+                )),
                 discard_label: "Discard staged",
                 show_discard: true,
             })
@@ -1760,7 +1774,7 @@ mod tests {
         assert_eq!(
             state.staged_id3_edits_display(1, true, None),
             Some(StagedId3EditsDisplay {
-                message: "1 staged tag edit".into(),
+                message: ActionStatusMessageDisplay::neutral("1 staged tag edit"),
                 apply_label: "Applying tags...".into(),
                 apply_enabled: false,
                 conflict_message: None,
@@ -1790,6 +1804,13 @@ mod tests {
         assert_eq!(
             TrackMetadataActionState::id3_apply_error_message("offline"),
             "Error applying ID3 edits: offline"
+        );
+        assert_eq!(
+            TrackMetadataActionState::id3_apply_error_display("Error applying ID3 edits: offline"),
+            ActionStatusMessageDisplay::danger(
+                "Error applying ID3 edits: offline",
+                ActionStatusMessageWidth::Action,
+            )
         );
     }
 

@@ -28,7 +28,7 @@ use crate::view_models::entity_detail::{
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
 };
 use crate::view_models::format::{fmt_total_runtime_clock, plural};
-use crate::view_models::SplitPaneState;
+use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{FeedRef, FeedView, LocalIdentityFacts, TrackRef};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
@@ -402,14 +402,8 @@ impl<'a> LibraryTrackActionVm<'a> {
     }
 
     #[must_use]
-    pub(crate) fn subscription_message(&self) -> Option<&str> {
-        self.subscription_message
-    }
-
-    #[must_use]
-    pub(crate) fn message_is_error(&self) -> bool {
-        self.subscription_message
-            .is_some_and(|message| message.to_lowercase().contains("error"))
+    pub(crate) fn subscription_message_display(&self) -> Option<ActionStatusMessageDisplay> {
+        ActionStatusMessageDisplay::subscription(self.subscription_message)
     }
 }
 
@@ -3265,15 +3259,23 @@ mod tests {
                 trigger_label: "Add to playlist",
             }
         );
-        assert_eq!(closed.subscription_message(), Some("Subscribed"));
-        assert!(!closed.message_is_error());
+        assert_eq!(
+            closed.subscription_message_display(),
+            Some(ActionStatusMessageDisplay::neutral("Subscribed"))
+        );
 
         let open = LibraryTrackActionVm::new(false, false, Some("Error: offline"));
         assert_eq!(
             LibraryTrackActionVm::add_to_playlist_label(),
             "Add to playlist"
         );
-        assert!(open.message_is_error());
+        assert_eq!(
+            open.subscription_message_display(),
+            Some(ActionStatusMessageDisplay::danger(
+                "Error: offline",
+                crate::view_models::ActionStatusMessageWidth::Status,
+            ))
+        );
     }
 
     #[test]
