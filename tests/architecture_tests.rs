@@ -2115,6 +2115,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata value-route multiline fallback belongs in TrackMetadataGridVm::value_routes_summary",
         ),
         (
+            "src/library.rs",
+            "format!(\"{} ({} unused)\", group.label, group.unused_count)",
+            "metadata group heading fallback belongs in TrackMetadataGridVm::group_heading_label",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"{} ({} unused)\", group.label, group.unused_count)",
+            "metadata group heading fallback belongs in TrackMetadataGridVm::group_heading_label",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"{name} {split}\")",
+            "metadata value-route item label fallback belongs in TrackMetadataGridVm::value_route_item_label",
+        ),
+        (
+            "src/library.rs",
+            "strip_suffix(\".0\")",
+            "metadata value-route split label fallback belongs in TrackMetadataGridVm::value_route_split_label",
+        ),
+        (
             "src/search.rs",
             "\"No audio URL\"",
             "track play-audio tooltip fallback belongs in TrackVm::play_audio_display",

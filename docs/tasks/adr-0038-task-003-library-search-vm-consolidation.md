@@ -164,7 +164,23 @@ Verified starting notes, 2026-05-03:
       `ui::shells::track::render_track_identity_actions`.
     - Tighten `track_identity_links_use_shared_renderer` so a local
       Nostr button renderer cannot be reintroduced.
-18. Migrate one remaining fallback at a time, smallest blast radius first.
+18. Metadata group heading display
+    - Add `TrackMetadataGridVm::group_heading_label()` so the
+      `"{label} ({unused_count} unused)"` heading suffix is normalized
+      by the metadata-grid VM.
+    - Remove duplicated screen-local unused-group heading formatting
+      from Library and Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+19. Metadata value-route item label display
+    - Add `TrackMetadataGridVm::value_route_item_label()` and
+      `TrackMetadataGridVm::value_route_split_label()` so expanded
+      Value Routes item labels and split suffixes are normalized by the
+      metadata-grid VM.
+    - Preserve the existing context difference: Library includes the
+      split suffix in the collapsed sub-item label, while Discover keeps
+      the split in the expanded child rows.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+20. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -369,6 +385,29 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks reintroducing a screen-local Nostr
   button renderer in Discover.
 
+## Seventeenth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::group_heading_label()` now carries metadata
+  group heading display, including the unused-frame count suffix.
+- `src/library.rs` and `src/search.rs` no longer duplicate
+  `"{label} ({unused_count} unused)"` formatting in metadata group
+  renderers.
+- The architecture guard now blocks screen-local metadata group heading
+  fallback formatting from returning.
+
+## Eighteenth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::value_route_item_label()` now carries expanded
+  Value Routes item-label display.
+- `TrackMetadataGridVm::value_route_split_label()` now carries split
+  suffix display, including numeric percent formatting and empty-value
+  suppression.
+- Library now asks the metadata-grid VM for the item label with the
+  split suffix; Discover asks for the same item-label contract with no
+  split suffix, preserving current rendered behavior.
+- The architecture guard now blocks screen-local Value Routes item and
+  split label formatting from returning.
+
 ## Test Commands
 
 ```sh
@@ -387,6 +426,9 @@ cargo test id3_drag_frame_preserves_empty_vs_missing_display
 cargo test id3_frame_label_preserves_empty_vs_missing_display
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized
 cargo test value_routes_summary_counts_routes_and_owns_fallback_policy
+cargo test group_heading_label_appends_unused_count_only_when_present
+cargo test value_route_item_label_appends_split_when_present
+cargo test value_route_split_label_formats_percent_and_ignores_empty_values
 cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback
 cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display
 cargo test view_models_own_display_fallbacks_for_library_and_search

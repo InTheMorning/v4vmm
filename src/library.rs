@@ -3399,11 +3399,7 @@ fn metadata_group_cell(
     columns: u16,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let label = if group.unused_count == 0 {
-        group.label
-    } else {
-        format!("{} ({} unused)", group.label, group.unused_count)
-    };
+    let label = TrackMetadataGridVm::group_heading_label(&group.label, group.unused_count);
     let expanded = group.expanded;
     if let Some(group_key) = group.key {
         let id = SharedString::from(format!("section:id3-frame-group:{group_key}"));
@@ -3719,8 +3715,10 @@ fn value_routes_tree_elements(
         .enumerate()
         .map(|(index, route)| {
             let name = value_route_recipient_label(&route);
-            let split = route.get("split").and_then(route_split_label);
-            let label = split.map_or_else(|| name.clone(), |split| format!("{name} {split}"));
+            let split = route
+                .get("split")
+                .and_then(TrackMetadataGridVm::value_route_split_label);
+            let label = TrackMetadataGridVm::value_route_item_label(&name, split.as_deref());
             let sub_key = format!("{column}:{row_id}:{index}");
             let sub_expanded = expanded_cells.contains(&sub_key);
             let sub_glyph = if sub_expanded { "v" } else { ">" };
@@ -3809,17 +3807,6 @@ fn route_value_label(value: &serde_json::Value) -> Option<String> {
         None
     } else {
         Some(label.to_string())
-    }
-}
-
-fn route_split_label(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::Number(number) => {
-            let raw = number.to_string();
-            let trimmed = raw.strip_suffix(".0").unwrap_or(&raw);
-            Some(format!("{trimmed}%"))
-        }
-        _ => route_value_label(value),
     }
 }
 

@@ -109,6 +109,35 @@ impl TrackMetadataGridVm {
         }
     }
 
+    #[must_use]
+    pub fn group_heading_label(label: &str, unused_count: usize) -> String {
+        if unused_count == 0 {
+            label.to_string()
+        } else {
+            format!("{label} ({unused_count} unused)")
+        }
+    }
+
+    #[must_use]
+    pub fn value_route_item_label(recipient_label: &str, split_label: Option<&str>) -> String {
+        split_label.map_or_else(
+            || recipient_label.to_string(),
+            |split| format!("{recipient_label} {split}"),
+        )
+    }
+
+    #[must_use]
+    pub fn value_route_split_label(value: &serde_json::Value) -> Option<String> {
+        match value {
+            serde_json::Value::Number(number) => {
+                let raw = number.to_string();
+                let trimmed = raw.strip_suffix(".0").unwrap_or(&raw);
+                Some(format!("{trimmed}%"))
+            }
+            _ => json_value_display_label(value),
+        }
+    }
+
     pub fn new(show_id3: bool, show_musicbrainz: bool, tag_column_label: &str) -> Self {
         let mut headings = vec![TrackMetadataGridHeading {
             label: "RSS".to_string(),
@@ -158,6 +187,22 @@ impl TrackMetadataGridVm {
 
 fn metadata_cell_key(column: &str, row_id: &str) -> String {
     format!("{column}:{row_id}")
+}
+
+fn json_value_display_label(value: &serde_json::Value) -> Option<String> {
+    let label = match value {
+        serde_json::Value::Null => return None,
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Number(value) => value.to_string(),
+        serde_json::Value::Bool(value) => value.to_string(),
+        other => other.to_string(),
+    };
+    let label = label.trim();
+    if label.is_empty() {
+        None
+    } else {
+        Some(label.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -323,6 +368,50 @@ mod tests {
                 ValueRoutesSummaryFallback::MultilineCount,
             ),
             "Alice"
+        );
+    }
+
+    #[test]
+    fn group_heading_label_appends_unused_count_only_when_present() {
+        assert_eq!(
+            TrackMetadataGridVm::group_heading_label("People", 0),
+            "People"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::group_heading_label("People", 3),
+            "People (3 unused)"
+        );
+    }
+
+    #[test]
+    fn value_route_item_label_appends_split_when_present() {
+        assert_eq!(
+            TrackMetadataGridVm::value_route_item_label("Alice", None),
+            "Alice"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_route_item_label("Alice", Some("25%")),
+            "Alice 25%"
+        );
+    }
+
+    #[test]
+    fn value_route_split_label_formats_percent_and_ignores_empty_values() {
+        assert_eq!(
+            TrackMetadataGridVm::value_route_split_label(&serde_json::json!(25.0)),
+            Some("25%".into())
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_route_split_label(&serde_json::json!("  custom split  ")),
+            Some("custom split".into())
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_route_split_label(&serde_json::json!("   ")),
+            None
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_route_split_label(&serde_json::Value::Null),
+            None
         );
     }
 

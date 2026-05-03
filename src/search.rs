@@ -3443,11 +3443,7 @@ fn metadata_group_cell(
     columns: u16,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let label = if group.unused_count == 0 {
-        group.label
-    } else {
-        format!("{} ({} unused)", group.label, group.unused_count)
-    };
+    let label = TrackMetadataGridVm::group_heading_label(&group.label, group.unused_count);
 
     let expanded = group.expanded;
     let mut cell = div().col_span(columns).mt(spacing::SM);
@@ -4089,6 +4085,7 @@ fn value_routes_tree_elements(
         .enumerate()
         .map(|(i, route)| {
             let name = value_route_recipient_label(&route);
+            let label = TrackMetadataGridVm::value_route_item_label(&name, None);
             let sub_key = format!("{column}:{row_id}:{i}");
             let sub_expanded = expanded_cells.contains(&sub_key);
             let sub_glyph = if sub_expanded { "v" } else { ">" };
@@ -4118,7 +4115,7 @@ fn value_routes_tree_elements(
                     .child(
                         div()
                             .text_color(if sub_expanded { color } else { color::accent() })
-                            .child(SharedString::from(name.clone())),
+                            .child(SharedString::from(label)),
                     ),
             );
 
