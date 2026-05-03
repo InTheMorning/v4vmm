@@ -2744,6 +2744,31 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             ".child(\"🔍\")",
             "Discover results empty-state icon belongs in SearchPaneDisplay",
         ),
+        (
+            "src/search.rs",
+            "\"result-item:{}:{}\"",
+            "Discover result row id belongs in ResultRowDisplay",
+        ),
+        (
+            "src/search.rs",
+            ".child(\"Podroll\")",
+            "Discover podroll heading label belongs in PodrollSectionDisplay",
+        ),
+        (
+            "src/search.rs",
+            "\"podroll-scroll:{}\"",
+            "Discover podroll scroll id belongs in PodrollSectionDisplay",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"thumb-{url}\")",
+            "Library hover thumbnail id belongs in LibraryViewModel",
+        ),
+        (
+            "src/library.rs",
+            ".child(\"\\u{1F3B5}\")",
+            "Library album thumbnail fallback glyph belongs in LibraryViewModel",
+        ),
     ];
     let mut violations = Vec::new();
 

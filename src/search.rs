@@ -2348,6 +2348,7 @@ fn render_result_item(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let display = row.display();
+    let element_id = display.element_id;
     let line1 = display.line1;
     let line2 = display.line2;
     let line3 = display.line3;
@@ -2359,50 +2360,47 @@ fn render_result_item(
 
     let kind = EntityKind::from_legacy_str(&row.entity_type);
 
-    ListRow::new(SharedString::from(format!(
-        "result-item:{}:{}",
-        row.entity_type, row.entity_id
-    )))
-    .selected(is_selected)
-    .focused(is_selected && list_focused)
-    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-        this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
-    }))
-    .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
-    .child(
-        div()
-            .flex_1()
-            .min_w_0()
-            .child(
-                Label::new(line1)
-                    .size(FontSize::Micro)
-                    .weight(FontWeight::MEDIUM)
-                    .truncated(),
-            )
-            .when(!line2.is_empty(), |el| {
-                el.child(
-                    Label::new(line2)
+    ListRow::new(SharedString::from(element_id))
+        .selected(is_selected)
+        .focused(is_selected && list_focused)
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
+        }))
+        .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    Label::new(line1)
                         .size(FontSize::Micro)
-                        .color(SemanticColor::TertiaryLabel)
+                        .weight(FontWeight::MEDIUM)
                         .truncated(),
                 )
-            })
-            .when(!line3.is_empty(), |el| {
-                el.child(
-                    div().opacity(0.7).child(
-                        Label::new(line3)
+                .when(!line2.is_empty(), |el| {
+                    el.child(
+                        Label::new(line2)
                             .size(FontSize::Micro)
                             .color(SemanticColor::TertiaryLabel)
                             .truncated(),
-                    ),
-                )
-            }),
-    )
-    .child(TagBadge::new(TagBadgeDisplay {
-        kind,
-        label: Some(SharedString::from(row.entity_type.clone())),
-    }))
-    .into_any_element()
+                    )
+                })
+                .when(!line3.is_empty(), |el| {
+                    el.child(
+                        div().opacity(0.7).child(
+                            Label::new(line3)
+                                .size(FontSize::Micro)
+                                .color(SemanticColor::TertiaryLabel)
+                                .truncated(),
+                        ),
+                    )
+                }),
+        )
+        .child(TagBadge::new(TagBadgeDisplay {
+            kind,
+            label: Some(SharedString::from(row.entity_type.clone())),
+        }))
+        .into_any_element()
 }
 
 fn render_inspector(
@@ -2587,6 +2585,7 @@ fn podroll_section(
     if tiles.is_empty() {
         return None;
     }
+    let section_display = SearchViewModel::podroll_section_display(&frame.entity_id);
 
     Some(
         div()
@@ -2597,14 +2596,11 @@ fn podroll_section(
                 div()
                     .text_size(typography::SIZE_HEADLINE)
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("Podroll"),
+                    .child(section_display.heading_label),
             )
             .child(
                 div()
-                    .id(SharedString::from(format!(
-                        "podroll-scroll:{}",
-                        frame.entity_id
-                    )))
+                    .id(SharedString::from(section_display.scroll_id))
                     .flex()
                     .flex_row()
                     .gap(spacing::MD)

@@ -3934,8 +3934,9 @@ fn hoverable_thumb(
     };
     let enter_url = url.clone();
     let leave_url = url.clone();
+    let display = LibraryViewModel::hover_thumb_display(&url);
     div()
-        .id(SharedString::from(format!("thumb-{url}")))
+        .id(SharedString::from(display.element_id))
         .on_mouse_move(cx.listener(move |this, _, _, cx| {
             if this.vm.hovered_thumb_url() != Some(enter_url.as_str()) {
                 this.set_hovered_thumb(Some(enter_url.clone()), cx);
@@ -3951,6 +3952,7 @@ fn hoverable_thumb(
 }
 
 pub(crate) fn render_album_thumb(image: Option<Arc<Image>>, size: f32) -> AnyElement {
+    let display = LibraryViewModel::album_thumb_display();
     if let Some(img_data) = image {
         ImagePrimitive::new(img_data)
             .dimension(px(size))
@@ -3967,7 +3969,7 @@ pub(crate) fn render_album_thumb(image: Option<Arc<Image>>, size: f32) -> AnyEle
             .justify_center()
             .text_size(layout::ACTION_ICON_INNER_SIZE)
             .flex_shrink_0()
-            .child("\u{1F3B5}")
+            .child(display.fallback_icon)
             .into_any_element()
     }
 }

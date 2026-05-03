@@ -52,7 +52,9 @@ impl ResultRow {
 
     #[must_use]
     pub(crate) fn display(&self) -> ResultRowDisplay {
-        ResultRowVm::new(&self.entity_id, self.detail.as_ref()).display()
+        let mut display = ResultRowVm::new(&self.entity_id, self.detail.as_ref()).display();
+        display.element_id = format!("result-item:{}:{}", self.entity_type, self.entity_id);
+        display
     }
 
     #[must_use]
@@ -73,6 +75,7 @@ fn entity_key(entity_type: &str, entity_id: &str) -> String {
 /// Display-ready text and media fields for one Discover result row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResultRowDisplay {
+    pub(crate) element_id: String,
     pub(crate) line1: String,
     pub(crate) line2: String,
     pub(crate) line3: String,
@@ -119,6 +122,12 @@ pub struct RecentFeedTileDisplay {
     pub image_url: Option<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PodrollSectionDisplay {
+    pub(crate) heading_label: &'static str,
+    pub(crate) scroll_id: String,
+}
+
 impl<'a> RecentFeedTileVm<'a> {
     #[must_use]
     pub(crate) const fn new(feed: &'a Feed) -> Self {
@@ -142,6 +151,16 @@ impl<'a> RecentFeedTileVm<'a> {
                 .episode_count
                 .map(|count| format!("{count} tracks")),
             image_url: self.feed.image_url.clone(),
+        }
+    }
+}
+
+impl PodrollSectionDisplay {
+    #[must_use]
+    pub(crate) fn new(entity_id: &str) -> Self {
+        Self {
+            heading_label: "Podroll",
+            scroll_id: format!("podroll-scroll:{entity_id}"),
         }
     }
 }
@@ -182,6 +201,7 @@ impl<'a> ResultRowVm<'a> {
                 };
 
                 ResultRowDisplay {
+                    element_id: String::new(),
                     line1,
                     line2: track
                         .track_artist
@@ -193,18 +213,21 @@ impl<'a> ResultRowVm<'a> {
             }
             Some(EntityDetail::Publisher(publisher)) => publisher_display(publisher),
             Some(EntityDetail::Release(release)) => ResultRowDisplay {
+                element_id: String::new(),
                 line1: self.entity_id.to_string(),
                 line2: String::new(),
                 line3: String::new(),
                 image_url: release.image_url.clone(),
             },
             Some(EntityDetail::Recording(recording)) => ResultRowDisplay {
+                element_id: String::new(),
                 line1: self.entity_id.to_string(),
                 line2: String::new(),
                 line3: String::new(),
                 image_url: recording.image_url.clone(),
             },
             None => ResultRowDisplay {
+                element_id: String::new(),
                 line1: self.entity_id.to_string(),
                 line2: String::new(),
                 line3: String::new(),
@@ -228,6 +251,7 @@ impl<'a> ResultRowVm<'a> {
             .unwrap_or_default();
 
         ResultRowDisplay {
+            element_id: String::new(),
             line1: artist
                 .name
                 .clone()
@@ -245,6 +269,7 @@ fn feed_display(feed: &Feed) -> ResultRowDisplay {
         .episode_count
         .map_or_else(String::new, |count| format!("{count} tracks"));
     ResultRowDisplay {
+        element_id: String::new(),
         line1: feed_display_title(feed),
         line2: nonempty_text(feed.release_artist.as_deref())
             .or_else(|| nonempty_text(feed.publisher_text.as_deref()))
@@ -263,6 +288,7 @@ fn publisher_display(publisher: &Publisher) -> ResultRowDisplay {
         parts.push(format!("{count} tracks"));
     }
     ResultRowDisplay {
+        element_id: String::new(),
         line1: publisher.publisher_text.clone().unwrap_or_default(),
         line2: parts.join(" · "),
         line3: String::new(),
@@ -1419,6 +1445,11 @@ impl SearchViewModel {
     }
 
     #[must_use]
+    pub(crate) fn podroll_section_display(entity_id: &str) -> PodrollSectionDisplay {
+        PodrollSectionDisplay::new(entity_id)
+    }
+
+    #[must_use]
     pub(crate) const fn deferred_panel_display(kind: DeferredPanelKind) -> DeferredPanelDisplay {
         DeferredPanelDisplay::for_kind(kind)
     }
@@ -1889,6 +1920,7 @@ mod tests {
         assert_eq!(
             ResultRowVm::new("artist-id", Some(&detail)).display(),
             ResultRowDisplay {
+                element_id: String::new(),
                 line1: "The Artist".into(),
                 line2: "1 track · 2 feeds".into(),
                 line3: "Canada".into(),
@@ -1924,6 +1956,7 @@ mod tests {
         assert_eq!(
             ResultRowVm::new("feed-id", Some(&detail)).display(),
             ResultRowDisplay {
+                element_id: String::new(),
                 line1: "Feed Name".into(),
                 line2: "Release Artist".into(),
                 line3: "12 tracks".into(),
@@ -2034,6 +2067,17 @@ mod tests {
     }
 
     #[test]
+    fn podroll_section_display_projects_heading_and_scroll_id() {
+        assert_eq!(
+            SearchViewModel::podroll_section_display("feed-1"),
+            PodrollSectionDisplay {
+                heading_label: "Podroll",
+                scroll_id: "podroll-scroll:feed-1".into(),
+            }
+        );
+    }
+
+    #[test]
     fn recent_feed_tile_vm_does_not_emit_placeholder_ellipsis() {
         let feed = Feed {
             title: Some(" … ".into()),
@@ -2065,6 +2109,7 @@ mod tests {
         assert_eq!(
             ResultRowVm::new("track-id", Some(&detail)).display(),
             ResultRowDisplay {
+                element_id: String::new(),
                 line1: "Track Name – 1:05".into(),
                 line2: "Unknown".into(),
                 line3: "Feed Title by Release Artist".into(),
@@ -2085,6 +2130,7 @@ mod tests {
         assert_eq!(
             ResultRowVm::new("publisher-id", Some(&detail)).display(),
             ResultRowDisplay {
+                element_id: String::new(),
                 line1: "Pub".into(),
                 line2: "2 feeds · 3 tracks".into(),
                 line3: String::new(),
@@ -2955,7 +3001,9 @@ mod tests {
     fn result_row_key_display_and_inspector_title_are_pure() {
         let row = ResultRow::new("feed", "feed-1", None);
         assert_eq!(row.key(), "feed:feed-1");
-        assert_eq!(row.display().line1, "feed-1");
+        let display = row.display();
+        assert_eq!(display.element_id, "result-item:feed:feed-1");
+        assert_eq!(display.line1, "feed-1");
         assert_eq!(row.inspector_title(), "feed-1");
     }
 

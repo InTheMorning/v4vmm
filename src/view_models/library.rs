@@ -249,6 +249,16 @@ impl LibraryStatusSnapshot {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct AlbumThumbDisplay {
+    pub(crate) fallback_icon: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct HoverThumbDisplay {
+    pub(crate) element_id: String,
+}
+
 /// Action kind for the feed-update toolbar.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FeedUpdateActionKind {
@@ -656,6 +666,20 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn deferred_panel_error_message(error: impl std::fmt::Display) -> String {
         format!("Error: {error}")
+    }
+
+    #[must_use]
+    pub(crate) const fn album_thumb_display() -> AlbumThumbDisplay {
+        AlbumThumbDisplay {
+            fallback_icon: "\u{1F3B5}",
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn hover_thumb_display(url: &str) -> HoverThumbDisplay {
+        HoverThumbDisplay {
+            element_id: format!("thumb-{url}"),
+        }
     }
 
     #[must_use]
@@ -3152,6 +3176,22 @@ mod tests {
         assert_eq!(
             LibraryViewModel::deferred_panel_error_message("offline"),
             "Error: offline"
+        );
+    }
+
+    #[test]
+    fn library_view_model_projects_thumbnail_display_contracts() {
+        assert_eq!(
+            LibraryViewModel::album_thumb_display(),
+            AlbumThumbDisplay {
+                fallback_icon: "\u{1F3B5}",
+            }
+        );
+        assert_eq!(
+            LibraryViewModel::hover_thumb_display("https://example.test/a.png"),
+            HoverThumbDisplay {
+                element_id: "thumb-https://example.test/a.png".into(),
+            }
         );
     }
 

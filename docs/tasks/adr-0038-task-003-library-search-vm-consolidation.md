@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first sixty-three slices implemented on 2026-05-03.
+In progress - first sixty-seven implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -460,7 +460,27 @@ Verified starting notes, 2026-05-03:
     - Remove raw Discover result empty-state icon glyphs from
       `src/search.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-65. Migrate remaining fallback batches, smallest blast radius first.
+65. Discover result row id display
+    - Extend `ResultRowDisplay` with the list-row element id.
+    - Remove result-row id formatting from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+66. Discover podroll section display
+    - Add `PodrollSectionDisplay` so the podroll heading and scroll id
+      are VM-owned.
+    - Remove podroll heading and scroll-id literals from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+67. Library hover thumbnail id display
+    - Add `LibraryViewModel::hover_thumb_display()` so hover thumbnail
+      ids are VM-owned.
+    - Remove hover thumbnail id formatting from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+68. Library album thumbnail fallback display
+    - Add `LibraryViewModel::album_thumb_display()` so the fallback
+      thumbnail glyph is VM-owned.
+    - Remove the raw album thumbnail fallback glyph from
+      `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+69. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1126,6 +1146,42 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local Discover result
   empty-state icon literals from returning.
 
+## Sixty-Fourth-Slice Implementation Notes
+
+- `ResultRowDisplay::element_id` now carries Discover result list-row
+  ids.
+- `src/search.rs` still wires result selection and thumbnail rendering,
+  but no longer formats result row ids.
+- The architecture guard now blocks screen-local Discover result-row id
+  formatting from returning.
+
+## Sixty-Fifth-Slice Implementation Notes
+
+- `PodrollSectionDisplay` now carries Discover podroll heading labels
+  and scroll ids.
+- `src/search.rs` still renders podroll tiles and click handlers, but
+  no longer owns the podroll section label or scroll id.
+- The architecture guard now blocks screen-local podroll section chrome
+  from returning.
+
+## Sixty-Sixth-Slice Implementation Notes
+
+- `LibraryViewModel::hover_thumb_display()` now carries Library hover
+  thumbnail element ids.
+- `src/library.rs` still wires hover enter/leave behavior, but no
+  longer formats hover thumbnail ids.
+- The architecture guard now blocks screen-local hover thumbnail id
+  formatting from returning.
+
+## Sixty-Seventh-Slice Implementation Notes
+
+- `LibraryViewModel::album_thumb_display()` now carries the Library
+  album-thumbnail fallback icon.
+- `src/library.rs` still renders the fallback thumbnail box, but no
+  longer owns the raw fallback glyph.
+- The architecture guard now blocks the screen-local thumbnail fallback
+  glyph from returning.
+
 ## Test Commands
 
 ```sh
@@ -1195,6 +1251,9 @@ cargo test library_view_model_deferred_panel_error_message_owns_error_prefix
 cargo test track_metadata_action_state_projects_file_actions_and_id3_errors
 cargo test search_subscription_command_formats_begin_and_error_messages
 cargo test search_render_snapshot_projects_result_pane_display_labels
+cargo test result_row_key_display_and_inspector_title_are_pure
+cargo test podroll_section_display_projects_heading_and_scroll_id
+cargo test library_view_model_projects_thumbnail_display_contracts
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test
