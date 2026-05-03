@@ -49,12 +49,13 @@ use crate::subscribe_service::{
 };
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
-    action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistDisplay,
-    AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
-    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureGroup,
-    EntityKind, IdentityActionKind, ListRow, PlaylistOption, PlaylistOptionDisplay, ProvenanceRole,
-    RecentFeedTile, ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge, Thumbnail,
-    ThumbnailSize, TrackDetailSurface, TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
+    action_button, identity_action_button, ActionRow, ActionRowMessage, ActionRowMessageDisplay,
+    ActionRowMessageTone, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
+    DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
+    DisclosureGroup, EntityKind, IdentityActionKind, ListRow, PlaylistOption,
+    PlaylistOptionDisplay, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement, SplitPane,
+    StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane,
+    TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2826,9 +2827,16 @@ pub(crate) fn discover_inspector_action_row(
 
     if let Some(message) = vm.subscription_message().map(str::to_string) {
         let message = if vm.message_is_error() {
-            ActionRowMessage::danger(message).max_width(layout::STATUS_MESSAGE_WIDTH)
+            ActionRowMessage::new(ActionRowMessageDisplay {
+                text: SharedString::from(message),
+                tone: ActionRowMessageTone::Danger,
+            })
+            .max_width(layout::STATUS_MESSAGE_WIDTH)
         } else {
-            ActionRowMessage::neutral(message)
+            ActionRowMessage::new(ActionRowMessageDisplay {
+                text: SharedString::from(message),
+                tone: ActionRowMessageTone::Neutral,
+            })
         };
         row = row.message(message);
     }

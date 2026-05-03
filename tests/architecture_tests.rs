@@ -362,16 +362,6 @@ const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllow
         note: "thin compatibility helper; caller supplies already-approved action label",
     },
     CompositeStringApiAllowance {
-        file: "src/ui/composites/action_row.rs",
-        pattern: "pub fn neutral(text: impl Into<SharedString>)",
-        note: "status message object; view-model or command outcome owns message text",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/action_row.rs",
-        pattern: "pub fn danger(text: impl Into<SharedString>)",
-        note: "status message object; view-model or command outcome owns message text",
-    },
-    CompositeStringApiAllowance {
         file: "src/ui/composites/disclosure_group.rs",
         pattern: "pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>)",
         note: "generic disclosure shell label, not a fallback policy owner",

@@ -29,20 +29,22 @@ pub struct ActionRowMessage {
     max_width: Pixels,
 }
 
-impl ActionRowMessage {
-    pub fn neutral(text: impl Into<SharedString>) -> Self {
-        Self {
-            text: text.into(),
-            tone: ActionRowMessageTone::Neutral,
-            max_width: layout::STATUS_MESSAGE_WIDTH,
-        }
-    }
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionRowMessageDisplay {
+    pub text: SharedString,
+    pub tone: ActionRowMessageTone,
+}
 
-    pub fn danger(text: impl Into<SharedString>) -> Self {
+impl ActionRowMessage {
+    pub fn new(display: ActionRowMessageDisplay) -> Self {
+        let max_width = match display.tone {
+            ActionRowMessageTone::Neutral => layout::STATUS_MESSAGE_WIDTH,
+            ActionRowMessageTone::Danger => layout::ACTION_MESSAGE_WIDTH,
+        };
         Self {
-            text: text.into(),
-            tone: ActionRowMessageTone::Danger,
-            max_width: layout::ACTION_MESSAGE_WIDTH,
+            text: display.text,
+            tone: display.tone,
+            max_width,
         }
     }
 
@@ -163,19 +165,28 @@ mod tests {
 
     #[test]
     fn message_defaults_to_expected_widths_and_tones() {
-        let neutral = ActionRowMessage::neutral("Saved");
+        let neutral = ActionRowMessage::new(ActionRowMessageDisplay {
+            text: SharedString::from("Saved"),
+            tone: ActionRowMessageTone::Neutral,
+        });
         assert_eq!(neutral.tone, ActionRowMessageTone::Neutral);
         assert_eq!(neutral.max_width, layout::STATUS_MESSAGE_WIDTH);
 
-        let danger = ActionRowMessage::danger("Error");
+        let danger = ActionRowMessage::new(ActionRowMessageDisplay {
+            text: SharedString::from("Error"),
+            tone: ActionRowMessageTone::Danger,
+        });
         assert_eq!(danger.tone, ActionRowMessageTone::Danger);
         assert_eq!(danger.max_width, layout::ACTION_MESSAGE_WIDTH);
     }
 
     #[test]
     fn message_width_can_be_overridden() {
-        let message =
-            ActionRowMessage::danger("Duplicate").max_width(layout::CONFLICT_MESSAGE_WIDTH);
+        let message = ActionRowMessage::new(ActionRowMessageDisplay {
+            text: SharedString::from("Duplicate"),
+            tone: ActionRowMessageTone::Danger,
+        })
+        .max_width(layout::CONFLICT_MESSAGE_WIDTH);
         assert_eq!(message.max_width, layout::CONFLICT_MESSAGE_WIDTH);
     }
 }

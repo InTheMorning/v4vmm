@@ -60,16 +60,16 @@ use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
-    action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistDisplay,
-    AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
-    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureGroup,
-    EntityKind, FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption,
-    PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
-    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataFieldDisplay,
-    TrackMetadataFrameDisplay, TrackMetadataGrid, TrackMetadataGroupCell,
-    TrackMetadataGroupDisplay, TrackMetadataSourceCell, TrackMetadataTagCell,
-    TrackMetadataTagDisplay, TrackMetadataTextDisplay, TrackMetadataTextValue,
-    TrackRow as TrackRowComposite, TrackSurfaceElement,
+    action_button, identity_action_button, ActionRow, ActionRowMessage, ActionRowMessageDisplay,
+    ActionRowMessageTone, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
+    DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
+    DisclosureGroup, EntityKind, FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel,
+    PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane,
+    StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell,
+    TrackMetadataFieldDisplay, TrackMetadataFrameDisplay, TrackMetadataGrid,
+    TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
+    TrackMetadataTagCell, TrackMetadataTagDisplay, TrackMetadataTextDisplay,
+    TrackMetadataTextValue, TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -3137,9 +3137,16 @@ fn library_track_action_row(
 
     if let Some(message) = subscription_message {
         let message = if subscription_message_is_error {
-            ActionRowMessage::danger(message).max_width(layout::STATUS_MESSAGE_WIDTH)
+            ActionRowMessage::new(ActionRowMessageDisplay {
+                text: SharedString::from(message),
+                tone: ActionRowMessageTone::Danger,
+            })
+            .max_width(layout::STATUS_MESSAGE_WIDTH)
         } else {
-            ActionRowMessage::neutral(message)
+            ActionRowMessage::new(ActionRowMessageDisplay {
+                text: SharedString::from(message),
+                tone: ActionRowMessageTone::Neutral,
+            })
         };
         row = row.message(message);
     }
@@ -3173,10 +3180,13 @@ fn library_track_action_row(
             format!("Apply tags ({count})")
         };
         let mut staged_controls = ActionRow::new()
-            .message(ActionRowMessage::neutral(format!(
-                "{count} staged tag edit{}",
-                if count == 1 { "" } else { "s" }
-            )))
+            .message(ActionRowMessage::new(ActionRowMessageDisplay {
+                text: SharedString::from(format!(
+                    "{count} staged tag edit{}",
+                    if count == 1 { "" } else { "s" }
+                )),
+                tone: ActionRowMessageTone::Neutral,
+            }))
             .control(
                 action_button(&label, cx)
                     .disabled(frame.applying_id3_edits || has_pending_conflicts)
@@ -3187,8 +3197,11 @@ fn library_track_action_row(
 
         if has_pending_conflicts {
             staged_controls = staged_controls.message(
-                ActionRowMessage::danger(format!("Duplicate target: {conflict_text}"))
-                    .max_width(layout::CONFLICT_MESSAGE_WIDTH),
+                ActionRowMessage::new(ActionRowMessageDisplay {
+                    text: SharedString::from(format!("Duplicate target: {conflict_text}")),
+                    tone: ActionRowMessageTone::Danger,
+                })
+                .max_width(layout::CONFLICT_MESSAGE_WIDTH),
             );
         }
 
@@ -3204,7 +3217,13 @@ fn library_track_action_row(
     }
 
     if let Some(error) = frame.id3_apply_error.clone() {
-        row = row.message(ActionRowMessage::danger(error).max_width(layout::ACTION_MESSAGE_WIDTH));
+        row = row.message(
+            ActionRowMessage::new(ActionRowMessageDisplay {
+                text: SharedString::from(error),
+                tone: ActionRowMessageTone::Danger,
+            })
+            .max_width(layout::ACTION_MESSAGE_WIDTH),
+        );
     }
 
     row.into_any_element()

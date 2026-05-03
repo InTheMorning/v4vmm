@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first six slices implemented on 2026-05-03.
+In progress - first seven slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -72,6 +72,8 @@ test allowlist with a one-line justification.
    - Audit `ActionRow`, `DisclosureGroup`, `SegmentedControl`,
      `TagBadge`, and `action_button`.
    - Keep only explicit passthrough allowances; no wildcard exceptions.
+   - `ActionRow` sub-slice: introduce `ActionRowMessageDisplay` and
+     remove the loose neutral/danger message constructors.
 
 ## Files Inspected
 
@@ -85,6 +87,7 @@ test allowlist with a one-line justification.
 ## Files Changed In Current Slices
 
 - `src/ui/composites/track_row.rs`
+- `src/ui/composites/action_row.rs`
 - `src/ui/composites/detail_header.rs`
 - `src/ui/composites/detail_grid.rs`
 - `src/ui/composites/mod.rs`
@@ -188,6 +191,17 @@ test allowlist with a one-line justification.
 - The explicit allowlist shrank by the four former
   `TrackMetadataGrid` cell string API allowances.
 
+## Seventh-Slice Implementation Notes
+
+- `ActionRowMessage` now accepts `ActionRowMessageDisplay`, which carries
+  the already-formatted message text and `ActionRowMessageTone`.
+- The former `ActionRowMessage::neutral(...)` and
+  `ActionRowMessage::danger(...)` loose text constructors were removed.
+- Library and Discover action rows construct the message display contract
+  from existing command/VM status text without changing row layout.
+- The explicit allowlist shrank by the two former `ActionRowMessage`
+  string API allowances.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -207,6 +221,8 @@ test allowlist with a one-line justification.
 - `TrackMetadataGrid` cell public signatures no longer accept group
   labels, field labels, tag-frame labels, or text values as loose
   parameters.
+- `ActionRowMessage` public signatures no longer accept neutral or danger
+  status text as loose parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004
