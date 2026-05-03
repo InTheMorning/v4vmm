@@ -2305,6 +2305,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover value-route-panel loading label belongs in SearchViewModel::deferred_panel_display",
         ),
         (
+            "src/search.rs",
+            "id: \"section:contributors\".into()",
+            "Discover contributor-panel heading id belongs in SearchViewModel::deferred_panel_display",
+        ),
+        (
+            "src/search.rs",
+            "label: \"Contributors\".into()",
+            "Discover contributor-panel heading label belongs in SearchViewModel::deferred_panel_display",
+        ),
+        (
+            "src/search.rs",
+            "id: \"section:value-routes\".into()",
+            "Discover value-route-panel heading id belongs in SearchViewModel::deferred_panel_display",
+        ),
+        (
+            "src/search.rs",
+            "label: \"Value Routes\".into()",
+            "Discover value-route-panel heading label belongs in SearchViewModel::deferred_panel_display",
+        ),
+        (
             "src/library.rs",
             "\"Search your library...\"",
             "Library search placeholder belongs in LibraryViewModel::chrome_display",
@@ -2423,6 +2443,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             "format!(\"album-feed-add:{fid}\")",
             "Library album playlist popover id belongs in LibraryAlbumDetailVm::playlist_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"library-contributor-website:{label}:{href}\")",
+            "Library contributor website action display belongs in ContributorRowVm::identity_actions",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"library-contributor-nostr:{label}:{npub}\")",
+            "Library contributor Nostr action display belongs in ContributorRowVm::identity_actions",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"contributor-website:{label}:{href}\")",
+            "Discover contributor website action display belongs in ContributorRowVm::identity_actions",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"contributor-nostr:{label}:{npub}\")",
+            "Discover contributor Nostr action display belongs in ContributorRowVm::identity_actions",
         ),
     ];
     let mut violations = Vec::new();

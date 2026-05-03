@@ -69,8 +69,8 @@ use crate::ui::shells::{artist, feed, track};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorListVm, ContributorRowVm, EntityActionTarget, EntityActionTone,
-    EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
+    ContributorIdentityActionKind, ContributorListVm, ContributorRowVm, EntityActionTarget,
+    EntityActionTone, EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
 };
 use crate::view_models::format::plural;
 use crate::view_models::metadata::value_route_recipient_label;
@@ -2993,36 +2993,33 @@ fn contributor_elements(
 }
 
 fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<ReleaseSurfaceElement> {
-    let label = contributor.full_label();
-    let mut actions = Vec::new();
-    if let Some(href) = contributor.href().map(str::to_string) {
-        let href_for_click = href.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            identity_action_button(
-                SharedString::from(format!("contributor-website:{label}:{href}")),
-                IdentityActionKind::Website,
-            )
-            .on_click(move |_, _, _| {
-                let _ = open::that(&href_for_click);
-            })
-            .into_any_element(),
-        ));
-    }
-    if let Some(npub) = contributor.nostr_npub().map(str::to_string) {
-        let npub_for_click = npub.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            identity_action_button(
-                SharedString::from(format!("contributor-nostr:{label}:{npub}")),
-                IdentityActionKind::Nostr,
-            )
-            .on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
-            })
-            .into_any_element(),
-        ));
-    }
-
-    actions
+    contributor
+        .identity_actions("contributor")
+        .into_iter()
+        .map(|action| {
+            let target_for_click = action.target.clone();
+            match action.kind {
+                ContributorIdentityActionKind::Website => identity_action_button(
+                    SharedString::from(action.id),
+                    IdentityActionKind::Website,
+                )
+                .on_click(move |_, _, _| {
+                    let _ = open::that(&target_for_click);
+                })
+                .into_any_element(),
+                ContributorIdentityActionKind::Nostr => {
+                    identity_action_button(SharedString::from(action.id), IdentityActionKind::Nostr)
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                target_for_click.clone(),
+                            ));
+                        })
+                        .into_any_element()
+                }
+            }
+        })
+        .map(ReleaseSurfaceElement::from_element)
+        .collect()
 }
 
 fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
@@ -3072,9 +3069,10 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
 }
 
 fn render_contributors_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
+    let display = SearchViewModel::deferred_panel_display(DeferredPanelKind::Contributors);
     DisclosureGroup::new(DisclosureGroupDisplay {
-        id: "section:contributors".into(),
-        label: "Contributors".into(),
+        id: display.section_id.into(),
+        label: display.heading_label.into(),
     })
     .collapsed(collapsed)
     .on_toggle(cx.listener(|this, _, _, cx| {
@@ -3084,9 +3082,10 @@ fn render_contributors_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> 
 }
 
 fn render_value_routes_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
+    let display = SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes);
     DisclosureGroup::new(DisclosureGroupDisplay {
-        id: "section:value-routes".into(),
-        label: "Value Routes".into(),
+        id: display.section_id.into(),
+        label: display.heading_label.into(),
     })
     .collapsed(collapsed)
     .on_toggle(cx.listener(|this, _, _, cx| {

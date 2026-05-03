@@ -747,6 +747,19 @@ pub struct ContributorRowVm<'a> {
     contributor: &'a ContributorView,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContributorIdentityActionKind {
+    Website,
+    Nostr,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContributorIdentityActionDisplay {
+    pub id: String,
+    pub kind: ContributorIdentityActionKind,
+    pub target: String,
+}
+
 impl<'a> ContributorRowVm<'a> {
     #[must_use]
     pub const fn new(contributor: &'a ContributorView) -> Self {
@@ -773,6 +786,27 @@ impl<'a> ContributorRowVm<'a> {
     #[must_use]
     pub fn full_label(&self) -> String {
         format!("{}{}", self.display_name(), self.role_suffix())
+    }
+
+    #[must_use]
+    pub fn identity_actions(&self, id_prefix: &str) -> Vec<ContributorIdentityActionDisplay> {
+        let label = self.full_label();
+        let mut actions = Vec::new();
+        if let Some(href) = self.href() {
+            actions.push(ContributorIdentityActionDisplay {
+                id: format!("{id_prefix}-website:{label}:{href}"),
+                kind: ContributorIdentityActionKind::Website,
+                target: href.to_string(),
+            });
+        }
+        if let Some(npub) = self.nostr_npub() {
+            actions.push(ContributorIdentityActionDisplay {
+                id: format!("{id_prefix}-nostr:{label}:{npub}"),
+                kind: ContributorIdentityActionKind::Nostr,
+                target: npub.to_string(),
+            });
+        }
+        actions
     }
 
     #[must_use]
@@ -1239,6 +1273,57 @@ mod tests {
         assert_eq!(alice.nostr_npub(), Some("npub1alice"));
         assert_eq!(people[1].name(), "Bob");
         assert_eq!(people[1].roles(), vec!["drums".to_string()]);
+    }
+
+    #[test]
+    fn contributor_identity_actions_project_ids_kinds_and_targets() {
+        let feed = feed_view();
+        let alice = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover)
+            .contributors()
+            .people()
+            .into_iter()
+            .next()
+            .and_then(|person| person.primary().cloned())
+            .expect("person group should expose a primary contributor");
+
+        assert_eq!(
+            alice.identity_actions("contributor"),
+            vec![
+                ContributorIdentityActionDisplay {
+                    id: "contributor-website:Alice (vocals):https://example.test/alice".to_string(),
+                    kind: ContributorIdentityActionKind::Website,
+                    target: "https://example.test/alice".to_string(),
+                },
+                ContributorIdentityActionDisplay {
+                    id: "contributor-nostr:Alice (vocals):npub1alice".to_string(),
+                    kind: ContributorIdentityActionKind::Nostr,
+                    target: "npub1alice".to_string(),
+                },
+            ]
+        );
+        assert_eq!(
+            alice
+                .identity_actions("library-contributor")
+                .into_iter()
+                .map(|action| action.id)
+                .collect::<Vec<_>>(),
+            vec![
+                "library-contributor-website:Alice (vocals):https://example.test/alice".to_string(),
+                "library-contributor-nostr:Alice (vocals):npub1alice".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn contributor_identity_actions_omit_absent_targets() {
+        let contributor = ContributorView {
+            name: Some("Alice".into()),
+            role: Some("vocals".into()),
+            ..ContributorView::default()
+        };
+        let vm = ContributorRowVm::new(&contributor);
+
+        assert!(vm.identity_actions("contributor").is_empty());
     }
 
     #[test]

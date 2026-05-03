@@ -320,7 +320,20 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local album playlist popover id formatting from
       `library.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-42. Migrate remaining fallback batches, smallest blast radius first.
+42. Contributor identity action display
+    - Add `ContributorRowVm::identity_actions()` so Library and
+      Discover contributor website/Nostr action ids, kinds, and
+      targets are VM-owned.
+    - Remove screen-local contributor identity id formatting from
+      `library.rs` and `search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+43. Discover deferred-panel heading display
+    - Extend `SearchViewModel::deferred_panel_display()` so contributor
+      and value-route panel section ids and heading labels are VM-owned.
+    - Remove screen-local deferred-panel heading ids and labels from
+      Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+44. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -761,6 +774,26 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local album playlist popover
   id formatting from returning.
 
+## Forty-First-Slice Implementation Notes
+
+- `ContributorRowVm::identity_actions()` now carries Library and
+  Discover contributor website/Nostr action ids, action kinds, and
+  click/copy targets.
+- `src/library.rs` and `src/search.rs` still wire GPUI click handlers,
+  but no longer format contributor identity action ids locally.
+- The architecture guard now blocks screen-local contributor identity
+  action id formatting from returning.
+
+## Forty-Second-Slice Implementation Notes
+
+- `SearchViewModel::deferred_panel_display()` now carries contributor
+  and value-route section ids and heading labels alongside the existing
+  loading labels.
+- Discover deferred panel headings now use the VM display contract while
+  keeping disclosure toggle wiring in the screen.
+- The architecture guard now blocks screen-local deferred-panel heading
+  ids and labels from returning.
+
 ## Test Commands
 
 ```sh
@@ -797,7 +830,7 @@ cargo test recent_feeds_snapshot_projects_panel_display_labels
 cargo test publisher_link_display_trims_title_and_tooltip
 cargo test inspector_chrome_display_projects_back_and_empty_state
 cargo test inspector_status_messages_are_vm_owned
-cargo test deferred_panel_display_projects_loading_labels
+cargo test deferred_panel_display_projects_heading_and_loading_labels
 cargo test library_chrome_display_projects_shell_labels
 cargo test library_status_snapshot_classifies_error_prefix
 cargo test feed_update_display_projects_toolbar_action_labels
@@ -807,6 +840,8 @@ cargo test library_tree_track_display_projects_id_and_prefixed_title
 cargo test artist_feed_summary_display_projects_row_id_and_track_count
 cargo test album_detail_vm_musicbrainz_action_projects_label_and_disabled_state
 cargo test album_detail_vm_playlist_display_projects_popover_id_and_label
+cargo test contributor_identity_actions_project_ids_kinds_and_targets
+cargo test contributor_identity_actions_omit_absent_targets
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

@@ -84,8 +84,9 @@ use crate::ui::shells::track;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone, EntitySurfaceContext,
-    MetadataPanelState, ReleaseDetailVm, TrackMetadataActionState,
+    ContributorIdentityActionKind, ContributorRowVm, EntityActionKind, EntityActionTarget,
+    EntityActionTone, EntitySurfaceContext, MetadataPanelState, ReleaseDetailVm,
+    TrackMetadataActionState,
 };
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdateActionKind, FeedUpdatePhase, LibraryAlbumDetailVm,
@@ -2576,38 +2577,33 @@ fn render_library_contributors_panel(
 fn library_contributor_identity_actions(
     contributor: &ContributorRowVm<'_>,
 ) -> Vec<ReleaseSurfaceElement> {
-    let label = contributor.full_label();
-    let mut actions = Vec::new();
-
-    if let Some(href) = contributor.href().map(str::to_string) {
-        let href_for_click = href.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            identity_action_button(
-                SharedString::from(format!("library-contributor-website:{label}:{href}")),
-                IdentityActionKind::Website,
-            )
-            .on_click(move |_, _, _| {
-                let _ = open::that(&href_for_click);
-            })
-            .into_any_element(),
-        ));
-    }
-
-    if let Some(npub) = contributor.nostr_npub().map(str::to_string) {
-        let npub_for_click = npub.clone();
-        actions.push(ReleaseSurfaceElement::from_element(
-            identity_action_button(
-                SharedString::from(format!("library-contributor-nostr:{label}:{npub}")),
-                IdentityActionKind::Nostr,
-            )
-            .on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(npub_for_click.clone()));
-            })
-            .into_any_element(),
-        ));
-    }
-
-    actions
+    contributor
+        .identity_actions("library-contributor")
+        .into_iter()
+        .map(|action| {
+            let target_for_click = action.target.clone();
+            match action.kind {
+                ContributorIdentityActionKind::Website => identity_action_button(
+                    SharedString::from(action.id),
+                    IdentityActionKind::Website,
+                )
+                .on_click(move |_, _, _| {
+                    let _ = open::that(&target_for_click);
+                })
+                .into_any_element(),
+                ContributorIdentityActionKind::Nostr => {
+                    identity_action_button(SharedString::from(action.id), IdentityActionKind::Nostr)
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                target_for_click.clone(),
+                            ));
+                        })
+                        .into_any_element()
+                }
+            }
+        })
+        .map(ReleaseSurfaceElement::from_element)
+        .collect()
 }
 
 fn render_library_track_row(

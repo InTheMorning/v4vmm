@@ -1092,16 +1092,24 @@ pub(crate) enum DeferredPanelKind {
 /// Static labels for a deferred inspector panel.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DeferredPanelDisplay {
+    pub(crate) section_id: &'static str,
+    pub(crate) heading_label: &'static str,
     pub(crate) loading_label: &'static str,
 }
 
 impl DeferredPanelDisplay {
     #[must_use]
     const fn for_kind(kind: DeferredPanelKind) -> Self {
-        Self {
-            loading_label: match kind {
-                DeferredPanelKind::Contributors => "Loading contributors...",
-                DeferredPanelKind::ValueRoutes => "Loading value routes...",
+        match kind {
+            DeferredPanelKind::Contributors => Self {
+                section_id: "section:contributors",
+                heading_label: "Contributors",
+                loading_label: "Loading contributors...",
+            },
+            DeferredPanelKind::ValueRoutes => Self {
+                section_id: "section:value-routes",
+                heading_label: "Value Routes",
+                loading_label: "Loading value routes...",
             },
         }
     }
@@ -2781,15 +2789,16 @@ mod tests {
     }
 
     #[test]
-    fn deferred_panel_display_projects_loading_labels() {
-        assert_eq!(
-            SearchViewModel::deferred_panel_display(DeferredPanelKind::Contributors).loading_label,
-            "Loading contributors..."
-        );
-        assert_eq!(
-            SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes).loading_label,
-            "Loading value routes..."
-        );
+    fn deferred_panel_display_projects_heading_and_loading_labels() {
+        let contributors = SearchViewModel::deferred_panel_display(DeferredPanelKind::Contributors);
+        assert_eq!(contributors.section_id, "section:contributors");
+        assert_eq!(contributors.heading_label, "Contributors");
+        assert_eq!(contributors.loading_label, "Loading contributors...");
+
+        let value_routes = SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes);
+        assert_eq!(value_routes.section_id, "section:value-routes");
+        assert_eq!(value_routes.heading_label, "Value Routes");
+        assert_eq!(value_routes.loading_label, "Loading value routes...");
     }
 
     #[test]
