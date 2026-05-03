@@ -2369,6 +2369,36 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "\"Select an item to view details\"",
             "Library empty-detail label belongs in LibraryViewModel::chrome_display",
         ),
+        (
+            "src/library.rs",
+            "format!(\"artist-{}\"",
+            "Library artist tree row id belongs in ArtistNode::tree_display",
+        ),
+        (
+            "src/library.rs",
+            "album_count == 1",
+            "Library artist album-count label belongs in ArtistNode::tree_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"album-{}-{}\"",
+            "Library album tree row id belongs in AlbumNode::tree_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"({track_count})\"",
+            "Library album track-count label belongs in AlbumNode::tree_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"tree-track-{}\"",
+            "Library tree track row id belongs in LibraryTrackRowVm::tree_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"{num}{title}\")",
+            "Library tree track title belongs in LibraryTrackRowVm::tree_display",
+        ),
     ];
     let mut violations = Vec::new();
 

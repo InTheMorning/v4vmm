@@ -283,7 +283,26 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `Error:` prefix checks from Library render
       glue.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-36. Migrate remaining fallback batches, smallest blast radius first.
+36. Library artist tree row display
+    - Add `ArtistNode::tree_display()` so the Library artist tree row
+      id, disclosure glyph, and album-count label are VM-owned.
+    - Remove screen-local artist row id, arrow, and album-count
+      formatting from `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+37. Library album tree row display
+    - Add `AlbumNode::tree_display()` so the Library album tree row id,
+      disclosure glyph, and track-count label are VM-owned.
+    - Remove screen-local album row id, arrow, and track-count
+      formatting from `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+38. Library tree track row display
+    - Add `LibraryTrackRowVm::tree_display()` so the Library tree
+      track row id and prefixed compact title are VM-owned.
+    - Remove screen-local tree track row id and
+      `tree_number_prefix + compact_title` formatting from
+      `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+39. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -670,6 +689,33 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local Library status
   severity and empty-list visibility checks from returning.
 
+## Thirty-Fifth-Slice Implementation Notes
+
+- `ArtistNode::tree_display()` now carries Library artist tree row id,
+  disclosure glyph, and album-count label display.
+- `src/library.rs` no longer builds the artist row id, arrow glyph, or
+  singular/plural album-count label in render glue.
+- The architecture guard now blocks screen-local Library artist tree
+  row chrome from returning.
+
+## Thirty-Sixth-Slice Implementation Notes
+
+- `AlbumNode::tree_display()` now carries Library album tree row id,
+  disclosure glyph, and track-count label display.
+- `src/library.rs` no longer builds the album row id, arrow glyph, or
+  track-count label in render glue.
+- The architecture guard now blocks screen-local Library album tree row
+  chrome from returning.
+
+## Thirty-Seventh-Slice Implementation Notes
+
+- `LibraryTrackRowVm::tree_display()` now carries Library tree track
+  row id and the prefixed compact title.
+- `src/library.rs` no longer builds the tree track row id or joins the
+  tree-number prefix and compact title in render glue.
+- The architecture guard now blocks screen-local Library tree track row
+  id/title formatting from returning.
+
 ## Test Commands
 
 ```sh
@@ -710,6 +756,9 @@ cargo test deferred_panel_display_projects_loading_labels
 cargo test library_chrome_display_projects_shell_labels
 cargo test library_status_snapshot_classifies_error_prefix
 cargo test feed_update_display_projects_toolbar_action_labels
+cargo test library_tree_artist_display_projects_row_chrome
+cargo test library_tree_album_display_projects_row_chrome
+cargo test library_tree_track_display_projects_id_and_prefixed_title
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

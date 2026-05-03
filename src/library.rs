@@ -2104,17 +2104,12 @@ pub(crate) fn render_tree(
     let mut items = Vec::new();
     for artist in &tree.artists {
         let artist_expanded = expanded_artists.contains(&artist.name);
-        let arrow = if artist_expanded {
-            "\u{25BC}"
-        } else {
-            "\u{25B6}"
-        };
-        let album_count = artist.albums.len();
+        let artist_display = artist.tree_display(artist_expanded);
         let artist_name = artist.name.clone();
 
         items.push(
             div()
-                .id(SharedString::from(format!("artist-{}", artist.name)))
+                .id(SharedString::from(artist_display.element_id.clone()))
                 .px(spacing::SM)
                 .py(spacing::XS)
                 .rounded(spacing::XS)
@@ -2136,7 +2131,7 @@ pub(crate) fn render_tree(
                                 .text_xs()
                                 .text_color(color::text_muted())
                                 .w(spacing::MD)
-                                .child(SharedString::from(arrow)),
+                                .child(SharedString::from(artist_display.disclosure_glyph)),
                         )
                         .child(
                             div()
@@ -2144,12 +2139,12 @@ pub(crate) fn render_tree(
                                 .text_color(color::text_primary())
                                 .child(SharedString::from(artist.name.clone())),
                         )
-                        .child(div().text_xs().text_color(color::text_muted()).child(
-                            SharedString::from(format!(
-                                "({album_count} album{})",
-                                if album_count == 1 { "" } else { "s" }
-                            )),
-                        )),
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(color::text_muted())
+                                .child(SharedString::from(artist_display.album_count_label)),
+                        ),
                 )
                 .into_any_element(),
         );
@@ -2158,12 +2153,7 @@ pub(crate) fn render_tree(
             for album in &artist.albums {
                 let album_key = (artist.name.clone(), album.name.clone());
                 let album_expanded = expanded_albums.contains(&album_key);
-                let arrow = if album_expanded {
-                    "\u{25BC}"
-                } else {
-                    "\u{25B6}"
-                };
-                let track_count = album.tracks.len();
+                let album_display = album.tree_display(&artist.name, album_expanded);
                 let artist_for_toggle = artist.name.clone();
                 let album_for_toggle = album.name.clone();
                 let album_for_select = album.clone();
@@ -2175,10 +2165,7 @@ pub(crate) fn render_tree(
 
                 items.push(
                     div()
-                        .id(SharedString::from(format!(
-                            "album-{}-{}",
-                            artist.name, album.name
-                        )))
+                        .id(SharedString::from(album_display.element_id.clone()))
                         .pl(spacing::LG + spacing::XS)
                         .pr(spacing::SM)
                         .py(spacing::XXS)
@@ -2201,7 +2188,7 @@ pub(crate) fn render_tree(
                                         .text_xs()
                                         .text_color(color::text_muted())
                                         .w(spacing::MD)
-                                        .child(SharedString::from(arrow)),
+                                        .child(SharedString::from(album_display.disclosure_glyph)),
                                 )
                                 .child(hoverable_thumb(
                                     thumb_url.clone(),
@@ -2219,7 +2206,7 @@ pub(crate) fn render_tree(
                                     div()
                                         .text_xs()
                                         .text_color(color::text_muted())
-                                        .child(SharedString::from(format!("({track_count})",))),
+                                        .child(SharedString::from(album_display.track_count_label)),
                                 ),
                         )
                         .into_any_element(),
@@ -2229,9 +2216,7 @@ pub(crate) fn render_tree(
                     for track in &album.tracks {
                         let track_clone_b = track.clone();
                         let is_selected = selected_id == Some(track.id);
-                        let row_vm = LibraryTrackRowVm::new(track, None);
-                        let title = row_vm.compact_title();
-                        let num = row_vm.tree_number_prefix();
+                        let track_display = LibraryTrackRowVm::new(track, None).tree_display();
                         let track_thumb_image = track
                             .track_image_href
                             .as_ref()
@@ -2240,7 +2225,7 @@ pub(crate) fn render_tree(
                             .and_then(|opt| opt.clone());
 
                         let mut row = div()
-                            .id(SharedString::from(format!("tree-track-{}", track.id)))
+                            .id(SharedString::from(track_display.element_id.clone()))
                             .pl(spacing::XXL + spacing::MD)
                             .pr(spacing::SM)
                             .py(spacing::XXS)
@@ -2273,7 +2258,7 @@ pub(crate) fn render_tree(
                                             } else {
                                                 color::text_primary()
                                             })
-                                            .child(SharedString::from(format!("{num}{title}"))),
+                                            .child(SharedString::from(track_display.title)),
                                     ),
                             );
 

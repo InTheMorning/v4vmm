@@ -94,6 +94,45 @@ pub(crate) struct LibraryTree {
     pub(crate) artists: Vec<ArtistNode>,
 }
 
+impl ArtistNode {
+    #[must_use]
+    pub(crate) fn tree_display(&self, expanded: bool) -> LibraryArtistTreeDisplay {
+        LibraryArtistTreeDisplay {
+            element_id: format!("artist-{}", self.name),
+            disclosure_glyph: disclosure_glyph(expanded),
+            album_count_label: format!(
+                "({} album{})",
+                self.albums.len(),
+                plural(self.albums.len())
+            ),
+        }
+    }
+}
+
+impl AlbumNode {
+    #[must_use]
+    pub(crate) fn tree_display(
+        &self,
+        artist_name: &str,
+        expanded: bool,
+    ) -> LibraryAlbumTreeDisplay {
+        LibraryAlbumTreeDisplay {
+            element_id: format!("album-{artist_name}-{}", self.name),
+            disclosure_glyph: disclosure_glyph(expanded),
+            track_count_label: format!("({})", self.tracks.len()),
+        }
+    }
+}
+
+#[must_use]
+const fn disclosure_glyph(expanded: bool) -> &'static str {
+    if expanded {
+        "\u{25BC}"
+    } else {
+        "\u{25B6}"
+    }
+}
+
 /// Pure data snapshots loaded by the library screen.
 ///
 /// This groups DB-derived read models and in-flight metadata/feed state
@@ -123,6 +162,29 @@ impl LibraryTreeProjection {
     pub(crate) fn is_empty(&self) -> bool {
         self.tree.artists.is_empty()
     }
+}
+
+/// Display contract for an artist row in the Library sidebar tree.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryArtistTreeDisplay {
+    pub(crate) element_id: String,
+    pub(crate) disclosure_glyph: &'static str,
+    pub(crate) album_count_label: String,
+}
+
+/// Display contract for an album row in the Library sidebar tree.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryAlbumTreeDisplay {
+    pub(crate) element_id: String,
+    pub(crate) disclosure_glyph: &'static str,
+    pub(crate) track_count_label: String,
+}
+
+/// Display contract for a track row in the Library sidebar tree.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryTreeTrackDisplay {
+    pub(crate) element_id: String,
+    pub(crate) title: String,
 }
 
 /// Display-ready projection for the playlist sidebar section.
@@ -1248,6 +1310,16 @@ impl<'a> LibraryTrackRowVm<'a> {
             .track_number
             .map(|n| format!("{n:02} - "))
             .unwrap_or_default()
+    }
+
+    /// Complete display contract for the track row inside the Library
+    /// sidebar tree.
+    #[must_use]
+    pub(crate) fn tree_display(&self) -> LibraryTreeTrackDisplay {
+        LibraryTreeTrackDisplay {
+            element_id: format!("tree-track-{}", self.track.id),
+            title: format!("{}{}", self.tree_number_prefix(), self.compact_title()),
+        }
     }
 
     /// Artist grouping label:
@@ -2380,6 +2452,50 @@ mod tests {
         assert_eq!(projection.tree.artists.len(), 1);
         assert_eq!(projection.tree.artists[0].albums.len(), 1);
         assert_eq!(projection.tree.artists[0].albums[0].tracks.len(), 2);
+    }
+
+    #[test]
+    fn library_tree_artist_display_projects_row_chrome() {
+        let tree = library_tree();
+        let artist = &tree.artists[0];
+
+        let expanded = artist.tree_display(true);
+        assert_eq!(expanded.element_id, "artist-Aphex Twin");
+        assert_eq!(expanded.disclosure_glyph, "\u{25BC}");
+        assert_eq!(expanded.album_count_label, "(2 albums)");
+
+        let collapsed = artist.tree_display(false);
+        assert_eq!(collapsed.disclosure_glyph, "\u{25B6}");
+    }
+
+    #[test]
+    fn library_tree_album_display_projects_row_chrome() {
+        let tree = library_tree();
+        let album = &tree.artists[0].albums[0];
+
+        let expanded = album.tree_display("Aphex Twin", true);
+        assert_eq!(
+            expanded.element_id,
+            "album-Aphex Twin-Selected Ambient Works"
+        );
+        assert_eq!(expanded.disclosure_glyph, "\u{25BC}");
+        assert_eq!(expanded.track_count_label, "(2)");
+
+        let collapsed = album.tree_display("Aphex Twin", false);
+        assert_eq!(collapsed.disclosure_glyph, "\u{25B6}");
+    }
+
+    #[test]
+    fn library_tree_track_display_projects_id_and_prefixed_title() {
+        let mut track = row();
+        track.id = 42;
+        track.track_number = Some(7);
+        track.track_title = Some("Pulsewidth".into());
+
+        let display = LibraryTrackRowVm::new(&track, None).tree_display();
+
+        assert_eq!(display.element_id, "tree-track-42");
+        assert_eq!(display.title, "07 - Pulsewidth");
     }
 
     #[test]
