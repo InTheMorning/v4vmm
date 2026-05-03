@@ -3269,9 +3269,10 @@ fn metadata_id3_cell(
     file_image: Option<Arc<Image>>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let frame = pending
-        .map(|edit| edit.frame.as_str())
-        .or(row.id3_frame.as_deref());
+    let frame = TrackMetadataGridVm::id3_cell_frame(
+        pending.map(|edit| edit.frame.as_str()),
+        row.id3_frame.as_deref(),
+    );
     let value = TrackMetadataGridVm::id3_cell_value(
         pending.map(|edit| edit.value.as_str()),
         row.id3_value.as_deref(),

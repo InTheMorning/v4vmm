@@ -2060,6 +2060,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            ".or(row.id3_frame.as_deref())",
+            "metadata ID3 cell frame fallback belongs in TrackMetadataGridVm::id3_cell_frame",
+        ),
+        (
+            "src/search.rs",
+            ".or(row.id3_frame.as_deref())",
+            "metadata ID3 cell frame fallback belongs in TrackMetadataGridVm::id3_cell_frame",
+        ),
+        (
+            "src/library.rs",
             "row.musicbrainz_value.as_deref().unwrap_or(\"\")",
             "metadata MusicBrainz cell value fallback belongs in TrackMetadataGridVm::musicbrainz_cell_value",
         ),
