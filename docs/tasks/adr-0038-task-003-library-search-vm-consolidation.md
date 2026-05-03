@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first ninety-seven implementation slices completed on 2026-05-03.
+In progress - first ninety-nine implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -663,7 +663,19 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local frame-label `to_string()` display conversion
       from Library and Discover metadata tag cells.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-98. Migrate remaining fallback batches, smallest blast radius first.
+98. Metadata drag preview display
+    - Add `TrackMetadataGridVm::drag_preview_display()` so Discover
+      metadata drag previews receive VM-owned label/value display.
+    - Route Discover metadata drag source field labels through
+      `TrackMetadataGridVm::field_label()`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+99. Metadata ID3 frame color role
+    - Add `TrackMetadataGridVm::id3_frame_color_role()` so Library and
+      Discover ID3 frame color classification is VM-owned.
+    - Keep GPUI color-token mapping in the screens while removing
+      screen-local ID3 version/color classification.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+100. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1649,6 +1661,27 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local ID3 frame label
   `to_string()` display conversion from returning.
 
+## Ninety-Seventh-Slice Implementation Notes
+
+- `TrackMetadataGridVm::drag_preview_display()` now carries Discover
+  metadata drag-preview label/value display.
+- Discover still wires GPUI drag callbacks and drop targets locally,
+  but no longer builds the preview labels by cloning drag payload
+  fields in renderer closures.
+- The architecture guard now blocks screen-local drag preview
+  label/value cloning and raw drag field-label projection from
+  returning.
+
+## Ninety-Eighth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::id3_frame_color_role()` now carries Library and
+  Discover ID3 frame color-role classification.
+- Library and Discover still map the VM role to GPUI color tokens
+  locally, but no longer classify ID3 frame generation or special
+  Library frame groups in screen code.
+- The architecture guard now blocks screen-local ID3 frame
+  version/color classification from returning.
+
 ## Test Commands
 
 ```sh
@@ -1667,6 +1700,9 @@ cargo test id3_drag_frame_preserves_empty_vs_missing_display
 cargo test id3_frame_label_preserves_empty_vs_missing_display
 cargo test id3_frame_display_label_projects_owned_display_string
 cargo test field_label_preserves_raw_metadata_field_display
+cargo test drag_preview_display_projects_owned_label_and_value
+cargo test id3_frame_color_role_classifies_library_context
+cargo test id3_frame_color_role_classifies_discover_context
 cargo test id3_generated_row_display_projects_ids_and_labels
 cargo test source_drag_display_projects_discover_source_cell_ids
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized

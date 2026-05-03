@@ -50,10 +50,9 @@ use crate::library_service;
 use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
-    expand_woar_metadata_rows, expanded_metadata_display_string, id3_frame_base,
-    pending_id3_conflict_descriptions, pending_id3_edits_for_apply, track_metadata_rows,
-    AlignedCompareRow, MetadataColumn, MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit,
-    TagCompareResult, TrackContext,
+    expand_woar_metadata_rows, expanded_metadata_display_string, pending_id3_conflict_descriptions,
+    pending_id3_edits_for_apply, track_metadata_rows, AlignedCompareRow, MetadataColumn,
+    MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
 };
 use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
@@ -97,7 +96,8 @@ use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{
     TrackMetadataComparisonRole, TrackMetadataExpandedFieldKind, TrackMetadataGridVm,
-    ValueRouteFieldContext, ValueRoutesSummaryFallback,
+    TrackMetadataId3FrameColorContext, TrackMetadataId3FrameColorRole, ValueRouteFieldContext,
+    ValueRoutesSummaryFallback,
 };
 use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts, TrackRef, TrackView};
 
@@ -3636,7 +3636,10 @@ fn metadata_tag_cell(
     file_image: Option<&Arc<Image>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let frame_color = frame_id.map_or_else(color::text_muted, id3_frame_color);
+    let frame_color = id3_frame_color(TrackMetadataGridVm::id3_frame_color_role(
+        frame_id,
+        TrackMetadataId3FrameColorContext::Library,
+    ));
     let value = metadata_value_cell(
         field,
         row_id,
@@ -3832,11 +3835,14 @@ fn compare_tag_cell(
     cell.into_any_element()
 }
 
-fn id3_frame_color(frame_id: &str) -> gpui::Rgba {
-    match id3_frame_base(frame_id) {
-        "SYLT" | "USLT" | "APIC" => color::id3_frame_v24_only(),
-        "TXXX" | "WXXX" | "UFID" => color::id3_frame_v22(),
-        _ => color::accent(),
+fn id3_frame_color(role: TrackMetadataId3FrameColorRole) -> gpui::Rgba {
+    match role {
+        TrackMetadataId3FrameColorRole::Muted => color::text_muted(),
+        TrackMetadataId3FrameColorRole::Accent => color::accent(),
+        TrackMetadataId3FrameColorRole::V22 => color::id3_frame_v22(),
+        TrackMetadataId3FrameColorRole::V23Only => color::id3_frame_v23_only(),
+        TrackMetadataId3FrameColorRole::V24Only => color::id3_frame_v24_only(),
+        TrackMetadataId3FrameColorRole::Unknown => color::id3_frame_unknown(),
     }
 }
 

@@ -82,8 +82,8 @@ use crate::view_models::search::{
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{
-    TrackMetadataExpandedFieldKind, TrackMetadataGridVm, ValueRouteFieldContext,
-    ValueRoutesSummaryFallback,
+    TrackMetadataExpandedFieldKind, TrackMetadataGridVm, TrackMetadataId3FrameColorContext,
+    TrackMetadataId3FrameColorRole, ValueRouteFieldContext, ValueRoutesSummaryFallback,
 };
 use crate::views::{ContributorView, FeedRef, TrackView};
 
@@ -3239,9 +3239,11 @@ fn metadata_rss_cell(
                 .on_drag(
                     drag,
                     |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
+                        let display =
+                            TrackMetadataGridVm::drag_preview_display(&drag.field, &drag.value);
                         cx.new(|_| MetadataDragPreview {
-                            label: drag.field.clone(),
-                            value: drag.value.clone(),
+                            label: display.label,
+                            value: display.value,
                         })
                     },
                 )
@@ -3271,7 +3273,12 @@ fn metadata_id3_cell(
     let color = pending
         .map(|edit| pending_source_color(edit.source, cx))
         .unwrap_or_else(|| id3_cell_status_color(row, cx));
-    let frame_color = frame.map(id3_frame_base).map(id3_frame_version_color);
+    let frame_color = frame.map(|frame| {
+        id3_frame_color(TrackMetadataGridVm::id3_frame_color_role(
+            Some(frame),
+            TrackMetadataId3FrameColorContext::Discover,
+        ))
+    });
     let expandable = TrackMetadataGridVm::field_is_expandable(&row.field, value);
     let value_element = if expandable {
         expandable_tag_cell(
@@ -3374,9 +3381,11 @@ fn metadata_musicbrainz_cell(
             .on_drag(
                 drag,
                 |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
+                    let display =
+                        TrackMetadataGridVm::drag_preview_display(&drag.field, &drag.value);
                     cx.new(|_| MetadataDragPreview {
-                        label: drag.field.clone(),
-                        value: drag.value.clone(),
+                        label: display.label,
+                        value: display.value,
                     })
                 },
             )
@@ -3397,7 +3406,7 @@ fn metadata_drag_value(
     let value = normalized_compare_value(Some(value))?;
     Some(MetadataDragValue {
         row_id: row.row_id.clone(),
-        field: row.field.clone(),
+        field: TrackMetadataGridVm::field_label(&row.field),
         frame: TrackMetadataGridVm::id3_drag_frame(row.id3_frame.as_deref()),
         target_existing_value: None,
         value,
@@ -4181,63 +4190,14 @@ fn compare_tag_cell(
         .into_any_element()
 }
 
-fn id3_frame_version_color(frame_id: &str) -> gpui::Rgba {
-    match id3_frame_version(frame_id) {
-        Id3FrameVersion::V22 => color::id3_frame_v22(),
-        Id3FrameVersion::V23Only => color::id3_frame_v23_only(),
-        Id3FrameVersion::V24Only => color::id3_frame_v24_only(),
-        Id3FrameVersion::V23V24 => color::accent(),
-        Id3FrameVersion::Unknown => color::id3_frame_unknown(),
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Id3FrameVersion {
-    V22,
-    V23Only,
-    V24Only,
-    V23V24,
-    Unknown,
-}
-
-fn id3_frame_version(frame_id: &str) -> Id3FrameVersion {
-    let frame_id = id3_frame_base(frame_id);
-    if frame_id.len() == 3 {
-        return Id3FrameVersion::V22;
-    }
-    if matches!(
-        frame_id,
-        "ASPI"
-            | "EQU2"
-            | "RVA2"
-            | "SEEK"
-            | "SIGN"
-            | "TDEN"
-            | "TDOR"
-            | "TDRC"
-            | "TDRL"
-            | "TDTG"
-            | "TIPL"
-            | "TMCL"
-            | "TMOO"
-            | "TPRO"
-            | "TSOA"
-            | "TSOP"
-            | "TSOT"
-            | "TSST"
-    ) {
-        return Id3FrameVersion::V24Only;
-    }
-    if matches!(
-        frame_id,
-        "CRM" | "EQUA" | "IPLS" | "RVAD" | "TDAT" | "TIME" | "TORY" | "TRDA" | "TSIZ" | "TYER"
-    ) {
-        return Id3FrameVersion::V23Only;
-    }
-    if ID3V24_FRAME_IDS.contains(&frame_id) {
-        Id3FrameVersion::V23V24
-    } else {
-        Id3FrameVersion::Unknown
+fn id3_frame_color(role: TrackMetadataId3FrameColorRole) -> gpui::Rgba {
+    match role {
+        TrackMetadataId3FrameColorRole::Muted => color::text_muted(),
+        TrackMetadataId3FrameColorRole::Accent => color::accent(),
+        TrackMetadataId3FrameColorRole::V22 => color::id3_frame_v22(),
+        TrackMetadataId3FrameColorRole::V23Only => color::id3_frame_v23_only(),
+        TrackMetadataId3FrameColorRole::V24Only => color::id3_frame_v24_only(),
+        TrackMetadataId3FrameColorRole::Unknown => color::id3_frame_unknown(),
     }
 }
 

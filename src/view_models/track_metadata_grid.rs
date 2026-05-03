@@ -9,7 +9,10 @@
 
 use std::collections::BTreeSet;
 
-use crate::metadata::{metadata_field_is_expandable, summarize_contributor_value, MetadataColumn};
+use crate::metadata::{
+    id3_frame_base, id3_frame_version, metadata_field_is_expandable, summarize_contributor_value,
+    Id3FrameVersion, MetadataColumn,
+};
 use crate::track_compare::ComparisonStatus;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -58,6 +61,12 @@ pub struct TrackMetadataSourceDragDisplay {
     pub cell_id: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrackMetadataDragPreviewDisplay {
+    pub label: String,
+    pub value: String,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValueRoutesSummaryFallback {
     DisplayValue,
@@ -83,6 +92,22 @@ pub enum TrackMetadataExpandedFieldKind {
     Transcript,
     ValueRoutes,
     Text,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrackMetadataId3FrameColorContext {
+    Library,
+    Discover,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrackMetadataId3FrameColorRole {
+    Muted,
+    Accent,
+    V22,
+    V23Only,
+    V24Only,
+    Unknown,
 }
 
 impl TrackMetadataComparisonRole {
@@ -144,6 +169,39 @@ impl TrackMetadataGridVm {
     #[must_use]
     pub fn field_label(field: &str) -> String {
         field.to_string()
+    }
+
+    #[must_use]
+    pub fn drag_preview_display(field: &str, value: &str) -> TrackMetadataDragPreviewDisplay {
+        TrackMetadataDragPreviewDisplay {
+            label: Self::field_label(field),
+            value: value.to_string(),
+        }
+    }
+
+    #[must_use]
+    pub fn id3_frame_color_role(
+        frame_id: Option<&str>,
+        context: TrackMetadataId3FrameColorContext,
+    ) -> TrackMetadataId3FrameColorRole {
+        let Some(frame_id) = frame_id else {
+            return TrackMetadataId3FrameColorRole::Muted;
+        };
+        let frame_id = id3_frame_base(frame_id);
+        match context {
+            TrackMetadataId3FrameColorContext::Library => match frame_id {
+                "SYLT" | "USLT" | "APIC" => TrackMetadataId3FrameColorRole::V24Only,
+                "TXXX" | "WXXX" | "UFID" => TrackMetadataId3FrameColorRole::V22,
+                _ => TrackMetadataId3FrameColorRole::Accent,
+            },
+            TrackMetadataId3FrameColorContext::Discover => match id3_frame_version(frame_id) {
+                Id3FrameVersion::V22 => TrackMetadataId3FrameColorRole::V22,
+                Id3FrameVersion::V23Only => TrackMetadataId3FrameColorRole::V23Only,
+                Id3FrameVersion::V24Only => TrackMetadataId3FrameColorRole::V24Only,
+                Id3FrameVersion::V23V24 => TrackMetadataId3FrameColorRole::Accent,
+                Id3FrameVersion::Unknown => TrackMetadataId3FrameColorRole::Unknown,
+            },
+        }
     }
 
     #[must_use]
@@ -687,6 +745,102 @@ mod tests {
     fn field_label_preserves_raw_metadata_field_display() {
         assert_eq!(TrackMetadataGridVm::field_label("Title"), "Title");
         assert_eq!(TrackMetadataGridVm::field_label(""), "");
+    }
+
+    #[test]
+    fn drag_preview_display_projects_owned_label_and_value() {
+        assert_eq!(
+            TrackMetadataGridVm::drag_preview_display("Title", "Song"),
+            TrackMetadataDragPreviewDisplay {
+                label: "Title".into(),
+                value: "Song".into(),
+            }
+        );
+        assert_eq!(
+            TrackMetadataGridVm::drag_preview_display("", ""),
+            TrackMetadataDragPreviewDisplay {
+                label: String::new(),
+                value: String::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn id3_frame_color_role_classifies_library_context() {
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                None,
+                TrackMetadataId3FrameColorContext::Library
+            ),
+            TrackMetadataId3FrameColorRole::Muted
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                Some("APIC"),
+                TrackMetadataId3FrameColorContext::Library
+            ),
+            TrackMetadataId3FrameColorRole::V24Only
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                Some("TXXX:MusicIndex Contributors"),
+                TrackMetadataId3FrameColorContext::Library
+            ),
+            TrackMetadataId3FrameColorRole::V22
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                Some("TIT2"),
+                TrackMetadataId3FrameColorContext::Library
+            ),
+            TrackMetadataId3FrameColorRole::Accent
+        );
+    }
+
+    #[test]
+    fn id3_frame_color_role_classifies_discover_context() {
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                None,
+                TrackMetadataId3FrameColorContext::Discover
+            ),
+            TrackMetadataId3FrameColorRole::Muted
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                Some("TT2"),
+                TrackMetadataId3FrameColorContext::Discover
+            ),
+            TrackMetadataId3FrameColorRole::V22
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                Some("TYER"),
+                TrackMetadataId3FrameColorContext::Discover
+            ),
+            TrackMetadataId3FrameColorRole::V23Only
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                Some("TDRC"),
+                TrackMetadataId3FrameColorContext::Discover
+            ),
+            TrackMetadataId3FrameColorRole::V24Only
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                Some("TIT2"),
+                TrackMetadataId3FrameColorContext::Discover
+            ),
+            TrackMetadataId3FrameColorRole::Accent
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_frame_color_role(
+                Some("ZZZZ"),
+                TrackMetadataId3FrameColorContext::Discover
+            ),
+            TrackMetadataId3FrameColorRole::Unknown
+        );
     }
 
     #[test]

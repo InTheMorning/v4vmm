@@ -2105,6 +2105,21 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover metadata field label display belongs in TrackMetadataGridVm::field_label",
         ),
         (
+            "src/search.rs",
+            "field: row.field.clone()",
+            "Discover metadata drag field label display belongs in TrackMetadataGridVm::field_label",
+        ),
+        (
+            "src/search.rs",
+            "label: drag.field.clone()",
+            "Discover metadata drag preview label belongs in TrackMetadataGridVm::drag_preview_display",
+        ),
+        (
+            "src/search.rs",
+            "value: drag.value.clone()",
+            "Discover metadata drag preview value belongs in TrackMetadataGridVm::drag_preview_display",
+        ),
+        (
             "src/library.rs",
             "label: SharedString::from(frame_id.to_string())",
             "Library metadata ID3 frame label display belongs in TrackMetadataGridVm::id3_frame_display_label",
@@ -2113,6 +2128,31 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/search.rs",
             "SharedString::from(frame_label.to_string())",
             "Discover metadata ID3 frame label display belongs in TrackMetadataGridVm::id3_frame_display_label",
+        ),
+        (
+            "src/library.rs",
+            "fn id3_frame_color(frame_id: &str)",
+            "Library metadata ID3 frame color role belongs in TrackMetadataGridVm::id3_frame_color_role",
+        ),
+        (
+            "src/search.rs",
+            "fn id3_frame_version_color(",
+            "Discover metadata ID3 frame color role belongs in TrackMetadataGridVm::id3_frame_color_role",
+        ),
+        (
+            "src/search.rs",
+            "fn id3_frame_version(",
+            "Discover metadata ID3 frame version classification belongs in metadata/view-model contracts",
+        ),
+        (
+            "src/search.rs",
+            "enum Id3FrameVersion",
+            "Discover metadata ID3 frame version classification belongs in metadata/view-model contracts",
+        ),
+        (
+            "src/search.rs",
+            "frame.map(id3_frame_base).map(id3_frame_version_color)",
+            "Discover metadata ID3 frame color role belongs in TrackMetadataGridVm::id3_frame_color_role",
         ),
         (
             "src/search.rs",
