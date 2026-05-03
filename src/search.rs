@@ -3040,6 +3040,7 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
                 let split = vm.split();
                 let kind_label = vm.kind_label();
                 let address = vm.address();
+                let custom_fields = vm.custom_fields();
                 div()
                     .flex()
                     .flex_col()
@@ -3057,24 +3058,14 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
                                 .child(SharedString::from(address)),
                         )
                     })
-                    .when(
-                        route.custom_key.is_some() || route.custom_value.is_some(),
-                        |el| {
-                            let mut parts = Vec::new();
-                            if let Some(k) = &route.custom_key {
-                                parts.push(format!("key {k}"));
-                            }
-                            if let Some(v) = &route.custom_value {
-                                parts.push(format!("value {v}"));
-                            }
-                            el.child(
-                                div()
-                                    .text_color(color::text_muted())
-                                    .text_size(typography::SIZE_MICRO)
-                                    .child(SharedString::from(parts.join(" · "))),
-                            )
-                        },
-                    )
+                    .when_some(custom_fields, |el, custom_fields| {
+                        el.child(
+                            div()
+                                .text_color(color::text_muted())
+                                .text_size(typography::SIZE_MICRO)
+                                .child(SharedString::from(custom_fields)),
+                        )
+                    })
                     .into_any_element()
             }));
             elements

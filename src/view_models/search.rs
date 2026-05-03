@@ -670,6 +670,23 @@ impl<'a> PaymentRouteVm<'a> {
         self.route.address.clone()
     }
 
+    /// Optional route custom fields, preserving empty values when present.
+    #[must_use]
+    pub(crate) fn custom_fields(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if let Some(key) = &self.route.custom_key {
+            parts.push(format!("key {key}"));
+        }
+        if let Some(value) = &self.route.custom_value {
+            parts.push(format!("value {value}"));
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(" · "))
+        }
+    }
+
     /// Split percentage; `0.0` when the route does not declare one.
     #[must_use]
     pub(crate) fn split(&self) -> f64 {
@@ -2337,6 +2354,36 @@ mod tests {
         };
         let vm = PaymentRouteVm::new(&r);
         assert_eq!(vm.address(), None);
+    }
+
+    #[test]
+    fn payment_route_vm_projects_custom_fields_without_coercing_presence() {
+        let r = api::PaymentRoute {
+            custom_key: Some("pubkey".into()),
+            custom_value: Some("abc".into()),
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(
+            vm.custom_fields().as_deref(),
+            Some("key pubkey · value abc")
+        );
+
+        let r = api::PaymentRoute {
+            custom_key: Some(String::new()),
+            custom_value: None,
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.custom_fields().as_deref(), Some("key "));
+
+        let r = api::PaymentRoute {
+            custom_key: None,
+            custom_value: None,
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.custom_fields(), None);
     }
 
     #[test]
