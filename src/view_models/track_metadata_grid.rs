@@ -65,6 +65,12 @@ pub enum ValueRoutesSummaryFallback {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValueRouteFieldContext {
+    Library,
+    Discover,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrackMetadataComparisonRole {
     Match,
     Different,
@@ -289,6 +295,15 @@ impl TrackMetadataGridVm {
     }
 
     #[must_use]
+    pub fn logical_field(field: &str) -> &str {
+        match field {
+            "TXXX:MusicIndex Contributors" => "Contributors",
+            "TXXX:MusicIndex Value Routes" => "Value Routes",
+            _ => field,
+        }
+    }
+
+    #[must_use]
     pub fn group_heading_label(label: &str, unused_count: usize) -> String {
         if unused_count == 0 {
             label.to_string()
@@ -337,6 +352,24 @@ impl TrackMetadataGridVm {
     #[must_use]
     pub fn value_route_field_value_label(value: &serde_json::Value) -> Option<String> {
         json_value_display_label(value)
+    }
+
+    #[must_use]
+    pub fn value_route_child_field_is_visible(key: &str, context: ValueRouteFieldContext) -> bool {
+        match (context, key) {
+            (_, "recipient_name") | (ValueRouteFieldContext::Library, "split") => false,
+            (_, _) => true,
+        }
+    }
+
+    #[must_use]
+    pub fn json_tree_scalar_label(value: &serde_json::Value) -> Option<String> {
+        match value {
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => None,
+            serde_json::Value::String(value) => Some(value.clone()),
+            serde_json::Value::Null => Some("null".to_string()),
+            other => Some(other.to_string()),
+        }
     }
 
     #[must_use]
@@ -852,6 +885,19 @@ mod tests {
     }
 
     #[test]
+    fn logical_field_maps_raw_musicindex_txxx_fields() {
+        assert_eq!(
+            TrackMetadataGridVm::logical_field("TXXX:MusicIndex Contributors"),
+            "Contributors"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::logical_field("TXXX:MusicIndex Value Routes"),
+            "Value Routes"
+        );
+        assert_eq!(TrackMetadataGridVm::logical_field("Title"), "Title");
+    }
+
+    #[test]
     fn artwork_url_and_summary_preserve_legacy_http_policy() {
         assert_eq!(
             TrackMetadataGridVm::artwork_url("https://cdn.example/a/b.png"),
@@ -957,6 +1003,50 @@ mod tests {
         );
         assert_eq!(
             TrackMetadataGridVm::value_route_field_value_label(&serde_json::Value::Null),
+            None
+        );
+    }
+
+    #[test]
+    fn value_route_child_field_visibility_preserves_screen_contexts() {
+        assert!(!TrackMetadataGridVm::value_route_child_field_is_visible(
+            "recipient_name",
+            ValueRouteFieldContext::Library,
+        ));
+        assert!(!TrackMetadataGridVm::value_route_child_field_is_visible(
+            "split",
+            ValueRouteFieldContext::Library,
+        ));
+        assert!(TrackMetadataGridVm::value_route_child_field_is_visible(
+            "split",
+            ValueRouteFieldContext::Discover,
+        ));
+        assert!(TrackMetadataGridVm::value_route_child_field_is_visible(
+            "address",
+            ValueRouteFieldContext::Discover,
+        ));
+    }
+
+    #[test]
+    fn json_tree_scalar_label_preserves_raw_json_leaf_display() {
+        assert_eq!(
+            TrackMetadataGridVm::json_tree_scalar_label(&serde_json::json!(" Alice ")),
+            Some(" Alice ".into())
+        );
+        assert_eq!(
+            TrackMetadataGridVm::json_tree_scalar_label(&serde_json::Value::Null),
+            Some("null".into())
+        );
+        assert_eq!(
+            TrackMetadataGridVm::json_tree_scalar_label(&serde_json::json!(42)),
+            Some("42".into())
+        );
+        assert_eq!(
+            TrackMetadataGridVm::json_tree_scalar_label(&serde_json::json!({"a": 1})),
+            None
+        );
+        assert_eq!(
+            TrackMetadataGridVm::json_tree_scalar_label(&serde_json::json!([1, 2])),
             None
         );
     }

@@ -82,7 +82,9 @@ use crate::view_models::search::{
 };
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
-use crate::view_models::track_metadata_grid::{TrackMetadataGridVm, ValueRoutesSummaryFallback};
+use crate::view_models::track_metadata_grid::{
+    TrackMetadataGridVm, ValueRouteFieldContext, ValueRoutesSummaryFallback,
+};
 use crate::views::{ContributorView, FeedRef, TrackView};
 
 #[derive(Clone, Debug)]
@@ -3983,11 +3985,8 @@ fn json_object_element(value: &serde_json::Value, color: gpui::Rgba, depth: usiz
                             .child(json_object_element(val, color, depth + 1));
                     }
                     _ => {
-                        let val_str = match val {
-                            serde_json::Value::String(s) => s.clone(),
-                            serde_json::Value::Null => "null".into(),
-                            other => other.to_string(),
-                        };
+                        let val_str = TrackMetadataGridVm::json_tree_scalar_label(val)
+                            .expect("object and array values are handled before scalar display");
                         container = container.child(
                             div().flex().flex_row().gap(spacing::XS).child(
                                 div()
@@ -4019,11 +4018,8 @@ fn json_object_element(value: &serde_json::Value, color: gpui::Rgba, depth: usiz
             container.into_any_element()
         }
         _ => {
-            let text = match value {
-                serde_json::Value::String(s) => s.clone(),
-                serde_json::Value::Null => "null".into(),
-                other => other.to_string(),
-            };
+            let text = TrackMetadataGridVm::json_tree_scalar_label(value)
+                .expect("object and array values are handled before scalar display");
             div()
                 .pl(indent)
                 .text_color(color)
@@ -4092,7 +4088,10 @@ fn value_routes_tree_elements(
             if sub_expanded {
                 if let serde_json::Value::Object(map) = &route {
                     for (key, val) in map {
-                        if key == "recipient_name" {
+                        if !TrackMetadataGridVm::value_route_child_field_is_visible(
+                            key,
+                            ValueRouteFieldContext::Discover,
+                        ) {
                             continue;
                         }
                         let Some(value) = TrackMetadataGridVm::value_route_field_value_label(val)

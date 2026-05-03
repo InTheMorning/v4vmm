@@ -98,7 +98,8 @@ use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{
-    TrackMetadataComparisonRole, TrackMetadataGridVm, ValueRoutesSummaryFallback,
+    TrackMetadataComparisonRole, TrackMetadataGridVm, ValueRouteFieldContext,
+    ValueRoutesSummaryFallback,
 };
 use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts, TrackRef, TrackView};
 
@@ -3559,7 +3560,7 @@ fn metadata_value_cell(
     file_image: Option<&Arc<Image>>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let logical_field = metadata_logical_field(field);
+    let logical_field = TrackMetadataGridVm::logical_field(field);
     let expandable = metadata_field_is_expandable(logical_field) && !raw_value.is_empty();
     if !expandable {
         return compare_cell(display_value, Some(color));
@@ -3777,7 +3778,10 @@ fn value_routes_tree_elements(
             if sub_expanded {
                 if let serde_json::Value::Object(map) = &route {
                     for (key, value) in map {
-                        if matches!(key.as_str(), "recipient_name" | "split") {
+                        if !TrackMetadataGridVm::value_route_child_field_is_visible(
+                            key,
+                            ValueRouteFieldContext::Library,
+                        ) {
                             continue;
                         }
                         let Some(value) = TrackMetadataGridVm::value_route_field_value_label(value)
@@ -3810,14 +3814,6 @@ fn value_routes_tree_elements(
             item.into_any_element()
         })
         .collect()
-}
-
-fn metadata_logical_field(field: &str) -> &str {
-    match field {
-        "TXXX:MusicIndex Contributors" => "Contributors",
-        "TXXX:MusicIndex Value Routes" => "Value Routes",
-        _ => field,
-    }
 }
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {

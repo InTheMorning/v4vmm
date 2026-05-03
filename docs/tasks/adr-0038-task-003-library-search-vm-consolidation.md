@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first eighty-six implementation slices completed on 2026-05-03.
+In progress - first eighty-nine implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -586,7 +586,28 @@ Verified starting notes, 2026-05-03:
     - Remove local blank-line replacement from Discover transcript and
       JSON line renderers.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-87. Migrate remaining fallback batches, smallest blast radius first.
+87. Library metadata logical-field aliases
+    - Add `TrackMetadataGridVm::logical_field()` so raw MusicIndex TXXX
+      aliases for Contributors and Value Routes are metadata-grid-owned.
+    - Remove the screen-local `metadata_logical_field()` helper from
+      `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+88. Value Routes child-field visibility
+    - Add `ValueRouteFieldContext` and
+      `TrackMetadataGridVm::value_route_child_field_is_visible()` so
+      Library and Discover child-row visibility differences are named
+      context policy.
+    - Preserve Library hiding `split` because the collapsed row already
+      carries split, while Discover keeps showing it in expanded rows.
+    - Remove screen-local `recipient_name`/`split` field checks from
+      Library and Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+89. Discover JSON-tree scalar display
+    - Add `TrackMetadataGridVm::json_tree_scalar_label()` so Discover
+      expanded JSON leaves, including `null`, are metadata-grid-owned.
+    - Remove screen-local JSON scalar match arms from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+90. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1459,6 +1480,36 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks the screen-local blank-line
   fallback from returning.
 
+## Eighty-Sixth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::logical_field()` now carries raw MusicIndex
+  TXXX logical-field aliases for Contributors and Value Routes.
+- `src/library.rs` still passes field context into metadata rendering,
+  but no longer owns the alias table.
+- The architecture guard now blocks the screen-local logical-field
+  helper and alias literals from returning.
+
+## Eighty-Seventh-Slice Implementation Notes
+
+- `ValueRouteFieldContext` and
+  `TrackMetadataGridVm::value_route_child_field_is_visible()` now carry
+  Library/Discover Value Routes child-field visibility policy.
+- Library keeps hiding `split` because its collapsed route label already
+  includes that suffix; Discover still shows `split` as an expanded
+  child row.
+- The architecture guard now blocks screen-local child-field skip checks
+  from returning.
+
+## Eighty-Eighth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::json_tree_scalar_label()` now carries Discover
+  expanded JSON-tree scalar labels, including the explicit `null`
+  display.
+- `src/search.rs` still renders JSON tree shape and indentation, but no
+  longer owns scalar label conversion.
+- The architecture guard now blocks screen-local JSON scalar match arms
+  from returning.
+
 ## Test Commands
 
 ```sh
@@ -1482,6 +1533,9 @@ cargo test value_routes_summary_counts_routes_and_owns_fallback_policy
 cargo test expandable_cell_summary_owns_context_fallbacks
 cargo test artwork_url_and_summary_preserve_legacy_http_policy
 cargo test transcript_line_display_preserves_blank_visual_rows
+cargo test logical_field_maps_raw_musicindex_txxx_fields
+cargo test value_route_child_field_visibility_preserves_screen_contexts
+cargo test json_tree_scalar_label_preserves_raw_json_leaf_display
 cargo test group_heading_label_appends_unused_count_only_when_present
 cargo test value_route_item_label_appends_split_when_present
 cargo test value_route_split_label_formats_percent_and_ignores_empty_values

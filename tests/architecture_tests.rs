@@ -2176,6 +2176,41 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "fn metadata_logical_field(",
+            "Library raw metadata logical-field aliases belong in TrackMetadataGridVm::logical_field",
+        ),
+        (
+            "src/library.rs",
+            "\"TXXX:MusicIndex Contributors\" => \"Contributors\"",
+            "Library raw contributor metadata alias belongs in TrackMetadataGridVm::logical_field",
+        ),
+        (
+            "src/library.rs",
+            "\"TXXX:MusicIndex Value Routes\" => \"Value Routes\"",
+            "Library raw Value Routes metadata alias belongs in TrackMetadataGridVm::logical_field",
+        ),
+        (
+            "src/library.rs",
+            "matches!(key.as_str(), \"recipient_name\" | \"split\")",
+            "Library Value Routes child-field visibility belongs in TrackMetadataGridVm::value_route_child_field_is_visible",
+        ),
+        (
+            "src/search.rs",
+            "if key == \"recipient_name\"",
+            "Discover Value Routes child-field visibility belongs in TrackMetadataGridVm::value_route_child_field_is_visible",
+        ),
+        (
+            "src/search.rs",
+            "serde_json::Value::String(s) => s.clone()",
+            "Discover JSON-tree scalar display belongs in TrackMetadataGridVm::json_tree_scalar_label",
+        ),
+        (
+            "src/search.rs",
+            "serde_json::Value::Null => \"null\".into()",
+            "Discover JSON-tree null display belongs in TrackMetadataGridVm::json_tree_scalar_label",
+        ),
+        (
+            "src/library.rs",
             "format!(\"{} ({} unused)\", group.label, group.unused_count)",
             "metadata group heading fallback belongs in TrackMetadataGridVm::group_heading_label",
         ),
