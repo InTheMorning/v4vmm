@@ -140,7 +140,7 @@ fn render_discover_track_row(
     let vm = TrackVm::new(track);
     let guid = vm.guid();
     let title = vm.title();
-    let audio_url = vm.play_url();
+    let audio_display = vm.play_audio_display();
     let play_button_id = SharedString::from(format!("track-row-play:{guid}"));
     let guid_for_click = guid.clone();
     let title_for_click = title.clone();
@@ -152,7 +152,7 @@ fn render_discover_track_row(
         render_track_download_button(track.clone(), feed, is_downloaded, is_in_flight, cx)
             .into_any_element();
     let play_btn =
-        render_play_icon_button_with_id(play_button_id, audio_url, cx).into_any_element();
+        render_play_icon_button_with_id(play_button_id, audio_display, cx).into_any_element();
     let mut actions = vec![download_btn];
 
     if let Some(ref fguid) = feed_guid_owned {

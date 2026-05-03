@@ -152,7 +152,13 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `"[N items]"` and Discover `"[N lines]"`
       summary formatting from metadata cell summary helpers.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-16. Migrate one remaining fallback at a time, smallest blast radius first.
+16. Discover track play-audio action display
+    - Add `TrackVm::play_audio_display()` so play-audio URL, tooltip,
+      and disabled state are projected together by the track VM.
+    - Remove the screen-local `"No audio URL"` tooltip fallback from
+      Discover's play-audio button.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+17. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -336,6 +342,17 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local Value Routes summary
   count and multiline fallback formatting from returning.
 
+## Fifteenth-Slice Implementation Notes
+
+- `TrackVm::play_audio_display()` now carries the Discover track
+  play-audio action URL, tooltip, and disabled state as one GPUI-free
+  display contract.
+- The play button renderer receives `TrackPlayAudioDisplay` instead of
+  a raw optional URL, so the `"No audio URL"` fallback no longer lives
+  in `src/search.rs`.
+- The architecture guard now blocks that screen-local play-audio
+  tooltip fallback from returning to Discover.
+
 ## Test Commands
 
 ```sh
@@ -354,6 +371,7 @@ cargo test id3_drag_frame_preserves_empty_vs_missing_display
 cargo test id3_frame_label_preserves_empty_vs_missing_display
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized
 cargo test value_routes_summary_counts_routes_and_owns_fallback_policy
+cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback
 cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test

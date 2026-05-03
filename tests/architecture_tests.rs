@@ -2109,6 +2109,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata value-route multiline fallback belongs in TrackMetadataGridVm::value_routes_summary",
         ),
         (
+            "src/search.rs",
+            "\"No audio URL\"",
+            "track play-audio tooltip fallback belongs in TrackVm::play_audio_display",
+        ),
+        (
+            "src/search.rs",
+            "url.clone().unwrap_or_else(|| \"No audio URL\".into())",
+            "track play-audio tooltip fallback belongs in TrackVm::play_audio_display",
+        ),
+        (
             "src/library.rs",
             "row.musicbrainz_value.as_deref().unwrap_or(\"\")",
             "metadata MusicBrainz cell value fallback belongs in TrackMetadataGridVm::musicbrainz_cell_value",

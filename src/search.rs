@@ -82,7 +82,7 @@ use crate::view_models::search::{
     SearchSubscriptionCommand, SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm,
     TrackRowActionVm,
 };
-use crate::view_models::track::TrackVm;
+use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{TrackMetadataGridVm, ValueRoutesSummaryFallback};
 use crate::views::{ContributorView, FeedRef, TrackView};
@@ -2641,9 +2641,9 @@ fn render_discover_track_inspector(
     let detail_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover);
     let header_vm = TrackInspectorHeaderVm::new(track);
     let feed_link = header_vm.feed_link_display();
-    let audio_url = vm.play_url();
+    let audio_display = vm.play_audio_display();
     let mut external_links = vec![TrackSurfaceElement::from_element(
-        render_track_header_subtitle(feed_link, audio_url, cx),
+        render_track_header_subtitle(feed_link, audio_display, cx),
     )];
     external_links.extend(track::render_track_identity_actions(
         &detail_vm,
@@ -4522,11 +4522,10 @@ fn render_nostr_icon_button(
 
 pub(crate) fn render_play_icon_button_with_id(
     id: SharedString,
-    url: Option<String>,
+    display: TrackPlayAudioDisplay,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let tooltip = url.clone().unwrap_or_else(|| "No audio URL".into());
-    let click_url = url.clone();
+    let click_url = display.url.clone();
 
     // CONTROL-COMPAT(reason): native Button does not yet expose tooltip plus fixed square icon-button geometry.
     Button::new(id)
@@ -4542,8 +4541,8 @@ pub(crate) fn render_play_icon_button_with_id(
         .rounded(radius::SM)
         .border_1()
         .border_color(color::accent())
-        .tooltip(tooltip)
-        .disabled(url.is_none())
+        .tooltip(display.tooltip)
+        .disabled(display.disabled)
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
             if let Some(url) = &click_url {
                 let _ = open::that(url);
@@ -4669,7 +4668,7 @@ pub(crate) fn render_feed_list_section(
 
 fn render_track_header_subtitle(
     feed_link: Option<TrackFeedLinkDisplay>,
-    audio_url: Option<String>,
+    audio_display: TrackPlayAudioDisplay,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     div()
@@ -4683,7 +4682,7 @@ fn render_track_header_subtitle(
         })
         .child(render_play_icon_button_with_id(
             SharedString::from("track-play-audio"),
-            audio_url,
+            audio_display,
             cx,
         ))
         .into_any_element()

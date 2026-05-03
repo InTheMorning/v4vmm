@@ -21,6 +21,14 @@ pub struct TrackVm<'a> {
     track: &'a Track,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use]
+pub struct TrackPlayAudioDisplay {
+    pub url: Option<String>,
+    pub tooltip: String,
+    pub disabled: bool,
+}
+
 impl<'a> TrackVm<'a> {
     #[must_use]
     pub fn new(track: &'a Track) -> Self {
@@ -116,6 +124,17 @@ impl<'a> TrackVm<'a> {
                     .as_deref()
                     .and_then(first_source_enclosure_url)
             })
+    }
+
+    pub fn play_audio_display(&self) -> TrackPlayAudioDisplay {
+        let url = self.play_url();
+        let tooltip = url.clone().unwrap_or_else(|| "No audio URL".into());
+        let disabled = url.is_none();
+        TrackPlayAudioDisplay {
+            url,
+            tooltip,
+            disabled,
+        }
     }
 }
 
@@ -284,6 +303,29 @@ mod tests {
         assert_eq!(
             TrackVm::new(&t).play_url().as_deref(),
             Some("https://e/x.mp3")
+        );
+    }
+
+    #[test]
+    fn play_audio_display_uses_url_tooltip_else_missing_audio_fallback() {
+        let mut playable = track();
+        playable.enclosure_url = Some(" https://e/x.mp3 ".into());
+        assert_eq!(
+            TrackVm::new(&playable).play_audio_display(),
+            TrackPlayAudioDisplay {
+                url: Some("https://e/x.mp3".into()),
+                tooltip: "https://e/x.mp3".into(),
+                disabled: false,
+            }
+        );
+
+        assert_eq!(
+            TrackVm::new(&track()).play_audio_display(),
+            TrackPlayAudioDisplay {
+                url: None,
+                tooltip: "No audio URL".into(),
+                disabled: true,
+            }
         );
     }
 
