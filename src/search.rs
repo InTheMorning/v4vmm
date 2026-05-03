@@ -3194,16 +3194,21 @@ fn metadata_rss_cell(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let value = TrackMetadataGridVm::rss_cell_value(row.rss_value.as_deref());
-    let display_value = display_metadata_value(&row.field, value);
-    let source_role = source_cell_role(pending, MetadataColumn::Rss, row.rss_value.as_deref());
+    let base_display = display_metadata_value(&row.field, value);
+    let source_role = pending.and_then(|edit| {
+        TrackMetadataGridVm::pending_source_role(
+            edit.source,
+            &edit.value,
+            MetadataColumn::Rss,
+            row.rss_value.as_deref(),
+        )
+        .map(ProvenanceRole::from)
+    });
     let value_color = source_role
         .map(|role| role.color(cx))
         .unwrap_or_else(color::text_primary);
-    let display_value = if let Some(role) = source_role {
-        display_with_glyph(role.glyph(), &display_value)
-    } else {
-        display_value
-    };
+    let glyph = source_role.map(ProvenanceRole::glyph);
+    let display_value = TrackMetadataGridVm::display_with_glyph(glyph, &base_display);
     let expandable = metadata_field_is_expandable(&row.field) && !value.is_empty();
     let value_element = if expandable {
         expandable_cell(
@@ -3349,25 +3354,25 @@ fn metadata_musicbrainz_cell(
     pending: Option<&PendingId3Edit>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let source_role = source_cell_role(
-        pending,
-        MetadataColumn::MusicBrainz,
-        row.musicbrainz_value.as_deref(),
-    );
+    let source_role = pending.and_then(|edit| {
+        TrackMetadataGridVm::pending_source_role(
+            edit.source,
+            &edit.value,
+            MetadataColumn::MusicBrainz,
+            row.musicbrainz_value.as_deref(),
+        )
+        .map(ProvenanceRole::from)
+    });
     let musicbrainz_color = source_role
         .map(|role| role.color(cx))
         .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status, cx));
     let glyph = source_role.map_or_else(
-        || comparison_status_glyph(&row.musicbrainz_status),
-        ProvenanceRole::glyph,
+        || TrackMetadataGridVm::comparison_glyph(&row.musicbrainz_status),
+        |role| Some(role.glyph()),
     );
     let value = TrackMetadataGridVm::musicbrainz_cell_value(row.musicbrainz_value.as_deref());
     let display_value = display_metadata_value(&row.field, value);
-    let display_value = if !glyph.is_empty() {
-        display_with_glyph(glyph, &display_value)
-    } else {
-        display_value
-    };
+    let display_value = TrackMetadataGridVm::display_with_glyph(glyph, &display_value);
     let cell = div().pl(spacing::MD).min_w_0().child(compare_tag_cell(
         &display_value,
         Some(musicbrainz_color),
@@ -3418,23 +3423,6 @@ fn metadata_drag_value(
 fn pending_source_color(source: MetadataColumn, cx: &mut Context<SearchApp>) -> gpui::Rgba {
     match source {
         MetadataColumn::Rss | MetadataColumn::MusicBrainz => ProvenanceRole::Match.color(cx),
-    }
-}
-
-fn source_cell_role(
-    pending: Option<&PendingId3Edit>,
-    column: MetadataColumn,
-    cell_value: Option<&str>,
-) -> Option<ProvenanceRole> {
-    let edit = pending?;
-    if edit.source != column {
-        return None;
-    }
-    let cell_value = cell_value.map(str::trim).filter(|v| !v.is_empty())?;
-    if cell_value == edit.value.trim() {
-        Some(ProvenanceRole::Match)
-    } else {
-        Some(ProvenanceRole::Different)
     }
 }
 
@@ -4342,37 +4330,31 @@ fn format_track_slash_total(track: Option<&str>, total: Option<&str>) -> Option<
 }
 
 fn comparison_status_color(status: &ComparisonStatus, cx: &mut Context<SearchApp>) -> gpui::Rgba {
-    comparison_status_role(status).map_or_else(color::text_muted, |role| role.color(cx))
-}
-
-fn comparison_status_glyph(status: &ComparisonStatus) -> &'static str {
-    comparison_status_role(status).map_or("", ProvenanceRole::glyph)
-}
-
-fn comparison_status_role(status: &ComparisonStatus) -> Option<ProvenanceRole> {
-    match status {
-        ComparisonStatus::Match => Some(ProvenanceRole::Match),
-        ComparisonStatus::Different => Some(ProvenanceRole::Different),
-        ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => {
-            Some(ProvenanceRole::Missing)
-        }
-        ComparisonStatus::MissingBoth => None,
-    }
-}
-
-fn display_with_glyph(glyph: &str, value: &str) -> String {
-    if glyph.is_empty() {
-        value.to_string()
-    } else {
-        format!("{} {}", glyph, value)
-    }
+    TrackMetadataGridVm::comparison_role(status)
+        .map(ProvenanceRole::from)
+        .map_or_else(color::text_muted, |role| role.color(cx))
 }
 
 fn id3_cell_status_color(row: &AlignedCompareRow, cx: &mut Context<SearchApp>) -> gpui::Rgba {
-    if row.id3_value.is_some() && row.rss_value.is_none() && row.musicbrainz_value.is_none() {
-        return color::text_primary();
-    }
-    comparison_status_color(&row.id3_status, cx)
+    let fallback_color = || {
+        if TrackMetadataGridVm::id3_status_uses_primary_fallback(
+            row.id3_value.as_deref(),
+            row.rss_value.as_deref(),
+            row.musicbrainz_value.as_deref(),
+        ) {
+            color::text_primary()
+        } else {
+            color::text_muted()
+        }
+    };
+    TrackMetadataGridVm::id3_status_role(
+        row.id3_value.as_deref(),
+        row.rss_value.as_deref(),
+        row.musicbrainz_value.as_deref(),
+        &row.id3_status,
+    )
+    .map(ProvenanceRole::from)
+    .map_or_else(fallback_color, |role| role.color(cx))
 }
 
 pub(crate) fn render_track_list_rows(

@@ -9,7 +9,8 @@
 
 use std::collections::BTreeSet;
 
-use crate::metadata::summarize_contributor_value;
+use crate::metadata::{summarize_contributor_value, MetadataColumn};
+use crate::track_compare::ComparisonStatus;
 
 #[derive(Clone, Debug, PartialEq)]
 #[must_use]
@@ -34,6 +35,24 @@ pub struct TrackMetadataGridExpansion {
 pub enum ValueRoutesSummaryFallback {
     DisplayValue,
     MultilineCount,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrackMetadataComparisonRole {
+    Match,
+    Different,
+    Missing,
+}
+
+impl TrackMetadataComparisonRole {
+    #[must_use]
+    pub const fn glyph(self) -> &'static str {
+        match self {
+            Self::Match => "=",
+            Self::Different => "\u{2260}",
+            Self::Missing => "\u{2205}",
+        }
+    }
 }
 
 impl TrackMetadataGridVm {
@@ -79,6 +98,78 @@ impl TrackMetadataGridVm {
     #[must_use]
     pub fn musicbrainz_cell_value(value: Option<&str>) -> &str {
         value.unwrap_or("")
+    }
+
+    #[must_use]
+    pub const fn comparison_role(status: &ComparisonStatus) -> Option<TrackMetadataComparisonRole> {
+        match status {
+            ComparisonStatus::Match => Some(TrackMetadataComparisonRole::Match),
+            ComparisonStatus::Different => Some(TrackMetadataComparisonRole::Different),
+            ComparisonStatus::MissingSource | ComparisonStatus::MissingTag => {
+                Some(TrackMetadataComparisonRole::Missing)
+            }
+            ComparisonStatus::MissingBoth => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn comparison_glyph(status: &ComparisonStatus) -> Option<&'static str> {
+        match Self::comparison_role(status) {
+            Some(role) => Some(role.glyph()),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub fn pending_source_role(
+        pending_source: MetadataColumn,
+        pending_value: &str,
+        column: MetadataColumn,
+        cell_value: Option<&str>,
+    ) -> Option<TrackMetadataComparisonRole> {
+        if pending_source != column {
+            return None;
+        }
+        let cell_value = cell_value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?;
+        if cell_value == pending_value.trim() {
+            Some(TrackMetadataComparisonRole::Match)
+        } else {
+            Some(TrackMetadataComparisonRole::Different)
+        }
+    }
+
+    #[must_use]
+    pub const fn id3_status_role(
+        id3_value: Option<&str>,
+        rss_value: Option<&str>,
+        musicbrainz_value: Option<&str>,
+        status: &ComparisonStatus,
+    ) -> Option<TrackMetadataComparisonRole> {
+        if Self::id3_status_uses_primary_fallback(id3_value, rss_value, musicbrainz_value) {
+            None
+        } else {
+            Self::comparison_role(status)
+        }
+    }
+
+    #[must_use]
+    pub const fn id3_status_uses_primary_fallback(
+        id3_value: Option<&str>,
+        rss_value: Option<&str>,
+        musicbrainz_value: Option<&str>,
+    ) -> bool {
+        id3_value.is_some() && rss_value.is_none() && musicbrainz_value.is_none()
+    }
+
+    #[must_use]
+    pub fn display_with_glyph(glyph: Option<&str>, value: &str) -> String {
+        match glyph {
+            Some(glyph) if !value.is_empty() => format!("{glyph} {value}"),
+            Some(glyph) => glyph.to_string(),
+            None => value.to_string(),
+        }
     }
 
     #[must_use]
@@ -327,6 +418,115 @@ mod tests {
         );
         assert_eq!(TrackMetadataGridVm::musicbrainz_cell_value(Some("")), "");
         assert_eq!(TrackMetadataGridVm::musicbrainz_cell_value(None), "");
+    }
+
+    #[test]
+    fn comparison_role_maps_compare_statuses() {
+        assert_eq!(
+            TrackMetadataGridVm::comparison_role(&ComparisonStatus::Match),
+            Some(TrackMetadataComparisonRole::Match)
+        );
+        assert_eq!(
+            TrackMetadataGridVm::comparison_role(&ComparisonStatus::Different),
+            Some(TrackMetadataComparisonRole::Different)
+        );
+        assert_eq!(
+            TrackMetadataGridVm::comparison_role(&ComparisonStatus::MissingSource),
+            Some(TrackMetadataComparisonRole::Missing)
+        );
+        assert_eq!(
+            TrackMetadataGridVm::comparison_role(&ComparisonStatus::MissingTag),
+            Some(TrackMetadataComparisonRole::Missing)
+        );
+        assert_eq!(
+            TrackMetadataGridVm::comparison_role(&ComparisonStatus::MissingBoth),
+            None
+        );
+    }
+
+    #[test]
+    fn display_with_glyph_preserves_empty_values() {
+        assert_eq!(
+            TrackMetadataGridVm::display_with_glyph(Some("="), "Title"),
+            "= Title"
+        );
+        assert_eq!(TrackMetadataGridVm::display_with_glyph(Some("="), ""), "=");
+        assert_eq!(
+            TrackMetadataGridVm::display_with_glyph(None, "Title"),
+            "Title"
+        );
+        assert_eq!(TrackMetadataGridVm::display_with_glyph(None, ""), "");
+    }
+
+    #[test]
+    fn pending_source_role_compares_trimmed_values() {
+        assert_eq!(
+            TrackMetadataGridVm::pending_source_role(
+                MetadataColumn::Rss,
+                " Title ",
+                MetadataColumn::Rss,
+                Some("Title"),
+            ),
+            Some(TrackMetadataComparisonRole::Match)
+        );
+        assert_eq!(
+            TrackMetadataGridVm::pending_source_role(
+                MetadataColumn::Rss,
+                "New Title",
+                MetadataColumn::Rss,
+                Some("Old Title"),
+            ),
+            Some(TrackMetadataComparisonRole::Different)
+        );
+        assert_eq!(
+            TrackMetadataGridVm::pending_source_role(
+                MetadataColumn::Rss,
+                "Title",
+                MetadataColumn::MusicBrainz,
+                Some("Title"),
+            ),
+            None
+        );
+        assert_eq!(
+            TrackMetadataGridVm::pending_source_role(
+                MetadataColumn::Rss,
+                "Title",
+                MetadataColumn::Rss,
+                Some("  "),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn id3_status_role_suppresses_standalone_id3_values() {
+        assert_eq!(
+            TrackMetadataGridVm::id3_status_role(
+                Some("Embedded"),
+                None,
+                None,
+                &ComparisonStatus::MissingSource,
+            ),
+            None
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_status_role(
+                Some("Embedded"),
+                Some("RSS"),
+                None,
+                &ComparisonStatus::Different,
+            ),
+            Some(TrackMetadataComparisonRole::Different)
+        );
+        assert_eq!(
+            TrackMetadataGridVm::id3_status_role(
+                None,
+                Some("RSS"),
+                None,
+                &ComparisonStatus::MissingTag,
+            ),
+            Some(TrackMetadataComparisonRole::Missing)
+        );
     }
 
     #[test]

@@ -194,7 +194,28 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `guid` cloning for the feed-link tooltip from
       Discover.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-22. Migrate one remaining fallback at a time, smallest blast radius first.
+22. Metadata comparison role/glyph display
+    - Add `TrackMetadataGridVm::comparison_role()`,
+      `TrackMetadataGridVm::comparison_glyph()`, and
+      `TrackMetadataGridVm::display_with_glyph()` so comparison status
+      roles and glyph-prefix formatting are normalized by the
+      metadata-grid VM.
+    - Remove duplicated screen-local comparison role/glyph helpers from
+      Library and Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+23. Metadata pending-source role display
+    - Add `TrackMetadataGridVm::pending_source_role()` so staged ID3
+      copy previews decide match/different state in the metadata-grid
+      VM.
+    - Remove duplicated Library/Discover pending-source role helpers.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+24. Metadata standalone-ID3 status display
+    - Add `TrackMetadataGridVm::id3_status_role()` and
+      `TrackMetadataGridVm::id3_status_uses_primary_fallback()` so the
+      standalone ID3 primary-color exception is a named VM policy.
+    - Remove duplicated Library/Discover raw standalone-ID3 checks.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+25. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -446,6 +467,39 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local guid cloning for the
   feed-link tooltip from returning.
 
+## Twenty-First-Slice Implementation Notes
+
+- `TrackMetadataGridVm::comparison_role()` now carries metadata
+  comparison status roles, and `TrackMetadataGridVm::comparison_glyph()`
+  carries their glyph display.
+- `TrackMetadataGridVm::display_with_glyph()` now owns glyph-prefix
+  formatting for metadata cell values.
+- `src/library.rs` and `src/search.rs` no longer carry duplicated
+  `comparison_status_role()`, `comparison_status_glyph()`, or
+  `display_with_glyph()` helpers.
+- The architecture guard now blocks screen-local metadata comparison
+  role, glyph, and glyph-prefix formatting from returning.
+
+## Twenty-Second-Slice Implementation Notes
+
+- `TrackMetadataGridVm::pending_source_role()` now carries the staged
+  ID3 copy preview role, including source-column matching, trimmed
+  value comparison, and empty-value suppression.
+- `src/library.rs` and `src/search.rs` no longer carry duplicated
+  pending-source/source-cell role helpers.
+- The architecture guard now blocks screen-local pending-source role
+  display from returning.
+
+## Twenty-Third-Slice Implementation Notes
+
+- `TrackMetadataGridVm::id3_status_role()` now carries ID3 comparison
+  status role projection for metadata-grid cells.
+- `TrackMetadataGridVm::id3_status_uses_primary_fallback()` now names
+  the existing standalone-ID3 primary-color exception, preserving the
+  old visual distinction without raw renderer conditionals.
+- The architecture guard now blocks duplicated standalone-ID3 status
+  fallback checks from returning to Library or Discover.
+
 ## Test Commands
 
 ```sh
@@ -472,6 +526,10 @@ cargo test value_route_field_value_label_trims_and_suppresses_empty_values
 cargo test track_inspector_header_vm_projects_feed_link_display_contract
 cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback
 cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display
+cargo test comparison_role_maps_compare_statuses
+cargo test display_with_glyph_preserves_empty_values
+cargo test pending_source_role_compares_trimmed_values
+cargo test id3_status_role_suppresses_standalone_id3_values
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

@@ -2179,6 +2179,56 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "row.musicbrainz_value.as_deref().unwrap_or(\"\")",
             "metadata MusicBrainz cell value fallback belongs in TrackMetadataGridVm::musicbrainz_cell_value",
         ),
+        (
+            "src/library.rs",
+            "fn comparison_status_role(",
+            "metadata comparison role display belongs in TrackMetadataGridVm::comparison_role",
+        ),
+        (
+            "src/search.rs",
+            "fn comparison_status_role(",
+            "metadata comparison role display belongs in TrackMetadataGridVm::comparison_role",
+        ),
+        (
+            "src/library.rs",
+            "fn comparison_status_glyph(",
+            "metadata comparison glyph display belongs in TrackMetadataGridVm::comparison_glyph",
+        ),
+        (
+            "src/search.rs",
+            "fn comparison_status_glyph(",
+            "metadata comparison glyph display belongs in TrackMetadataGridVm::comparison_glyph",
+        ),
+        (
+            "src/library.rs",
+            "fn display_with_glyph(",
+            "metadata glyph-prefix display belongs in TrackMetadataGridVm::display_with_glyph",
+        ),
+        (
+            "src/search.rs",
+            "fn display_with_glyph(",
+            "metadata glyph-prefix display belongs in TrackMetadataGridVm::display_with_glyph",
+        ),
+        (
+            "src/library.rs",
+            "fn pending_source_role(",
+            "metadata pending-source role display belongs in TrackMetadataGridVm::pending_source_role",
+        ),
+        (
+            "src/search.rs",
+            "fn source_cell_role(",
+            "metadata pending-source role display belongs in TrackMetadataGridVm::pending_source_role",
+        ),
+        (
+            "src/library.rs",
+            "row.id3_value.is_some() && row.rss_value.is_none() && row.musicbrainz_value.is_none()",
+            "metadata standalone-ID3 status fallback belongs in TrackMetadataGridVm::id3_status_role",
+        ),
+        (
+            "src/search.rs",
+            "row.id3_value.is_some() && row.rss_value.is_none() && row.musicbrainz_value.is_none()",
+            "metadata standalone-ID3 status fallback belongs in TrackMetadataGridVm::id3_status_role",
+        ),
     ];
     let mut violations = Vec::new();
 

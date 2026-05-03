@@ -15,6 +15,7 @@ use gpui::{
 use crate::ui::tokens::{
     color, resolve_color, Appearance, FontSize, Radius, SemanticColor, Spacing,
 };
+use crate::view_models::track_metadata_grid::TrackMetadataComparisonRole;
 
 /// Domain entity kinds the badge knows how to color.
 ///
@@ -168,6 +169,16 @@ impl ProvenanceRole {
             Self::Match => "matches",
             Self::Different => "different",
             Self::Missing => "missing",
+        }
+    }
+}
+
+impl From<TrackMetadataComparisonRole> for ProvenanceRole {
+    fn from(role: TrackMetadataComparisonRole) -> Self {
+        match role {
+            TrackMetadataComparisonRole::Match => Self::Match,
+            TrackMetadataComparisonRole::Different => Self::Different,
+            TrackMetadataComparisonRole::Missing => Self::Missing,
         }
     }
 }
