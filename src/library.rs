@@ -72,12 +72,13 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
     Button as UiButton, Image as ImagePrimitive, Label, LoadingMessage, MultilineText,
 };
-use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::tokens::{FontSize, Radius, SemanticColor};
-use crate::ui_entity::{
+use crate::ui::shells::entity::{
     render_contributor_panel, render_feed_identity_actions, render_release_detail_shell,
     ContributorRowSlot, ReleaseDetailBehaviorSlots,
 };
+use crate::ui::shells::track;
+use crate::ui::sizable_bridge::SizableScaled;
+use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::entity_detail::{
     ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone, EntitySurfaceContext,
     MetadataPanelState, ReleaseDetailVm, TrackMetadataActionState,
@@ -3042,7 +3043,7 @@ fn render_track_left_column(
 
     TrackDetailSurface::new(&detail_vm)
         .image(frame.image.clone())
-        .external_links(crate::ui_track::render_track_identity_actions(
+        .external_links(track::render_track_identity_actions(
             &detail_vm,
             "library-track",
         ))

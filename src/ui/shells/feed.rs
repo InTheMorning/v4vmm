@@ -3,10 +3,10 @@ use crate::search::{
     discover_inspector_action_row, render_track_list_rows, InspectorFrame, SearchApp,
 };
 use crate::ui::composites::ReleaseSurfaceElement;
-use crate::ui_context::ViewContext;
-use crate::ui_entity::{
+use crate::ui::shells::entity::{
     render_feed_identity_actions, render_release_detail_shell, ReleaseDetailBehaviorSlots,
 };
+use crate::ui_context::ViewContext;
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::feed::FeedVm;
 use crate::views::FeedView;

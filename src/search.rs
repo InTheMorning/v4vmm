@@ -62,9 +62,10 @@ use crate::ui::primitives::SectionHeader;
 use crate::ui::primitives::{
     Button as UiButton, Image as ImagePrimitive, ImageSize, Label, LoadingMessage, MultilineText,
 };
+use crate::ui::shells::entity::{render_contributor_rows, ContributorRowSlot};
+use crate::ui::shells::{artist, feed, track};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
-use crate::ui_entity::{render_contributor_rows, ContributorRowSlot};
 use crate::view_models::entity_detail::{
     ContributorListVm, ContributorRowVm, EntityActionTarget, EntityActionTone,
     EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
@@ -2514,7 +2515,7 @@ fn render_artist_inspector(
     let feed_section = (!artist_context.feeds.is_empty())
         .then(|| render_feed_list_section("Feeds", artist_context.feeds.clone(), app, cx));
 
-    crate::ui_artist::render_artist_view(
+    artist::render_artist_view(
         &view,
         &artist_context.feeds,
         frame.image.clone(),
@@ -2539,7 +2540,7 @@ fn render_discover_feed_inspector(
     }
     panels.push(render_lazy_sections(frame, app, cx));
 
-    crate::ui_feed::render_feed_view(&view, &tracks, &ctx, frame, panels, app, cx)
+    feed::render_feed_view(&view, &tracks, &ctx, frame, panels, app, cx)
 }
 
 fn podroll_section(
@@ -2641,7 +2642,7 @@ fn render_discover_track_inspector(
     let mut external_links = vec![TrackSurfaceElement::from_element(
         render_track_header_subtitle(feed_guid, feed_link_label, feed_url, audio_url, cx),
     )];
-    external_links.extend(crate::ui_track::render_track_identity_actions(
+    external_links.extend(track::render_track_identity_actions(
         &detail_vm,
         "discover-track",
     ));
@@ -4436,7 +4437,7 @@ fn render_track_row(
     playlists: &[db::Playlist],
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    crate::ui_track::render_track_row(
+    track::render_track_row(
         track,
         thumbnail,
         feed,
@@ -4445,7 +4446,7 @@ fn render_track_row(
         feed_guid,
         feed_url,
         playlists,
-        crate::ui_track::TrackRowMode::Discover,
+        track::TrackRowMode::Discover,
         cx,
     )
 }

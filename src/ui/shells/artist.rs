@@ -7,6 +7,7 @@ use crate::views::ArtistView;
 use gpui::{prelude::*, AnyElement};
 use std::sync::Arc;
 
+#[must_use]
 pub fn render_artist_view(
     view: &ArtistView,
     feeds: &[Feed],

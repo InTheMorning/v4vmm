@@ -1,6 +1,6 @@
 //! Shared track inspector pane shell.
 //!
-//! `src/ui_track.rs` currently owns legacy top-level inspector glue during the
+//! `src/ui/shells/track.rs` currently owns legacy top-level inspector glue during the
 //! ADR 0035 migration. This composite owns the reusable track-surface frame;
 //! Task 005 drains the legacy shell once Library and Discover both route
 //! through this pane.

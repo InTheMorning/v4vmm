@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for implementation.
+Implemented with visual-proof caveat - 2026-05-03.
 
 ## Goal
 
@@ -236,6 +236,11 @@ identical. Capture a single before/after pair for Library and Discover
 just to confirm — file under
 `docs/reviews/screenshots/adr-0038-layer-relocation-{library,discover}.png`.
 Light theme is sufficient for this task; dark-theme parity is Task 004.
+
+Implementation note, 2026-05-03: coordinate-driven X11 captures were
+discarded and are not retained in the repository. They do not close the
+visual-proof acceptance criterion. A deterministic/manual Library +
+Discover recapture is still required.
 
 ## Acceptance Criteria
 

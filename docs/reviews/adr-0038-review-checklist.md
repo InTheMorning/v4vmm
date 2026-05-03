@@ -15,8 +15,8 @@
 
 ## Gate Status
 
-Status: Proposed. Task 001 (Layer Relocation) is fully specified and
-should run before any other ADR 0038 work.
+Status: Task 001 implemented on 2026-05-03. Task 002 (Composite
+Display-Contract Audit) is the next ADR 0038 implementation packet.
 
 ## Required Questions For Every UI Change
 
@@ -51,7 +51,7 @@ should run before any other ADR 0038 work.
 
 | # | Task | Status | Required Evidence |
 |---|---|---|---|
-| 1 | Layer Relocation                              | Ready          | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; new guard green; before/after Library + Discover screenshots |
+| 1 | Layer Relocation                              | Implemented with visual-proof caveat | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Visual proof remains open; no provisional screenshot artifacts are retained. |
 | 2 | Composite Display-Contract Audit              | Stub           | Per-composite contract doc, allowlist, new guard, caller migrations |
 | 3 | Library/Search VM Consolidation               | Stub           | VM accessors with present/empty/None tests; screen call-site sweep; new guard |
 | 4 | HIG Dark-Mode Parity Audit                    | Stub           | `style.rs` resolution; light + dark screenshots per surface |
@@ -79,6 +79,19 @@ convention: `docs/reviews/screenshots/adr-0038-{surface}-{theme}.png`.
 | Now-playing bar             | TBD | TBD | TBD | Pending Task 004 |
 | Recent feed tiles           | TBD | TBD | TBD | Pending Task 004 |
 | Search results              | TBD | TBD | TBD | Pending Task 004 |
+
+Task 001 relocation smoke (light theme only, per task packet):
+
+| Surface | Screenshot | Status |
+|---|---|---|
+| Library shell | None retained | Needs deterministic/manual recapture before counting as acceptance evidence |
+| Discover shell | None retained | Needs deterministic/manual recapture before counting as acceptance evidence |
+
+Visual-proof caveat, 2026-05-03: coordinate-driven X11 captures were
+discarded and are not retained in the repository. Automated gates are
+green, but visual acceptance for the relocation remains open until a
+reviewer captures or verifies Library and Discover through a
+deterministic/manual process.
 
 ## Accessibility Coverage Ledger
 

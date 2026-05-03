@@ -4,7 +4,7 @@
 //! the display-ready strings the artist inspector renders. No GPUI
 //! imports, no service calls — see [`super`] for the layer rules.
 //!
-//! The screen (`ui_artist::render_artist_view`) constructs an
+//! The shell (`ui::shells::artist::render_artist_view`) constructs an
 //! [`ArtistVm`] each render and asks it for the title, subtitle, the
 //! formatted track-count label, and the ordered list of detail rows.
 //! Every accessor is `const`-style pure and is unit-tested below.

@@ -6,6 +6,7 @@ pub mod icons;
 pub mod layouts;
 pub mod playlist_popover;
 pub mod primitives;
+pub mod shells;
 pub mod sizable_bridge;
 pub mod style;
 pub mod theme_bridge;

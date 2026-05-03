@@ -305,7 +305,7 @@ const SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES: &[ScreenLocalPlaylistPopoverBasel
 const RENDER_HELPER_DUPLICATION_BASELINES: &[RenderHelperDuplicationBaseline] = &[];
 
 const PLAYLIST_POPOVER_CALLSITE_FILES: &[&str] =
-    &["src/library.rs", "src/search.rs", "src/ui_track.rs"];
+    &["src/library.rs", "src/search.rs", "src/ui/shells/track.rs"];
 
 const RELEASE_PLAYLIST_POPOVER_FORBIDDEN_PATTERNS: &[&str] = &[
     "render_album_track_add_panel",
@@ -345,16 +345,7 @@ const PRESENTATION_GLUE_FILES: &[&str] = &[
     "src/app/tab_bar.rs",
     "src/library.rs",
     "src/search.rs",
-    "src/ui_feed.rs",
-    "src/ui_track.rs",
 ];
-
-/// Top-level shared-UI shell modules. They live alongside screen modules at
-/// `src/*.rs` rather than under `src/ui/` for legacy reasons, but they are
-/// shared GPUI layout — not screen wiring. Adding a new shared top-level
-/// shell requires adding the file here so the ADR 0033 backstop test can
-/// distinguish it from an unclassified screen.
-const KNOWN_SHARED_UI_SHELL_FILES: &[&str] = &["src/ui_artist.rs", "src/ui_entity.rs"];
 
 const SCREEN_LOCAL_FLOATING_CHROME_FORBIDDEN_PATTERNS: &[&str] = &[
     "gpui_component::popover",
@@ -617,7 +608,7 @@ fn entity_detail_projection_does_not_import_api_ui_or_services() {
 
 #[test]
 fn ui_entity_shell_does_not_import_screens_or_services() {
-    let path = manifest_path("src/ui_entity.rs");
+    let path = manifest_path("src/ui/shells/entity.rs");
     let source = read_source(&path);
     let mut violations = Vec::new();
 
@@ -625,7 +616,7 @@ fn ui_entity_shell_does_not_import_screens_or_services() {
         for pattern in UI_ENTITY_FORBIDDEN_PATTERNS {
             if line.contains(pattern) {
                 violations.push(format!(
-                    "src/ui_entity.rs:{line_number}: ADR 0026 UI shell must stay slot-based and avoid screen/service imports; found `{pattern}` in `{line}`"
+                    "src/ui/shells/entity.rs:{line_number}: ADR 0026 UI shell must stay slot-based and avoid screen/service imports; found `{pattern}` in `{line}`"
                 ));
             }
         }
@@ -1323,9 +1314,10 @@ fn screens_do_not_inline_value_route_recipient_label_fallbacks() {
 #[test]
 fn shared_top_level_ui_shells_do_not_import_screen_modules() {
     let forbidden = ["crate::search", "crate::library", "SearchApp", "LibraryApp"];
+    let screen_free_shells = ["src/ui/shells/artist.rs", "src/ui/shells/entity.rs"];
 
     let mut violations = Vec::new();
-    for file in KNOWN_SHARED_UI_SHELL_FILES {
+    for file in screen_free_shells {
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             if let Some(pattern) = forbidden.iter().find(|pattern| line.contains(**pattern)) {
@@ -1757,16 +1749,28 @@ fn release_surface_slots_are_typed() {
             "src/ui/composites/release_detail_surface.rs",
             "pub fn after_section(mut self, child: AnyElement)",
         ),
-        ("src/ui_entity.rs", "pub actions: Vec<AnyElement>"),
-        ("src/ui_entity.rs", "pub popover: Option<AnyElement>"),
-        ("src/ui_entity.rs", "pub primary_actions: Vec<AnyElement>"),
-        ("src/ui_entity.rs", "pub identity_actions: Vec<AnyElement>"),
-        ("src/ui_entity.rs", "pub action_overlays: Vec<AnyElement>"),
+        ("src/ui/shells/entity.rs", "pub actions: Vec<AnyElement>"),
+        ("src/ui/shells/entity.rs", "pub popover: Option<AnyElement>"),
         (
-            "src/ui_entity.rs",
+            "src/ui/shells/entity.rs",
+            "pub primary_actions: Vec<AnyElement>",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "pub identity_actions: Vec<AnyElement>",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "pub action_overlays: Vec<AnyElement>",
+        ),
+        (
+            "src/ui/shells/entity.rs",
             "pub track_rows: Option<Vec<AnyElement>>",
         ),
-        ("src/ui_entity.rs", "pub after_section: Vec<AnyElement>"),
+        (
+            "src/ui/shells/entity.rs",
+            "pub after_section: Vec<AnyElement>",
+        ),
     ];
     let mut violations = Vec::new();
 
@@ -1781,7 +1785,7 @@ fn release_surface_slots_are_typed() {
 
     for file in [
         "src/ui/composites/release_detail_surface.rs",
-        "src/ui_entity.rs",
+        "src/ui/shells/entity.rs",
     ] {
         let source = read_source(&manifest_path(file));
         if !source.contains("ReleaseSurfaceElement") {
@@ -1802,19 +1806,20 @@ fn release_surface_slots_are_typed() {
 fn release_feed_identity_actions_use_shared_renderer() {
     let mut violations = Vec::new();
 
-    for file in ["src/ui_feed.rs", "src/library.rs"] {
+    for file in ["src/ui/shells/feed.rs", "src/library.rs"] {
         let source = read_source(&manifest_path(file));
         if source.contains("IdentityActionKind::Rss") {
             violations.push(format!(
-                "{file}: ADR 0037 feed RSS identity actions must be rendered by `ui_entity::render_feed_identity_actions`"
+                "{file}: ADR 0037 feed RSS identity actions must be rendered by `ui::shells::entity::render_feed_identity_actions`"
             ));
         }
     }
 
-    let ui_entity = read_source(&manifest_path("src/ui_entity.rs"));
+    let ui_entity = read_source(&manifest_path("src/ui/shells/entity.rs"));
     if !ui_entity.contains("fn render_feed_identity_actions") {
         violations.push(
-            "src/ui_entity.rs: ADR 0037 must define `fn render_feed_identity_actions`".to_string(),
+            "src/ui/shells/entity.rs: ADR 0037 must define `fn render_feed_identity_actions`"
+                .to_string(),
         );
     }
 
@@ -1832,7 +1837,7 @@ fn track_identity_links_use_shared_renderer() {
     let search = read_source(&manifest_path("src/search.rs"));
     if search.contains("render_nostr_icon_button(npub, \"track\"") {
         violations.push(
-            "src/search.rs: ADR 0037 track Nostr identity links must be rendered by `ui_track::render_track_identity_actions`"
+            "src/search.rs: ADR 0037 track Nostr identity links must be rendered by `ui::shells::track::render_track_identity_actions`"
                 .to_string(),
         );
     }
@@ -1857,10 +1862,11 @@ fn track_identity_links_use_shared_renderer() {
         );
     }
 
-    let ui_track = read_source(&manifest_path("src/ui_track.rs"));
+    let ui_track = read_source(&manifest_path("src/ui/shells/track.rs"));
     if !ui_track.contains("fn render_track_identity_actions") {
         violations.push(
-            "src/ui_track.rs: ADR 0037 must define `fn render_track_identity_actions`".to_string(),
+            "src/ui/shells/track.rs: ADR 0037 must define `fn render_track_identity_actions`"
+                .to_string(),
         );
     }
 
@@ -1967,7 +1973,7 @@ fn track_surface_consumers_use_track_detail_vm() {
             "TrackDetailVm::new(",
         ),
         (
-            "src/ui_track.rs",
+            "src/ui/shells/track.rs",
             "TrackRow::from_vm(",
             "TrackDetailVm::new(",
         ),
@@ -1999,7 +2005,7 @@ fn release_surface_consumers_use_release_detail_vm() {
             "ReleaseDetailVm::new(",
         ),
         (
-            "src/ui_feed.rs",
+            "src/ui/shells/feed.rs",
             "render_release_detail_shell(",
             "ReleaseDetailVm::new(",
         ),
@@ -2121,8 +2127,7 @@ fn top_level_gpui_modules_are_classified_as_screen_or_shared_ui() {
         }
         let rel = rel_path(&path);
         let classified = SCREEN_FILES.iter().any(|file| *file == rel)
-            || PRESENTATION_GLUE_FILES.iter().any(|file| *file == rel)
-            || KNOWN_SHARED_UI_SHELL_FILES.iter().any(|file| *file == rel);
+            || PRESENTATION_GLUE_FILES.iter().any(|file| *file == rel);
         if !classified {
             unclassified.push(rel);
         }
@@ -2130,8 +2135,36 @@ fn top_level_gpui_modules_are_classified_as_screen_or_shared_ui() {
 
     assert!(
         unclassified.is_empty(),
-        "ADR 0033 backstop: every top-level GPUI-importing module must be classified as a screen, presentation glue, or shared-UI shell. Add the file to `SCREEN_FILES`, `PRESENTATION_GLUE_FILES`, or `KNOWN_SHARED_UI_SHELL_FILES` in tests/architecture_tests.rs in the same change that introduces it. Unclassified files:\n{}",
+        "ADR 0033 backstop: every top-level GPUI-importing module must be classified as a screen or presentation glue. Shared shells belong under src/ui/shells/. Unclassified files:\n{}",
         unclassified.join("\n")
+    );
+}
+
+#[test]
+fn top_level_shells_live_under_src_ui_shells() {
+    let manifest = manifest_path("src");
+    let entries = fs::read_dir(&manifest)
+        .unwrap_or_else(|err| panic!("read {}: {err}", manifest.display()))
+        .filter_map(Result::ok);
+    let mut violations = Vec::new();
+
+    for entry in entries {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == "ui_context.rs" {
+            continue;
+        }
+        if name.starts_with("ui_") && name.ends_with(".rs") {
+            violations.push(format!(
+                "{name}: top-level shell modules must live under src/ui/shells/, not src/"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0038 layer relocation violations:\n{}",
+        violations.join("\n")
     );
 }
 
