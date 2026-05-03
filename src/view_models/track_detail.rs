@@ -550,6 +550,25 @@ mod tests {
     }
 
     #[test]
+    fn track_detail_identity_action_display_projects_ids() {
+        let track = track_with_identity();
+        let actions =
+            TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover).identity_actions();
+
+        assert_eq!(
+            actions
+                .iter()
+                .filter_map(|action| action.identity_display("discover-track"))
+                .map(|display| display.id)
+                .collect::<Vec<_>>(),
+            vec![
+                "discover-track-website:https://example.test/track".to_string(),
+                "discover-track-nostr:npub1track".to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn track_detail_identity_actions_require_track_target() {
         let mut track = track_with_identity();
         track.id = None;

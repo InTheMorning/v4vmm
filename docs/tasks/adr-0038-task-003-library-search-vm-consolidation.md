@@ -345,7 +345,19 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local metadata group disclosure id formatting from
       `library.rs` and `search.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-46. Migrate remaining fallback batches, smallest blast radius first.
+46. Feed identity action display
+    - Add `EntityActionVm::identity_display()` so feed identity action
+      ids, display kinds, and payloads are VM-owned.
+    - Remove feed identity action id formatting and slug mapping from
+      `ui::shells::entity`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+47. Track identity action display
+    - Reuse `EntityActionVm::identity_display()` so track identity
+      action ids, display kinds, and payloads are VM-owned.
+    - Remove track identity action id formatting and slug mapping from
+      `ui::shells::track`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+48. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -824,6 +836,26 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local metadata group
   disclosure id formatting from returning.
 
+## Forty-Fifth-Slice Implementation Notes
+
+- `EntityActionVm::identity_display()` now carries feed identity action
+  ids, display kinds, and payloads.
+- `ui::shells::entity::render_feed_identity_actions()` still maps VM
+  display kinds to GPUI identity buttons and wires click/copy behavior,
+  but no longer formats action ids or owns slug mapping.
+- The architecture guard now blocks feed identity action id formatting
+  and slug helpers from returning to the entity shell.
+
+## Forty-Sixth-Slice Implementation Notes
+
+- Track identity actions now use the same `EntityActionVm::identity_display()`
+  display contract.
+- `ui::shells::track::render_track_identity_actions()` still maps VM
+  display kinds to GPUI identity buttons and wires click/copy behavior,
+  but no longer formats action ids or owns slug mapping.
+- The architecture guard now blocks track identity action id formatting
+  and slug helpers from returning to the track shell.
+
 ## Test Commands
 
 ```sh
@@ -874,6 +906,8 @@ cargo test album_detail_vm_playlist_display_projects_popover_id_and_label
 cargo test contributor_identity_actions_project_ids_kinds_and_targets
 cargo test contributor_identity_actions_omit_absent_targets
 cargo test contributor_panel_display_projects_surface_chrome
+cargo test identity_action_display_projects_id_kind_and_payload
+cargo test track_detail_identity_action_display_projects_ids
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

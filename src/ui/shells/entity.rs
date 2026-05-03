@@ -22,8 +22,9 @@ use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorListVm, ContributorPersonVm, ContributorRowVm, EntityActionKind, EntitySurfaceKind,
-    ReleaseDetailPageVm, ReleaseHeroVm, ReleasePanelKind, ReleasePanelVm, SharedTrackRowVm,
+    ContributorListVm, ContributorPersonVm, ContributorRowVm, EntitySurfaceKind,
+    IdentityActionDisplayKind, ReleaseDetailPageVm, ReleaseHeroVm, ReleasePanelKind,
+    ReleasePanelVm, SharedTrackRowVm,
 };
 
 type ReleaseTrackRowClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -119,45 +120,29 @@ pub fn render_feed_identity_actions(
     page.identity_actions
         .iter()
         .filter_map(|action| {
-            let payload = action.payload.as_deref()?;
-            let kind = match action.kind {
-                EntityActionKind::OpenWebsite => IdentityActionKind::Website,
-                EntityActionKind::CopyNostr => IdentityActionKind::Nostr,
-                EntityActionKind::OpenRss => IdentityActionKind::Rss,
-                EntityActionKind::Download
-                | EntityActionKind::Remove
-                | EntityActionKind::AddToPlaylist
-                | EntityActionKind::Play
-                | EntityActionKind::CompareMetadata
-                | EntityActionKind::OpenMusicBrainz => return None,
+            let display = action.identity_display(id_prefix)?;
+            let kind = match display.kind {
+                IdentityActionDisplayKind::Website => IdentityActionKind::Website,
+                IdentityActionDisplayKind::Nostr => IdentityActionKind::Nostr,
+                IdentityActionDisplayKind::Rss => IdentityActionKind::Rss,
             };
-            let payload_for_click = payload.to_string();
-            let button = identity_action_button(
-                SharedString::from(format!("{id_prefix}-{}:{payload}", kind_slug(kind))),
-                kind,
-            )
-            .on_click(move |_, _, cx| match kind {
-                IdentityActionKind::Website | IdentityActionKind::Rss => {
-                    let _ = open::that(&payload_for_click);
-                }
-                IdentityActionKind::Nostr => {
-                    cx.write_to_clipboard(ClipboardItem::new_string(payload_for_click.clone()));
-                }
-            });
+            let payload_for_click = display.payload.clone();
+            let button = identity_action_button(SharedString::from(display.id), kind).on_click(
+                move |_, _, cx| match kind {
+                    IdentityActionKind::Website | IdentityActionKind::Rss => {
+                        let _ = open::that(&payload_for_click);
+                    }
+                    IdentityActionKind::Nostr => {
+                        cx.write_to_clipboard(ClipboardItem::new_string(payload_for_click.clone()));
+                    }
+                },
+            );
 
             Some(ReleaseSurfaceElement::from_element(
                 button.into_any_element(),
             ))
         })
         .collect()
-}
-
-const fn kind_slug(kind: IdentityActionKind) -> &'static str {
-    match kind {
-        IdentityActionKind::Website => "website",
-        IdentityActionKind::Nostr => "nostr",
-        IdentityActionKind::Rss => "rss",
-    }
 }
 
 pub fn render_contributor_panel(

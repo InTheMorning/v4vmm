@@ -58,6 +58,31 @@ pub enum EntityActionTone {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IdentityActionDisplayKind {
+    Website,
+    Nostr,
+    Rss,
+}
+
+impl IdentityActionDisplayKind {
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Website => "website",
+            Self::Nostr => "nostr",
+            Self::Rss => "rss",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct IdentityActionDisplay {
+    pub id: String,
+    pub kind: IdentityActionDisplayKind,
+    pub payload: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TrackMembershipState {
     RemoteOnly,
     Downloading,
@@ -434,6 +459,27 @@ impl EntityActionVm {
     pub fn with_payload(mut self, payload: impl Into<String>) -> Self {
         self.payload = Some(payload.into());
         self
+    }
+
+    #[must_use]
+    pub fn identity_display(&self, id_prefix: &str) -> Option<IdentityActionDisplay> {
+        let payload = self.payload.as_ref()?;
+        let kind = match self.kind {
+            EntityActionKind::OpenWebsite => IdentityActionDisplayKind::Website,
+            EntityActionKind::CopyNostr => IdentityActionDisplayKind::Nostr,
+            EntityActionKind::OpenRss => IdentityActionDisplayKind::Rss,
+            EntityActionKind::Download
+            | EntityActionKind::Remove
+            | EntityActionKind::AddToPlaylist
+            | EntityActionKind::Play
+            | EntityActionKind::CompareMetadata
+            | EntityActionKind::OpenMusicBrainz => return None,
+        };
+        Some(IdentityActionDisplay {
+            id: format!("{id_prefix}-{}:{payload}", kind.slug()),
+            kind,
+            payload: payload.clone(),
+        })
     }
 }
 
@@ -1232,6 +1278,53 @@ mod tests {
         assert_eq!(actions[1].kind, EntityActionKind::CopyNostr);
         assert_eq!(actions[2].kind, EntityActionKind::OpenRss);
         assert!(actions.iter().all(|action| action.enabled));
+    }
+
+    #[test]
+    fn identity_action_display_projects_id_kind_and_payload() {
+        let feed = feed_view();
+        let actions =
+            ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).identity_actions();
+
+        assert_eq!(
+            actions
+                .iter()
+                .filter_map(|action| action.identity_display("library-feed"))
+                .collect::<Vec<_>>(),
+            vec![
+                IdentityActionDisplay {
+                    id: "library-feed-website:https://example.test".to_string(),
+                    kind: IdentityActionDisplayKind::Website,
+                    payload: "https://example.test".to_string(),
+                },
+                IdentityActionDisplay {
+                    id: "library-feed-nostr:npub1artist".to_string(),
+                    kind: IdentityActionDisplayKind::Nostr,
+                    payload: "npub1artist".to_string(),
+                },
+                IdentityActionDisplay {
+                    id: "library-feed-rss:https://feeds.example.test/rss.xml".to_string(),
+                    kind: IdentityActionDisplayKind::Rss,
+                    payload: "https://feeds.example.test/rss.xml".to_string(),
+                },
+            ]
+        );
+
+        let download = EntityActionVm::new(
+            EntityActionKind::Download,
+            EntityActionTarget::Feed(FeedRef::Musicindex("feed-guid".into())),
+            "Download",
+            EntityActionTone::Primary,
+        )
+        .with_payload("https://example.test/audio.mp3");
+        assert_eq!(download.identity_display("library-feed"), None);
+        assert_eq!(
+            actions[0]
+                .clone()
+                .disabled()
+                .identity_display("library-feed"),
+            actions[0].identity_display("library-feed")
+        );
     }
 
     #[test]

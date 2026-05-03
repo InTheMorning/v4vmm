@@ -2484,6 +2484,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "format!(\"section:id3-frame-group:{group_key}\")",
             "Discover metadata group disclosure id belongs in TrackMetadataGridVm::group_heading_display",
         ),
+        (
+            "src/ui/shells/entity.rs",
+            "format!(\"{id_prefix}-{}:{payload}\", kind_slug(kind))",
+            "feed identity action id display belongs in EntityActionVm::identity_display",
+        ),
+        (
+            "src/ui/shells/track.rs",
+            "format!(\"{id_prefix}-{}:{payload}\", kind_slug(kind))",
+            "track identity action id display belongs in EntityActionVm::identity_display",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "const fn kind_slug(kind: IdentityActionKind)",
+            "feed identity action slug display belongs in EntityActionVm::identity_display",
+        ),
+        (
+            "src/ui/shells/track.rs",
+            "const fn kind_slug(kind: IdentityActionKind)",
+            "track identity action slug display belongs in EntityActionVm::identity_display",
+        ),
     ];
     let mut violations = Vec::new();
 
