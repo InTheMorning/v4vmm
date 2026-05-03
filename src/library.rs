@@ -63,9 +63,9 @@ use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, ActionRowMessageDisplay,
     ActionRowMessageTone, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
     DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
-    DisclosureGroup, EntityKind, FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel,
-    PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane,
-    StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell,
+    DisclosureGroup, DisclosureGroupDisplay, EntityKind, FileHeader, IdentityActionKind, ListRow,
+    MusicBrainzPanel, PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement,
+    SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell,
     TrackMetadataFieldDisplay, TrackMetadataFrameDisplay, TrackMetadataGrid,
     TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
     TrackMetadataTagCell, TrackMetadataTagDisplay, TrackMetadataTextDisplay,
@@ -3360,11 +3360,14 @@ fn metadata_group_cell(
             columns,
         })
         .disclosure(
-            DisclosureGroup::new(id, label.clone())
-                .collapsed(!expanded)
-                .on_toggle(cx.listener(move |this, _, _, cx| {
-                    this.toggle_id3_frame_group(group_key.clone(), cx);
-                })),
+            DisclosureGroup::new(DisclosureGroupDisplay {
+                id: id.into(),
+                label: SharedString::from(label.clone()),
+            })
+            .collapsed(!expanded)
+            .on_toggle(cx.listener(move |this, _, _, cx| {
+                this.toggle_id3_frame_group(group_key.clone(), cx);
+            })),
         )
         .into_any_element();
     }

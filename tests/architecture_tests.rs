@@ -362,11 +362,6 @@ const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllow
         note: "thin compatibility helper; caller supplies already-approved action label",
     },
     CompositeStringApiAllowance {
-        file: "src/ui/composites/disclosure_group.rs",
-        pattern: "pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>)",
-        note: "generic disclosure shell label, not a fallback policy owner",
-    },
-    CompositeStringApiAllowance {
         file: "src/ui/composites/playlist_popover.rs",
         pattern:
             "pub fn on_create(mut self, handler: impl Fn(&String, &mut Window, &mut App) + 'static)",

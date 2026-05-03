@@ -15,7 +15,10 @@
 //! `cursor_pointer()` themselves.
 //!
 //! ```ignore
-//! DisclosureGroup::new("disco-section", "Recently played")
+//! DisclosureGroup::new(DisclosureGroupDisplay {
+//!     id: "disco-section".into(),
+//!     label: "Recently played".into(),
+//! })
 //!     .collapsed(self.recently_played_collapsed)
 //!     .on_toggle(cx.listener(|this, _, _, cx| {
 //!         this.toggle_recently_played(cx);
@@ -47,11 +50,17 @@ pub struct DisclosureGroup {
     on_toggle: Option<ClickHandler>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisclosureGroupDisplay {
+    pub id: ElementId,
+    pub label: SharedString,
+}
+
 impl DisclosureGroup {
-    pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
+    pub fn new(display: DisclosureGroupDisplay) -> Self {
         Self {
-            id: id.into(),
-            label: label.into(),
+            id: display.id,
+            label: display.label,
             collapsed: false,
             on_toggle: None,
         }
@@ -90,16 +99,22 @@ mod tests {
 
     #[test]
     fn defaults_are_expanded_with_no_handler() {
-        let g = DisclosureGroup::new("d", "Hello");
+        let g = DisclosureGroup::new(DisclosureGroupDisplay {
+            id: "d".into(),
+            label: "Hello".into(),
+        });
         assert!(!g.collapsed);
         assert!(g.on_toggle.is_none());
     }
 
     #[test]
     fn modifiers_set_their_fields() {
-        let g = DisclosureGroup::new("d", "Hello")
-            .collapsed(true)
-            .on_toggle(|_, _, _| {});
+        let g = DisclosureGroup::new(DisclosureGroupDisplay {
+            id: "d".into(),
+            label: "Hello".into(),
+        })
+        .collapsed(true)
+        .on_toggle(|_, _, _| {});
         assert!(g.collapsed);
         assert!(g.on_toggle.is_some());
     }

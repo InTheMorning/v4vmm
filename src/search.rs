@@ -52,10 +52,10 @@ use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, ActionRowMessageDisplay,
     ActionRowMessageTone, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
     DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
-    DisclosureGroup, EntityKind, IdentityActionKind, ListRow, PlaylistOption,
-    PlaylistOptionDisplay, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement, SplitPane,
-    StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane,
-    TrackMetadataGrid, TrackSurfaceElement,
+    DisclosureGroup, DisclosureGroupDisplay, EntityKind, IdentityActionKind, ListRow,
+    PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement,
+    SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackDetailSurface,
+    TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -3078,21 +3078,27 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
 }
 
 fn render_contributors_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
-    DisclosureGroup::new("section:contributors", "Contributors")
-        .collapsed(collapsed)
-        .on_toggle(cx.listener(|this, _, _, cx| {
-            this.toggle_contributors(cx);
-        }))
-        .into_any_element()
+    DisclosureGroup::new(DisclosureGroupDisplay {
+        id: "section:contributors".into(),
+        label: "Contributors".into(),
+    })
+    .collapsed(collapsed)
+    .on_toggle(cx.listener(|this, _, _, cx| {
+        this.toggle_contributors(cx);
+    }))
+    .into_any_element()
 }
 
 fn render_value_routes_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> AnyElement {
-    DisclosureGroup::new("section:value-routes", "Value Routes")
-        .collapsed(collapsed)
-        .on_toggle(cx.listener(|this, _, _, cx| {
-            this.toggle_value_routes(cx);
-        }))
-        .into_any_element()
+    DisclosureGroup::new(DisclosureGroupDisplay {
+        id: "section:value-routes".into(),
+        label: "Value Routes".into(),
+    })
+    .collapsed(collapsed)
+    .on_toggle(cx.listener(|this, _, _, cx| {
+        this.toggle_value_routes(cx);
+    }))
+    .into_any_element()
 }
 
 fn track_metadata_rows_for_frame(
@@ -3457,11 +3463,14 @@ fn metadata_group_cell(
     if let Some(group_key) = group.key {
         let id = SharedString::from(format!("section:id3-frame-group:{group_key}"));
         cell = cell.child(
-            DisclosureGroup::new(id, label.clone())
-                .collapsed(!expanded)
-                .on_toggle(cx.listener(move |this, _, _, cx| {
-                    this.toggle_id3_frame_group(group_key.clone(), cx);
-                })),
+            DisclosureGroup::new(DisclosureGroupDisplay {
+                id: id.into(),
+                label: SharedString::from(label.clone()),
+            })
+            .collapsed(!expanded)
+            .on_toggle(cx.listener(move |this, _, _, cx| {
+                this.toggle_id3_frame_group(group_key.clone(), cx);
+            })),
         );
     } else {
         cell = cell.child(

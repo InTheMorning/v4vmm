@@ -44,7 +44,7 @@ pub use action_button::action_button;
 pub use action_row::{ActionRow, ActionRowMessage, ActionRowMessageDisplay, ActionRowMessageTone};
 pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
 pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};
-pub use disclosure_group::DisclosureGroup;
+pub use disclosure_group::{DisclosureGroup, DisclosureGroupDisplay};
 pub use file_header::FileHeader;
 pub use identity_action::{identity_action_button, IdentityActionKind};
 pub use list_row::{ListRow, ListRowDensity};

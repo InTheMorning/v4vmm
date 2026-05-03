@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first seven slices implemented on 2026-05-03.
+In progress - first eight slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -74,6 +74,8 @@ test allowlist with a one-line justification.
    - Keep only explicit passthrough allowances; no wildcard exceptions.
    - `ActionRow` sub-slice: introduce `ActionRowMessageDisplay` and
      remove the loose neutral/danger message constructors.
+   - `DisclosureGroup` sub-slice: introduce `DisclosureGroupDisplay`
+     and remove the loose id/label constructor allowance.
 
 ## Files Inspected
 
@@ -88,6 +90,7 @@ test allowlist with a one-line justification.
 
 - `src/ui/composites/track_row.rs`
 - `src/ui/composites/action_row.rs`
+- `src/ui/composites/disclosure_group.rs`
 - `src/ui/composites/detail_header.rs`
 - `src/ui/composites/detail_grid.rs`
 - `src/ui/composites/mod.rs`
@@ -202,6 +205,18 @@ test allowlist with a one-line justification.
 - The explicit allowlist shrank by the two former `ActionRowMessage`
   string API allowances.
 
+## Eighth-Slice Implementation Notes
+
+- `DisclosureGroup` now accepts `DisclosureGroupDisplay`, which carries
+  the element id and already-owned disclosure label together.
+- The former loose `DisclosureGroup::new(id, label)` constructor was
+  removed.
+- Library and Discover disclosure headings construct the display contract
+  from existing section labels without changing disclosure layout or
+  toggle behavior.
+- The explicit allowlist shrank by the former `DisclosureGroup`
+  constructor allowance.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -223,6 +238,8 @@ test allowlist with a one-line justification.
   parameters.
 - `ActionRowMessage` public signatures no longer accept neutral or danger
   status text as loose parameters.
+- `DisclosureGroup` public signatures no longer accept section labels as
+  loose constructor parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004
