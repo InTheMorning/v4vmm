@@ -3409,7 +3409,7 @@ fn metadata_drag_value(
     Some(MetadataDragValue {
         row_id: row.row_id.clone(),
         field: row.field.clone(),
-        frame: row.id3_frame.clone().unwrap_or_default(),
+        frame: TrackMetadataGridVm::id3_drag_frame(row.id3_frame.as_deref()),
         target_existing_value: None,
         value,
         source,

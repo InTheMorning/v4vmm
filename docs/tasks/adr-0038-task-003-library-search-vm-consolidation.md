@@ -123,7 +123,14 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `pending.frame -> row.id3_frame` fallback
       from Library and Discover metadata cell renderers.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-12. Migrate one remaining fallback at a time, smallest blast radius first.
+12. Metadata drag frame display
+    - Add `TrackMetadataGridVm::id3_drag_frame()` so missing source
+      frame hints in Discover metadata drag payloads are normalized by
+      the metadata-grid VM.
+    - Remove `row.id3_frame.clone().unwrap_or_default()` from
+      Discover metadata drag payload assembly.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+13. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -264,6 +271,16 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks the screen-local ID3 metadata frame
   fallback from returning to either screen.
 
+## Eleventh-Slice Implementation Notes
+
+- `TrackMetadataGridVm::id3_drag_frame()` now carries the Discover
+  metadata drag payload frame fallback while preserving present-empty
+  frame hints.
+- `src/search.rs` no longer coerces missing `row.id3_frame` to an empty
+  string while assembling metadata drag payloads.
+- The architecture guard now blocks that screen-local drag frame
+  fallback from returning to `src/search.rs`.
+
 ## Test Commands
 
 ```sh
@@ -278,6 +295,7 @@ cargo test tree_number_prefix_preserves_legacy_zero_padded_display
 cargo test rss_cell_value_preserves_empty_vs_missing_display
 cargo test id3_cell_value_prefers_pending_then_preserves_empty_vs_missing_display
 cargo test id3_cell_frame_prefers_pending_then_preserves_empty_vs_missing_display
+cargo test id3_drag_frame_preserves_empty_vs_missing_display
 cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test
