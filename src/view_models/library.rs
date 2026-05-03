@@ -1433,6 +1433,23 @@ pub(crate) struct ArtistFeedSummaryVm {
     pub(crate) track_count: usize,
 }
 
+/// Display contract for a feed summary row in an artist detail panel.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ArtistFeedSummaryDisplay {
+    pub(crate) element_id: String,
+    pub(crate) track_count_label: String,
+}
+
+impl ArtistFeedSummaryVm {
+    #[must_use]
+    pub(crate) fn display(&self) -> ArtistFeedSummaryDisplay {
+        ArtistFeedSummaryDisplay {
+            element_id: format!("artist-feed-{}", self.feed_name),
+            track_count_label: format!("{} track{}", self.track_count, plural(self.track_count)),
+        }
+    }
+}
+
 /// Display-ready projection of a library artist detail panel.
 ///
 /// Borrow-only — constructed fresh each render and dropped before the
@@ -1547,6 +1564,20 @@ pub(crate) struct LibraryAlbumDetailVm<'a> {
     mb_status: &'a BTreeMap<i64, MbTrackStatus>,
 }
 
+/// Display contract for the Library album `MusicBrainz` action.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryAlbumMusicBrainzActionVm {
+    pub(crate) label: &'static str,
+    pub(crate) disabled: bool,
+}
+
+/// Display contract for the Library album playlist popover trigger.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryAlbumPlaylistDisplay {
+    pub(crate) popover_id: String,
+    pub(crate) trigger_label: String,
+}
+
 impl<'a> LibraryAlbumDetailVm<'a> {
     #[must_use]
     pub(crate) fn new(
@@ -1576,6 +1607,23 @@ impl<'a> LibraryAlbumDetailVm<'a> {
     pub(crate) fn playlist_action_vm(&self, feed_id: i64) -> Option<EntityActionVm> {
         self.release_action_state(false, PlaylistActionState::Closed)
             .playlist_action(EntityActionTarget::Feed(FeedRef::LocalFeedId(feed_id)))
+    }
+
+    #[must_use]
+    pub(crate) fn musicbrainz_action_vm(&self) -> LibraryAlbumMusicBrainzActionVm {
+        LibraryAlbumMusicBrainzActionVm {
+            label: "MusicBrainz",
+            disabled: self.has_active_musicbrainz(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_display(&self, feed_id: i64) -> Option<LibraryAlbumPlaylistDisplay> {
+        self.playlist_action_vm(feed_id)
+            .map(|action| LibraryAlbumPlaylistDisplay {
+                popover_id: format!("album-feed-add:{feed_id}"),
+                trigger_label: action.label,
+            })
     }
 
     #[must_use]
@@ -2103,6 +2151,27 @@ mod tests {
     }
 
     #[test]
+    fn artist_feed_summary_display_projects_row_id_and_track_count() {
+        let mut t1 = track_for_feed(1, Some("Real"));
+        let t2 = track_for_feed(1, Some("Real"));
+        let tracks = [t1.clone(), t2];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        let summaries = vm.feed_summaries();
+
+        let display = summaries[0].display();
+
+        assert_eq!(display.element_id, "artist-feed-Real");
+        assert_eq!(display.track_count_label, "2 tracks");
+
+        t1.feed_id = 2;
+        t1.feed_title = Some("Single".into());
+        let tracks = [t1];
+        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
+        let display = vm.feed_summaries()[0].display();
+        assert_eq!(display.track_count_label, "1 track");
+    }
+
+    #[test]
     fn artist_detail_vm_thumb_url_falls_back_to_track_image_href() {
         let mut t = track_for_feed(1, Some("A"));
         t.track_image_href = Some("track-img".into());
@@ -2313,6 +2382,22 @@ mod tests {
         mb.insert(20, MbTrackStatus::Skipped("err".into()));
         let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
         assert!(!vm.has_active_musicbrainz());
+    }
+
+    #[test]
+    fn album_detail_vm_musicbrainz_action_projects_label_and_disabled_state() {
+        let view = feed_view_with(None, None);
+        let mut mb = BTreeMap::new();
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let action = vm.musicbrainz_action_vm();
+        assert_eq!(action.label, "MusicBrainz");
+        assert!(!action.disabled);
+
+        mb.insert(7, MbTrackStatus::Processing);
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let action = vm.musicbrainz_action_vm();
+        assert_eq!(action.label, "MusicBrainz");
+        assert!(action.disabled);
     }
 
     #[test]
@@ -3141,6 +3226,19 @@ mod tests {
             .expect("playlist action should render");
 
         assert_eq!(action.label, "Add feed to playlist ▾");
+    }
+
+    #[test]
+    fn album_detail_vm_playlist_display_projects_popover_id_and_label() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let display = vm
+            .playlist_display(7)
+            .expect("playlist display should render");
+
+        assert_eq!(display.popover_id, "album-feed-add:7");
+        assert_eq!(display.trigger_label, "Add feed to playlist ▾");
     }
 
     #[test]

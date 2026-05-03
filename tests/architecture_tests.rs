@@ -2399,6 +2399,31 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "format!(\"{num}{title}\")",
             "Library tree track title belongs in LibraryTrackRowVm::tree_display",
         ),
+        (
+            "src/library.rs",
+            "format!(\"artist-feed-{}\"",
+            "Library artist feed-summary row id belongs in ArtistFeedSummaryVm::display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"{} tracks\", summary.track_count)",
+            "Library artist feed-summary count label belongs in ArtistFeedSummaryVm::display",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(\"MusicBrainz\")",
+            "Library album MusicBrainz action label belongs in LibraryAlbumDetailVm::musicbrainz_action_vm",
+        ),
+        (
+            "src/library.rs",
+            ".disabled(vm.has_active_musicbrainz())",
+            "Library album MusicBrainz action availability belongs in LibraryAlbumDetailVm::musicbrainz_action_vm",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"album-feed-add:{fid}\")",
+            "Library album playlist popover id belongs in LibraryAlbumDetailVm::playlist_display",
+        ),
     ];
     let mut violations = Vec::new();
 

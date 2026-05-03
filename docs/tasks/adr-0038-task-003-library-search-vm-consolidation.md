@@ -302,7 +302,25 @@ Verified starting notes, 2026-05-03:
       `tree_number_prefix + compact_title` formatting from
       `library.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-39. Migrate remaining fallback batches, smallest blast radius first.
+39. Library artist feed-summary row display
+    - Add `ArtistFeedSummaryVm::display()` so the artist detail feed
+      row id and track-count label are VM-owned.
+    - Remove screen-local artist feed-summary row id and
+      `"{count} tracks"` formatting from `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+40. Library album MusicBrainz action display
+    - Add `LibraryAlbumDetailVm::musicbrainz_action_vm()` so the
+      action label and disabled state are VM-owned.
+    - Remove screen-local `MusicBrainz` action label and active-lookup
+      disabled-state check from `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+41. Library album playlist popover display
+    - Add `LibraryAlbumDetailVm::playlist_display()` so the album
+      playlist popover id and trigger label are VM-owned.
+    - Remove screen-local album playlist popover id formatting from
+      `library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+42. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -716,6 +734,33 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local Library tree track row
   id/title formatting from returning.
 
+## Thirty-Eighth-Slice Implementation Notes
+
+- `ArtistFeedSummaryVm::display()` now carries Library artist-detail
+  feed-summary row id and track-count label display.
+- `src/library.rs` no longer builds `artist-feed-*` row ids or
+  `"{count} tracks"` labels in render glue.
+- The architecture guard now blocks screen-local artist feed-summary row
+  id and count-label formatting from returning.
+
+## Thirty-Ninth-Slice Implementation Notes
+
+- `LibraryAlbumDetailVm::musicbrainz_action_vm()` now carries the
+  Library album `MusicBrainz` action label and disabled state.
+- `src/library.rs` still wires the click handler, but no longer owns the
+  action label or active-lookup availability rule.
+- The architecture guard now blocks screen-local album `MusicBrainz`
+  action label and disabled-state checks from returning.
+
+## Fortieth-Slice Implementation Notes
+
+- `LibraryAlbumDetailVm::playlist_display()` now carries the Library
+  album playlist popover id and trigger label.
+- `src/library.rs` still wires playlist selection/create handlers, but
+  no longer formats the album playlist popover id locally.
+- The architecture guard now blocks screen-local album playlist popover
+  id formatting from returning.
+
 ## Test Commands
 
 ```sh
@@ -759,6 +804,9 @@ cargo test feed_update_display_projects_toolbar_action_labels
 cargo test library_tree_artist_display_projects_row_chrome
 cargo test library_tree_album_display_projects_row_chrome
 cargo test library_tree_track_display_projects_id_and_prefixed_title
+cargo test artist_feed_summary_display_projects_row_id_and_track_count
+cargo test album_detail_vm_musicbrainz_action_projects_label_and_disabled_state
+cargo test album_detail_vm_playlist_display_projects_popover_id_and_label
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

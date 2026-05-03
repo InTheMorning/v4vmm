@@ -2332,6 +2332,7 @@ fn render_library_artist_detail(
         .feed_summaries()
         .into_iter()
         .map(|summary| {
+            let display = summary.display();
             let thumb_image = summary
                 .thumb_url
                 .as_ref()
@@ -2340,10 +2341,7 @@ fn render_library_artist_detail(
             let feed_name_for_click = summary.feed_name.clone();
 
             div()
-                .id(SharedString::from(format!(
-                    "artist-feed-{}",
-                    summary.feed_name
-                )))
+                .id(SharedString::from(display.element_id))
                 .flex()
                 .flex_row()
                 .items_center()
@@ -2381,9 +2379,12 @@ fn render_library_artist_detail(
                                 .truncate()
                                 .child(SharedString::from(summary.feed_name.clone())),
                         )
-                        .child(div().text_xs().text_color(color::text_muted()).child(
-                            SharedString::from(format!("{} tracks", summary.track_count)),
-                        )),
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(color::text_muted())
+                                .child(SharedString::from(display.track_count_label)),
+                        ),
                 )
                 .into_any_element()
         })
@@ -2500,27 +2501,28 @@ fn render_album_detail(
             })),
         );
     }
+    let musicbrainz_action = vm.musicbrainz_action_vm();
     buttons = buttons.child(
         action_button(
             ActionButtonDisplay {
-                label: SharedString::from("MusicBrainz"),
+                label: SharedString::from(musicbrainz_action.label),
             },
             cx,
         )
-        .disabled(vm.has_active_musicbrainz())
+        .disabled(musicbrainz_action.disabled)
         .on_click(cx.listener(move |this, _, _, cx| {
             this.musicbrainz_feed(album_for_mb.clone(), cx);
         })),
     );
     if let Some(fid) = feed_id {
-        let playlist_action = vm
-            .playlist_action_vm(fid)
+        let playlist_display = vm
+            .playlist_display(fid)
             .expect("library feed playlist action should render for local feeds");
         buttons = buttons.child(
             AddToPlaylistPopover::new(AddToPlaylistDisplay {
-                id: SharedString::from(format!("album-feed-add:{fid}")),
+                id: SharedString::from(playlist_display.popover_id),
                 playlists: playlist_options(playlists),
-                trigger_label: SharedString::from(playlist_action.label),
+                trigger_label: SharedString::from(playlist_display.trigger_label),
             })
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_album_to_playlist(fid, *playlist_id, cx);
