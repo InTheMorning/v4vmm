@@ -109,7 +109,14 @@ Verified starting notes, 2026-05-03:
    - Remove screen-local `pending.value -> row.id3_value -> ""`
      fallback from Library and Discover metadata cell renderers.
    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-10. Migrate one remaining fallback at a time, smallest blast radius first.
+10. Metadata MusicBrainz cell value display
+    - Add `TrackMetadataGridVm::musicbrainz_cell_value()` so missing
+      MusicBrainz metadata values are normalized by the metadata-grid
+      VM.
+    - Remove `row.musicbrainz_value.as_deref().unwrap_or("")` from
+      Library and Discover metadata cell renderers.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+11. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -229,6 +236,17 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks the screen-local ID3 metadata value
   fallback from returning to either screen.
 
+## Ninth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::musicbrainz_cell_value()` now carries the
+  metadata-grid MusicBrainz cell missing-value fallback while preserving
+  present-empty values.
+- `src/library.rs` and `src/search.rs` no longer coerce
+  `row.musicbrainz_value.as_deref().unwrap_or("")` in metadata cell
+  renderers.
+- The architecture guard now blocks that screen-local MusicBrainz
+  metadata value fallback from returning to either screen.
+
 ## Test Commands
 
 ```sh
@@ -242,6 +260,7 @@ cargo test recent_feed_tile_vm_projects_id_and_episode_note
 cargo test tree_number_prefix_preserves_legacy_zero_padded_display
 cargo test rss_cell_value_preserves_empty_vs_missing_display
 cargo test id3_cell_value_prefers_pending_then_preserves_empty_vs_missing_display
+cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test
 cargo clippy -- -D warnings

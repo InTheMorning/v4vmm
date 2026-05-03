@@ -3361,7 +3361,7 @@ fn metadata_musicbrainz_cell(
         || comparison_status_glyph(&row.musicbrainz_status),
         ProvenanceRole::glyph,
     );
-    let value = row.musicbrainz_value.as_deref().unwrap_or("");
+    let value = TrackMetadataGridVm::musicbrainz_cell_value(row.musicbrainz_value.as_deref());
     let display_value = display_metadata_value(&row.field, value);
     let display_value = if !glyph.is_empty() {
         display_with_glyph(glyph, &display_value)

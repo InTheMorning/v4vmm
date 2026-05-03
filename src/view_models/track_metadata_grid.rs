@@ -50,6 +50,11 @@ impl TrackMetadataGridVm {
         pending_value.or(row_value).unwrap_or("")
     }
 
+    #[must_use]
+    pub fn musicbrainz_cell_value(value: Option<&str>) -> &str {
+        value.unwrap_or("")
+    }
+
     pub fn new(show_id3: bool, show_musicbrainz: bool, tag_column_label: &str) -> Self {
         let mut headings = vec![TrackMetadataGridHeading {
             label: "RSS".to_string(),
@@ -168,6 +173,16 @@ mod tests {
         );
         assert_eq!(TrackMetadataGridVm::id3_cell_value(None, Some("")), "");
         assert_eq!(TrackMetadataGridVm::id3_cell_value(None, None), "");
+    }
+
+    #[test]
+    fn musicbrainz_cell_value_preserves_empty_vs_missing_display() {
+        assert_eq!(
+            TrackMetadataGridVm::musicbrainz_cell_value(Some("Recording")),
+            "Recording"
+        );
+        assert_eq!(TrackMetadataGridVm::musicbrainz_cell_value(Some("")), "");
+        assert_eq!(TrackMetadataGridVm::musicbrainz_cell_value(None), "");
     }
 
     #[test]

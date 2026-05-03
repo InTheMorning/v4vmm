@@ -2058,6 +2058,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             ".or(row.id3_value.as_deref())",
             "metadata ID3 cell value fallback belongs in TrackMetadataGridVm::id3_cell_value",
         ),
+        (
+            "src/library.rs",
+            "row.musicbrainz_value.as_deref().unwrap_or(\"\")",
+            "metadata MusicBrainz cell value fallback belongs in TrackMetadataGridVm::musicbrainz_cell_value",
+        ),
+        (
+            "src/search.rs",
+            "row.musicbrainz_value.as_deref().unwrap_or(\"\")",
+            "metadata MusicBrainz cell value fallback belongs in TrackMetadataGridVm::musicbrainz_cell_value",
+        ),
     ];
     let mut violations = Vec::new();
 

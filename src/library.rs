@@ -3521,7 +3521,7 @@ fn metadata_musicbrainz_cell(
     let musicbrainz_color = source_role
         .map(|role| role.color(cx))
         .unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status, cx));
-    let value = row.musicbrainz_value.as_deref().unwrap_or("");
+    let value = TrackMetadataGridVm::musicbrainz_cell_value(row.musicbrainz_value.as_deref());
     let base_display = display_metadata_value(&row.field, value);
     let glyph = source_role.map_or_else(
         || comparison_status_glyph(&row.musicbrainz_status),
