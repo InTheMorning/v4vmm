@@ -3827,7 +3827,7 @@ fn expandable_tag_cell(
     let cell_key = format!("id3:{row_id}");
     let glyph = if expanded { "v" } else { ">" };
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
-    let frame_id_owned = frame_id.map(ToOwned::to_owned);
+    let frame_label = TrackMetadataGridVm::id3_frame_label(frame_id);
 
     let value_el = if expanded {
         if field == "Artwork" {
@@ -3939,7 +3939,7 @@ fn expandable_tag_cell(
                             .text_color(frame_color)
                             .text_size(typography::SIZE_MICRO)
                             .line_height(typography::LINE_BODY)
-                            .child(SharedString::from(frame_id_owned.unwrap_or_default())),
+                            .child(SharedString::from(frame_label.to_string())),
                     )
                     .child(
                         div()
@@ -3982,7 +3982,7 @@ fn expandable_tag_cell(
                 .text_color(frame_color)
                 .text_size(typography::SIZE_MICRO)
                 .line_height(typography::LINE_BODY)
-                .child(SharedString::from(frame_id_owned.unwrap_or_default())),
+                .child(SharedString::from(frame_label.to_string())),
         )
         .child(value_el)
         .into_any_element()
@@ -4204,7 +4204,7 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let frame_id = frame_id.map(ToOwned::to_owned);
+    let frame_label = TrackMetadataGridVm::id3_frame_label(frame_id);
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
 
     let mut body = MultilineText::new(value.to_string())
@@ -4227,7 +4227,7 @@ fn compare_tag_cell(
                 .text_color(frame_color)
                 .text_size(typography::SIZE_MICRO)
                 .line_height(typography::LINE_BODY)
-                .child(SharedString::from(frame_id.unwrap_or_default())),
+                .child(SharedString::from(frame_label.to_string())),
         )
         .child(div().flex_1().min_w_0().child(body))
         .into_any_element()

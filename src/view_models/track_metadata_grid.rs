@@ -64,6 +64,11 @@ impl TrackMetadataGridVm {
     }
 
     #[must_use]
+    pub fn id3_frame_label(frame_id: Option<&str>) -> &str {
+        frame_id.unwrap_or("")
+    }
+
+    #[must_use]
     pub fn musicbrainz_cell_value(value: Option<&str>) -> &str {
         value.unwrap_or("")
     }
@@ -214,6 +219,13 @@ mod tests {
         assert_eq!(TrackMetadataGridVm::id3_drag_frame(Some("TIT2")), "TIT2");
         assert_eq!(TrackMetadataGridVm::id3_drag_frame(Some("")), "");
         assert_eq!(TrackMetadataGridVm::id3_drag_frame(None), "");
+    }
+
+    #[test]
+    fn id3_frame_label_preserves_empty_vs_missing_display() {
+        assert_eq!(TrackMetadataGridVm::id3_frame_label(Some("TIT2")), "TIT2");
+        assert_eq!(TrackMetadataGridVm::id3_frame_label(Some("")), "");
+        assert_eq!(TrackMetadataGridVm::id3_frame_label(None), "");
     }
 
     #[test]

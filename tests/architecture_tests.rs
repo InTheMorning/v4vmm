@@ -2074,6 +2074,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata drag frame fallback belongs in TrackMetadataGridVm::id3_drag_frame",
         ),
         (
+            "src/search.rs",
+            "frame_id_owned.unwrap_or_default()",
+            "metadata ID3 displayed frame label fallback belongs in TrackMetadataGridVm::id3_frame_label",
+        ),
+        (
+            "src/search.rs",
+            "frame_id.unwrap_or_default()",
+            "metadata ID3 displayed frame label fallback belongs in TrackMetadataGridVm::id3_frame_label",
+        ),
+        (
             "src/library.rs",
             "row.musicbrainz_value.as_deref().unwrap_or(\"\")",
             "metadata MusicBrainz cell value fallback belongs in TrackMetadataGridVm::musicbrainz_cell_value",
