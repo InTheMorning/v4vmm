@@ -5,7 +5,7 @@
 - `docs/adr/0038-presentation-contract-enforcement.md`
 - `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`
 - `docs/tasks/adr-0038-task-001-layer-relocation.md`
-- `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md` (stub)
+- `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`
 - `docs/tasks/adr-0038-task-003-library-search-vm-consolidation.md` (stub)
 - `docs/tasks/adr-0038-task-004-dark-mode-parity-audit.md` (stub)
 - `docs/tasks/adr-0038-task-005-accessibility-label-contract.md` (stub)
@@ -15,8 +15,9 @@
 
 ## Gate Status
 
-Status: Task 001 implemented on 2026-05-03. Task 002 (Composite
-Display-Contract Audit) is the next ADR 0038 implementation packet.
+Status: Task 002 (Composite Display-Contract Audit) is in progress.
+The first slice migrates `TrackRow` off public loose string builders and
+tightens the composite display-contract guard.
 
 ## Required Questions For Every UI Change
 
@@ -52,7 +53,7 @@ Display-Contract Audit) is the next ADR 0038 implementation packet.
 | # | Task | Status | Required Evidence |
 |---|---|---|---|
 | 1 | Layer Relocation                              | Implemented with visual-proof caveat | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Visual proof remains open; no provisional screenshot artifacts are retained. |
-| 2 | Composite Display-Contract Audit              | Stub           | Per-composite contract doc, allowlist, new guard, caller migrations |
+| 2 | Composite Display-Contract Audit              | In progress - first slice implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow` string builders |
 | 3 | Library/Search VM Consolidation               | Stub           | VM accessors with present/empty/None tests; screen call-site sweep; new guard |
 | 4 | HIG Dark-Mode Parity Audit                    | Stub           | `style.rs` resolution; light + dark screenshots per surface |
 | 5 | HIG Accessibility-Label Contract              | Stub           | A11y labels per interactive composite; new guard; coverage table |
@@ -128,6 +129,10 @@ For Task 001:
 
 For each subsequent task: re-run the full set, plus the task's
 targeted guard test.
+
+For Task 002 first slice:
+
+- `cargo test composite_signatures_take_display_contracts_not_loose_strings`
 
 ## Readiness Gate (filled by Task 008)
 

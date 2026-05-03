@@ -1,26 +1,23 @@
 //! Track row composite — the standard list-row shape for tracks across all
 //! screens.
 //!
+//! ## Display contract: `TrackRowVm` / `SharedTrackRowVm`
+//!
 //! Sits above [`crate::ui::composites::ListRow`] and uses
 //! [`crate::ui::composites::Thumbnail`] + [`crate::ui::primitives::Label`]
 //! so the token → primitive → composite → screen hierarchy is maintained.
 //!
-//! Call sites supply display-ready strings (projected through
-//! [`crate::view_models::track::TrackVm`]) and an optional set of trailing
-//! action elements (download button, playlist popover, play button). The
-//! composite owns no domain knowledge — it is purely presentational.
+//! Call sites supply a display-ready row projection and an optional set of
+//! trailing action elements (download button, playlist popover, play button).
+//! The composite owns no fallback policy — it is purely presentational.
 //!
 //! # Examples
 //!
 //! ```ignore
 //! use crate::ui::composites::{TrackRow, EntityKind, ThumbnailSize};
-//! use crate::view_models::track::TrackVm;
+//! use crate::view_models::track_detail::TrackRowVm;
 //!
-//! let vm = TrackVm::new(&track);
-//! TrackRow::new("row:abc")
-//!     .number(vm.track_number_label())
-//!     .title(vm.title())
-//!     .duration(vm.duration_display())
+//! TrackRow::from_vm("row:abc", &row_vm)
 //!     .thumbnail(thumbnail, EntityKind::Track)
 //!     .on_click(cx.listener(|this, _, _, cx| this.open_inspector(cx)))
 //!     .trailing_child(download_btn)
@@ -41,13 +38,39 @@ use gpui::{
 use crate::ui::composites::{EntityKind, ListRow, Thumbnail, ThumbnailSize};
 use crate::ui::primitives::Label;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
+use crate::view_models::entity_detail::SharedTrackRowVm;
 use crate::view_models::track_detail::TrackRowVm;
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct TrackRowDisplay {
+    number: String,
+    title: String,
+    duration: Option<String>,
+}
+
+impl TrackRowDisplay {
+    fn from_vm(vm: &TrackRowVm) -> Self {
+        Self {
+            number: vm.number.clone(),
+            title: vm.title.clone(),
+            duration: vm.duration.clone(),
+        }
+    }
+
+    fn from_shared_track_row(vm: SharedTrackRowVm<'_>) -> Self {
+        Self {
+            number: vm.number_label(),
+            title: vm.title(),
+            duration: vm.duration_display(),
+        }
+    }
+}
+
 /// A single track in a list — number · thumbnail · title · duration · actions.
 ///
-/// Constructed fresh each render via the builder API; no GPUI entity state.
+/// Constructed fresh each render from a display contract; no GPUI entity state.
 #[derive(IntoElement)]
 #[must_use]
 pub struct TrackRow {
@@ -62,13 +85,12 @@ pub struct TrackRow {
 }
 
 impl TrackRow {
-    /// Create a new row with the given element id.
-    pub fn new(id: impl Into<ElementId>) -> Self {
+    fn new(id: impl Into<ElementId>, display: TrackRowDisplay) -> Self {
         Self {
             id: id.into(),
-            number: "\u{00B7}".into(), // middle dot placeholder
-            title: String::new(),
-            duration: None,
+            number: display.number,
+            title: display.title,
+            duration: display.duration,
             thumbnail: None,
             on_click: None,
             trailing: Vec::new(),
@@ -77,28 +99,12 @@ impl TrackRow {
 
     /// Create a row from the shared ADR 0035 row display contract.
     pub fn from_vm(id: impl Into<ElementId>, vm: &TrackRowVm) -> Self {
-        Self::new(id)
-            .number(vm.number.clone())
-            .title(vm.title.clone())
-            .duration(vm.duration.clone())
+        Self::new(id, TrackRowDisplay::from_vm(vm))
     }
 
-    /// Track-number label shown in the leading column.
-    pub fn number(mut self, n: impl Into<String>) -> Self {
-        self.number = n.into();
-        self
-    }
-
-    /// Display title.
-    pub fn title(mut self, t: impl Into<String>) -> Self {
-        self.title = t.into();
-        self
-    }
-
-    /// Optional `"M:SS"` duration string.
-    pub fn duration(mut self, d: Option<String>) -> Self {
-        self.duration = d;
-        self
+    /// Create a row from the shared release/entity row display contract.
+    pub fn from_shared_track_row(id: impl Into<ElementId>, vm: SharedTrackRowVm<'_>) -> Self {
+        Self::new(id, TrackRowDisplay::from_shared_track_row(vm))
     }
 
     /// Album-art thumbnail. Pass `None` to render the entity-kind emoji fallback.
@@ -212,36 +218,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_number_is_middle_dot() {
-        let row = TrackRow::new("test");
-        assert_eq!(row.number, "\u{00B7}");
-    }
-
-    #[test]
-    fn default_title_is_empty() {
-        let row = TrackRow::new("test");
-        assert!(row.title.is_empty());
-    }
-
-    #[test]
-    fn default_duration_is_none() {
-        let row = TrackRow::new("test");
-        assert!(row.duration.is_none());
-    }
-
-    #[test]
-    fn default_thumbnail_is_none() {
-        let row = TrackRow::new("test");
-        assert!(row.thumbnail.is_none());
-    }
-
-    #[test]
-    fn builder_sets_number() {
-        let row = TrackRow::new("test").number("7");
-        assert_eq!(row.number, "7");
-    }
-
-    #[test]
     fn from_vm_projects_row_contract() {
         let vm = TrackRowVm {
             element_key: "track:1".to_string(),
@@ -258,42 +234,46 @@ mod tests {
     }
 
     #[test]
-    fn builder_sets_title() {
-        let row = TrackRow::new("test").title("My Track");
+    fn display_contract_sets_core_fields() {
+        let row = TrackRow::new(
+            "test",
+            TrackRowDisplay {
+                number: "7".to_string(),
+                title: "My Track".to_string(),
+                duration: Some("3:45".to_string()),
+            },
+        );
+        assert_eq!(row.number, "7");
         assert_eq!(row.title, "My Track");
-    }
-
-    #[test]
-    fn builder_sets_duration() {
-        let row = TrackRow::new("test").duration(Some("3:45".into()));
         assert_eq!(row.duration.as_deref(), Some("3:45"));
     }
 
     #[test]
-    fn builder_clears_duration_with_none() {
-        let row = TrackRow::new("test")
-            .duration(Some("1:00".into()))
-            .duration(None);
-        assert!(row.duration.is_none());
+    fn default_thumbnail_is_none() {
+        let row = TrackRow::new(
+            "test",
+            TrackRowDisplay {
+                number: "\u{00B7}".to_string(),
+                title: "Song".to_string(),
+                duration: None,
+            },
+        );
+        assert!(row.thumbnail.is_none());
     }
 
     #[test]
     fn trailing_children_accumulate() {
         // We can't inspect AnyElement contents but we can verify count.
-        let row = TrackRow::new("test")
-            .trailing_child(gpui::div())
-            .trailing_child(gpui::div());
+        let row = TrackRow::new(
+            "test",
+            TrackRowDisplay {
+                number: "3".to_string(),
+                title: "Song".to_string(),
+                duration: Some("2:30".to_string()),
+            },
+        )
+        .trailing_child(gpui::div())
+        .trailing_child(gpui::div());
         assert_eq!(row.trailing.len(), 2);
-    }
-
-    #[test]
-    fn chained_builder_fields_are_independent() {
-        let row = TrackRow::new("test")
-            .number("3")
-            .title("Song")
-            .duration(Some("2:30".into()));
-        assert_eq!(row.number, "3");
-        assert_eq!(row.title, "Song");
-        assert_eq!(row.duration.as_deref(), Some("2:30"));
     }
 }

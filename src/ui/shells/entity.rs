@@ -193,11 +193,7 @@ pub fn render_release_track_row(
     row: SharedTrackRowVm<'_>,
     slot: ReleaseTrackRowSlot,
 ) -> ReleaseSurfaceElement {
-    let mut track_row = TrackRow::new(id.into())
-        .number(row.number_label())
-        .title(row.title())
-        .duration(row.duration_display())
-        .thumbnail(slot.thumbnail);
+    let mut track_row = TrackRow::from_shared_track_row(id.into(), row).thumbnail(slot.thumbnail);
 
     if let Some(on_click) = slot.on_click {
         track_row = track_row.on_click(move |event, window, cx| on_click(event, window, cx));

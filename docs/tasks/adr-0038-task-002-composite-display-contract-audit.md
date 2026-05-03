@@ -1,75 +1,136 @@
-# ADR 0038 Task 002: Composite Display-Contract Audit (Stub)
+# ADR 0038 Task 002: Composite Display-Contract Audit
 
 ## Status
 
-Stub. Starts after Task 001 (Layer Relocation) lands.
+In progress - first slice implemented on 2026-05-03.
 
 ## Goal
 
-Every public composite signature accepts a view-model field, a
-co-located display struct, or a pure passthrough. No composite accepts a
-policy-bearing `String`/`&str` for a label, fallback, or state value.
+Every public composite signature accepts a view-model field, a co-located
+display struct, or a pure passthrough. No composite accepts a
+policy-bearing `String`/`&str`/`SharedString` for a label, fallback, or
+state value.
 
-## Files To Inspect (preliminary)
+## Structural Contract
 
-- `src/ui/composites/*.rs` (every public composite)
-- `src/view_models/*.rs`
-- `src/ui/shells/*.rs` (post-Task-001 paths)
-- `src/library.rs`, `src/search.rs`
+- Layer: 6 (`src/ui/composites`) with callers in layer 7 shells and layer
+  8 screens.
+- Presentation owner: each repeated composite owns layout and chrome;
+  display policy lives in a GPUI-free VM or a co-located display contract.
+- HIG foundation strengthened: predictable hierarchy. Row title, metadata,
+  state, and actions enter shared chrome through named contracts rather
+  than ad hoc screen strings.
+- Regression guard:
+  `composite_signatures_take_display_contracts_not_loose_strings`.
+
+## Classification Rule
+
+A composite parameter is **policy-bearing** if it has, or invites callers
+to make, a fallback rule, truncation rule, casing rule, format rule,
+availability label, state label, or command label that two screens could
+plausibly implement differently.
+
+A **pure passthrough** is a value whose display policy has already been
+decided by a VM, display struct, enum, command outcome, or caller-owned
+generic option list. Passthrough APIs must be listed in the architecture
+test allowlist with a one-line justification.
+
+## Migration Order
+
+1. `TrackRow`
+   - Replace public loose builders for row number/title/duration with a
+     VM-backed row contract.
+   - Keep thumbnail, click handler, and trailing actions as presentation
+     slots because they are not fallback policy.
+   - Shrink the string API allowlist by removing the old `TrackRow`
+     builder allowances.
+2. `DetailHeader`
+   - Audit `new`, `subtitle`, and `data_row`.
+   - Either introduce a header display struct or keep the generic
+     pass-through allowance with VM-call-site evidence.
+3. `DetailGrid`
+   - Audit `DetailRow::new` and `DetailRow::text`.
+   - Prefer keeping generic key/value passthrough only if callers pass
+     VM-owned rows.
+4. `ReleaseDetailSurface`
+   - Audit `track_section` title/summary.
+   - Keep allowed only while `ReleaseDetailPageVm` owns the section copy.
+5. `PlaylistPopover`
+   - Audit trigger label and playlist option labels.
+   - Move trigger copy to `EntityActionVm` or a popover display contract
+     if further divergence appears.
+6. `TrackMetadataGrid` cells
+   - Audit group/field/tag/text labels.
+   - Keep allowed only where `TrackMetadataGridVm` or metadata row VMs own
+     the source-specific strings.
+7. Generic control composites
+   - Audit `ActionRow`, `DisclosureGroup`, `SegmentedControl`,
+     `TagBadge`, and `action_button`.
+   - Keep only explicit passthrough allowances; no wildcard exceptions.
+
+## Files Inspected
+
+- `src/ui/composites/*.rs`
+- `src/ui/shells/entity.rs`
+- `src/ui/shells/track.rs`
+- `src/view_models/entity_detail.rs`
+- `src/view_models/track_detail.rs`
 - `tests/architecture_tests.rs`
 
-## Open Questions To Resolve Before Implementation
+## Files Changed In First Slice
 
-1. **Pure passthrough vs. policy-bearing.** Define the test: a
-   composite parameter is "policy-bearing" if it has a fallback rule
-   ("when empty, show X"), a truncation rule, a casing rule, or a
-   format rule that the screen could plausibly get wrong. A pure
-   passthrough is a label the screen has already decided.
-2. **Per-composite VM vs. co-located display struct.** When a full VM
-   is overkill (e.g. `ActionRow` with a label + tone), define a small
-   display struct in the composite's own module. When the data is
-   entity-derived (e.g. `TrackHeader` with title + subtitle + state),
-   take the existing VM.
-3. **Allowlist for genuine passthrough.** A new guard
-   `composite_signatures_take_display_contracts_not_loose_strings`
-   needs an allowlist of legitimate passthrough APIs. List them
-   explicitly with a one-line justification each.
-4. **Doc-comment requirement.** Every composite gets a module-level
-   doc comment naming its display contract. Decide format
-   (e.g. `//! ## Display contract: TrackHeaderVm`).
+- `src/ui/composites/track_row.rs`
+- `src/ui/shells/entity.rs`
+- `tests/architecture_tests.rs`
+- `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`
+- `docs/reviews/adr-0038-review-checklist.md`
 
-## Sketch of Implementation Approach
+## Do Not Touch
 
-1. Inventory every `pub fn` in `src/ui/composites/*.rs` taking
-   `String`/`&str`/`SharedString`/`impl Into<String>`. Grep:
-   ```sh
-   grep -rn "pub fn\|impl Into<String>\|: SharedString\|: String\|: &str" \
-     src/ui/composites/
-   ```
-2. For each parameter, classify (passthrough vs. policy-bearing).
-3. Migrate policy-bearing parameters to VM fields or display structs.
-   Update callers.
-4. Add the guard.
-5. Add a per-composite doc comment naming the contract.
+- `render_feed_identity_actions` and the ADR 0037 identity-action atom.
+- Backend, playlist service, RSS, ID3, database, and playback behavior.
+- Visual palette or layout density except as required by the contract.
 
-## Constraints
+## First-Slice Implementation Notes
 
-- One composite at a time. Don't bundle.
-- Don't rewrite composites that already take a VM (e.g.
-  `MusicBrainzPanel`, `PlaylistOption`, `RecentFeedTile`, …).
-- ADR 0037 work is settled; do not modify
-  `render_feed_identity_actions` or the identity-action atom.
-- Keep the test allowlist explicit; never use a wildcard.
+- `TrackRow` now exposes row construction through `TrackRowVm` or
+  `SharedTrackRowVm`, not public `.number()`, `.title()`, or
+  `.duration()` loose string builders.
+- `TrackRow` retains additive slots for thumbnail, click handling, and
+  trailing action elements.
+- The architecture guard now scans multi-line public function signatures
+  and is named to match ADR 0038:
+  `composite_signatures_take_display_contracts_not_loose_strings`.
+- The explicit allowlist remains for genuine passthrough APIs and shrank
+  by the three former `TrackRow` string builders.
 
-## Definition of Done
+## Acceptance Criteria
 
-- Every public composite signature is documented in a doc comment naming
-  its contract type.
-- `composite_signatures_take_display_contracts_not_loose_strings` is
-  green with an explicit allowlist.
-- Every caller compiles against the new contract type.
+- `cargo test composite_signatures_take_display_contracts_not_loose_strings`
+  is green.
+- `TrackRow` public signatures no longer accept row number, title, or
+  duration as loose strings.
+- `src/ui/shells/entity.rs` consumes the shared row VM instead of
+  assembling the row display fields.
+- Full project gates are green before the slice is called complete.
+- No screenshots are required for this slice because the row rendering
+  behavior is unchanged; visual proof is deferred until a visible Task 004
+  or Task 005 surface change and should use reviewer-guided navigation.
 
-## When To Start
+## Test Commands
 
-After Task 001 is merged, replace this stub with a fully-specified task
-(structure mirrors Task 001) listing the per-composite migration order.
+```sh
+cargo fmt -- --check
+cargo check
+cargo test composite_signatures_take_display_contracts_not_loose_strings
+cargo test
+cargo clippy -- -D warnings
+git diff --check
+```
+
+## Expected Final Report
+
+- Name the composite migrated.
+- Name the guard tightened.
+- Report automated gate status.
+- Explicitly say whether visual evidence was needed and, if not, why.
