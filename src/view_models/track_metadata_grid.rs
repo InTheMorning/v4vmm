@@ -138,6 +138,16 @@ impl TrackMetadataGridVm {
         }
     }
 
+    #[must_use]
+    pub fn value_route_field_key_label(key: &str) -> String {
+        format!("{key}: ")
+    }
+
+    #[must_use]
+    pub fn value_route_field_value_label(value: &serde_json::Value) -> Option<String> {
+        json_value_display_label(value)
+    }
+
     pub fn new(show_id3: bool, show_musicbrainz: bool, tag_column_label: &str) -> Self {
         let mut headings = vec![TrackMetadataGridHeading {
             label: "RSS".to_string(),
@@ -411,6 +421,34 @@ mod tests {
         );
         assert_eq!(
             TrackMetadataGridVm::value_route_split_label(&serde_json::Value::Null),
+            None
+        );
+    }
+
+    #[test]
+    fn value_route_field_key_label_adds_separator() {
+        assert_eq!(
+            TrackMetadataGridVm::value_route_field_key_label("custom_key"),
+            "custom_key: "
+        );
+    }
+
+    #[test]
+    fn value_route_field_value_label_trims_and_suppresses_empty_values() {
+        assert_eq!(
+            TrackMetadataGridVm::value_route_field_value_label(&serde_json::json!("  Alice  ")),
+            Some("Alice".into())
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_route_field_value_label(&serde_json::json!(true)),
+            Some("true".into())
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_route_field_value_label(&serde_json::json!("   ")),
+            None
+        );
+        assert_eq!(
+            TrackMetadataGridVm::value_route_field_value_label(&serde_json::Value::Null),
             None
         );
     }

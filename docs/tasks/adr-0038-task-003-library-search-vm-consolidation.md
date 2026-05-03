@@ -180,7 +180,21 @@ Verified starting notes, 2026-05-03:
       split suffix in the collapsed sub-item label, while Discover keeps
       the split in the expanded child rows.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-20. Migrate one remaining fallback at a time, smallest blast radius first.
+20. Metadata value-route field label display
+    - Add `TrackMetadataGridVm::value_route_field_key_label()` and
+      `TrackMetadataGridVm::value_route_field_value_label()` so
+      expanded Value Routes child-row key/value labels are normalized
+      by the metadata-grid VM.
+    - Remove the Library-local `route_value_label()` helper and the
+      Discover-local JSON value formatter from Value Routes rendering.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+21. Discover track feed-link tooltip display
+    - Add `TrackFeedLinkDisplay::tooltip` so the feed-link tooltip is
+      carried by the track-inspector header VM.
+    - Remove screen-local `guid` cloning for the feed-link tooltip from
+      Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+22. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -408,6 +422,30 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local Value Routes item and
   split label formatting from returning.
 
+## Nineteenth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::value_route_field_key_label()` now carries
+  expanded Value Routes child-row key labels, including the `": "`
+  suffix.
+- `TrackMetadataGridVm::value_route_field_value_label()` now carries
+  expanded Value Routes child-row value display, including null and
+  empty-value suppression.
+- `src/library.rs` no longer carries a local `route_value_label()`
+  helper, and `src/search.rs` no longer inlines Value Routes field
+  value conversion.
+- The architecture guard now blocks screen-local Value Routes child-row
+  key/value label formatting from returning.
+
+## Twentieth-Slice Implementation Notes
+
+- `TrackFeedLinkDisplay` now carries the Discover track feed-link
+  tooltip.
+- `render_feed_link_value()` now receives the full display contract
+  instead of separate guid/title/url values, so the tooltip fallback
+  remains GPUI-free in the header VM.
+- The architecture guard now blocks screen-local guid cloning for the
+  feed-link tooltip from returning.
+
 ## Test Commands
 
 ```sh
@@ -429,6 +467,9 @@ cargo test value_routes_summary_counts_routes_and_owns_fallback_policy
 cargo test group_heading_label_appends_unused_count_only_when_present
 cargo test value_route_item_label_appends_split_when_present
 cargo test value_route_split_label_formats_percent_and_ignores_empty_values
+cargo test value_route_field_key_label_adds_separator
+cargo test value_route_field_value_label_trims_and_suppresses_empty_values
+cargo test track_inspector_header_vm_projects_feed_link_display_contract
 cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback
 cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display
 cargo test view_models_own_display_fallbacks_for_library_and_search

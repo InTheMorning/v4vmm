@@ -1976,6 +1976,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/search.rs",
+            "let tooltip = guid.clone();",
+            "Discover track feed-link tooltip should enter the screen through TrackFeedLinkDisplay",
+        ),
+        (
+            "src/search.rs",
             "route.address.clone().unwrap_or_default()",
             "payment-route address presence belongs in PaymentRouteVm::address",
         ),
@@ -2133,6 +2138,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             "strip_suffix(\".0\")",
             "metadata value-route split label fallback belongs in TrackMetadataGridVm::value_route_split_label",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"{key}: \")",
+            "metadata value-route field key display belongs in TrackMetadataGridVm::value_route_field_key_label",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"{key}: \")",
+            "metadata value-route field key display belongs in TrackMetadataGridVm::value_route_field_key_label",
+        ),
+        (
+            "src/library.rs",
+            "fn route_value_label(",
+            "metadata value-route field value display belongs in TrackMetadataGridVm::value_route_field_value_label",
+        ),
+        (
+            "src/search.rs",
+            "serde_json::Value::Bool(b) => b.to_string()",
+            "metadata value-route field value display belongs in TrackMetadataGridVm::value_route_field_value_label",
         ),
         (
             "src/search.rs",

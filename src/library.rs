@@ -3764,9 +3764,11 @@ fn value_routes_tree_elements(
                         if matches!(key.as_str(), "recipient_name" | "split") {
                             continue;
                         }
-                        let Some(value) = route_value_label(value) else {
+                        let Some(value) = TrackMetadataGridVm::value_route_field_value_label(value)
+                        else {
                             continue;
                         };
+                        let key_label = TrackMetadataGridVm::value_route_field_key_label(key);
                         item = item.child(
                             div()
                                 .pl(spacing::LG)
@@ -3776,7 +3778,7 @@ fn value_routes_tree_elements(
                                 .child(
                                     div()
                                         .text_color(color::text_muted())
-                                        .child(SharedString::from(format!("{key}: "))),
+                                        .child(SharedString::from(key_label)),
                                 )
                                 .child(
                                     div()
@@ -3792,22 +3794,6 @@ fn value_routes_tree_elements(
             item.into_any_element()
         })
         .collect()
-}
-
-fn route_value_label(value: &serde_json::Value) -> Option<String> {
-    let label = match value {
-        serde_json::Value::Null => return None,
-        serde_json::Value::String(value) => value.clone(),
-        serde_json::Value::Number(value) => value.to_string(),
-        serde_json::Value::Bool(value) => value.to_string(),
-        other => other.to_string(),
-    };
-    let label = label.trim();
-    if label.is_empty() {
-        None
-    } else {
-        Some(label.to_string())
-    }
 }
 
 fn metadata_logical_field(field: &str) -> &str {

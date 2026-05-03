@@ -597,6 +597,7 @@ pub(crate) struct TrackFeedLinkDisplay {
     pub(crate) guid: String,
     pub(crate) label: String,
     pub(crate) url: Option<String>,
+    pub(crate) tooltip: String,
 }
 
 impl<'a> TrackInspectorHeaderVm<'a> {
@@ -612,6 +613,7 @@ impl<'a> TrackInspectorHeaderVm<'a> {
         Some(TrackFeedLinkDisplay {
             label: self.feed_link_label(&guid),
             url: self.feed_link_url(),
+            tooltip: guid.clone(),
             guid,
         })
     }
@@ -2269,6 +2271,7 @@ mod tests {
                 guid: "guid-1".into(),
                 label: "Friendly Title".into(),
                 url: Some("https://example/x.rss".into()),
+                tooltip: "guid-1".into(),
             })
         );
 
@@ -2285,6 +2288,7 @@ mod tests {
                 guid: "guid-1".into(),
                 label: "guid-1".into(),
                 url: Some("guid-1".into()),
+                tooltip: "guid-1".into(),
             })
         );
 

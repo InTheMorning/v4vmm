@@ -4006,7 +4006,7 @@ fn json_object_element(value: &serde_json::Value, color: gpui::Rgba, depth: usiz
                 .text_size(typography::SIZE_MICRO)
                 .line_height(typography::LINE_BODY);
             for (key, val) in map {
-                let key_str = format!("{key}: ");
+                let key_str = TrackMetadataGridVm::value_route_field_key_label(key);
                 match val {
                     serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
                         container = container
@@ -4125,15 +4125,11 @@ fn value_routes_tree_elements(
                         if key == "recipient_name" {
                             continue;
                         }
-                        let val_str = match val {
-                            serde_json::Value::String(s) => s.clone(),
-                            serde_json::Value::Null => continue,
-                            serde_json::Value::Bool(b) => b.to_string(),
-                            other => other.to_string(),
-                        };
-                        if val_str.is_empty() {
+                        let Some(value) = TrackMetadataGridVm::value_route_field_value_label(val)
+                        else {
                             continue;
-                        }
+                        };
+                        let key_label = TrackMetadataGridVm::value_route_field_key_label(key);
                         item = item.child(
                             div()
                                 .pl(spacing::LG)
@@ -4143,13 +4139,13 @@ fn value_routes_tree_elements(
                                 .child(
                                     div()
                                         .text_color(color::text_muted())
-                                        .child(SharedString::from(format!("{key}: "))),
+                                        .child(SharedString::from(key_label)),
                                 )
                                 .child(
                                     div()
                                         .text_color(color)
                                         .truncate()
-                                        .child(SharedString::from(val_str)),
+                                        .child(SharedString::from(value)),
                                 ),
                         );
                     }
@@ -4639,7 +4635,7 @@ fn render_track_header_subtitle(
         .gap(spacing::SM)
         .min_w_0()
         .when_some(feed_link, |el, link| {
-            el.child(render_feed_link_value(link.guid, link.label, link.url, cx))
+            el.child(render_feed_link_value(link, cx))
         })
         .child(render_play_icon_button_with_id(
             SharedString::from("track-play-audio"),
@@ -4674,13 +4670,10 @@ pub(crate) fn render_collapsed_text_section(label: &str, value: String) -> AnyEl
         .into_any_element()
 }
 
-fn render_feed_link_value(
-    guid: String,
-    title: String,
-    _url: Option<String>,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let tooltip = guid.clone();
+fn render_feed_link_value(link: TrackFeedLinkDisplay, cx: &mut Context<SearchApp>) -> AnyElement {
+    let guid = link.guid;
+    let title = link.label;
+    let tooltip = link.tooltip;
     let click_title = title.clone();
     div()
         .id(SharedString::from(format!("track-feed-link:{guid}")))
