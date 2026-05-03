@@ -60,16 +60,17 @@ use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
-    action_button, identity_action_button, ActionRow, ActionRowMessage, ActionRowMessageDisplay,
-    ActionRowMessageTone, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
-    DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
-    DisclosureGroup, DisclosureGroupDisplay, EntityKind, FileHeader, IdentityActionKind, ListRow,
-    MusicBrainzPanel, PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement,
-    SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell,
-    TrackMetadataFieldDisplay, TrackMetadataFrameDisplay, TrackMetadataGrid,
-    TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
-    TrackMetadataTagCell, TrackMetadataTagDisplay, TrackMetadataTextDisplay,
-    TrackMetadataTextValue, TrackRow as TrackRowComposite, TrackSurfaceElement,
+    action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowMessage,
+    ActionRowMessageDisplay, ActionRowMessageTone, AddToPlaylistDisplay, AddToPlaylistPopover,
+    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
+    DetailTextRow as CompositeDetailTextRow, DisclosureGroup, DisclosureGroupDisplay, EntityKind,
+    FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption,
+    PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
+    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataFieldDisplay,
+    TrackMetadataFrameDisplay, TrackMetadataGrid, TrackMetadataGroupCell,
+    TrackMetadataGroupDisplay, TrackMetadataSourceCell, TrackMetadataTagCell,
+    TrackMetadataTagDisplay, TrackMetadataTextDisplay, TrackMetadataTextValue,
+    TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -2508,19 +2509,30 @@ fn render_album_detail(
     if let Some(fid) = feed_id {
         let remove_action = vm.primary_action_vm(fid, false);
         let remove_label = remove_action.label;
-        buttons = buttons.child(action_button(&remove_label, cx).on_click(cx.listener(
-            move |this, _, _, cx| {
+        buttons = buttons.child(
+            action_button(
+                ActionButtonDisplay {
+                    label: SharedString::from(remove_label),
+                },
+                cx,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
                 this.unsubscribe_feed(fid, cx);
                 cx.notify();
-            },
-        )));
+            })),
+        );
     }
     buttons = buttons.child(
-        action_button("MusicBrainz", cx)
-            .disabled(vm.has_active_musicbrainz())
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.musicbrainz_feed(album_for_mb.clone(), cx);
-            })),
+        action_button(
+            ActionButtonDisplay {
+                label: SharedString::from("MusicBrainz"),
+            },
+            cx,
+        )
+        .disabled(vm.has_active_musicbrainz())
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.musicbrainz_feed(album_for_mb.clone(), cx);
+        })),
     );
     if let Some(fid) = feed_id {
         let playlist_action = vm
@@ -2999,16 +3011,32 @@ fn render_track_window(
                                     .as_ref()
                                     .map(|img| image_from_bytes(img.clone())),
                             )
-                            .action(action_button("Re-read", cx).on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    this.reread_tag_compare(cx);
-                                },
-                            )))
-                            .action(action_button("Re-download", cx).on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    this.redownload_tag_compare(cx);
-                                },
-                            )))
+                            .action(
+                                action_button(
+                                    ActionButtonDisplay {
+                                        label: SharedString::from("Re-read"),
+                                    },
+                                    cx,
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.reread_tag_compare(cx);
+                                    },
+                                )),
+                            )
+                            .action(
+                                action_button(
+                                    ActionButtonDisplay {
+                                        label: SharedString::from("Re-download"),
+                                    },
+                                    cx,
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.redownload_tag_compare(cx);
+                                    },
+                                )),
+                            )
                             .into_any_element()
                     } else {
                         render_track_compare_panel(frame)
@@ -3115,11 +3143,16 @@ fn library_track_action_row(
 
     let mut row = ActionRow::new()
         .control(
-            action_button(action_vm.subscription_button_label(), cx)
-                .disabled(frame.subscription_busy)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_local_subscription(cx);
-                })),
+            action_button(
+                ActionButtonDisplay {
+                    label: SharedString::from(action_vm.subscription_button_label()),
+                },
+                cx,
+            )
+            .disabled(frame.subscription_busy)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_local_subscription(cx);
+            })),
         )
         .control(
             AddToPlaylistPopover::new(AddToPlaylistDisplay {
@@ -3153,21 +3186,31 @@ fn library_track_action_row(
 
     if let Some(action) = compare_action {
         row = row.control(
-            action_button(&action.label, cx)
-                .disabled(!action.enabled)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_tag_compare(cx);
-                })),
+            action_button(
+                ActionButtonDisplay {
+                    label: SharedString::from(action.label),
+                },
+                cx,
+            )
+            .disabled(!action.enabled)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_tag_compare(cx);
+            })),
         );
     }
 
     if let Some(action) = musicbrainz_action {
         row = row.control(
-            action_button(&action.label, cx)
-                .disabled(!action.enabled)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.toggle_musicbrainz_lookup(cx);
-                })),
+            action_button(
+                ActionButtonDisplay {
+                    label: SharedString::from(action.label),
+                },
+                cx,
+            )
+            .disabled(!action.enabled)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.toggle_musicbrainz_lookup(cx);
+            })),
         );
     }
 
@@ -3188,11 +3231,16 @@ fn library_track_action_row(
                 tone: ActionRowMessageTone::Neutral,
             }))
             .control(
-                action_button(&label, cx)
-                    .disabled(frame.applying_id3_edits || has_pending_conflicts)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.apply_pending_id3_edits(cx);
-                    })),
+                action_button(
+                    ActionButtonDisplay {
+                        label: SharedString::from(label),
+                    },
+                    cx,
+                )
+                .disabled(frame.applying_id3_edits || has_pending_conflicts)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.apply_pending_id3_edits(cx);
+                })),
             );
 
         if has_pending_conflicts {
@@ -3207,7 +3255,13 @@ fn library_track_action_row(
 
         if !frame.applying_id3_edits && !frame.pending_id3_edits.is_empty() {
             staged_controls = staged_controls.control(
-                action_button("Discard staged", cx).on_click(cx.listener(|this, _, _, cx| {
+                action_button(
+                    ActionButtonDisplay {
+                        label: SharedString::from("Discard staged"),
+                    },
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
                     this.clear_pending_id3_edits(cx);
                 })),
             );

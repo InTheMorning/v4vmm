@@ -357,11 +357,6 @@ const SCREEN_LOCAL_FLOATING_CHROME_FORBIDDEN_PATTERNS: &[&str] = &[
 
 const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllowance] = &[
     CompositeStringApiAllowance {
-        file: "src/ui/composites/action_button.rs",
-        pattern: "pub fn action_button(label: &str",
-        note: "thin compatibility helper; caller supplies already-approved action label",
-    },
-    CompositeStringApiAllowance {
         file: "src/ui/composites/playlist_popover.rs",
         pattern:
             "pub fn on_create(mut self, handler: impl Fn(&String, &mut Window, &mut App) + 'static)",

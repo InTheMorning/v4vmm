@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first ten slices implemented on 2026-05-03.
+In progress - first eleven slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -80,6 +80,8 @@ test allowlist with a one-line justification.
      remove the loose segment id/key/label constructor allowance.
    - `TagBadge` sub-slice: introduce `TagBadgeDisplay` and remove the
      loose badge-label override allowance.
+   - `action_button` sub-slice: introduce `ActionButtonDisplay` and
+     remove the loose helper-label allowance.
 
 ## Files Inspected
 
@@ -93,6 +95,7 @@ test allowlist with a one-line justification.
 ## Files Changed In Current Slices
 
 - `src/ui/composites/track_row.rs`
+- `src/ui/composites/action_button.rs`
 - `src/ui/composites/action_row.rs`
 - `src/ui/composites/disclosure_group.rs`
 - `src/ui/composites/segmented_control.rs`
@@ -248,6 +251,16 @@ test allowlist with a one-line justification.
   role-owned passthrough allowances; the display-copy override allowance
   was removed.
 
+## Eleventh-Slice Implementation Notes
+
+- `action_button` now accepts `ActionButtonDisplay`, which carries the
+  already-owned metadata-action label.
+- Library and Discover metadata-action callers construct the display
+  contract from existing VM/action labels without changing button style,
+  disabled state, or click behavior.
+- The explicit allowlist shrank by the former
+  `action_button(label: &str)` compatibility helper.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -275,6 +288,8 @@ test allowlist with a one-line justification.
   labels as loose constructor parameters.
 - `TagBadge` public signatures no longer accept badge labels as loose
   override parameters.
+- `action_button` public signatures no longer accept metadata-action
+  labels as loose helper parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004

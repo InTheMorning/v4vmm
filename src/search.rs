@@ -49,13 +49,14 @@ use crate::subscribe_service::{
 };
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
-    action_button, identity_action_button, ActionRow, ActionRowMessage, ActionRowMessageDisplay,
-    ActionRowMessageTone, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
-    DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
-    DisclosureGroup, DisclosureGroupDisplay, EntityKind, IdentityActionKind, ListRow,
-    PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement,
-    SplitPane, StatusRole, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackDetailSurface,
-    TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
+    action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowMessage,
+    ActionRowMessageDisplay, ActionRowMessageTone, AddToPlaylistDisplay, AddToPlaylistPopover,
+    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
+    DetailTextRow as CompositeDetailTextRow, DisclosureGroup, DisclosureGroupDisplay, EntityKind,
+    IdentityActionKind, ListRow, PlaylistOption, PlaylistOptionDisplay, ProvenanceRole,
+    RecentFeedTile, ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge, TagBadgeDisplay,
+    Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane, TrackMetadataGrid,
+    TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2755,12 +2756,17 @@ pub(crate) fn discover_inspector_action_row(
     let playlists = app.vm.playlists_snapshot();
 
     let controls = vec![
-        action_button(&subscription_label, cx)
-            .disabled(subscription_disabled)
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.toggle_local_subscription(cx);
-            }))
-            .into_any_element(),
+        action_button(
+            ActionButtonDisplay {
+                label: SharedString::from(subscription_label),
+            },
+            cx,
+        )
+        .disabled(subscription_disabled)
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.toggle_local_subscription(cx);
+        }))
+        .into_any_element(),
         AddToPlaylistPopover::new(AddToPlaylistDisplay {
             id: SharedString::from(format!("inspector-add:{}", frame.entity_id)),
             playlists: playlist_options(&playlists),

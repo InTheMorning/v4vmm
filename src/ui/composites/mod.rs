@@ -40,7 +40,7 @@ pub mod track_inspector_pane;
 pub mod track_metadata_grid;
 pub mod track_row;
 
-pub use action_button::action_button;
+pub use action_button::{action_button, ActionButtonDisplay};
 pub use action_row::{ActionRow, ActionRowMessage, ActionRowMessageDisplay, ActionRowMessageTone};
 pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
 pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};
