@@ -1735,6 +1735,12 @@ fn track_identity_links_use_shared_renderer() {
     let mut violations = Vec::new();
 
     let search = read_source(&manifest_path("src/search.rs"));
+    if search.contains("fn render_nostr_icon_button") {
+        violations.push(
+            "src/search.rs: ADR 0037 track Nostr identity links must not keep a screen-local Nostr button renderer"
+                .to_string(),
+        );
+    }
     if search.contains("render_nostr_icon_button(npub, \"track\"") {
         violations.push(
             "src/search.rs: ADR 0037 track Nostr identity links must be rendered by `ui::shells::track::render_track_identity_actions`"

@@ -60,7 +60,6 @@ use crate::ui::composites::{
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
-use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::SectionHeader;
 use crate::ui::primitives::{
     Button as UiButton, Image as ImagePrimitive, ImageSize, Label, LoadingMessage, MultilineText,
@@ -4483,41 +4482,6 @@ pub(crate) fn render_feed_header(
     })
     .image(frame.image.clone())
     .into_any_element()
-}
-
-fn render_nostr_icon_button(
-    npub: Option<String>,
-    scope: &str,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let id = SharedString::from(match npub.as_deref() {
-        Some(n) => format!("{scope}-nostr:{n}"),
-        None => format!("{scope}-nostr:missing"),
-    });
-    let tooltip = npub
-        .as_ref()
-        .map_or_else(|| "No nostr identity".into(), |n| format!("Copy npub: {n}"));
-    let click_npub = npub.clone();
-
-    div()
-        .id(id)
-        .w(layout::ACTION_ICON_SIZE)
-        .h(layout::ACTION_ICON_SIZE)
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(radius::SM)
-        .overflow_hidden()
-        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
-        .when(npub.is_some(), |el| el.cursor_pointer())
-        .when(npub.is_none(), |el| el.opacity(0.45))
-        .child(Icon::new(IconName::Nostr).size(IconSize::Action))
-        .on_click(cx.listener(move |_this, _: &ClickEvent, _window, cx| {
-            if let Some(npub) = &click_npub {
-                cx.write_to_clipboard(ClipboardItem::new_string(npub.clone()));
-            }
-        }))
-        .into_any_element()
 }
 
 pub(crate) fn render_play_icon_button_with_id(

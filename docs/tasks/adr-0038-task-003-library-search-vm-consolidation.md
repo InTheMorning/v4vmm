@@ -158,7 +158,13 @@ Verified starting notes, 2026-05-03:
     - Remove the screen-local `"No audio URL"` tooltip fallback from
       Discover's play-audio button.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-17. Migrate one remaining fallback at a time, smallest blast radius first.
+17. Discover dead Nostr action renderer cleanup
+    - Remove the unused screen-local `render_nostr_icon_button()` helper
+      from Discover now that track identity actions render through
+      `ui::shells::track::render_track_identity_actions`.
+    - Tighten `track_identity_links_use_shared_renderer` so a local
+      Nostr button renderer cannot be reintroduced.
+18. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -353,6 +359,16 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks that screen-local play-audio
   tooltip fallback from returning to Discover.
 
+## Sixteenth-Slice Implementation Notes
+
+- The unused `render_nostr_icon_button()` helper has been removed from
+  `src/search.rs`.
+- Track identity actions continue to render through the shared
+  `ui::shells::track::render_track_identity_actions` path backed by
+  `TrackDetailVm::identity_actions()`.
+- The architecture guard now blocks reintroducing a screen-local Nostr
+  button renderer in Discover.
+
 ## Test Commands
 
 ```sh
@@ -374,6 +390,7 @@ cargo test value_routes_summary_counts_routes_and_owns_fallback_policy
 cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback
 cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display
 cargo test view_models_own_display_fallbacks_for_library_and_search
+cargo test track_identity_links_use_shared_renderer
 cargo test
 cargo clippy -- -D warnings
 git diff --check
