@@ -75,7 +75,14 @@ Verified starting notes, 2026-05-03:
    - Remove `src/search.rs` render-glue checks of `custom_key` and
      `custom_value`.
    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-5. Migrate one remaining fallback at a time, smallest blast radius first.
+5. Payment-route summary display
+   - Add `PaymentRouteVm::summary()` so recipient, route type, split,
+     and fee/split label fallbacks enter the renderer as one display
+     string.
+   - Remove `src/search.rs` render-glue formatting of the primary
+     payment-route line.
+   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+6. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -145,6 +152,16 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now also blocks screen-local payment-route
   custom-field presence/formatting from returning to `src/search.rs`.
 
+## Fourth-Slice Implementation Notes
+
+- `PaymentRouteVm::summary()` now carries the primary payment-route
+  display line, including recipient fallback, route-type fallback, split
+  fallback, and fee/split label.
+- `src/search.rs` no longer assembles the primary value-route label from
+  `recipient_name`, `route_type`, `split`, and `kind_label`.
+- The architecture guard now also blocks screen-local payment-route
+  summary formatting from returning to `src/search.rs`.
+
 ## Test Commands
 
 ```sh
@@ -153,6 +170,7 @@ cargo check
 cargo test track_inspector_header_vm_projects_feed_link_display_contract
 cargo test payment_route_vm_projects_address_without_coercing_presence
 cargo test payment_route_vm_projects_custom_fields_without_coercing_presence
+cargo test payment_route_vm_projects_primary_summary
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test
 cargo clippy -- -D warnings

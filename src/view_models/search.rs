@@ -664,6 +664,16 @@ impl<'a> PaymentRouteVm<'a> {
             .unwrap_or_else(|| "route".to_string())
     }
 
+    /// Primary one-line payment-route summary.
+    #[must_use]
+    pub(crate) fn summary(&self) -> String {
+        let name = self.recipient_name();
+        let route_type = self.route_type();
+        let split = self.split();
+        let kind_label = self.kind_label();
+        format!("{name} ({route_type} · {split}% · {kind_label})")
+    }
+
     /// Optional route address display, preserving empty strings when present.
     #[must_use]
     pub(crate) fn address(&self) -> Option<String> {
@@ -2330,6 +2340,23 @@ mod tests {
         };
         let vm = PaymentRouteVm::new(&r);
         assert_eq!(vm.route_type(), "lightning");
+    }
+
+    #[test]
+    fn payment_route_vm_projects_primary_summary() {
+        let r = api::PaymentRoute::default();
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.summary(), "Unnamed recipient (route · 0% · split)");
+
+        let r = api::PaymentRoute {
+            recipient_name: Some("Alice".into()),
+            route_type: Some("node".into()),
+            split: Some(75.0),
+            fee: Some(true),
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.summary(), "Alice (node · 75% · fee)");
     }
 
     #[test]

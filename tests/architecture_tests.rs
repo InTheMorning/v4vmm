@@ -1998,6 +1998,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "&route.custom_value",
             "payment-route custom field display belongs in PaymentRouteVm::custom_fields",
         ),
+        (
+            "src/search.rs",
+            "vm.recipient_name()",
+            "payment-route primary summary belongs in PaymentRouteVm::summary",
+        ),
+        (
+            "src/search.rs",
+            "vm.route_type()",
+            "payment-route primary summary belongs in PaymentRouteVm::summary",
+        ),
+        (
+            "src/search.rs",
+            "vm.kind_label()",
+            "payment-route primary summary belongs in PaymentRouteVm::summary",
+        ),
+        (
+            "src/search.rs",
+            "let split = vm.split()",
+            "payment-route primary summary belongs in PaymentRouteVm::summary",
+        ),
     ];
     let mut violations = Vec::new();
 

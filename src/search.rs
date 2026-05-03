@@ -3035,10 +3035,7 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
             let mut elements = vec![group_heading(group.to_string())];
             elements.extend(routes.into_iter().map(|route| {
                 let vm = PaymentRouteVm::new(route);
-                let name = vm.recipient_name();
-                let route_type = vm.route_type();
-                let split = vm.split();
-                let kind_label = vm.kind_label();
+                let summary = vm.summary();
                 let address = vm.address();
                 let custom_fields = vm.custom_fields();
                 div()
@@ -3046,9 +3043,7 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
                     .flex_col()
                     .gap(spacing::XXS)
                     .text_size(typography::SIZE_MICRO)
-                    .child(SharedString::from(format!(
-                        "{name} ({route_type} · {split}% · {kind_label})"
-                    )))
+                    .child(SharedString::from(summary))
                     .when_some(address, |el, address| {
                         el.child(
                             div()
