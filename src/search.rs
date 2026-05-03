@@ -49,12 +49,12 @@ use crate::subscribe_service::{
 };
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
-    action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
-    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
-    DetailTextRow as CompositeDetailTextRow, DisclosureGroup, EntityKind, IdentityActionKind,
-    ListRow, PlaylistOption, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement, SplitPane,
-    StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane,
-    TrackMetadataGrid, TrackSurfaceElement,
+    action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistDisplay,
+    AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
+    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureGroup,
+    EntityKind, IdentityActionKind, ListRow, PlaylistOption, PlaylistOptionDisplay, ProvenanceRole,
+    RecentFeedTile, ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge, Thumbnail,
+    ThumbnailSize, TrackDetailSurface, TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2757,11 +2757,11 @@ pub(crate) fn discover_inspector_action_row(
                 this.toggle_local_subscription(cx);
             }))
             .into_any_element(),
-        AddToPlaylistPopover::new(
-            SharedString::from(format!("inspector-add:{}", frame.entity_id)),
-            playlist_options(&playlists),
-        )
-        .trigger_label(playlist_label)
+        AddToPlaylistPopover::new(AddToPlaylistDisplay {
+            id: SharedString::from(format!("inspector-add:{}", frame.entity_id)),
+            playlists: playlist_options(&playlists),
+            trigger_label: SharedString::from(playlist_label),
+        })
         .disabled(playlist_disabled || playlist_target.is_none())
         .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
             if let Some(target) = &playlist_target {
@@ -2892,7 +2892,12 @@ fn inspector_playlist_target(
 fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
     playlists
         .iter()
-        .map(|playlist| PlaylistOption::new(playlist.id, playlist.name.clone()))
+        .map(|playlist| {
+            PlaylistOption::new(PlaylistOptionDisplay {
+                id: playlist.id,
+                name: SharedString::from(playlist.name.clone()),
+            })
+        })
         .collect()
 }
 

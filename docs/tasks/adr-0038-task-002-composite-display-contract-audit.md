@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first four slices implemented on 2026-05-03.
+In progress - first five slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -58,8 +58,9 @@ test allowlist with a one-line justification.
    - Move the section title to `TrackListVm`.
 5. `PlaylistPopover`
    - Audit trigger label and playlist option labels.
-   - Move trigger copy to `EntityActionVm` or a popover display contract
-     if further divergence appears.
+   - Introduce `AddToPlaylistDisplay` and `PlaylistOptionDisplay`.
+   - Remove the trigger-label builder and loose playlist-option name
+     constructor allowances.
 6. `TrackMetadataGrid` cells
    - Audit group/field/tag/text labels.
    - Keep allowed only where `TrackMetadataGridVm` or metadata row VMs own
@@ -86,8 +87,10 @@ test allowlist with a one-line justification.
 - `src/ui/composites/mod.rs`
 - `src/ui/composites/track_detail_surface.rs`
 - `src/ui/composites/release_detail_surface.rs`
+- `src/ui/composites/playlist_popover.rs`
 - `src/ui/shells/artist.rs`
 - `src/ui/shells/entity.rs`
+- `src/ui/shells/track.rs`
 - `src/library.rs`
 - `src/search.rs`
 - `src/view_models/entity_detail.rs`
@@ -150,6 +153,20 @@ test allowlist with a one-line justification.
 - The explicit allowlist shrank by the former
   `ReleaseDetailSurface::track_section` string API allowance.
 
+## Fifth-Slice Implementation Notes
+
+- `AddToPlaylistPopover` now accepts `AddToPlaylistDisplay` instead of
+  loose id/playlists inputs plus a `.trigger_label(...)` override.
+- `PlaylistOption::new` now accepts `PlaylistOptionDisplay`, so playlist
+  option names are explicit display-contract fields.
+- Library, Discover, and Discover track-shell callers construct the
+  popover display contract from existing VM/action labels and playlist
+  snapshots.
+- The explicit allowlist shrank by the former `PlaylistOption::new`,
+  `AddToPlaylistPopover::new`, and `.trigger_label(...)` string APIs.
+  The `on_create` callback allowance remains because it carries a new
+  playlist name payload, not display copy.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -164,6 +181,8 @@ test allowlist with a one-line justification.
   loose parameters.
 - `ReleaseDetailSurface::track_section` no longer accepts title/summary
   text as loose parameters.
+- `AddToPlaylistPopover` public display inputs no longer accept trigger
+  labels or playlist option names as loose parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004

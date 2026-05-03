@@ -14,8 +14,8 @@ use crate::api::{Feed, Track};
 use crate::db;
 use crate::search::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
 use crate::ui::composites::{
-    identity_action_button, AddToPlaylistPopover, IdentityActionKind, PlaylistOption, TrackRow,
-    TrackSurfaceElement,
+    identity_action_button, AddToPlaylistDisplay, AddToPlaylistPopover, IdentityActionKind,
+    PlaylistOption, PlaylistOptionDisplay, TrackRow, TrackSurfaceElement,
 };
 use crate::view_models::entity_detail::EntityActionKind;
 use crate::view_models::track::TrackVm;
@@ -30,7 +30,12 @@ pub(crate) enum TrackRowMode {
 fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
     playlists
         .iter()
-        .map(|playlist| PlaylistOption::new(playlist.id, playlist.name.clone()))
+        .map(|playlist| {
+            PlaylistOption::new(PlaylistOptionDisplay {
+                id: playlist.id,
+                name: SharedString::from(playlist.name.clone()),
+            })
+        })
         .collect()
 }
 
@@ -158,10 +163,11 @@ fn render_discover_track_row(
             let feed_guid_cre = feed_guid_sel.clone();
             let feed_url_cre = feed_url_sel.clone();
             let track_guid_cre = track_guid_sel.clone();
-            let popover = AddToPlaylistPopover::new(
-                SharedString::from(format!("add-pl:{guid}")),
-                playlist_options(playlists),
-            )
+            let popover = AddToPlaylistPopover::new(AddToPlaylistDisplay {
+                id: SharedString::from(format!("add-pl:{guid}")),
+                playlists: playlist_options(playlists),
+                trigger_label: SharedString::from("+ Playlist"),
+            })
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_search_track_to_playlist(
                     &feed_guid_sel,

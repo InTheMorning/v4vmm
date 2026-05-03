@@ -1,5 +1,7 @@
 //! Reusable "Add to Playlist" popover component.
 //!
+//! ## Display contract: `AddToPlaylistDisplay`
+//!
 //! Wraps a trigger button that, when clicked, floats a HIG-compliant popover
 //! listing all playlists with an inline "New Playlist" create flow at the bottom.
 //! Exactly one popover is visible at a time; clicking outside or pressing Escape
@@ -58,6 +60,14 @@ pub struct AddToPlaylistPopover {
     on_create: Option<CreateHandler>,
 }
 
+/// Display-ready input for the shared playlist popover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AddToPlaylistDisplay {
+    pub id: SharedString,
+    pub playlists: Vec<PlaylistOption>,
+    pub trigger_label: SharedString,
+}
+
 /// Display-ready playlist option for the shared playlist popover.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaylistOption {
@@ -65,33 +75,35 @@ pub struct PlaylistOption {
     name: SharedString,
 }
 
+/// Display-ready playlist option fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlaylistOptionDisplay {
+    pub id: i64,
+    pub name: SharedString,
+}
+
 impl PlaylistOption {
     /// Create a display-ready playlist option.
-    pub fn new(id: i64, name: impl Into<SharedString>) -> Self {
+    #[must_use]
+    pub fn new(display: PlaylistOptionDisplay) -> Self {
         Self {
-            id,
-            name: name.into(),
+            id: display.id,
+            name: display.name,
         }
     }
 }
 
 impl AddToPlaylistPopover {
-    /// Create a new popover with the given `id` and playlist list.
-    pub fn new(id: impl Into<SharedString>, playlists: Vec<PlaylistOption>) -> Self {
+    /// Create a new popover from display-ready popover facts.
+    pub fn new(display: AddToPlaylistDisplay) -> Self {
         Self {
-            id: id.into(),
-            playlists,
-            trigger_label: "+ Playlist".into(),
+            id: display.id,
+            playlists: display.playlists,
+            trigger_label: display.trigger_label,
             disabled: false,
             on_select: None,
             on_create: None,
         }
-    }
-
-    /// Override the trigger label for release-level actions.
-    pub fn trigger_label(mut self, label: impl Into<SharedString>) -> Self {
-        self.trigger_label = label.into();
-        self
     }
 
     /// Disable the trigger when the surrounding screen action is unavailable.

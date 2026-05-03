@@ -16,9 +16,10 @@
 ## Gate Status
 
 Status: Task 002 (Composite Display-Contract Audit) is in progress.
-The first slices migrate `TrackRow`, `DetailHeader`, `DetailGrid`, and
-`ReleaseDetailSurface::track_section` off public loose string builders
-and tighten the composite display-contract guard.
+The first slices migrate `TrackRow`, `DetailHeader`, `DetailGrid`,
+`ReleaseDetailSurface::track_section`, and `AddToPlaylistPopover` off
+public loose string builders and tighten the composite display-contract
+guard.
 
 ## Required Questions For Every UI Change
 
@@ -54,7 +55,7 @@ and tighten the composite display-contract guard.
 | # | Task | Status | Required Evidence |
 |---|---|---|---|
 | 1 | Layer Relocation                              | Implemented with visual-proof caveat | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Visual proof remains open; no provisional screenshot artifacts are retained. |
-| 2 | Composite Display-Contract Audit              | In progress - first four slices implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; `DetailHeader` title/subtitle/data rows now enter through `DetailHeaderDisplay`; `DetailGrid` key/value rows now enter through `DetailElementRow` or `DetailTextRow`; release track sections now enter through `ReleaseTrackSectionDisplay`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow`, `DetailHeader`, `DetailGrid`, and release track-section string builders |
+| 2 | Composite Display-Contract Audit              | In progress - first five slices implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; `DetailHeader` title/subtitle/data rows now enter through `DetailHeaderDisplay`; `DetailGrid` key/value rows now enter through `DetailElementRow` or `DetailTextRow`; release track sections now enter through `ReleaseTrackSectionDisplay`; playlist popovers now enter through `AddToPlaylistDisplay` and `PlaylistOptionDisplay`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow`, `DetailHeader`, `DetailGrid`, release track-section, and playlist popover string builders |
 | 3 | Library/Search VM Consolidation               | Stub           | VM accessors with present/empty/None tests; screen call-site sweep; new guard |
 | 4 | HIG Dark-Mode Parity Audit                    | Stub           | `style.rs` resolution; light + dark screenshots per surface |
 | 5 | HIG Accessibility-Label Contract              | Stub           | A11y labels per interactive composite; new guard; coverage table |

@@ -60,14 +60,14 @@ use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
-    action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
-    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
-    DetailTextRow as CompositeDetailTextRow, DisclosureGroup, EntityKind, FileHeader,
-    IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption, ProvenanceRole,
-    ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface,
-    TrackMetadataFieldCell, TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataSourceCell,
-    TrackMetadataTagCell, TrackMetadataTextValue, TrackRow as TrackRowComposite,
-    TrackSurfaceElement,
+    action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistDisplay,
+    AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
+    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureGroup,
+    EntityKind, FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption,
+    PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
+    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataGrid,
+    TrackMetadataGroupCell, TrackMetadataSourceCell, TrackMetadataTagCell, TrackMetadataTextValue,
+    TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -2330,7 +2330,12 @@ fn render_detail(
 fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
     playlists
         .iter()
-        .map(|playlist| PlaylistOption::new(playlist.id, playlist.name.clone()))
+        .map(|playlist| {
+            PlaylistOption::new(PlaylistOptionDisplay {
+                id: playlist.id,
+                name: SharedString::from(playlist.name.clone()),
+            })
+        })
         .collect()
 }
 
@@ -2520,11 +2525,11 @@ fn render_album_detail(
             .playlist_action_vm(fid)
             .expect("library feed playlist action should render for local feeds");
         buttons = buttons.child(
-            AddToPlaylistPopover::new(
-                SharedString::from(format!("album-feed-add:{fid}")),
-                playlist_options(playlists),
-            )
-            .trigger_label(playlist_action.label)
+            AddToPlaylistPopover::new(AddToPlaylistDisplay {
+                id: SharedString::from(format!("album-feed-add:{fid}")),
+                playlists: playlist_options(playlists),
+                trigger_label: SharedString::from(playlist_action.label),
+            })
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_album_to_playlist(fid, *playlist_id, cx);
             }))
@@ -2672,10 +2677,11 @@ fn render_library_track_row(
     }
 
     actions.push(
-        AddToPlaylistPopover::new(
-            SharedString::from(format!("album-track-add:{track_id}")),
-            playlist_options(playlists),
-        )
+        AddToPlaylistPopover::new(AddToPlaylistDisplay {
+            id: SharedString::from(format!("album-track-add:{track_id}")),
+            playlists: playlist_options(playlists),
+            trigger_label: SharedString::from("+ Playlist"),
+        })
         .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
             this.add_track_to_playlist(track_id, *playlist_id, cx);
         }))
@@ -3114,11 +3120,11 @@ fn library_track_action_row(
                 })),
         )
         .control(
-            AddToPlaylistPopover::new(
-                SharedString::from(format!("track-inspector-add:{track_id}")),
-                playlist_options(playlists),
-            )
-            .trigger_label(LibraryTrackActionVm::add_to_playlist_label())
+            AddToPlaylistPopover::new(AddToPlaylistDisplay {
+                id: SharedString::from(format!("track-inspector-add:{track_id}")),
+                playlists: playlist_options(playlists),
+                trigger_label: SharedString::from(LibraryTrackActionVm::add_to_playlist_label()),
+            })
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_track_to_playlist(track_id, *playlist_id, cx);
             }))

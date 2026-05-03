@@ -378,21 +378,6 @@ const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllow
     },
     CompositeStringApiAllowance {
         file: "src/ui/composites/playlist_popover.rs",
-        pattern: "pub fn new(id: i64, name: impl Into<SharedString>)",
-        note: "PlaylistOption is the display contract for playlist names",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/playlist_popover.rs",
-        pattern: "pub fn new(id: impl Into<SharedString>, playlists: Vec<PlaylistOption>)",
-        note: "element id plus PlaylistOption display contract",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/playlist_popover.rs",
-        pattern: "pub fn trigger_label(mut self, label: impl Into<SharedString>)",
-        note: "temporary action-label override; create/select chrome still owned here",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/playlist_popover.rs",
         pattern:
             "pub fn on_create(mut self, handler: impl Fn(&String, &mut Window, &mut App) + 'static)",
         note: "callback payload for new playlist name, not display label input",

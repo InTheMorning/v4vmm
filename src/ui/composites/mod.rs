@@ -50,7 +50,9 @@ pub use identity_action::{identity_action_button, IdentityActionKind};
 pub use list_row::{ListRow, ListRowDensity};
 pub use musicbrainz_panel::MusicBrainzPanel;
 pub use now_playing_bar::{NowPlayingBar, NowPlayingData, PlaybackState as NowPlayingState};
-pub use playlist_popover::{AddToPlaylistPopover, PlaylistOption};
+pub use playlist_popover::{
+    AddToPlaylistDisplay, AddToPlaylistPopover, PlaylistOption, PlaylistOptionDisplay,
+};
 pub use recent_feed_tile::RecentFeedTile;
 pub use release_detail_surface::{
     ReleaseDetailSurface, ReleaseSurfaceElement, ReleaseTrackSectionDisplay,
