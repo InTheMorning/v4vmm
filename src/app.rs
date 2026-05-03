@@ -475,14 +475,34 @@ fn render_ui_scale_picker(
     cx: &mut Context<TopApp>,
 ) -> gpui::AnyElement {
     use crate::config::UiScale;
-    use crate::ui::composites::{Segment, SegmentedControl};
+    use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
 
     let segments = [
-        Segment::new("ui-scale-xs", UiScale::XSmall, "XS"),
-        Segment::new("ui-scale-s", UiScale::Small, "S"),
-        Segment::new("ui-scale-m", UiScale::Medium, "M"),
-        Segment::new("ui-scale-l", UiScale::Large, "L"),
-        Segment::new("ui-scale-xl", UiScale::XLarge, "XL"),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-xs".into(),
+            key: UiScale::XSmall,
+            label: "XS".into(),
+        }),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-s".into(),
+            key: UiScale::Small,
+            label: "S".into(),
+        }),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-m".into(),
+            key: UiScale::Medium,
+            label: "M".into(),
+        }),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-l".into(),
+            key: UiScale::Large,
+            label: "L".into(),
+        }),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-xl".into(),
+            key: UiScale::XLarge,
+            label: "XL".into(),
+        }),
     ];
 
     let entity = cx.entity();
@@ -499,10 +519,15 @@ fn render_theme_profile_picker(
     current: ThemeProfile,
     cx: &mut Context<TopApp>,
 ) -> gpui::AnyElement {
-    use crate::ui::composites::{Segment, SegmentedControl};
+    use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
 
-    let segments = ThemeProfile::USER_SELECTABLE
-        .map(|profile| Segment::new(profile.as_str(), profile, profile.settings_label()));
+    let segments = ThemeProfile::USER_SELECTABLE.map(|profile| {
+        Segment::new(SegmentDisplay {
+            id: profile.as_str().into(),
+            key: profile,
+            label: profile.settings_label().into(),
+        })
+    });
 
     let entity = cx.entity();
     SegmentedControl::new(current)

@@ -19,9 +19,10 @@ Status: Task 002 (Composite Display-Contract Audit) is in progress.
 The first slices migrate `TrackRow`, `DetailHeader`, `DetailGrid`,
 `ReleaseDetailSurface::track_section`, `AddToPlaylistPopover`, and
 `TrackMetadataGrid` cells off public loose string builders. The
-`ActionRow` and `DisclosureGroup` generic-control sub-slices have also
-moved status messages and disclosure labels to display contracts,
-tightening the composite display-contract guard.
+`ActionRow`, `DisclosureGroup`, and `SegmentedControl` generic-control
+sub-slices have also moved status messages, disclosure labels, and
+segment labels to display contracts, tightening the composite
+display-contract guard.
 
 ## Required Questions For Every UI Change
 
@@ -57,7 +58,7 @@ tightening the composite display-contract guard.
 | # | Task | Status | Required Evidence |
 |---|---|---|---|
 | 1 | Layer Relocation                              | Implemented with visual-proof caveat | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Visual proof remains open; no provisional screenshot artifacts are retained. |
-| 2 | Composite Display-Contract Audit              | In progress - first eight slices implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; `DetailHeader` title/subtitle/data rows now enter through `DetailHeaderDisplay`; `DetailGrid` key/value rows now enter through `DetailElementRow` or `DetailTextRow`; release track sections now enter through `ReleaseTrackSectionDisplay`; playlist popovers now enter through `AddToPlaylistDisplay` and `PlaylistOptionDisplay`; metadata grid cells now enter through `TrackMetadataGroupDisplay`, `TrackMetadataFieldDisplay`, `TrackMetadataFrameDisplay`, `TrackMetadataTagDisplay`, and `TrackMetadataTextDisplay`; action-row status messages now enter through `ActionRowMessageDisplay`; disclosure headings now enter through `DisclosureGroupDisplay`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow`, `DetailHeader`, `DetailGrid`, release track-section, playlist popover, metadata-grid cell, action-row message, and disclosure-group string builders |
+| 2 | Composite Display-Contract Audit              | In progress - first nine slices implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; `DetailHeader` title/subtitle/data rows now enter through `DetailHeaderDisplay`; `DetailGrid` key/value rows now enter through `DetailElementRow` or `DetailTextRow`; release track sections now enter through `ReleaseTrackSectionDisplay`; playlist popovers now enter through `AddToPlaylistDisplay` and `PlaylistOptionDisplay`; metadata grid cells now enter through `TrackMetadataGroupDisplay`, `TrackMetadataFieldDisplay`, `TrackMetadataFrameDisplay`, `TrackMetadataTagDisplay`, and `TrackMetadataTextDisplay`; action-row status messages now enter through `ActionRowMessageDisplay`; disclosure headings now enter through `DisclosureGroupDisplay`; segmented options now enter through `SegmentDisplay`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow`, `DetailHeader`, `DetailGrid`, release track-section, playlist popover, metadata-grid cell, action-row message, disclosure-group, and segmented-control string builders |
 | 3 | Library/Search VM Consolidation               | Stub           | VM accessors with present/empty/None tests; screen call-site sweep; new guard |
 | 4 | HIG Dark-Mode Parity Audit                    | Stub           | `style.rs` resolution; light + dark screenshots per surface |
 | 5 | HIG Accessibility-Label Contract              | Stub           | A11y labels per interactive composite; new guard; coverage table |

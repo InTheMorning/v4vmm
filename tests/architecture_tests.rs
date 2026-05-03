@@ -368,11 +368,6 @@ const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllow
         note: "callback payload for new playlist name, not display label input",
     },
     CompositeStringApiAllowance {
-        file: "src/ui/composites/segmented_control.rs",
-        pattern: "pub fn new(id: impl Into<ElementId>, key: K, label: impl Into<SharedString>)",
-        note: "generic segment label; caller owns option labels",
-    },
-    CompositeStringApiAllowance {
         file: "src/ui/composites/release_detail_surface.rs",
         pattern: "pub fn new(id: impl Into<SharedString>)",
         note: "element id, not display copy",

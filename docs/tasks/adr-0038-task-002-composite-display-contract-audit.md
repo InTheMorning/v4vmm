@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first eight slices implemented on 2026-05-03.
+In progress - first nine slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -76,6 +76,8 @@ test allowlist with a one-line justification.
      remove the loose neutral/danger message constructors.
    - `DisclosureGroup` sub-slice: introduce `DisclosureGroupDisplay`
      and remove the loose id/label constructor allowance.
+   - `SegmentedControl` sub-slice: introduce `SegmentDisplay` and
+     remove the loose segment id/key/label constructor allowance.
 
 ## Files Inspected
 
@@ -91,6 +93,7 @@ test allowlist with a one-line justification.
 - `src/ui/composites/track_row.rs`
 - `src/ui/composites/action_row.rs`
 - `src/ui/composites/disclosure_group.rs`
+- `src/ui/composites/segmented_control.rs`
 - `src/ui/composites/detail_header.rs`
 - `src/ui/composites/detail_grid.rs`
 - `src/ui/composites/mod.rs`
@@ -103,6 +106,7 @@ test allowlist with a one-line justification.
 - `src/ui/shells/track.rs`
 - `src/library.rs`
 - `src/search.rs`
+- `src/app.rs`
 - `src/view_models/entity_detail.rs`
 - `src/view_models/artist.rs`
 - `tests/architecture_tests.rs`
@@ -217,6 +221,17 @@ test allowlist with a one-line justification.
 - The explicit allowlist shrank by the former `DisclosureGroup`
   constructor allowance.
 
+## Ninth-Slice Implementation Notes
+
+- `Segment` now accepts `SegmentDisplay`, which carries the element id,
+  segment key, and already-owned segment label together.
+- The former loose `Segment::new(id, key, label)` constructor was
+  removed.
+- Settings UI scale and theme-profile pickers construct segment display
+  contracts from their existing option labels.
+- The explicit allowlist shrank by the former `SegmentedControl`
+  segment constructor allowance.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -240,6 +255,8 @@ test allowlist with a one-line justification.
   status text as loose parameters.
 - `DisclosureGroup` public signatures no longer accept section labels as
   loose constructor parameters.
+- `SegmentedControl` segment public signatures no longer accept option
+  labels as loose constructor parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004

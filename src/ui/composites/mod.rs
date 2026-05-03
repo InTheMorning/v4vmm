@@ -57,7 +57,7 @@ pub use recent_feed_tile::RecentFeedTile;
 pub use release_detail_surface::{
     ReleaseDetailSurface, ReleaseSurfaceElement, ReleaseTrackSectionDisplay,
 };
-pub use segmented_control::{Segment, SegmentedControl};
+pub use segmented_control::{Segment, SegmentDisplay, SegmentedControl};
 pub use split_pane::SplitPane;
 pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge};
 pub use thumbnail::{Thumbnail, ThumbnailSize};

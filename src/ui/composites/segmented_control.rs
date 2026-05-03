@@ -24,12 +24,20 @@ pub struct Segment<K: Clone + PartialEq + 'static> {
     pub label: SharedString,
 }
 
+/// Display-ready segment fields for a [`SegmentedControl`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SegmentDisplay<K: Clone + PartialEq + 'static> {
+    pub id: ElementId,
+    pub key: K,
+    pub label: SharedString,
+}
+
 impl<K: Clone + PartialEq + 'static> Segment<K> {
-    pub fn new(id: impl Into<ElementId>, key: K, label: impl Into<SharedString>) -> Self {
+    pub fn new(display: SegmentDisplay<K>) -> Self {
         Self {
-            id: id.into(),
-            key,
-            label: label.into(),
+            id: display.id,
+            key: display.key,
+            label: display.label,
         }
     }
 }
@@ -96,5 +104,22 @@ impl<K: Clone + PartialEq + 'static> RenderOnce for SegmentedControl<K> {
         }
 
         div().rounded(Radius::SM.scaled(cx)).child(row)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn segment_uses_display_contract() {
+        let segment = Segment::new(SegmentDisplay {
+            id: "scale-medium".into(),
+            key: 2_u8,
+            label: "M".into(),
+        });
+
+        assert_eq!(segment.key, 2);
+        assert_eq!(segment.label, SharedString::from("M"));
     }
 }
