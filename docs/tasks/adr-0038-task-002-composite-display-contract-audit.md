@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first eleven slices implemented on 2026-05-03.
+Implemented on 2026-05-03.
 
 ## Goal
 

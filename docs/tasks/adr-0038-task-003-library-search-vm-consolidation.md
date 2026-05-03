@@ -1,10 +1,10 @@
-# ADR 0038 Task 003: Library/Search VM Consolidation (Stub)
+# ADR 0038 Task 003: Library/Search VM Consolidation
 
 ## Status
 
-Stub. Starts after Task 002 (Composite Display-Contract Audit) lands.
-May split into Task 003a (Library) and Task 003b (Discover) once an
-inventory is in hand.
+In progress - first Discover feed-link slice implemented on 2026-05-03.
+May split into Task 003a (Library) and Task 003b (Discover) once the
+full inventory is in hand.
 
 ## Goal
 
@@ -29,6 +29,14 @@ Grep evidence (verified 2026-05-02):
 Re-grep when starting; the 2026-05-02 inventory is a starting list, not
 authoritative.
 
+Verified starting notes, 2026-05-03:
+
+- The `Tags` section-title fallback is already owned by
+  `TrackMetadataGridVm::tag_column_label`.
+- Discover track-inspector feed-link fallback was still split between
+  `TrackInspectorHeaderVm` and `src/search.rs`; this task's first slice
+  moves the complete feed-link display contract into the VM.
+
 ## Files Likely To Change
 
 - `src/view_models/track.rs` — `display_title`, `display_artist`,
@@ -44,6 +52,18 @@ authoritative.
 - `src/ui/shells/*.rs` — call-site sweep.
 - `tests/architecture_tests.rs` — tighten existing fallback guards;
   add `view_models_own_display_fallbacks_for_library_and_search`.
+
+## Migration Order
+
+1. Discover track-inspector feed link
+   - Introduce `TrackFeedLinkDisplay` in `view_models::search`.
+   - Make `TrackInspectorHeaderVm::feed_link_display()` own guid
+     presence, feed-title label fallback, and URL fallback.
+   - Remove `src/search.rs` render-glue fallback from
+     `feed_link_label.unwrap_or_else`.
+   - Add `view_models_own_display_fallbacks_for_library_and_search`.
+2. Re-grep the remaining `library.rs` / `search.rs` fallback inventory.
+3. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -77,8 +97,37 @@ authoritative.
   `view_models_own_display_fallbacks_for_library_and_search` is green.
 - VM unit tests cover present / empty / `None` per accessor.
 
-## When To Start
+## First-Slice Implementation Notes
 
-After Task 002 lands. Replace this stub with a fully-specified task
-listing the fallback migration order (smallest blast radius first per
-the original `one-owner-per-surface-plan`).
+- `TrackFeedLinkDisplay` now carries the Discover track-inspector feed
+  guid, visible label, and target URL as one VM-projected display
+  contract.
+- `TrackInspectorHeaderVm::feed_link_display()` returns `None` when
+  there is no usable feed guid; otherwise it uses the existing
+  `feed_title -> guid` label fallback and `feed_url -> feed_guid` URL
+  fallback.
+- `src/search.rs` no longer accepts an optional feed-link label and no
+  longer reconstructs the guid fallback in render glue.
+- The new architecture guard
+  `view_models_own_display_fallbacks_for_library_and_search` blocks the
+  separated feed-link fallback calls from returning to `src/search.rs`.
+
+## Test Commands
+
+```sh
+cargo fmt -- --check
+cargo check
+cargo test track_inspector_header_vm_projects_feed_link_display_contract
+cargo test view_models_own_display_fallbacks_for_library_and_search
+cargo test
+cargo clippy -- -D warnings
+git diff --check
+```
+
+## Expected Final Report
+
+- Name the fallback migrated.
+- Name the VM/display contract that owns it.
+- Name the guard added or tightened.
+- Report automated gate status.
+- Explicitly say whether visual evidence was needed and, if not, why.

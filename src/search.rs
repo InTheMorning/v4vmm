@@ -79,7 +79,8 @@ use crate::view_models::search::{
     artist_rows_from_result_rows, feed_display_title, normalized_search_query,
     search_result_type_is_visible, ActionRowVm, LazyPanel, PaymentRouteVm, PlaylistAppendIntent,
     PlaylistAppendOutcome, PublisherInspectorVm, RecentFeedTileVm, ResultRow, SearchBatch,
-    SearchSubscriptionCommand, SearchViewModel, TrackInspectorHeaderVm, TrackRowActionVm,
+    SearchSubscriptionCommand, SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm,
+    TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
@@ -2639,14 +2640,10 @@ fn render_discover_track_inspector(
     let track_view = TrackView::from_api(track.clone());
     let detail_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover);
     let header_vm = TrackInspectorHeaderVm::new(track);
-    let feed_guid = track.feed_guid.clone();
-    let feed_link_label = feed_guid
-        .as_deref()
-        .map(|guid| header_vm.feed_link_label(guid));
-    let feed_url = header_vm.feed_link_url();
+    let feed_link = header_vm.feed_link_display();
     let audio_url = vm.play_url();
     let mut external_links = vec![TrackSurfaceElement::from_element(
-        render_track_header_subtitle(feed_guid, feed_link_label, feed_url, audio_url, cx),
+        render_track_header_subtitle(feed_link, audio_url, cx),
     )];
     external_links.extend(track::render_track_identity_actions(
         &detail_vm,
@@ -4697,9 +4694,7 @@ pub(crate) fn render_feed_list_section(
 }
 
 fn render_track_header_subtitle(
-    feed_guid: Option<String>,
-    feed_link_label: Option<String>,
-    feed_url: Option<String>,
+    feed_link: Option<TrackFeedLinkDisplay>,
     audio_url: Option<String>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
@@ -4709,9 +4704,8 @@ fn render_track_header_subtitle(
         .items_center()
         .gap(spacing::SM)
         .min_w_0()
-        .when_some(feed_guid, |el, guid| {
-            let label = feed_link_label.unwrap_or_else(|| guid.clone());
-            el.child(render_feed_link_value(guid.clone(), label, feed_url, cx))
+        .when_some(feed_link, |el, link| {
+            el.child(render_feed_link_value(link.guid, link.label, link.url, cx))
         })
         .child(render_play_icon_button_with_id(
             SharedString::from("track-play-audio"),

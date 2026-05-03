@@ -1951,6 +1951,43 @@ fn screens_do_not_coerce_empty_feed_url_to_empty_string() {
 }
 
 #[test]
+fn view_models_own_display_fallbacks_for_library_and_search() {
+    let forbidden = [
+        (
+            "src/search.rs",
+            "feed_link_label.unwrap_or_else",
+            "Discover track feed-link label fallback belongs in TrackInspectorHeaderVm::feed_link_display",
+        ),
+        (
+            "src/search.rs",
+            "header_vm.feed_link_label(",
+            "Discover track feed-link label should enter the screen through TrackFeedLinkDisplay",
+        ),
+        (
+            "src/search.rs",
+            "header_vm.feed_link_url()",
+            "Discover track feed-link URL should enter the screen through TrackFeedLinkDisplay",
+        ),
+    ];
+    let mut violations = Vec::new();
+
+    for (file, pattern, note) in forbidden {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            if line.contains(pattern) {
+                violations.push(format!("{file}:{line_number}: {note}: `{line}`"));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0038 Library/Search VM fallback ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn composite_signatures_take_display_contracts_not_loose_strings() {
     let mut violations = Vec::new();
 

@@ -584,10 +584,29 @@ pub(crate) struct TrackInspectorHeaderVm<'a> {
     track: &'a Track,
 }
 
+/// Display-ready feed link for the Discover track inspector.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TrackFeedLinkDisplay {
+    pub(crate) guid: String,
+    pub(crate) label: String,
+    pub(crate) url: Option<String>,
+}
+
 impl<'a> TrackInspectorHeaderVm<'a> {
     #[must_use]
     pub(crate) fn new(track: &'a Track) -> Self {
         Self { track }
+    }
+
+    /// Complete feed-link display contract for the track inspector.
+    #[must_use]
+    pub(crate) fn feed_link_display(&self) -> Option<TrackFeedLinkDisplay> {
+        let guid = nonempty_text(self.track.feed_guid.as_deref())?.to_string();
+        Some(TrackFeedLinkDisplay {
+            label: self.feed_link_label(&guid),
+            url: self.feed_link_url(),
+            guid,
+        })
     }
 
     /// URL the feed link should target — `feed_url` first, else
@@ -2168,6 +2187,48 @@ mod tests {
         };
         let vm = TrackInspectorHeaderVm::new(&track);
         assert_eq!(vm.feed_link_label("fallback"), "fallback");
+    }
+
+    #[test]
+    fn track_inspector_header_vm_projects_feed_link_display_contract() {
+        let track = Track {
+            feed_title: Some("Friendly Title".into()),
+            feed_url: Some("https://example/x.rss".into()),
+            feed_guid: Some("guid-1".into()),
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(
+            vm.feed_link_display(),
+            Some(TrackFeedLinkDisplay {
+                guid: "guid-1".into(),
+                label: "Friendly Title".into(),
+                url: Some("https://example/x.rss".into()),
+            })
+        );
+
+        let track = Track {
+            feed_title: Some("   ".into()),
+            feed_url: None,
+            feed_guid: Some("guid-1".into()),
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(
+            vm.feed_link_display(),
+            Some(TrackFeedLinkDisplay {
+                guid: "guid-1".into(),
+                label: "guid-1".into(),
+                url: Some("guid-1".into()),
+            })
+        );
+
+        let track = Track {
+            feed_guid: None,
+            ..Track::default()
+        };
+        let vm = TrackInspectorHeaderVm::new(&track);
+        assert_eq!(vm.feed_link_display(), None);
     }
 
     #[test]
