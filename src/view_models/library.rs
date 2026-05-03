@@ -1688,15 +1688,27 @@ pub(crate) struct PlaylistTrackRowVm<'a> {
     last_position: usize,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistTrackControlsDisplay {
+    pub(crate) row_id: String,
+    pub(crate) row_body_id: String,
+    pub(crate) play_button_id: String,
+    pub(crate) play_label: &'static str,
+    pub(crate) play_enabled: bool,
+    pub(crate) move_up_button_id: String,
+    pub(crate) move_up_label: &'static str,
+    pub(crate) move_up_enabled: bool,
+    pub(crate) move_down_button_id: String,
+    pub(crate) move_down_label: &'static str,
+    pub(crate) move_down_enabled: bool,
+    pub(crate) remove_button_id: String,
+    pub(crate) remove_label: &'static str,
+}
+
 impl PlaylistTrackRowVm<'_> {
     #[must_use]
     pub(crate) fn track(&self) -> &TrackRow {
         self.track
-    }
-
-    #[must_use]
-    pub(crate) fn track_id(&self) -> i64 {
-        self.track.id
     }
 
     #[must_use]
@@ -1763,6 +1775,27 @@ impl PlaylistTrackRowVm<'_> {
     #[must_use]
     pub(crate) fn can_move_down(&self) -> bool {
         self.position < self.last_position
+    }
+
+    #[must_use]
+    pub(crate) fn controls_display(&self, playlist_id: i64) -> PlaylistTrackControlsDisplay {
+        let position = self.position;
+        let track_id = self.track.id;
+        PlaylistTrackControlsDisplay {
+            row_id: format!("playlist-track-{track_id}-{position}"),
+            row_body_id: format!("playlist-row-body-{playlist_id}-{position}"),
+            play_button_id: format!("playlist-play-{playlist_id}-{position}"),
+            play_label: "▶",
+            play_enabled: self.can_play(),
+            move_up_button_id: format!("playlist-up-{playlist_id}-{position}"),
+            move_up_label: "▲",
+            move_up_enabled: self.can_move_up(),
+            move_down_button_id: format!("playlist-down-{playlist_id}-{position}"),
+            move_down_label: "▼",
+            move_down_enabled: self.can_move_down(),
+            remove_button_id: format!("playlist-remove-{playlist_id}-{position}"),
+            remove_label: "✕",
+        }
     }
 }
 
@@ -2321,6 +2354,43 @@ mod tests {
         assert!(rows[1].can_move_down());
         assert!(rows[2].can_move_up());
         assert!(!rows[2].can_move_down());
+    }
+
+    #[test]
+    fn playlist_track_row_vm_controls_display_projects_ids_labels_and_availability() {
+        let pl = playlist("Mix");
+        let mut t1 = row();
+        t1.id = 42;
+        t1.local_path = Some("/x".into());
+        let mut t2 = row();
+        t2.id = 43;
+        let tracks = [t1, t2];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let rows = vm.track_rows();
+
+        assert_eq!(
+            rows[0].controls_display(7),
+            PlaylistTrackControlsDisplay {
+                row_id: "playlist-track-42-0".into(),
+                row_body_id: "playlist-row-body-7-0".into(),
+                play_button_id: "playlist-play-7-0".into(),
+                play_label: "▶",
+                play_enabled: true,
+                move_up_button_id: "playlist-up-7-0".into(),
+                move_up_label: "▲",
+                move_up_enabled: false,
+                move_down_button_id: "playlist-down-7-0".into(),
+                move_down_label: "▼",
+                move_down_enabled: true,
+                remove_button_id: "playlist-remove-7-0".into(),
+                remove_label: "✕",
+            }
+        );
+
+        let second = rows[1].controls_display(7);
+        assert!(!second.play_enabled);
+        assert!(second.move_up_enabled);
+        assert!(!second.move_down_enabled);
     }
 
     #[test]

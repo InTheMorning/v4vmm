@@ -109,6 +109,9 @@ pub(crate) struct RecentFeedTileVm<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RecentFeedTileDisplay {
     pub id: String,
+    pub feed_list_tile_id: String,
+    pub recent_tile_id: String,
+    pub podroll_tile_id: String,
     pub title: String,
     pub subtitle: Option<String>,
     pub episode_note: Option<String>,
@@ -123,8 +126,12 @@ impl<'a> RecentFeedTileVm<'a> {
 
     #[must_use]
     pub(crate) fn display(&self) -> RecentFeedTileDisplay {
+        let id = self.feed.feed_guid.clone().unwrap_or_default();
         RecentFeedTileDisplay {
-            id: self.feed.feed_guid.clone().unwrap_or_default(),
+            feed_list_tile_id: format!("feed-tile:{id}"),
+            recent_tile_id: format!("recent-tile:{id}"),
+            podroll_tile_id: format!("podroll-tile:{id}"),
+            id,
             title: feed_display_title(self.feed),
             subtitle: nonempty_text(self.feed.release_artist.as_deref())
                 .or_else(|| nonempty_text(self.feed.publisher_text.as_deref()))
@@ -657,6 +664,7 @@ pub(crate) struct TrackInspectorHeaderVm<'a> {
 /// Display-ready feed link for the Discover track inspector.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TrackFeedLinkDisplay {
+    pub(crate) element_id: String,
     pub(crate) guid: String,
     pub(crate) label: String,
     pub(crate) url: Option<String>,
@@ -674,6 +682,7 @@ impl<'a> TrackInspectorHeaderVm<'a> {
     pub(crate) fn feed_link_display(&self) -> Option<TrackFeedLinkDisplay> {
         let guid = nonempty_text(self.track.feed_guid.as_deref())?.to_string();
         Some(TrackFeedLinkDisplay {
+            element_id: format!("track-feed-link:{guid}"),
             label: self.feed_link_label(&guid),
             url: self.feed_link_url(),
             tooltip: guid.clone(),
@@ -1935,6 +1944,18 @@ mod tests {
         let display = vm.display();
 
         assert_eq!(display.id, "495c0d0b-f576-5d12-a76a-d806f2e19b7e");
+        assert_eq!(
+            display.feed_list_tile_id,
+            "feed-tile:495c0d0b-f576-5d12-a76a-d806f2e19b7e"
+        );
+        assert_eq!(
+            display.recent_tile_id,
+            "recent-tile:495c0d0b-f576-5d12-a76a-d806f2e19b7e"
+        );
+        assert_eq!(
+            display.podroll_tile_id,
+            "podroll-tile:495c0d0b-f576-5d12-a76a-d806f2e19b7e"
+        );
         assert_eq!(display.title, "Is Anybody There?");
         assert_eq!(display.subtitle.as_deref(), Some("The Paisley Daze"));
         assert_eq!(display.episode_note.as_deref(), Some("1 tracks"));
@@ -1968,6 +1989,9 @@ mod tests {
         let display = RecentFeedTileVm::new(&feed).display();
 
         assert_eq!(display.id, "feed-guid");
+        assert_eq!(display.feed_list_tile_id, "feed-tile:feed-guid");
+        assert_eq!(display.recent_tile_id, "recent-tile:feed-guid");
+        assert_eq!(display.podroll_tile_id, "podroll-tile:feed-guid");
         assert_eq!(display.episode_note.as_deref(), Some("0 tracks"));
 
         let feed = Feed {
@@ -1978,6 +2002,9 @@ mod tests {
         let display = RecentFeedTileVm::new(&feed).display();
 
         assert_eq!(display.id, "");
+        assert_eq!(display.feed_list_tile_id, "feed-tile:");
+        assert_eq!(display.recent_tile_id, "recent-tile:");
+        assert_eq!(display.podroll_tile_id, "podroll-tile:");
         assert_eq!(display.episode_note, None);
     }
 
@@ -2505,6 +2532,7 @@ mod tests {
         assert_eq!(
             vm.feed_link_display(),
             Some(TrackFeedLinkDisplay {
+                element_id: "track-feed-link:guid-1".into(),
                 guid: "guid-1".into(),
                 label: "Friendly Title".into(),
                 url: Some("https://example/x.rss".into()),
@@ -2522,6 +2550,7 @@ mod tests {
         assert_eq!(
             vm.feed_link_display(),
             Some(TrackFeedLinkDisplay {
+                element_id: "track-feed-link:guid-1".into(),
                 guid: "guid-1".into(),
                 label: "guid-1".into(),
                 url: Some("guid-1".into()),

@@ -2723,10 +2723,9 @@ fn render_playlist_detail(
             .into_iter()
             .map(|row| {
                 let track_for_select = row.track().clone();
-                let track_id = row.track_id();
                 let position = row.position() as i64;
                 let pl_id = playlist_id;
-                let can_play = row.can_play();
+                let controls_display = row.controls_display(pl_id);
                 let track_title = row.title();
                 let artist = row.artist();
                 let dur = row.duration_label();
@@ -2737,40 +2736,40 @@ fn render_playlist_detail(
                     .and_then(|opt| opt.clone());
 
                 let up_btn = UiButton::styled(
-                    SharedString::from(format!("playlist-up-{pl_id}-{position}")),
+                    SharedString::from(controls_display.move_up_button_id.clone()),
                     ControlStyle::RowAction,
                 )
-                .label("▲")
-                .disabled(!row.can_move_up())
+                .label(controls_display.move_up_label)
+                .disabled(!controls_display.move_up_enabled)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position - 1, cx);
                 }));
 
                 let down_btn = UiButton::styled(
-                    SharedString::from(format!("playlist-down-{pl_id}-{position}")),
+                    SharedString::from(controls_display.move_down_button_id.clone()),
                     ControlStyle::RowAction,
                 )
-                .label("▼")
-                .disabled(!row.can_move_down())
+                .label(controls_display.move_down_label)
+                .disabled(!controls_display.move_down_enabled)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position + 1, cx);
                 }));
 
                 let remove_btn = UiButton::styled(
-                    SharedString::from(format!("playlist-remove-{pl_id}-{position}")),
+                    SharedString::from(controls_display.remove_button_id.clone()),
                     ControlStyle::Destructive,
                 )
-                .label("✕")
+                .label(controls_display.remove_label)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.remove_playlist_track_at(pl_id, position, cx);
                 }));
 
                 let play_btn = UiButton::styled(
-                    SharedString::from(format!("playlist-play-{pl_id}-{position}")),
+                    SharedString::from(controls_display.play_button_id.clone()),
                     ControlStyle::RowAction,
                 )
-                .label("▶")
-                .disabled(!can_play)
+                .label(controls_display.play_label)
+                .disabled(!controls_display.play_enabled)
                 .on_click(cx.listener(move |_this, _, _, cx| {
                     cx.emit(LibraryAppEvent::PlayPlaylistAt {
                         playlist_id: pl_id,
@@ -2779,9 +2778,7 @@ fn render_playlist_detail(
                 }));
 
                 div()
-                    .id(SharedString::from(format!(
-                        "playlist-track-{track_id}-{position}"
-                    )))
+                    .id(SharedString::from(controls_display.row_id))
                     .flex()
                     .flex_row()
                     .items_center()
@@ -2792,9 +2789,7 @@ fn render_playlist_detail(
                     .hover(|el| el.bg(color::bg_surface_hi()))
                     .child(
                         div()
-                            .id(SharedString::from(format!(
-                                "playlist-row-body-{pl_id}-{position}"
-                            )))
+                            .id(SharedString::from(controls_display.row_body_id))
                             .flex()
                             .flex_row()
                             .items_center()

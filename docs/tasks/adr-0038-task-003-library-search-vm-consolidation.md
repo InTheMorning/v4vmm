@@ -383,7 +383,25 @@ Verified starting notes, 2026-05-03:
     - Remove album-row and inspector playlist popover id/label
       formatting from `src/library.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-52. Migrate remaining fallback batches, smallest blast radius first.
+52. Discover feed tile id display
+    - Extend `RecentFeedTileVm::display()` so feed-list, recent-feed,
+      and podroll tile ids are VM-owned alongside the feed guid.
+    - Remove those tile id formats from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+53. Discover track inspector play/feed-link id display
+    - Extend `TrackVm::play_audio_display()` with the track-inspector
+      play button id and glyph.
+    - Extend `TrackFeedLinkDisplay` with the feed-link element id.
+    - Remove those id/glyph literals from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+54. Library playlist track controls display
+    - Add `PlaylistTrackRowVm::controls_display()` so playlist row ids,
+      body ids, button ids, button glyphs, and availability are
+      VM-owned.
+    - Remove playlist-track control id/glyph formatting from
+      `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+55. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -923,6 +941,38 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks those Library track playlist
   presentation facts from returning.
 
+## Fifty-First-Slice Implementation Notes
+
+- `RecentFeedTileVm::display()` now carries Discover feed-list,
+  recent-feed, and podroll tile ids alongside the existing feed guid,
+  title, subtitle, image URL, and episode note.
+- `src/search.rs` still decides whether podroll/recent tiles with empty
+  guids are skipped and still wires navigation, but no longer formats
+  those tile element ids locally.
+- The architecture guard now blocks screen-local Discover feed tile id
+  formatting from returning.
+
+## Fifty-Second-Slice Implementation Notes
+
+- `TrackVm::play_audio_display()` now carries the track-inspector play
+  button id and glyph.
+- `TrackFeedLinkDisplay` now carries the track-inspector feed-link
+  element id.
+- `src/search.rs` still wires the play and feed-link click handlers,
+  but no longer owns those id/glyph presentation facts.
+- The architecture guard now blocks screen-local track-inspector play
+  and feed-link id/glyph formatting from returning.
+
+## Fifty-Third-Slice Implementation Notes
+
+- `PlaylistTrackRowVm::controls_display()` now carries Library playlist
+  track row ids, row-body ids, play/move/remove button ids, button
+  glyphs, and play/move availability.
+- `src/library.rs` still wires playlist movement, remove, select, and
+  playback callbacks, but no longer formats those control ids or glyphs.
+- The architecture guard now blocks screen-local Library playlist track
+  control id/glyph formatting from returning.
+
 ## Test Commands
 
 ```sh
@@ -980,6 +1030,10 @@ cargo test track_row_action_vm_download_display_projects_ids_and_tooltip
 cargo test action_row_vm_inspector_playlist_display_projects_id_and_label
 cargo test library_track_row_vm_playlist_display_projects_album_track_controls
 cargo test library_track_action_vm_formats_playlist_label_and_message_status
+cargo test recent_feed_tile_vm_projects_id_and_episode_note
+cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback
+cargo test track_inspector_header_vm_projects_feed_link_display_contract
+cargo test playlist_track_row_vm_controls_display_projects_ids_labels_and_availability
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

@@ -75,11 +75,11 @@ use crate::view_models::entity_detail::{
 use crate::view_models::format::plural;
 use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::search::{
-    artist_rows_from_result_rows, feed_display_title, normalized_search_query,
-    search_result_type_is_visible, ActionRowVm, DeferredPanelKind, InspectorChromeDisplay,
-    LazyPanel, PaymentRouteVm, PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm,
-    PublisherLinkDisplay, RecentFeedTileVm, ResultRow, SearchBatch, SearchSubscriptionCommand,
-    SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm, TrackRowActionVm,
+    artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
+    ActionRowVm, DeferredPanelKind, InspectorChromeDisplay, LazyPanel, PaymentRouteVm,
+    PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm, PublisherLinkDisplay,
+    RecentFeedTileVm, ResultRow, SearchBatch, SearchSubscriptionCommand, SearchViewModel,
+    TrackFeedLinkDisplay, TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
@@ -2559,16 +2559,16 @@ fn podroll_section(
 
     let mut tiles: Vec<AnyElement> = Vec::with_capacity(feeds.len());
     for feed in feeds {
-        let guid = match feed.feed_guid.clone() {
-            Some(guid) if !guid.trim().is_empty() => guid,
-            _ => continue,
-        };
-        let title = feed_display_title(&feed);
+        let display = RecentFeedTileVm::new(&feed).display();
+        if display.id.trim().is_empty() {
+            continue;
+        }
+        let title = display.title.clone();
         let click_title = title.clone();
-        let click_guid = guid.clone();
-        let thumb = app.thumbnail_for_url(feed.image_url.as_deref(), cx);
+        let click_guid = display.id.clone();
+        let thumb = app.thumbnail_for_url(display.image_url.as_deref(), cx);
         let tile = div()
-            .id(SharedString::from(format!("podroll-tile:{guid}")))
+            .id(SharedString::from(display.podroll_tile_id))
             .flex_shrink_0()
             .w(layout::FEED_TILE_WIDTH)
             .flex()
@@ -4474,10 +4474,11 @@ pub(crate) fn render_play_icon_button_with_id(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let click_url = display.url.clone();
+    let button_label = display.button_label;
 
     // CONTROL-COMPAT(reason): native Button does not yet expose tooltip plus fixed square icon-button geometry.
     Button::new(id)
-        .label("▶")
+        .label(button_label)
         .scaled(Size::XSmall, cx)
         .compact()
         .ghost()
@@ -4565,7 +4566,7 @@ pub(crate) fn render_feed_list_section(
             let title = display.title.clone();
             let thumb = app.thumbnail_for_url(display.image_url.as_deref(), cx);
             div()
-                .id(SharedString::from(format!("feed-tile:{guid}")))
+                .id(SharedString::from(display.feed_list_tile_id))
                 .w(layout::FEED_TILE_WIDTH)
                 .flex()
                 .flex_col()
@@ -4628,7 +4629,7 @@ fn render_track_header_subtitle(
             el.child(render_feed_link_value(link, cx))
         })
         .child(render_play_icon_button_with_id(
-            SharedString::from("track-play-audio"),
+            SharedString::from(audio_display.button_id.clone()),
             audio_display,
             cx,
         ))
@@ -4661,12 +4662,13 @@ pub(crate) fn render_collapsed_text_section(label: &str, value: String) -> AnyEl
 }
 
 fn render_feed_link_value(link: TrackFeedLinkDisplay, cx: &mut Context<SearchApp>) -> AnyElement {
+    let element_id = link.element_id;
     let guid = link.guid;
     let title = link.label;
     let tooltip = link.tooltip;
     let click_title = title.clone();
     div()
-        .id(SharedString::from(format!("track-feed-link:{guid}")))
+        .id(SharedString::from(element_id))
         .cursor_pointer()
         .text_color(color::accent())
         .text_size(typography::SIZE_MICRO)
@@ -4723,7 +4725,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
         let thumbnail = app.thumbnail_for_url(display.image_url.as_deref(), cx);
         let click_guid = guid.clone();
         let click_title = display.title.clone();
-        let tile = RecentFeedTile::new(SharedString::from(format!("recent-tile:{guid}")), display)
+        let tile = RecentFeedTile::new(SharedString::from(display.recent_tile_id.clone()), display)
             .thumbnail(thumbnail)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open_recent_feed(click_guid.clone(), click_title.clone(), cx);

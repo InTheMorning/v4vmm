@@ -2554,6 +2554,86 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "SharedString::from(\"+ Playlist\")",
             "Library album-track playlist trigger label belongs in LibraryTrackRowVm::playlist_display",
         ),
+        (
+            "src/search.rs",
+            "format!(\"feed-tile:{guid}\")",
+            "Discover feed-list tile id display belongs in RecentFeedTileVm::display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"recent-tile:{guid}\")",
+            "Discover recent-feed tile id display belongs in RecentFeedTileVm::display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"podroll-tile:{guid}\")",
+            "Discover podroll tile id display belongs in RecentFeedTileVm::display",
+        ),
+        (
+            "src/search.rs",
+            "SharedString::from(\"track-play-audio\")",
+            "Discover track-inspector play button id belongs in TrackVm::play_audio_display",
+        ),
+        (
+            "src/search.rs",
+            ".label(\"▶\")",
+            "Discover play button glyph belongs in TrackVm::play_audio_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"track-feed-link:{guid}\")",
+            "Discover track feed-link id belongs in TrackFeedLinkDisplay",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"playlist-up-{pl_id}-{position}\")",
+            "Library playlist move-up control id belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"playlist-down-{pl_id}-{position}\")",
+            "Library playlist move-down control id belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"playlist-remove-{pl_id}-{position}\")",
+            "Library playlist remove control id belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"playlist-play-{pl_id}-{position}\")",
+            "Library playlist play control id belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            "\"playlist-track-{track_id}-{position}\"",
+            "Library playlist row id belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            "\"playlist-row-body-{pl_id}-{position}\"",
+            "Library playlist row body id belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            ".label(\"▲\")",
+            "Library playlist move-up glyph belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            ".label(\"▼\")",
+            "Library playlist move-down glyph belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            ".label(\"✕\")",
+            "Library playlist remove glyph belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            ".label(\"▶\")",
+            "Library playlist play glyph belongs in PlaylistTrackRowVm::controls_display",
+        ),
     ];
     let mut violations = Vec::new();
 

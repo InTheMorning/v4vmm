@@ -24,6 +24,8 @@ pub struct TrackVm<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[must_use]
 pub struct TrackPlayAudioDisplay {
+    pub button_id: String,
+    pub button_label: &'static str,
     pub url: Option<String>,
     pub tooltip: String,
     pub disabled: bool,
@@ -140,6 +142,8 @@ impl<'a> TrackVm<'a> {
         let tooltip = url.clone().unwrap_or_else(|| "No audio URL".into());
         let disabled = url.is_none();
         TrackPlayAudioDisplay {
+            button_id: "track-play-audio".into(),
+            button_label: "▶",
             url,
             tooltip,
             disabled,
@@ -332,6 +336,8 @@ mod tests {
         assert_eq!(
             TrackVm::new(&playable).play_audio_display(),
             TrackPlayAudioDisplay {
+                button_id: "track-play-audio".into(),
+                button_label: "▶",
                 url: Some("https://e/x.mp3".into()),
                 tooltip: "https://e/x.mp3".into(),
                 disabled: false,
@@ -341,6 +347,8 @@ mod tests {
         assert_eq!(
             TrackVm::new(&track()).play_audio_display(),
             TrackPlayAudioDisplay {
+                button_id: "track-play-audio".into(),
+                button_label: "▶",
                 url: None,
                 tooltip: "No audio URL".into(),
                 disabled: true,
