@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first seventy-four implementation slices completed on 2026-05-03.
+In progress - first seventy-nine implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -513,7 +513,35 @@ Verified starting notes, 2026-05-03:
     - Extend `LibraryChromeDisplay` with the track detail scroll id.
     - Remove the track detail scroll id literal from `src/library.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-76. Migrate remaining fallback batches, smallest blast radius first.
+76. Library metadata expandable cell display
+    - Add `TrackMetadataGridVm::library_expandable_cell_display()` so
+      metadata cell keys, ids, header ids, and disclosure glyphs are
+      VM-owned for Library metadata cells.
+    - Remove Library metadata expandable cell id/glyph formatting from
+      `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+77. Discover metadata expandable cell display
+    - Add `TrackMetadataGridVm::discover_expandable_cell_display()` so
+      metadata cell keys, ids, header ids, and disclosure glyphs are
+      VM-owned for Discover metadata cells.
+    - Remove Discover RSS/ID3 expandable cell id/glyph formatting from
+      `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+78. Library Value Routes item display
+    - Add `TrackMetadataGridVm::library_value_route_item_display()` so
+      nested Value Routes item keys, ids, header ids, and disclosure
+      glyphs are VM-owned for Library metadata cells.
+    - Remove Library nested Value Routes item id/glyph formatting from
+      `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+79. Discover Value Routes item display
+    - Add `TrackMetadataGridVm::discover_value_route_item_display()` so
+      nested Value Routes item keys, ids, and disclosure glyphs are
+      VM-owned for Discover metadata cells.
+    - Remove Discover nested Value Routes item id/glyph formatting from
+      `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+80. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1279,6 +1307,46 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks the screen-local track detail scroll
   id from returning.
 
+## Seventy-Fifth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::library_expandable_cell_display()` now carries
+  Library metadata expandable cell keys, ids, header ids, and disclosure
+  glyphs.
+- `src/library.rs` still wires metadata expansion clicks and content
+  rendering, but no longer owns those top-level cell id/glyph rules.
+- The architecture guard now blocks screen-local Library metadata
+  expandable cell chrome from returning.
+
+## Seventy-Sixth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::discover_expandable_cell_display()` now carries
+  Discover metadata expandable cell keys, ids, header ids, and
+  disclosure glyphs.
+- `src/search.rs` still wires Discover metadata expansion clicks and
+  content rendering, but no longer owns those top-level RSS/ID3 cell
+  id/glyph rules.
+- The architecture guard now blocks screen-local Discover metadata
+  expandable cell chrome from returning.
+
+## Seventy-Seventh-Slice Implementation Notes
+
+- `TrackMetadataGridVm::library_value_route_item_display()` now carries
+  Library nested Value Routes item keys, ids, header ids, and disclosure
+  glyphs.
+- `src/library.rs` still wires nested route expansion clicks and field
+  rows, but no longer owns those nested item id/glyph rules.
+- The architecture guard now blocks screen-local Library Value Routes
+  item chrome from returning.
+
+## Seventy-Eighth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::discover_value_route_item_display()` now carries
+  Discover nested Value Routes item keys, ids, and disclosure glyphs.
+- `src/search.rs` still wires nested route expansion clicks and field
+  rows, but no longer owns those nested item id/glyph rules.
+- The architecture guard now blocks screen-local Discover Value Routes
+  item chrome from returning.
+
 ## Test Commands
 
 ```sh
@@ -1302,6 +1370,8 @@ cargo test value_route_item_label_appends_split_when_present
 cargo test value_route_split_label_formats_percent_and_ignores_empty_values
 cargo test value_route_field_key_label_adds_separator
 cargo test value_route_field_value_label_trims_and_suppresses_empty_values
+cargo test expandable_cell_display_projects_library_and_discover_chrome
+cargo test value_route_item_display_projects_screen_specific_chrome
 cargo test track_inspector_header_vm_projects_feed_link_display_contract
 cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback
 cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display

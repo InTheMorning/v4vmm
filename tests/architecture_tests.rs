@@ -2485,6 +2485,71 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover metadata group disclosure id belongs in TrackMetadataGridVm::group_heading_display",
         ),
         (
+            "src/library.rs",
+            "format!(\"metadata-cell:{cell_key}\")",
+            "Library metadata expandable cell id belongs in TrackMetadataGridVm::library_expandable_cell_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"metadata-cell:{cell_key}:header\")",
+            "Library metadata expandable header id belongs in TrackMetadataGridVm::library_expandable_cell_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"expandable-rss-{}\", field)",
+            "Discover RSS expandable cell id belongs in TrackMetadataGridVm::discover_expandable_cell_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"expandable-rss-{}-hdr\", field)",
+            "Discover RSS expandable header id belongs in TrackMetadataGridVm::discover_expandable_cell_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"expandable-id3-{}\", field)",
+            "Discover ID3 expandable cell id belongs in TrackMetadataGridVm::discover_expandable_cell_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"expandable-id3-{}-hdr\", field)",
+            "Discover ID3 expandable header id belongs in TrackMetadataGridVm::discover_expandable_cell_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"value-route:{column}:{row_id}:{index}\")",
+            "Library value-route item id belongs in TrackMetadataGridVm::library_value_route_item_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"value-route:{column}:{row_id}:{index}:header\")",
+            "Library value-route item header id belongs in TrackMetadataGridVm::library_value_route_item_display",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"vr-{column}-{i}\")",
+            "Discover value-route item id belongs in TrackMetadataGridVm::discover_value_route_item_display",
+        ),
+        (
+            "src/library.rs",
+            "let glyph = if expanded",
+            "Library metadata disclosure glyph belongs in TrackMetadataGridVm expandable display contracts",
+        ),
+        (
+            "src/search.rs",
+            "let glyph = if expanded",
+            "Discover metadata disclosure glyph belongs in TrackMetadataGridVm expandable display contracts",
+        ),
+        (
+            "src/library.rs",
+            "let sub_glyph = if sub_expanded",
+            "Library value-route disclosure glyph belongs in TrackMetadataGridVm value-route item display",
+        ),
+        (
+            "src/search.rs",
+            "let sub_glyph = if sub_expanded",
+            "Discover value-route disclosure glyph belongs in TrackMetadataGridVm value-route item display",
+        ),
+        (
             "src/ui/shells/entity.rs",
             "format!(\"{id_prefix}-{}:{payload}\", kind_slug(kind))",
             "feed identity action id display belongs in EntityActionVm::identity_display",

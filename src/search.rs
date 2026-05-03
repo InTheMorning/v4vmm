@@ -3625,13 +3625,14 @@ fn expandable_cell(
         expanded,
         color,
     } = params;
-    let cell_key = format!("rss:{row_id}");
-    let glyph = if expanded { "v" } else { ">" };
+    let display =
+        TrackMetadataGridVm::discover_expandable_cell_display("rss", field, row_id, expanded);
+    let glyph = display.disclosure_glyph;
 
     // Value Routes when expanded: header click collapses, sub-items have own clicks.
     // Use a non-clickable outer container so sub-item clicks don't bubble to toggle.
     if expanded && field == "Value Routes" {
-        let cell_key_h = cell_key.clone();
+        let cell_key_h = display.cell_key.clone();
         return div()
             .text_size(typography::SIZE_MICRO)
             .line_height(typography::LINE_BODY)
@@ -3640,7 +3641,7 @@ fn expandable_cell(
             .flex_col()
             .child(
                 div()
-                    .id(SharedString::from(format!("expandable-rss-{}-hdr", field)))
+                    .id(SharedString::from(display.header_id))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                         this.toggle_metadata_cell(cell_key_h.clone(), cx);
@@ -3666,8 +3667,9 @@ fn expandable_cell(
             .into_any_element();
     }
 
+    let cell_key = display.cell_key.clone();
     let mut container = div()
-        .id(SharedString::from(format!("expandable-rss-{}", field)))
+        .id(SharedString::from(display.cell_id))
         .cursor_pointer()
         .text_size(typography::SIZE_MICRO)
         .line_height(typography::LINE_BODY)
@@ -3798,8 +3800,9 @@ fn expandable_tag_cell(
         frame_color,
         file_image,
     } = params;
-    let cell_key = format!("id3:{row_id}");
-    let glyph = if expanded { "v" } else { ">" };
+    let display =
+        TrackMetadataGridVm::discover_expandable_cell_display("id3", field, row_id, expanded);
+    let glyph = display.disclosure_glyph;
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
     let frame_label = TrackMetadataGridVm::id3_frame_label(frame_id);
 
@@ -3889,6 +3892,7 @@ fn expandable_tag_cell(
 
     // Value Routes when expanded: separate header click from sub-item clicks
     if expanded && field == "Value Routes" {
+        let cell_key = display.cell_key.clone();
         return div()
             .flex()
             .flex_col()
@@ -3897,7 +3901,7 @@ fn expandable_tag_cell(
             .text_color(color)
             .child(
                 div()
-                    .id(SharedString::from(format!("expandable-id3-{}-hdr", field)))
+                    .id(SharedString::from(display.header_id))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                         this.toggle_metadata_cell(cell_key.clone(), cx);
@@ -3939,8 +3943,9 @@ fn expandable_tag_cell(
             .into_any_element();
     }
 
+    let cell_key = display.cell_key.clone();
     div()
-        .id(SharedString::from(format!("expandable-id3-{}", field)))
+        .id(SharedString::from(display.cell_id))
         .cursor_pointer()
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.toggle_metadata_cell(cell_key.clone(), cx);
@@ -4074,17 +4079,22 @@ fn value_routes_tree_elements(
         .map(|(i, route)| {
             let name = value_route_recipient_label(&route);
             let label = TrackMetadataGridVm::value_route_item_label(&name, None);
-            let sub_key = format!("{column}:{row_id}:{i}");
-            let sub_expanded = expanded_cells.contains(&sub_key);
-            let sub_glyph = if sub_expanded { "v" } else { ">" };
+            let item_key = TrackMetadataGridVm::value_route_item_key(column, row_id, i);
+            let display = TrackMetadataGridVm::discover_value_route_item_display(
+                column,
+                row_id,
+                i,
+                expanded_cells.contains(&item_key),
+            );
+            let sub_expanded = expanded_cells.contains(&display.item_key);
 
             let mut item = div()
-                .id(SharedString::from(format!("vr-{column}-{i}")))
+                .id(SharedString::from(display.item_id))
                 .cursor_pointer()
                 .flex()
                 .flex_col();
 
-            let sub_key_click = sub_key.clone();
+            let sub_key_click = display.item_key.clone();
             item = item.on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 this.toggle_metadata_cell(sub_key_click.clone(), cx);
             }));
@@ -4098,7 +4108,7 @@ fn value_routes_tree_elements(
                         div()
                             .text_size(typography::SIZE_MICRO)
                             .text_color(color::text_muted())
-                            .child(sub_glyph),
+                            .child(display.disclosure_glyph),
                     )
                     .child(
                         div()

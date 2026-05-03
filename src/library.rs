@@ -3564,11 +3564,10 @@ fn metadata_value_cell(
     if !expandable {
         return compare_cell(display_value, Some(color));
     }
-    let cell_key = format!("{column}:{row_id}");
-    let glyph = if expanded { "v" } else { ">" };
+    let display = TrackMetadataGridVm::library_expandable_cell_display(column, row_id, expanded);
     let summary = expandable_cell_summary(logical_field, field, raw_value, display_value);
     if expanded && logical_field == "Value Routes" {
-        let header_key = cell_key.clone();
+        let header_key = display.cell_key.clone();
         return div()
             .text_size(typography::SIZE_MICRO)
             .line_height(typography::LINE_BODY)
@@ -3577,9 +3576,7 @@ fn metadata_value_cell(
             .flex_col()
             .child(
                 div()
-                    .id(SharedString::from(format!(
-                        "metadata-cell:{cell_key}:header"
-                    )))
+                    .id(SharedString::from(display.header_id))
                     .cursor_pointer()
                     .flex()
                     .flex_row()
@@ -3592,7 +3589,7 @@ fn metadata_value_cell(
                         div()
                             .text_size(typography::SIZE_MICRO)
                             .text_color(color::text_muted())
-                            .child(glyph),
+                            .child(display.disclosure_glyph),
                     ),
             )
             .child(div().flex().flex_col().children(value_routes_tree_elements(
@@ -3614,9 +3611,9 @@ fn metadata_value_cell(
             .child(SharedString::from(summary))
             .into_any_element()
     };
-    let cell_id = SharedString::from(format!("metadata-cell:{cell_key}"));
+    let cell_key = display.cell_key.clone();
     div()
-        .id(cell_id)
+        .id(SharedString::from(display.cell_id))
         .cursor_pointer()
         .text_size(typography::SIZE_MICRO)
         .line_height(typography::LINE_BODY)
@@ -3631,7 +3628,7 @@ fn metadata_value_cell(
             div()
                 .text_size(typography::SIZE_MICRO)
                 .text_color(color::text_muted())
-                .child(glyph),
+                .child(display.disclosure_glyph),
         )
         .child(div().flex_1().min_w_0().child(content))
         .into_any_element()
@@ -3728,23 +3725,28 @@ fn value_routes_tree_elements(
                 .get("split")
                 .and_then(TrackMetadataGridVm::value_route_split_label);
             let label = TrackMetadataGridVm::value_route_item_label(&name, split.as_deref());
-            let sub_key = format!("{column}:{row_id}:{index}");
-            let sub_expanded = expanded_cells.contains(&sub_key);
-            let sub_glyph = if sub_expanded { "v" } else { ">" };
-            let header_key = sub_key.clone();
+            let item_key = TrackMetadataGridVm::value_route_item_key(column, row_id, index);
+            let display = TrackMetadataGridVm::library_value_route_item_display(
+                column,
+                row_id,
+                index,
+                expanded_cells.contains(&item_key),
+            );
+            let sub_expanded = expanded_cells.contains(&display.item_key);
+            let header_key = display.item_key.clone();
 
             let mut item = div()
-                .id(SharedString::from(format!(
-                    "value-route:{column}:{row_id}:{index}"
-                )))
+                .id(SharedString::from(display.item_id))
                 .flex()
                 .flex_col()
                 .gap(spacing::XXS)
                 .child(
                     div()
-                        .id(SharedString::from(format!(
-                            "value-route:{column}:{row_id}:{index}:header"
-                        )))
+                        .id(SharedString::from(
+                            display
+                                .header_id
+                                .expect("Library value-route rows have header ids"),
+                        ))
                         .cursor_pointer()
                         .flex()
                         .flex_row()
@@ -3757,7 +3759,7 @@ fn value_routes_tree_elements(
                             div()
                                 .text_size(typography::SIZE_MICRO)
                                 .text_color(color::text_muted())
-                                .child(sub_glyph),
+                                .child(display.disclosure_glyph),
                         )
                         .child(
                             div()

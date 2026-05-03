@@ -37,6 +37,22 @@ pub struct TrackMetadataGridExpansion {
     pub id3_expanded: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrackMetadataExpandableCellDisplay {
+    pub cell_key: String,
+    pub cell_id: String,
+    pub header_id: String,
+    pub disclosure_glyph: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrackMetadataValueRouteItemDisplay {
+    pub item_key: String,
+    pub item_id: String,
+    pub header_id: Option<String>,
+    pub disclosure_glyph: &'static str,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ValueRoutesSummaryFallback {
     DisplayValue,
@@ -257,6 +273,72 @@ impl TrackMetadataGridVm {
         json_value_display_label(value)
     }
 
+    #[must_use]
+    pub fn value_route_item_key(column: &str, row_id: &str, index: usize) -> String {
+        metadata_cell_key(column, &format!("{row_id}:{index}"))
+    }
+
+    #[must_use]
+    pub fn library_expandable_cell_display(
+        column: &str,
+        row_id: &str,
+        expanded: bool,
+    ) -> TrackMetadataExpandableCellDisplay {
+        let cell_key = metadata_cell_key(column, row_id);
+        TrackMetadataExpandableCellDisplay {
+            cell_id: format!("metadata-cell:{cell_key}"),
+            header_id: format!("metadata-cell:{cell_key}:header"),
+            cell_key,
+            disclosure_glyph: disclosure_glyph(expanded),
+        }
+    }
+
+    #[must_use]
+    pub fn discover_expandable_cell_display(
+        column: &str,
+        field: &str,
+        row_id: &str,
+        expanded: bool,
+    ) -> TrackMetadataExpandableCellDisplay {
+        TrackMetadataExpandableCellDisplay {
+            cell_key: metadata_cell_key(column, row_id),
+            cell_id: format!("expandable-{column}-{field}"),
+            header_id: format!("expandable-{column}-{field}-hdr"),
+            disclosure_glyph: disclosure_glyph(expanded),
+        }
+    }
+
+    #[must_use]
+    pub fn library_value_route_item_display(
+        column: &str,
+        row_id: &str,
+        index: usize,
+        expanded: bool,
+    ) -> TrackMetadataValueRouteItemDisplay {
+        let item_key = Self::value_route_item_key(column, row_id, index);
+        TrackMetadataValueRouteItemDisplay {
+            item_id: format!("value-route:{column}:{row_id}:{index}"),
+            header_id: Some(format!("value-route:{column}:{row_id}:{index}:header")),
+            item_key,
+            disclosure_glyph: disclosure_glyph(expanded),
+        }
+    }
+
+    #[must_use]
+    pub fn discover_value_route_item_display(
+        column: &str,
+        row_id: &str,
+        index: usize,
+        expanded: bool,
+    ) -> TrackMetadataValueRouteItemDisplay {
+        TrackMetadataValueRouteItemDisplay {
+            item_key: Self::value_route_item_key(column, row_id, index),
+            item_id: format!("vr-{column}-{index}"),
+            header_id: None,
+            disclosure_glyph: disclosure_glyph(expanded),
+        }
+    }
+
     pub fn new(show_id3: bool, show_musicbrainz: bool, tag_column_label: &str) -> Self {
         let mut headings = vec![TrackMetadataGridHeading {
             label: "RSS".to_string(),
@@ -306,6 +388,14 @@ impl TrackMetadataGridVm {
 
 fn metadata_cell_key(column: &str, row_id: &str) -> String {
     format!("{column}:{row_id}")
+}
+
+const fn disclosure_glyph(expanded: bool) -> &'static str {
+    if expanded {
+        "v"
+    } else {
+        ">"
+    }
 }
 
 fn json_value_display_label(value: &serde_json::Value) -> Option<String> {
@@ -686,6 +776,55 @@ mod tests {
         assert_eq!(
             TrackMetadataGridVm::value_route_field_value_label(&serde_json::Value::Null),
             None
+        );
+    }
+
+    #[test]
+    fn expandable_cell_display_projects_library_and_discover_chrome() {
+        assert_eq!(
+            TrackMetadataGridVm::library_expandable_cell_display("rss", "title", false),
+            TrackMetadataExpandableCellDisplay {
+                cell_key: "rss:title".into(),
+                cell_id: "metadata-cell:rss:title".into(),
+                header_id: "metadata-cell:rss:title:header".into(),
+                disclosure_glyph: ">",
+            }
+        );
+        assert_eq!(
+            TrackMetadataGridVm::discover_expandable_cell_display(
+                "id3",
+                "Value Routes",
+                "value-routes",
+                true
+            ),
+            TrackMetadataExpandableCellDisplay {
+                cell_key: "id3:value-routes".into(),
+                cell_id: "expandable-id3-Value Routes".into(),
+                header_id: "expandable-id3-Value Routes-hdr".into(),
+                disclosure_glyph: "v",
+            }
+        );
+    }
+
+    #[test]
+    fn value_route_item_display_projects_screen_specific_chrome() {
+        assert_eq!(
+            TrackMetadataGridVm::library_value_route_item_display("rss", "value-routes", 2, true),
+            TrackMetadataValueRouteItemDisplay {
+                item_key: "rss:value-routes:2".into(),
+                item_id: "value-route:rss:value-routes:2".into(),
+                header_id: Some("value-route:rss:value-routes:2:header".into()),
+                disclosure_glyph: "v",
+            }
+        );
+        assert_eq!(
+            TrackMetadataGridVm::discover_value_route_item_display("id3", "value-routes", 3, false),
+            TrackMetadataValueRouteItemDisplay {
+                item_key: "id3:value-routes:3".into(),
+                item_id: "vr-id3-3".into(),
+                header_id: None,
+                disclosure_glyph: ">",
+            }
         );
     }
 
