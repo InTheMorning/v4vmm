@@ -10,8 +10,12 @@
 
 ## Gate Status
 
-Status: Task 001 and Task 002 code complete; visual smoke pending. Task 003 is
-blocked until Task 002 is visually checked.
+Status: Task 001, Task 002, and Task 003 complete.
+
+User-provided screenshots on 2026-05-02 cover Library feed detail with an open
+playlist popover, Discover feed detail with an open playlist popover, Library
+track detail, Discover track detail, and Library advanced compare/provenance
+panels.
 
 ## Structural Review Questions
 
@@ -29,18 +33,26 @@ blocked until Task 002 is visually checked.
 
 | Task | Status | Required Evidence | Notes |
 |---|---|---|---|
-| Task 001 feed surface typed slots | Code complete; visual pending | Typed release surface slots, VM-consumption guard, full checks | `cargo fmt -- --check`, `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, and `git diff --check` green |
-| Task 002 visual system enforcement | Code complete; visual pending | Token/primitive ownership of repeated visual decisions | Playlist popover rows use leading alignment and shared padding; release detail spacing uses scale-aware tokens; full checks green |
-| Task 003 advanced provenance panels | Blocked | Shared advanced panel grammar and guards | Wait for Task 002 |
+| Task 001 feed surface typed slots | Complete | Typed release surface slots, VM-consumption guard, full checks | Full checks green; screenshots received 2026-05-02 |
+| Task 002 visual system enforcement | Complete | Token/primitive ownership of repeated visual decisions | Playlist popover rows use leading alignment and shared padding; release detail spacing uses scale-aware tokens; full checks green; screenshots received 2026-05-02 |
+| Task 003 advanced provenance panels | Complete | Shared advanced panel grammar and guards | Library advanced compare cells now use `TrackMetadataGrid` child composites; architecture guard added; full checks green; screenshot received 2026-05-02 |
 
 ## Visual Smoke
 
-- Library feed detail: pending.
-- Discover feed detail: pending.
-- Library normal track detail: covered by ADR 0035, retest after visual pass.
-- Discover normal track detail: covered by ADR 0035, retest after visual pass.
-- Playlist popovers: retest after visual pass.
-- Advanced metadata panels: pending Task 003.
+- Library feed detail: passed with user screenshot on 2026-05-02.
+- Discover feed detail: passed with user screenshot on 2026-05-02.
+- Library normal track detail: passed with user screenshot on 2026-05-02.
+- Discover normal track detail: passed with user screenshot on 2026-05-02.
+- Playlist popovers: passed with user screenshots on 2026-05-02.
+- Advanced metadata panels: passed with user screenshot on 2026-05-02.
+
+## Automated Checks
+
+- `cargo fmt -- --check`: green
+- `cargo check`: green
+- `cargo test`: green
+- `cargo clippy -- -D warnings`: green
+- `git diff --check`: green
 
 ## Merge Recommendation Template
 

@@ -83,5 +83,8 @@ Complete three ordered passes:
   centered menu-row regressions and undersized popover surface padding.
 - `release_detail_surface_uses_scale_aware_spacing_tokens` blocks release
   detail surface spacing from regressing to fixed legacy style constants.
+- `library_advanced_provenance_cells_use_shared_grid_composites` blocks Library
+  advanced compare/provenance cells from rebuilding field, source, tag, and
+  group layout in screen code.
 - ADR 0033/0034/0035 tests continue to block duplicate rows, popovers,
   fallback labels, raw visual literals, and track-surface forks.

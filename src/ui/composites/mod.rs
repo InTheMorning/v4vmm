@@ -60,5 +60,8 @@ pub use thumbnail::{Thumbnail, ThumbnailSize};
 pub use track_detail_surface::{TrackDetailSurface, TrackSurfaceElement};
 pub use track_header::TrackHeader;
 pub use track_inspector_pane::TrackInspectorPane;
-pub use track_metadata_grid::TrackMetadataGrid;
+pub use track_metadata_grid::{
+    TrackMetadataFieldCell, TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataSourceCell,
+    TrackMetadataTagCell, TrackMetadataTextValue,
+};
 pub use track_row::TrackRow;

@@ -467,6 +467,26 @@ const COMPOSITE_LOOSE_STRING_SIGNATURE_ALLOWLIST: &[CompositeLooseStringSignatur
         note: "generic badge override; fallback policy must still live in VM",
     },
     CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/track_metadata_grid.rs",
+        pattern: "pub fn new(label: impl Into<SharedString>, columns: u16)",
+        note: "advanced provenance group label; metadata contract owns source-specific label",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/track_metadata_grid.rs",
+        pattern: "pub fn new(label: impl Into<SharedString>, value: impl IntoElement)",
+        note: "advanced provenance field label; metadata contract owns source-specific label",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/track_metadata_grid.rs",
+        pattern: "pub fn frame_label(mut self, label: impl Into<SharedString>)",
+        note: "advanced provenance tag-frame label; metadata contract owns source-specific label",
+    },
+    CompositeLooseStringSignatureAllowance {
+        file: "src/ui/composites/track_metadata_grid.rs",
+        pattern: "pub fn new(value: impl Into<SharedString>)",
+        note: "advanced provenance text value; caller supplies normalized metadata display",
+    },
+    CompositeLooseStringSignatureAllowance {
         file: "src/ui/composites/track_row.rs",
         pattern: "pub fn number(mut self, n: impl Into<String>)",
         note: "TrackRow caller passes TrackVm-owned number label",
@@ -1460,6 +1480,43 @@ fn release_detail_surface_uses_scale_aware_spacing_tokens() {
     assert!(
         violations.is_empty(),
         "ADR 0036 release detail visual-system violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn library_advanced_provenance_cells_use_shared_grid_composites() {
+    let source = read_source(&manifest_path("src/library.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "TrackMetadataGroupCell::new",
+        "TrackMetadataFieldCell::new",
+        "TrackMetadataSourceCell::new",
+        "TrackMetadataTagCell::new",
+        "TrackMetadataTextValue::new",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/library.rs: advanced Library provenance grid must use shared `{required}` grammar"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "w(layout::COMPACT_COLUMN_WIDTH)",
+        "w(layout::METADATA_LABEL_WIDTH)",
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "src/library.rs: advanced provenance cell widths belong in `src/ui/composites/track_metadata_grid.rs`, not screen-local `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0036 advanced provenance panel ownership violations:\n{}",
         violations.join("\n")
     );
 }

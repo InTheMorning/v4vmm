@@ -64,7 +64,9 @@ use crate::ui::composites::{
     DetailGrid, DetailHeader, DetailRow as CompositeDetailRow, DisclosureGroup, EntityKind,
     FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption, ProvenanceRole,
     ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface,
-    TrackMetadataGrid, TrackRow as TrackRowComposite, TrackSurfaceElement,
+    TrackMetadataFieldCell, TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataSourceCell,
+    TrackMetadataTagCell, TrackMetadataTextValue, TrackRow as TrackRowComposite,
+    TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -3274,26 +3276,19 @@ fn metadata_group_cell(
         format!("{} ({} unused)", group.label, group.unused_count)
     };
     let expanded = group.expanded;
-    let mut cell = div().col_span(columns).mt(spacing::XS);
     if let Some(group_key) = group.key {
         let id = SharedString::from(format!("section:id3-frame-group:{group_key}"));
-        cell = cell.child(
-            DisclosureGroup::new(id, label.clone())
-                .collapsed(!expanded)
-                .on_toggle(cx.listener(move |this, _, _, cx| {
-                    this.toggle_id3_frame_group(group_key.clone(), cx);
-                })),
-        );
-    } else {
-        cell = cell.child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .font_weight(FontWeight::BOLD)
-                .text_color(color::text_muted())
-                .child(SharedString::from(label)),
-        );
+        return TrackMetadataGroupCell::new(label.clone(), columns)
+            .disclosure(
+                DisclosureGroup::new(id, label.clone())
+                    .collapsed(!expanded)
+                    .on_toggle(cx.listener(move |this, _, _, cx| {
+                        this.toggle_id3_frame_group(group_key.clone(), cx);
+                    })),
+            )
+            .into_any_element();
     }
-    cell.into_any_element()
+    TrackMetadataGroupCell::new(label, columns).into_any_element()
 }
 
 fn metadata_rss_cell(
@@ -3323,22 +3318,7 @@ fn metadata_rss_cell(
         None,
         cx,
     );
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::SM)
-        .child(
-            div()
-                .w(layout::COMPACT_COLUMN_WIDTH)
-                .flex_shrink_0()
-                .text_color(color::text_primary())
-                .text_size(typography::SIZE_MICRO)
-                .line_height(typography::LINE_BODY)
-                .child(SharedString::from(row.field.clone())),
-        )
-        .child(div().flex_1().min_w_0().child(value_element))
-        .into_any_element()
+    TrackMetadataFieldCell::new(row.field.clone(), value_element).into_any_element()
 }
 
 fn metadata_id3_cell(
@@ -3378,16 +3358,11 @@ fn metadata_id3_cell(
         file_image,
         cx,
     );
-    div()
-        .pl(spacing::MD)
-        .min_w_0()
-        .rounded(radius::SM)
-        .child(value_element)
-        .when_some(pending, |el, edit| {
-            el.border_1()
-                .border_color(pending_source_color(edit.source, cx))
-        })
-        .into_any_element()
+    let mut cell = TrackMetadataSourceCell::new(value_element);
+    if let Some(edit) = pending {
+        cell = cell.border_color(pending_source_color(edit.source, cx));
+    }
+    cell.into_any_element()
 }
 
 fn metadata_musicbrainz_cell(
@@ -3410,16 +3385,13 @@ fn metadata_musicbrainz_cell(
         |role| Some(role.glyph()),
     );
     let display_value = display_with_glyph(glyph, &base_display);
-    div()
-        .pl(spacing::MD)
-        .min_w_0()
-        .child(compare_tag_cell(
-            &display_value,
-            Some(musicbrainz_color),
-            row.musicbrainz_key.as_deref(),
-            None,
-        ))
-        .into_any_element()
+    TrackMetadataSourceCell::new(compare_tag_cell(
+        &display_value,
+        Some(musicbrainz_color),
+        row.musicbrainz_key.as_deref(),
+        None,
+    ))
+    .into_any_element()
 }
 
 #[expect(
@@ -3545,22 +3517,11 @@ fn metadata_tag_cell(
         file_image,
         cx,
     );
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::XS)
-        .child(
-            div()
-                .w(layout::METADATA_LABEL_WIDTH)
-                .flex_shrink_0()
-                .text_color(frame_color)
-                .text_size(typography::SIZE_MICRO)
-                .line_height(typography::LINE_BODY)
-                .child(SharedString::from(frame_id.unwrap_or_default().to_string())),
-        )
-        .child(div().flex_1().min_w_0().child(value))
-        .into_any_element()
+    let mut cell = TrackMetadataTagCell::new(value).frame_color(frame_color);
+    if let Some(frame_id) = frame_id {
+        cell = cell.frame_label(frame_id.to_string());
+    }
+    cell.into_any_element()
 }
 
 fn expanded_metadata_value(
@@ -3751,10 +3712,7 @@ fn expandable_cell_summary(
 }
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
-    let mut cell = MultilineText::new(value.to_string())
-        .max_lines(4)
-        .size(FontSize::Micro)
-        .line_height(typography::LINE_BODY);
+    let mut cell = TrackMetadataTextValue::new(value.to_string());
     if let Some(color) = color {
         cell = cell.color_raw(color);
     }
@@ -3767,29 +3725,18 @@ fn compare_tag_cell(
     frame_id: Option<&str>,
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
-    let mut body = MultilineText::new(value.to_string())
-        .max_lines(4)
-        .size(FontSize::Micro)
-        .line_height(typography::LINE_BODY);
+    let mut body = TrackMetadataTextValue::new(value.to_string());
     if let Some(color) = color {
         body = body.color_raw(color);
     }
-    div()
-        .flex()
-        .flex_row()
-        .items_start()
-        .gap(spacing::XS)
-        .child(
-            div()
-                .w(layout::METADATA_LABEL_WIDTH)
-                .flex_shrink_0()
-                .text_color(frame_color.unwrap_or_else(color::text_muted))
-                .text_size(typography::SIZE_MICRO)
-                .line_height(typography::LINE_BODY)
-                .child(SharedString::from(frame_id.unwrap_or_default().to_string())),
-        )
-        .child(div().flex_1().min_w_0().child(body))
-        .into_any_element()
+    let mut cell = TrackMetadataTagCell::new(body);
+    if let Some(frame_id) = frame_id {
+        cell = cell.frame_label(frame_id.to_string());
+    }
+    if let Some(frame_color) = frame_color {
+        cell = cell.frame_color(frame_color);
+    }
+    cell.into_any_element()
 }
 
 fn id3_frame_color(frame_id: &str) -> gpui::Rgba {
