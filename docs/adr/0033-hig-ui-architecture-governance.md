@@ -122,6 +122,8 @@ update so the contract and its enforcement do not drift apart:
 - `screens_do_not_grow_screen_local_playlist_popover_panels`
 - `library_release_detail_playlist_popovers_use_shared_composite`
 - `playlist_popover_calls_wire_create_mode`
+- `playlist_popover_menu_rows_use_leading_alignment_and_token_padding`
+- `release_detail_surface_uses_scale_aware_spacing_tokens`
 - `discovery_recent_tiles_use_shared_composite`
 - `screens_do_not_inline_unknown_artist_or_album_fallbacks`
 - `screens_do_not_inline_untitled_fallback`

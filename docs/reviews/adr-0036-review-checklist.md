@@ -10,8 +10,8 @@
 
 ## Gate Status
 
-Status: Task 001 code complete; visual smoke pending. Tasks 002 and 003 are
-blocked until Task 001 is visually checked.
+Status: Task 001 and Task 002 code complete; visual smoke pending. Task 003 is
+blocked until Task 002 is visually checked.
 
 ## Structural Review Questions
 
@@ -30,7 +30,7 @@ blocked until Task 001 is visually checked.
 | Task | Status | Required Evidence | Notes |
 |---|---|---|---|
 | Task 001 feed surface typed slots | Code complete; visual pending | Typed release surface slots, VM-consumption guard, full checks | `cargo fmt -- --check`, `cargo check`, `cargo test`, `cargo clippy -- -D warnings`, and `git diff --check` green |
-| Task 002 visual system enforcement | Blocked | Token/primitive ownership of repeated visual decisions | Wait for Task 001 |
+| Task 002 visual system enforcement | Code complete; visual pending | Token/primitive ownership of repeated visual decisions | Playlist popover rows use leading alignment and shared padding; release detail spacing uses scale-aware tokens; full checks green |
 | Task 003 advanced provenance panels | Blocked | Shared advanced panel grammar and guards | Wait for Task 002 |
 
 ## Visual Smoke

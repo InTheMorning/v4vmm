@@ -1400,6 +1400,71 @@ fn playlist_popover_calls_wire_create_mode() {
 }
 
 #[test]
+fn playlist_popover_menu_rows_use_leading_alignment_and_token_padding() {
+    let source = read_source(&manifest_path("src/ui/composites/playlist_popover.rs"));
+    let mut violations = Vec::new();
+
+    if !source.contains(".surface_padding(Spacing::SM)") {
+        violations.push(
+            "src/ui/composites/playlist_popover.rs: playlist popover surface padding must use the shared compact menu token `Spacing::SM`".to_string(),
+        );
+    }
+
+    let leading_alignment_count = source.matches(".align_leading()").count();
+    if leading_alignment_count < 3 {
+        violations.push(format!(
+            "src/ui/composites/playlist_popover.rs: playlist menu rows, create command, and back command must be leading-aligned; found {leading_alignment_count} `.align_leading()` call(s)"
+        ));
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0036 playlist popover visual-system violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn release_detail_surface_uses_scale_aware_spacing_tokens() {
+    let source = read_source(&manifest_path(
+        "src/ui/composites/release_detail_surface.rs",
+    ));
+    let mut violations = Vec::new();
+
+    for forbidden in [
+        "crate::ui::style",
+        "spacing::",
+        "typography::",
+        "color::text_",
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/composites/release_detail_surface.rs: release detail surface must use scale-aware tokens, not legacy `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "Spacing::LG.scaled(cx)",
+        "Spacing::SM.scaled(cx)",
+        "FontSize::Caption.scaled(cx)",
+        "color(cx, SemanticColor::TertiaryLabel)",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/release_detail_surface.rs: expected scale-aware token usage `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0036 release detail visual-system violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn discovery_recent_tiles_use_shared_composite() {
     let source = read_source(&manifest_path("src/search.rs"));
     let start = source

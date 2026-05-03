@@ -135,7 +135,7 @@ impl RenderOnce for AddToPlaylistPopover {
         Popover::new(self.id)
             .placement(PopoverPlacement::Below)
             .alignment(PopoverAlignment::Start)
-            .surface_padding(Spacing::XS)
+            .surface_padding(Spacing::SM)
             .overlay_closable(true)
             .open(open)
             .on_open_change({
@@ -202,6 +202,7 @@ fn build_list_mode(
         let state = state.clone();
         Button::plain(SharedString::from(format!("pl-{playlist_id}")))
             .full_width()
+            .align_leading()
             .label(label)
             .on_click(move |_, window, cx| {
                 state.update(cx, |s, cx| {
@@ -232,6 +233,7 @@ fn build_list_mode(
     if can_create {
         let new_btn = Button::plain("pl-new")
             .full_width()
+            .align_leading()
             .leading_icon(IconName::Add)
             .label("New Playlist")
             .on_click({
@@ -271,6 +273,7 @@ fn build_create_mode(
 ) -> Div {
     let back_btn = Button::plain("pl-back")
         .full_width()
+        .align_leading()
         .leading_icon(IconName::Back)
         .label("Back")
         .on_click({

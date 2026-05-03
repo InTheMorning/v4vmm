@@ -53,6 +53,12 @@ pub enum ButtonSize {
     Lg,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ButtonContentAlignment {
+    Center,
+    Leading,
+}
+
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 #[derive(IntoElement)]
@@ -70,6 +76,7 @@ pub struct Button {
     foreground: Option<SemanticColor>,
     border: Option<SemanticColor>,
     full_width: bool,
+    content_alignment: ButtonContentAlignment,
     disabled: bool,
     selected: bool,
 }
@@ -89,6 +96,7 @@ impl Button {
             foreground: None,
             border: None,
             full_width: false,
+            content_alignment: ButtonContentAlignment::Center,
             disabled: false,
             selected: false,
         }
@@ -143,6 +151,11 @@ impl Button {
 
     pub fn full_width(mut self) -> Self {
         self.full_width = true;
+        self
+    }
+
+    pub fn align_leading(mut self) -> Self {
+        self.content_alignment = ButtonContentAlignment::Leading;
         self
     }
 
@@ -261,13 +274,13 @@ impl RenderOnce for Button {
         let on_click = self.on_click.clone();
         let disabled = self.disabled;
         let full_width = self.full_width;
+        let content_alignment = self.content_alignment;
 
         let mut row = div()
             .id(self.id)
             .flex()
             .flex_row()
             .items_center()
-            .justify_center()
             .gap(Spacing::XS.scaled(cx))
             .h(height)
             .px(pad)
@@ -277,6 +290,11 @@ impl RenderOnce for Button {
             .text_size(font)
             .font_weight(FontWeight::SEMIBOLD)
             .cursor_pointer();
+
+        row = match content_alignment {
+            ButtonContentAlignment::Center => row.justify_center(),
+            ButtonContentAlignment::Leading => row.justify_start(),
+        };
 
         if let Some(border) = self.border {
             row = row
@@ -316,5 +334,15 @@ mod tests {
         let button = Button::plain("new-playlist").leading_icon(IconName::Add);
 
         assert_eq!(button.leading_icon, Some(IconName::Add));
+    }
+
+    #[test]
+    fn menu_buttons_can_align_content_to_leading_edge() {
+        let button = Button::plain("playlist-choice")
+            .full_width()
+            .align_leading();
+
+        assert!(button.full_width);
+        assert_eq!(button.content_alignment, ButtonContentAlignment::Leading);
     }
 }

@@ -79,5 +79,9 @@ Complete three ordered passes:
   slot APIs.
 - `release_surface_consumers_use_release_detail_vm` blocks Library and
   Discover feed detail routes that bypass `ReleaseDetailVm`.
+- `playlist_popover_menu_rows_use_leading_alignment_and_token_padding` blocks
+  centered menu-row regressions and undersized popover surface padding.
+- `release_detail_surface_uses_scale_aware_spacing_tokens` blocks release
+  detail surface spacing from regressing to fixed legacy style constants.
 - ADR 0033/0034/0035 tests continue to block duplicate rows, popovers,
   fallback labels, raw visual literals, and track-surface forks.

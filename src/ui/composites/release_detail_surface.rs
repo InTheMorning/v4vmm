@@ -10,7 +10,7 @@ use gpui::{
     div, prelude::*, AnyElement, App, IntoElement, ParentElement, RenderOnce, SharedString, Window,
 };
 
-use crate::ui::style::{color, spacing, typography};
+use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 
 /// Shared release detail layout: header, actions, details, panels, rows.
 #[derive(IntoElement)]
@@ -88,20 +88,19 @@ impl ReleaseDetailSurface {
 }
 
 impl RenderOnce for ReleaseDetailSurface {
-    fn render(self, _window: &mut gpui::Window, _cx: &mut gpui::App) -> impl IntoElement {
-        let mut root =
-            div()
-                .id(self.id)
-                .flex()
-                .flex_col()
-                .gap(spacing::LG)
-                .when(self.scrollable, |el| {
-                    el.flex_1()
-                        .min_h_0()
-                        .min_w_0()
-                        .overflow_y_scroll()
-                        .p(spacing::LG)
-                });
+    fn render(self, _window: &mut gpui::Window, cx: &mut gpui::App) -> impl IntoElement {
+        let mut root = div()
+            .id(self.id)
+            .flex()
+            .flex_col()
+            .gap(Spacing::LG.scaled(cx))
+            .when(self.scrollable, |el| {
+                el.flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .overflow_y_scroll()
+                    .p(Spacing::LG.scaled(cx))
+            });
 
         if let Some(header) = self.header {
             root = root.child(header);
@@ -122,6 +121,7 @@ impl RenderOnce for ReleaseDetailSurface {
                 self.section_title.unwrap_or_else(|| "Tracks".into()),
                 self.section_summary.unwrap_or_else(|| "".into()),
                 self.section_rows,
+                cx,
             ));
         }
 
@@ -151,11 +151,12 @@ fn track_section(
     title: SharedString,
     summary: SharedString,
     rows: Vec<ReleaseSurfaceElement>,
+    cx: &App,
 ) -> AnyElement {
     div()
         .flex()
         .flex_col()
-        .gap(spacing::SM)
+        .gap(Spacing::SM.scaled(cx))
         .child(
             div()
                 .flex()
@@ -164,17 +165,23 @@ fn track_section(
                 .justify_between()
                 .child(
                     div()
-                        .text_size(typography::SIZE_CAPTION)
-                        .text_color(color::text_muted())
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child(title),
                 )
                 .child(
                     div()
-                        .text_size(typography::SIZE_MICRO)
-                        .text_color(color::text_muted())
+                        .text_size(FontSize::Micro.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child(summary),
                 ),
         )
-        .child(div().flex().flex_col().gap(spacing::XXS).children(rows))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(Spacing::XXS.scaled(cx))
+                .children(rows),
+        )
         .into_any_element()
 }
