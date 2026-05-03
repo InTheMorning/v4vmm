@@ -1,5 +1,7 @@
 //! Shared release/feed detail surface.
 //!
+//! ## Display contract: `ReleaseTrackSectionDisplay`
+//!
 //! Discover feeds and Library albums represent the same user-facing release
 //! shape. This composite owns the structural order so modes can provide
 //! different actions and panels without drifting into different page skeletons.
@@ -22,10 +24,15 @@ pub struct ReleaseDetailSurface {
     actions: Option<ReleaseSurfaceElement>,
     details: Option<ReleaseSurfaceElement>,
     panels: Vec<ReleaseSurfaceElement>,
-    section_title: Option<SharedString>,
-    section_summary: Option<SharedString>,
-    section_rows: Vec<ReleaseSurfaceElement>,
+    track_section: Option<ReleaseTrackSectionDisplay>,
     after_section: Vec<ReleaseSurfaceElement>,
+}
+
+/// Display-ready track section for a release/feed detail surface.
+pub struct ReleaseTrackSectionDisplay {
+    pub title: SharedString,
+    pub summary: SharedString,
+    pub rows: Vec<ReleaseSurfaceElement>,
 }
 
 impl ReleaseDetailSurface {
@@ -37,9 +44,7 @@ impl ReleaseDetailSurface {
             actions: None,
             details: None,
             panels: Vec::new(),
-            section_title: None,
-            section_summary: None,
-            section_rows: Vec::new(),
+            track_section: None,
             after_section: Vec::new(),
         }
     }
@@ -69,15 +74,8 @@ impl ReleaseDetailSurface {
         self
     }
 
-    pub fn track_section(
-        mut self,
-        title: impl Into<SharedString>,
-        summary: impl Into<SharedString>,
-        rows: Vec<ReleaseSurfaceElement>,
-    ) -> Self {
-        self.section_title = Some(title.into());
-        self.section_summary = Some(summary.into());
-        self.section_rows = rows;
+    pub fn track_section(mut self, section: ReleaseTrackSectionDisplay) -> Self {
+        self.track_section = Some(section);
         self
     }
 
@@ -116,13 +114,8 @@ impl RenderOnce for ReleaseDetailSurface {
 
         root = root.children(self.panels);
 
-        if self.section_title.is_some() || !self.section_rows.is_empty() {
-            root = root.child(track_section(
-                self.section_title.unwrap_or_else(|| "Tracks".into()),
-                self.section_summary.unwrap_or_else(|| "".into()),
-                self.section_rows,
-                cx,
-            ));
+        if let Some(section) = self.track_section {
+            root = root.child(track_section(section, cx));
         }
 
         root.children(self.after_section)
@@ -147,12 +140,7 @@ impl RenderOnce for ReleaseSurfaceElement {
     }
 }
 
-fn track_section(
-    title: SharedString,
-    summary: SharedString,
-    rows: Vec<ReleaseSurfaceElement>,
-    cx: &App,
-) -> AnyElement {
+fn track_section(section: ReleaseTrackSectionDisplay, cx: &App) -> AnyElement {
     div()
         .flex()
         .flex_col()
@@ -167,13 +155,13 @@ fn track_section(
                     div()
                         .text_size(FontSize::Caption.scaled(cx))
                         .text_color(color(cx, SemanticColor::TertiaryLabel))
-                        .child(title),
+                        .child(section.title),
                 )
                 .child(
                     div()
                         .text_size(FontSize::Micro.scaled(cx))
                         .text_color(color(cx, SemanticColor::TertiaryLabel))
-                        .child(summary),
+                        .child(section.summary),
                 ),
         )
         .child(
@@ -181,7 +169,7 @@ fn track_section(
                 .flex()
                 .flex_col()
                 .gap(Spacing::XXS.scaled(cx))
-                .children(rows),
+                .children(section.rows),
         )
         .into_any_element()
 }

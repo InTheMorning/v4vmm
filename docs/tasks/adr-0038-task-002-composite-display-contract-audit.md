@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first three slices implemented on 2026-05-03.
+In progress - first four slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -54,7 +54,8 @@ test allowlist with a one-line justification.
    - Remove loose key/value row constructor allowances.
 4. `ReleaseDetailSurface`
    - Audit `track_section` title/summary.
-   - Keep allowed only while `ReleaseDetailPageVm` owns the section copy.
+   - Introduce `ReleaseTrackSectionDisplay`.
+   - Move the section title to `TrackListVm`.
 5. `PlaylistPopover`
    - Audit trigger label and playlist option labels.
    - Move trigger copy to `EntityActionVm` or a popover display contract
@@ -84,10 +85,12 @@ test allowlist with a one-line justification.
 - `src/ui/composites/detail_grid.rs`
 - `src/ui/composites/mod.rs`
 - `src/ui/composites/track_detail_surface.rs`
+- `src/ui/composites/release_detail_surface.rs`
 - `src/ui/shells/artist.rs`
 - `src/ui/shells/entity.rs`
 - `src/library.rs`
 - `src/search.rs`
+- `src/view_models/entity_detail.rs`
 - `src/view_models/artist.rs`
 - `tests/architecture_tests.rs`
 - `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`
@@ -135,6 +138,18 @@ test allowlist with a one-line justification.
 - The explicit allowlist shrank by the two former `DetailGrid` row
   constructor allowances.
 
+## Fourth-Slice Implementation Notes
+
+- `ReleaseDetailSurface::track_section` now accepts
+  `ReleaseTrackSectionDisplay` instead of loose title/summary string
+  parameters.
+- The release track-section title now comes from `TrackListVm::title()`;
+  the summary remains `TrackListVm::summary()`.
+- `ui::shells::entity` constructs the section display contract from
+  `ReleaseDetailPageVm`.
+- The explicit allowlist shrank by the former
+  `ReleaseDetailSurface::track_section` string API allowance.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -147,6 +162,8 @@ test allowlist with a one-line justification.
   metadata-row labels/values as loose string parameters.
 - `DetailGrid` row public signatures no longer accept key/value text as
   loose parameters.
+- `ReleaseDetailSurface::track_section` no longer accepts title/summary
+  text as loose parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004

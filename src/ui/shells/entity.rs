@@ -16,7 +16,7 @@ use gpui::{
 use crate::ui::composites::{
     identity_action_button, DetailGrid, DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay,
     DetailRow, DetailTextRow, EntityKind, IdentityActionKind, ListRow, ReleaseDetailSurface,
-    ReleaseSurfaceElement, Thumbnail, ThumbnailSize, TrackRow,
+    ReleaseSurfaceElement, ReleaseTrackSectionDisplay, Thumbnail, ThumbnailSize, TrackRow,
 };
 use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
@@ -97,7 +97,11 @@ pub fn render_release_detail_shell(
         .track_rows
         .unwrap_or_else(|| render_track_rows(page.tracks.rows()));
     if !rows.is_empty() {
-        surface = surface.track_section("Tracks", page.tracks.summary(), rows);
+        surface = surface.track_section(ReleaseTrackSectionDisplay {
+            title: page.tracks.title().into(),
+            summary: page.tracks.summary().into(),
+            rows,
+        });
     }
 
     for child in slots.after_section {

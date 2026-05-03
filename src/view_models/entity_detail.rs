@@ -866,6 +866,11 @@ impl<'a> TrackListVm<'a> {
     }
 
     #[must_use]
+    pub const fn title(&self) -> &'static str {
+        "Tracks"
+    }
+
+    #[must_use]
     pub fn rows(&self) -> Vec<SharedTrackRowVm<'a>> {
         self.tracks
             .iter()

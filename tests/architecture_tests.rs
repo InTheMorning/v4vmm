@@ -408,11 +408,6 @@ const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllow
         note: "element id, not display copy",
     },
     CompositeStringApiAllowance {
-        file: "src/ui/composites/release_detail_surface.rs",
-        pattern: "pub fn track_section( mut self, title: impl Into<SharedString>, summary: impl Into<SharedString>, rows: Vec<ReleaseSurfaceElement>, ) -> Self {",
-        note: "release track-section copy comes from ReleaseDetailPageVm",
-    },
-    CompositeStringApiAllowance {
         file: "src/ui/composites/split_pane.rs",
         pattern: "pub fn new(id: impl Into<SharedString>)",
         note: "element id, not display copy",
