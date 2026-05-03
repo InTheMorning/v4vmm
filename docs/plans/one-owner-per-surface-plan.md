@@ -1,12 +1,20 @@
 # One Owner Per Surface — Plan
 
+> **Superseded by ADR 0038** on 2026-05-03. Invariants, surface
+> inventory, and Workstreams 0–5 are absorbed into
+> `docs/adr/0038-presentation-contract-enforcement.md` and
+> `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`.
+> Retained as historical context; not maintained.
+
 ## Status
 
-Proposed - 2026-05-02. Extends ADR 0033 and complements
-`post-adr-0033-ui-consolidation-plan.md`. Where the post-ADR plan focuses on
+Superseded by ADR 0038 (2026-05-03).
+
+Originally proposed - 2026-05-02. Extended ADR 0033 and complemented
+`post-adr-0033-ui-consolidation-plan.md`. Where the post-ADR plan focused on
 duplicated `render_*` helpers between Library and Search, this plan
-generalizes the rule to *every* repeated UI thing and codifies the five
-ownership invariants that gate all future UI work.
+generalized the rule to *every* repeated UI thing and codified the five
+ownership invariants that gated UI work prior to ADR 0038.
 
 ## Goal
 

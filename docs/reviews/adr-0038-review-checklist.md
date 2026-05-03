@@ -1,0 +1,131 @@
+# ADR 0038 Review Checklist
+
+## Reviewed Artifacts
+
+- `docs/adr/0038-presentation-contract-enforcement.md`
+- `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`
+- `docs/tasks/adr-0038-task-001-layer-relocation.md`
+- `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md` (stub)
+- `docs/tasks/adr-0038-task-003-library-search-vm-consolidation.md` (stub)
+- `docs/tasks/adr-0038-task-004-dark-mode-parity-audit.md` (stub)
+- `docs/tasks/adr-0038-task-005-accessibility-label-contract.md` (stub)
+- `docs/tasks/adr-0038-task-006-page-vm-generalization.md` (stub)
+- `docs/tasks/adr-0038-task-007-screen-decomposition.md` (stub)
+- `docs/tasks/adr-0038-task-008-final-sweep-and-readiness-gate.md` (stub)
+
+## Gate Status
+
+Status: Proposed. Task 001 (Layer Relocation) is fully specified and
+should run before any other ADR 0038 work.
+
+## Required Questions For Every UI Change
+
+- Which architectural layer does this change live in (1–8)?
+- What repeated presentation concept is changing?
+- Who owns it: primitive, composite, shell, or VM?
+- What display contract carries title, subtitle, metadata, state,
+  availability, fallback labels, and command intent?
+- For interactive composites: what accessibility label and hint?
+- For visible changes: light + dark visual smoke?
+- Which screen-local pattern is being deleted or prevented?
+- Which architecture test, unit test, visual smoke, or baseline
+  reduction blocks the regression from returning?
+- If Library and Discover differ, is the difference a named additive
+  context policy rather than a forked page skeleton?
+
+## Contract Matrix
+
+| Contract | Pass Condition | Common Failure |
+|---|---|---|
+| Shared owner | Repeated chrome lives in `src/ui/primitives` or `src/ui/composites` | Copying a row/header/action helper into another screen |
+| Display contract | GPUI-free VM or co-located display struct owns labels and state | Screen calls `unwrap_or("Untitled")` or formats availability locally |
+| Token/icon discipline | Named tokens and icon catalog are used | Raw `px`, `rgb`, glyph strings, inline SVGs outside allowed layers |
+| Additive context policy | Context-specific actions attach through slots | Library/Discover rebuild different page skeletons for the same entity |
+| Regression guard | Guard lands with the consolidation | Visual patch lands without test or visual-smoke evidence |
+| Page VM | Entity detail pages render through shell helper + `<Entity>DetailPageVm` | Screen assembles a page from individual VM accessors |
+| Layer architecture | Imports respect layer order; shells live under `src/ui/shells/` | Top-level `src/ui_*.rs` shell file added; layer skipped |
+| Theme adaptivity | Colors resolve through `theme_bridge`; light + dark verified | Raw `rgb(0x…)` outside the token layer |
+| Accessibility contract | Interactive composites carry VM-sourced a11y labels | Icon-only button without label; screen-side a11y string |
+
+## Task Results
+
+| # | Task | Status | Required Evidence |
+|---|---|---|---|
+| 1 | Layer Relocation                              | Ready          | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; new guard green; before/after Library + Discover screenshots |
+| 2 | Composite Display-Contract Audit              | Stub           | Per-composite contract doc, allowlist, new guard, caller migrations |
+| 3 | Library/Search VM Consolidation               | Stub           | VM accessors with present/empty/None tests; screen call-site sweep; new guard |
+| 4 | HIG Dark-Mode Parity Audit                    | Stub           | `style.rs` resolution; light + dark screenshots per surface |
+| 5 | HIG Accessibility-Label Contract              | Stub           | A11y labels per interactive composite; new guard; coverage table |
+| 6 | PageVm Generalization                         | Stub           | `<Entity>DetailPageVm` per surface; shell helpers; new guard |
+| 7 | Screen Decomposition                          | Stub           | `library.rs`/`search.rs` ≤ 500 LOC; per-surface files under `src/ui/shells/{library,discover}/`; new guards |
+| 8 | Final Sweep + Readiness Gate                  | Stub           | All baselines zero; full visual smoke; gate decision recorded |
+
+## Visual Smoke Ledger
+
+To be filled per task. All entries require both themes. File path
+convention: `docs/reviews/screenshots/adr-0038-{surface}-{theme}.png`.
+
+| Surface | Light | Dark | Fixture | Status |
+|---|---|---|---|---|
+| Library list                | TBD | TBD | TBD | Pending Task 004 |
+| Library inspector           | TBD | TBD | TBD | Pending Task 004 |
+| Library track detail        | TBD | TBD | TBD | Pending Task 004 |
+| Library feed detail         | TBD | TBD | TBD | Pending Task 004 |
+| Discover list               | TBD | TBD | TBD | Pending Task 004 |
+| Discover inspector          | TBD | TBD | TBD | Pending Task 004 |
+| Discover track detail       | TBD | TBD | TBD | Pending Task 004 |
+| Discover feed detail        | TBD | TBD | TBD | Pending Task 004 |
+| Playlist popover            | TBD | TBD | TBD | Pending Task 004 |
+| Now-playing bar             | TBD | TBD | TBD | Pending Task 004 |
+| Recent feed tiles           | TBD | TBD | TBD | Pending Task 004 |
+| Search results              | TBD | TBD | TBD | Pending Task 004 |
+
+## Accessibility Coverage Ledger
+
+To be filled by Task 005. Composites that render interactive chrome:
+
+| Composite | A11y label source | A11y hint? | Guard entry | Status |
+|---|---|---|---|---|
+| `action_button`              | TBD | TBD | TBD | Pending |
+| `ActionRow`                  | TBD | TBD | TBD | Pending |
+| `identity_action_button`     | TBD | TBD | TBD | Pending |
+| `AddToPlaylistPopover`       | TBD | TBD | TBD | Pending |
+| `TrackRow`                   | TBD | TBD | TBD | Pending |
+| `ListRow`                    | TBD | TBD | TBD | Pending |
+| `RecentFeedTile`             | TBD | TBD | TBD | Pending |
+| `DisclosureGroup`            | TBD | TBD | TBD | Pending |
+| `SegmentedControl`           | TBD | TBD | TBD | Pending |
+| `NowPlayingBar`              | TBD | TBD | TBD | Pending |
+| Release detail action overlays | TBD | TBD | TBD | Pending |
+| Track detail action overlays  | TBD | TBD | TBD | Pending |
+
+Pure-text/pure-layout composites are exempt:
+`detail_grid`, `detail_header`, `multiline_text`, `divider`, `loading`.
+
+## Automated Checks
+
+For Task 001:
+
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test top_level_shells_live_under_src_ui_shells`
+- `cargo test`
+- `cargo clippy -- -D warnings`
+- `git diff --check`
+
+For each subsequent task: re-run the full set, plus the task's
+targeted guard test.
+
+## Readiness Gate (filled by Task 008)
+
+| Question | Answer | Evidence |
+|---|---|---|
+| All architecture guards green, baselines zero?           | TBD | TBD |
+| Every entity detail page on PageVm + shell helper?       | TBD | TBD |
+| Every interactive composite carries a11y label?           | TBD | TBD |
+| Light + dark visual smoke covers every main surface?     | TBD | TBD |
+| `library.rs` and `search.rs` are thin entries?           | TBD | TBD |
+| Zero remaining screen-local fallback strings?            | TBD | TBD |
+| Deferred-architecture-work index reconciled?             | TBD | TBD |
+
+Decision: TBD (`Proceed` or `Defer`).
