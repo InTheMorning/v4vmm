@@ -9,7 +9,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::metadata::{summarize_contributor_value, MetadataColumn};
+use crate::metadata::{metadata_field_is_expandable, summarize_contributor_value, MetadataColumn};
 use crate::track_compare::ComparisonStatus;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +75,14 @@ pub enum TrackMetadataComparisonRole {
     Match,
     Different,
     Missing,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrackMetadataExpandedFieldKind {
+    Artwork,
+    Transcript,
+    ValueRoutes,
+    Text,
 }
 
 impl TrackMetadataComparisonRole {
@@ -292,6 +300,21 @@ impl TrackMetadataGridVm {
             "Artwork" => Self::artwork_summary(raw_value, display_value),
             _ => display_value.to_string(),
         }
+    }
+
+    #[must_use]
+    pub fn expanded_field_kind(field: &str) -> TrackMetadataExpandedFieldKind {
+        match field {
+            "Artwork" => TrackMetadataExpandedFieldKind::Artwork,
+            "Transcript" | "Transcript text" => TrackMetadataExpandedFieldKind::Transcript,
+            "Value Routes" => TrackMetadataExpandedFieldKind::ValueRoutes,
+            _ => TrackMetadataExpandedFieldKind::Text,
+        }
+    }
+
+    #[must_use]
+    pub fn field_is_expandable(field: &str, raw_value: &str) -> bool {
+        metadata_field_is_expandable(field) && !raw_value.is_empty()
     }
 
     #[must_use]
@@ -882,6 +905,43 @@ mod tests {
             ),
             "display transcript"
         );
+    }
+
+    #[test]
+    fn expanded_field_kind_classifies_metadata_fields() {
+        assert_eq!(
+            TrackMetadataGridVm::expanded_field_kind("Artwork"),
+            TrackMetadataExpandedFieldKind::Artwork
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expanded_field_kind("Transcript"),
+            TrackMetadataExpandedFieldKind::Transcript
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expanded_field_kind("Transcript text"),
+            TrackMetadataExpandedFieldKind::Transcript
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expanded_field_kind("Value Routes"),
+            TrackMetadataExpandedFieldKind::ValueRoutes
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expanded_field_kind("Title"),
+            TrackMetadataExpandedFieldKind::Text
+        );
+    }
+
+    #[test]
+    fn field_is_expandable_preserves_metadata_gate_and_empty_values() {
+        assert!(TrackMetadataGridVm::field_is_expandable(
+            "Contributors",
+            "Alice"
+        ));
+        assert!(!TrackMetadataGridVm::field_is_expandable(
+            "Contributors",
+            ""
+        ));
+        assert!(!TrackMetadataGridVm::field_is_expandable("Title", "Song"));
     }
 
     #[test]

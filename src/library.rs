@@ -52,9 +52,9 @@ use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
     expand_woar_metadata_rows, expanded_metadata_display_string, id3_frame_base,
-    metadata_field_is_expandable, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
-    track_metadata_rows, AlignedCompareRow, MetadataColumn, MetadataGridRow,
-    MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
+    pending_id3_conflict_descriptions, pending_id3_edits_for_apply, track_metadata_rows,
+    AlignedCompareRow, MetadataColumn, MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit,
+    TagCompareResult, TrackContext,
 };
 use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
@@ -97,8 +97,8 @@ use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{
-    TrackMetadataComparisonRole, TrackMetadataGridVm, ValueRouteFieldContext,
-    ValueRoutesSummaryFallback,
+    TrackMetadataComparisonRole, TrackMetadataExpandedFieldKind, TrackMetadataGridVm,
+    ValueRouteFieldContext, ValueRoutesSummaryFallback,
 };
 use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts, TrackRef, TrackView};
 
@@ -3536,7 +3536,8 @@ fn metadata_value_cell(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let logical_field = TrackMetadataGridVm::logical_field(field);
-    let expandable = metadata_field_is_expandable(logical_field) && !raw_value.is_empty();
+    let field_kind = TrackMetadataGridVm::expanded_field_kind(logical_field);
+    let expandable = TrackMetadataGridVm::field_is_expandable(logical_field, raw_value);
     if !expandable {
         return compare_cell(display_value, Some(color));
     }
@@ -3547,7 +3548,7 @@ fn metadata_value_cell(
         display_value,
         ValueRoutesSummaryFallback::DisplayValue,
     );
-    if expanded && logical_field == "Value Routes" {
+    if expanded && field_kind == TrackMetadataExpandedFieldKind::ValueRoutes {
         let header_key = display.cell_key.clone();
         return div()
             .text_size(typography::SIZE_MICRO)
@@ -3584,7 +3585,14 @@ fn metadata_value_cell(
             .into_any_element();
     }
     let content = if expanded {
-        expanded_metadata_value(logical_field, raw_value, display_value, color, file_image)
+        expanded_metadata_value(
+            field_kind,
+            logical_field,
+            raw_value,
+            display_value,
+            color,
+            file_image,
+        )
     } else {
         div()
             .text_color(color::accent())
@@ -3656,13 +3664,14 @@ fn metadata_tag_cell(
 }
 
 fn expanded_metadata_value(
+    field_kind: TrackMetadataExpandedFieldKind,
     field: &str,
     raw_value: &str,
     display_value: &str,
     color: gpui::Rgba,
     file_image: Option<&Arc<Image>>,
 ) -> AnyElement {
-    if field == "Artwork" {
+    if field_kind == TrackMetadataExpandedFieldKind::Artwork {
         if let Some(image) = file_image {
             return div()
                 .flex()

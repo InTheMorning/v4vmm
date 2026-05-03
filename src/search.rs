@@ -82,7 +82,8 @@ use crate::view_models::search::{
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{
-    TrackMetadataGridVm, ValueRouteFieldContext, ValueRoutesSummaryFallback,
+    TrackMetadataExpandedFieldKind, TrackMetadataGridVm, ValueRouteFieldContext,
+    ValueRoutesSummaryFallback,
 };
 use crate::views::{ContributorView, FeedRef, TrackView};
 
@@ -3193,7 +3194,7 @@ fn metadata_rss_cell(
         .unwrap_or_else(color::text_primary);
     let glyph = source_role.map(ProvenanceRole::glyph);
     let display_value = TrackMetadataGridVm::display_with_glyph(glyph, &base_display);
-    let expandable = metadata_field_is_expandable(&row.field) && !value.is_empty();
+    let expandable = TrackMetadataGridVm::field_is_expandable(&row.field, value);
     let value_element = if expandable {
         expandable_cell(
             ExpandableCellParams {
@@ -3269,7 +3270,7 @@ fn metadata_id3_cell(
         .map(|edit| pending_source_color(edit.source, cx))
         .unwrap_or_else(|| id3_cell_status_color(row, cx));
     let frame_color = frame.map(id3_frame_base).map(id3_frame_version_color);
-    let expandable = metadata_field_is_expandable(&row.field) && !value.is_empty();
+    let expandable = TrackMetadataGridVm::field_is_expandable(&row.field, value);
     let value_element = if expandable {
         expandable_tag_cell(
             ExpandableTagCellParams {
@@ -3581,10 +3582,9 @@ fn expandable_cell(
     let display =
         TrackMetadataGridVm::discover_expandable_cell_display("rss", field, row_id, expanded);
     let glyph = display.disclosure_glyph;
+    let field_kind = TrackMetadataGridVm::expanded_field_kind(field);
 
-    // Value Routes when expanded: header click collapses, sub-items have own clicks.
-    // Use a non-clickable outer container so sub-item clicks don't bubble to toggle.
-    if expanded && field == "Value Routes" {
+    if expanded && field_kind == TrackMetadataExpandedFieldKind::ValueRoutes {
         let cell_key_h = display.cell_key.clone();
         return div()
             .text_size(typography::SIZE_MICRO)
@@ -3634,14 +3634,44 @@ fn expandable_cell(
         }));
 
     if expanded {
-        if matches!(field, "Artwork") && TrackMetadataGridVm::artwork_url(raw_value).is_some() {
-            let url = raw_value.to_string();
-            container = container
-                .child(
+        match TrackMetadataGridVm::expanded_field_kind(field) {
+            TrackMetadataExpandedFieldKind::Artwork
+                if TrackMetadataGridVm::artwork_url(raw_value).is_some() =>
+            {
+                let url = raw_value.to_string();
+                container = container
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .gap(spacing::XS)
+                            .child(
+                                div()
+                                    .text_size(typography::SIZE_MICRO)
+                                    .text_color(color::text_muted())
+                                    .child(glyph),
+                            )
+                            .child(
+                                div()
+                                    .text_color(color::accent())
+                                    .truncate()
+                                    .child(SharedString::from(raw_value.to_string())),
+                            ),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Middle,
+                        move |_: &MouseDownEvent, _window, _cx| {
+                            let _ = open::that(&url);
+                        },
+                    );
+            }
+            TrackMetadataExpandedFieldKind::Transcript => {
+                container = container.child(
                     div()
                         .flex()
                         .flex_row()
                         .gap(spacing::XS)
+                        .items_start()
                         .child(
                             div()
                                 .text_size(typography::SIZE_MICRO)
@@ -3650,63 +3680,39 @@ fn expandable_cell(
                         )
                         .child(
                             div()
-                                .text_color(color::accent())
-                                .truncate()
-                                .child(SharedString::from(raw_value.to_string())),
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .children(transcript_text_elements(raw_value, color)),
                         ),
-                )
-                .on_mouse_down(
-                    MouseButton::Middle,
-                    move |_: &MouseDownEvent, _window, _cx| {
-                        let _ = open::that(&url);
-                    },
                 );
-        } else if matches!(field, "Transcript" | "Transcript text") {
-            container = container.child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(spacing::XS)
-                    .items_start()
-                    .child(
+            }
+            TrackMetadataExpandedFieldKind::Artwork
+            | TrackMetadataExpandedFieldKind::Text
+            | TrackMetadataExpandedFieldKind::ValueRoutes => {
+                let expanded_display =
+                    expanded_metadata_display_string(field, raw_value, display_value);
+                container =
+                    container.child(
                         div()
-                            .text_size(typography::SIZE_MICRO)
-                            .text_color(color::text_muted())
-                            .child(glyph),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
                             .flex()
-                            .flex_col()
-                            .children(transcript_text_elements(raw_value, color)),
-                    ),
-            );
-        } else {
-            let expanded_display =
-                expanded_metadata_display_string(field, raw_value, display_value);
-            container = container.child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(spacing::XS)
-                    .items_start()
-                    .child(
-                        div()
-                            .text_size(typography::SIZE_MICRO)
-                            .text_color(color::text_muted())
-                            .child(glyph),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .children(json_tree_elements(raw_value, &expanded_display, color)),
-                    ),
-            );
+                            .flex_row()
+                            .gap(spacing::XS)
+                            .items_start()
+                            .child(
+                                div()
+                                    .text_size(typography::SIZE_MICRO)
+                                    .text_color(color::text_muted())
+                                    .child(glyph),
+                            )
+                            .child(
+                                div().flex_1().min_w_0().flex().flex_col().children(
+                                    json_tree_elements(raw_value, &expanded_display, color),
+                                ),
+                            ),
+                    );
+            }
         }
     } else {
         let summary = TrackMetadataGridVm::expandable_cell_summary(
@@ -3761,43 +3767,43 @@ fn expandable_tag_cell(
     let glyph = display.disclosure_glyph;
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
     let frame_label = TrackMetadataGridVm::id3_frame_label(frame_id);
+    let field_kind = TrackMetadataGridVm::expanded_field_kind(field);
 
     let value_el = if expanded {
-        if field == "Artwork" {
-            // Show the actual embedded album art image
-            if let Some(image) = file_image {
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap(spacing::XS)
-                    .child(
-                        div()
-                            .text_size(typography::SIZE_MICRO)
-                            .line_height(typography::LINE_BODY)
-                            .text_color(color)
-                            .child(SharedString::from(display_value.to_string())),
-                    )
-                    .child(
-                        ImagePrimitive::new(image.clone())
-                            .size(ImageSize::XXl)
-                            .radius(Radius::MD),
-                    )
-                    .into_any_element()
-            } else {
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(typography::SIZE_MICRO)
-                    .line_height(typography::LINE_BODY)
-                    .text_color(color)
-                    .child(SharedString::from(display_value.to_string()))
-                    .into_any_element()
+        match field_kind {
+            TrackMetadataExpandedFieldKind::Artwork => {
+                if let Some(image) = file_image {
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(spacing::XS)
+                        .child(
+                            div()
+                                .text_size(typography::SIZE_MICRO)
+                                .line_height(typography::LINE_BODY)
+                                .text_color(color)
+                                .child(SharedString::from(display_value.to_string())),
+                        )
+                        .child(
+                            ImagePrimitive::new(image.clone())
+                                .size(ImageSize::XXl)
+                                .radius(Radius::MD),
+                        )
+                        .into_any_element()
+                } else {
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(typography::SIZE_MICRO)
+                        .line_height(typography::LINE_BODY)
+                        .text_color(color)
+                        .child(SharedString::from(display_value.to_string()))
+                        .into_any_element()
+                }
             }
-        } else if matches!(field, "Transcript" | "Transcript text") {
-            // Show the actual lyrics/transcript text
-            div()
+            TrackMetadataExpandedFieldKind::Transcript => div()
                 .flex_1()
                 .min_w_0()
                 .text_size(typography::SIZE_MICRO)
@@ -3806,20 +3812,21 @@ fn expandable_tag_cell(
                 .flex()
                 .flex_col()
                 .children(transcript_text_elements(raw_value, color))
-                .into_any_element()
-        } else {
-            let expanded_display =
-                expanded_metadata_display_string(field, raw_value, display_value);
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_size(typography::SIZE_MICRO)
-                .line_height(typography::LINE_BODY)
-                .text_color(color)
-                .flex()
-                .flex_col()
-                .children(json_tree_elements(raw_value, &expanded_display, color))
-                .into_any_element()
+                .into_any_element(),
+            TrackMetadataExpandedFieldKind::Text | TrackMetadataExpandedFieldKind::ValueRoutes => {
+                let expanded_display =
+                    expanded_metadata_display_string(field, raw_value, display_value);
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(typography::SIZE_MICRO)
+                    .line_height(typography::LINE_BODY)
+                    .text_color(color)
+                    .flex()
+                    .flex_col()
+                    .children(json_tree_elements(raw_value, &expanded_display, color))
+                    .into_any_element()
+            }
         }
     } else {
         let summary = TrackMetadataGridVm::expandable_cell_summary(
@@ -3852,7 +3859,7 @@ fn expandable_tag_cell(
     };
 
     // Value Routes when expanded: separate header click from sub-item clicks
-    if expanded && field == "Value Routes" {
+    if expanded && field_kind == TrackMetadataExpandedFieldKind::ValueRoutes {
         let cell_key = display.cell_key.clone();
         return div()
             .flex()

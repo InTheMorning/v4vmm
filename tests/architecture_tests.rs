@@ -2251,6 +2251,46 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "metadata_field_is_expandable(logical_field) && !raw_value.is_empty()",
+            "Library metadata expandability gate belongs in TrackMetadataGridVm::field_is_expandable",
+        ),
+        (
+            "src/search.rs",
+            "metadata_field_is_expandable(&row.field) && !value.is_empty()",
+            "Discover metadata expandability gate belongs in TrackMetadataGridVm::field_is_expandable",
+        ),
+        (
+            "src/library.rs",
+            "logical_field == \"Value Routes\"",
+            "Library expanded metadata field kind belongs in TrackMetadataGridVm::expanded_field_kind",
+        ),
+        (
+            "src/search.rs",
+            "field == \"Value Routes\"",
+            "Discover expanded metadata field kind belongs in TrackMetadataGridVm::expanded_field_kind",
+        ),
+        (
+            "src/library.rs",
+            "field == \"Artwork\"",
+            "Library expanded metadata artwork kind belongs in TrackMetadataGridVm::expanded_field_kind",
+        ),
+        (
+            "src/search.rs",
+            "field == \"Artwork\"",
+            "Discover expanded metadata artwork kind belongs in TrackMetadataGridVm::expanded_field_kind",
+        ),
+        (
+            "src/search.rs",
+            "matches!(field, \"Artwork\")",
+            "Discover expanded metadata artwork kind belongs in TrackMetadataGridVm::expanded_field_kind",
+        ),
+        (
+            "src/search.rs",
+            "matches!(field, \"Transcript\" | \"Transcript text\")",
+            "Discover expanded transcript kind belongs in TrackMetadataGridVm::expanded_field_kind",
+        ),
+        (
+            "src/library.rs",
             "format!(\"{} ({} unused)\", group.label, group.unused_count)",
             "metadata group heading fallback belongs in TrackMetadataGridVm::group_heading_label",
         ),

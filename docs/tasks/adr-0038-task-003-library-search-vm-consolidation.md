@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first ninety-two implementation slices completed on 2026-05-03.
+In progress - first ninety-four implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -628,7 +628,21 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `ActionRowMessageTone` and
       `message_is_error()` branching from `src/search.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-93. Migrate remaining fallback batches, smallest blast radius first.
+93. Metadata expanded field-kind display
+    - Add `TrackMetadataGridVm::expanded_field_kind()` so Artwork,
+      Transcript, and Value Routes expanded rendering branches are
+      metadata-grid-owned field classification.
+    - Remove screen-local expanded metadata `Artwork`, `Transcript`,
+      and `Value Routes` branch checks from Library and Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+94. Metadata expandability gate
+    - Add `TrackMetadataGridVm::field_is_expandable()` so the
+      `metadata_field_is_expandable(...) && !raw_value.is_empty()`
+      gate is VM-owned.
+    - Remove direct expandability gate duplication from Library and
+      Discover metadata cell renderers.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+95. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1563,6 +1577,26 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local subscription message
   severity checks from returning in both Library and Discover.
 
+## Ninety-Second-Slice Implementation Notes
+
+- `TrackMetadataGridVm::expanded_field_kind()` now carries expanded
+  metadata field classification for Artwork, Transcript/Transcript
+  text, Value Routes, and plain text.
+- Library and Discover still own GPUI-specific expanded layouts, but no
+  longer branch on those field string literals in renderer code.
+- The architecture guard now blocks screen-local expanded field-kind
+  checks from returning.
+
+## Ninety-Third-Slice Implementation Notes
+
+- `TrackMetadataGridVm::field_is_expandable()` now carries the metadata
+  expandability and non-empty raw-value gate.
+- Library and Discover ask the metadata-grid VM whether a field should
+  render as expandable instead of duplicating
+  `metadata_field_is_expandable(...) && !value.is_empty()`.
+- The architecture guard now blocks direct screen-local metadata
+  expandability gates from returning.
+
 ## Test Commands
 
 ```sh
@@ -1594,6 +1628,8 @@ cargo test library_track_action_vm_formats_playlist_label_and_message_status
 cargo test action_row_vm_projects_subscription_message_display
 cargo test track_metadata_action_state_projects_file_actions_and_id3_errors
 cargo test track_metadata_action_state_projects_loading_and_staged_id3_display
+cargo test expanded_field_kind_classifies_metadata_fields
+cargo test field_is_expandable_preserves_metadata_gate_and_empty_values
 cargo test group_heading_label_appends_unused_count_only_when_present
 cargo test value_route_item_label_appends_split_when_present
 cargo test value_route_split_label_formats_percent_and_ignores_empty_values
