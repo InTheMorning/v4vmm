@@ -664,6 +664,12 @@ impl<'a> PaymentRouteVm<'a> {
             .unwrap_or_else(|| "route".to_string())
     }
 
+    /// Optional route address display, preserving empty strings when present.
+    #[must_use]
+    pub(crate) fn address(&self) -> Option<String> {
+        self.route.address.clone()
+    }
+
     /// Split percentage; `0.0` when the route does not declare one.
     #[must_use]
     pub(crate) fn split(&self) -> f64 {
@@ -2307,6 +2313,30 @@ mod tests {
         };
         let vm = PaymentRouteVm::new(&r);
         assert_eq!(vm.route_type(), "lightning");
+    }
+
+    #[test]
+    fn payment_route_vm_projects_address_without_coercing_presence() {
+        let r = api::PaymentRoute {
+            address: Some("lnbc1abc".into()),
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.address().as_deref(), Some("lnbc1abc"));
+
+        let r = api::PaymentRoute {
+            address: Some(String::new()),
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.address().as_deref(), Some(""));
+
+        let r = api::PaymentRoute {
+            address: None,
+            ..api::PaymentRoute::default()
+        };
+        let vm = PaymentRouteVm::new(&r);
+        assert_eq!(vm.address(), None);
     }
 
     #[test]

@@ -63,7 +63,13 @@ Verified starting notes, 2026-05-03:
      `feed_link_label.unwrap_or_else`.
    - Add `view_models_own_display_fallbacks_for_library_and_search`.
 2. Re-grep the remaining `library.rs` / `search.rs` fallback inventory.
-3. Migrate one remaining fallback at a time, smallest blast radius first.
+3. Payment-route address display
+   - Add `PaymentRouteVm::address()` so value-route address presence
+     and empty-string preservation live in the VM.
+   - Remove `src/search.rs` render-glue coercion from
+     `route.address.clone().unwrap_or_default()`.
+   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+4. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -112,12 +118,24 @@ Verified starting notes, 2026-05-03:
   `view_models_own_display_fallbacks_for_library_and_search` blocks the
   separated feed-link fallback calls from returning to `src/search.rs`.
 
+## Second-Slice Implementation Notes
+
+- `PaymentRouteVm::address()` now carries optional payment-route address
+  display while preserving the old distinction between `Some("")` and
+  `None`.
+- `src/search.rs` no longer checks `route.address.is_some()` or coerces
+  `route.address.clone().unwrap_or_default()` inside the value-routes
+  renderer.
+- The architecture guard now also blocks screen-local payment-route
+  address presence/coercion from returning to `src/search.rs`.
+
 ## Test Commands
 
 ```sh
 cargo fmt -- --check
 cargo check
 cargo test track_inspector_header_vm_projects_feed_link_display_contract
+cargo test payment_route_vm_projects_address_without_coercing_presence
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test
 cargo clippy -- -D warnings

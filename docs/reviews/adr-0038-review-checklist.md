@@ -25,7 +25,8 @@ generic-control sub-slices have also moved status messages, disclosure
 labels, segment labels, badge labels, and metadata-action labels to
 display contracts, tightening the composite display-contract guard.
 Task 003 has started by moving the Discover track-inspector feed-link
-label and URL fallback into `TrackFeedLinkDisplay`.
+label and URL fallback into `TrackFeedLinkDisplay`, then moving
+payment-route address presence into `PaymentRouteVm`.
 
 ## Required Questions For Every UI Change
 
@@ -62,7 +63,7 @@ label and URL fallback into `TrackFeedLinkDisplay`.
 |---|---|---|---|
 | 1 | Layer Relocation                              | Implemented with visual-proof caveat | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Visual proof remains open; no provisional screenshot artifacts are retained. |
 | 2 | Composite Display-Contract Audit              | Implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; `DetailHeader` title/subtitle/data rows now enter through `DetailHeaderDisplay`; `DetailGrid` key/value rows now enter through `DetailElementRow` or `DetailTextRow`; release track sections now enter through `ReleaseTrackSectionDisplay`; playlist popovers now enter through `AddToPlaylistDisplay` and `PlaylistOptionDisplay`; metadata grid cells now enter through `TrackMetadataGroupDisplay`, `TrackMetadataFieldDisplay`, `TrackMetadataFrameDisplay`, `TrackMetadataTagDisplay`, and `TrackMetadataTextDisplay`; action-row status messages now enter through `ActionRowMessageDisplay`; disclosure headings now enter through `DisclosureGroupDisplay`; segmented options now enter through `SegmentDisplay`; badge labels now enter through `TagBadgeDisplay`; metadata-action labels now enter through `ActionButtonDisplay`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow`, `DetailHeader`, `DetailGrid`, release track-section, playlist popover, metadata-grid cell, action-row message, disclosure-group, segmented-control, tag-badge, and action-button string builders |
-| 3 | Library/Search VM Consolidation               | In progress - first Discover feed-link slice implemented | `TrackFeedLinkDisplay` now carries Discover track-inspector feed guid, label, and URL; `TrackInspectorHeaderVm::feed_link_display()` owns `feed_title -> guid` and `feed_url -> feed_guid`; `src/search.rs` no longer reconstructs the feed-link label fallback; `view_models_own_display_fallbacks_for_library_and_search` added |
+| 3 | Library/Search VM Consolidation               | In progress - first two Discover slices implemented | `TrackFeedLinkDisplay` now carries Discover track-inspector feed guid, label, and URL; `TrackInspectorHeaderVm::feed_link_display()` owns `feed_title -> guid` and `feed_url -> feed_guid`; `PaymentRouteVm::address()` owns optional payment-route address display without coercing empty strings; `src/search.rs` no longer reconstructs the feed-link label fallback or payment-route address presence; `view_models_own_display_fallbacks_for_library_and_search` added/tightened |
 | 4 | HIG Dark-Mode Parity Audit                    | Stub           | `style.rs` resolution; light + dark screenshots per surface |
 | 5 | HIG Accessibility-Label Contract              | Stub           | A11y labels per interactive composite; new guard; coverage table |
 | 6 | PageVm Generalization                         | Stub           | `<Entity>DetailPageVm` per surface; shell helpers; new guard |
@@ -145,6 +146,7 @@ For Task 002 current slices:
 For Task 003 current slices:
 
 - `cargo test track_inspector_header_vm_projects_feed_link_display_contract`
+- `cargo test payment_route_vm_projects_address_without_coercing_presence`
 - `cargo test view_models_own_display_fallbacks_for_library_and_search`
 
 ## Readiness Gate (filled by Task 008)

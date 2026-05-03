@@ -3039,6 +3039,7 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
                 let route_type = vm.route_type();
                 let split = vm.split();
                 let kind_label = vm.kind_label();
+                let address = vm.address();
                 div()
                     .flex()
                     .flex_col()
@@ -3047,15 +3048,13 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
                     .child(SharedString::from(format!(
                         "{name} ({route_type} · {split}% · {kind_label})"
                     )))
-                    .when(route.address.is_some(), |el| {
+                    .when_some(address, |el, address| {
                         el.child(
                             div()
                                 .text_color(color::text_muted())
                                 .text_size(typography::SIZE_MICRO)
                                 .line_clamp(2)
-                                .child(SharedString::from(
-                                    route.address.clone().unwrap_or_default(),
-                                )),
+                                .child(SharedString::from(address)),
                         )
                     })
                     .when(

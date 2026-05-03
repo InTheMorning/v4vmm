@@ -1968,6 +1968,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "header_vm.feed_link_url()",
             "Discover track feed-link URL should enter the screen through TrackFeedLinkDisplay",
         ),
+        (
+            "src/search.rs",
+            "route.address.clone().unwrap_or_default()",
+            "payment-route address presence belongs in PaymentRouteVm::address",
+        ),
+        (
+            "src/search.rs",
+            "route.address.is_some()",
+            "payment-route address presence belongs in PaymentRouteVm::address",
+        ),
     ];
     let mut violations = Vec::new();
 
