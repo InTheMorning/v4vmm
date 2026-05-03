@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first nine slices implemented on 2026-05-03.
+In progress - first ten slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -78,6 +78,8 @@ test allowlist with a one-line justification.
      and remove the loose id/label constructor allowance.
    - `SegmentedControl` sub-slice: introduce `SegmentDisplay` and
      remove the loose segment id/key/label constructor allowance.
+   - `TagBadge` sub-slice: introduce `TagBadgeDisplay` and remove the
+     loose badge-label override allowance.
 
 ## Files Inspected
 
@@ -94,7 +96,10 @@ test allowlist with a one-line justification.
 - `src/ui/composites/action_row.rs`
 - `src/ui/composites/disclosure_group.rs`
 - `src/ui/composites/segmented_control.rs`
+- `src/ui/composites/tag_badge.rs`
 - `src/ui/composites/detail_header.rs`
+- `src/ui/composites/file_header.rs`
+- `src/ui/composites/track_header.rs`
 - `src/ui/composites/detail_grid.rs`
 - `src/ui/composites/mod.rs`
 - `src/ui/composites/track_detail_surface.rs`
@@ -232,6 +237,17 @@ test allowlist with a one-line justification.
 - The explicit allowlist shrank by the former `SegmentedControl`
   segment constructor allowance.
 
+## Tenth-Slice Implementation Notes
+
+- `TagBadge` now accepts `TagBadgeDisplay`, which carries the
+  `EntityKind` and optional already-owned badge label together.
+- The former loose `.label(...)` override builder was removed.
+- Detail, file, track, and Discover result headers construct badge display
+  contracts from existing VM/result labels.
+- Static `EntityKind` and `ProvenanceRole` label helpers remain explicit
+  role-owned passthrough allowances; the display-copy override allowance
+  was removed.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -257,6 +273,8 @@ test allowlist with a one-line justification.
   loose constructor parameters.
 - `SegmentedControl` segment public signatures no longer accept option
   labels as loose constructor parameters.
+- `TagBadge` public signatures no longer accept badge labels as loose
+  override parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004

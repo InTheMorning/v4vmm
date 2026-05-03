@@ -54,7 +54,7 @@ use crate::ui::composites::{
     DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
     DisclosureGroup, DisclosureGroupDisplay, EntityKind, IdentityActionKind, ListRow,
     PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement,
-    SplitPane, StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackDetailSurface,
+    SplitPane, StatusRole, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackDetailSurface,
     TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
@@ -2410,7 +2410,10 @@ fn render_result_item(
                 )
             }),
     )
-    .child(TagBadge::new(kind).label(row.entity_type.clone()))
+    .child(TagBadge::new(TagBadgeDisplay {
+        kind,
+        label: Some(SharedString::from(row.entity_type.clone())),
+    }))
     .into_any_element()
 }
 

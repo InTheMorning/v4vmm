@@ -16,7 +16,7 @@ use crate::ui::layouts as layout;
 use crate::ui::primitives::{HStack, MultilineText, VStack};
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 
-use super::tag_badge::{EntityKind, TagBadge};
+use super::tag_badge::{EntityKind, TagBadge, TagBadgeDisplay};
 use super::thumbnail::{Thumbnail, ThumbnailSize};
 
 #[derive(IntoElement)]
@@ -69,7 +69,10 @@ impl RenderOnce for DetailHeader {
         let title_color = resolve_color(cx, SemanticColor::Label, self.appearance);
         let subtitle_color = resolve_color(cx, SemanticColor::SecondaryLabel, self.appearance);
         let metadata_label_color = resolve_color(cx, SemanticColor::TertiaryLabel, self.appearance);
-        let mut badge = TagBadge::new(self.display.kind);
+        let mut badge = TagBadge::new(TagBadgeDisplay {
+            kind: self.display.kind,
+            label: None,
+        });
         if let Some(appearance) = self.appearance {
             badge = badge.appearance(appearance);
         }

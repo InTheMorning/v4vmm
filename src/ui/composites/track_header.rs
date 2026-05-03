@@ -17,7 +17,7 @@ use gpui::{
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 use crate::view_models::track::TrackHeaderVm;
 
-use super::{EntityKind, TagBadge, Thumbnail, ThumbnailSize};
+use super::{EntityKind, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize};
 
 #[derive(IntoElement)]
 #[must_use]
@@ -58,7 +58,10 @@ impl RenderOnce for TrackHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let title_color = resolve_color(cx, SemanticColor::Label, self.appearance);
         let artist_color = resolve_color(cx, SemanticColor::SecondaryLabel, self.appearance);
-        let mut badge = TagBadge::new(EntityKind::Track);
+        let mut badge = TagBadge::new(TagBadgeDisplay {
+            kind: EntityKind::Track,
+            label: None,
+        });
         if let Some(appearance) = self.appearance {
             badge = badge.appearance(appearance);
         }

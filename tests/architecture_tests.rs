@@ -397,11 +397,6 @@ const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllow
         pattern: "pub fn accessibility_label(self) -> &'static str",
         note: "role enum owns its static accessibility label",
     },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/tag_badge.rs",
-        pattern: "pub fn label(mut self, label: impl Into<SharedString>)",
-        note: "generic badge override; fallback policy must still live in VM",
-    },
 ];
 
 const SHARED_UI_UNSCALED_TOKEN_PX_ALLOWLIST: &[SharedUiUnscaledTokenPxAllowance] =

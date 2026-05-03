@@ -59,7 +59,7 @@ pub use release_detail_surface::{
 };
 pub use segmented_control::{Segment, SegmentDisplay, SegmentedControl};
 pub use split_pane::SplitPane;
-pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge};
+pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge, TagBadgeDisplay};
 pub use thumbnail::{Thumbnail, ThumbnailSize};
 pub use track_detail_surface::{TrackDetailSurface, TrackSurfaceElement};
 pub use track_header::TrackHeader;

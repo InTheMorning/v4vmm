@@ -18,7 +18,7 @@ use crate::ui::primitives::MultilineText;
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 use crate::view_models::metadata::FileHeaderVm;
 
-use super::{EntityKind, TagBadge, Thumbnail, ThumbnailSize};
+use super::{EntityKind, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize};
 
 #[derive(IntoElement)]
 #[must_use]
@@ -58,7 +58,10 @@ impl FileHeader {
 impl RenderOnce for FileHeader {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let title_color = resolve_color(cx, SemanticColor::Label, self.appearance);
-        let mut badge = TagBadge::new(EntityKind::Track).label(self.vm.badge_label.clone());
+        let mut badge = TagBadge::new(TagBadgeDisplay {
+            kind: EntityKind::Track,
+            label: Some(SharedString::from(self.vm.badge_label.clone())),
+        });
         if let Some(appearance) = self.appearance {
             badge = badge.appearance(appearance);
         }

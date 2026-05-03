@@ -211,24 +211,24 @@ impl StatusRole {
 #[must_use]
 pub struct TagBadge {
     kind: EntityKind,
-    /// Optional override for the displayed label (defaults to
-    /// [`EntityKind::label`]).
     label: Option<SharedString>,
     appearance: Option<Appearance>,
 }
 
+/// Display-ready badge fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagBadgeDisplay {
+    pub kind: EntityKind,
+    pub label: Option<SharedString>,
+}
+
 impl TagBadge {
-    pub fn new(kind: EntityKind) -> Self {
+    pub fn new(display: TagBadgeDisplay) -> Self {
         Self {
-            kind,
-            label: None,
+            kind: display.kind,
+            label: display.label,
             appearance: None,
         }
-    }
-
-    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
-        self.label = Some(label.into());
-        self
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
@@ -261,6 +261,17 @@ impl RenderOnce for TagBadge {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tag_badge_uses_display_contract() {
+        let badge = TagBadge::new(TagBadgeDisplay {
+            kind: EntityKind::Feed,
+            label: Some(SharedString::from("podcast")),
+        });
+
+        assert_eq!(badge.kind, EntityKind::Feed);
+        assert_eq!(badge.label, Some(SharedString::from("podcast")));
+    }
 
     #[test]
     fn status_roles_resolve_color_and_glyph_together() {
