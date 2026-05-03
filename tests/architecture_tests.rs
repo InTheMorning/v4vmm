@@ -2229,6 +2229,46 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "row.id3_value.is_some() && row.rss_value.is_none() && row.musicbrainz_value.is_none()",
             "metadata standalone-ID3 status fallback belongs in TrackMetadataGridVm::id3_status_role",
         ),
+        (
+            "src/search.rs",
+            "StatusRole::Danger.glyph()",
+            "Discover status error-prefix display belongs in SearchStatusSnapshot",
+        ),
+        (
+            "src/search.rs",
+            "\"Fuzzy: On\"",
+            "Discover fuzzy-toggle label display belongs in SearchRenderSnapshot",
+        ),
+        (
+            "src/search.rs",
+            "\"Fuzzy: Off\"",
+            "Discover fuzzy-toggle label display belongs in SearchRenderSnapshot",
+        ),
+        (
+            "src/search.rs",
+            "\"No results\"",
+            "Discover empty-results label display belongs in SearchRenderSnapshot",
+        ),
+        (
+            "src/search.rs",
+            "\"Load more\"",
+            "Discover load-more label display belongs in SearchRenderSnapshot or RecentFeedsSnapshot",
+        ),
+        (
+            "src/search.rs",
+            "\"Recent Feeds\"",
+            "Discover recent-feeds panel title belongs in RecentFeedsSnapshot",
+        ),
+        (
+            "src/search.rs",
+            "\"No recent feeds\"",
+            "Discover recent-feeds empty label belongs in RecentFeedsSnapshot",
+        ),
+        (
+            "src/search.rs",
+            "format!(\"Open publisher: {publisher_text}\")",
+            "Discover publisher-link tooltip display belongs in PublisherLinkDisplay",
+        ),
     ];
     let mut violations = Vec::new();
 

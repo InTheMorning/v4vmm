@@ -215,7 +215,31 @@ Verified starting notes, 2026-05-03:
       standalone ID3 primary-color exception is a named VM policy.
     - Remove duplicated Library/Discover raw standalone-ID3 checks.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-25. Migrate remaining fallback batches, smallest blast radius first.
+25. Discover result-pane chrome display
+    - Add `SearchRenderSnapshot::pane_display` so the Discover result
+      pane title, search button label, fuzzy-toggle label, empty label,
+      and load-more label are VM-owned.
+    - Remove screen-local result-pane chrome labels from Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+26. Discover status error-prefix display
+    - Add `SearchStatusSnapshot::display_text` so the error glyph
+      prefix is projected by the search VM.
+    - Remove screen-local `StatusRole::Danger.glyph()` prefix
+      formatting from Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+27. Discover recent-feeds chrome display
+    - Add `RecentFeedsSnapshot::display` and
+      `SearchViewModel::recents_root_title()` so recent-feed panel
+      title, empty label, and load-more label are VM-owned.
+    - Remove screen-local recent-feed chrome labels from Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+28. Discover publisher-link tooltip display
+    - Add `PublisherLinkDisplay` so publisher link id, title, target,
+      and tooltip are VM-owned.
+    - Remove screen-local publisher tooltip formatting and trimming
+      from Discover.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+29. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -500,6 +524,43 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks duplicated standalone-ID3 status
   fallback checks from returning to Library or Discover.
 
+## Twenty-Fourth-Slice Implementation Notes
+
+- `SearchRenderSnapshot::pane_display` now carries Discover result-pane
+  chrome labels: panel heading, search button label, fuzzy-toggle label,
+  empty-results label, and load-more label.
+- `src/search.rs` still owns GPUI controls and style state, but no
+  longer carries those result-pane labels as renderer literals.
+- The architecture guard now blocks result-pane chrome labels from
+  returning to Discover render glue.
+
+## Twenty-Fifth-Slice Implementation Notes
+
+- `SearchStatusSnapshot::display_text` now carries the status text with
+  the error glyph prefix when the status is an error.
+- `src/search.rs` still maps the status severity to GPUI color, but no
+  longer formats the error prefix with `StatusRole::Danger.glyph()`.
+- The architecture guard now blocks screen-local Discover status
+  error-prefix formatting from returning.
+
+## Twenty-Sixth-Slice Implementation Notes
+
+- `RecentFeedsSnapshot::display` now carries recent-feed panel chrome:
+  heading, empty-state label, and load-more label.
+- `SearchViewModel::recents_root_title()` gives the inspector shell the
+  same VM-owned title when the recent-feeds root is shown.
+- The architecture guard now blocks recent-feed panel chrome labels from
+  returning to Discover render glue.
+
+## Twenty-Seventh-Slice Implementation Notes
+
+- `PublisherLinkDisplay` now carries publisher-link id, visible title,
+  target, and tooltip.
+- `render_publisher_link_value()` now receives one display projection
+  instead of trimming and formatting the tooltip locally.
+- The architecture guard now blocks screen-local publisher-link tooltip
+  formatting from returning.
+
 ## Test Commands
 
 ```sh
@@ -530,6 +591,10 @@ cargo test comparison_role_maps_compare_statuses
 cargo test display_with_glyph_preserves_empty_values
 cargo test pending_source_role_compares_trimmed_values
 cargo test id3_status_role_suppresses_standalone_id3_values
+cargo test search_status_snapshot_prefixes_error_display
+cargo test search_render_snapshot_projects_result_pane_display_labels
+cargo test recent_feeds_snapshot_projects_panel_display_labels
+cargo test publisher_link_display_trims_title_and_tooltip
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

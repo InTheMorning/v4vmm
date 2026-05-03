@@ -77,9 +77,9 @@ use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::search::{
     artist_rows_from_result_rows, feed_display_title, normalized_search_query,
     search_result_type_is_visible, ActionRowVm, LazyPanel, PaymentRouteVm, PlaylistAppendIntent,
-    PlaylistAppendOutcome, PublisherInspectorVm, RecentFeedTileVm, ResultRow, SearchBatch,
-    SearchSubscriptionCommand, SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm,
-    TrackRowActionVm,
+    PlaylistAppendOutcome, PublisherInspectorVm, PublisherLinkDisplay, RecentFeedTileVm, ResultRow,
+    SearchBatch, SearchSubscriptionCommand, SearchViewModel, TrackFeedLinkDisplay,
+    TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
@@ -1678,11 +1678,7 @@ impl Render for SearchApp {
         let snapshot = self
             .vm
             .render_snapshot(stack.is_empty(), !input_has_search_term);
-        let status_text = if snapshot.status.is_error {
-            format!("{} {}", StatusRole::Danger.glyph(), snapshot.status.text)
-        } else {
-            snapshot.status.text.clone()
-        };
+        let status_text = snapshot.status.display_text.clone();
         let status_color = if snapshot.status.is_error {
             StatusRole::Danger.color(cx)
         } else {
@@ -1724,7 +1720,8 @@ impl Render for SearchApp {
         let is_empty = snapshot.empty;
         let has_more = snapshot.has_more;
         let fuzzy_search = snapshot.fuzzy_search;
-        let search_label = "Search Index";
+        let pane_display = snapshot.pane_display.clone();
+        let search_label = pane_display.search_button_label;
 
         let leading_pane = div()
             .flex()
@@ -1745,7 +1742,7 @@ impl Render for SearchApp {
                             .text_size(typography::SIZE_MICRO)
                             .font_weight(FontWeight::BOLD)
                             .text_color(color::text_muted())
-                            .child("Search Index"),
+                            .child(pane_display.heading),
                     )
                     .child(
                         Input::new(&active_input)
@@ -1787,11 +1784,7 @@ impl Render for SearchApp {
                                         ControlStyle::Ghost
                                     },
                                 )
-                                .label(if fuzzy_search {
-                                    "Fuzzy: On"
-                                } else {
-                                    "Fuzzy: Off"
-                                })
+                                .label(pane_display.fuzzy_toggle_label)
                                 .on_click(cx.listener(
                                     |this, _, _, cx| {
                                         this.toggle_fuzzy_search(cx);
@@ -1827,7 +1820,9 @@ impl Render for SearchApp {
                                         .p(spacing::XXL)
                                         .text_color(color::text_muted())
                                         .child(div().text_2xl().child("🔍"))
-                                        .child(div().mt(spacing::SM).child("No results")),
+                                        .child(
+                                            div().mt(spacing::SM).child(pane_display.empty_label),
+                                        ),
                                 )
                             })
                             .when(is_empty && !is_loading && !status_empty, |el| {
@@ -1837,13 +1832,15 @@ impl Render for SearchApp {
                                         .p(spacing::XXL)
                                         .text_color(color::text_muted())
                                         .child(div().text_2xl().child("🔍"))
-                                        .child(div().mt(spacing::SM).child("No results")),
+                                        .child(
+                                            div().mt(spacing::SM).child(pane_display.empty_label),
+                                        ),
                                 )
                             })
                             .when(has_more && !is_loading, |el| {
                                 el.child(
                                     UiButton::styled("load-more", ControlStyle::Ghost)
-                                        .label("Load more")
+                                        .label(pane_display.load_more_label)
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.do_search(true, cx);
                                         })),
@@ -2426,7 +2423,7 @@ fn render_inspector(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let title = if show_recents_root && frame.is_none() {
-        "Recent Feeds"
+        SearchViewModel::recents_root_title()
     } else {
         frame.map_or("", |frame| frame.title.as_str())
     };
@@ -4675,14 +4672,13 @@ pub(crate) fn render_publisher_link_value(
     publisher_text: String,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let publisher_text = publisher_text.trim().to_string();
-    let tooltip = format!("Open publisher: {publisher_text}");
-    let title = publisher_text.clone();
+    let display = PublisherLinkDisplay::new(publisher_text);
+    let tooltip = display.tooltip;
+    let title = display.title;
+    let target = display.target;
     let click_title = title.clone();
     div()
-        .id(SharedString::from(format!(
-            "publisher-link:{publisher_text}"
-        )))
+        .id(SharedString::from(display.id))
         .cursor_pointer()
         .text_color(color::accent())
         .text_size(typography::SIZE_MICRO)
@@ -4690,12 +4686,7 @@ pub(crate) fn render_publisher_link_value(
         .truncate()
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.push_inspector(
-                "publisher".into(),
-                publisher_text.clone(),
-                click_title.clone(),
-                cx,
-            );
+            this.push_inspector("publisher".into(), target.clone(), click_title.clone(), cx);
         }))
         .child(SharedString::from(title))
         .into_any_element()
@@ -4703,6 +4694,7 @@ pub(crate) fn render_publisher_link_value(
 
 fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -> AnyElement {
     let snapshot = app.vm.recent_feeds_snapshot();
+    let display = snapshot.display;
     let feeds = snapshot.feeds;
     let status = snapshot.status;
     let has_more = snapshot.has_more;
@@ -4737,7 +4729,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             div()
                 .text_size(typography::SIZE_HEADLINE)
                 .font_weight(FontWeight::SEMIBOLD)
-                .child("Recent Feeds"),
+                .child(display.heading),
         )
         .when(!status.is_empty(), |el| {
             el.child(
@@ -4753,7 +4745,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
                     .text_center()
                     .p(spacing::XXL)
                     .text_color(color::text_muted())
-                    .child("No recent feeds"),
+                    .child(display.empty_label),
             )
         })
         .child(
@@ -4768,7 +4760,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             el.child(
                 div().pt(spacing::SM).child(
                     UiButton::styled("recent-load-more", ControlStyle::Ghost)
-                        .label("Load more")
+                        .label(display.load_more_label)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.load_recent_feeds(true, cx);
                         })),

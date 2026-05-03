@@ -78,6 +78,28 @@ pub(crate) struct ResultRowDisplay {
     pub(crate) image_url: Option<String>,
 }
 
+/// Display-ready publisher link text and tooltip.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PublisherLinkDisplay {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) target: String,
+    pub(crate) tooltip: String,
+}
+
+impl PublisherLinkDisplay {
+    #[must_use]
+    pub(crate) fn new(publisher_text: impl Into<String>) -> Self {
+        let title = publisher_text.into().trim().to_string();
+        Self {
+            id: format!("publisher-link:{title}"),
+            target: title.clone(),
+            tooltip: format!("Open publisher: {title}"),
+            title,
+        }
+    }
+}
+
 /// Borrow-only projection for one recent-feed tile.
 pub(crate) struct RecentFeedTileVm<'a> {
     feed: &'a Feed,
@@ -946,21 +968,55 @@ impl ResultNavigationTarget {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SearchStatusSnapshot {
     pub(crate) text: String,
+    pub(crate) display_text: String,
     pub(crate) is_error: bool,
 }
 
 impl SearchStatusSnapshot {
     #[must_use]
     fn from_text(text: &str) -> Self {
+        let is_error = text.starts_with("Error:");
         Self {
             text: text.to_string(),
-            is_error: text.starts_with("Error:"),
+            display_text: if is_error {
+                format!("\u{2717} {text}")
+            } else {
+                text.to_string()
+            },
+            is_error,
         }
     }
 
     #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
         self.text.is_empty()
+    }
+}
+
+/// Static labels and dynamic toggle label for the Discover results pane.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchPaneDisplay {
+    pub(crate) heading: &'static str,
+    pub(crate) search_button_label: &'static str,
+    pub(crate) fuzzy_toggle_label: &'static str,
+    pub(crate) empty_label: &'static str,
+    pub(crate) load_more_label: &'static str,
+}
+
+impl SearchPaneDisplay {
+    #[must_use]
+    const fn new(fuzzy_search: bool) -> Self {
+        Self {
+            heading: "Search Index",
+            search_button_label: "Search Index",
+            fuzzy_toggle_label: if fuzzy_search {
+                "Fuzzy: On"
+            } else {
+                "Fuzzy: Off"
+            },
+            empty_label: "No results",
+            load_more_label: "Load more",
+        }
     }
 }
 
@@ -972,6 +1028,7 @@ impl SearchStatusSnapshot {
 #[derive(Clone, Debug)]
 pub(crate) struct SearchRenderSnapshot {
     pub(crate) status: SearchStatusSnapshot,
+    pub(crate) pane_display: SearchPaneDisplay,
     pub(crate) rows: Vec<ResultRow>,
     pub(crate) selected_key: Option<String>,
     pub(crate) type_filter: usize,
@@ -982,9 +1039,26 @@ pub(crate) struct SearchRenderSnapshot {
     pub(crate) fuzzy_search: bool,
 }
 
+/// Static labels for the recent-feeds root panel.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RecentFeedsDisplay {
+    pub(crate) heading: &'static str,
+    pub(crate) empty_label: &'static str,
+    pub(crate) load_more_label: &'static str,
+}
+
+impl RecentFeedsDisplay {
+    const VALUE: Self = Self {
+        heading: "Recent Feeds",
+        empty_label: "No recent feeds",
+        load_more_label: "Load more",
+    };
+}
+
 /// Pure render snapshot for the recent-feeds root panel.
 #[derive(Clone, Debug)]
 pub(crate) struct RecentFeedsSnapshot {
+    pub(crate) display: RecentFeedsDisplay,
     pub(crate) feeds: Vec<Feed>,
     pub(crate) status: String,
     pub(crate) has_more: bool,
@@ -1173,6 +1247,7 @@ impl SearchViewModel {
         let empty = self.results.is_empty();
         SearchRenderSnapshot {
             status: SearchStatusSnapshot::from_text(&self.status),
+            pane_display: SearchPaneDisplay::new(self.fuzzy_search),
             rows: self.results.clone(),
             selected_key: self.selected_key.clone(),
             type_filter: self.type_filter,
@@ -1190,12 +1265,18 @@ impl SearchViewModel {
     #[must_use]
     pub(crate) fn recent_feeds_snapshot(&self) -> RecentFeedsSnapshot {
         RecentFeedsSnapshot {
+            display: RecentFeedsDisplay::VALUE,
             feeds: self.recent_feeds.clone(),
             status: self.recent_status.clone(),
             has_more: self.recent_has_more,
             loading: self.recent_loading,
             empty: self.recent_feeds.is_empty(),
         }
+    }
+
+    #[must_use]
+    pub(crate) const fn recents_root_title() -> &'static str {
+        RecentFeedsDisplay::VALUE.heading
     }
 
     /// Reset pure search state after the `MusicIndex` endpoint changes.
@@ -2535,7 +2616,20 @@ mod tests {
     }
 
     #[test]
-    fn search_view_model_render_snapshot_groups_search_render_state() {
+    fn search_status_snapshot_prefixes_error_display() {
+        let snapshot = SearchStatusSnapshot::from_text("Error: offline");
+        assert_eq!(snapshot.text, "Error: offline");
+        assert_eq!(snapshot.display_text, "\u{2717} Error: offline");
+        assert!(snapshot.is_error);
+
+        let snapshot = SearchStatusSnapshot::from_text("Ready");
+        assert_eq!(snapshot.text, "Ready");
+        assert_eq!(snapshot.display_text, "Ready");
+        assert!(!snapshot.is_error);
+    }
+
+    #[test]
+    fn search_render_snapshot_projects_result_pane_display_labels() {
         let mut vm = SearchViewModel::new();
         vm.status = "Error: offline".into();
         vm.loading = true;
@@ -2548,8 +2642,14 @@ mod tests {
         let snapshot = vm.render_snapshot(true, true);
 
         assert_eq!(snapshot.status.text, "Error: offline");
+        assert_eq!(snapshot.status.display_text, "\u{2717} Error: offline");
         assert!(snapshot.status.is_error);
         assert!(!snapshot.status.is_empty());
+        assert_eq!(snapshot.pane_display.heading, "Search Index");
+        assert_eq!(snapshot.pane_display.search_button_label, "Search Index");
+        assert_eq!(snapshot.pane_display.fuzzy_toggle_label, "Fuzzy: Off");
+        assert_eq!(snapshot.pane_display.empty_label, "No results");
+        assert_eq!(snapshot.pane_display.load_more_label, "Load more");
         assert_eq!(snapshot.rows.len(), 1);
         assert_eq!(snapshot.selected_key.as_deref(), Some("feed:feed-1"));
         assert_eq!(snapshot.type_filter, 2);
@@ -2563,10 +2663,12 @@ mod tests {
         assert!(empty_snapshot.show_recents_root);
         assert!(empty_snapshot.empty);
         assert!(empty_snapshot.status.is_empty());
+        assert_eq!(empty_snapshot.status.display_text, "");
+        assert_eq!(empty_snapshot.pane_display.fuzzy_toggle_label, "Fuzzy: On");
     }
 
     #[test]
-    fn search_view_model_recent_feeds_snapshot_groups_recent_render_state() {
+    fn recent_feeds_snapshot_projects_panel_display_labels() {
         let mut vm = SearchViewModel::new();
         vm.recent_feeds.push(Feed {
             feed_guid: Some("feed-1".into()),
@@ -2578,11 +2680,23 @@ mod tests {
 
         let snapshot = vm.recent_feeds_snapshot();
 
+        assert_eq!(snapshot.display.heading, "Recent Feeds");
+        assert_eq!(snapshot.display.empty_label, "No recent feeds");
+        assert_eq!(snapshot.display.load_more_label, "Load more");
         assert_eq!(snapshot.feeds.len(), 1);
         assert_eq!(snapshot.status, "Loading recent feeds...");
         assert!(snapshot.has_more);
         assert!(snapshot.loading);
         assert!(!snapshot.empty);
+    }
+
+    #[test]
+    fn publisher_link_display_trims_title_and_tooltip() {
+        let display = PublisherLinkDisplay::new("  Acme Audio  ");
+        assert_eq!(display.id, "publisher-link:Acme Audio");
+        assert_eq!(display.title, "Acme Audio");
+        assert_eq!(display.target, "Acme Audio");
+        assert_eq!(display.tooltip, "Open publisher: Acme Audio");
     }
 
     #[test]
