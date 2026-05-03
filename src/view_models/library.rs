@@ -1768,6 +1768,17 @@ pub(crate) struct PlaylistTrackControlsDisplay {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistTrackRowDisplay {
+    pub(crate) position: i64,
+    pub(crate) position_label: String,
+    pub(crate) title: String,
+    pub(crate) artist: String,
+    pub(crate) duration_label: String,
+    pub(crate) thumb_url: Option<String>,
+    pub(crate) controls: PlaylistTrackControlsDisplay,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PlaylistDetailActionsDisplay {
     pub(crate) rename_button_id: String,
     pub(crate) rename_label: &'static str,
@@ -1779,11 +1790,6 @@ impl PlaylistTrackRowVm<'_> {
     #[must_use]
     pub(crate) fn track(&self) -> &TrackRow {
         self.track
-    }
-
-    #[must_use]
-    pub(crate) fn position(&self) -> usize {
-        self.position
     }
 
     /// `"{n}."` where `n` is the 1-indexed position.
@@ -1865,6 +1871,20 @@ impl PlaylistTrackRowVm<'_> {
             move_down_enabled: self.can_move_down(),
             remove_button_id: format!("playlist-remove-{playlist_id}-{position}"),
             remove_label: "✕",
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn display(&self, playlist_id: i64) -> PlaylistTrackRowDisplay {
+        let position = i64::try_from(self.position).unwrap_or(i64::MAX);
+        PlaylistTrackRowDisplay {
+            position,
+            position_label: self.position_label(),
+            title: self.title(),
+            artist: self.artist(),
+            duration_label: self.duration_label(),
+            thumb_url: self.thumb_url().map(str::to_string),
+            controls: self.controls_display(playlist_id),
         }
     }
 }
@@ -2503,6 +2523,49 @@ mod tests {
         assert!(!second.play_enabled);
         assert!(second.move_up_enabled);
         assert!(!second.move_down_enabled);
+    }
+
+    #[test]
+    fn playlist_track_row_vm_display_projects_row_text_media_and_controls() {
+        let mut pl = playlist("Mix");
+        pl.id = 7;
+        let mut t = row();
+        t.id = 42;
+        t.track_title = Some("Song".into());
+        t.artist_name = Some("Artist".into());
+        t.duration_seconds = Some(125);
+        t.track_image_href = Some("track".into());
+        t.local_path = Some("/x".into());
+        let tracks = [t, row()];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let display = vm.track_rows()[0].display(pl.id);
+
+        assert_eq!(
+            display,
+            PlaylistTrackRowDisplay {
+                position: 0,
+                position_label: "1.".into(),
+                title: "Song".into(),
+                artist: "Artist".into(),
+                duration_label: "2:05".into(),
+                thumb_url: Some("track".into()),
+                controls: PlaylistTrackControlsDisplay {
+                    row_id: "playlist-track-42-0".into(),
+                    row_body_id: "playlist-row-body-7-0".into(),
+                    play_button_id: "playlist-play-7-0".into(),
+                    play_label: "▶",
+                    play_enabled: true,
+                    move_up_button_id: "playlist-up-7-0".into(),
+                    move_up_label: "▲",
+                    move_up_enabled: false,
+                    move_down_button_id: "playlist-down-7-0".into(),
+                    move_down_label: "▼",
+                    move_down_enabled: true,
+                    remove_button_id: "playlist-remove-7-0".into(),
+                    remove_label: "✕",
+                },
+            }
+        );
     }
 
     #[test]

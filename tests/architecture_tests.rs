@@ -2821,6 +2821,36 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "row.controls_display(pl_id)",
+            "Library playlist row controls belong in PlaylistTrackRowVm::display",
+        ),
+        (
+            "src/library.rs",
+            "row.title()",
+            "Library playlist row title fallback belongs in PlaylistTrackRowVm::display",
+        ),
+        (
+            "src/library.rs",
+            "row.artist()",
+            "Library playlist row artist fallback belongs in PlaylistTrackRowVm::display",
+        ),
+        (
+            "src/library.rs",
+            "row.duration_label()",
+            "Library playlist row duration display belongs in PlaylistTrackRowVm::display",
+        ),
+        (
+            "src/library.rs",
+            "row.position_label()",
+            "Library playlist row position display belongs in PlaylistTrackRowVm::display",
+        ),
+        (
+            "src/library.rs",
+            "row.thumb_url()",
+            "Library playlist row thumbnail lookup key belongs in PlaylistTrackRowVm::display",
+        ),
+        (
+            "src/library.rs",
             "format!(\"playlist-up-{pl_id}-{position}\")",
             "Library playlist move-up control id belongs in PlaylistTrackRowVm::controls_display",
         ),

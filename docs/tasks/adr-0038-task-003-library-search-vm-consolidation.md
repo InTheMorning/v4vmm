@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first ninety-four implementation slices completed on 2026-05-03.
+In progress - first ninety-five implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -642,7 +642,15 @@ Verified starting notes, 2026-05-03:
     - Remove direct expandability gate duplication from Library and
       Discover metadata cell renderers.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-95. Migrate remaining fallback batches, smallest blast radius first.
+95. Library playlist track row display
+    - Add `PlaylistTrackRowVm::display()` so playlist row position
+      labels, title/artist fallbacks, duration text, thumbnail lookup
+      keys, control ids, glyphs, and availability enter the renderer as
+      one VM-owned row projection.
+    - Remove direct calls to the individual playlist row fallback and
+      control accessors from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+96. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1597,6 +1605,18 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks direct screen-local metadata
   expandability gates from returning.
 
+## Ninety-Fourth-Slice Implementation Notes
+
+- `PlaylistTrackRowVm::display()` now carries Library playlist row
+  position text, title/artist fallback text, duration text, thumbnail
+  lookup key, and the existing row/control chrome as one display
+  projection.
+- `src/library.rs` still wires selection, playback, reorder, and remove
+  callbacks, but no longer asks the row VM for each display fallback and
+  control bundle separately.
+- The architecture guard now blocks direct screen-local playlist row
+  fallback/control accessor calls from returning.
+
 ## Test Commands
 
 ```sh
@@ -1675,6 +1695,7 @@ cargo test recent_feed_tile_vm_projects_id_and_episode_note
 cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback
 cargo test track_inspector_header_vm_projects_feed_link_display_contract
 cargo test playlist_track_row_vm_controls_display_projects_ids_labels_and_availability
+cargo test playlist_track_row_vm_display_projects_row_text_media_and_controls
 cargo test library_track_row_vm_projects_row_and_toggle_ids
 cargo test playlist_detail_vm_projects_rename_and_delete_controls
 cargo test track_metadata_action_state_projects_loading_and_staged_id3_display

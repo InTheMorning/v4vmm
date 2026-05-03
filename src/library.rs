@@ -1,7 +1,6 @@
 #![warn(clippy::pedantic)]
 #![expect(
     clippy::cast_possible_truncation,
-    clippy::cast_possible_wrap,
     clippy::doc_markdown,
     clippy::manual_let_else,
     clippy::map_unwrap_or,
@@ -2738,17 +2737,15 @@ fn render_playlist_detail(
             .into_iter()
             .map(|row| {
                 let track_for_select = row.track().clone();
-                let position = row.position() as i64;
                 let pl_id = playlist_id;
-                let controls_display = row.controls_display(pl_id);
-                let track_title = row.title();
-                let artist = row.artist();
-                let dur = row.duration_label();
-                let position_label = row.position_label();
-                let track_thumb_image = row
-                    .thumb_url()
+                let row_display = row.display(pl_id);
+                let track_thumb_image = row_display
+                    .thumb_url
+                    .as_deref()
                     .and_then(|url| album_thumbs.get(url))
                     .and_then(|opt| opt.clone());
+                let controls_display = row_display.controls;
+                let position = row_display.position;
 
                 let up_btn = UiButton::styled(
                     SharedString::from(controls_display.move_up_button_id.clone()),
@@ -2820,7 +2817,7 @@ fn render_playlist_detail(
                                     .w(layout::PLAYLIST_THUMB_SLOT)
                                     .text_xs()
                                     .text_color(color::text_muted())
-                                    .child(SharedString::from(position_label)),
+                                    .child(SharedString::from(row_display.position_label)),
                             )
                             .child(render_album_thumb(track_thumb_image.clone(), 24.0))
                             .child(
@@ -2830,13 +2827,13 @@ fn render_playlist_detail(
                                         div()
                                             .text_xs()
                                             .text_color(color::text_primary())
-                                            .child(SharedString::from(track_title)),
+                                            .child(SharedString::from(row_display.title)),
                                     )
                                     .child(
                                         div()
                                             .text_xs()
                                             .text_color(color::text_muted())
-                                            .child(SharedString::from(artist)),
+                                            .child(SharedString::from(row_display.artist)),
                                     ),
                             )
                             .child(
@@ -2844,7 +2841,7 @@ fn render_playlist_detail(
                                     .text_xs()
                                     .text_color(color::text_muted())
                                     .w(layout::PLAYLIST_TITLE_OFFSET)
-                                    .child(SharedString::from(dur)),
+                                    .child(SharedString::from(row_display.duration_label)),
                             ),
                     )
                     .child(
