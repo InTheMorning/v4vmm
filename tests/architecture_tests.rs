@@ -2849,6 +2849,21 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             ".id(\"library-list\")",
             "Library list scroll id belongs in LibraryChromeDisplay",
         ),
+        (
+            "src/library.rs",
+            ".id(\"artist-detail-scroll\")",
+            "Library artist detail scroll id belongs in LibraryChromeDisplay",
+        ),
+        (
+            "src/library.rs",
+            ".id(\"playlist-detail-scroll\")",
+            "Library playlist detail scroll id belongs in LibraryChromeDisplay",
+        ),
+        (
+            "src/library.rs",
+            ".id(\"track-detail-scroll\")",
+            "Library track detail scroll id belongs in LibraryChromeDisplay",
+        ),
     ];
     let mut violations = Vec::new();
 

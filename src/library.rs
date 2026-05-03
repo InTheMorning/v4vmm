@@ -90,9 +90,9 @@ use crate::view_models::entity_detail::{
 };
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdateActionKind, FeedUpdatePhase, LibraryAlbumDetailVm,
-    LibraryArtistDetailVm, LibraryTrackActionVm, LibraryTrackRowVm, LibraryTree, LibraryViewModel,
-    MbStatusKind, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm,
-    TrackSubscribeOutcome,
+    LibraryArtistDetailVm, LibraryChromeDisplay, LibraryTrackActionVm, LibraryTrackRowVm,
+    LibraryTree, LibraryViewModel, MbStatusKind, MbTrackStatus, PlaylistAppendIntent,
+    PlaylistAppendOutcome, PlaylistDetailVm, TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
@@ -1942,7 +1942,7 @@ impl Render for LibraryApp {
             self.vm.mb_status(),
             &album_thumbs,
             self.vm.playlists(),
-            chrome.empty_detail_label,
+            &chrome,
             cx,
         );
 
@@ -2293,7 +2293,7 @@ fn render_detail(
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
-    empty_label: &str,
+    chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -2306,21 +2306,21 @@ fn render_detail(
                 div()
                     .text_color(color::text_muted())
                     .text_center()
-                    .child(SharedString::from(empty_label.to_string())),
+                    .child(SharedString::from(chrome.empty_detail_label)),
             )
             .into_any_element(),
 
         LibraryDetail::Artist(artist) => {
-            render_library_artist_detail(artist, album_thumbs, playlists, cx)
+            render_library_artist_detail(artist, album_thumbs, playlists, chrome, cx)
         }
 
         LibraryDetail::Album(album) => {
             render_album_detail(album, busy_track, mb_status, album_thumbs, playlists, cx)
         }
 
-        LibraryDetail::Track(frame) => render_track_detail(frame, playlists, cx),
+        LibraryDetail::Track(frame) => render_track_detail(frame, playlists, chrome, cx),
 
-        LibraryDetail::Playlist(detail) => render_playlist_detail(detail, album_thumbs, cx),
+        LibraryDetail::Playlist(detail) => render_playlist_detail(detail, album_thumbs, chrome, cx),
     }
 }
 
@@ -2340,6 +2340,7 @@ fn render_library_artist_detail(
     detail: &LibraryArtistDetail,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     _playlists: &[db::Playlist],
+    chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let vm = LibraryArtistDetailVm::new(&detail.name, &detail.tracks);
@@ -2407,7 +2408,7 @@ fn render_library_artist_detail(
         .collect();
 
     div()
-        .id("artist-detail-scroll")
+        .id(chrome.artist_detail_scroll_id)
         .flex_1()
         .min_h_0()
         .min_w_0()
@@ -2718,6 +2719,7 @@ fn render_library_track_row(
 fn render_playlist_detail(
     detail: &PlaylistDetail,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
+    chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let vm = PlaylistDetailVm::new(&detail.playlist, &detail.tracks);
@@ -2889,7 +2891,7 @@ fn render_playlist_detail(
     );
 
     div()
-        .id("playlist-detail-scroll")
+        .id(chrome.playlist_detail_scroll_id)
         .flex_1()
         .min_h_0()
         .min_w_0()
@@ -2930,6 +2932,7 @@ fn render_playlist_detail(
 fn render_track_detail(
     frame: &InspectorFrame,
     playlists: &[db::Playlist],
+    chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let context = track_row_to_track_context(&frame.track);
@@ -2939,7 +2942,7 @@ fn render_track_detail(
         LazyPanel::Loading | LazyPanel::Empty(_) | LazyPanel::Hidden => None,
     };
     div()
-        .id("track-detail-scroll")
+        .id(chrome.track_detail_scroll_id)
         .flex_1()
         .min_h_0()
         .min_w_0()

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first seventy-one implementation slices completed on 2026-05-03.
+In progress - first seventy-four implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -501,7 +501,19 @@ Verified starting notes, 2026-05-03:
     - Remove those static Library control and scroll id literals from
       `src/library.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-73. Migrate remaining fallback batches, smallest blast radius first.
+73. Library artist detail scroll id display
+    - Extend `LibraryChromeDisplay` with the artist detail scroll id.
+    - Remove the artist detail scroll id literal from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+74. Library playlist detail scroll id display
+    - Extend `LibraryChromeDisplay` with the playlist detail scroll id.
+    - Remove the playlist detail scroll id literal from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+75. Library track detail scroll id display
+    - Extend `LibraryChromeDisplay` with the track detail scroll id.
+    - Remove the track detail scroll id literal from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+76. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1240,6 +1252,33 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks the screen-local Library control
   and scroll id literals from returning.
 
+## Seventy-Second-Slice Implementation Notes
+
+- `LibraryChromeDisplay` now carries the Library artist detail scroll
+  id.
+- `src/library.rs` still renders the artist detail body, but no longer
+  owns that static detail-pane id literal.
+- The architecture guard now blocks the screen-local artist detail
+  scroll id from returning.
+
+## Seventy-Third-Slice Implementation Notes
+
+- `LibraryChromeDisplay` now carries the Library playlist detail scroll
+  id.
+- `src/library.rs` still renders playlist detail actions and rows, but
+  no longer owns that static detail-pane id literal.
+- The architecture guard now blocks the screen-local playlist detail
+  scroll id from returning.
+
+## Seventy-Fourth-Slice Implementation Notes
+
+- `LibraryChromeDisplay` now carries the Library track detail scroll
+  id.
+- `src/library.rs` still renders track detail windows and metadata
+  panels, but no longer owns that static detail-pane id literal.
+- The architecture guard now blocks the screen-local track detail scroll
+  id from returning.
+
 ## Test Commands
 
 ```sh
@@ -1318,6 +1357,7 @@ cargo test recent_feeds_snapshot_projects_panel_display_labels
 cargo test library_view_model_playlist_sidebar_projects_rows_and_header_state
 cargo test library_chrome_display_projects_shell_labels
 cargo test feed_update_display_projects_toolbar_action_labels
+cargo test library_chrome_display_projects_shell_labels
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test track_identity_links_use_shared_renderer
 cargo test

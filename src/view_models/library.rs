@@ -220,6 +220,9 @@ pub(crate) struct PlaylistSidebarRowVm {
 pub(crate) struct LibraryChromeDisplay {
     pub(crate) search_button_id: &'static str,
     pub(crate) list_scroll_id: &'static str,
+    pub(crate) artist_detail_scroll_id: &'static str,
+    pub(crate) playlist_detail_scroll_id: &'static str,
+    pub(crate) track_detail_scroll_id: &'static str,
     pub(crate) search_placeholder: &'static str,
     pub(crate) new_playlist_placeholder: &'static str,
     pub(crate) search_heading: &'static str,
@@ -232,6 +235,9 @@ impl LibraryChromeDisplay {
     const VALUE: Self = Self {
         search_button_id: "lib-search-btn",
         list_scroll_id: "library-list",
+        artist_detail_scroll_id: "artist-detail-scroll",
+        playlist_detail_scroll_id: "playlist-detail-scroll",
+        track_detail_scroll_id: "track-detail-scroll",
         search_placeholder: "Search your library...",
         new_playlist_placeholder: "New playlist name\u{2026}",
         search_heading: "Search Library",
@@ -2946,6 +2952,9 @@ mod tests {
         let display = LibraryViewModel::chrome_display();
         assert_eq!(display.search_button_id, "lib-search-btn");
         assert_eq!(display.list_scroll_id, "library-list");
+        assert_eq!(display.artist_detail_scroll_id, "artist-detail-scroll");
+        assert_eq!(display.playlist_detail_scroll_id, "playlist-detail-scroll");
+        assert_eq!(display.track_detail_scroll_id, "track-detail-scroll");
         assert_eq!(display.search_placeholder, "Search your library...");
         assert_eq!(
             display.new_playlist_placeholder,
