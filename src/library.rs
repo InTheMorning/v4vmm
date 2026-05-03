@@ -3437,7 +3437,7 @@ fn metadata_rss_cell(
     expanded_cells: &BTreeSet<String>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let value = row.rss_value.as_deref().unwrap_or("");
+    let value = TrackMetadataGridVm::rss_cell_value(row.rss_value.as_deref());
     let base_display = display_metadata_value(&row.field, value);
     let source_role = pending_source_role(pending, MetadataColumn::Rss, row.rss_value.as_deref());
     let glyph = source_role.map(ProvenanceRole::glyph);

@@ -96,7 +96,13 @@ Verified starting notes, 2026-05-03:
    - Remove `src/library.rs` render-glue formatting of
      `"{n:02} - "`.
    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-8. Migrate one remaining fallback at a time, smallest blast radius first.
+8. Metadata RSS cell value display
+   - Add `TrackMetadataGridVm::rss_cell_value()` so missing RSS
+     metadata values are normalized by the metadata-grid VM.
+   - Remove `row.rss_value.as_deref().unwrap_or("")` from Library and
+     Discover metadata cell renderers.
+   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+9. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -197,6 +203,15 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now also blocks the screen-local tree-row
   track-number prefix from returning to `src/library.rs`.
 
+## Seventh-Slice Implementation Notes
+
+- `TrackMetadataGridVm::rss_cell_value()` now carries the metadata-grid
+  RSS cell missing-value fallback while preserving present-empty values.
+- `src/library.rs` and `src/search.rs` no longer coerce
+  `row.rss_value.as_deref().unwrap_or("")` in metadata cell renderers.
+- The architecture guard now blocks that screen-local RSS metadata value
+  fallback from returning to either screen.
+
 ## Test Commands
 
 ```sh
@@ -208,6 +223,7 @@ cargo test payment_route_vm_projects_custom_fields_without_coercing_presence
 cargo test payment_route_vm_projects_primary_summary
 cargo test recent_feed_tile_vm_projects_id_and_episode_note
 cargo test tree_number_prefix_preserves_legacy_zero_padded_display
+cargo test rss_cell_value_preserves_empty_vs_missing_display
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test
 cargo clippy -- -D warnings

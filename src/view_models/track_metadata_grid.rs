@@ -37,6 +37,11 @@ impl TrackMetadataGridVm {
             .unwrap_or("Tags")
     }
 
+    #[must_use]
+    pub fn rss_cell_value(value: Option<&str>) -> &str {
+        value.unwrap_or("")
+    }
+
     pub fn new(show_id3: bool, show_musicbrainz: bool, tag_column_label: &str) -> Self {
         let mut headings = vec![TrackMetadataGridHeading {
             label: "RSS".to_string(),
@@ -130,6 +135,13 @@ mod tests {
         assert_eq!(TrackMetadataGridVm::tag_column_label(None), "Tags");
         assert_eq!(TrackMetadataGridVm::tag_column_label(Some("  ")), "Tags");
         assert_eq!(TrackMetadataGridVm::tag_column_label(Some("MP3")), "MP3");
+    }
+
+    #[test]
+    fn rss_cell_value_preserves_empty_vs_missing_display() {
+        assert_eq!(TrackMetadataGridVm::rss_cell_value(Some("Title")), "Title");
+        assert_eq!(TrackMetadataGridVm::rss_cell_value(Some("")), "");
+        assert_eq!(TrackMetadataGridVm::rss_cell_value(None), "");
     }
 
     #[test]

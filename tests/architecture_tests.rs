@@ -2038,6 +2038,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "format!(\"{n:02} - \")",
             "Library tree track-number prefix belongs in LibraryTrackRowVm::tree_number_prefix",
         ),
+        (
+            "src/library.rs",
+            "row.rss_value.as_deref().unwrap_or(\"\")",
+            "metadata RSS cell value fallback belongs in TrackMetadataGridVm::rss_cell_value",
+        ),
+        (
+            "src/search.rs",
+            "row.rss_value.as_deref().unwrap_or(\"\")",
+            "metadata RSS cell value fallback belongs in TrackMetadataGridVm::rss_cell_value",
+        ),
     ];
     let mut violations = Vec::new();
 

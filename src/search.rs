@@ -3194,7 +3194,7 @@ fn metadata_rss_cell(
     expanded_cells: &BTreeSet<String>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let value = row.rss_value.as_deref().unwrap_or("");
+    let value = TrackMetadataGridVm::rss_cell_value(row.rss_value.as_deref());
     let display_value = display_metadata_value(&row.field, value);
     let source_role = source_cell_role(pending, MetadataColumn::Rss, row.rss_value.as_deref());
     let value_color = source_role
