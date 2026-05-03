@@ -19,7 +19,7 @@ use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::track::TrackHeaderVm;
 use crate::view_models::track_detail::{TrackDetailLoadState, TrackDetailSection, TrackDetailVm};
 
-use super::{DetailGrid, DetailRow, TrackHeader};
+use super::{DetailGrid, DetailRow, DetailTextRow, TrackHeader};
 
 #[derive(IntoElement)]
 #[must_use]
@@ -155,7 +155,13 @@ fn render_loaded_surface(surface: TrackDetailSurface, cx: &mut App) -> AnyElemen
     let summary_rows = surface
         .summary_rows
         .into_iter()
-        .map(|row| DetailRow::text(row.label, row.value, row.max_lines))
+        .map(|row| {
+            DetailRow::text(DetailTextRow {
+                key: row.label.into(),
+                value: row.value,
+                max_lines: row.max_lines,
+            })
+        })
         .collect::<Vec<_>>();
     if !summary_rows.is_empty() {
         stack = stack.child(DetailGrid::new(summary_rows));

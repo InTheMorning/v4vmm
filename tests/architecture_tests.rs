@@ -372,16 +372,6 @@ const COMPOSITE_DISPLAY_CONTRACT_STRING_API_ALLOWLIST: &[CompositeStringApiAllow
         note: "status message object; view-model or command outcome owns message text",
     },
     CompositeStringApiAllowance {
-        file: "src/ui/composites/detail_grid.rs",
-        pattern: "pub fn new(key: impl Into<SharedString>, value: impl IntoElement)",
-        note: "generic key/value primitive-composite row; caller supplies display rows",
-    },
-    CompositeStringApiAllowance {
-        file: "src/ui/composites/detail_grid.rs",
-        pattern: "pub fn text(key: impl Into<SharedString>, value: impl Into<String>",
-        note: "generic key/value text row; caller supplies display rows",
-    },
-    CompositeStringApiAllowance {
         file: "src/ui/composites/disclosure_group.rs",
         pattern: "pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>)",
         note: "generic disclosure shell label, not a fallback policy owner",

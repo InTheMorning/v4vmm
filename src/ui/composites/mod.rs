@@ -42,7 +42,7 @@ pub mod track_row;
 
 pub use action_button::action_button;
 pub use action_row::{ActionRow, ActionRowMessage, ActionRowMessageTone};
-pub use detail_grid::{DetailGrid, DetailRow};
+pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
 pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};
 pub use disclosure_group::DisclosureGroup;
 pub use file_header::FileHeader;

@@ -51,9 +51,10 @@ use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
-    DisclosureGroup, EntityKind, IdentityActionKind, ListRow, PlaylistOption, ProvenanceRole,
-    RecentFeedTile, ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge, Thumbnail,
-    ThumbnailSize, TrackDetailSurface, TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
+    DetailTextRow as CompositeDetailTextRow, DisclosureGroup, EntityKind, IdentityActionKind,
+    ListRow, PlaylistOption, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement, SplitPane,
+    StatusRole, TagBadge, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane,
+    TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2680,7 +2681,13 @@ fn render_publisher_inspector(
         .child(DetailGrid::new(
             vm.detail_rows()
                 .into_iter()
-                .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                .map(|(k, v)| {
+                    CompositeDetailRow::text(CompositeDetailTextRow {
+                        key: k.into(),
+                        value: v,
+                        max_lines: 6,
+                    })
+                })
                 .collect::<Vec<_>>(),
         ))
         .when(vm.has_feed_list(), |el| {

@@ -15,7 +15,7 @@ use gpui::{
 
 use crate::ui::composites::{
     identity_action_button, DetailGrid, DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay,
-    DetailRow, EntityKind, IdentityActionKind, ListRow, ReleaseDetailSurface,
+    DetailRow, DetailTextRow, EntityKind, IdentityActionKind, ListRow, ReleaseDetailSurface,
     ReleaseSurfaceElement, Thumbnail, ThumbnailSize, TrackRow,
 };
 use crate::ui::primitives::Label;
@@ -316,7 +316,13 @@ fn render_summary_facts(facts: &[crate::view_models::entity_detail::ReleaseFactV
     DetailGrid::new(
         facts
             .iter()
-            .map(|fact| DetailRow::text(fact.key, fact.value.clone(), 6))
+            .map(|fact| {
+                DetailRow::text(DetailTextRow {
+                    key: fact.key.into(),
+                    value: fact.value.clone(),
+                    max_lines: 6,
+                })
+            })
             .collect(),
     )
     .into_any_element()
@@ -332,7 +338,13 @@ fn render_release_panel(panel: &ReleasePanelVm) -> AnyElement {
             panel
                 .rows
                 .iter()
-                .map(|row| DetailRow::text(row.key, row.value.clone(), 6))
+                .map(|row| {
+                    DetailRow::text(DetailTextRow {
+                        key: row.key.into(),
+                        value: row.value.clone(),
+                        max_lines: 6,
+                    })
+                })
                 .collect(),
         )
         .into_any_element(),

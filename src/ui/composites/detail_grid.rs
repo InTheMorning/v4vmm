@@ -1,5 +1,7 @@
 //! Vertical key/value table used by inspector views.
 //!
+//! ## Display contract: `DetailRow` / `DetailTextRow`
+//!
 //! Replaces the legacy `ui_common::render_detail_grid` helper. Sizing is
 //! scale-aware (key column width, gaps, and font size all flow through
 //! `.scaled(cx)`).
@@ -21,23 +23,37 @@ pub struct DetailRow {
     pub value: AnyElement,
 }
 
+/// Display-ready rich key/value row.
+pub struct DetailElementRow {
+    pub key: SharedString,
+    pub value: AnyElement,
+}
+
+/// Display-ready plain-text key/value row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetailTextRow {
+    pub key: SharedString,
+    pub value: String,
+    pub max_lines: usize,
+}
+
 impl DetailRow {
-    pub fn new(key: impl Into<SharedString>, value: impl IntoElement) -> Self {
+    #[must_use]
+    pub fn new(row: DetailElementRow) -> Self {
         Self {
-            key: key.into(),
-            value: value.into_any_element(),
+            key: row.key,
+            value: row.value,
         }
     }
 
     /// Convenience for plain string values; clamps long values to a
     /// caller-controlled max number of lines.
     #[must_use]
-    pub fn text(key: impl Into<SharedString>, value: impl Into<String>, max_lines: usize) -> Self {
-        let value = value.into();
-        let elements = compare_value_lines(&value, max_lines);
-        Self::new(
-            key,
-            div()
+    pub fn text(row: DetailTextRow) -> Self {
+        let elements = compare_value_lines(&row.value, row.max_lines);
+        Self::new(DetailElementRow {
+            key: row.key,
+            value: div()
                 .flex()
                 .flex_col()
                 .children(elements.into_iter().map(|line| {
@@ -45,8 +61,9 @@ impl DetailRow {
                         .truncate()
                         .child(SharedString::from(line))
                         .into_any_element()
-                })),
-        )
+                }))
+                .into_any_element(),
+        })
     }
 }
 
@@ -70,6 +87,27 @@ fn compare_value_lines(value: &str, max_lines: usize) -> Vec<String> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_row_uses_display_contract() {
+        let row = DetailRow::text(DetailTextRow {
+            key: "Website".into(),
+            value: "https://example.com".to_string(),
+            max_lines: 2,
+        });
+
+        assert_eq!(row.key, SharedString::from("Website"));
+    }
+
+    #[test]
+    fn text_row_clamps_empty_values_for_baseline() {
+        assert_eq!(compare_value_lines("", 2), vec![" ".to_string()]);
+    }
 }
 
 #[derive(IntoElement)]

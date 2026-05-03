@@ -62,11 +62,12 @@ use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, identity_action_button, ActionRow, ActionRowMessage, AddToPlaylistPopover,
     DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
-    DisclosureGroup, EntityKind, FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel,
-    PlaylistOption, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
-    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataGrid,
-    TrackMetadataGroupCell, TrackMetadataSourceCell, TrackMetadataTagCell, TrackMetadataTextValue,
-    TrackRow as TrackRowComposite, TrackSurfaceElement,
+    DetailTextRow as CompositeDetailTextRow, DisclosureGroup, EntityKind, FileHeader,
+    IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption, ProvenanceRole,
+    ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface,
+    TrackMetadataFieldCell, TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataSourceCell,
+    TrackMetadataTagCell, TrackMetadataTextValue, TrackRow as TrackRowComposite,
+    TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -2421,7 +2422,13 @@ fn render_library_artist_detail(
         .child(DetailGrid::new(
             vm.detail_rows()
                 .into_iter()
-                .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                .map(|(k, v)| {
+                    CompositeDetailRow::text(CompositeDetailTextRow {
+                        key: k.into(),
+                        value: v,
+                        max_lines: 6,
+                    })
+                })
                 .collect::<Vec<_>>(),
         ))
         .child(
@@ -2893,7 +2900,13 @@ fn render_playlist_detail(
         .child(DetailGrid::new(
             detail_rows
                 .into_iter()
-                .map(|(k, v)| CompositeDetailRow::text(k, v, 6))
+                .map(|(k, v)| {
+                    CompositeDetailRow::text(CompositeDetailTextRow {
+                        key: k.into(),
+                        value: v,
+                        max_lines: 6,
+                    })
+                })
                 .collect::<Vec<_>>(),
         ))
         .child(buttons)

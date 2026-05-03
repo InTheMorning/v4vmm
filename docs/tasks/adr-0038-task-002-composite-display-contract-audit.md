@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first and second slices implemented on 2026-05-03.
+In progress - first three slices implemented on 2026-05-03.
 
 ## Goal
 
@@ -50,8 +50,8 @@ test allowlist with a one-line justification.
    - Remove the loose title/subtitle/data-row builder allowances.
 3. `DetailGrid`
    - Audit `DetailRow::new` and `DetailRow::text`.
-   - Prefer keeping generic key/value passthrough only if callers pass
-     VM-owned rows.
+   - Introduce `DetailElementRow` / `DetailTextRow`.
+   - Remove loose key/value row constructor allowances.
 4. `ReleaseDetailSurface`
    - Audit `track_section` title/summary.
    - Keep allowed only while `ReleaseDetailPageVm` owns the section copy.
@@ -81,11 +81,14 @@ test allowlist with a one-line justification.
 
 - `src/ui/composites/track_row.rs`
 - `src/ui/composites/detail_header.rs`
+- `src/ui/composites/detail_grid.rs`
 - `src/ui/composites/mod.rs`
+- `src/ui/composites/track_detail_surface.rs`
 - `src/ui/shells/artist.rs`
 - `src/ui/shells/entity.rs`
 - `src/library.rs`
 - `src/search.rs`
+- `src/view_models/artist.rs`
 - `tests/architecture_tests.rs`
 - `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`
 - `docs/reviews/adr-0038-review-checklist.md`
@@ -121,6 +124,17 @@ test allowlist with a one-line justification.
 - The explicit allowlist shrank by the three former `DetailHeader`
   string builders.
 
+## Third-Slice Implementation Notes
+
+- `DetailGrid` now uses `DetailElementRow` and `DetailTextRow` display
+  contracts for rich and plain key/value rows.
+- `DetailRow::new` and `DetailRow::text` no longer expose loose
+  key/value string-like parameters.
+- Library, Discover, artist shell, entity shell, and track detail surface
+  callers construct `DetailTextRow` from existing VM-owned facts.
+- The explicit allowlist shrank by the two former `DetailGrid` row
+  constructor allowances.
+
 ## Acceptance Criteria
 
 - `cargo test composite_signatures_take_display_contracts_not_loose_strings`
@@ -131,6 +145,8 @@ test allowlist with a one-line justification.
   assembling the row display fields.
 - `DetailHeader` public signatures no longer accept title, subtitle, or
   metadata-row labels/values as loose string parameters.
+- `DetailGrid` row public signatures no longer accept key/value text as
+  loose parameters.
 - Full project gates are green before the slice is called complete.
 - No screenshots are required for this slice because the row rendering
   behavior is unchanged; visual proof is deferred until a visible Task 004

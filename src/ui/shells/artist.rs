@@ -1,5 +1,7 @@
 use crate::api::Feed;
-use crate::ui::composites::{DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, EntityKind};
+use crate::ui::composites::{
+    DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind,
+};
 use crate::ui::primitives::VStack;
 use crate::ui::tokens::Spacing;
 use crate::view_models::artist::ArtistVm;
@@ -21,7 +23,13 @@ pub fn render_artist_view(
     let rows: Vec<DetailRow> = vm
         .detail_rows()
         .into_iter()
-        .map(|entry| DetailRow::text(entry.key, entry.value, entry.max_lines))
+        .map(|entry| {
+            DetailRow::text(DetailTextRow {
+                key: entry.key.into(),
+                value: entry.value,
+                max_lines: entry.max_lines,
+            })
+        })
         .collect();
 
     let mut stack = VStack::new()

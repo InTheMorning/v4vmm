@@ -34,8 +34,8 @@ pub struct DetailEntry {
     pub key: &'static str,
     pub value: String,
     /// Maximum number of lines the renderer should show before
-    /// truncating with an ellipsis. Mirrors the existing
-    /// `composites::DetailRow::text` contract.
+    /// truncating with an ellipsis. Maps into the
+    /// `composites::DetailTextRow` contract.
     pub max_lines: usize,
 }
 
