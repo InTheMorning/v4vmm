@@ -1123,6 +1123,16 @@ impl<'a> LibraryTrackRowVm<'a> {
             .to_string()
     }
 
+    /// Leading zero-padded tree-row number, empty when there is no track
+    /// number.
+    #[must_use]
+    pub(crate) fn tree_number_prefix(&self) -> String {
+        self.track
+            .track_number
+            .map(|n| format!("{n:02} - "))
+            .unwrap_or_default()
+    }
+
     /// Artist grouping label:
     /// `album_artist_name -> artist_name -> "Unknown Artist"`.
     #[must_use]
@@ -1624,6 +1634,27 @@ mod tests {
         let mut r = row();
         r.track_number = Some(7);
         assert_eq!(LibraryTrackRowVm::new(&r, None).number_prefix(), "7. ");
+    }
+
+    #[test]
+    fn tree_number_prefix_preserves_legacy_zero_padded_display() {
+        assert_eq!(
+            LibraryTrackRowVm::new(&row(), None).tree_number_prefix(),
+            ""
+        );
+
+        let mut r = row();
+        r.track_number = Some(0);
+        assert_eq!(
+            LibraryTrackRowVm::new(&r, None).tree_number_prefix(),
+            "00 - "
+        );
+
+        r.track_number = Some(7);
+        assert_eq!(
+            LibraryTrackRowVm::new(&r, None).tree_number_prefix(),
+            "07 - "
+        );
     }
 
     #[test]

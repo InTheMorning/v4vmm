@@ -90,7 +90,13 @@ Verified starting notes, 2026-05-03:
    - Remove `src/search.rs` render-glue formatting of the feed tile id,
      title fallback, and episode note.
    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-7. Migrate one remaining fallback at a time, smallest blast radius first.
+7. Library tree track-number prefix
+   - Add `LibraryTrackRowVm::tree_number_prefix()` so the Library
+     tree-row zero-padded track-number prefix is VM-owned.
+   - Remove `src/library.rs` render-glue formatting of
+     `"{n:02} - "`.
+   - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+8. Migrate one remaining fallback at a time, smallest blast radius first.
 
 ## Constraints
 
@@ -182,6 +188,15 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now also blocks screen-local feed-list tile id,
   title, and episode-note fallback from returning to `src/search.rs`.
 
+## Sixth-Slice Implementation Notes
+
+- `LibraryTrackRowVm::tree_number_prefix()` now carries the Library
+  tree-row zero-padded track-number prefix.
+- `src/library.rs` no longer formats `"{n:02} - "` while rendering the
+  album-expanded track rows in the Library left tree.
+- The architecture guard now also blocks the screen-local tree-row
+  track-number prefix from returning to `src/library.rs`.
+
 ## Test Commands
 
 ```sh
@@ -192,6 +207,7 @@ cargo test payment_route_vm_projects_address_without_coercing_presence
 cargo test payment_route_vm_projects_custom_fields_without_coercing_presence
 cargo test payment_route_vm_projects_primary_summary
 cargo test recent_feed_tile_vm_projects_id_and_episode_note
+cargo test tree_number_prefix_preserves_legacy_zero_padded_display
 cargo test view_models_own_display_fallbacks_for_library_and_search
 cargo test
 cargo clippy -- -D warnings

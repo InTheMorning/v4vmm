@@ -2235,11 +2235,9 @@ pub(crate) fn render_tree(
                     for track in &album.tracks {
                         let track_clone_b = track.clone();
                         let is_selected = selected_id == Some(track.id);
-                        let title = LibraryTrackRowVm::new(track, None).compact_title();
-                        let num = track
-                            .track_number
-                            .map(|n| format!("{n:02} - "))
-                            .unwrap_or_default();
+                        let row_vm = LibraryTrackRowVm::new(track, None);
+                        let title = row_vm.compact_title();
+                        let num = row_vm.tree_number_prefix();
                         let track_thumb_image = track
                             .track_image_href
                             .as_ref()

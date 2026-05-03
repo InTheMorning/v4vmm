@@ -2033,6 +2033,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Label::new(feed_display_title(&feed))",
             "Discover feed-list title fallback belongs in RecentFeedTileVm::display",
         ),
+        (
+            "src/library.rs",
+            "format!(\"{n:02} - \")",
+            "Library tree track-number prefix belongs in LibraryTrackRowVm::tree_number_prefix",
+        ),
     ];
     let mut violations = Vec::new();
 
