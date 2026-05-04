@@ -230,9 +230,6 @@ impl gpui::EventEmitter<SearchAppEvent> for SearchApp {}
 
 type FeedTrackListContext<'a> = (&'a str, Option<&'a str>, &'a [db::Playlist]);
 
-const TYPE_LABELS: &[&str] = &["All", "Artist", "Feed", "Track"];
-const TYPE_VALUES: &[Option<&str>] = &[None, Some("artist"), Some("feed"), Some("track")];
-
 impl SearchApp {
     pub fn new(
         conn: Arc<Mutex<Connection>>,
@@ -373,7 +370,8 @@ impl SearchApp {
         }
         cx.notify();
 
-        let entity_type = TYPE_VALUES[intent.type_filter()].map(str::to_string);
+        let entity_type =
+            SearchViewModel::type_filter_value(intent.type_filter()).map(str::to_string);
         let cursor = intent.cursor().map(str::to_string);
         let fuzzy = intent.fuzzy();
         let client = self.api_client();
@@ -1694,10 +1692,16 @@ impl Render for SearchApp {
                 )
             })
             .collect();
-        let type_filters: Vec<AnyElement> = TYPE_LABELS
+        let type_filters: Vec<AnyElement> = SearchViewModel::type_filter_options()
             .iter()
-            .enumerate()
-            .map(|(idx, label)| render_filter_button(idx, label, idx == snapshot.type_filter, cx))
+            .map(|option| {
+                render_filter_button(
+                    option.index,
+                    option.label,
+                    option.index == snapshot.type_filter,
+                    cx,
+                )
+            })
             .collect();
         let show_back = should_show_inspector_back(stack.len());
         let inspector = render_inspector(
@@ -2322,7 +2326,7 @@ fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBra
 
 fn render_filter_button(
     idx: usize,
-    label: &str,
+    label: &'static str,
     selected: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
@@ -2334,7 +2338,7 @@ fn render_filter_button(
             ControlStyle::Ghost
         },
     )
-    .label(SharedString::from(label.to_string()))
+    .label(label)
     .on_click(cx.listener(move |this, _, _, cx| {
         if this.vm.set_type_filter_if_changed(idx) {
             let has_query = normalized_search_query(&this.input.read(cx).value()).is_some();
@@ -2512,7 +2516,7 @@ fn render_artist_inspector(
         .unwrap_or(artist_context.tracks.len() as i32);
 
     let feed_section = (!artist_context.feeds.is_empty())
-        .then(|| render_feed_list_section("Feeds", artist_context.feeds.clone(), app, cx));
+        .then(|| render_feed_list_section(artist_context.feeds.clone(), app, cx));
 
     artist::render_artist_view(
         &view,
@@ -2683,7 +2687,7 @@ fn render_publisher_inspector(
                 .collect::<Vec<_>>(),
         ))
         .when(vm.has_feed_list(), |el| {
-            el.child(render_feed_list_section("Feeds", vm.feeds(), app, cx))
+            el.child(render_feed_list_section(vm.feeds(), app, cx))
         })
         .into_any_element()
 }
@@ -4491,11 +4495,11 @@ pub(crate) fn render_track_download_button(
 }
 
 pub(crate) fn render_feed_list_section(
-    heading: &str,
     feeds: Vec<Feed>,
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
+    let section_display = SearchViewModel::feed_list_section_display();
     let tiles: Vec<AnyElement> = feeds
         .into_iter()
         .map(|feed| {
@@ -4540,7 +4544,7 @@ pub(crate) fn render_feed_list_section(
         .flex()
         .flex_col()
         .gap(spacing::SM)
-        .child(SectionHeader::new(heading.to_string()))
+        .child(SectionHeader::new(section_display.heading))
         .child(
             div()
                 .flex()

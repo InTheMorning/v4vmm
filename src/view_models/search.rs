@@ -128,6 +128,18 @@ pub(crate) struct PodrollSectionDisplay {
     pub(crate) scroll_id: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SearchTypeFilterOptionDisplay {
+    pub(crate) index: usize,
+    pub(crate) label: &'static str,
+    pub(crate) value: Option<&'static str>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchFeedListSectionDisplay {
+    pub(crate) heading: &'static str,
+}
+
 impl<'a> RecentFeedTileVm<'a> {
     #[must_use]
     pub(crate) const fn new(feed: &'a Feed) -> Self {
@@ -1273,9 +1285,29 @@ impl PlaylistAppendOutcome {
     }
 }
 
-/// Number of segmented filter slots — see the `TYPE_LABELS` /
-/// `TYPE_VALUES` tables in `search.rs`.
-const TYPE_FILTER_LEN: usize = 4;
+const TYPE_FILTER_OPTIONS: [SearchTypeFilterOptionDisplay; 4] = [
+    SearchTypeFilterOptionDisplay {
+        index: 0,
+        label: "All",
+        value: None,
+    },
+    SearchTypeFilterOptionDisplay {
+        index: 1,
+        label: "Artist",
+        value: Some("artist"),
+    },
+    SearchTypeFilterOptionDisplay {
+        index: 2,
+        label: "Feed",
+        value: Some("feed"),
+    },
+    SearchTypeFilterOptionDisplay {
+        index: 3,
+        label: "Track",
+        value: Some("track"),
+    },
+];
+const TYPE_FILTER_LEN: usize = TYPE_FILTER_OPTIONS.len();
 
 impl SearchViewModel {
     /// Construct a view-model with `SearchApp::new` defaults: `All`
@@ -1476,6 +1508,23 @@ impl SearchViewModel {
             title: title.to_string(),
             subtitle: nonempty_text(subtitle).map(str::to_string),
         }
+    }
+
+    #[must_use]
+    pub(crate) const fn type_filter_options() -> &'static [SearchTypeFilterOptionDisplay] {
+        &TYPE_FILTER_OPTIONS
+    }
+
+    #[must_use]
+    pub(crate) fn type_filter_value(index: usize) -> Option<&'static str> {
+        TYPE_FILTER_OPTIONS
+            .get(index)
+            .and_then(|option| option.value)
+    }
+
+    #[must_use]
+    pub(crate) const fn feed_list_section_display() -> SearchFeedListSectionDisplay {
+        SearchFeedListSectionDisplay { heading: "Feeds" }
     }
 
     /// Reset pure search state after the `MusicIndex` endpoint changes.
@@ -2889,6 +2938,38 @@ mod tests {
     }
 
     #[test]
+    fn search_type_filter_options_project_labels_and_values() {
+        assert_eq!(
+            SearchViewModel::type_filter_options(),
+            [
+                SearchTypeFilterOptionDisplay {
+                    index: 0,
+                    label: "All",
+                    value: None,
+                },
+                SearchTypeFilterOptionDisplay {
+                    index: 1,
+                    label: "Artist",
+                    value: Some("artist"),
+                },
+                SearchTypeFilterOptionDisplay {
+                    index: 2,
+                    label: "Feed",
+                    value: Some("feed"),
+                },
+                SearchTypeFilterOptionDisplay {
+                    index: 3,
+                    label: "Track",
+                    value: Some("track"),
+                },
+            ]
+        );
+        assert_eq!(SearchViewModel::type_filter_value(0), None);
+        assert_eq!(SearchViewModel::type_filter_value(2), Some("feed"));
+        assert_eq!(SearchViewModel::type_filter_value(99), None);
+    }
+
+    #[test]
     fn search_view_model_toggle_fuzzy_search_round_trip() {
         let mut vm = SearchViewModel::new();
         // Starts true (production default). Toggling once turns it off.
@@ -3076,6 +3157,14 @@ mod tests {
                 title: "Way to Go".into(),
                 subtitle: None,
             }
+        );
+    }
+
+    #[test]
+    fn feed_list_section_display_projects_heading() {
+        assert_eq!(
+            SearchViewModel::feed_list_section_display(),
+            SearchFeedListSectionDisplay { heading: "Feeds" }
         );
     }
 

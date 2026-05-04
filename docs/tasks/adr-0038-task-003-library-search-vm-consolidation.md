@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred four implementation slices completed on 2026-05-03.
+In progress - first one hundred six implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -706,7 +706,21 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local title conversion and subtitle filtering from
       `render_feed_header`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-105. Migrate remaining fallback batches, smallest blast radius first.
+105. Discover type-filter display
+    - Add `SearchViewModel::type_filter_options()` and
+      `SearchViewModel::type_filter_value()` so segmented filter labels
+      and query values are Discover VM-owned.
+    - Remove screen-local `TYPE_LABELS` / `TYPE_VALUES` tables from
+      `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+106. Discover feed-list section heading display
+    - Add `SearchViewModel::feed_list_section_display()` so the
+      Discover feed-list section heading enters the renderer through a
+      VM-owned display contract.
+    - Remove screen-local `"Feeds"` section-heading arguments from
+      `render_feed_list_section`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+107. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1761,6 +1775,28 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local feed-header title and
   subtitle projection from returning.
 
+## One-Hundred-Fourth-Slice Implementation Notes
+
+- `SearchViewModel::type_filter_options()` now carries Discover
+  segmented type-filter labels and indexes, and
+  `SearchViewModel::type_filter_value()` carries the corresponding
+  query type values.
+- Discover still owns the segmented button widget and click wiring, but
+  no longer keeps `TYPE_LABELS` / `TYPE_VALUES` screen-local tables.
+- The architecture guard now blocks those screen-local tables and
+  label/value lookups from returning.
+
+## One-Hundred-Fifth-Slice Implementation Notes
+
+- `SearchViewModel::feed_list_section_display()` now carries the
+  Discover feed-list section heading.
+- Artist and publisher inspectors still choose when the feed-list
+  section is visible, but no longer pass screen-local heading literals
+  into `render_feed_list_section`.
+- The architecture guard now blocks screen-local feed-list heading
+  literals and `SectionHeader::new(heading.to_string())` from
+  returning.
+
 ## Test Commands
 
 ```sh
@@ -1787,6 +1823,8 @@ cargo test expanded_display_value_preserves_metadata_raw_display_policy
 cargo test deferred_panel_empty_line_projects_label
 cargo test artwork_url_display_projects_raw_url_text
 cargo test feed_header_display_filters_empty_subtitle
+cargo test search_type_filter_options_project_labels_and_values
+cargo test feed_list_section_display_projects_heading
 cargo test id3_generated_row_display_projects_ids_and_labels
 cargo test source_drag_display_projects_discover_source_cell_ids
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized

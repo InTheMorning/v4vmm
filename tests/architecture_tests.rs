@@ -2221,6 +2221,36 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/search.rs",
+            "const TYPE_LABELS",
+            "Discover type-filter labels belong in SearchViewModel::type_filter_options",
+        ),
+        (
+            "src/search.rs",
+            "const TYPE_VALUES",
+            "Discover type-filter query values belong in SearchViewModel::type_filter_value",
+        ),
+        (
+            "src/search.rs",
+            "TYPE_VALUES[intent.type_filter()]",
+            "Discover type-filter query values belong in SearchViewModel::type_filter_value",
+        ),
+        (
+            "src/search.rs",
+            ".label(SharedString::from(label.to_string()))",
+            "Discover type-filter labels belong in SearchViewModel::type_filter_options",
+        ),
+        (
+            "src/search.rs",
+            "render_feed_list_section(\"Feeds\"",
+            "Discover feed-list section heading belongs in SearchViewModel::feed_list_section_display",
+        ),
+        (
+            "src/search.rs",
+            "SectionHeader::new(heading.to_string())",
+            "Discover feed-list section heading belongs in SearchViewModel::feed_list_section_display",
+        ),
+        (
+            "src/search.rs",
             "fn compare_row_id(",
             "Discover metadata compare-row slug display belongs in TrackMetadataGridVm::compare_row_id",
         ),
