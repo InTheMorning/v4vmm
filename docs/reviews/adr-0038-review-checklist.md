@@ -244,7 +244,7 @@ domain/control plumbing rather than display fallback policy.
 
 | # | Task | Status | Required Evidence |
 |---|---|---|---|
-| 1 | Layer Relocation                              | Implemented with visual-proof caveat | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Visual proof remains open; no provisional screenshot artifacts are retained. |
+| 1 | Layer Relocation                              | Implemented | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Original coordinate-driven captures were discarded; visual acceptance is closed by the 2026-05-04 Task 004 operator-navigated Library/Discover light + dark smoke pass, with no screenshot artifacts retained. |
 | 2 | Composite Display-Contract Audit              | Implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; `DetailHeader` title/subtitle/data rows now enter through `DetailHeaderDisplay`; `DetailGrid` key/value rows now enter through `DetailElementRow` or `DetailTextRow`; release track sections now enter through `ReleaseTrackSectionDisplay`; playlist popovers now enter through `AddToPlaylistDisplay` and `PlaylistOptionDisplay`; metadata grid cells now enter through `TrackMetadataGroupDisplay`, `TrackMetadataFieldDisplay`, `TrackMetadataFrameDisplay`, `TrackMetadataTagDisplay`, and `TrackMetadataTextDisplay`; action-row status messages now enter through `ActionRowMessageDisplay`; disclosure headings now enter through `DisclosureGroupDisplay`; segmented options now enter through `SegmentDisplay`; badge labels now enter through `TagBadgeDisplay`; metadata-action labels now enter through `ActionButtonDisplay`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow`, `DetailHeader`, `DetailGrid`, release track-section, playlist popover, metadata-grid cell, action-row message, disclosure-group, segmented-control, tag-badge, and action-button string builders |
 | 3 | Library/Search VM Consolidation               | Implemented | `TrackMetadataGridVm` now owns metadata field labels, metadata text value display, expanded raw/display fallback selection, expanded Artwork URL text, drag preview label/value display, ID3 frame display labels, ID3 frame color-role classification, metadata cell fallback/precedence, expansion, grouping, source-drag ids, Value Routes summaries, JSON scalar labels, comparison roles/glyphs, pending-source roles, and disclosure ids used by Library and Discover. `SearchViewModel` also owns deferred-panel empty-line text, deferred-panel empty labels, feed-header title/subtitle projection, feed-inspector track-list fallback, type-filter labels/query values, feed-list section heading display, inspector title display, and Discover search input placeholder display. `ResultRowDisplay`, `ResultRowRenderItem`, `ActionRowVm`, `PaymentRouteVm`, `ReleaseHeroVm`, `ReleasePanelVm`, `ReleaseTextPanelDisplay`, `TrackRowControlsDisplay`, `LibraryTrackRowDisplay`, `LibraryTrackRowVm`, `LibraryTrackActionVm`, `SearchSubscriptionCommand`, `ArtistNode`, `AlbumNode`, `ArtistFeedSummaryVm`, `ArtistFeedSummaryDisplay`, `LibraryArtistTreeDisplay`, `LibraryAlbumTreeDisplay`, `LibraryTreeTrackDisplay`, `RecentFeedTileDisplay`, `RecentFeedTile`, `TrackPlayAudioDisplay`, `TrackFeedLinkDisplay`, `PublisherLinkDisplay`, `PlaylistDetailVm`, `PlaylistSidebarVm`, `PlaylistSidebarRowVm`, `PlaylistTrackControlsDisplay`, `PlaylistTrackRowDisplay`, `LibraryViewModel`, `LibraryChromeDisplay`, `SearchPaneDisplay`, `ReleaseDetailPageVm`, `TrackDetailVm`, `ContributorRowVm`, `ContributorPersonVm`, `ContributorRoleRowVm`, `SharedTrackRowVm`, `TrackMetadataDragPreviewDisplay`, `LibraryStatusSnapshot`, `FeedUpdateDisplay`, `IdentityActionDisplay`, `TrackMetadataExpandableCellDisplay`, `TrackMetadataValueRouteItemDisplay`, `TrackMetadataGroupCell`, `DisclosureIndicator`, `DisclosureSupplementLabel`, `LoadingMessage`, `MultilineText`, and shared `playlist_option_displays()` own the newly migrated result badge/thumbnail kind projection, result-row selection/navigation targets, release hero/panel text display, contributor role-row display consumption, track-row control display consumption, playlist trigger, payment-route group heading, MusicBrainz status text, local subscription/download messages, Discover download success labels, feed-update errors, split-pane chrome ids, identity-action prefixes, release detail scroll ids, contributor identity action consumption, contributor row chrome/content display, sidebar/tree row display consumption, Discover feed tile/link display consumption, recent-feed open-target/id consumption, track play-button id consumption, playlist row display consumption, metadata group label consumption, metadata expansion-key/item-key consumption, deferred loading/empty text consumption, feed identity-action payload consumption, status text consumption, action label consumption, default release track row ids, tree-title, feed-summary, playlist-header, playlist-option, disclosure-indicator, and supplemental-count display contracts. Library/Search no longer perform the migrated fallback/classification work screen-locally; `view_models_own_display_fallbacks_for_library_and_search` blocks those patterns from returning; `screen_level_fallback_expressions_stay_domain_only` freezes the residual non-display `unwrap_or*` expressions as documented domain/control plumbing. |
 | 4 | HIG Dark-Mode Parity Audit                    | Implemented    | `src/ui/style.rs` no longer holds raw `gpui::rgb(0x…)` literals — the four ID3 frame-color helpers (`id3_frame_v22`, `id3_frame_v23_only`, `id3_frame_v24_only`, `id3_frame_unknown`) now resolve through new `SemanticColor::Id3FrameV22 / V23Only / V24Only / Unknown` tokens with light/dark and high-contrast variants. Module-level docs in `src/ui/style.rs` declare the file token-resolved. New architecture test `ui_style_resolves_colors_through_token_layer` blocks future raw rgb literals in `src/ui/style.rs`. Discover's reset-to-recents command is now VM-owned and restores the recent-feed tile surface after search. Light/dark visual smoke completed with operator-navigated, transient `/tmp` captures; no screenshot artifacts are retained in git. |
@@ -275,18 +275,29 @@ surfaces and fixtures instead.
 | Recent feed tiles           | Transient pass | Transient pass | Discover `Recent Feeds` tile grid restored after search via VM-owned command | Verified 2026-05-04 |
 | Search results              | Covered by Discover list | Covered by Discover list | Discover search result list for HeyCitizen query | Verified 2026-05-04 |
 
-Task 001 relocation smoke (light theme only, per task packet):
+Task 006 PageVm visual smoke:
 
-| Surface | Screenshot | Status |
+| Surface | Light | Dark | Fixture | Status |
+|---|---|---|---|---|
+| Feed/release detail | Covered by Task 004 feed detail rows above | Covered by Task 004 feed detail rows above | Library/Discover feed detail states | Verified 2026-05-04 |
+| Track detail | Covered by Task 004 track detail rows above | Covered by Task 004 track detail rows above | Library/Discover track detail states | Verified 2026-05-04 |
+| Library artist detail | Transient pass | Transient pass | `HeyCitizen` artist detail with feed section | Verified 2026-05-04 |
+| Discover artist detail | Transient pass | Transient pass | `HeyCitizen` artist detail with feed tiles | Verified 2026-05-04 |
+| Library playlist detail | Transient pass | Transient pass | `My Playlist` with seven tracks | Verified 2026-05-04 |
+
+Task 001 relocation smoke:
+
+| Surface | Evidence | Status |
 |---|---|---|
-| Library shell | None retained | Needs deterministic/manual recapture before counting as acceptance evidence |
-| Discover shell | None retained | Needs deterministic/manual recapture before counting as acceptance evidence |
+| Library shell | Covered by Task 004 operator-navigated Library list/feed/track detail light + dark smoke | Verified 2026-05-04 |
+| Discover shell | Covered by Task 004 operator-navigated Discover list/feed/track detail light + dark smoke | Verified 2026-05-04 |
 
-Visual-proof caveat, 2026-05-03: coordinate-driven X11 captures were
-discarded and are not retained in the repository. Automated gates are
-green, but visual acceptance for the relocation remains open until a
-reviewer captures or verifies Library and Discover through a
-deterministic/manual process.
+Visual-proof caveat resolution, 2026-05-04: coordinate-driven X11
+captures from 2026-05-03 were discarded and are not retained in the
+repository. Task 004 later verified the relocated Library and Discover
+shells through operator navigation in both light and dark themes. Per
+operator instruction, evidence is ledgered here without committing
+screenshot artifacts.
 
 ## Accessibility Coverage Ledger
 

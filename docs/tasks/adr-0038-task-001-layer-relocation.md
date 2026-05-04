@@ -2,7 +2,9 @@
 
 ## Status
 
-Implemented with visual-proof caveat - 2026-05-03.
+Implemented - 2026-05-03. Visual acceptance caveat closed on
+2026-05-04 by the Task 004 operator-navigated Library/Discover light
+and dark smoke pass; no screenshot artifacts are retained.
 
 ## Goal
 
@@ -231,16 +233,14 @@ cargo clippy -- -D warnings
 git diff --check
 ```
 
-Visual smoke: this is a no-op move; the running app should look
-identical. Capture a single before/after pair for Library and Discover
-just to confirm — file under
-`docs/reviews/screenshots/adr-0038-layer-relocation-{library,discover}.png`.
-Light theme is sufficient for this task; dark-theme parity is Task 004.
-
-Implementation note, 2026-05-03: coordinate-driven X11 captures were
-discarded and are not retained in the repository. They do not close the
-visual-proof acceptance criterion. A deterministic/manual Library +
-Discover recapture is still required.
+Visual smoke: this was a no-op move; the running app should look
+identical. Initial coordinate-driven X11 captures from 2026-05-03 were
+discarded and do not count as evidence. The visual acceptance criterion
+was later closed by the 2026-05-04 Task 004 operator-navigated
+Library/Discover light and dark smoke pass recorded in
+`docs/reviews/adr-0038-review-checklist.md`. Per operator instruction,
+screenshots were transient only and no screenshot artifacts are retained
+or committed.
 
 ## Acceptance Criteria
 
@@ -252,7 +252,8 @@ Discover recapture is still required.
 - All importers compile against the new paths.
 - `src/ui/shells/mod.rs` documents layer 7 per the ADR.
 - All checks green; baselines unchanged.
-- Single before/after Library + Discover screenshot pair filed.
+- Library + Discover shell visual acceptance is recorded in the Task
+  004 visual smoke ledger; no screenshot artifacts are retained.
 
 ## Test Commands
 

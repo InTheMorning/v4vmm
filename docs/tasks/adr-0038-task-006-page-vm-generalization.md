@@ -46,10 +46,10 @@ feature introduces page-level batch actions that need a batch PageVm.
   explicit release + track surface list.
 - Added a VM unit test for the `TrackDetailPageVm` wrapper.
 
-Visual smoke was not captured for this slice because the change is a
-renderer-routing refactor with no intended visual output change. If a
-later Task 006 slice changes visible hierarchy, capture light + dark
-screenshots through the user-directed navigation workflow.
+Per-slice visual smoke was deferred because the change is a
+renderer-routing refactor with no intended visual output change. Final
+Task 006 visual smoke is recorded below and in
+`docs/reviews/adr-0038-review-checklist.md`.
 
 ### Artist Detail PageVm Parity — 2026-05-04
 
@@ -65,9 +65,10 @@ screenshots through the user-directed navigation workflow.
 - Added VM unit tests for both Discover and Library artist page
   projections.
 
-Visual smoke was not captured for this slice because the shell shape is
+Per-slice visual smoke was deferred because the shell shape is
 unchanged; the refactor moves page assembly ownership into the VM/shell
-contract.
+contract. Final Task 006 visual smoke is recorded below and in
+`docs/reviews/adr-0038-review-checklist.md`.
 
 ### Playlist Detail PageVm Parity — 2026-05-04
 
@@ -86,11 +87,24 @@ contract.
   include the new playlist shell.
 - Added a VM unit test for the `PlaylistDetailPageVm` wrapper.
 
-Visual smoke was not captured for this slice because the visible
-hierarchy is intended to be unchanged; the refactor moves playlist page
-assembly ownership into the VM/shell contract. If Task 007 changes the
-surface while decomposing Library, capture light + dark screenshots via
-the user-directed navigation workflow.
+Per-slice visual smoke was deferred because the visible hierarchy is
+intended to be unchanged; the refactor moves playlist page assembly
+ownership into the VM/shell contract. Final Task 006 visual smoke is
+recorded below and in `docs/reviews/adr-0038-review-checklist.md`.
+
+## Visual Smoke
+
+Completed on 2026-05-04 with operator-navigated app states and
+transient `/tmp` captures. Per operator instruction, screenshot
+artifacts are not retained or committed.
+
+| Surface | Light | Dark | Fixture | Status |
+|---|---|---|---|---|
+| Feed/release detail | Covered by Task 004 | Covered by Task 004 | Library/Discover feed detail states | Verified 2026-05-04 |
+| Track detail | Covered by Task 004 | Covered by Task 004 | Library/Discover track detail states | Verified 2026-05-04 |
+| Library artist detail | Transient pass | Transient pass | `HeyCitizen` artist detail with feed section | Verified 2026-05-04 |
+| Discover artist detail | Transient pass | Transient pass | `HeyCitizen` artist detail with feed tiles | Verified 2026-05-04 |
+| Library playlist detail | Transient pass | Transient pass | `My Playlist` with seven tracks | Verified 2026-05-04 |
 
 ## Files Likely To Change
 
