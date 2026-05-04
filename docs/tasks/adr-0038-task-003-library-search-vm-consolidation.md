@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred sixty-four implementation slices completed on 2026-05-04.
+In progress - first one hundred sixty-nine implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1072,7 +1072,36 @@ Verified starting notes, 2026-05-03:
     - Remove renderer-side `display.label.clone()` from Library
       metadata group headings.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-165. Migrate remaining fallback batches, smallest blast radius first.
+165. Discover metadata drag-preview display consumption
+    - Store `TrackMetadataDragPreviewDisplay` directly in
+      `MetadataDragPreview`.
+    - Remove duplicate screen-local label/value fields from the drag
+      preview.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+166. Discover status text consumption
+    - Consume `SearchRenderSnapshot::status.display_text` directly
+      before rendering the status row.
+    - Remove renderer-side `snapshot.status.display_text.clone()`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+167. Library status text consumption
+    - Consume `LibraryStatusSnapshot::text` directly before rendering
+      the library status row.
+    - Remove renderer-side `status.text.clone()`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+168. Discover action label consumption
+    - Destructure `EntityActionVm` in Discover subscription/download
+      action renderers so labels, enabled state, tone, and kind are
+      consumed directly.
+    - Remove residual action-label clones from Discover render code.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+169. Library action label consumption
+    - Destructure `EntityActionVm` in the Library track row renderer so
+      the primary action label, enabled state, tone, and kind are
+      consumed directly.
+    - Remove residual primary-action label clones from Library render
+      code.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+170. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2698,6 +2727,50 @@ Verified starting notes, 2026-05-03:
 - The renderer no longer clones `display.label` from the metadata group
   display contract.
 - The architecture guard now blocks the old label clone from returning.
+
+## One-Hundred-Sixty-Fifth-Slice Implementation Notes
+
+- Discover metadata drag previews now store
+  `TrackMetadataDragPreviewDisplay` directly.
+- The drag preview renderer no longer mirrors label/value fields in a
+  screen-local display struct; GPUI text ownership is derived from the
+  VM display object.
+- The architecture guard now blocks the old drag-preview label/value
+  clones from returning.
+
+## One-Hundred-Sixty-Sixth-Slice Implementation Notes
+
+- Discover render status now consumes
+  `SearchRenderSnapshot::status.display_text` before rendering.
+- The renderer no longer clones `snapshot.status.display_text`.
+- The architecture guard now blocks the old Discover status text clone
+  from returning.
+
+## One-Hundred-Sixty-Seventh-Slice Implementation Notes
+
+- Library render status now consumes `LibraryStatusSnapshot::text`
+  before rendering.
+- The renderer no longer clones `status.text`.
+- The architecture guard now blocks the old Library status text clone
+  from returning.
+
+## One-Hundred-Sixty-Eighth-Slice Implementation Notes
+
+- Discover subscription and track-row download actions now destructure
+  `EntityActionVm` before rendering.
+- Labels, enabled state, tone, and action kind are consumed directly
+  from the VM action contract.
+- The architecture guard now blocks the old Discover action-label
+  clones from returning.
+
+## One-Hundred-Sixty-Ninth-Slice Implementation Notes
+
+- Library track-row primary actions now destructure `EntityActionVm`
+  before rendering.
+- Label, enabled state, tone, and action kind are consumed directly
+  from the VM action contract.
+- The architecture guard now blocks the old Library primary-action
+  label clone from returning.
 
 ## Test Commands
 

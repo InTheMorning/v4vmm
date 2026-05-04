@@ -68,8 +68,9 @@ use crate::ui::shells::{artist, feed, track};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorIdentityActionKind, ContributorListVm, ContributorRowVm, EntityActionTarget,
-    EntityActionTone, EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
+    ContributorIdentityActionKind, ContributorListVm, ContributorRowVm, EntityActionKind,
+    EntityActionTarget, EntityActionTone, EntityActionVm, EntitySurfaceContext, MetadataPanelState,
+    TrackMetadataActionState,
 };
 use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::playlist_option_displays;
@@ -84,8 +85,9 @@ use crate::view_models::search::{
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{
-    TrackMetadataExpandedFieldKind, TrackMetadataGridVm, TrackMetadataId3FrameColorContext,
-    TrackMetadataId3FrameColorRole, ValueRouteFieldContext, ValueRoutesSummaryFallback,
+    TrackMetadataDragPreviewDisplay, TrackMetadataExpandedFieldKind, TrackMetadataGridVm,
+    TrackMetadataId3FrameColorContext, TrackMetadataId3FrameColorRole, ValueRouteFieldContext,
+    ValueRoutesSummaryFallback,
 };
 use crate::views::{ContributorView, FeedRef, TrackView};
 
@@ -163,8 +165,7 @@ impl InspectorFrame {
 }
 
 struct MetadataDragPreview {
-    label: String,
-    value: String,
+    display: TrackMetadataDragPreviewDisplay,
 }
 
 impl Render for MetadataDragPreview {
@@ -181,11 +182,11 @@ impl Render for MetadataDragPreview {
                     .text_size(typography::SIZE_MICRO)
                     .font_weight(FontWeight::BOLD)
                     .text_color(color::text_muted())
-                    .child(SharedString::from(self.label.clone())),
+                    .child(SharedString::from(self.display.label.clone())),
             )
             .child(
                 div().mt(spacing::XS).child(
-                    MultilineText::new(self.value.clone())
+                    MultilineText::new(self.display.value.clone())
                         .max_lines(4)
                         .size(FontSize::Micro)
                         .line_height(typography::LINE_BODY)
@@ -1677,13 +1678,13 @@ impl Render for SearchApp {
         let snapshot = self
             .vm
             .render_snapshot(stack.is_empty(), !input_has_search_term);
-        let status_text = snapshot.status.display_text.clone();
         let status_color = if snapshot.status.is_error {
             StatusRole::Danger.color(cx)
         } else {
             color::text_muted()
         };
         let status_empty = snapshot.status.is_empty();
+        let status_text = snapshot.status.display_text;
 
         let list_focused = self.list_focus.is_focused(_window);
         let results: Vec<AnyElement> = snapshot
@@ -2722,17 +2723,14 @@ pub(crate) fn discover_inspector_action_row(
 
     let is_feed = frame.entity_type == "feed";
     let release_target = EntityActionTarget::Feed(FeedRef::Musicindex(frame.entity_id.clone()));
-    let release_subscription_action = vm.release_primary_action(release_target.clone());
-    let subscription_label = if is_feed {
-        release_subscription_action.label.clone()
-    } else {
-        vm.subscription_button_label()
-    };
-    let subscription_disabled = if is_feed {
-        !release_subscription_action.enabled
-    } else {
-        frame.subscription_busy
-    };
+    let release_subscription_action =
+        is_feed.then(|| vm.release_primary_action(release_target.clone()));
+    let (subscription_label, subscription_disabled) =
+        if let Some(action) = release_subscription_action {
+            (action.label, !action.enabled)
+        } else {
+            (vm.subscription_button_label(), frame.subscription_busy)
+        };
     let release_playlist_action = if is_feed {
         vm.release_playlist_action(release_target)
     } else {
@@ -3258,10 +3256,7 @@ fn metadata_rss_cell(
                     |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
                         let display =
                             TrackMetadataGridVm::drag_preview_display(&drag.field, &drag.value);
-                        cx.new(|_| MetadataDragPreview {
-                            label: display.label,
-                            value: display.value,
-                        })
+                        cx.new(|_| MetadataDragPreview { display })
                     },
                 )
                 .into_any_element();
@@ -3400,10 +3395,7 @@ fn metadata_musicbrainz_cell(
                 |drag: &MetadataDragValue, _position: Point<Pixels>, _window, cx: &mut App| {
                     let display =
                         TrackMetadataGridVm::drag_preview_display(&drag.field, &drag.value);
-                    cx.new(|_| MetadataDragPreview {
-                        label: display.label,
-                        value: display.value,
-                    })
+                    cx.new(|_| MetadataDragPreview { display })
                 },
             )
             .into_any_element()
@@ -4517,8 +4509,14 @@ pub(crate) fn render_track_download_button(
             .into_any_element();
     }
 
-    let action = action_vm.primary_action();
-    let style = match action.tone {
+    let EntityActionVm {
+        kind,
+        label,
+        enabled,
+        tone,
+        ..
+    } = action_vm.primary_action();
+    let style = match tone {
         EntityActionTone::DestructiveQuiet => ControlStyle::DestructiveRowAction,
         _ => ControlStyle::RowAction,
     };
@@ -4526,10 +4524,10 @@ pub(crate) fn render_track_download_button(
     let feed_for_click = feed.clone();
 
     UiButton::styled(SharedString::from(display.button_id), style)
-        .label(action.label.clone())
-        .disabled(!action.enabled)
+        .label(label)
+        .disabled(!enabled)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            if is_downloaded {
+            if kind == EntityActionKind::Remove {
                 this.remove_track_row(track_for_click.clone(), feed_for_click.clone(), cx);
             } else {
                 this.download_track_row(track_for_click.clone(), feed_for_click.clone(), cx);

@@ -82,7 +82,7 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::entity_detail::{
     ContributorIdentityActionKind, ContributorRowVm, EntityActionKind, EntityActionTarget,
-    EntityActionTone, EntitySurfaceContext, MetadataPanelState, ReleaseDetailVm,
+    EntityActionTone, EntityActionVm, EntitySurfaceContext, MetadataPanelState, ReleaseDetailVm,
     TrackMetadataActionState,
 };
 use crate::view_models::library::{
@@ -1753,6 +1753,7 @@ impl Render for LibraryApp {
         } else {
             color::text_muted()
         };
+        let status_text = status.text;
 
         // Collect image URLs from tree, then fetch thumbnails (avoids borrow conflict).
         let urls: Vec<String> = {
@@ -2016,7 +2017,7 @@ impl Render for LibraryApp {
                                 div()
                                     .text_xs()
                                     .text_color(status_color)
-                                    .child(SharedString::from(status.text.clone())),
+                                    .child(SharedString::from(status_text)),
                             )
                             .when_some(feed_status, |el, msg| {
                                 el.child(
@@ -2665,12 +2666,18 @@ fn render_library_track_row(
     let track_id = track.id;
     let is_busy = busy_track == Some(track_id);
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
-    let primary_action = vm.primary_action_vm(is_busy);
+    let EntityActionVm {
+        kind,
+        label,
+        enabled,
+        tone,
+        ..
+    } = vm.primary_action_vm(is_busy);
     let LibraryTrackRowDisplay {
         row_id,
         toggle_button_id,
     } = vm.row_display();
-    let in_library = primary_action.kind == EntityActionKind::Remove;
+    let in_library = kind == EntityActionKind::Remove;
     let mb_text = vm.mb_status_text();
     let mb_kind = vm.mb_status_kind();
     let thumbnail = track
@@ -2679,14 +2686,14 @@ fn render_library_track_row(
         .or(track.album_image_href.as_ref())
         .and_then(|url| album_thumbs.get(url.as_str()))
         .and_then(|opt| opt.clone());
-    let primary_style = match primary_action.tone {
+    let primary_style = match tone {
         EntityActionTone::DestructiveQuiet => ControlStyle::DestructiveRowAction,
         _ => ControlStyle::RowAction,
     };
 
     let toggle_button = UiButton::styled(SharedString::from(toggle_button_id), primary_style)
-        .label(primary_action.label.clone())
-        .disabled(!primary_action.enabled)
+        .label(label)
+        .disabled(!enabled)
         .on_click(cx.listener(move |this, _, _, cx| {
             if in_library {
                 this.remove_track(track_id, cx);

@@ -2098,9 +2098,44 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover recent-feed tile id should be consumed by RecentFeedTile",
         ),
         (
+            "src/search.rs",
+            "snapshot.status.display_text.clone()",
+            "Discover status display text should be consumed from SearchRenderSnapshot",
+        ),
+        (
+            "src/search.rs",
+            "release_subscription_action.label.clone()",
+            "Discover feed subscription action label should be consumed from EntityActionVm",
+        ),
+        (
+            "src/search.rs",
+            "action.label.clone()",
+            "Discover track row action labels should be consumed from EntityActionVm",
+        ),
+        (
+            "src/search.rs",
+            "self.label.clone()",
+            "Discover metadata drag preview should consume TrackMetadataDragPreviewDisplay",
+        ),
+        (
+            "src/search.rs",
+            "self.value.clone()",
+            "Discover metadata drag preview should consume TrackMetadataDragPreviewDisplay",
+        ),
+        (
             "src/library.rs",
             "display.label.clone()",
             "Library metadata group labels should be consumed from TrackMetadataGroupHeadingDisplay",
+        ),
+        (
+            "src/library.rs",
+            "status.text.clone()",
+            "Library status display text should be consumed from LibraryStatusSnapshot",
+        ),
+        (
+            "src/library.rs",
+            "primary_action.label.clone()",
+            "Library track primary-action label should be consumed from EntityActionVm",
         ),
         (
             "src/library.rs",
