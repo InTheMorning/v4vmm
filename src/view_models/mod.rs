@@ -72,6 +72,8 @@ pub mod track;
 pub mod track_detail;
 pub mod track_metadata_grid;
 
+use crate::db;
+
 /// Semantic tone for action-row status messages.
 ///
 /// Screens map this to UI tokens, but the VM owns which messages are neutral
@@ -99,6 +101,24 @@ pub struct ActionStatusMessageDisplay {
     pub(crate) text: String,
     pub(crate) tone: ActionStatusMessageTone,
     pub(crate) width: ActionStatusMessageWidth,
+}
+
+/// Display-ready playlist option facts shared by playlist popovers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistOptionDisplayVm {
+    pub(crate) id: i64,
+    pub(crate) name: String,
+}
+
+#[must_use]
+pub(crate) fn playlist_option_displays(playlists: &[db::Playlist]) -> Vec<PlaylistOptionDisplayVm> {
+    playlists
+        .iter()
+        .map(|playlist| PlaylistOptionDisplayVm {
+            id: playlist.id,
+            name: playlist.name.clone(),
+        })
+        .collect()
 }
 
 impl ActionStatusMessageDisplay {
@@ -176,9 +196,10 @@ impl SplitPaneState {
 #[cfg(test)]
 mod tests {
     use super::{
-        ActionStatusMessageDisplay, ActionStatusMessageTone, ActionStatusMessageWidth,
-        SplitPaneState,
+        playlist_option_displays, ActionStatusMessageDisplay, ActionStatusMessageTone,
+        ActionStatusMessageWidth, PlaylistOptionDisplayVm, SplitPaneState,
     };
+    use crate::db;
 
     fn assert_width_eq(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < f32::EPSILON);
@@ -229,5 +250,41 @@ mod tests {
             })
         );
         assert_eq!(ActionStatusMessageDisplay::subscription(None), None);
+    }
+
+    #[test]
+    fn playlist_option_displays_project_ids_and_names() {
+        let playlists = vec![
+            db::Playlist {
+                id: 7,
+                name: "Focus".into(),
+                description: None,
+                track_count: 0,
+                created_at: 0,
+                updated_at: 0,
+            },
+            db::Playlist {
+                id: 9,
+                name: String::new(),
+                description: Some("blank names are preserved".into()),
+                track_count: 1,
+                created_at: 1,
+                updated_at: 2,
+            },
+        ];
+
+        assert_eq!(
+            playlist_option_displays(&playlists),
+            vec![
+                PlaylistOptionDisplayVm {
+                    id: 7,
+                    name: "Focus".into(),
+                },
+                PlaylistOptionDisplayVm {
+                    id: 9,
+                    name: String::new(),
+                },
+            ]
+        );
     }
 }

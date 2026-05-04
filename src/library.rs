@@ -93,6 +93,7 @@ use crate::view_models::library::{
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
+use crate::view_models::playlist_option_displays;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{
     TrackMetadataComparisonRole, TrackMetadataExpandedFieldKind, TrackMetadataGridVm,
@@ -2324,12 +2325,12 @@ fn render_detail(
 }
 
 fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
-    playlists
-        .iter()
-        .map(|playlist| {
+    playlist_option_displays(playlists)
+        .into_iter()
+        .map(|option| {
             PlaylistOption::new(PlaylistOptionDisplay {
-                id: playlist.id,
-                name: SharedString::from(playlist.name.clone()),
+                id: option.id,
+                name: SharedString::from(option.name),
             })
         })
         .collect()

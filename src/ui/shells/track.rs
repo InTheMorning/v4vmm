@@ -18,6 +18,7 @@ use crate::ui::composites::{
     PlaylistOption, PlaylistOptionDisplay, TrackRow, TrackSurfaceElement,
 };
 use crate::view_models::entity_detail::IdentityActionDisplayKind;
+use crate::view_models::playlist_option_displays;
 use crate::view_models::track::TrackVm;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::views::TrackView;
@@ -28,12 +29,12 @@ pub(crate) enum TrackRowMode {
 }
 
 fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
-    playlists
-        .iter()
-        .map(|playlist| {
+    playlist_option_displays(playlists)
+        .into_iter()
+        .map(|option| {
             PlaylistOption::new(PlaylistOptionDisplay {
-                id: playlist.id,
-                name: SharedString::from(playlist.name.clone()),
+                id: option.id,
+                name: SharedString::from(option.name),
             })
         })
         .collect()

@@ -72,6 +72,7 @@ use crate::view_models::entity_detail::{
     EntityActionTone, EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
 };
 use crate::view_models::metadata::value_route_recipient_label;
+use crate::view_models::playlist_option_displays;
 use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
     ActionRowVm, DeferredPanelKind, InspectorChromeDisplay, LazyPanel, PaymentRouteVm,
@@ -2880,12 +2881,12 @@ fn inspector_playlist_target(
 }
 
 fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
-    playlists
-        .iter()
-        .map(|playlist| {
+    playlist_option_displays(playlists)
+        .into_iter()
+        .map(|option| {
             PlaylistOption::new(PlaylistOptionDisplay {
-                id: playlist.id,
-                name: SharedString::from(playlist.name.clone()),
+                id: option.id,
+                name: SharedString::from(option.name),
             })
         })
         .collect()

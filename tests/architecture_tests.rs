@@ -2325,6 +2325,21 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover metadata disclosure id binding should not re-project VM display ids",
         ),
         (
+            "src/library.rs",
+            "playlist.name.clone()",
+            "Library playlist popover option display belongs in playlist_option_displays",
+        ),
+        (
+            "src/search.rs",
+            "playlist.name.clone()",
+            "Discover playlist popover option display belongs in playlist_option_displays",
+        ),
+        (
+            "src/ui/shells/track.rs",
+            "playlist.name.clone()",
+            "Track shell playlist popover option display belongs in playlist_option_displays",
+        ),
+        (
             "src/search.rs",
             "fn compare_row_id(",
             "Discover metadata compare-row slug display belongs in TrackMetadataGridVm::compare_row_id",

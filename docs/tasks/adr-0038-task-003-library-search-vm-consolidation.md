@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred eighteen implementation slices completed on 2026-05-03.
+In progress - first one hundred twenty one implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -790,7 +790,25 @@ Verified starting notes, 2026-05-03:
     - Remove the remaining renderer-side `disclosure_id.to_string()`
       projection.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-119. Migrate remaining fallback batches, smallest blast radius first.
+119. Library playlist popover option display
+    - Add shared `playlist_option_displays()` so playlist option ids and
+      names are projected by the VM layer before Library popovers adapt
+      them into GPUI playlist options.
+    - Remove screen-local `playlist.name.clone()` option projection
+      from the Library popover helper.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+120. Discover playlist popover option display
+    - Reuse shared `playlist_option_displays()` for Discover popovers.
+    - Remove screen-local `playlist.name.clone()` option projection
+      from the Discover popover helper.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+121. Track shell playlist popover option display
+    - Reuse shared `playlist_option_displays()` for the shared track
+      shell popover.
+    - Remove screen-local `playlist.name.clone()` option projection
+      from `src/ui/shells/track.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+122. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1984,6 +2002,36 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local disclosure-id
   re-projection from returning.
 
+## One-Hundred-Eighteenth-Slice Implementation Notes
+
+- Shared `playlist_option_displays()` now carries playlist option ids
+  and names for Library add-to-playlist popovers.
+- Library still adapts the plain VM facts into the GPUI
+  `PlaylistOptionDisplay`, but no longer reads `db::Playlist` names
+  directly in the popover helper.
+- The architecture guard now blocks the Library raw playlist-name
+  option projection from returning.
+
+## One-Hundred-Nineteenth-Slice Implementation Notes
+
+- Discover add-to-playlist popovers now reuse shared
+  `playlist_option_displays()`.
+- Discover still adapts the plain VM facts into the GPUI
+  `PlaylistOptionDisplay`, but no longer reads `db::Playlist` names
+  directly in the popover helper.
+- The architecture guard now blocks the Discover raw playlist-name
+  option projection from returning.
+
+## One-Hundred-Twentieth-Slice Implementation Notes
+
+- The shared track shell add-to-playlist popover now reuses shared
+  `playlist_option_displays()`.
+- The shell still adapts the plain VM facts into the GPUI
+  `PlaylistOptionDisplay`, but no longer reads `db::Playlist` names
+  directly in its local helper.
+- The architecture guard now blocks the track-shell raw playlist-name
+  option projection from returning.
+
 ## Test Commands
 
 ```sh
@@ -2020,6 +2068,7 @@ cargo test library_tree_artist_display_projects_row_chrome
 cargo test library_tree_album_display_projects_row_chrome
 cargo test artist_feed_summary_display_projects_row_id_and_track_count
 cargo test playlist_detail_vm_reports_empty_state
+cargo test playlist_option_displays_project_ids_and_names
 cargo test id3_generated_row_display_projects_ids_and_labels
 cargo test source_drag_display_projects_discover_source_cell_ids
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized
