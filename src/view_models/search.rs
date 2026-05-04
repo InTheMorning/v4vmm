@@ -54,6 +54,7 @@ impl ResultRow {
     pub(crate) fn display(&self) -> ResultRowDisplay {
         let mut display = ResultRowVm::new(&self.entity_id, self.detail.as_ref()).display();
         display.element_id = format!("result-item:{}:{}", self.entity_type, self.entity_id);
+        display.kind_label.clone_from(&self.entity_type);
         display
     }
 
@@ -76,6 +77,7 @@ fn entity_key(entity_type: &str, entity_id: &str) -> String {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ResultRowDisplay {
     pub(crate) element_id: String,
+    pub(crate) kind_label: String,
     pub(crate) line1: String,
     pub(crate) line2: String,
     pub(crate) line3: String,
@@ -137,6 +139,11 @@ pub(crate) struct SearchTypeFilterOptionDisplay {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SearchFeedListSectionDisplay {
+    pub(crate) heading: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PaymentRouteGroupDisplay {
     pub(crate) heading: &'static str,
 }
 
@@ -214,6 +221,7 @@ impl<'a> ResultRowVm<'a> {
 
                 ResultRowDisplay {
                     element_id: String::new(),
+                    kind_label: String::new(),
                     line1,
                     line2: track
                         .track_artist
@@ -226,6 +234,7 @@ impl<'a> ResultRowVm<'a> {
             Some(EntityDetail::Publisher(publisher)) => publisher_display(publisher),
             Some(EntityDetail::Release(release)) => ResultRowDisplay {
                 element_id: String::new(),
+                kind_label: String::new(),
                 line1: self.entity_id.to_string(),
                 line2: String::new(),
                 line3: String::new(),
@@ -233,6 +242,7 @@ impl<'a> ResultRowVm<'a> {
             },
             Some(EntityDetail::Recording(recording)) => ResultRowDisplay {
                 element_id: String::new(),
+                kind_label: String::new(),
                 line1: self.entity_id.to_string(),
                 line2: String::new(),
                 line3: String::new(),
@@ -240,6 +250,7 @@ impl<'a> ResultRowVm<'a> {
             },
             None => ResultRowDisplay {
                 element_id: String::new(),
+                kind_label: String::new(),
                 line1: self.entity_id.to_string(),
                 line2: String::new(),
                 line3: String::new(),
@@ -264,6 +275,7 @@ impl<'a> ResultRowVm<'a> {
 
         ResultRowDisplay {
             element_id: String::new(),
+            kind_label: String::new(),
             line1: artist
                 .name
                 .clone()
@@ -282,6 +294,7 @@ fn feed_display(feed: &Feed) -> ResultRowDisplay {
         .map_or_else(String::new, |count| format!("{count} tracks"));
     ResultRowDisplay {
         element_id: String::new(),
+        kind_label: String::new(),
         line1: feed_display_title(feed),
         line2: nonempty_text(feed.release_artist.as_deref())
             .or_else(|| nonempty_text(feed.publisher_text.as_deref()))
@@ -301,6 +314,7 @@ fn publisher_display(publisher: &Publisher) -> ResultRowDisplay {
     }
     ResultRowDisplay {
         element_id: String::new(),
+        kind_label: String::new(),
         line1: publisher.publisher_text.clone().unwrap_or_default(),
         line2: parts.join(" · "),
         line3: String::new(),
@@ -549,6 +563,21 @@ impl<'a> ActionRowVm<'a> {
         SearchInspectorPlaylistDisplay {
             popover_id: format!("inspector-add:{entity_id}"),
             trigger_label,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_trigger_label(
+        &self,
+        release_playlist_action: Option<&EntityActionVm>,
+    ) -> String {
+        if self.entity_type == "feed" {
+            release_playlist_action.map_or_else(
+                || self.add_to_playlist_label().to_string(),
+                |action| action.label.clone(),
+            )
+        } else {
+            self.add_to_playlist_label().to_string()
         }
     }
 
@@ -851,6 +880,11 @@ impl<'a> PaymentRouteVm<'a> {
         } else {
             "Recipients"
         }
+    }
+
+    #[must_use]
+    pub(crate) fn group_display(group: &'static str) -> PaymentRouteGroupDisplay {
+        PaymentRouteGroupDisplay { heading: group }
     }
 }
 
@@ -1470,6 +1504,18 @@ impl SearchViewModel {
     }
 
     #[must_use]
+    pub(crate) fn inspector_title_display(
+        show_recents_root: bool,
+        frame_title: Option<&str>,
+    ) -> String {
+        match (show_recents_root, frame_title) {
+            (true, None) => Self::recents_root_title().to_string(),
+            (_, Some(title)) => title.to_string(),
+            _ => String::new(),
+        }
+    }
+
+    #[must_use]
     pub(crate) const fn inspector_chrome_display() -> InspectorChromeDisplay {
         InspectorChromeDisplay::VALUE
     }
@@ -1994,6 +2040,7 @@ mod tests {
             ResultRowVm::new("artist-id", Some(&detail)).display(),
             ResultRowDisplay {
                 element_id: String::new(),
+                kind_label: String::new(),
                 line1: "The Artist".into(),
                 line2: "1 track · 2 feeds".into(),
                 line3: "Canada".into(),
@@ -2030,6 +2077,7 @@ mod tests {
             ResultRowVm::new("feed-id", Some(&detail)).display(),
             ResultRowDisplay {
                 element_id: String::new(),
+                kind_label: String::new(),
                 line1: "Feed Name".into(),
                 line2: "Release Artist".into(),
                 line3: "12 tracks".into(),
@@ -2183,6 +2231,7 @@ mod tests {
             ResultRowVm::new("track-id", Some(&detail)).display(),
             ResultRowDisplay {
                 element_id: String::new(),
+                kind_label: String::new(),
                 line1: "Track Name – 1:05".into(),
                 line2: "Unknown".into(),
                 line3: "Feed Title by Release Artist".into(),
@@ -2204,6 +2253,7 @@ mod tests {
             ResultRowVm::new("publisher-id", Some(&detail)).display(),
             ResultRowDisplay {
                 element_id: String::new(),
+                kind_label: String::new(),
                 line1: "Pub".into(),
                 line2: "2 feeds · 3 tracks".into(),
                 line3: String::new(),
@@ -2448,6 +2498,25 @@ mod tests {
             vm.inspector_playlist_display("track-1", "").trigger_label,
             "Add to playlist"
         );
+    }
+
+    #[test]
+    fn action_row_vm_playlist_trigger_label_uses_release_action_when_available() {
+        let vm = ActionRowVm::new("feed", false, None, None);
+        let action = EntityActionVm::new(
+            EntityActionKind::AddToPlaylist,
+            EntityActionTarget::Feed(FeedRef::Musicindex("feed-1".into())),
+            "Add release to playlist",
+            crate::view_models::entity_detail::EntityActionTone::Secondary,
+        );
+        assert_eq!(
+            vm.playlist_trigger_label(Some(&action)),
+            "Add release to playlist"
+        );
+        assert_eq!(vm.playlist_trigger_label(None), "Add feed to playlist");
+
+        let vm = ActionRowVm::new("track", false, None, None);
+        assert_eq!(vm.playlist_trigger_label(Some(&action)), "Add to playlist");
     }
 
     #[test]
@@ -2889,6 +2958,12 @@ mod tests {
         assert!(!vm.is_fee());
         assert_eq!(vm.kind_label(), "split");
         assert_eq!(vm.group(), "Recipients");
+        assert_eq!(
+            PaymentRouteVm::group_display(vm.group()),
+            PaymentRouteGroupDisplay {
+                heading: "Recipients"
+            }
+        );
 
         let r = api::PaymentRoute {
             fee: Some(true),
@@ -2898,6 +2973,10 @@ mod tests {
         assert!(vm.is_fee());
         assert_eq!(vm.kind_label(), "fee");
         assert_eq!(vm.group(), "Fees");
+        assert_eq!(
+            PaymentRouteVm::group_display(vm.group()),
+            PaymentRouteGroupDisplay { heading: "Fees" }
+        );
     }
 
     #[test]
@@ -3169,11 +3248,25 @@ mod tests {
     }
 
     #[test]
+    fn inspector_title_display_projects_recents_root_and_frame_title() {
+        assert_eq!(
+            SearchViewModel::inspector_title_display(true, None),
+            "Recent Feeds"
+        );
+        assert_eq!(
+            SearchViewModel::inspector_title_display(false, Some("Way to Go")),
+            "Way to Go"
+        );
+        assert_eq!(SearchViewModel::inspector_title_display(false, None), "");
+    }
+
+    #[test]
     fn result_row_key_display_and_inspector_title_are_pure() {
         let row = ResultRow::new("feed", "feed-1", None);
         assert_eq!(row.key(), "feed:feed-1");
         let display = row.display();
         assert_eq!(display.element_id, "result-item:feed:feed-1");
+        assert_eq!(display.kind_label, "feed");
         assert_eq!(display.line1, "feed-1");
         assert_eq!(row.inspector_title(), "feed-1");
     }

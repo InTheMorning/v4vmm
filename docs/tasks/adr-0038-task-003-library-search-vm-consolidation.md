@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred six implementation slices completed on 2026-05-03.
+In progress - first one hundred twelve implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -720,7 +720,40 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `"Feeds"` section-heading arguments from
       `render_feed_list_section`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-107. Migrate remaining fallback batches, smallest blast radius first.
+107. Discover result type badge display
+    - Add `ResultRowDisplay::kind_label` so result badge text is
+      projected by the Discover result-row VM contract.
+    - Remove screen-local `row.entity_type` cloning from the
+      `TagBadgeDisplay` binding.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+108. Discover inspector title display
+    - Add `SearchViewModel::inspector_title_display()` so recents-root,
+      frame-title, and empty-title policy are VM-owned.
+    - Remove screen-local inspector title branching and
+      `Label::new(title.to_string())`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+109. Discover playlist trigger fallback display
+    - Add `ActionRowVm::playlist_trigger_label()` so release playlist
+      action labels and feed/track fallback labels are VM-owned.
+    - Remove screen-local `add_to_playlist_label().to_string()`
+      fallback branching from the inspector action row.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+110. Discover payment-route group heading display
+    - Add `PaymentRouteVm::group_display()` so value-route group
+      headings enter the renderer as VM-owned display.
+    - Remove screen-local `group.to_string()` heading projection.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+111. Library MusicBrainz row status display binding
+    - Keep `LibraryTrackRowVm::mb_status_text()` as the status-text
+      owner and bind its string directly to the renderer.
+    - Remove the remaining screen-local `text.to_string()` projection
+      in the Library album track action row.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+112. Discover dead collapsed-text helper cleanup
+    - Remove the unused `render_collapsed_text_section()` helper so it
+      cannot reintroduce screen-local label/value projections.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+113. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1797,6 +1830,66 @@ Verified starting notes, 2026-05-03:
   literals and `SectionHeader::new(heading.to_string())` from
   returning.
 
+## One-Hundred-Sixth-Slice Implementation Notes
+
+- `ResultRowDisplay::kind_label` now carries Discover result type badge
+  text.
+- Discover still maps the type to `EntityKind` for thumbnail/badge
+  styling, but no longer clones `row.entity_type` screen-locally for
+  display text.
+- The architecture guard now blocks the screen-local result badge label
+  projection from returning.
+
+## One-Hundred-Seventh-Slice Implementation Notes
+
+- `SearchViewModel::inspector_title_display()` now carries Discover
+  inspector title policy for recents-root, frame-title, and empty-title
+  states.
+- Discover still owns inspector stack navigation and back-button
+  visibility, but no longer formats the title label locally.
+- The architecture guard now blocks screen-local
+  `Label::new(title.to_string())` inspector title projection from
+  returning.
+
+## One-Hundred-Eighth-Slice Implementation Notes
+
+- `ActionRowVm::playlist_trigger_label()` now carries Discover
+  inspector playlist trigger fallback policy, including release action
+  labels for feeds and generic labels for tracks.
+- Discover still owns popover wiring and playlist selection actions, but
+  no longer branches over `add_to_playlist_label().to_string()` in the
+  renderer.
+- The architecture guard now blocks screen-local playlist trigger
+  fallback projection from returning.
+
+## One-Hundred-Ninth-Slice Implementation Notes
+
+- `PaymentRouteVm::group_display()` now carries Discover value-route
+  group heading display after fee-vs-recipient classification.
+- Discover still groups routes for ordering, but no longer converts the
+  group key into heading text locally.
+- The architecture guard now blocks `group_heading(group.to_string())`
+  from returning.
+
+## One-Hundred-Tenth-Slice Implementation Notes
+
+- `LibraryTrackRowVm::mb_status_text()` remains the owner for Library
+  album-row `MusicBrainz` status text, and the renderer now binds that
+  VM string directly.
+- Library still maps `MbStatusKind` to GPUI status color tokens locally,
+  but no longer re-projects the status text with `text.to_string()`.
+- The architecture guard now blocks the remaining Library screen-local
+  MusicBrainz status text projection from returning.
+
+## One-Hundred-Eleventh-Slice Implementation Notes
+
+- The unused Discover `render_collapsed_text_section()` helper was
+  removed.
+- No live surface used the helper; removing it prevents a dead
+  screen-local label/value projection path from becoming a future copy
+  point.
+- The architecture guard now blocks the helper from being reintroduced.
+
 ## Test Commands
 
 ```sh
@@ -1825,6 +1918,10 @@ cargo test artwork_url_display_projects_raw_url_text
 cargo test feed_header_display_filters_empty_subtitle
 cargo test search_type_filter_options_project_labels_and_values
 cargo test feed_list_section_display_projects_heading
+cargo test result_row_key_display_and_inspector_title_are_pure
+cargo test inspector_title_display_projects_recents_root_and_frame_title
+cargo test action_row_vm_playlist_trigger_label_uses_release_action_when_available
+cargo test payment_route_vm_classifies_fee_vs_split
 cargo test id3_generated_row_display_projects_ids_and_labels
 cargo test source_drag_display_projects_discover_source_cell_ids
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized

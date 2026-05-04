@@ -2678,7 +2678,7 @@ fn render_library_track_row(
             div()
                 .text_size(typography::SIZE_MICRO)
                 .text_color(status_color)
-                .child(SharedString::from(text.to_string()))
+                .child(SharedString::from(text))
                 .into_any_element(),
         );
     }

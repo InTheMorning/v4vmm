@@ -2251,6 +2251,36 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/search.rs",
+            "SharedString::from(row.entity_type.clone())",
+            "Discover result type badge label belongs in ResultRowDisplay",
+        ),
+        (
+            "src/search.rs",
+            "Label::new(title.to_string())",
+            "Discover inspector title display belongs in SearchViewModel::inspector_title_display",
+        ),
+        (
+            "src/search.rs",
+            "vm.add_to_playlist_label().to_string()",
+            "Discover playlist trigger fallback belongs in ActionRowVm::playlist_trigger_label",
+        ),
+        (
+            "src/search.rs",
+            "group_heading(group.to_string())",
+            "Discover payment-route group heading belongs in PaymentRouteVm::group_display",
+        ),
+        (
+            "src/search.rs",
+            "pub(crate) fn render_collapsed_text_section",
+            "Dead Discover collapsed text section render helpers must not reintroduce screen-local display strings",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(text.to_string())",
+            "Library MusicBrainz status text belongs in LibraryTrackRowVm::mb_status_text",
+        ),
+        (
+            "src/search.rs",
             "fn compare_row_id(",
             "Discover metadata compare-row slug display belongs in TrackMetadataGridVm::compare_row_id",
         ),

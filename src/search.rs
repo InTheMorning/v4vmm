@@ -2363,6 +2363,7 @@ fn render_result_item(
     let line1 = display.line1;
     let line2 = display.line2;
     let line3 = display.line3;
+    let kind_label = display.kind_label;
     let key = row.key();
     let is_selected = selected_key == Some(key.as_str());
     let entity_type = row.entity_type.clone();
@@ -2409,7 +2410,7 @@ fn render_result_item(
         )
         .child(TagBadge::new(TagBadgeDisplay {
             kind,
-            label: Some(SharedString::from(row.entity_type.clone())),
+            label: Some(SharedString::from(kind_label)),
         }))
         .into_any_element()
 }
@@ -2422,11 +2423,10 @@ fn render_inspector(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let chrome = SearchViewModel::inspector_chrome_display();
-    let title = if show_recents_root && frame.is_none() {
-        SearchViewModel::recents_root_title()
-    } else {
-        frame.map_or("", |frame| frame.title.as_str())
-    };
+    let title = SearchViewModel::inspector_title_display(
+        show_recents_root,
+        frame.map(|frame| frame.title.as_str()),
+    );
     div()
         .flex()
         .flex_col()
@@ -2457,7 +2457,7 @@ fn render_inspector(
                 })
                 .child(
                     div().flex_1().child(
-                        Label::new(title.to_string())
+                        Label::new(title)
                             .size(FontSize::Micro)
                             .color(SemanticColor::TertiaryLabel)
                             .truncated(),
@@ -2726,14 +2726,7 @@ pub(crate) fn discover_inspector_action_row(
     } else {
         None
     };
-    let playlist_label = if is_feed {
-        release_playlist_action.as_ref().map_or_else(
-            || vm.add_to_playlist_label().to_string(),
-            |action| action.label.clone(),
-        )
-    } else {
-        vm.add_to_playlist_label().to_string()
-    };
+    let playlist_label = vm.playlist_trigger_label(release_playlist_action.as_ref());
     let playlist_disabled = if is_feed {
         frame.subscription_busy
             || release_playlist_action
@@ -3022,7 +3015,8 @@ fn value_route_elements(routes: &[PaymentRoute]) -> Vec<AnyElement> {
     groups
         .into_iter()
         .flat_map(|(group, routes)| {
-            let mut elements = vec![group_heading(group.to_string())];
+            let group_display = PaymentRouteVm::group_display(group);
+            let mut elements = vec![group_heading(group_display.heading)];
             elements.extend(routes.into_iter().map(|route| {
                 let vm = PaymentRouteVm::new(route);
                 let summary = vm.summary();
@@ -4578,31 +4572,6 @@ fn render_track_header_subtitle(
         .into_any_element()
 }
 
-pub(crate) fn render_collapsed_text_section(label: &str, value: String) -> AnyElement {
-    div()
-        .border_1()
-        .border_color(color::border_subtle())
-        .rounded(radius::MD)
-        .p(spacing::SM)
-        .child(
-            div()
-                .text_size(typography::SIZE_MICRO)
-                .font_weight(FontWeight::BOLD)
-                .text_color(color::text_muted())
-                .child(SharedString::from(label.to_string())),
-        )
-        .child(
-            div().mt(spacing::XS).child(
-                MultilineText::new(value)
-                    .max_lines(3)
-                    .size(FontSize::Micro)
-                    .line_height(typography::LINE_DETAIL)
-                    .color(SemanticColor::Label),
-            ),
-        )
-        .into_any_element()
-}
-
 fn render_feed_link_value(link: TrackFeedLinkDisplay, cx: &mut Context<SearchApp>) -> AnyElement {
     let element_id = link.element_id;
     let guid = link.guid;
@@ -4739,13 +4708,13 @@ fn render_inspector_empty(display: InspectorChromeDisplay) -> AnyElement {
         .into_any_element()
 }
 
-fn group_heading(label: String) -> AnyElement {
+fn group_heading(label: &'static str) -> AnyElement {
     div()
         .text_size(typography::SIZE_MICRO)
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(color::text_muted())
         .mt(spacing::SM)
-        .child(SharedString::from(label))
+        .child(label)
         .into_any_element()
 }
 
