@@ -2913,6 +2913,31 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Contributor person row href display belongs in ContributorPersonVm",
         ),
         (
+            "src/ui/shells/entity.rs",
+            "panel.body.as_deref().unwrap_or_default().to_string()",
+            "Release description panel body fallback belongs in ReleasePanelVm::text_display",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "title: hero.title.to_string().into()",
+            "Release hero header title belongs in ReleaseHeroVm::display",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "subtitle: hero.subtitle.map(|subtitle| subtitle.to_string().into())",
+            "Release hero header subtitle belongs in ReleaseHeroVm::display",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "label: \"Publisher\".into()",
+            "Release hero supporting-line label belongs in ReleaseHeroVm::display",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "value: supporting_line.to_string().into()",
+            "Release hero supporting-line value belongs in ReleaseHeroVm::display",
+        ),
+        (
             "src/search.rs",
             "EntityKind::from_legacy_str(&row.entity_type)",
             "Discover result thumbnail kind belongs with ResultRowDisplay kind projection",

@@ -600,6 +600,41 @@ pub struct ReleaseHeroVm<'a> {
     pub supporting_line: Option<&'a str>,
 }
 
+impl ReleaseHeroVm<'_> {
+    #[must_use]
+    pub fn display(&self) -> ReleaseHeroDisplay {
+        ReleaseHeroDisplay {
+            kind: self.kind,
+            title: self.title.to_string(),
+            subtitle: self.subtitle.map(str::to_string),
+            data_rows: self
+                .supporting_line
+                .map(|supporting_line| ReleaseHeaderDataRowVm {
+                    label: "Publisher",
+                    value: supporting_line.to_string(),
+                    max_lines: 1,
+                })
+                .into_iter()
+                .collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleaseHeroDisplay {
+    pub kind: EntitySurfaceKind,
+    pub title: String,
+    pub subtitle: Option<String>,
+    pub data_rows: Vec<ReleaseHeaderDataRowVm>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleaseHeaderDataRowVm {
+    pub label: &'static str,
+    pub value: String,
+    pub max_lines: usize,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReleaseFactVm {
     pub key: &'static str,
@@ -618,6 +653,22 @@ pub struct ReleasePanelVm {
     pub title: &'static str,
     pub body: Option<String>,
     pub rows: Vec<EntityDetailRow>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleaseTextPanelDisplay {
+    pub title: &'static str,
+    pub body: String,
+}
+
+impl ReleasePanelVm {
+    #[must_use]
+    pub fn text_display(&self) -> Option<ReleaseTextPanelDisplay> {
+        (self.kind == ReleasePanelKind::Description).then(|| ReleaseTextPanelDisplay {
+            title: self.title,
+            body: self.body.clone().unwrap_or_default(),
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1411,6 +1462,82 @@ mod tests {
             .summary_facts
             .iter()
             .all(|fact| fact.value != "Release description"));
+    }
+
+    #[test]
+    fn release_hero_vm_projects_header_display_contract() {
+        let feed = feed_view();
+        let page = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).page();
+
+        assert_eq!(
+            page.hero.display(),
+            ReleaseHeroDisplay {
+                kind: EntitySurfaceKind::Feed,
+                title: "Release".into(),
+                subtitle: Some("Artist".into()),
+                data_rows: vec![ReleaseHeaderDataRowVm {
+                    label: "Publisher",
+                    value: "Publisher".into(),
+                    max_lines: 1,
+                }],
+            }
+        );
+
+        let hero = ReleaseHeroVm {
+            kind: EntitySurfaceKind::Feed,
+            artwork: None,
+            title: "Untitled",
+            subtitle: None,
+            supporting_line: None,
+        };
+        assert_eq!(
+            hero.display(),
+            ReleaseHeroDisplay {
+                kind: EntitySurfaceKind::Feed,
+                title: "Untitled".into(),
+                subtitle: None,
+                data_rows: Vec::new(),
+            }
+        );
+    }
+
+    #[test]
+    fn release_panel_vm_projects_description_text_display() {
+        let panel = ReleasePanelVm {
+            kind: ReleasePanelKind::Description,
+            title: "Description",
+            body: Some("Release description".into()),
+            rows: Vec::new(),
+        };
+        assert_eq!(
+            panel.text_display(),
+            Some(ReleaseTextPanelDisplay {
+                title: "Description",
+                body: "Release description".into(),
+            })
+        );
+
+        let panel = ReleasePanelVm {
+            kind: ReleasePanelKind::Description,
+            title: "Description",
+            body: None,
+            rows: Vec::new(),
+        };
+        assert_eq!(
+            panel.text_display(),
+            Some(ReleaseTextPanelDisplay {
+                title: "Description",
+                body: String::new(),
+            })
+        );
+
+        let panel = ReleasePanelVm {
+            kind: ReleasePanelKind::Identity,
+            title: "Identity",
+            body: Some("ignored".into()),
+            rows: Vec::new(),
+        };
+        assert_eq!(panel.text_display(), None);
     }
 
     #[test]

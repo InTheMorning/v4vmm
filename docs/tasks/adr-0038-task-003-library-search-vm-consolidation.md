@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred forty-four implementation slices completed on 2026-05-04.
+In progress - first one hundred forty-six implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -951,7 +951,20 @@ Verified starting notes, 2026-05-03:
     - Remove renderer-side result-row key and raw entity-id/entity-type
       navigation target assembly.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-145. Migrate remaining fallback batches, smallest blast radius first.
+145. Release description panel text display
+    - Add `ReleasePanelVm::text_display()` so description panel title
+      and missing-body fallback enter shared entity shells as one
+      VM-owned projection.
+    - Remove shared-shell `panel.body.as_deref().unwrap_or_default()`
+      fallback from release panel rendering.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+146. Release hero header display
+    - Add `ReleaseHeroVm::display()` so release header kind, title,
+      subtitle, and supporting-line data row projection are VM-owned.
+    - Remove shared-shell hero title/subtitle string projection and
+      hardcoded publisher data-row assembly.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+147. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2396,6 +2409,25 @@ Verified starting notes, 2026-05-03:
   `row.inspector_title()` locally.
 - The architecture guard now blocks the old screen-local result-row
   key and navigation target assembly from returning.
+
+## One-Hundred-Forty-Fifth-Slice Implementation Notes
+
+- `ReleasePanelVm::text_display()` now carries description panel title
+  and body display text.
+- The shared entity shell still owns GPUI text-panel layout, but no
+  longer supplies the missing-body fallback locally.
+- The architecture guard now blocks the old shared-shell description
+  body fallback from returning.
+
+## One-Hundred-Forty-Sixth-Slice Implementation Notes
+
+- `ReleaseHeroVm::display()` now carries release header kind, title,
+  subtitle, and supporting-line data rows.
+- The shared entity shell still maps the VM display into
+  `DetailHeaderDisplay`, but no longer authors title/subtitle strings
+  or the `Publisher` data-row label locally.
+- The architecture guard now blocks the old shared-shell hero header
+  projection from returning.
 
 ## Test Commands
 

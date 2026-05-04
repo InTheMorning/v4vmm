@@ -277,18 +277,19 @@ fn render_contributor_role_row(role: &ContributorRoleRowVm) -> AnyElement {
 }
 
 fn render_contract_header(hero: &ReleaseHeroVm<'_>, hero_image: Option<Arc<Image>>) -> AnyElement {
+    let display = hero.display();
     DetailHeader::new(DetailHeaderDisplay {
-        kind: entity_kind(hero.kind),
-        title: hero.title.to_string().into(),
-        subtitle: hero.subtitle.map(|subtitle| subtitle.to_string().into()),
-        data_rows: hero
-            .supporting_line
-            .map(|supporting_line| DetailHeaderDataRow {
-                label: "Publisher".into(),
-                value: supporting_line.to_string().into(),
-                max_lines: 1,
-            })
+        kind: entity_kind(display.kind),
+        title: display.title.into(),
+        subtitle: display.subtitle.map(Into::into),
+        data_rows: display
+            .data_rows
             .into_iter()
+            .map(|row| DetailHeaderDataRow {
+                label: row.label.into(),
+                value: row.value.into(),
+                max_lines: row.max_lines,
+            })
             .collect(),
     })
     .image(hero_image)
@@ -313,10 +314,12 @@ fn render_summary_facts(facts: &[crate::view_models::entity_detail::ReleaseFactV
 
 fn render_release_panel(panel: &ReleasePanelVm) -> AnyElement {
     match panel.kind {
-        ReleasePanelKind::Description => render_text_panel(
-            panel.title,
-            panel.body.as_deref().unwrap_or_default().to_string(),
-        ),
+        ReleasePanelKind::Description => {
+            let display = panel
+                .text_display()
+                .expect("description panels carry text display");
+            render_text_panel(display.title, display.body)
+        }
         ReleasePanelKind::Identity => DetailGrid::new(
             panel
                 .rows
