@@ -2918,6 +2918,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover result thumbnail kind belongs with ResultRowDisplay kind projection",
         ),
         (
+            "src/search.rs",
+            "let key = row.key()",
+            "Discover result row selection key belongs in ResultRowRenderItem",
+        ),
+        (
+            "src/search.rs",
+            "let entity_type = row.entity_type.clone()",
+            "Discover result row navigation target belongs in ResultRowRenderItem",
+        ),
+        (
+            "src/search.rs",
+            "let entity_id = row.entity_id.clone()",
+            "Discover result row navigation target belongs in ResultRowRenderItem",
+        ),
+        (
+            "src/search.rs",
+            "let title = row.inspector_title()",
+            "Discover result row navigation title belongs in ResultRowRenderItem",
+        ),
+        (
             "src/library.rs",
             "\"Checking...\"",
             "Library feed-update checking label belongs in LibraryViewModel::feed_update_display",

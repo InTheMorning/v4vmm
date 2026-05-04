@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred forty-three implementation slices completed on 2026-05-04.
+In progress - first one hundred forty-four implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -944,7 +944,14 @@ Verified starting notes, 2026-05-03:
       VM-owned projection.
     - Remove renderer-side `EntityKind::from_legacy_str(&row.entity_type)`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-144. Migrate remaining fallback batches, smallest blast radius first.
+144. Discover result row render item display
+    - Add `ResultRowRenderItem` so Discover result display, selection
+      key, and click navigation target enter the renderer as one
+      VM-owned projection.
+    - Remove renderer-side result-row key and raw entity-id/entity-type
+      navigation target assembly.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+145. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2379,6 +2386,16 @@ Verified starting notes, 2026-05-03:
   presentation.
 - The architecture guard now blocks the old screen-local thumbnail kind
   mapping from returning.
+
+## One-Hundred-Forty-Fourth-Slice Implementation Notes
+
+- `ResultRowRenderItem` now carries the Discover result display,
+  selection key, and navigation target together.
+- `src/search.rs` still owns GPUI click wiring, but no longer assembles
+  result-row navigation from `row.entity_type`, `row.entity_id`, or
+  `row.inspector_title()` locally.
+- The architecture guard now blocks the old screen-local result-row
+  key and navigation target assembly from returning.
 
 ## Test Commands
 

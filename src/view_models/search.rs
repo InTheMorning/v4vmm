@@ -59,6 +59,15 @@ impl ResultRow {
     }
 
     #[must_use]
+    pub(crate) fn render_item(&self) -> ResultRowRenderItem {
+        ResultRowRenderItem {
+            selection_key: self.key(),
+            navigation_target: ResultNavigationTarget::from_row(self),
+            display: self.display(),
+        }
+    }
+
+    #[must_use]
     pub(crate) fn inspector_title(&self) -> String {
         let line1 = self.display().line1;
         if line1.is_empty() {
@@ -82,6 +91,14 @@ pub(crate) struct ResultRowDisplay {
     pub(crate) line2: String,
     pub(crate) line3: String,
     pub(crate) image_url: Option<String>,
+}
+
+/// Complete render projection for one Discover result row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ResultRowRenderItem {
+    pub(crate) selection_key: String,
+    pub(crate) navigation_target: ResultNavigationTarget,
+    pub(crate) display: ResultRowDisplay,
 }
 
 /// Display-ready publisher link text and tooltip.
@@ -3328,6 +3345,15 @@ mod tests {
         assert_eq!(display.kind_label, "feed");
         assert_eq!(display.line1, "feed-1");
         assert_eq!(row.inspector_title(), "feed-1");
+
+        let item = row.render_item();
+        assert_eq!(item.selection_key, "feed:feed-1");
+        assert_eq!(item.display.element_id, "result-item:feed:feed-1");
+        let (entity_type, entity_id, title) = item.navigation_target.into_parts();
+        assert_eq!(
+            (entity_type.as_str(), entity_id.as_str(), title.as_str()),
+            ("feed", "feed-1", "feed-1")
+        );
     }
 
     #[test]

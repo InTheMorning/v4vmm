@@ -77,8 +77,8 @@ use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
     ActionRowVm, DeferredPanelKind, InspectorChromeDisplay, LazyPanel, PaymentRouteVm,
     PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm, PublisherLinkDisplay,
-    RecentFeedTileVm, ResultRow, SearchBatch, SearchSubscriptionCommand, SearchViewModel,
-    TrackFeedLinkDisplay, TrackInspectorHeaderVm, TrackRowActionVm,
+    RecentFeedTileVm, ResultRow, ResultRowRenderItem, SearchBatch, SearchSubscriptionCommand,
+    SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
@@ -1689,10 +1689,10 @@ impl Render for SearchApp {
             .rows
             .iter()
             .map(|row| {
-                let image_url = row.display().image_url;
-                let thumbnail = self.thumbnail_for_url(image_url.as_deref(), cx);
+                let item = row.render_item();
+                let thumbnail = self.thumbnail_for_url(item.display.image_url.as_deref(), cx);
                 render_result_item(
-                    row,
+                    item,
                     snapshot.selected_key.as_deref(),
                     thumbnail.clone(),
                     list_focused,
@@ -2360,23 +2360,23 @@ fn render_filter_button(
 }
 
 fn render_result_item(
-    row: &ResultRow,
+    item: ResultRowRenderItem,
     selected_key: Option<&str>,
     thumbnail: Option<Arc<Image>>,
     list_focused: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let display = row.display();
+    let ResultRowRenderItem {
+        selection_key,
+        navigation_target,
+        display,
+    } = item;
     let element_id = display.element_id;
     let line1 = display.line1;
     let line2 = display.line2;
     let line3 = display.line3;
     let kind_label = display.kind_label;
-    let key = row.key();
-    let is_selected = selected_key == Some(key.as_str());
-    let entity_type = row.entity_type.clone();
-    let entity_id = row.entity_id.clone();
-    let title = row.inspector_title();
+    let is_selected = selected_key == Some(selection_key.as_str());
 
     let kind = EntityKind::from_legacy_str(&kind_label);
 
@@ -2384,7 +2384,8 @@ fn render_result_item(
         .selected(is_selected)
         .focused(is_selected && list_focused)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.select_result(entity_type.clone(), entity_id.clone(), title.clone(), cx);
+            let (entity_type, entity_id, title) = navigation_target.clone().into_parts();
+            this.select_result(entity_type, entity_id, title, cx);
         }))
         .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
         .child(
