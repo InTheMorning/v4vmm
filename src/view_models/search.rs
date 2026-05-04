@@ -1187,11 +1187,13 @@ pub(crate) struct SearchPaneDisplay {
     pub(crate) resize_handle_id: &'static str,
     pub(crate) search_button_id: &'static str,
     pub(crate) fuzzy_toggle_id: &'static str,
+    pub(crate) recents_button_id: &'static str,
     pub(crate) results_scroll_id: &'static str,
     pub(crate) load_more_button_id: &'static str,
     pub(crate) heading: &'static str,
     pub(crate) search_button_label: &'static str,
     pub(crate) fuzzy_toggle_label: &'static str,
+    pub(crate) recents_button_label: &'static str,
     pub(crate) empty_icon: &'static str,
     pub(crate) empty_label: &'static str,
     pub(crate) load_more_label: &'static str,
@@ -1210,6 +1212,7 @@ impl SearchPaneDisplay {
             resize_handle_id: "resize-handle",
             search_button_id: "search-btn",
             fuzzy_toggle_id: "fuzzy-toggle",
+            recents_button_id: "show-recents",
             results_scroll_id: "results-scroll",
             load_more_button_id: "load-more",
             heading: "Search Index",
@@ -1219,6 +1222,7 @@ impl SearchPaneDisplay {
             } else {
                 "Fuzzy: Off"
             },
+            recents_button_label: "Recent Feeds",
             empty_icon: "\u{1F50D}",
             empty_label: "No results",
             load_more_label: "Load more",
@@ -1239,6 +1243,7 @@ pub(crate) struct SearchRenderSnapshot {
     pub(crate) selected_key: Option<String>,
     pub(crate) type_filter: usize,
     pub(crate) show_recents_root: bool,
+    pub(crate) show_recents_command: bool,
     pub(crate) loading: bool,
     pub(crate) empty: bool,
     pub(crate) has_more: bool,
@@ -1546,16 +1551,16 @@ impl SearchViewModel {
         input_is_empty: bool,
     ) -> SearchRenderSnapshot {
         let empty = self.results.is_empty();
+        let show_recents_root =
+            inspector_stack_empty && self.inspector_origin.is_none() && empty && input_is_empty;
         SearchRenderSnapshot {
             status: SearchStatusSnapshot::from_text(&self.status),
             pane_display: SearchPaneDisplay::new(self.fuzzy_search),
             rows: self.results.clone(),
             selected_key: self.selected_key.clone(),
             type_filter: self.type_filter,
-            show_recents_root: inspector_stack_empty
-                && self.inspector_origin.is_none()
-                && empty
-                && input_is_empty,
+            show_recents_root,
+            show_recents_command: inspector_stack_empty && !self.loading && !show_recents_root,
             loading: self.loading,
             empty,
             has_more: self.has_more,
@@ -1669,6 +1674,22 @@ impl SearchViewModel {
         self.recent_has_more = false;
         self.recent_loaded_once = false;
         self.recent_status.clear();
+    }
+
+    /// Return Discover to its recent-feeds root presentation.
+    ///
+    /// The screen clears the GPUI input before calling this. The VM owns the
+    /// pure pane state transition so the recents affordance cannot drift into
+    /// renderer-only behavior.
+    pub(crate) fn return_to_recent_feeds(&mut self) -> bool {
+        self.loading = false;
+        self.status.clear();
+        self.cursor = None;
+        self.has_more = false;
+        self.results.clear();
+        self.clear_selection();
+        self.clear_inspector_origin();
+        !self.recent_loaded_once && !self.recent_loading
     }
 
     #[must_use]
@@ -3208,6 +3229,7 @@ mod tests {
         assert_eq!(snapshot.selected_key.as_deref(), Some("feed:feed-1"));
         assert_eq!(snapshot.type_filter, 2);
         assert!(!snapshot.show_recents_root);
+        assert!(!snapshot.show_recents_command);
         assert!(snapshot.loading);
         assert!(!snapshot.empty);
         assert!(snapshot.has_more);
@@ -3215,6 +3237,7 @@ mod tests {
 
         let empty_snapshot = SearchViewModel::new().render_snapshot(true, true);
         assert!(empty_snapshot.show_recents_root);
+        assert!(!empty_snapshot.show_recents_command);
         assert!(empty_snapshot.empty);
         assert!(empty_snapshot.status.is_empty());
         assert_eq!(empty_snapshot.status.display_text, "");
@@ -3231,6 +3254,18 @@ mod tests {
         );
         assert_eq!(empty_snapshot.pane_display.load_more_button_id, "load-more");
         assert_eq!(empty_snapshot.pane_display.fuzzy_toggle_label, "Fuzzy: On");
+    }
+
+    #[test]
+    fn search_render_snapshot_exposes_recent_feeds_command_after_search() {
+        let mut vm = SearchViewModel::new();
+        vm.results.push(ResultRow::new("feed", "feed-1", None));
+        let snapshot = vm.render_snapshot(true, false);
+
+        assert!(!snapshot.show_recents_root);
+        assert!(snapshot.show_recents_command);
+        assert_eq!(snapshot.pane_display.recents_button_id, "show-recents");
+        assert_eq!(snapshot.pane_display.recents_button_label, "Recent Feeds");
     }
 
     #[test]
@@ -3486,6 +3521,31 @@ mod tests {
         assert!(!vm.recent_has_more);
         assert!(!vm.recent_loaded_once);
         assert!(vm.recent_status.is_empty());
+    }
+
+    #[test]
+    fn search_view_model_return_to_recent_feeds_clears_search_pane() {
+        let mut vm = SearchViewModel::new();
+        vm.results.push(ResultRow::new("feed", "f1", None));
+        vm.loading = true;
+        vm.status = "Searching...".into();
+        vm.cursor = Some("cursor".into());
+        vm.has_more = true;
+        vm.select("feed:f1");
+        vm.mark_inspector_from_search();
+
+        assert!(vm.return_to_recent_feeds());
+
+        assert!(vm.results.is_empty());
+        assert!(!vm.loading);
+        assert!(vm.status.is_empty());
+        assert_eq!(vm.cursor, None);
+        assert!(!vm.has_more);
+        assert_eq!(vm.selected_key, None);
+        assert_eq!(vm.inspector_origin, None);
+
+        vm.recent_loaded_once = true;
+        assert!(!vm.return_to_recent_feeds());
     }
 
     #[test]

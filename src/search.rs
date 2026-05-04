@@ -427,6 +427,18 @@ impl SearchApp {
         }
     }
 
+    fn show_recent_feeds(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.input.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
+        self.inspector_stack.clear();
+        let should_load = self.vm.return_to_recent_feeds();
+        cx.notify();
+        if should_load {
+            self.load_recent_feeds(false, cx);
+        }
+    }
+
     fn thumbnail_for_url(
         &mut self,
         url: Option<&str>,
@@ -1674,7 +1686,7 @@ impl SearchApp {
 }
 
 impl Render for SearchApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let stack = self.inspector_stack.clone();
         let input_has_search_term = normalized_search_query(&self.input.read(cx).value()).is_some();
         let snapshot = self
@@ -1688,7 +1700,7 @@ impl Render for SearchApp {
         let status_empty = snapshot.status.is_empty();
         let status_text = snapshot.status.display_text;
 
-        let list_focused = self.list_focus.is_focused(_window);
+        let list_focused = self.list_focus.is_focused(window);
         let results: Vec<AnyElement> = snapshot
             .rows
             .iter()
@@ -1728,6 +1740,7 @@ impl Render for SearchApp {
         let is_empty = snapshot.empty;
         let has_more = snapshot.has_more;
         let fuzzy_search = snapshot.fuzzy_search;
+        let show_recents_command = snapshot.show_recents_command;
         let pane_display = snapshot.pane_display.clone();
         let search_label = pane_display.search_button_label;
 
@@ -1798,7 +1811,21 @@ impl Render for SearchApp {
                                         this.toggle_fuzzy_search(cx);
                                     },
                                 )),
-                            ),
+                            )
+                            .when(show_recents_command, |el| {
+                                el.child(
+                                    UiButton::styled(
+                                        pane_display.recents_button_id,
+                                        ControlStyle::Ghost,
+                                    )
+                                    .label(pane_display.recents_button_label)
+                                    .on_click(cx.listener(
+                                        |this, _, window, cx| {
+                                            this.show_recent_feeds(window, cx);
+                                        },
+                                    )),
+                                )
+                            }),
                     )
                     .child(
                         div()

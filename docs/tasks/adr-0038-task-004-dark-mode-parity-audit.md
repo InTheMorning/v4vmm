@@ -2,8 +2,10 @@
 
 ## Status
 
-In progress (2026-05-04). Token resolution for `src/ui/style.rs` is
-complete and guarded; visual smoke capture is the remaining blocker.
+Completed (2026-05-04). Token resolution for `src/ui/style.rs` is
+complete and guarded. Light and dark surface verification was completed
+with transient `/tmp` captures after operator navigation; no screenshot
+artifacts are retained or committed.
 
 ## Goal
 
@@ -33,25 +35,28 @@ Verified 2026-05-04:
   and so the token system is not the right home. Out of scope for this
   task.
 
-## Files Likely To Change
+## Changed Files
 
-- `src/ui/style.rs` — clean up or absorb into `tokens.rs`/
-  `theme_profiles.rs`.
-- `src/ui/tokens.rs` — possibly new semantic colors if `style.rs`
-  defines values not yet tokenized.
-- `tests/architecture_tests.rs` — tighten the raw-color guard to
-  include `src/ui/style.rs` (or remove the file and skip).
-- `docs/reviews/screenshots/` — light + dark pairs for every main
-  surface.
+- `src/ui/style.rs` — ID3 frame colors now resolve through semantic
+  tokens.
+- `src/ui/tokens.rs` and `src/ui/theme_profiles.rs` — semantic ID3
+  frame color roles added for light, dark, high-contrast-light, and
+  high-contrast-dark profiles.
+- `tests/architecture_tests.rs` — raw-color guard now includes
+  `src/ui/style.rs`.
+- `src/view_models/search.rs` — Discover now owns the reset-to-recents
+  pane state transition and the `Recent Feeds` command display.
+- `src/search.rs` — Discover wires the VM-owned `Recent Feeds` command
+  so recent-feed tiles are reachable again after a search.
+- `docs/reviews/adr-0038-review-checklist.md` — visual smoke ledger
+  records transient verification evidence without screenshot artifacts.
 
-## Open Questions
+## Resolved Questions
 
-1. **Is `src/ui/style.rs` legitimate token-layer code?** If so, document
-   it in the file's module-level comment and add it to the
-   raw-color-allowed set. If not, delete and migrate callers to
-   `tokens::SemanticColor`.
-2. **Surface coverage for visual smoke.** The full main-surface list
-   for HIG audit:
+1. **Is `src/ui/style.rs` legitimate token-layer code?** Yes. It now
+   resolves through `SemanticColor` roles and is guarded against raw
+   `rgb(...)` literals.
+2. **Surface coverage for visual smoke.** The HIG audit covered:
    - Library list
    - Library inspector
    - Library track detail
@@ -65,22 +70,20 @@ Verified 2026-05-04:
    - Recent feed tiles
    - Sidebar / selection rows
 
-   Confirm the list before capturing.
-3. **Material/elevation parity.** HIG materials (translucency, vibrancy)
-   may differ between themes. Note any divergence rather than fixing
-   in this task.
-4. **Coordination with ADR 0034 (scale-aware tokens).** Tokens already
-   resolve through scale; theme resolution is orthogonal. Don't
-   conflate.
+   Captures were transient and operator-navigated per review policy.
+3. **Material/elevation parity.** No task-blocking material or elevation
+   divergence was found in the inspected light/dark states.
+4. **Coordination with ADR 0034 (scale-aware tokens).** Tokens resolve
+   through scale; this task kept theme resolution orthogonal.
 
 ## Constraints
 
 - No palette redesign. Whatever colors exist today must work in both
   themes; if they don't, file a follow-up. This task is audit + raw-rgb
   cleanup, not design.
-- Visual smoke is required for every surface in the inventory. Both
-  themes. File at
-  `docs/reviews/screenshots/adr-0038-{surface}-{light,dark}.png`.
+- Visual smoke is required for every surface in the inventory in both
+  themes. Per operator instruction, proof is recorded in the review
+  ledger and transient `/tmp` captures are not retained in git.
 - Don't touch `screens_do_not_add_unapproved_hardcoded_dark_defaults`
   baselines without a separate task.
 
@@ -91,10 +94,9 @@ Verified 2026-05-04:
       file token-resolved.
 - [x] The raw-color guard covers `src/ui/style.rs`
       (`ui_style_resolves_colors_through_token_layer`).
-- [ ] Light + dark screenshot pairs filed for every surface in the
-      inventory. Blocked: capturing app screenshots from the CLI
-      sandbox is not currently feasible. Filed as a deterministic
-      capture follow-up alongside the Task 001 visual-proof caveat.
+- [x] Light + dark visual verification completed for every surface in
+      the inventory via operator-navigated, transient `/tmp` captures.
+      No screenshot files were retained or committed.
 - [x] A coverage table lives in the review checklist.
 
 ## When To Start
