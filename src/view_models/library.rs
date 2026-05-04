@@ -29,6 +29,7 @@ use crate::view_models::entity_detail::{
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
 };
 use crate::view_models::format::{fmt_total_runtime_clock, plural};
+use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{FeedRef, FeedView, LocalIdentityFacts, TrackRef};
 
@@ -1878,6 +1879,11 @@ impl PlaylistTrackRowVm<'_> {
         self.track
     }
 
+    #[must_use]
+    pub(crate) fn position(&self) -> i64 {
+        i64::try_from(self.position).unwrap_or(i64::MAX)
+    }
+
     /// `"{n}."` where `n` is the 1-indexed position.
     #[must_use]
     pub(crate) fn position_label(&self) -> String {
@@ -1994,6 +2000,11 @@ impl<'a> PlaylistDetailVm<'a> {
     #[must_use]
     pub(crate) fn playlist_id(&self) -> i64 {
         self.playlist.id
+    }
+
+    #[must_use]
+    pub(crate) fn page(self, scroll_id: &'static str) -> PlaylistDetailPageVm<'a> {
+        PlaylistDetailPageVm::new(self, scroll_id)
     }
 
     #[must_use]

@@ -20,4 +20,5 @@
 pub mod artist;
 pub mod entity;
 pub mod feed;
+pub mod playlist;
 pub mod track;

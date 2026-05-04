@@ -2,8 +2,7 @@
 
 ## Status
 
-In progress. Track detail page-VM parity slice started on 2026-05-04
-after Tasks 002, 003, 004, and 005 landed.
+Completed on 2026-05-04.
 
 ## Goal
 
@@ -24,13 +23,14 @@ Already on the pattern:
 - Artist detail — `ArtistDetailPageVm` now carries shared artist header
   and fact rows, and Library/Discover artist detail surfaces render
   through `src/ui/shells/artist.rs::render_artist_detail_shell`.
+- Playlist detail — `PlaylistDetailPageVm` wraps the existing
+  `PlaylistDetailVm`, and Library playlist detail renders through
+  `src/ui/shells/playlist.rs::render_playlist_detail_shell`.
 
-Not yet on the pattern:
-
-- Playlist detail — currently spread across
-  `library.rs`/`search.rs`/`view_models/library.rs`.
-- Search results / recent-feed tiles — multi-row composite that may
-  benefit from a page-level VM for batch operations.
+Search results / recent-feed tiles stay row/list composites for ADR
+0038. They are not entity detail pages, and their restored
+reset-to-recents command is already VM-owned. Revisit only if a future
+feature introduces page-level batch actions that need a batch PageVm.
 
 ## Completed Slices
 
@@ -68,6 +68,29 @@ screenshots through the user-directed navigation workflow.
 Visual smoke was not captured for this slice because the shell shape is
 unchanged; the refactor moves page assembly ownership into the VM/shell
 contract.
+
+### Playlist Detail PageVm Parity — 2026-05-04
+
+- Added `PlaylistDetailPageVm` in
+  `src/view_models/playlist_detail.rs`.
+- Added `PlaylistDetailBehaviorSlots`, `PlaylistTrackRowSlot`, and
+  `render_playlist_detail_shell()` in `src/ui/shells/playlist.rs`.
+- Moved Library playlist detail off screen-local header, fact-grid,
+  action-row, and track-row page assembly. `library.rs` now projects
+  the existing `PlaylistDetailVm` into a page VM and supplies only
+  thumbnail elements plus playlist command callbacks.
+- Expanded
+  `entity_detail_pages_render_through_shell_helper_and_page_vm` to cover
+  Library playlist detail and `PlaylistDetailPageVm`.
+- Expanded `shared_top_level_ui_shells_do_not_import_screen_modules` to
+  include the new playlist shell.
+- Added a VM unit test for the `PlaylistDetailPageVm` wrapper.
+
+Visual smoke was not captured for this slice because the visible
+hierarchy is intended to be unchanged; the refactor moves playlist page
+assembly ownership into the VM/shell contract. If Task 007 changes the
+surface while decomposing Library, capture light + dark screenshots via
+the user-directed navigation workflow.
 
 ## Files Likely To Change
 
@@ -118,12 +141,8 @@ contract.
 
 ## Remaining Work
 
-- Add `PlaylistDetailPageVm` and route playlist detail through a
-  playlist shell helper.
-- Decide whether search results / recent-feed tiles remain row
-  composites or need a separate page-level batch VM.
-- Capture visual smoke only for slices that change visible hierarchy or
-  when the final Task 006 gate needs acceptance evidence.
+None for Task 006. Task 007 owns screen decomposition, and Task 008 owns
+the final readiness gate and any final visual acceptance evidence.
 
 ## When To Start
 

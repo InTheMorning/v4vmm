@@ -1355,7 +1355,11 @@ fn screens_do_not_inline_value_route_recipient_label_fallbacks() {
 #[test]
 fn shared_top_level_ui_shells_do_not_import_screen_modules() {
     let forbidden = ["crate::search", "crate::library", "SearchApp", "LibraryApp"];
-    let screen_free_shells = ["src/ui/shells/artist.rs", "src/ui/shells/entity.rs"];
+    let screen_free_shells = [
+        "src/ui/shells/artist.rs",
+        "src/ui/shells/entity.rs",
+        "src/ui/shells/playlist.rs",
+    ];
 
     let mut violations = Vec::new();
     for file in screen_free_shells {
@@ -2080,6 +2084,13 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
             "render_artist_detail_shell(",
         ),
         (
+            "Library playlist detail",
+            "src/library.rs",
+            "PlaylistDetailVm::new(",
+            ".page(",
+            "render_playlist_detail_shell(",
+        ),
+        (
             "Discover artist detail",
             "src/ui/shells/artist.rs",
             "ArtistVm::new(",
@@ -2121,6 +2132,14 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
     if !artist_vm.contains("pub struct ArtistDetailPageVm") {
         violations.push(
             "src/view_models/artist_detail.rs: Task 006 requires `ArtistDetailPageVm`".to_string(),
+        );
+    }
+
+    let playlist_vm = read_source(&manifest_path("src/view_models/playlist_detail.rs"));
+    if !playlist_vm.contains("pub(crate) struct PlaylistDetailPageVm") {
+        violations.push(
+            "src/view_models/playlist_detail.rs: Task 006 requires `PlaylistDetailPageVm`"
+                .to_string(),
         );
     }
 

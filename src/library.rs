@@ -59,14 +59,13 @@ use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowDisplay,
-    ActionRowMessage, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
-    DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
-    DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
-    DisclosureSupplementLabel, EntityKind, FileHeader, IdentityActionButtonDisplay,
-    IdentityActionKind, ListRow, ListRowA11yLabel, MusicBrainzPanel, PlaylistOption,
-    PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
-    ThumbnailSize, TrackMetadataFieldCell, TrackMetadataFieldDisplay, TrackMetadataFrameDisplay,
-    TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
+    ActionRowMessage, AddToPlaylistDisplay, AddToPlaylistPopover, DisclosureIndicator,
+    DisclosureIndicatorDisplay, DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind,
+    FileHeader, IdentityActionButtonDisplay, IdentityActionKind, ListRow, ListRowA11yLabel,
+    MusicBrainzPanel, PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement,
+    SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackMetadataFieldCell,
+    TrackMetadataFieldDisplay, TrackMetadataFrameDisplay, TrackMetadataGrid,
+    TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
     TrackMetadataTagCell, TrackMetadataTagDisplay, TrackMetadataTextDisplay,
     TrackMetadataTextValue, TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
@@ -78,6 +77,9 @@ use crate::ui::shells::artist::{render_artist_detail_shell, ArtistDetailBehavior
 use crate::ui::shells::entity::{
     render_contributor_panel, render_feed_identity_actions, render_release_detail_shell,
     ContributorRowSlot, ReleaseDetailBehaviorSlots,
+};
+use crate::ui::shells::playlist::{
+    click_slot, render_playlist_detail_shell, PlaylistDetailBehaviorSlots, PlaylistTrackRowSlot,
 };
 use crate::ui::shells::track;
 use crate::ui::sizable_bridge::SizableScaled;
@@ -93,8 +95,7 @@ use crate::view_models::library::{
     LibraryArtistDetailVm, LibraryArtistTreeDisplay, LibraryChromeDisplay, LibraryTrackActionVm,
     LibraryTrackRowDisplay, LibraryTrackRowVm, LibraryTree, LibraryTreeTrackDisplay,
     LibraryViewModel, MbStatusKind, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
-    PlaylistDetailVm, PlaylistSidebarRowVm, PlaylistSidebarVm, PlaylistTrackControlsDisplay,
-    PlaylistTrackRowDisplay, TrackSubscribeOutcome,
+    PlaylistDetailVm, PlaylistSidebarRowVm, PlaylistSidebarVm, TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
@@ -2768,227 +2769,58 @@ fn render_playlist_detail(
     chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let vm = PlaylistDetailVm::new(&detail.playlist, &detail.tracks);
-    let playlist_id = vm.playlist_id();
-    let header_display = vm.header_display();
+    let page = PlaylistDetailVm::new(&detail.playlist, &detail.tracks)
+        .page(chrome.playlist_detail_scroll_id);
+    let playlist_id = page.playlist_id();
+    let track_rows = page
+        .track_rows()
+        .into_iter()
+        .map(|row| {
+            let track_for_select = row.track().clone();
+            let position = row.position();
+            let thumbnail = row
+                .thumb_url()
+                .and_then(|url| album_thumbs.get(url))
+                .and_then(|opt| opt.clone());
 
-    let track_rows: Vec<AnyElement> = if vm.is_empty() {
-        vec![div()
-            .text_center()
-            .p(spacing::XXL)
-            .text_color(color::text_muted())
-            .child(vm.empty_message())
-            .into_any_element()]
-    } else {
-        vm.track_rows()
-            .into_iter()
-            .map(|row| {
-                let track_for_select = row.track().clone();
-                let pl_id = playlist_id;
-                let PlaylistTrackRowDisplay {
-                    position,
-                    position_label,
-                    title,
-                    artist,
-                    duration_label,
-                    thumb_url,
-                    controls,
-                } = row.display(pl_id);
-                let track_thumb_image = thumb_url
-                    .as_deref()
-                    .and_then(|url| album_thumbs.get(url))
-                    .and_then(|opt| opt.clone());
-                let PlaylistTrackControlsDisplay {
-                    row_id,
-                    row_body_id,
-                    play_button_id,
-                    play_label,
-                    play_enabled,
-                    move_up_button_id,
-                    move_up_label,
-                    move_up_enabled,
-                    move_down_button_id,
-                    move_down_label,
-                    move_down_enabled,
-                    remove_button_id,
-                    remove_label,
-                } = controls;
+            PlaylistTrackRowSlot {
+                thumbnail: Some(render_album_thumb(thumbnail, 24.0)),
+                on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
+                    this.select_track(&track_for_select, cx);
+                    cx.notify();
+                }))),
+                on_play: Some(click_slot(cx.listener(move |_this, _, _, cx| {
+                    cx.emit(LibraryAppEvent::PlayPlaylistAt {
+                        playlist_id,
+                        playlist_position: position,
+                    });
+                }))),
+                on_move_up: Some(click_slot(cx.listener(move |this, _, _, cx| {
+                    this.move_playlist_track(playlist_id, position, position - 1, cx);
+                }))),
+                on_move_down: Some(click_slot(cx.listener(move |this, _, _, cx| {
+                    this.move_playlist_track(playlist_id, position, position + 1, cx);
+                }))),
+                on_remove: Some(click_slot(cx.listener(move |this, _, _, cx| {
+                    this.remove_playlist_track_at(playlist_id, position, cx);
+                }))),
+            }
+        })
+        .collect();
 
-                let up_btn = UiButton::styled(
-                    SharedString::from(move_up_button_id),
-                    ControlStyle::RowAction,
-                )
-                .label(move_up_label)
-                .disabled(!move_up_enabled)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.move_playlist_track(pl_id, position, position - 1, cx);
-                }));
-
-                let down_btn = UiButton::styled(
-                    SharedString::from(move_down_button_id),
-                    ControlStyle::RowAction,
-                )
-                .label(move_down_label)
-                .disabled(!move_down_enabled)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.move_playlist_track(pl_id, position, position + 1, cx);
-                }));
-
-                let remove_btn = UiButton::styled(
-                    SharedString::from(remove_button_id),
-                    ControlStyle::Destructive,
-                )
-                .label(remove_label)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.remove_playlist_track_at(pl_id, position, cx);
-                }));
-
-                let play_btn =
-                    UiButton::styled(SharedString::from(play_button_id), ControlStyle::RowAction)
-                        .label(play_label)
-                        .disabled(!play_enabled)
-                        .on_click(cx.listener(move |_this, _, _, cx| {
-                            cx.emit(LibraryAppEvent::PlayPlaylistAt {
-                                playlist_id: pl_id,
-                                playlist_position: position,
-                            });
-                        }));
-
-                div()
-                    .id(SharedString::from(row_id))
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(spacing::SM)
-                    .px(spacing::SM)
-                    .py(spacing::XS)
-                    .rounded(radius::SM)
-                    .hover(|el| el.bg(color::bg_surface_hi()))
-                    .child(
-                        div()
-                            .id(SharedString::from(row_body_id))
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(spacing::SM)
-                            .flex_1()
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.select_track(&track_for_select, cx);
-                                cx.notify();
-                            }))
-                            .child(
-                                div()
-                                    .w(layout::PLAYLIST_THUMB_SLOT)
-                                    .text_xs()
-                                    .text_color(color::text_muted())
-                                    .child(SharedString::from(position_label)),
-                            )
-                            .child(render_album_thumb(track_thumb_image.clone(), 24.0))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(color::text_primary())
-                                            .child(SharedString::from(title)),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(color::text_muted())
-                                            .child(SharedString::from(artist)),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(color::text_muted())
-                                    .w(layout::PLAYLIST_TITLE_OFFSET)
-                                    .child(SharedString::from(duration_label)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(spacing::XS)
-                            .child(play_btn)
-                            .child(up_btn)
-                            .child(down_btn)
-                            .child(remove_btn),
-                    )
-                    .into_any_element()
-            })
-            .collect()
-    };
-
-    let detail_rows = vm.detail_rows();
-    let actions_display = vm.actions_display();
-
-    let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
-    let playlist_for_rename = playlist_id;
-    buttons = buttons.child(
-        UiButton::styled(
-            SharedString::from(actions_display.rename_button_id),
-            ControlStyle::Ghost,
-        )
-        .label(actions_display.rename_label)
-        .on_click(cx.listener(move |_this, _, _, cx| {
-            // TODO Stage 3: implement inline rename modal/input
-            cx.notify();
-        })),
-    );
-    buttons = buttons.child(
-        UiButton::styled(
-            SharedString::from(actions_display.delete_button_id),
-            ControlStyle::Destructive,
-        )
-        .label(actions_display.delete_label)
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.delete_playlist(playlist_for_rename, cx);
-        })),
-    );
-
-    div()
-        .id(chrome.playlist_detail_scroll_id)
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .overflow_y_scroll()
-        .p(spacing::LG)
-        .flex()
-        .flex_col()
-        .gap(spacing::MD)
-        .child(DetailHeader::new(DetailHeaderDisplay {
-            kind: EntityKind::Playlist,
-            title: SharedString::from(header_display.title),
-            subtitle: None,
-            data_rows: Vec::new(),
-        }))
-        .child(DetailGrid::new(
-            detail_rows
-                .into_iter()
-                .map(|(k, v)| {
-                    CompositeDetailRow::text(CompositeDetailTextRow {
-                        key: k.into(),
-                        value: v,
-                        max_lines: 6,
-                    })
-                })
-                .collect::<Vec<_>>(),
-        ))
-        .child(buttons)
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(spacing::XXS)
-                .children(track_rows),
-        )
-        .into_any_element()
+    render_playlist_detail_shell(
+        &page,
+        PlaylistDetailBehaviorSlots {
+            on_rename: Some(click_slot(cx.listener(move |_this, _, _, cx| {
+                // TODO Stage 3: implement inline rename modal/input
+                cx.notify();
+            }))),
+            on_delete: Some(click_slot(cx.listener(move |this, _, _, cx| {
+                this.delete_playlist(playlist_id, cx);
+            }))),
+            track_rows,
+        },
+    )
 }
 
 fn render_track_detail(
