@@ -91,7 +91,8 @@ use crate::view_models::library::{
     LibraryChromeDisplay, LibraryTrackActionVm, LibraryTrackRowDisplay, LibraryTrackRowVm,
     LibraryTree, LibraryTreeTrackDisplay, LibraryViewModel, MbStatusKind, MbTrackStatus,
     PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm, PlaylistSidebarRowVm,
-    PlaylistSidebarVm, PlaylistTrackControlsDisplay, TrackSubscribeOutcome,
+    PlaylistSidebarVm, PlaylistTrackControlsDisplay, PlaylistTrackRowDisplay,
+    TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
@@ -2767,9 +2768,16 @@ fn render_playlist_detail(
             .map(|row| {
                 let track_for_select = row.track().clone();
                 let pl_id = playlist_id;
-                let row_display = row.display(pl_id);
-                let track_thumb_image = row_display
-                    .thumb_url
+                let PlaylistTrackRowDisplay {
+                    position,
+                    position_label,
+                    title,
+                    artist,
+                    duration_label,
+                    thumb_url,
+                    controls,
+                } = row.display(pl_id);
+                let track_thumb_image = thumb_url
                     .as_deref()
                     .and_then(|url| album_thumbs.get(url))
                     .and_then(|opt| opt.clone());
@@ -2787,8 +2795,7 @@ fn render_playlist_detail(
                     move_down_enabled,
                     remove_button_id,
                     remove_label,
-                } = row_display.controls;
-                let position = row_display.position;
+                } = controls;
 
                 let up_btn = UiButton::styled(
                     SharedString::from(move_up_button_id),
@@ -2858,7 +2865,7 @@ fn render_playlist_detail(
                                     .w(layout::PLAYLIST_THUMB_SLOT)
                                     .text_xs()
                                     .text_color(color::text_muted())
-                                    .child(SharedString::from(row_display.position_label)),
+                                    .child(SharedString::from(position_label)),
                             )
                             .child(render_album_thumb(track_thumb_image.clone(), 24.0))
                             .child(
@@ -2868,13 +2875,13 @@ fn render_playlist_detail(
                                         div()
                                             .text_xs()
                                             .text_color(color::text_primary())
-                                            .child(SharedString::from(row_display.title)),
+                                            .child(SharedString::from(title)),
                                     )
                                     .child(
                                         div()
                                             .text_xs()
                                             .text_color(color::text_muted())
-                                            .child(SharedString::from(row_display.artist)),
+                                            .child(SharedString::from(artist)),
                                     ),
                             )
                             .child(
@@ -2882,7 +2889,7 @@ fn render_playlist_detail(
                                     .text_xs()
                                     .text_color(color::text_muted())
                                     .w(layout::PLAYLIST_TITLE_OFFSET)
-                                    .child(SharedString::from(row_display.duration_label)),
+                                    .child(SharedString::from(duration_label)),
                             ),
                     )
                     .child(
@@ -3410,14 +3417,15 @@ fn metadata_group_cell(
     );
     let expanded = group.expanded;
     if let (Some(group_key), Some(disclosure_id)) = (group_key, display.disclosure_id) {
+        let label = SharedString::from(display.label);
         return TrackMetadataGroupCell::new(TrackMetadataGroupDisplay {
-            label: SharedString::from(display.label.clone()),
+            label: label.clone(),
             columns,
         })
         .disclosure(
             DisclosureGroup::new(DisclosureGroupDisplay {
                 id: SharedString::from(disclosure_id).into(),
-                label: SharedString::from(display.label.clone()),
+                label,
             })
             .collapsed(!expanded)
             .on_toggle(cx.listener(move |this, _, _, cx| {

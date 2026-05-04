@@ -2083,6 +2083,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover publisher link display should be consumed from PublisherLinkDisplay",
         ),
         (
+            "src/search.rs",
+            "let guid = match feed.feed_guid.clone()",
+            "Discover recent-feed navigation id should be consumed from RecentFeedTileDisplay",
+        ),
+        (
+            "src/search.rs",
+            "SharedString::from(audio_display.button_id.clone())",
+            "Discover track play-button id should be consumed by the TrackPlayAudioDisplay renderer",
+        ),
+        (
+            "src/search.rs",
+            "display.recent_tile_id.clone()",
+            "Discover recent-feed tile id should be consumed by RecentFeedTile",
+        ),
+        (
+            "src/library.rs",
+            "display.label.clone()",
+            "Library metadata group labels should be consumed from TrackMetadataGroupHeadingDisplay",
+        ),
+        (
             "src/library.rs",
             "format!(\"{n:02} - \")",
             "Library tree track-number prefix belongs in LibraryTrackRowVm::tree_number_prefix",
@@ -3376,6 +3396,36 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             "row.thumb_url()",
             "Library playlist row thumbnail lookup key belongs in PlaylistTrackRowVm::display",
+        ),
+        (
+            "src/library.rs",
+            "row_display.thumb_url",
+            "Library playlist row thumbnail display should be consumed from PlaylistTrackRowDisplay",
+        ),
+        (
+            "src/library.rs",
+            "row_display.position",
+            "Library playlist row position should be consumed from PlaylistTrackRowDisplay",
+        ),
+        (
+            "src/library.rs",
+            "row_display.position_label",
+            "Library playlist row position label should be consumed from PlaylistTrackRowDisplay",
+        ),
+        (
+            "src/library.rs",
+            "row_display.title",
+            "Library playlist row title should be consumed from PlaylistTrackRowDisplay",
+        ),
+        (
+            "src/library.rs",
+            "row_display.artist",
+            "Library playlist row artist should be consumed from PlaylistTrackRowDisplay",
+        ),
+        (
+            "src/library.rs",
+            "row_display.duration_label",
+            "Library playlist row duration should be consumed from PlaylistTrackRowDisplay",
         ),
         (
             "src/library.rs",

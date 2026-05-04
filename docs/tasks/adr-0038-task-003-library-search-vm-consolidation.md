@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred sixty implementation slices completed on 2026-05-04.
+In progress - first one hundred sixty-four implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1048,7 +1048,31 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `let display = PublisherLinkDisplay::new`
       projection binding.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-161. Migrate remaining fallback batches, smallest blast radius first.
+161. Discover recent-feed tile open-target and element-id consumption
+    - Add `RecentFeedTileDisplay::open_target()` and let
+      `RecentFeedTile` consume its recent tile id internally.
+    - Remove screen-local `feed.feed_guid.clone()` matching and
+      `display.recent_tile_id.clone()` from the recent-feeds renderer.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+162. Discover track play-button display consumption
+    - Add a renderer path that consumes `TrackPlayAudioDisplay`
+      directly for inspector header play controls.
+    - Keep the row-specific `render_play_icon_button_with_id()` path
+      for callers that intentionally supply contextual ids.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+163. Library playlist row display consumption
+    - Destructure `PlaylistTrackRowDisplay` in the playlist detail
+      renderer so position, text, duration, thumbnail URL, and controls
+      are consumed directly.
+    - Remove residual `row_display.*` field reads from the renderer.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+164. Library metadata group label consumption
+    - Consume `TrackMetadataGroupHeadingDisplay::label` once before
+      composing `TrackMetadataGroupCell` and `DisclosureGroup`.
+    - Remove renderer-side `display.label.clone()` from Library
+      metadata group headings.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+165. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2638,6 +2662,42 @@ Verified starting notes, 2026-05-03:
   from the VM display contract.
 - The architecture guard now blocks the old local publisher display
   binding from returning.
+
+## One-Hundred-Sixty-First-Slice Implementation Notes
+
+- Recent-feed tiles now ask `RecentFeedTileDisplay` for their open
+  target and let `RecentFeedTile` consume the recent tile id.
+- The recent-feeds renderer no longer matches on `feed.feed_guid`
+  directly or clones `display.recent_tile_id`.
+- The architecture guard now blocks those screen-local recent-feed id
+  reads from returning.
+
+## One-Hundred-Sixty-Second-Slice Implementation Notes
+
+- Track inspector header play controls now consume
+  `TrackPlayAudioDisplay` through a dedicated renderer path.
+- The shared button renderer consumes URL, tooltip, label, and disabled
+  state without cloning the audio URL.
+- The architecture guard now blocks header-side
+  `audio_display.button_id` cloning from returning.
+
+## One-Hundred-Sixty-Third-Slice Implementation Notes
+
+- Library playlist detail rows now destructure `PlaylistTrackRowDisplay`
+  before rendering.
+- Position, text, duration, thumbnail URL, and controls are consumed
+  directly from the VM display contract.
+- The architecture guard now blocks residual `row_display.*` playlist
+  text/media reads from returning.
+
+## One-Hundred-Sixty-Fourth-Slice Implementation Notes
+
+- Library metadata group headings now consume
+  `TrackMetadataGroupHeadingDisplay::label` before composing the group
+  cell and disclosure control.
+- The renderer no longer clones `display.label` from the metadata group
+  display contract.
+- The architecture guard now blocks the old label clone from returning.
 
 ## Test Commands
 

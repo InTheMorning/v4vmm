@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use gpui::{
     div, prelude::*, App, ClickEvent, ElementId, FontWeight, Image, InteractiveElement,
-    IntoElement, RenderOnce, Styled, Window,
+    IntoElement, RenderOnce, SharedString, Styled, Window,
 };
 
 use crate::ui::composites::EntityKind;
@@ -34,7 +34,8 @@ pub struct RecentFeedTile {
 }
 
 impl RecentFeedTile {
-    pub fn new(id: impl Into<ElementId>, display: RecentFeedTileDisplay) -> Self {
+    pub fn new(mut display: RecentFeedTileDisplay) -> Self {
+        let id = SharedString::from(display.take_recent_tile_id());
         Self {
             id: id.into(),
             display,

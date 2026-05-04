@@ -141,6 +141,27 @@ pub struct RecentFeedTileDisplay {
     pub image_url: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecentFeedTileOpenTarget {
+    pub guid: String,
+    pub title: String,
+}
+
+impl RecentFeedTileDisplay {
+    #[must_use]
+    pub fn open_target(&self) -> RecentFeedTileOpenTarget {
+        RecentFeedTileOpenTarget {
+            guid: self.id.clone(),
+            title: self.title.clone(),
+        }
+    }
+
+    #[must_use]
+    pub fn take_recent_tile_id(&mut self) -> String {
+        std::mem::take(&mut self.recent_tile_id)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PodrollSectionDisplay {
     pub(crate) heading_label: &'static str,

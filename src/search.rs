@@ -4423,9 +4423,45 @@ pub(crate) fn render_play_icon_button_with_id(
     display: TrackPlayAudioDisplay,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let click_url = display.url.clone();
-    let button_label = display.button_label;
+    render_play_icon_button_parts(
+        id,
+        display.button_label,
+        display.url,
+        display.tooltip,
+        display.disabled,
+        cx,
+    )
+}
 
+fn render_play_icon_button(
+    display: TrackPlayAudioDisplay,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let TrackPlayAudioDisplay {
+        button_id,
+        button_label,
+        url,
+        tooltip,
+        disabled,
+    } = display;
+    render_play_icon_button_parts(
+        SharedString::from(button_id),
+        button_label,
+        url,
+        tooltip,
+        disabled,
+        cx,
+    )
+}
+
+fn render_play_icon_button_parts(
+    id: SharedString,
+    button_label: &'static str,
+    click_url: Option<String>,
+    tooltip: String,
+    disabled: bool,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
     // CONTROL-COMPAT(reason): native Button does not yet expose tooltip plus fixed square icon-button geometry.
     Button::new(id)
         .label(button_label)
@@ -4440,8 +4476,8 @@ pub(crate) fn render_play_icon_button_with_id(
         .rounded(radius::SM)
         .border_1()
         .border_color(color::accent())
-        .tooltip(display.tooltip)
-        .disabled(display.disabled)
+        .tooltip(tooltip)
+        .disabled(disabled)
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
             if let Some(url) = &click_url {
                 let _ = open::that(url);
@@ -4585,11 +4621,7 @@ fn render_track_header_subtitle(
         .when_some(feed_link, |el, link| {
             el.child(render_feed_link_value(link, cx))
         })
-        .child(render_play_icon_button_with_id(
-            SharedString::from(audio_display.button_id.clone()),
-            audio_display,
-            cx,
-        ))
+        .child(render_play_icon_button(audio_display, cx))
         .into_any_element()
 }
 
@@ -4654,19 +4686,17 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
 
     let mut tiles: Vec<AnyElement> = Vec::with_capacity(feeds.len());
     for feed in feeds {
-        let guid = match feed.feed_guid.clone() {
-            Some(guid) if !guid.trim().is_empty() => guid,
-            _ => continue,
-        };
         let tile_vm = RecentFeedTileVm::new(&feed);
         let display = tile_vm.display();
+        let target = display.open_target();
+        if target.guid.trim().is_empty() {
+            continue;
+        }
         let thumbnail = app.thumbnail_for_url(display.image_url.as_deref(), cx);
-        let click_guid = guid.clone();
-        let click_title = display.title.clone();
-        let tile = RecentFeedTile::new(SharedString::from(display.recent_tile_id.clone()), display)
+        let tile = RecentFeedTile::new(display)
             .thumbnail(thumbnail)
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_recent_feed(click_guid.clone(), click_title.clone(), cx);
+                this.open_recent_feed(target.guid.clone(), target.title.clone(), cx);
             }))
             .into_any_element();
         tiles.push(tile);
