@@ -65,11 +65,10 @@ use crate::ui::composites::{
     DisclosureSupplementLabel, EntityKind, FileHeader, IdentityActionButtonDisplay,
     IdentityActionKind, ListRow, ListRowA11yLabel, MusicBrainzPanel, PlaylistOption,
     PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
-    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataFieldDisplay,
-    TrackMetadataFrameDisplay, TrackMetadataGrid, TrackMetadataGroupCell,
-    TrackMetadataGroupDisplay, TrackMetadataSourceCell, TrackMetadataTagCell,
-    TrackMetadataTagDisplay, TrackMetadataTextDisplay, TrackMetadataTextValue,
-    TrackRow as TrackRowComposite, TrackSurfaceElement,
+    ThumbnailSize, TrackMetadataFieldCell, TrackMetadataFieldDisplay, TrackMetadataFrameDisplay,
+    TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
+    TrackMetadataTagCell, TrackMetadataTagDisplay, TrackMetadataTextDisplay,
+    TrackMetadataTextValue, TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -3164,16 +3163,25 @@ fn render_track_left_column(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let track_view = TrackView::from_api(track.clone());
-    let detail_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library)
-        .with_override_title(Some(frame.title.as_str()));
+    let detail_page = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library)
+        .with_override_title(Some(frame.title.as_str()))
+        .page();
 
-    TrackDetailSurface::new(&detail_vm)
-        .image(frame.image.clone())
-        .external_links(track::render_track_identity_actions(&detail_vm))
-        .primary_actions(vec![TrackSurfaceElement::from_element(
-            library_track_action_row(frame, pending_id3_edits, playlists, cx),
-        )])
-        .into_any_element()
+    track::build_track_detail_surface(
+        &detail_page,
+        track::TrackDetailBehaviorSlots {
+            hero_image: frame.image.clone(),
+            external_links: track::render_track_page_identity_actions(&detail_page),
+            primary_actions: vec![TrackSurfaceElement::from_element(library_track_action_row(
+                frame,
+                pending_id3_edits,
+                playlists,
+                cx,
+            ))],
+            ..track::TrackDetailBehaviorSlots::default()
+        },
+    )
+    .into_any_element()
 }
 
 fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {

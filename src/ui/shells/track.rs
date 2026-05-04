@@ -16,17 +16,33 @@ use crate::search::{render_play_icon_button_with_id, render_track_download_butto
 use crate::ui::composites::{
     identity_action_button, AddToPlaylistDisplay, AddToPlaylistPopover,
     IdentityActionButtonDisplay, IdentityActionKind, PlaylistOption, PlaylistOptionDisplay,
-    TrackRow, TrackSurfaceElement,
+    TrackDetailSurface, TrackRow, TrackSurfaceElement,
 };
-use crate::view_models::entity_detail::{IdentityActionDisplay, IdentityActionDisplayKind};
+use crate::view_models::entity_detail::{
+    EntityActionVm, IdentityActionDisplay, IdentityActionDisplayKind,
+};
 use crate::view_models::playlist_option_displays;
 use crate::view_models::track::{TrackRowControlsDisplay, TrackVm};
-use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
+use crate::view_models::track_detail::{
+    TrackDetailLoadState, TrackDetailPageVm, TrackDetailSection, TrackDetailSurfaceContext,
+    TrackDetailVm,
+};
 use crate::views::TrackView;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TrackRowMode {
     Discover,
+}
+
+#[derive(Default)]
+pub(crate) struct TrackDetailBehaviorSlots {
+    pub hero_image: Option<Arc<Image>>,
+    pub load_state: Option<TrackDetailLoadState>,
+    pub primary_actions: Vec<TrackSurfaceElement>,
+    pub external_links: Vec<TrackSurfaceElement>,
+    pub sections: Vec<TrackDetailSection>,
+    pub section_elements: Vec<TrackSurfaceElement>,
+    pub advanced_panels: Vec<TrackSurfaceElement>,
 }
 
 fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
@@ -43,14 +59,20 @@ fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
 }
 
 #[must_use]
-pub(crate) fn render_track_identity_actions(
-    detail: &TrackDetailVm<'_>,
+pub(crate) fn render_track_page_identity_actions(
+    page: &TrackDetailPageVm<'_>,
 ) -> Vec<TrackSurfaceElement> {
-    detail
-        .identity_actions()
+    render_track_identity_actions(page.identity_actions(), page.identity_action_prefix())
+}
+
+fn render_track_identity_actions(
+    actions: Vec<EntityActionVm>,
+    identity_action_prefix: &str,
+) -> Vec<TrackSurfaceElement> {
+    actions
         .into_iter()
         .filter_map(|action| {
-            let display = action.identity_display(detail.identity_action_prefix())?;
+            let display = action.identity_display(identity_action_prefix)?;
             let IdentityActionDisplay {
                 id,
                 kind,
@@ -80,6 +102,39 @@ pub(crate) fn render_track_identity_actions(
             Some(TrackSurfaceElement::from_element(button.into_any_element()))
         })
         .collect()
+}
+
+pub(crate) fn build_track_detail_surface(
+    page: &TrackDetailPageVm<'_>,
+    slots: TrackDetailBehaviorSlots,
+) -> TrackDetailSurface {
+    let mut surface = TrackDetailSurface::new(page.detail()).image(slots.hero_image);
+
+    if let Some(load_state) = slots.load_state {
+        surface = surface.load_state(load_state);
+    }
+
+    if !slots.primary_actions.is_empty() {
+        surface = surface.primary_actions(slots.primary_actions);
+    }
+
+    if !slots.external_links.is_empty() {
+        surface = surface.external_links(slots.external_links);
+    }
+
+    if !slots.sections.is_empty() {
+        surface = surface.sections(slots.sections);
+    }
+
+    if !slots.section_elements.is_empty() {
+        surface = surface.section_elements(slots.section_elements);
+    }
+
+    if !slots.advanced_panels.is_empty() {
+        surface = surface.advanced_panels(slots.advanced_panels);
+    }
+
+    surface
 }
 
 #[expect(

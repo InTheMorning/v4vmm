@@ -1884,33 +1884,33 @@ fn track_identity_links_use_shared_renderer() {
     }
     if search.contains("render_nostr_icon_button(npub, \"track\"") {
         violations.push(
-            "src/search.rs: ADR 0037 track Nostr identity links must be rendered by `ui::shells::track::render_track_identity_actions`"
+            "src/search.rs: ADR 0037 track Nostr identity links must be rendered by `ui::shells::track::render_track_page_identity_actions`"
                 .to_string(),
         );
     }
-    if !(search.contains("render_track_identity_actions(&detail_vm)")
+    if !(search.contains("render_track_page_identity_actions(&detail_page)")
         && !search.contains("\"discover-track\""))
     {
         violations.push(
-            "src/search.rs: ADR 0037 Discover track detail must call `render_track_identity_actions(&detail_vm)` and leave the prefix in TrackDetailVm"
+            "src/search.rs: ADR 0037 Discover track detail must call `render_track_page_identity_actions(&detail_page)` and leave the prefix in TrackDetailPageVm"
                 .to_string(),
         );
     }
 
     let library = read_source(&manifest_path("src/library.rs"));
-    if !(library.contains("render_track_identity_actions(&detail_vm)")
+    if !(library.contains("render_track_page_identity_actions(&detail_page)")
         && !library.contains("\"library-track\""))
     {
         violations.push(
-            "src/library.rs: ADR 0037 Library track detail must call `render_track_identity_actions(&detail_vm)` and leave the prefix in TrackDetailVm"
+            "src/library.rs: ADR 0037 Library track detail must call `render_track_page_identity_actions(&detail_page)` and leave the prefix in TrackDetailPageVm"
                 .to_string(),
         );
     }
 
     let ui_track = read_source(&manifest_path("src/ui/shells/track.rs"));
-    if !ui_track.contains("fn render_track_identity_actions") {
+    if !ui_track.contains("fn render_track_page_identity_actions") {
         violations.push(
-            "src/ui/shells/track.rs: ADR 0037 must define `fn render_track_identity_actions`"
+            "src/ui/shells/track.rs: ADR 0037 must define `fn render_track_page_identity_actions`"
                 .to_string(),
         );
     }
@@ -2037,6 +2037,75 @@ fn track_surface_consumers_use_track_detail_vm() {
     assert!(
         violations.is_empty(),
         "ADR 0035 track surface VM consumption violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
+    let consumers = [
+        (
+            "Library release detail",
+            "src/library.rs",
+            "ReleaseDetailVm::new(",
+            ".page()",
+            "render_release_detail_shell(&page",
+        ),
+        (
+            "Discover release detail",
+            "src/ui/shells/feed.rs",
+            "ReleaseDetailVm::new(",
+            ".page()",
+            "render_release_detail_shell(&page",
+        ),
+        (
+            "Library track detail",
+            "src/library.rs",
+            "TrackDetailVm::new(",
+            ".page()",
+            "track::build_track_detail_surface(",
+        ),
+        (
+            "Discover track detail",
+            "src/search.rs",
+            "TrackDetailVm::new(",
+            ".page()",
+            "track::build_track_detail_surface(",
+        ),
+    ];
+    let mut violations = Vec::new();
+
+    for (surface, file, vm_ctor, page_call, shell_helper) in consumers {
+        let source = read_source(&manifest_path(file));
+        if !(source.contains(vm_ctor)
+            && source.contains(page_call)
+            && source.contains(shell_helper))
+        {
+            violations.push(format!(
+                "{file}: {surface} must construct a PageVm and render through `{shell_helper}`"
+            ));
+        }
+    }
+
+    for file in ["src/library.rs", "src/search.rs"] {
+        let source = read_source(&manifest_path(file));
+        if source.contains("TrackDetailSurface::new(") {
+            violations.push(format!(
+                "{file}: track screens must not construct `TrackDetailSurface`; use `ui::shells::track::build_track_detail_surface`"
+            ));
+        }
+    }
+
+    let track_vm = read_source(&manifest_path("src/view_models/track_detail.rs"));
+    if !track_vm.contains("pub struct TrackDetailPageVm") {
+        violations.push(
+            "src/view_models/track_detail.rs: Task 006 requires `TrackDetailPageVm`".to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0038 Task 006 page VM shell violations:\n{}",
         violations.join("\n")
     );
 }

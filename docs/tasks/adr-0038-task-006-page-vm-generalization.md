@@ -1,8 +1,9 @@
-# ADR 0038 Task 006: PageVm Generalization (Stub)
+# ADR 0038 Task 006: PageVm Generalization
 
 ## Status
 
-Stub. Starts after Tasks 002, 003, 004, 005 land.
+In progress. Track detail page-VM parity slice started on 2026-05-04
+after Tasks 002, 003, 004, and 005 landed.
 
 ## Goal
 
@@ -17,9 +18,9 @@ accessors.
 Already on the pattern:
 
 - Feed/release detail — `ReleaseDetailPageVm`, ADR 0037 Pass 1.
-- Track detail — `TrackDetailVm` + `TrackDetailSurface`, but verify
-  whether a `TrackDetailPageVm` wrapper is needed for parity with the
-  release pattern.
+- Track detail — `TrackDetailPageVm` now wraps `TrackDetailVm`, and
+  Library/Discover track detail surfaces now pass through
+  `src/ui/shells/track.rs::build_track_detail_surface`.
 
 Not yet on the pattern:
 
@@ -28,6 +29,25 @@ Not yet on the pattern:
   `library.rs`/`search.rs`/`view_models/library.rs`.
 - Search results / recent-feed tiles — multi-row composite that may
   benefit from a page-level VM for batch operations.
+
+## Completed Slices
+
+### Track Detail PageVm Parity — 2026-05-04
+
+- Added `TrackDetailPageVm` in `src/view_models/track_detail.rs`.
+- Added `TrackDetailBehaviorSlots` and
+  `build_track_detail_surface()` in `src/ui/shells/track.rs`.
+- Moved Discover and Library track detail call sites off direct
+  `TrackDetailSurface::new(...)` construction.
+- Added
+  `entity_detail_pages_render_through_shell_helper_and_page_vm` with an
+  explicit release + track surface list.
+- Added a VM unit test for the `TrackDetailPageVm` wrapper.
+
+Visual smoke was not captured for this slice because the change is a
+renderer-routing refactor with no intended visual output change. If a
+later Task 006 slice changes visible hierarchy, capture light + dark
+screenshots through the user-directed navigation workflow.
 
 ## Files Likely To Change
 
@@ -75,6 +95,17 @@ Not yet on the pattern:
   green with an explicit surface list.
 - VM unit tests cover each PageVm.
 - Visual smoke (light + dark) for every migrated surface.
+
+## Remaining Work
+
+- Add `ArtistDetailPageVm` and route artist detail through the artist
+  shell helper.
+- Add `PlaylistDetailPageVm` and route playlist detail through a
+  playlist shell helper.
+- Decide whether search results / recent-feed tiles remain row
+  composites or need a separate page-level batch VM.
+- Capture visual smoke only for slices that change visible hierarchy or
+  when the final Task 006 gate needs acceptance evidence.
 
 ## When To Start
 

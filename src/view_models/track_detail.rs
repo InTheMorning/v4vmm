@@ -134,6 +134,11 @@ impl<'a> TrackDetailVm<'a> {
     }
 
     #[must_use]
+    pub const fn page(self) -> TrackDetailPageVm<'a> {
+        TrackDetailPageVm { detail: self }
+    }
+
+    #[must_use]
     pub const fn track(&self) -> &'a TrackView {
         self.track
     }
@@ -324,6 +329,34 @@ impl<'a> TrackDetailVm<'a> {
             TrackDetailSurfaceContext::Discover => "Discover track actions",
             TrackDetailSurfaceContext::Library => "Library track actions",
         }
+    }
+}
+
+/// Page-level projection for a track detail surface.
+#[derive(Debug)]
+pub struct TrackDetailPageVm<'a> {
+    detail: TrackDetailVm<'a>,
+}
+
+impl<'a> TrackDetailPageVm<'a> {
+    #[must_use]
+    pub const fn detail(&self) -> &TrackDetailVm<'a> {
+        &self.detail
+    }
+
+    #[must_use]
+    pub fn row(&self) -> TrackRowVm {
+        self.detail.row()
+    }
+
+    #[must_use]
+    pub fn identity_actions(&self) -> Vec<EntityActionVm> {
+        self.detail.identity_actions()
+    }
+
+    #[must_use]
+    pub const fn identity_action_prefix(&self) -> &'static str {
+        self.detail.identity_action_prefix()
     }
 }
 
@@ -634,6 +667,19 @@ mod tests {
             TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library).identity_actions();
 
         assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn page_vm_wraps_track_detail_contract() {
+        let track = track_with_identity();
+        let page = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
+            .with_override_title(Some("Page title"))
+            .page();
+
+        assert_eq!(page.detail().display_title(), "Page title");
+        assert_eq!(page.identity_action_prefix(), "library-track");
+        assert_eq!(page.row().title, "Page title");
+        assert_eq!(page.identity_actions().len(), 2);
     }
 
     #[test]

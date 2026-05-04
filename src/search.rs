@@ -55,8 +55,8 @@ use crate::ui::composites::{
     DisclosureGroup, DisclosureGroupDisplay, EntityKind, IdentityActionButtonDisplay,
     IdentityActionKind, ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay,
     ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge,
-    TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane,
-    TrackMetadataGrid, TrackSurfaceElement,
+    TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackInspectorPane, TrackMetadataGrid,
+    TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2652,24 +2652,29 @@ fn render_discover_track_inspector(
     let track = &track_context.track;
     let vm = TrackVm::new(track);
     let track_view = TrackView::from_api(track.clone());
-    let detail_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover);
+    let detail_page = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Discover).page();
     let header_vm = TrackInspectorHeaderVm::new(track);
     let feed_link = header_vm.feed_link_display();
     let audio_display = vm.play_audio_display();
     let mut external_links = vec![TrackSurfaceElement::from_element(
         render_track_header_subtitle(feed_link, audio_display, cx),
     )];
-    external_links.extend(track::render_track_identity_actions(&detail_vm));
+    external_links.extend(track::render_track_page_identity_actions(&detail_page));
 
-    let surface = TrackDetailSurface::new(&detail_vm)
-        .image(frame.image.clone())
-        .external_links(external_links)
-        .primary_actions(vec![TrackSurfaceElement::from_element(
-            discover_inspector_action_row(frame, app, cx),
-        )])
-        .section_elements(vec![TrackSurfaceElement::from_element(
-            render_lazy_sections(frame, app, cx),
-        )]);
+    let surface = track::build_track_detail_surface(
+        &detail_page,
+        track::TrackDetailBehaviorSlots {
+            hero_image: frame.image.clone(),
+            external_links,
+            primary_actions: vec![TrackSurfaceElement::from_element(
+                discover_inspector_action_row(frame, app, cx),
+            )],
+            section_elements: vec![TrackSurfaceElement::from_element(render_lazy_sections(
+                frame, app, cx,
+            ))],
+            ..track::TrackDetailBehaviorSlots::default()
+        },
+    );
 
     TrackInspectorPane::new(surface).into_any_element()
 }
