@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred one implementation slices completed on 2026-05-03.
+In progress - first one hundred four implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -687,7 +687,26 @@ Verified starting notes, 2026-05-03:
       raw-vs-display fallback policy.
     - Remove direct screen calls to `expanded_metadata_display_string`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-102. Migrate remaining fallback batches, smallest blast radius first.
+102. Discover deferred-panel empty-line display
+    - Add `SearchViewModel::deferred_panel_empty_line()` so
+      contributor and value-route empty/error line text is projected by
+      the Discover VM before rendering.
+    - Remove screen-local `muted_line(&str)` text projection from
+      `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+103. Discover expanded artwork URL display
+    - Add `TrackMetadataGridVm::artwork_url_display()` so expanded
+      Artwork URL text is metadata-grid-owned.
+    - Remove screen-local `raw_value.to_string()` display projection
+      from Discover's expanded artwork link row.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+104. Discover feed-header title/subtitle display
+    - Add `SearchViewModel::feed_header_display()` so title projection
+      and subtitle trim/empty filtering are Discover VM-owned.
+    - Remove screen-local title conversion and subtitle filtering from
+      `render_feed_header`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+105. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1713,6 +1732,35 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks direct screen calls to expanded
   metadata display fallback selection from returning.
 
+## One-Hundred-First-Slice Implementation Notes
+
+- `SearchViewModel::deferred_panel_empty_line()` now carries Discover
+  deferred-panel empty/error line display text before it reaches
+  GPUI rendering.
+- Discover still owns the muted text style, but no longer converts the
+  deferred-panel label in `muted_line(&str)`.
+- The architecture guard now blocks the screen-local empty-line
+  projection from returning.
+
+## One-Hundred-Second-Slice Implementation Notes
+
+- `TrackMetadataGridVm::artwork_url_display()` now carries expanded
+  Artwork URL display text.
+- Discover still owns the middle-click open behavior for URL artwork,
+  but no longer projects the raw URL string screen-locally.
+- The architecture guard now blocks the expanded artwork
+  `raw_value.to_string()` display projection from returning.
+
+## One-Hundred-Third-Slice Implementation Notes
+
+- `SearchViewModel::feed_header_display()` now carries Discover
+  feed-header title text and subtitle trim/empty filtering.
+- Discover still owns the `DetailHeader` composite binding and image
+  attachment, but no longer performs header text fallback/filtering in
+  `render_feed_header`.
+- The architecture guard now blocks screen-local feed-header title and
+  subtitle projection from returning.
+
 ## Test Commands
 
 ```sh
@@ -1736,6 +1784,9 @@ cargo test id3_frame_color_role_classifies_library_context
 cargo test id3_frame_color_role_classifies_discover_context
 cargo test text_value_display_projects_owned_text_value
 cargo test expanded_display_value_preserves_metadata_raw_display_policy
+cargo test deferred_panel_empty_line_projects_label
+cargo test artwork_url_display_projects_raw_url_text
+cargo test feed_header_display_filters_empty_subtitle
 cargo test id3_generated_row_display_projects_ids_and_labels
 cargo test source_drag_display_projects_discover_source_cell_ids
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized

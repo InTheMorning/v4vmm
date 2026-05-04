@@ -2196,6 +2196,31 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/search.rs",
+            "SharedString::from(raw_value.to_string())",
+            "Discover expanded artwork URL display belongs in TrackMetadataGridVm::artwork_url_display",
+        ),
+        (
+            "src/search.rs",
+            "fn muted_line(value: &str)",
+            "Discover deferred-panel empty-line display belongs in SearchViewModel::deferred_panel_empty_line",
+        ),
+        (
+            "src/search.rs",
+            "SharedString::from(value.to_string())",
+            "Discover deferred-panel empty-line display belongs in SearchViewModel::deferred_panel_empty_line",
+        ),
+        (
+            "src/search.rs",
+            "title: title.to_string().into()",
+            "Discover feed header title display belongs in SearchViewModel::feed_header_display",
+        ),
+        (
+            "src/search.rs",
+            ".filter(|value| !value.trim().is_empty())",
+            "Discover feed header subtitle filtering belongs in SearchViewModel::feed_header_display",
+        ),
+        (
+            "src/search.rs",
             "fn compare_row_id(",
             "Discover metadata compare-row slug display belongs in TrackMetadataGridVm::compare_row_id",
         ),

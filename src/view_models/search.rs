@@ -1199,6 +1199,13 @@ pub(crate) struct DeferredPanelDisplay {
     pub(crate) loading_label: &'static str,
 }
 
+/// Display-ready feed header text for the legacy Discover feed header.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchFeedHeaderDisplay {
+    pub(crate) title: String,
+    pub(crate) subtitle: Option<String>,
+}
+
 impl DeferredPanelDisplay {
     #[must_use]
     const fn for_kind(kind: DeferredPanelKind) -> Self {
@@ -1453,6 +1460,22 @@ impl SearchViewModel {
     #[must_use]
     pub(crate) const fn deferred_panel_display(kind: DeferredPanelKind) -> DeferredPanelDisplay {
         DeferredPanelDisplay::for_kind(kind)
+    }
+
+    #[must_use]
+    pub(crate) fn deferred_panel_empty_line(label: &str) -> String {
+        label.to_string()
+    }
+
+    #[must_use]
+    pub(crate) fn feed_header_display(
+        title: &str,
+        subtitle: Option<&str>,
+    ) -> SearchFeedHeaderDisplay {
+        SearchFeedHeaderDisplay {
+            title: title.to_string(),
+            subtitle: nonempty_text(subtitle).map(str::to_string),
+        }
     }
 
     /// Reset pure search state after the `MusicIndex` endpoint changes.
@@ -3021,6 +3044,39 @@ mod tests {
         assert_eq!(value_routes.section_id, "section:value-routes");
         assert_eq!(value_routes.heading_label, "Value Routes");
         assert_eq!(value_routes.loading_label, "Loading value routes...");
+    }
+
+    #[test]
+    fn deferred_panel_empty_line_projects_label() {
+        assert_eq!(
+            SearchViewModel::deferred_panel_empty_line("No value routes found"),
+            "No value routes found"
+        );
+    }
+
+    #[test]
+    fn feed_header_display_filters_empty_subtitle() {
+        assert_eq!(
+            SearchViewModel::feed_header_display("Way to Go", Some("  Survival Guide  ")),
+            SearchFeedHeaderDisplay {
+                title: "Way to Go".into(),
+                subtitle: Some("Survival Guide".into()),
+            }
+        );
+        assert_eq!(
+            SearchViewModel::feed_header_display("Way to Go", Some(" ... ")),
+            SearchFeedHeaderDisplay {
+                title: "Way to Go".into(),
+                subtitle: None,
+            }
+        );
+        assert_eq!(
+            SearchViewModel::feed_header_display("Way to Go", None),
+            SearchFeedHeaderDisplay {
+                title: "Way to Go".into(),
+                subtitle: None,
+            }
+        );
     }
 
     #[test]

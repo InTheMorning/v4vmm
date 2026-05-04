@@ -2934,7 +2934,9 @@ fn render_lazy_contributors(
                 SearchViewModel::deferred_panel_display(DeferredPanelKind::Contributors)
                     .loading_label,
             )),
-            LazyPanel::Empty(label) => el.child(muted_line(label)),
+            LazyPanel::Empty(label) => el.child(muted_line(
+                SearchViewModel::deferred_panel_empty_line(label),
+            )),
             LazyPanel::Hidden => el,
         })
         .into_any_element()
@@ -2954,7 +2956,9 @@ fn render_lazy_value_routes(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
                 SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes)
                     .loading_label,
             )),
-            LazyPanel::Empty(label) => el.child(muted_line(label)),
+            LazyPanel::Empty(label) => el.child(muted_line(
+                SearchViewModel::deferred_panel_empty_line(label),
+            )),
             LazyPanel::Hidden => el,
         })
         .into_any_element()
@@ -3553,11 +3557,11 @@ fn selected_musicbrainz_candidate<'a>(
         .or_else(|| result.lookup.candidates.first())
 }
 
-fn muted_line(value: &str) -> AnyElement {
+fn muted_line(display_text: String) -> AnyElement {
     div()
         .text_color(color::text_muted())
         .text_size(typography::SIZE_MICRO)
-        .child(SharedString::from(value.to_string()))
+        .child(SharedString::from(display_text))
         .into_any_element()
 }
 
@@ -3662,12 +3666,11 @@ fn expandable_cell(
                                     .text_color(color::text_muted())
                                     .child(glyph),
                             )
-                            .child(
-                                div()
-                                    .text_color(color::accent())
-                                    .truncate()
-                                    .child(SharedString::from(raw_value.to_string())),
-                            ),
+                            .child(div().text_color(color::accent()).truncate().child(
+                                SharedString::from(TrackMetadataGridVm::artwork_url_display(
+                                    raw_value,
+                                )),
+                            )),
                     )
                     .on_mouse_down(
                         MouseButton::Middle,
@@ -4392,12 +4395,11 @@ pub(crate) fn render_feed_header(
     title: &str,
     subtitle: Option<&str>,
 ) -> AnyElement {
+    let display = SearchViewModel::feed_header_display(title, subtitle);
     DetailHeader::new(DetailHeaderDisplay {
         kind: EntityKind::Feed,
-        title: title.to_string().into(),
-        subtitle: subtitle
-            .filter(|value| !value.trim().is_empty())
-            .map(|value| SharedString::from(value.to_string())),
+        title: display.title.into(),
+        subtitle: display.subtitle.map(SharedString::from),
         data_rows: Vec::new(),
     })
     .image(frame.image.clone())

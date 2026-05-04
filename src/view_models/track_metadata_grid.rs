@@ -356,6 +356,11 @@ impl TrackMetadataGridVm {
     }
 
     #[must_use]
+    pub fn artwork_url_display(raw_value: &str) -> String {
+        Self::text_value_display(raw_value)
+    }
+
+    #[must_use]
     pub fn artwork_summary(raw_value: &str, display_value: &str) -> String {
         Self::artwork_url(raw_value).map_or_else(
             || display_value.to_string(),
@@ -761,6 +766,14 @@ mod tests {
     fn text_value_display_projects_owned_text_value() {
         assert_eq!(TrackMetadataGridVm::text_value_display("Title"), "Title");
         assert_eq!(TrackMetadataGridVm::text_value_display(""), "");
+    }
+
+    #[test]
+    fn artwork_url_display_projects_raw_url_text() {
+        assert_eq!(
+            TrackMetadataGridVm::artwork_url_display("https://example.test/cover.png"),
+            "https://example.test/cover.png"
+        );
     }
 
     #[test]
