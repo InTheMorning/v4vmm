@@ -68,9 +68,9 @@ use crate::ui::shells::{artist, feed, track};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorIdentityActionKind, ContributorListVm, ContributorRowVm, EntityActionKind,
-    EntityActionTarget, EntityActionTone, EntityActionVm, EntitySurfaceContext, MetadataPanelState,
-    TrackMetadataActionState,
+    ContributorIdentityActionDisplay, ContributorIdentityActionKind, ContributorListVm,
+    ContributorRowVm, EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm,
+    EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
 };
 use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::playlist_option_displays;
@@ -2993,18 +2993,18 @@ fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<Relea
         .identity_actions()
         .into_iter()
         .map(|action| {
-            let target_for_click = action.target.clone();
-            match action.kind {
-                ContributorIdentityActionKind::Website => identity_action_button(
-                    SharedString::from(action.id),
-                    IdentityActionKind::Website,
-                )
-                .on_click(move |_, _, _| {
-                    let _ = open::that(&target_for_click);
-                })
-                .into_any_element(),
+            let ContributorIdentityActionDisplay { id, kind, target } = action;
+            let target_for_click = target;
+            match kind {
+                ContributorIdentityActionKind::Website => {
+                    identity_action_button(SharedString::from(id), IdentityActionKind::Website)
+                        .on_click(move |_, _, _| {
+                            let _ = open::that(&target_for_click);
+                        })
+                        .into_any_element()
+                }
                 ContributorIdentityActionKind::Nostr => {
-                    identity_action_button(SharedString::from(action.id), IdentityActionKind::Nostr)
+                    identity_action_button(SharedString::from(id), IdentityActionKind::Nostr)
                         .on_click(move |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(
                                 target_for_click.clone(),

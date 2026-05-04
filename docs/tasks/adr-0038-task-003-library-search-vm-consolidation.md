@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred sixty-nine implementation slices completed on 2026-05-04.
+In progress - first one hundred seventy-three implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1101,7 +1101,29 @@ Verified starting notes, 2026-05-03:
     - Remove residual primary-action label clones from Library render
       code.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-170. Migrate remaining fallback batches, smallest blast radius first.
+170. Library feed-update display consumption
+    - Destructure `FeedUpdateDisplay` and `FeedUpdateActionDisplay`
+      before rendering the feed-update toolbar.
+    - Remove renderer-side feed-update status/action clones.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+171. Track identity-action payload consumption
+    - Destructure `IdentityActionDisplay` in the shared track shell.
+    - Remove setup-time `display.payload.clone()` from identity action
+      rendering.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+172. Library contributor identity-action display consumption
+    - Destructure `ContributorIdentityActionDisplay` before rendering
+      Library contributor identity actions.
+    - Remove setup-time `action.target.clone()` from the Library
+      contributor identity renderer.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+173. Discover contributor identity-action display consumption
+    - Destructure `ContributorIdentityActionDisplay` before rendering
+      Discover contributor identity actions.
+    - Remove setup-time `action.target.clone()` from the Discover
+      contributor identity renderer.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+174. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2771,6 +2793,42 @@ Verified starting notes, 2026-05-03:
   from the VM action contract.
 - The architecture guard now blocks the old Library primary-action
   label clone from returning.
+
+## One-Hundred-Seventieth-Slice Implementation Notes
+
+- Library feed-update chrome now destructures `FeedUpdateDisplay` and
+  `FeedUpdateActionDisplay` before rendering.
+- Feed-update status text, action kind, button id, label, and disabled
+  state are consumed directly from the VM display contract.
+- The architecture guard now blocks the old feed-update display clones
+  from returning.
+
+## One-Hundred-Seventy-First-Slice Implementation Notes
+
+- Shared track identity actions now destructure `IdentityActionDisplay`
+  before rendering.
+- Identity action id, kind, and payload are consumed directly from the
+  VM display contract.
+- The architecture guard now blocks the old setup-time payload clone
+  from returning.
+
+## One-Hundred-Seventy-Second-Slice Implementation Notes
+
+- Library contributor identity actions now destructure
+  `ContributorIdentityActionDisplay` before rendering.
+- Contributor action id, kind, and target are consumed directly from
+  the VM display contract.
+- The architecture guard now blocks the old Library target clone from
+  returning.
+
+## One-Hundred-Seventy-Third-Slice Implementation Notes
+
+- Discover contributor identity actions now destructure
+  `ContributorIdentityActionDisplay` before rendering.
+- Contributor action id, kind, and target are consumed directly from
+  the VM display contract.
+- The architecture guard now blocks the old Discover target clone from
+  returning.
 
 ## Test Commands
 

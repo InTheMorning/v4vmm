@@ -2139,6 +2139,31 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "feed_update.status_message.clone()",
+            "Library feed-update status should be consumed from FeedUpdateDisplay",
+        ),
+        (
+            "src/library.rs",
+            "feed_update.action.clone()",
+            "Library feed-update action should be consumed from FeedUpdateDisplay",
+        ),
+        (
+            "src/ui/shells/track.rs",
+            "display.payload.clone()",
+            "Track identity action payload should be consumed from IdentityActionDisplay",
+        ),
+        (
+            "src/library.rs",
+            "let target_for_click = action.target.clone()",
+            "Library contributor identity action target should be consumed from ContributorIdentityActionDisplay",
+        ),
+        (
+            "src/search.rs",
+            "let target_for_click = action.target.clone()",
+            "Discover contributor identity action target should be consumed from ContributorIdentityActionDisplay",
+        ),
+        (
+            "src/library.rs",
             "format!(\"{n:02} - \")",
             "Library tree track-number prefix belongs in LibraryTrackRowVm::tree_number_prefix",
         ),

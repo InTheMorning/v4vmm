@@ -81,18 +81,18 @@ use crate::ui::shells::track;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{FontSize, Radius, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorIdentityActionKind, ContributorRowVm, EntityActionKind, EntityActionTarget,
-    EntityActionTone, EntityActionVm, EntitySurfaceContext, MetadataPanelState, ReleaseDetailVm,
-    TrackMetadataActionState,
+    ContributorIdentityActionDisplay, ContributorIdentityActionKind, ContributorRowVm,
+    EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm, EntitySurfaceContext,
+    MetadataPanelState, ReleaseDetailVm, TrackMetadataActionState,
 };
 use crate::view_models::library::{
-    AlbumNode, ArtistFeedSummaryDisplay, ArtistNode, FeedUpdateActionKind, FeedUpdatePhase,
-    LibraryAlbumDetailVm, LibraryAlbumTreeDisplay, LibraryArtistDetailVm, LibraryArtistTreeDisplay,
-    LibraryChromeDisplay, LibraryTrackActionVm, LibraryTrackRowDisplay, LibraryTrackRowVm,
-    LibraryTree, LibraryTreeTrackDisplay, LibraryViewModel, MbStatusKind, MbTrackStatus,
-    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm, PlaylistSidebarRowVm,
-    PlaylistSidebarVm, PlaylistTrackControlsDisplay, PlaylistTrackRowDisplay,
-    TrackSubscribeOutcome,
+    AlbumNode, ArtistFeedSummaryDisplay, ArtistNode, FeedUpdateActionDisplay, FeedUpdateActionKind,
+    FeedUpdateDisplay, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryAlbumTreeDisplay,
+    LibraryArtistDetailVm, LibraryArtistTreeDisplay, LibraryChromeDisplay, LibraryTrackActionVm,
+    LibraryTrackRowDisplay, LibraryTrackRowVm, LibraryTree, LibraryTreeTrackDisplay,
+    LibraryViewModel, MbStatusKind, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
+    PlaylistDetailVm, PlaylistSidebarRowVm, PlaylistSidebarVm, PlaylistTrackControlsDisplay,
+    PlaylistTrackRowDisplay, TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
@@ -1995,9 +1995,16 @@ impl Render for LibraryApp {
                     ),
             )
             .child({
-                let feed_update = self.vm.feed_update_display();
-                let feed_status = feed_update.status_message.clone();
-                let action = feed_update.action.clone();
+                let FeedUpdateDisplay {
+                    status_message: feed_status,
+                    action,
+                } = self.vm.feed_update_display();
+                let FeedUpdateActionDisplay {
+                    kind,
+                    button_id,
+                    label,
+                    disabled,
+                } = action;
                 div()
                     .flex()
                     .flex_row()
@@ -2028,17 +2035,17 @@ impl Render for LibraryApp {
                                 )
                             }),
                     )
-                    .child(if action.kind == FeedUpdateActionKind::ApplyUpdates {
-                        UiButton::styled(action.button_id, ControlStyle::Primary)
-                            .label(action.label)
-                            .disabled(action.disabled)
+                    .child(if kind == FeedUpdateActionKind::ApplyUpdates {
+                        UiButton::styled(button_id, ControlStyle::Primary)
+                            .label(label)
+                            .disabled(disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.apply_all_feed_updates(cx);
                             }))
                     } else {
-                        UiButton::styled(action.button_id, ControlStyle::Secondary)
-                            .label(action.label)
-                            .disabled(action.disabled)
+                        UiButton::styled(button_id, ControlStyle::Secondary)
+                            .label(label)
+                            .disabled(disabled)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.check_all_feeds(cx);
                             }))
@@ -2628,18 +2635,18 @@ fn library_contributor_identity_actions(
         .identity_actions()
         .into_iter()
         .map(|action| {
-            let target_for_click = action.target.clone();
-            match action.kind {
-                ContributorIdentityActionKind::Website => identity_action_button(
-                    SharedString::from(action.id),
-                    IdentityActionKind::Website,
-                )
-                .on_click(move |_, _, _| {
-                    let _ = open::that(&target_for_click);
-                })
-                .into_any_element(),
+            let ContributorIdentityActionDisplay { id, kind, target } = action;
+            let target_for_click = target;
+            match kind {
+                ContributorIdentityActionKind::Website => {
+                    identity_action_button(SharedString::from(id), IdentityActionKind::Website)
+                        .on_click(move |_, _, _| {
+                            let _ = open::that(&target_for_click);
+                        })
+                        .into_any_element()
+                }
                 ContributorIdentityActionKind::Nostr => {
-                    identity_action_button(SharedString::from(action.id), IdentityActionKind::Nostr)
+                    identity_action_button(SharedString::from(id), IdentityActionKind::Nostr)
                         .on_click(move |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(
                                 target_for_click.clone(),
