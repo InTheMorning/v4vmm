@@ -2048,6 +2048,41 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover feed-list title fallback belongs in RecentFeedTileVm::display",
         ),
         (
+            "src/search.rs",
+            "let guid = display.id.clone()",
+            "Discover feed-list navigation id should be consumed from RecentFeedTileDisplay",
+        ),
+        (
+            "src/search.rs",
+            "SharedString::from(display.feed_list_tile_id)",
+            "Discover feed-list tile id should be consumed from RecentFeedTileDisplay",
+        ),
+        (
+            "src/search.rs",
+            "let click_guid = display.id.clone()",
+            "Discover podroll tile id should be consumed from RecentFeedTileDisplay",
+        ),
+        (
+            "src/search.rs",
+            "SharedString::from(display.podroll_tile_id)",
+            "Discover podroll tile id should be consumed from RecentFeedTileDisplay",
+        ),
+        (
+            "src/search.rs",
+            "let element_id = link.element_id",
+            "Discover track feed-link display should be consumed from TrackFeedLinkDisplay",
+        ),
+        (
+            "src/search.rs",
+            "let title = link.label",
+            "Discover track feed-link label should be consumed from TrackFeedLinkDisplay",
+        ),
+        (
+            "src/search.rs",
+            "let display = PublisherLinkDisplay::new",
+            "Discover publisher link display should be consumed from PublisherLinkDisplay",
+        ),
+        (
             "src/library.rs",
             "format!(\"{n:02} - \")",
             "Library tree track-number prefix belongs in LibraryTrackRowVm::tree_number_prefix",

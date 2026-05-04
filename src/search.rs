@@ -77,8 +77,9 @@ use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
     ActionRowVm, DeferredPanelKind, InspectorChromeDisplay, LazyPanel, PaymentRouteVm,
     PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm, PublisherLinkDisplay,
-    RecentFeedTileVm, ResultRow, ResultRowRenderItem, SearchBatch, SearchSubscriptionCommand,
-    SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm, TrackRowActionVm,
+    RecentFeedTileDisplay, RecentFeedTileVm, ResultRow, ResultRowRenderItem, SearchBatch,
+    SearchSubscriptionCommand, SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm,
+    TrackRowActionVm,
 };
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
@@ -2567,16 +2568,21 @@ fn podroll_section(
 
     let mut tiles: Vec<AnyElement> = Vec::with_capacity(feeds.len());
     for feed in feeds {
-        let display = RecentFeedTileVm::new(&feed).display();
-        if display.id.trim().is_empty() {
+        let RecentFeedTileDisplay {
+            id,
+            podroll_tile_id,
+            title,
+            image_url,
+            ..
+        } = RecentFeedTileVm::new(&feed).display();
+        if id.trim().is_empty() {
             continue;
         }
-        let title = display.title.clone();
         let click_title = title.clone();
-        let click_guid = display.id.clone();
-        let thumb = app.thumbnail_for_url(display.image_url.as_deref(), cx);
+        let click_guid = id;
+        let thumb = app.thumbnail_for_url(image_url.as_deref(), cx);
         let tile = div()
-            .id(SharedString::from(display.podroll_tile_id))
+            .id(SharedString::from(podroll_tile_id))
             .flex_shrink_0()
             .w(layout::FEED_TILE_WIDTH)
             .flex()
@@ -4505,12 +4511,19 @@ pub(crate) fn render_feed_list_section(
     let tiles: Vec<AnyElement> = feeds
         .into_iter()
         .map(|feed| {
-            let display = RecentFeedTileVm::new(&feed).display();
-            let guid = display.id.clone();
-            let title = display.title.clone();
-            let thumb = app.thumbnail_for_url(display.image_url.as_deref(), cx);
+            let RecentFeedTileDisplay {
+                id,
+                feed_list_tile_id,
+                title,
+                episode_note,
+                image_url,
+                ..
+            } = RecentFeedTileVm::new(&feed).display();
+            let click_guid = id;
+            let click_title = title.clone();
+            let thumb = app.thumbnail_for_url(image_url.as_deref(), cx);
             div()
-                .id(SharedString::from(display.feed_list_tile_id))
+                .id(SharedString::from(feed_list_tile_id))
                 .w(layout::FEED_TILE_WIDTH)
                 .flex()
                 .flex_col()
@@ -4519,18 +4532,18 @@ pub(crate) fn render_feed_list_section(
                 .rounded(radius::MD)
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    this.push_inspector("feed".into(), guid.clone(), title.clone(), cx);
+                    this.push_inspector("feed".into(), click_guid.clone(), click_title.clone(), cx);
                 }))
                 .child(Thumbnail::new(EntityKind::Feed, ThumbnailSize::Lg).image(thumb.clone()))
                 .child(
                     div().line_height(typography::LINE_COMPACT).child(
-                        Label::new(display.title)
+                        Label::new(title)
                             .size(FontSize::Caption)
                             .weight(FontWeight::MEDIUM)
                             .truncated(),
                     ),
                 )
-                .when_some(display.episode_note, |el, episode_note| {
+                .when_some(episode_note, |el, episode_note| {
                     el.child(
                         div()
                             .text_color(color::text_muted())
@@ -4581,10 +4594,14 @@ fn render_track_header_subtitle(
 }
 
 fn render_feed_link_value(link: TrackFeedLinkDisplay, cx: &mut Context<SearchApp>) -> AnyElement {
-    let element_id = link.element_id;
-    let guid = link.guid;
-    let title = link.label;
-    let tooltip = link.tooltip;
+    let TrackFeedLinkDisplay {
+        element_id,
+        guid,
+        label,
+        tooltip,
+        ..
+    } = link;
+    let title = label;
     let click_title = title.clone();
     div()
         .id(SharedString::from(element_id))
@@ -4604,13 +4621,15 @@ pub(crate) fn render_publisher_link_value(
     publisher_text: String,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let display = PublisherLinkDisplay::new(publisher_text);
-    let tooltip = display.tooltip;
-    let title = display.title;
-    let target = display.target;
+    let PublisherLinkDisplay {
+        id,
+        title,
+        target,
+        tooltip,
+    } = PublisherLinkDisplay::new(publisher_text);
     let click_title = title.clone();
     div()
-        .id(SharedString::from(display.id))
+        .id(SharedString::from(id))
         .cursor_pointer()
         .text_color(color::accent())
         .text_size(typography::SIZE_MICRO)

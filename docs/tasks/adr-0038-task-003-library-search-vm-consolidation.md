@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred fifty-six implementation slices completed on 2026-05-04.
+In progress - first one hundred sixty implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1024,7 +1024,31 @@ Verified starting notes, 2026-05-03:
       consumed directly.
     - Remove renderer-side `display.title.clone()` click-title binding.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-157. Migrate remaining fallback batches, smallest blast radius first.
+157. Discover podroll tile display consumption
+    - Destructure `RecentFeedTileDisplay` in the podroll renderer so
+      tile id, feed id, title, and image URL are consumed directly.
+    - Remove renderer-side `display.id.clone()` and
+      `display.podroll_tile_id` binding.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+158. Discover feed-list tile display consumption
+    - Destructure `RecentFeedTileDisplay` in the Discover feed-list
+      renderer so tile id, feed id, title, episode note, and image URL
+      are consumed directly.
+    - Remove renderer-side `display.id.clone()` and
+      `display.feed_list_tile_id` binding.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+159. Discover track feed-link display consumption
+    - Destructure `TrackFeedLinkDisplay` before rendering the track
+      feed link value.
+    - Remove loose `link.element_id` and `link.label` local binding.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+160. Discover publisher link display consumption
+    - Destructure `PublisherLinkDisplay` before rendering publisher
+      links.
+    - Remove screen-local `let display = PublisherLinkDisplay::new`
+      projection binding.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+161. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2578,6 +2602,42 @@ Verified starting notes, 2026-05-03:
   consumed directly from the VM display contract.
 - The architecture guard now blocks the old feed-summary click-title
   clone from returning.
+
+## One-Hundred-Fifty-Seventh-Slice Implementation Notes
+
+- Discover podroll tiles now destructure `RecentFeedTileDisplay` before
+  rendering.
+- Podroll tile id, feed id, title, and image URL are consumed directly
+  from the VM display contract.
+- The architecture guard now blocks the old podroll tile id/feed id
+  clones from returning.
+
+## One-Hundred-Fifty-Eighth-Slice Implementation Notes
+
+- Discover feed-list tiles now destructure `RecentFeedTileDisplay`
+  before rendering.
+- Feed-list tile id, feed id, title, episode note, and image URL are
+  consumed directly from the VM display contract.
+- The architecture guard now blocks the old feed-list tile id/feed id
+  clones from returning.
+
+## One-Hundred-Fifty-Ninth-Slice Implementation Notes
+
+- Track feed links now destructure `TrackFeedLinkDisplay` before
+  rendering.
+- Feed-link id, guid, label, and tooltip are consumed directly from the
+  VM display contract.
+- The architecture guard now blocks the old loose feed-link field
+  binding from returning.
+
+## One-Hundred-Sixtieth-Slice Implementation Notes
+
+- Publisher links now destructure `PublisherLinkDisplay` before
+  rendering.
+- Publisher link id, title, target, and tooltip are consumed directly
+  from the VM display contract.
+- The architecture guard now blocks the old local publisher display
+  binding from returning.
 
 ## Test Commands
 
