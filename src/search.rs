@@ -2646,10 +2646,7 @@ fn render_discover_track_inspector(
     let mut external_links = vec![TrackSurfaceElement::from_element(
         render_track_header_subtitle(feed_link, audio_display, cx),
     )];
-    external_links.extend(track::render_track_identity_actions(
-        &detail_vm,
-        "discover-track",
-    ));
+    external_links.extend(track::render_track_identity_actions(&detail_vm));
 
     let surface = TrackDetailSurface::new(&detail_vm)
         .image(frame.image.clone())
@@ -2973,18 +2970,21 @@ fn contributor_elements(
     app: &mut SearchApp,
     cx: &mut Context<SearchApp>,
 ) -> Vec<AnyElement> {
-    render_contributor_rows(ContributorListVm::new(contributors), |contributor| {
-        let thumbnail = app.thumbnail_for_url(contributor.image_url(), cx);
-        ContributorRowSlot {
-            thumbnail,
-            actions: contributor_identity_actions(contributor),
-        }
-    })
+    render_contributor_rows(
+        ContributorListVm::new(contributors, EntitySurfaceContext::Discover),
+        |contributor| {
+            let thumbnail = app.thumbnail_for_url(contributor.image_url(), cx);
+            ContributorRowSlot {
+                thumbnail,
+                actions: contributor_identity_actions(contributor),
+            }
+        },
+    )
 }
 
 fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<ReleaseSurfaceElement> {
     contributor
-        .identity_actions("contributor")
+        .identity_actions()
         .into_iter()
         .map(|action| {
             let target_for_click = action.target.clone();

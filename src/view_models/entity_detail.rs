@@ -844,7 +844,7 @@ impl<'a> ReleaseDetailVm<'a> {
 
     #[must_use]
     pub fn contributors(&self) -> ContributorListVm<'a> {
-        ContributorListVm::new(&self.view.contributors)
+        ContributorListVm::new(&self.view.contributors, self.context)
     }
 
     #[must_use]
@@ -908,6 +908,7 @@ impl<'a> ReleaseDetailVm<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContributorRowVm<'a> {
     contributor: &'a ContributorView,
+    context: EntitySurfaceContext,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -925,8 +926,11 @@ pub struct ContributorIdentityActionDisplay {
 
 impl<'a> ContributorRowVm<'a> {
     #[must_use]
-    pub const fn new(contributor: &'a ContributorView) -> Self {
-        Self { contributor }
+    pub const fn new(contributor: &'a ContributorView, context: EntitySurfaceContext) -> Self {
+        Self {
+            contributor,
+            context,
+        }
     }
 
     #[must_use]
@@ -952,7 +956,8 @@ impl<'a> ContributorRowVm<'a> {
     }
 
     #[must_use]
-    pub fn identity_actions(&self, id_prefix: &str) -> Vec<ContributorIdentityActionDisplay> {
+    pub fn identity_actions(&self) -> Vec<ContributorIdentityActionDisplay> {
+        let id_prefix = self.identity_action_prefix();
         let label = self.full_label();
         let mut actions = Vec::new();
         if let Some(href) = self.href() {
@@ -970,6 +975,14 @@ impl<'a> ContributorRowVm<'a> {
             });
         }
         actions
+    }
+
+    #[must_use]
+    pub const fn identity_action_prefix(&self) -> &'static str {
+        match self.context {
+            EntitySurfaceContext::Discover => "contributor",
+            EntitySurfaceContext::Library => "library-contributor",
+        }
     }
 
     #[must_use]
@@ -991,12 +1004,16 @@ impl<'a> ContributorRowVm<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ContributorListVm<'a> {
     contributors: &'a [ContributorView],
+    context: EntitySurfaceContext,
 }
 
 impl<'a> ContributorListVm<'a> {
     #[must_use]
-    pub const fn new(contributors: &'a [ContributorView]) -> Self {
-        Self { contributors }
+    pub const fn new(contributors: &'a [ContributorView], context: EntitySurfaceContext) -> Self {
+        Self {
+            contributors,
+            context,
+        }
     }
 
     #[must_use]
@@ -1008,7 +1025,7 @@ impl<'a> ContributorListVm<'a> {
     pub fn people(&self) -> Vec<ContributorPersonVm<'a>> {
         let mut grouped = BTreeMap::<String, Vec<ContributorRowVm<'a>>>::new();
         for contributor in self.contributors {
-            let row = ContributorRowVm::new(contributor);
+            let row = ContributorRowVm::new(contributor, self.context);
             grouped.entry(row.display_name()).or_default().push(row);
         }
         grouped
@@ -1542,7 +1559,7 @@ mod tests {
             .expect("person group should expose a primary contributor");
 
         assert_eq!(
-            alice.identity_actions("contributor"),
+            alice.identity_actions(),
             vec![
                 ContributorIdentityActionDisplay {
                     id: "contributor-website:Alice (vocals):https://example.test/alice".to_string(),
@@ -1556,9 +1573,16 @@ mod tests {
                 },
             ]
         );
+        let library_alice = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library)
+            .contributors()
+            .people()
+            .into_iter()
+            .next()
+            .and_then(|person| person.primary().cloned())
+            .expect("person group should expose a primary contributor");
         assert_eq!(
-            alice
-                .identity_actions("library-contributor")
+            library_alice
+                .identity_actions()
                 .into_iter()
                 .map(|action| action.id)
                 .collect::<Vec<_>>(),
@@ -1576,9 +1600,9 @@ mod tests {
             role: Some("vocals".into()),
             ..ContributorView::default()
         };
-        let vm = ContributorRowVm::new(&contributor);
+        let vm = ContributorRowVm::new(&contributor, EntitySurfaceContext::Discover);
 
-        assert!(vm.identity_actions("contributor").is_empty());
+        assert!(vm.identity_actions().is_empty());
     }
 
     #[test]
@@ -1600,7 +1624,7 @@ mod tests {
                 ..ContributorView::default()
             },
         ];
-        let people = ContributorListVm::new(&contributors).people();
+        let people = ContributorListVm::new(&contributors, EntitySurfaceContext::Discover).people();
 
         assert_eq!(people.len(), 1);
         assert_eq!(people[0].name(), "Alice");

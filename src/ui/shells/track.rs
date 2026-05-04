@@ -43,13 +43,12 @@ fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
 #[must_use]
 pub(crate) fn render_track_identity_actions(
     detail: &TrackDetailVm<'_>,
-    id_prefix: &str,
 ) -> Vec<TrackSurfaceElement> {
     detail
         .identity_actions()
         .into_iter()
         .filter_map(|action| {
-            let display = action.identity_display(id_prefix)?;
+            let display = action.identity_display(detail.identity_action_prefix())?;
             let kind = match display.kind {
                 IdentityActionDisplayKind::Website => IdentityActionKind::Website,
                 IdentityActionDisplayKind::Nostr => IdentityActionKind::Nostr,

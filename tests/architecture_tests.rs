@@ -1747,23 +1747,21 @@ fn track_identity_links_use_shared_renderer() {
                 .to_string(),
         );
     }
-    if !(search.contains("render_track_identity_actions(")
-        && search.contains("&detail_vm")
-        && search.contains("\"discover-track\""))
+    if !(search.contains("render_track_identity_actions(&detail_vm)")
+        && !search.contains("\"discover-track\""))
     {
         violations.push(
-            "src/search.rs: ADR 0037 Discover track detail must call `render_track_identity_actions(&detail_vm, \"discover-track\")`"
+            "src/search.rs: ADR 0037 Discover track detail must call `render_track_identity_actions(&detail_vm)` and leave the prefix in TrackDetailVm"
                 .to_string(),
         );
     }
 
     let library = read_source(&manifest_path("src/library.rs"));
-    if !(library.contains("render_track_identity_actions(")
-        && library.contains("&detail_vm")
-        && library.contains("\"library-track\""))
+    if !(library.contains("render_track_identity_actions(&detail_vm)")
+        && !library.contains("\"library-track\""))
     {
         violations.push(
-            "src/library.rs: ADR 0037 Library track detail must call `render_track_identity_actions(&detail_vm, \"library-track\")`"
+            "src/library.rs: ADR 0037 Library track detail must call `render_track_identity_actions(&detail_vm)` and leave the prefix in TrackDetailVm"
                 .to_string(),
         );
     }
@@ -2838,6 +2836,36 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/ui/shells/entity.rs",
             "id_prefix: &str",
             "Feed identity action rendering should consume ReleaseDetailPageVm identity prefix",
+        ),
+        (
+            "src/search.rs",
+            "\"discover-track\"",
+            "Discover track identity action prefix belongs in TrackDetailVm",
+        ),
+        (
+            "src/library.rs",
+            "\"library-track\"",
+            "Library track identity action prefix belongs in TrackDetailVm",
+        ),
+        (
+            "src/ui/shells/track.rs",
+            "id_prefix: &str",
+            "Track identity action rendering should consume TrackDetailVm identity prefix",
+        ),
+        (
+            "src/search.rs",
+            ".identity_actions(\"contributor\")",
+            "Discover contributor identity action prefix belongs in ContributorRowVm",
+        ),
+        (
+            "src/library.rs",
+            ".identity_actions(\"library-contributor\")",
+            "Library contributor identity action prefix belongs in ContributorRowVm",
+        ),
+        (
+            "src/view_models/entity_detail.rs",
+            "identity_actions(&self, id_prefix: &str)",
+            "Contributor identity action prefix should be derived from ContributorRowVm context",
         ),
         (
             "src/library.rs",

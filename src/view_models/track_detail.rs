@@ -309,6 +309,14 @@ impl<'a> TrackDetailVm<'a> {
         }
         actions
     }
+
+    #[must_use]
+    pub const fn identity_action_prefix(&self) -> &'static str {
+        match self.context {
+            TrackDetailSurfaceContext::Discover => "discover-track",
+            TrackDetailSurfaceContext::Library => "library-track",
+        }
+    }
 }
 
 /// Row-shaped projection of [`TrackDetailVm`].
@@ -552,18 +560,40 @@ mod tests {
     #[test]
     fn track_detail_identity_action_display_projects_ids() {
         let track = track_with_identity();
-        let actions =
-            TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover).identity_actions();
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover);
+        let actions = vm.identity_actions();
 
         assert_eq!(
             actions
                 .iter()
-                .filter_map(|action| action.identity_display("discover-track"))
+                .filter_map(|action| action.identity_display(vm.identity_action_prefix()))
                 .map(|display| display.id)
                 .collect::<Vec<_>>(),
             vec![
                 "discover-track-website:https://example.test/track".to_string(),
                 "discover-track-nostr:npub1track".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn track_detail_identity_action_prefix_projects_context() {
+        let track = track_with_identity();
+        let discover = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover);
+        let library = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library);
+
+        assert_eq!(discover.identity_action_prefix(), "discover-track");
+        assert_eq!(library.identity_action_prefix(), "library-track");
+        assert_eq!(
+            library
+                .identity_actions()
+                .iter()
+                .filter_map(|action| action.identity_display(library.identity_action_prefix()))
+                .map(|display| display.id)
+                .collect::<Vec<_>>(),
+            vec![
+                "library-track-website:https://example.test/track".to_string(),
+                "library-track-nostr:npub1track".to_string(),
             ]
         );
     }

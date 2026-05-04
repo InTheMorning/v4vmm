@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred thirty-four implementation slices completed on 2026-05-03.
+In progress - first one hundred thirty-six implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -888,7 +888,21 @@ Verified starting notes, 2026-05-03:
     - Remove the Discover shell-local `"discover-feed"` prefix argument
       from `render_feed_identity_actions`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-135. Migrate remaining fallback batches, smallest blast radius first.
+135. Track identity-action prefix display
+    - Add `TrackDetailVm::identity_action_prefix()` so Library and
+      Discover track identity action ids derive from
+      `TrackDetailSurfaceContext`.
+    - Remove screen-local `"library-track"` and `"discover-track"`
+      prefix arguments from `render_track_identity_actions`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+136. Contributor identity-action prefix display
+    - Carry `EntitySurfaceContext` through `ContributorListVm` and
+      `ContributorRowVm` so contributor action ids derive from the VM.
+    - Remove screen-local `"contributor"` and `"library-contributor"`
+      prefix arguments from Library and Discover contributor action
+      render glue.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+137. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2233,6 +2247,28 @@ Verified starting notes, 2026-05-03:
   passes a shell-local `"discover-feed"` prefix.
 - The architecture guard now blocks feed identity render helpers from
   accepting an external prefix argument again.
+
+## One-Hundred-Thirty-Fourth-Slice Implementation Notes
+
+- `TrackDetailVm::identity_action_prefix()` now carries Library and
+  Discover track identity-action prefixes derived from
+  `TrackDetailSurfaceContext`.
+- `ui::shells::track::render_track_identity_actions()` still maps VM
+  display kinds to GPUI identity buttons and wires click/copy behavior,
+  but no longer accepts a screen-local prefix argument.
+- The architecture guard now blocks track identity prefixes from
+  returning to Library/Discover render glue.
+
+## One-Hundred-Thirty-Fifth-Slice Implementation Notes
+
+- `ContributorListVm` and `ContributorRowVm` now carry
+  `EntitySurfaceContext`, and `ContributorRowVm::identity_actions()`
+  derives contributor identity-action prefixes from that context.
+- Library and Discover still own thumbnails and GPUI click/copy
+  handlers, but no longer pass contributor identity prefixes into the
+  VM.
+- The architecture guard now blocks screen-local contributor identity
+  prefix arguments from returning.
 
 ## Test Commands
 

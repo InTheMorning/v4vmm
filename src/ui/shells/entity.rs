@@ -425,6 +425,7 @@ fn entity_kind(kind: EntitySurfaceKind) -> EntityKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view_models::entity_detail::EntitySurfaceContext;
 
     #[test]
     fn behavior_slots_start_empty() {
@@ -450,7 +451,7 @@ mod tests {
 
     #[test]
     fn contributor_panel_skips_empty_lists() {
-        let contributors = ContributorListVm::new(&[]);
+        let contributors = ContributorListVm::new(&[], EntitySurfaceContext::Discover);
 
         assert!(
             render_contributor_panel("contributors", "Contributors", contributors, |_| {
@@ -469,9 +470,10 @@ mod tests {
             href: Some("https://example.test/alice".into()),
             ..Default::default()
         }];
-        let rows = render_contributor_rows(ContributorListVm::new(&contributors), |_| {
-            ContributorRowSlot::default()
-        });
+        let rows = render_contributor_rows(
+            ContributorListVm::new(&contributors, EntitySurfaceContext::Discover),
+            |_| ContributorRowSlot::default(),
+        );
 
         assert_eq!(rows.len(), 2);
     }

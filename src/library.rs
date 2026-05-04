@@ -2595,7 +2595,7 @@ fn library_contributor_identity_actions(
     contributor: &ContributorRowVm<'_>,
 ) -> Vec<ReleaseSurfaceElement> {
     contributor
-        .identity_actions("library-contributor")
+        .identity_actions()
         .into_iter()
         .map(|action| {
             let target_for_click = action.target.clone();
@@ -3088,10 +3088,7 @@ fn render_track_left_column(
 
     TrackDetailSurface::new(&detail_vm)
         .image(frame.image.clone())
-        .external_links(track::render_track_identity_actions(
-            &detail_vm,
-            "library-track",
-        ))
+        .external_links(track::render_track_identity_actions(&detail_vm))
         .primary_actions(vec![TrackSurfaceElement::from_element(
             library_track_action_row(frame, pending_id3_edits, playlists, cx),
         )])
