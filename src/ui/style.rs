@@ -1,10 +1,15 @@
 //! Visual roles used while screens finish migrating.
 //!
-//! This module replaces the old `ui::theme` compatibility shim. Color roles
-//! resolve through the profile installed by `theme_bridge`, so runtime theme
-//! changes repaint without dark-only helper calls. The spacing, radius, and
-//! typography constants are fixed geometry kept for legacy screen parity until
-//! those call sites move fully onto token enums.
+//! This module replaces the old `ui::theme` compatibility shim. Every color
+//! role in `color::*` resolves through the profile installed by `theme_bridge`
+//! by way of [`crate::ui::tokens::SemanticColor`] — there are no raw rgb hex
+//! literals in this file, and the architecture test
+//! `ui_style_resolves_colors_through_token_layer` enforces that. Runtime
+//! theme changes therefore repaint correctly without dark-only helper calls.
+//!
+//! The spacing, radius, and typography constants are fixed geometry kept for
+//! legacy screen parity until those call sites move fully onto token enums
+//! (`tokens::Spacing`, `tokens::Radius`, `tokens::FontSize`).
 
 #![warn(clippy::pedantic)]
 
@@ -102,16 +107,16 @@ pub mod color {
     }
 
     pub fn id3_frame_v22() -> Rgba {
-        gpui::rgb(0x00b0_6cf4)
+        role(SemanticColor::Id3FrameV22)
     }
     pub fn id3_frame_v23_only() -> Rgba {
-        gpui::rgb(0x00ff_c857)
+        role(SemanticColor::Id3FrameV23Only)
     }
     pub fn id3_frame_v24_only() -> Rgba {
-        gpui::rgb(0x003a_c4c4)
+        role(SemanticColor::Id3FrameV24Only)
     }
     pub fn id3_frame_unknown() -> Rgba {
-        gpui::rgb(0x00ff_8a65)
+        role(SemanticColor::Id3FrameUnknown)
     }
 }
 

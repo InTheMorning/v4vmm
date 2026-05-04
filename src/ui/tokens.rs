@@ -125,6 +125,14 @@ pub enum SemanticColor {
     DiffMatch,
     DiffDifferent,
     DiffMissing,
+
+    // v4vmm-specific ID3 frame version chips. Used as label and frame-tag
+    // color on metadata rows so the user can spot frame-version provenance
+    // at a glance.
+    Id3FrameV22,
+    Id3FrameV23Only,
+    Id3FrameV24Only,
+    Id3FrameUnknown,
 }
 
 impl SemanticColor {
@@ -194,6 +202,11 @@ impl SemanticColor {
             Self::DiffMatch => hex(0x6f_d4a3),
             Self::DiffDifferent => hex(0xff_d27a),
             Self::DiffMissing => hex(0xff_a07f),
+
+            Self::Id3FrameV22 => hex(0xb0_6cf4),
+            Self::Id3FrameV23Only => hex(0xff_c857),
+            Self::Id3FrameV24Only => hex(0x3a_c4c4),
+            Self::Id3FrameUnknown => hex(0xff_8a65),
         }
     }
 
@@ -253,6 +266,13 @@ impl SemanticColor {
             Self::DiffMatch => hex(0x1f_7a3a),
             Self::DiffDifferent => hex(0x96_5a00),
             Self::DiffMissing => hex(0xb1_3c20),
+
+            // Light-mode frame chips: darker, lower-saturation variants of
+            // the dark-mode hues, tuned to read as labels on white.
+            Self::Id3FrameV22 => hex(0x5b_3b9e),
+            Self::Id3FrameV23Only => hex(0x8b_5a00),
+            Self::Id3FrameV24Only => hex(0x00_6d77),
+            Self::Id3FrameUnknown => hex(0xb1_3c20),
         }
     }
 }

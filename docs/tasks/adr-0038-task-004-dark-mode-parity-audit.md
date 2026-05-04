@@ -1,8 +1,9 @@
-# ADR 0038 Task 004: HIG Dark-Mode Parity Audit (Stub)
+# ADR 0038 Task 004: HIG Dark-Mode Parity Audit
 
 ## Status
 
-Stub. May run in parallel with Task 005 after Task 002 lands.
+In progress (2026-05-04). Token resolution for `src/ui/style.rs` is
+complete and guarded; visual smoke capture is the remaining blocker.
 
 ## Goal
 
@@ -12,16 +13,25 @@ layer. Capture light + dark visual smoke for every main surface.
 
 ## Inventory
 
-Verified 2026-05-03:
+Verified 2026-05-04:
 
-- `src/ui/style.rs:105-114` contains raw `gpui::rgb(0x…)` literals.
-  Either legitimize as token-layer code, fold into `tokens.rs`, or
-  delete if unused.
-- Existing guard
-  `screens_do_not_reintroduce_raw_color_or_numeric_px_literals` covers
-  `SCREEN_FILES` only — `src/ui/style.rs` is exempt today.
-- Existing guard `ui_components_do_not_bypass_theme_profile_resolution`
-  exists; verify scope.
+- `src/ui/style.rs` previously held four raw `gpui::rgb(0x…)` literals
+  for ID3 frame chips. Folded into the token layer: new
+  `SemanticColor::Id3FrameV22 / V23Only / V24Only / Unknown` tokens
+  with light, dark, high-contrast-light, and high-contrast-dark
+  values. The four `color::id3_frame_*` helpers now resolve through
+  `role(SemanticColor::…)`, identical to the rest of the file.
+- New architecture test
+  `ui_style_resolves_colors_through_token_layer` scans `src/ui/style.rs`
+  for `gpui::rgb(` or `rgb(0x` literals and rejects them, replacing
+  the prior `SCREEN_FILES`-only coverage gap for this file.
+- `ui_components_do_not_bypass_theme_profile_resolution` continues to
+  guard primitives and composites against `Appearance::current(cx)`
+  shortcuts.
+- Brand colors in `src/ui/icons.rs` (`Rss`, `Nostr`) intentionally use
+  raw `gpui::rgb(...)` literals: brand identity is appearance-invariant
+  and so the token system is not the right home. Out of scope for this
+  task.
 
 ## Files Likely To Change
 
@@ -76,12 +86,16 @@ Verified 2026-05-03:
 
 ## Definition of Done
 
-- `src/ui/style.rs` is either gone, absorbed, or documented as a
-  token-layer file allowed to hold raw colors.
-- The raw-color guard covers `src/ui/style.rs` (one way or another).
-- Light + dark screenshot pairs filed for every surface in the
-  inventory.
-- A coverage table lives in the review checklist.
+- [x] `src/ui/style.rs` resolves all colors through the token layer;
+      raw `rgb(...)` literals are gone. Module-level docs declare the
+      file token-resolved.
+- [x] The raw-color guard covers `src/ui/style.rs`
+      (`ui_style_resolves_colors_through_token_layer`).
+- [ ] Light + dark screenshot pairs filed for every surface in the
+      inventory. Blocked: capturing app screenshots from the CLI
+      sandbox is not currently feasible. Filed as a deterministic
+      capture follow-up alongside the Task 001 visual-proof caveat.
+- [x] A coverage table lives in the review checklist.
 
 ## When To Start
 

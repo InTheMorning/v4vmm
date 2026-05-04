@@ -1076,6 +1076,27 @@ fn ui_style_does_not_reintroduce_provenance_diff_roles() {
 }
 
 #[test]
+fn ui_style_resolves_colors_through_token_layer() {
+    let path = manifest_path("src/ui/style.rs");
+    let source = read_source(&path);
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        if line.contains("gpui::rgb(") || line.contains("rgb(0x") {
+            violations.push(format!(
+                "src/ui/style.rs:{line_number}: raw rgb literals must move to `tokens::SemanticColor`; resolve via `role(...)`: `{line}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0038 task 004 style-layer raw-color violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn screens_do_not_grow_unmarked_direct_component_button_usage() {
     let mut violations = Vec::new();
     for file in SCREEN_FILES {

@@ -123,6 +123,11 @@ fn high_contrast_dark(token: SemanticColor) -> Rgba {
         SemanticColor::DiffMatch => hex(0x00_e676),
         SemanticColor::DiffDifferent => hex(0xff_d60a),
         SemanticColor::DiffMissing => hex(0xff_8a65),
+
+        SemanticColor::Id3FrameV22 => hex(0xd0_a8ff),
+        SemanticColor::Id3FrameV23Only => hex(0xff_e066),
+        SemanticColor::Id3FrameV24Only => hex(0x6f_e8e8),
+        SemanticColor::Id3FrameUnknown => hex(0xff_a07f),
     }
 }
 
@@ -174,6 +179,11 @@ fn high_contrast_light(token: SemanticColor) -> Rgba {
         SemanticColor::DiffMatch => hex(0x00_6d2c),
         SemanticColor::DiffDifferent => hex(0x7a_4b00),
         SemanticColor::DiffMissing => hex(0xb0_0020),
+
+        SemanticColor::Id3FrameV22 => hex(0x3e_1f7a),
+        SemanticColor::Id3FrameV23Only => hex(0x5a_3a00),
+        SemanticColor::Id3FrameV24Only => hex(0x00_4d54),
+        SemanticColor::Id3FrameUnknown => hex(0x7a_2916),
     }
 }
 
