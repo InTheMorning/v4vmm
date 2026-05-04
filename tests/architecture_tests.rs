@@ -3927,6 +3927,157 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
 }
 
 #[test]
+fn screen_level_fallback_expressions_stay_domain_only() {
+    let allowed = [
+        (
+            "src/library.rs",
+            ".unwrap_or_default();",
+            "playlist track query failure tolerance is command/domain plumbing, not display fallback",
+        ),
+        (
+            "src/library.rs",
+            ".unwrap_or(\"\")",
+            "MusicBrainz candidate title scoring fallback is matching logic, not display fallback",
+        ),
+        (
+            "src/library.rs",
+            ".unwrap_or_default(),",
+            "identity source-fact default is source data hydration, not display fallback",
+        ),
+        (
+            "src/library.rs",
+            "let track_context = frame.source_context.clone().unwrap_or(fallback_context);",
+            "source context fallback is metadata command context plumbing, not display fallback",
+        ),
+        (
+            "src/library.rs",
+            "let feed_id = album.feed_id.unwrap_or(0);",
+            "album feed id fallback is command identity plumbing, not display fallback",
+        ),
+        (
+            "src/library.rs",
+            "id: album.feed_id.unwrap_or(0),",
+            "release detail feed id fallback is command identity plumbing, not display fallback",
+        ),
+        (
+            "src/library.rs",
+            "let context = frame.source_context.as_ref().unwrap_or(&context);",
+            "metadata source context fallback is command context plumbing, not display fallback",
+        ),
+        (
+            "src/library.rs",
+            ".unwrap_or_else(color::text_primary);",
+            "metadata cell default color is token render chrome, not label fallback",
+        ),
+        (
+            "src/library.rs",
+            ".unwrap_or_else(|| id3_cell_status_color(row, cx));",
+            "ID3 status default color is token render chrome, not label fallback",
+        ),
+        (
+            "src/library.rs",
+            ".unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status, cx));",
+            "MusicBrainz status default color is token render chrome, not label fallback",
+        ),
+        (
+            "src/library.rs",
+            ".unwrap_or_else(|_| track_row_to_track_context(track));",
+            "debug conversion fallback is data-contract compatibility, not display fallback",
+        ),
+        (
+            "src/search.rs",
+            ".unwrap_or(false);",
+            "boolean state fallback is command/control state, not display fallback",
+        ),
+        (
+            "src/search.rs",
+            ".unwrap_or(false)",
+            "boolean state fallback is command/control state, not display fallback",
+        ),
+        (
+            "src/search.rs",
+            ".unwrap_or_else(|| row.entity_id.clone()),",
+            "result navigation target fallback is identity routing, not display label fallback",
+        ),
+        (
+            "src/search.rs",
+            "artist_track_count_by_feed.get(guid).copied().unwrap_or(0);",
+            "artist feed count fallback is numeric aggregation, not display fallback",
+        ),
+        (
+            "src/search.rs",
+            ".unwrap_or_default();",
+            "podroll dedupe key fallback is feed identity plumbing, not display fallback",
+        ),
+        (
+            "src/search.rs",
+            ".unwrap_or(artist_context.tracks.len() as i32);",
+            "artist track-count fallback is numeric aggregation, not display fallback",
+        ),
+        (
+            "src/search.rs",
+            ".unwrap_or_else(color::text_primary);",
+            "metadata cell default color is token render chrome, not label fallback",
+        ),
+        (
+            "src/search.rs",
+            ".unwrap_or_else(|| id3_cell_status_color(row, cx));",
+            "ID3 status default color is token render chrome, not label fallback",
+        ),
+        (
+            "src/search.rs",
+            ".unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status, cx));",
+            "MusicBrainz status default color is token render chrome, not label fallback",
+        ),
+        (
+            "src/search.rs",
+            "let frame_color = frame_color.unwrap_or_else(color::text_muted);",
+            "ID3 frame default color is token render chrome, not label fallback",
+        ),
+        (
+            "src/search.rs",
+            "crate::view_models::track::fmt_dur((ms / 1000).try_into().unwrap_or(i32::MAX))",
+            "duration range clamp is numeric conversion safety, not display fallback",
+        ),
+    ];
+    let files = ["src/library.rs", "src/search.rs"];
+    let mut violations = Vec::new();
+
+    for file in files {
+        let source = read_source(&manifest_path(file));
+        let allowed_lines: Vec<(&str, &str)> = allowed
+            .iter()
+            .filter(|(allowed_file, _, _)| *allowed_file == file)
+            .map(|(_, snippet, note)| (*snippet, *note))
+            .collect();
+
+        for (line_number, line) in code_lines(&source) {
+            if !line.contains("unwrap_or") {
+                continue;
+            }
+            if line.contains("clippy::") {
+                continue;
+            }
+            let allowed_note = allowed_lines
+                .iter()
+                .find(|(snippet, _)| line == *snippet)
+                .map(|(_, note)| *note);
+            if allowed_note.is_none() {
+                violations.push(format!(
+                    "{file}:{line_number}: screen-level `unwrap_or*` expression is not documented as domain-only: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0038 screen-level fallback expressions must be VM-owned or explicitly domain-only:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn composite_signatures_take_display_contracts_not_loose_strings() {
     let mut violations = Vec::new();
 

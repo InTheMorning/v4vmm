@@ -2,9 +2,7 @@
 
 ## Status
 
-In progress - first one hundred eighty-eight implementation slices completed on 2026-05-04.
-May split into Task 003a (Library) and Task 003b (Discover) once the
-full inventory is in hand.
+Completed on 2026-05-04.
 
 ## Goal
 
@@ -1214,7 +1212,13 @@ Verified starting notes, 2026-05-03:
       track-count labels.
     - Remove the remaining sidebar-local muted caption count label.
     - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
-189. Migrate remaining fallback batches, smallest blast radius first.
+189. Completion sweep and residual-domain guard
+    - Add an architecture guard that keeps remaining screen-level
+      `unwrap_or*` expressions limited to documented domain/control
+      plumbing.
+    - Confirm Task 003 display-fallback ownership guards are green.
+    - Mark Task 003 complete; broader visual/a11y/page-VM readiness
+      remains owned by later ADR 0038 tasks.
 
 ## Constraints
 
@@ -3057,6 +3061,18 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks that sidebar count label path from
   returning.
 
+## One-Hundred-Eighty-Ninth-Slice Implementation Notes
+
+- `screen_level_fallback_expressions_stay_domain_only` now blocks new
+  screen-level `unwrap_or*` fallback expressions in Library/Search
+  unless they are explicitly documented as domain/control plumbing.
+- The remaining allowed screen-level fallbacks are query tolerance,
+  MusicBrainz matching, identity hydration, metadata command context,
+  numeric aggregation, routing keys, duration clamping, or token color
+  defaults; user-facing labels and empty-value policy remain VM-owned.
+- Task 003 is complete; Task 008 still owns final visual/a11y/page-VM
+  readiness decisions.
+
 ## Test Commands
 
 ```sh
@@ -3109,6 +3125,7 @@ cargo test transcript_line_display_preserves_blank_visual_rows
 cargo test group_cell_builds_disclosure_from_display_label
 cargo test indicator_owns_display_glyph
 cargo test supplement_label_owns_display_text
+cargo test screen_level_fallback_expressions_stay_domain_only
 cargo test logical_field_maps_raw_musicindex_txxx_fields
 cargo test value_route_child_field_visibility_preserves_screen_contexts
 cargo test json_tree_scalar_label_preserves_raw_json_leaf_display
