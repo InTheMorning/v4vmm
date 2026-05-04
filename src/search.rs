@@ -3436,11 +3436,10 @@ fn metadata_group_cell(
 
     let expanded = group.expanded;
     let mut cell = div().col_span(columns).mt(spacing::SM);
-    if let (Some(group_key), Some(disclosure_id)) = (group_key, display.disclosure_id.as_deref()) {
-        let id = SharedString::from(disclosure_id.to_string());
+    if let (Some(group_key), Some(disclosure_id)) = (group_key, display.disclosure_id) {
         cell = cell.child(
             DisclosureGroup::new(DisclosureGroupDisplay {
-                id: id.into(),
+                id: SharedString::from(disclosure_id).into(),
                 label: SharedString::from(display.label),
             })
             .collapsed(!expanded)

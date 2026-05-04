@@ -99,6 +99,7 @@ impl ArtistNode {
     pub(crate) fn tree_display(&self, expanded: bool) -> LibraryArtistTreeDisplay {
         LibraryArtistTreeDisplay {
             element_id: format!("artist-{}", self.name),
+            title: self.name.clone(),
             disclosure_glyph: disclosure_glyph(expanded),
             album_count_label: format!(
                 "({} album{})",
@@ -118,6 +119,7 @@ impl AlbumNode {
     ) -> LibraryAlbumTreeDisplay {
         LibraryAlbumTreeDisplay {
             element_id: format!("album-{artist_name}-{}", self.name),
+            title: self.name.clone(),
             disclosure_glyph: disclosure_glyph(expanded),
             track_count_label: format!("({})", self.tracks.len()),
         }
@@ -168,6 +170,7 @@ impl LibraryTreeProjection {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryArtistTreeDisplay {
     pub(crate) element_id: String,
+    pub(crate) title: String,
     pub(crate) disclosure_glyph: &'static str,
     pub(crate) album_count_label: String,
 }
@@ -176,6 +179,7 @@ pub(crate) struct LibraryArtistTreeDisplay {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryAlbumTreeDisplay {
     pub(crate) element_id: String,
+    pub(crate) title: String,
     pub(crate) disclosure_glyph: &'static str,
     pub(crate) track_count_label: String,
 }
@@ -1521,6 +1525,8 @@ pub(crate) struct ArtistFeedSummaryVm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ArtistFeedSummaryDisplay {
     pub(crate) element_id: String,
+    pub(crate) title: String,
+    pub(crate) thumb_url: Option<String>,
     pub(crate) track_count_label: String,
 }
 
@@ -1529,6 +1535,8 @@ impl ArtistFeedSummaryVm {
     pub(crate) fn display(&self) -> ArtistFeedSummaryDisplay {
         ArtistFeedSummaryDisplay {
             element_id: format!("artist-feed-{}", self.feed_name),
+            title: self.feed_name.clone(),
+            thumb_url: self.thumb_url.clone(),
             track_count_label: format!("{} track{}", self.track_count, plural(self.track_count)),
         }
     }
@@ -1786,6 +1794,11 @@ pub(crate) struct PlaylistDetailActionsDisplay {
     pub(crate) delete_label: &'static str,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistDetailHeaderDisplay {
+    pub(crate) title: String,
+}
+
 impl PlaylistTrackRowVm<'_> {
     #[must_use]
     pub(crate) fn track(&self) -> &TrackRow {
@@ -1911,8 +1924,10 @@ impl<'a> PlaylistDetailVm<'a> {
     }
 
     #[must_use]
-    pub(crate) fn name(&self) -> &str {
-        &self.playlist.name
+    pub(crate) fn header_display(&self) -> PlaylistDetailHeaderDisplay {
+        PlaylistDetailHeaderDisplay {
+            title: self.playlist.name.clone(),
+        }
     }
 
     #[must_use]
@@ -2345,13 +2360,17 @@ mod tests {
         let display = summaries[0].display();
 
         assert_eq!(display.element_id, "artist-feed-Real");
+        assert_eq!(display.title, "Real");
         assert_eq!(display.track_count_label, "2 tracks");
 
         t1.feed_id = 2;
         t1.feed_title = Some("Single".into());
+        t1.album_image_href = Some("single-img".into());
         let tracks = [t1];
         let vm = LibraryArtistDetailVm::new("Artist", &tracks);
         let display = vm.feed_summaries()[0].display();
+        assert_eq!(display.title, "Single");
+        assert_eq!(display.thumb_url.as_deref(), Some("single-img"));
         assert_eq!(display.track_count_label, "1 track");
     }
 
@@ -2385,6 +2404,12 @@ mod tests {
         assert_eq!(vm.total_duration_seconds(), 0);
         assert_eq!(vm.total_duration_label(), None);
         assert_eq!(vm.detail_rows(), vec![("Tracks".into(), "0".into())]);
+        assert_eq!(
+            vm.header_display(),
+            PlaylistDetailHeaderDisplay {
+                title: "Mix".into()
+            }
+        );
     }
 
     #[test]
@@ -2827,6 +2852,7 @@ mod tests {
 
         let expanded = artist.tree_display(true);
         assert_eq!(expanded.element_id, "artist-Aphex Twin");
+        assert_eq!(expanded.title, "Aphex Twin");
         assert_eq!(expanded.disclosure_glyph, "\u{25BC}");
         assert_eq!(expanded.album_count_label, "(2 albums)");
 
@@ -2844,6 +2870,7 @@ mod tests {
             expanded.element_id,
             "album-Aphex Twin-Selected Ambient Works"
         );
+        assert_eq!(expanded.title, "Selected Ambient Works");
         assert_eq!(expanded.disclosure_glyph, "\u{25BC}");
         assert_eq!(expanded.track_count_label, "(2)");
 

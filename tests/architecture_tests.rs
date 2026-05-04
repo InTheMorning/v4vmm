@@ -2280,6 +2280,51 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library MusicBrainz status text belongs in LibraryTrackRowVm::mb_status_text",
         ),
         (
+            "src/library.rs",
+            ".child(SharedString::from(artist.name.clone()))",
+            "Library artist tree title belongs in ArtistNode::tree_display",
+        ),
+        (
+            "src/library.rs",
+            ".child(SharedString::from(album.name.clone()))",
+            "Library album tree title belongs in AlbumNode::tree_display",
+        ),
+        (
+            "src/library.rs",
+            ".child(SharedString::from(summary.feed_name.clone()))",
+            "Library artist feed-summary title belongs in ArtistFeedSummaryVm::display",
+        ),
+        (
+            "src/library.rs",
+            "summary.thumb_url",
+            "Library artist feed-summary thumbnail URL belongs in ArtistFeedSummaryVm::display",
+        ),
+        (
+            "src/library.rs",
+            "title: SharedString::from(playlist_name.clone())",
+            "Library playlist detail header title belongs in PlaylistDetailVm::header_display",
+        ),
+        (
+            "src/library.rs",
+            "display.disclosure_id.as_deref()",
+            "Library metadata disclosure id binding should consume TrackMetadataGridVm display ids directly",
+        ),
+        (
+            "src/search.rs",
+            "display.disclosure_id.as_deref()",
+            "Discover metadata disclosure id binding should consume TrackMetadataGridVm display ids directly",
+        ),
+        (
+            "src/library.rs",
+            "disclosure_id.to_string()",
+            "Library metadata disclosure id binding should not re-project VM display ids",
+        ),
+        (
+            "src/search.rs",
+            "disclosure_id.to_string()",
+            "Discover metadata disclosure id binding should not re-project VM display ids",
+        ),
+        (
             "src/search.rs",
             "fn compare_row_id(",
             "Discover metadata compare-row slug display belongs in TrackMetadataGridVm::compare_row_id",

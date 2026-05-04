@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred twelve implementation slices completed on 2026-05-03.
+In progress - first one hundred eighteen implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -753,7 +753,44 @@ Verified starting notes, 2026-05-03:
     - Remove the unused `render_collapsed_text_section()` helper so it
       cannot reintroduce screen-local label/value projections.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-113. Migrate remaining fallback batches, smallest blast radius first.
+113. Library artist tree-row title display
+    - Add `LibraryArtistTreeDisplay::title` so sidebar artist titles
+      enter the renderer through `ArtistNode::tree_display()`.
+    - Remove screen-local `artist.name` display binding from the
+      Library tree renderer.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+114. Library album tree-row title display
+    - Add `LibraryAlbumTreeDisplay::title` so sidebar album titles
+      enter the renderer through `AlbumNode::tree_display()`.
+    - Remove screen-local `album.name` display binding from the
+      Library tree renderer.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+115. Library artist feed-summary display
+    - Add `ArtistFeedSummaryDisplay::title` and `thumb_url` so artist
+      detail feed-summary text and media lookup enter the renderer
+      through `ArtistFeedSummaryVm::display()`.
+    - Remove screen-local `summary.feed_name` and `summary.thumb_url`
+      display binding from the artist detail renderer.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+116. Library playlist detail header display
+    - Add `PlaylistDetailVm::header_display()` so playlist detail
+      header title display is VM-owned.
+    - Remove screen-local playlist-name string projection from
+      `render_playlist_detail`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+117. Library metadata disclosure id binding
+    - Consume `TrackMetadataGridVm::group_heading_display()` disclosure
+      ids directly in the Library metadata group renderer.
+    - Remove the remaining renderer-side `disclosure_id.to_string()`
+      projection.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+118. Discover metadata disclosure id binding
+    - Consume `TrackMetadataGridVm::group_heading_display()` disclosure
+      ids directly in the Discover metadata group renderer.
+    - Remove the remaining renderer-side `disclosure_id.to_string()`
+      projection.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+119. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1890,6 +1927,63 @@ Verified starting notes, 2026-05-03:
   point.
 - The architecture guard now blocks the helper from being reintroduced.
 
+## One-Hundred-Twelfth-Slice Implementation Notes
+
+- `LibraryArtistTreeDisplay::title` now carries Library sidebar artist
+  row title display.
+- Library still uses the artist node name as the expansion/selection
+  key, but no longer binds `artist.name` directly as display text.
+- The architecture guard now blocks the old artist tree title binding
+  from returning.
+
+## One-Hundred-Thirteenth-Slice Implementation Notes
+
+- `LibraryAlbumTreeDisplay::title` now carries Library sidebar album
+  row title display.
+- Library still uses the album node name as the expansion/selection
+  key, but no longer binds `album.name` directly as display text.
+- The architecture guard now blocks the old album tree title binding
+  from returning.
+
+## One-Hundred-Fourteenth-Slice Implementation Notes
+
+- `ArtistFeedSummaryDisplay` now carries artist detail feed-summary
+  title text and thumbnail URL.
+- Library still owns the album selection callback and image-cache
+  lookup, but no longer reads `summary.feed_name` / `summary.thumb_url`
+  directly for display.
+- The architecture guard now blocks those artist feed-summary display
+  bindings from returning.
+
+## One-Hundred-Fifteenth-Slice Implementation Notes
+
+- `PlaylistDetailVm::header_display()` now carries Library playlist
+  detail header title display.
+- Library still owns the `DetailHeader` composite binding, but no
+  longer projects `playlist_name` screen-locally for the header title.
+- The architecture guard now blocks the old playlist header title
+  projection from returning.
+
+## One-Hundred-Sixteenth-Slice Implementation Notes
+
+- Library metadata group rendering now consumes
+  `TrackMetadataGridVm::group_heading_display()` disclosure ids
+  directly.
+- Library still maps the disclosure id to GPUI element ids locally, but
+  no longer re-projects the VM id through `to_string()`.
+- The architecture guard now blocks screen-local disclosure-id
+  re-projection from returning.
+
+## One-Hundred-Seventeenth-Slice Implementation Notes
+
+- Discover metadata group rendering now consumes
+  `TrackMetadataGridVm::group_heading_display()` disclosure ids
+  directly.
+- Discover still maps the disclosure id to GPUI element ids locally, but
+  no longer re-projects the VM id through `to_string()`.
+- The architecture guard now blocks screen-local disclosure-id
+  re-projection from returning.
+
 ## Test Commands
 
 ```sh
@@ -1922,6 +2016,10 @@ cargo test result_row_key_display_and_inspector_title_are_pure
 cargo test inspector_title_display_projects_recents_root_and_frame_title
 cargo test action_row_vm_playlist_trigger_label_uses_release_action_when_available
 cargo test payment_route_vm_classifies_fee_vs_split
+cargo test library_tree_artist_display_projects_row_chrome
+cargo test library_tree_album_display_projects_row_chrome
+cargo test artist_feed_summary_display_projects_row_id_and_track_count
+cargo test playlist_detail_vm_reports_empty_state
 cargo test id3_generated_row_display_projects_ids_and_labels
 cargo test source_drag_display_projects_discover_source_cell_ids
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized

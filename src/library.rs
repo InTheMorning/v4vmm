@@ -2152,7 +2152,7 @@ pub(crate) fn render_tree(
                             div()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color::text_primary())
-                                .child(SharedString::from(artist.name.clone())),
+                                .child(SharedString::from(artist_display.title)),
                         )
                         .child(
                             div()
@@ -2215,7 +2215,7 @@ pub(crate) fn render_tree(
                                     div()
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(color::accent())
-                                        .child(SharedString::from(album.name.clone())),
+                                        .child(SharedString::from(album_display.title)),
                                 )
                                 .child(
                                     div()
@@ -2349,12 +2349,12 @@ fn render_library_artist_detail(
         .into_iter()
         .map(|summary| {
             let display = summary.display();
-            let thumb_image = summary
+            let thumb_image = display
                 .thumb_url
                 .as_ref()
                 .and_then(|url| album_thumbs.get(url.as_str()))
                 .and_then(|opt| opt.clone());
-            let feed_name_for_click = summary.feed_name.clone();
+            let feed_name_for_click = display.title.clone();
 
             div()
                 .id(SharedString::from(display.element_id))
@@ -2393,7 +2393,7 @@ fn render_library_artist_detail(
                                 .text_size(typography::SIZE_MICRO)
                                 .font_weight(FontWeight::MEDIUM)
                                 .truncate()
-                                .child(SharedString::from(summary.feed_name.clone())),
+                                .child(SharedString::from(display.title)),
                         )
                         .child(
                             div()
@@ -2723,7 +2723,7 @@ fn render_playlist_detail(
 ) -> AnyElement {
     let vm = PlaylistDetailVm::new(&detail.playlist, &detail.tracks);
     let playlist_id = vm.playlist_id();
-    let playlist_name = vm.name().to_string();
+    let header_display = vm.header_display();
 
     let track_rows: Vec<AnyElement> = if vm.is_empty() {
         vec![div()
@@ -2899,7 +2899,7 @@ fn render_playlist_detail(
         .gap(spacing::MD)
         .child(DetailHeader::new(DetailHeaderDisplay {
             kind: EntityKind::Playlist,
-            title: SharedString::from(playlist_name.clone()),
+            title: SharedString::from(header_display.title),
             subtitle: None,
             data_rows: Vec::new(),
         }))
@@ -3371,15 +3371,14 @@ fn metadata_group_cell(
         group_key.as_deref(),
     );
     let expanded = group.expanded;
-    if let (Some(group_key), Some(disclosure_id)) = (group_key, display.disclosure_id.as_deref()) {
-        let id = SharedString::from(disclosure_id.to_string());
+    if let (Some(group_key), Some(disclosure_id)) = (group_key, display.disclosure_id) {
         return TrackMetadataGroupCell::new(TrackMetadataGroupDisplay {
             label: SharedString::from(display.label.clone()),
             columns,
         })
         .disclosure(
             DisclosureGroup::new(DisclosureGroupDisplay {
-                id: id.into(),
+                id: SharedString::from(disclosure_id).into(),
                 label: SharedString::from(display.label.clone()),
             })
             .collapsed(!expanded)
