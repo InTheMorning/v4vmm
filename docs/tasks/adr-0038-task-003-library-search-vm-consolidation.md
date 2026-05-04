@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred fifty-one implementation slices completed on 2026-05-04.
+In progress - first one hundred fifty-six implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -994,7 +994,37 @@ Verified starting notes, 2026-05-03:
     - Remove renderer-side playlist control id clones for move-up,
       move-down, remove, and play actions.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-152. Migrate remaining fallback batches, smallest blast radius first.
+152. Playlist sidebar row display consumption
+    - Destructure `PlaylistSidebarVm` and `PlaylistSidebarRowVm` in
+      the Library sidebar so playlist row ids, names, and count labels
+      are consumed directly.
+    - Remove renderer-side `row.element_id.clone()`, `row.name.clone()`,
+      and `row.track_count_label.clone()` display binding.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+153. Library artist tree display consumption
+    - Destructure `LibraryArtistTreeDisplay` in the Library tree
+      renderer so artist row id, title, disclosure glyph, and album
+      count label are consumed directly.
+    - Remove renderer-side `artist_display.element_id.clone()`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+154. Library album tree display consumption
+    - Destructure `LibraryAlbumTreeDisplay` in the Library tree
+      renderer so album row id, title, disclosure glyph, and track
+      count label are consumed directly.
+    - Remove renderer-side `album_display.element_id.clone()`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+155. Library tree track display consumption
+    - Destructure `LibraryTreeTrackDisplay` in the Library tree
+      renderer so track row id and title are consumed directly.
+    - Remove renderer-side `track_display.element_id.clone()`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+156. Artist feed-summary display consumption
+    - Destructure `ArtistFeedSummaryDisplay` in the artist detail
+      renderer so row id, title, thumbnail URL, and count label are
+      consumed directly.
+    - Remove renderer-side `display.title.clone()` click-title binding.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+157. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2503,6 +2533,51 @@ Verified starting notes, 2026-05-03:
   consumed directly from the VM display contract.
 - The architecture guard now blocks playlist control id clones from
   returning.
+
+## One-Hundred-Fifty-Second-Slice Implementation Notes
+
+- The Library sidebar now destructures `PlaylistSidebarVm` and
+  `PlaylistSidebarRowVm` before rendering playlist rows.
+- Playlist row id, name, selected state, and track-count label are
+  consumed directly from the sidebar VM contract.
+- The architecture guard now blocks playlist sidebar row field clones
+  from returning.
+
+## One-Hundred-Fifty-Third-Slice Implementation Notes
+
+- Library artist tree rows now destructure `LibraryArtistTreeDisplay`
+  before rendering.
+- Artist row id, disclosure glyph, title, and album-count label are
+  consumed directly from the VM display contract.
+- The architecture guard now blocks the old artist tree row id clone
+  from returning.
+
+## One-Hundred-Fifty-Fourth-Slice Implementation Notes
+
+- Library album tree rows now destructure `LibraryAlbumTreeDisplay`
+  before rendering.
+- Album row id, disclosure glyph, title, and track-count label are
+  consumed directly from the VM display contract.
+- The architecture guard now blocks the old album tree row id clone
+  from returning.
+
+## One-Hundred-Fifty-Fifth-Slice Implementation Notes
+
+- Library tree track rows now destructure `LibraryTreeTrackDisplay`
+  before rendering.
+- Track row id and title are consumed directly from the VM display
+  contract.
+- The architecture guard now blocks the old tree track row id clone
+  from returning.
+
+## One-Hundred-Fifty-Sixth-Slice Implementation Notes
+
+- Artist feed-summary rows now destructure `ArtistFeedSummaryDisplay`
+  before rendering.
+- Feed-summary row id, title, thumbnail URL, and count label are
+  consumed directly from the VM display contract.
+- The architecture guard now blocks the old feed-summary click-title
+  clone from returning.
 
 ## Test Commands
 

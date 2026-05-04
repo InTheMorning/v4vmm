@@ -86,11 +86,12 @@ use crate::view_models::entity_detail::{
     TrackMetadataActionState,
 };
 use crate::view_models::library::{
-    AlbumNode, ArtistNode, FeedUpdateActionKind, FeedUpdatePhase, LibraryAlbumDetailVm,
-    LibraryArtistDetailVm, LibraryChromeDisplay, LibraryTrackActionVm, LibraryTrackRowDisplay,
-    LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind, MbTrackStatus,
-    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm, PlaylistTrackControlsDisplay,
-    TrackSubscribeOutcome,
+    AlbumNode, ArtistFeedSummaryDisplay, ArtistNode, FeedUpdateActionKind, FeedUpdatePhase,
+    LibraryAlbumDetailVm, LibraryAlbumTreeDisplay, LibraryArtistDetailVm, LibraryArtistTreeDisplay,
+    LibraryChromeDisplay, LibraryTrackActionVm, LibraryTrackRowDisplay, LibraryTrackRowVm,
+    LibraryTree, LibraryTreeTrackDisplay, LibraryViewModel, MbStatusKind, MbTrackStatus,
+    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm, PlaylistSidebarRowVm,
+    PlaylistSidebarVm, PlaylistTrackControlsDisplay, TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
@@ -1801,12 +1802,26 @@ impl Render for LibraryApp {
         );
         let filtered_empty = tree_projection.is_empty();
 
-        let playlist_sidebar = self.vm.playlist_sidebar();
+        let PlaylistSidebarVm {
+            header_id: playlist_header_id,
+            sort_button_id: playlist_sort_button_id,
+            add_button_id: playlist_add_button_id,
+            new_playlist_input_id,
+            new_playlist_add_button_id,
+            expanded: playlists_expanded,
+            disclosure_glyph: playlist_disclosure_glyph,
+            heading: playlist_heading,
+            sort_label: playlist_sort_label,
+            add_label: playlist_add_label,
+            new_playlist_add_label,
+            creating_playlist,
+            rows: playlist_rows,
+        } = self.vm.playlist_sidebar();
         let mut left_items: Vec<AnyElement> = Vec::new();
 
         left_items.push(
             div()
-                .id(playlist_sidebar.header_id)
+                .id(playlist_header_id)
                 .px(spacing::SM)
                 .py(spacing::XS)
                 .rounded(spacing::XS)
@@ -1831,13 +1846,13 @@ impl Render for LibraryApp {
                                 .text_xs()
                                 .text_color(color::text_muted())
                                 .w(spacing::MD)
-                                .child(SharedString::from(playlist_sidebar.disclosure_glyph)),
+                                .child(SharedString::from(playlist_disclosure_glyph)),
                         )
                         .child(
                             div()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color::text_primary())
-                                .child(playlist_sidebar.heading),
+                                .child(playlist_heading),
                         ),
                 )
                 .child(
@@ -1847,36 +1862,36 @@ impl Render for LibraryApp {
                         .gap(spacing::XS)
                         .items_center()
                         .child(
-                            UiButton::styled(
-                                playlist_sidebar.sort_button_id,
-                                ControlStyle::ToolbarIcon,
-                            )
-                            .label(playlist_sidebar.sort_label)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.cycle_playlist_sort(cx);
-                            })),
+                            UiButton::styled(playlist_sort_button_id, ControlStyle::ToolbarIcon)
+                                .label(playlist_sort_label)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.cycle_playlist_sort(cx);
+                                })),
                         )
                         .child(
-                            UiButton::styled(
-                                playlist_sidebar.add_button_id,
-                                ControlStyle::ToolbarIcon,
-                            )
-                            .label(playlist_sidebar.add_label)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.vm.toggle_creating_playlist();
-                                cx.notify();
-                            })),
+                            UiButton::styled(playlist_add_button_id, ControlStyle::ToolbarIcon)
+                                .label(playlist_add_label)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.vm.toggle_creating_playlist();
+                                    cx.notify();
+                                })),
                         ),
                 )
                 .into_any_element(),
         );
 
-        if playlist_sidebar.expanded {
-            for row in &playlist_sidebar.rows {
-                let playlist_id = row.id;
+        if playlists_expanded {
+            for row in playlist_rows {
+                let PlaylistSidebarRowVm {
+                    id: playlist_id,
+                    element_id,
+                    name,
+                    track_count_label,
+                    selected,
+                } = row;
                 left_items.push(
-                    ListRow::compact(SharedString::from(row.element_id.clone()))
-                        .selected(row.selected)
+                    ListRow::compact(SharedString::from(element_id))
+                        .selected(selected)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                             this.select_playlist(playlist_id, cx);
                         }))
@@ -1886,8 +1901,8 @@ impl Render for LibraryApp {
                                 .min_w_0()
                                 .pl(spacing::MD)
                                 .child(
-                                    Label::new(row.name.clone())
-                                        .color(if row.selected {
+                                    Label::new(name)
+                                        .color(if selected {
                                             SemanticColor::Accent
                                         } else {
                                             SemanticColor::Label
@@ -1895,7 +1910,7 @@ impl Render for LibraryApp {
                                         .truncated(),
                                 )
                                 .child(
-                                    Label::new(row.track_count_label.clone())
+                                    Label::new(track_count_label)
                                         .size(FontSize::Caption)
                                         .color(SemanticColor::TertiaryLabel),
                                 ),
@@ -1904,10 +1919,10 @@ impl Render for LibraryApp {
                 );
             }
 
-            if playlist_sidebar.creating_playlist {
+            if creating_playlist {
                 left_items.push(
                     div()
-                        .id(playlist_sidebar.new_playlist_input_id)
+                        .id(new_playlist_input_id)
                         .pl(spacing::LG + spacing::XS)
                         .pr(spacing::SM)
                         .py(spacing::XXS)
@@ -1921,14 +1936,11 @@ impl Render for LibraryApp {
                                 .scaled(Size::Small, cx),
                         )
                         .child(
-                            UiButton::styled(
-                                playlist_sidebar.new_playlist_add_button_id,
-                                ControlStyle::Primary,
-                            )
-                            .label(playlist_sidebar.new_playlist_add_label)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.create_playlist(cx);
-                            })),
+                            UiButton::styled(new_playlist_add_button_id, ControlStyle::Primary)
+                                .label(new_playlist_add_label)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.create_playlist(cx);
+                                })),
                         )
                         .into_any_element(),
                 );
@@ -2121,12 +2133,17 @@ pub(crate) fn render_tree(
     let mut items = Vec::new();
     for artist in &tree.artists {
         let artist_expanded = expanded_artists.contains(&artist.name);
-        let artist_display = artist.tree_display(artist_expanded);
-        let artist_name = artist.name.clone();
+        let LibraryArtistTreeDisplay {
+            element_id,
+            title,
+            disclosure_glyph,
+            album_count_label,
+        } = artist.tree_display(artist_expanded);
+        let artist_name = title.clone();
 
         items.push(
             div()
-                .id(SharedString::from(artist_display.element_id.clone()))
+                .id(SharedString::from(element_id))
                 .px(spacing::SM)
                 .py(spacing::XS)
                 .rounded(spacing::XS)
@@ -2148,19 +2165,19 @@ pub(crate) fn render_tree(
                                 .text_xs()
                                 .text_color(color::text_muted())
                                 .w(spacing::MD)
-                                .child(SharedString::from(artist_display.disclosure_glyph)),
+                                .child(SharedString::from(disclosure_glyph)),
                         )
                         .child(
                             div()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color::text_primary())
-                                .child(SharedString::from(artist_display.title)),
+                                .child(SharedString::from(title)),
                         )
                         .child(
                             div()
                                 .text_xs()
                                 .text_color(color::text_muted())
-                                .child(SharedString::from(artist_display.album_count_label)),
+                                .child(SharedString::from(album_count_label)),
                         ),
                 )
                 .into_any_element(),
@@ -2170,7 +2187,12 @@ pub(crate) fn render_tree(
             for album in &artist.albums {
                 let album_key = (artist.name.clone(), album.name.clone());
                 let album_expanded = expanded_albums.contains(&album_key);
-                let album_display = album.tree_display(&artist.name, album_expanded);
+                let LibraryAlbumTreeDisplay {
+                    element_id,
+                    title,
+                    disclosure_glyph,
+                    track_count_label,
+                } = album.tree_display(&artist.name, album_expanded);
                 let artist_for_toggle = artist.name.clone();
                 let album_for_toggle = album.name.clone();
                 let album_for_select = album.clone();
@@ -2182,7 +2204,7 @@ pub(crate) fn render_tree(
 
                 items.push(
                     div()
-                        .id(SharedString::from(album_display.element_id.clone()))
+                        .id(SharedString::from(element_id))
                         .pl(spacing::LG + spacing::XS)
                         .pr(spacing::SM)
                         .py(spacing::XXS)
@@ -2205,7 +2227,7 @@ pub(crate) fn render_tree(
                                         .text_xs()
                                         .text_color(color::text_muted())
                                         .w(spacing::MD)
-                                        .child(SharedString::from(album_display.disclosure_glyph)),
+                                        .child(SharedString::from(disclosure_glyph)),
                                 )
                                 .child(hoverable_thumb(
                                     thumb_url.clone(),
@@ -2217,13 +2239,13 @@ pub(crate) fn render_tree(
                                     div()
                                         .font_weight(FontWeight::MEDIUM)
                                         .text_color(color::accent())
-                                        .child(SharedString::from(album_display.title)),
+                                        .child(SharedString::from(title)),
                                 )
                                 .child(
                                     div()
                                         .text_xs()
                                         .text_color(color::text_muted())
-                                        .child(SharedString::from(album_display.track_count_label)),
+                                        .child(SharedString::from(track_count_label)),
                                 ),
                         )
                         .into_any_element(),
@@ -2233,7 +2255,8 @@ pub(crate) fn render_tree(
                     for track in &album.tracks {
                         let track_clone_b = track.clone();
                         let is_selected = selected_id == Some(track.id);
-                        let track_display = LibraryTrackRowVm::new(track, None).tree_display();
+                        let LibraryTreeTrackDisplay { element_id, title } =
+                            LibraryTrackRowVm::new(track, None).tree_display();
                         let track_thumb_image = track
                             .track_image_href
                             .as_ref()
@@ -2242,7 +2265,7 @@ pub(crate) fn render_tree(
                             .and_then(|opt| opt.clone());
 
                         let mut row = div()
-                            .id(SharedString::from(track_display.element_id.clone()))
+                            .id(SharedString::from(element_id))
                             .pl(spacing::XXL + spacing::MD)
                             .pr(spacing::SM)
                             .py(spacing::XXS)
@@ -2275,7 +2298,7 @@ pub(crate) fn render_tree(
                                             } else {
                                                 color::text_primary()
                                             })
-                                            .child(SharedString::from(track_display.title)),
+                                            .child(SharedString::from(title)),
                                     ),
                             );
 
@@ -2350,16 +2373,20 @@ fn render_library_artist_detail(
         .feed_summaries()
         .into_iter()
         .map(|summary| {
-            let display = summary.display();
-            let thumb_image = display
-                .thumb_url
+            let ArtistFeedSummaryDisplay {
+                element_id,
+                title,
+                thumb_url,
+                track_count_label,
+            } = summary.display();
+            let thumb_image = thumb_url
                 .as_ref()
                 .and_then(|url| album_thumbs.get(url.as_str()))
                 .and_then(|opt| opt.clone());
-            let feed_name_for_click = display.title.clone();
+            let feed_name_for_click = title.clone();
 
             div()
-                .id(SharedString::from(display.element_id))
+                .id(SharedString::from(element_id))
                 .flex()
                 .flex_row()
                 .items_center()
@@ -2395,13 +2422,13 @@ fn render_library_artist_detail(
                                 .text_size(typography::SIZE_MICRO)
                                 .font_weight(FontWeight::MEDIUM)
                                 .truncate()
-                                .child(SharedString::from(display.title)),
+                                .child(SharedString::from(title)),
                         )
                         .child(
                             div()
                                 .text_xs()
                                 .text_color(color::text_muted())
-                                .child(SharedString::from(display.track_count_label)),
+                                .child(SharedString::from(track_count_label)),
                         ),
                 )
                 .into_any_element()

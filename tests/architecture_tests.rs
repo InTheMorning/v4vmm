@@ -2299,6 +2299,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "let feed_name_for_click = display.title.clone()",
+            "Library artist feed-summary click title should be consumed from ArtistFeedSummaryDisplay",
+        ),
+        (
+            "src/library.rs",
             "summary.thumb_url",
             "Library artist feed-summary thumbnail URL belongs in ArtistFeedSummaryVm::display",
         ),
@@ -2331,6 +2336,21 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             "playlist.name.clone()",
             "Library playlist popover option display belongs in playlist_option_displays",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(row.element_id.clone())",
+            "Library playlist sidebar row id should be consumed from PlaylistSidebarRowVm",
+        ),
+        (
+            "src/library.rs",
+            "Label::new(row.name.clone())",
+            "Library playlist sidebar row name should be consumed from PlaylistSidebarRowVm",
+        ),
+        (
+            "src/library.rs",
+            "Label::new(row.track_count_label.clone())",
+            "Library playlist sidebar count should be consumed from PlaylistSidebarRowVm",
         ),
         (
             "src/search.rs",
@@ -3014,6 +3034,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "SharedString::from(artist_display.element_id.clone())",
+            "Library artist tree row id should be consumed from LibraryArtistTreeDisplay",
+        ),
+        (
+            "src/library.rs",
             "album_count == 1",
             "Library artist album-count label belongs in ArtistNode::tree_display",
         ),
@@ -3024,6 +3049,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "SharedString::from(album_display.element_id.clone())",
+            "Library album tree row id should be consumed from LibraryAlbumTreeDisplay",
+        ),
+        (
+            "src/library.rs",
             "format!(\"({track_count})\"",
             "Library album track-count label belongs in AlbumNode::tree_display",
         ),
@@ -3031,6 +3061,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             "format!(\"tree-track-{}\"",
             "Library tree track row id belongs in LibraryTrackRowVm::tree_display",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(track_display.element_id.clone())",
+            "Library tree track row id should be consumed from LibraryTreeTrackDisplay",
         ),
         (
             "src/library.rs",
