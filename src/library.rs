@@ -2528,11 +2528,13 @@ fn render_album_detail(
     let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
     if let Some(fid) = feed_id {
         let remove_action = vm.primary_action_vm(fid, false);
+        let remove_a11y = remove_action.a11y_label();
         let remove_label = remove_action.label;
         buttons = buttons.child(
             action_button(
                 ActionButtonDisplay {
                     label: SharedString::from(remove_label),
+                    a11y_label: SharedString::from(remove_a11y),
                 },
                 cx,
             )
@@ -2547,6 +2549,7 @@ fn render_album_detail(
         action_button(
             ActionButtonDisplay {
                 label: SharedString::from(musicbrainz_action.label),
+                a11y_label: SharedString::from(musicbrainz_action.a11y_label),
             },
             cx,
         )
@@ -3052,6 +3055,7 @@ fn render_track_window(
                                 action_button(
                                     ActionButtonDisplay {
                                         label: SharedString::from(file_actions.reread_label),
+                                        a11y_label: SharedString::from(file_actions.reread_label),
                                     },
                                     cx,
                                 )
@@ -3065,6 +3069,9 @@ fn render_track_window(
                                 action_button(
                                     ActionButtonDisplay {
                                         label: SharedString::from(file_actions.redownload_label),
+                                        a11y_label: SharedString::from(
+                                            file_actions.redownload_label,
+                                        ),
                                     },
                                     cx,
                                 )
@@ -3179,6 +3186,7 @@ fn library_track_action_row(
             action_button(
                 ActionButtonDisplay {
                     label: SharedString::from(action_vm.subscription_button_label()),
+                    a11y_label: SharedString::from(action_vm.subscription_button_label()),
                 },
                 cx,
             )
@@ -3206,10 +3214,12 @@ fn library_track_action_row(
     }
 
     if let Some(action) = compare_action {
+        let a11y = action.a11y_label();
         row = row.control(
             action_button(
                 ActionButtonDisplay {
                     label: SharedString::from(action.label),
+                    a11y_label: SharedString::from(a11y),
                 },
                 cx,
             )
@@ -3221,10 +3231,12 @@ fn library_track_action_row(
     }
 
     if let Some(action) = musicbrainz_action {
+        let a11y = action.a11y_label();
         row = row.control(
             action_button(
                 ActionButtonDisplay {
                     label: SharedString::from(action.label),
+                    a11y_label: SharedString::from(a11y),
                 },
                 cx,
             )
@@ -3248,7 +3260,8 @@ fn library_track_action_row(
             .control(
                 action_button(
                     ActionButtonDisplay {
-                        label: SharedString::from(staged_display.apply_label),
+                        label: SharedString::from(staged_display.apply_label.clone()),
+                        a11y_label: SharedString::from(staged_display.apply_label),
                     },
                     cx,
                 )
@@ -3268,6 +3281,7 @@ fn library_track_action_row(
                 action_button(
                     ActionButtonDisplay {
                         label: SharedString::from(staged_display.discard_label),
+                        a11y_label: SharedString::from(staged_display.discard_label),
                     },
                     cx,
                 )

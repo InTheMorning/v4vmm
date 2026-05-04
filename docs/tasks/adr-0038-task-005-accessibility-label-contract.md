@@ -1,8 +1,17 @@
-# ADR 0038 Task 005: HIG Accessibility-Label Contract (Stub)
+# ADR 0038 Task 005: HIG Accessibility-Label Contract
 
 ## Status
 
-Stub. May run in parallel with Task 004 after Task 002 lands.
+In progress (2026-05-04). First slice landed: `ActionButtonDisplay` carries
+`a11y_label`; `EntityActionVm::a11y_label()` and
+`LibraryAlbumMusicBrainzActionVm::a11y_label` source it; architecture guard
+`interactive_composites_carry_accessibility_labels` blocks regression. GPUI
+0.2.x has no accessibility-label sink on its button widget — the field is
+contract-only until the framework grows the surface. Remaining composites
+(`ActionRow`, `identity_action_button`, `AddToPlaylistPopover`, `TrackRow`,
+`ListRow`, `RecentFeedTile`, `DisclosureGroup`, `SegmentedControl`,
+`NowPlayingBar`, release/track detail action overlays) follow in future
+slices.
 
 ## Goal
 

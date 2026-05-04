@@ -1708,6 +1708,7 @@ pub(crate) struct LibraryAlbumDetailVm<'a> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryAlbumMusicBrainzActionVm {
     pub(crate) label: &'static str,
+    pub(crate) a11y_label: &'static str,
     pub(crate) disabled: bool,
 }
 
@@ -1753,6 +1754,7 @@ impl<'a> LibraryAlbumDetailVm<'a> {
     pub(crate) fn musicbrainz_action_vm(&self) -> LibraryAlbumMusicBrainzActionVm {
         LibraryAlbumMusicBrainzActionVm {
             label: "MusicBrainz",
+            a11y_label: "Look up missing MusicBrainz fields for this album",
             disabled: self.has_active_musicbrainz(),
         }
     }

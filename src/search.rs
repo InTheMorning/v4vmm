@@ -2752,7 +2752,8 @@ pub(crate) fn discover_inspector_action_row(
     let controls = vec![
         action_button(
             ActionButtonDisplay {
-                label: SharedString::from(subscription_label),
+                label: SharedString::from(subscription_label.clone()),
+                a11y_label: SharedString::from(subscription_label),
             },
             cx,
         )

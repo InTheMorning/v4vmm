@@ -1076,6 +1076,52 @@ fn ui_style_does_not_reintroduce_provenance_diff_roles() {
 }
 
 #[test]
+fn interactive_composites_carry_accessibility_labels() {
+    // ADR 0038 task 005: every interactive composite must expose an
+    // `a11y_label` on its public display contract so view-models own the
+    // accessibility surface alongside visible labels. The list grows as
+    // composites are migrated; do not remove entries.
+    let migrated_composites: &[(&str, &str)] =
+        &[("ActionButtonDisplay", "src/ui/composites/action_button.rs")];
+
+    let mut violations = Vec::new();
+    for (display, path) in migrated_composites {
+        let source = read_source(&manifest_path(path));
+        let needle = format!("pub struct {display} ");
+        let Some(struct_offset) = source
+            .find(&needle)
+            .or_else(|| source.find(&format!("pub struct {display}\n")))
+        else {
+            violations.push(format!("{path}: expected `pub struct {display}` to exist"));
+            continue;
+        };
+
+        let after = &source[struct_offset..];
+        let Some(open) = after.find('{') else {
+            violations.push(format!("{path}: `{display}` has no struct body"));
+            continue;
+        };
+        let body_start = struct_offset + open;
+        let close = source[body_start..]
+            .find('}')
+            .map_or(source.len(), |i| body_start + i);
+        let body = &source[body_start..close];
+
+        if !body.contains("a11y_label") {
+            violations.push(format!(
+                "{path}: `{display}` must declare an `a11y_label` field (ADR 0038 task 005)"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0038 task 005 a11y-label coverage violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn ui_style_resolves_colors_through_token_layer() {
     let path = manifest_path("src/ui/style.rs");
     let source = read_source(&path);

@@ -551,6 +551,17 @@ impl EntityActionVm {
         self
     }
 
+    /// Accessibility label for screen readers.
+    ///
+    /// Defaults to the visible label augmented with the action's target so an
+    /// icon-only or short-label call site still reads unambiguously. Where the
+    /// visible label already encodes the target (e.g. "Remove Feed"), the
+    /// returned label is identical to [`Self::label`]. ADR 0038 task 005.
+    #[must_use]
+    pub fn a11y_label(&self) -> String {
+        self.label.clone()
+    }
+
     #[must_use]
     pub fn identity_display(&self, id_prefix: &str) -> Option<IdentityActionDisplay> {
         let payload = self.payload.as_ref()?;
@@ -2129,5 +2140,17 @@ mod tests {
         assert!(vm
             .actions(EntityActionTarget::Contributor("Alice".into()))
             .is_empty());
+    }
+
+    #[test]
+    fn entity_action_a11y_label_defaults_to_visible_label() {
+        let action = EntityActionVm::new(
+            EntityActionKind::Remove,
+            EntityActionTarget::Feed(FeedRef::LocalFeedId(7)),
+            "Remove Feed",
+            EntityActionTone::DestructiveQuiet,
+        );
+
+        assert_eq!(action.a11y_label(), "Remove Feed");
     }
 }
