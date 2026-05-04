@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred eighty-four implementation slices completed on 2026-05-04.
+In progress - first one hundred eighty-five implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1190,7 +1190,14 @@ Verified starting notes, 2026-05-03:
       in the expanded Discover Value Routes header.
     - Remove renderer-side `frame_label.clone()` from that branch.
     - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
-185. Migrate remaining fallback batches, smallest blast radius first.
+185. Library metadata group disclosure display consumption
+    - Add `TrackMetadataGroupCell::disclosure_group()` so the composite
+      owns the label duplication between the group cell and disclosure
+      header.
+    - Remove renderer-side `label.clone()` from Library metadata group
+      rendering.
+    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+186. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2997,6 +3004,15 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks `SharedString::from(frame_label.clone())`
   from returning.
 
+## One-Hundred-Eighty-Fifth-Slice Implementation Notes
+
+- `TrackMetadataGroupCell::disclosure_group()` now builds a disclosure
+  header from the group display label inside the composite.
+- Library metadata group rendering no longer clones a `SharedString`
+  label in the screen to feed both the cell and disclosure header.
+- The architecture guard now blocks `label: label.clone()` from
+  returning in Library metadata group rendering.
+
 ## Test Commands
 
 ```sh
@@ -3046,6 +3062,7 @@ cargo test value_routes_summary_counts_routes_and_owns_fallback_policy
 cargo test expandable_cell_summary_owns_context_fallbacks
 cargo test artwork_url_and_summary_preserve_legacy_http_policy
 cargo test transcript_line_display_preserves_blank_visual_rows
+cargo test group_cell_builds_disclosure_from_display_label
 cargo test logical_field_maps_raw_musicindex_txxx_fields
 cargo test value_route_child_field_visibility_preserves_screen_contexts
 cargo test json_tree_scalar_label_preserves_raw_json_leaf_display

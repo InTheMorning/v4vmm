@@ -2149,6 +2149,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "label: label.clone()",
+            "Library metadata group disclosure labels should be duplicated inside TrackMetadataGroupCell",
+        ),
+        (
+            "src/library.rs",
             "status.text.clone()",
             "Library status display text should be consumed from LibraryStatusSnapshot",
         ),

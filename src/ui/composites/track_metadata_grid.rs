@@ -8,9 +8,11 @@
 #![warn(clippy::pedantic)]
 
 use gpui::{
-    div, px, AnyElement, App, FontWeight, IntoElement, ParentElement, RenderOnce, Rgba,
-    SharedString, Styled, Window,
+    div, px, AnyElement, App, ClickEvent, ElementId, FontWeight, IntoElement, ParentElement,
+    RenderOnce, Rgba, SharedString, Styled, Window,
 };
+
+use super::disclosure_group::{DisclosureGroup, DisclosureGroupDisplay};
 
 use crate::ui::layouts as layout;
 use crate::ui::primitives::MultilineText;
@@ -93,6 +95,24 @@ impl TrackMetadataGroupCell {
 
     pub fn disclosure(mut self, disclosure: impl IntoElement) -> Self {
         self.disclosure = Some(disclosure.into_any_element());
+        self
+    }
+
+    pub fn disclosure_group(
+        mut self,
+        id: impl Into<ElementId>,
+        collapsed: bool,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.disclosure = Some(
+            DisclosureGroup::new(DisclosureGroupDisplay {
+                id: id.into(),
+                label: self.label.clone(),
+            })
+            .collapsed(collapsed)
+            .on_toggle(handler)
+            .into_any_element(),
+        );
         self
     }
 
@@ -347,6 +367,19 @@ mod tests {
 
         assert_eq!(cell.label, SharedString::from("ID3 Frames"));
         assert_eq!(cell.columns, 3);
+    }
+
+    #[test]
+    fn group_cell_builds_disclosure_from_display_label() {
+        let cell = TrackMetadataGroupCell::new(TrackMetadataGroupDisplay {
+            label: SharedString::from("ID3 Frames"),
+            columns: 3,
+        })
+        .disclosure_group("id3-frames", true, |_, _, _| {});
+
+        assert_eq!(cell.label, SharedString::from("ID3 Frames"));
+        assert_eq!(cell.columns, 3);
+        assert!(cell.disclosure.is_some());
     }
 
     #[test]

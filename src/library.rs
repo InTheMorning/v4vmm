@@ -60,14 +60,14 @@ use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowMessage,
     AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
-    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureGroup,
-    DisclosureGroupDisplay, EntityKind, FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel,
-    PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane,
-    StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell,
-    TrackMetadataFieldDisplay, TrackMetadataFrameDisplay, TrackMetadataGrid,
-    TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
-    TrackMetadataTagCell, TrackMetadataTagDisplay, TrackMetadataTextDisplay,
-    TrackMetadataTextValue, TrackRow as TrackRowComposite, TrackSurfaceElement,
+    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, EntityKind,
+    FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption,
+    PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
+    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataFieldDisplay,
+    TrackMetadataFrameDisplay, TrackMetadataGrid, TrackMetadataGroupCell,
+    TrackMetadataGroupDisplay, TrackMetadataSourceCell, TrackMetadataTagCell,
+    TrackMetadataTagDisplay, TrackMetadataTextDisplay, TrackMetadataTextValue,
+    TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -3432,20 +3432,16 @@ fn metadata_group_cell(
     );
     let expanded = group.expanded;
     if let (Some(group_key), Some(disclosure_id)) = (group_key, display.disclosure_id) {
-        let label = SharedString::from(display.label);
         return TrackMetadataGroupCell::new(TrackMetadataGroupDisplay {
-            label: label.clone(),
+            label: SharedString::from(display.label),
             columns,
         })
-        .disclosure(
-            DisclosureGroup::new(DisclosureGroupDisplay {
-                id: SharedString::from(disclosure_id).into(),
-                label,
-            })
-            .collapsed(!expanded)
-            .on_toggle(cx.listener(move |this, _, _, cx| {
+        .disclosure_group(
+            SharedString::from(disclosure_id),
+            !expanded,
+            cx.listener(move |this, _, _, cx| {
                 this.toggle_id3_frame_group(group_key.clone(), cx);
-            })),
+            }),
         )
         .into_any_element();
     }
