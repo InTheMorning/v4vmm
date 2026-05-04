@@ -183,11 +183,11 @@ impl Render for MetadataDragPreview {
                     .text_size(typography::SIZE_MICRO)
                     .font_weight(FontWeight::BOLD)
                     .text_color(color::text_muted())
-                    .child(SharedString::from(self.display.label.clone())),
+                    .child(SharedString::from(self.display.label.to_owned())),
             )
             .child(
                 div().mt(spacing::XS).child(
-                    MultilineText::new(self.display.value.clone())
+                    MultilineText::from_text(&self.display.value)
                         .max_lines(4)
                         .size(FontSize::Micro)
                         .line_height(typography::LINE_BODY)
@@ -2498,9 +2498,7 @@ fn render_inspector_body(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     match &frame.detail {
-        InspectorDetail::Loading(message) => {
-            LoadingMessage::new(message.clone()).into_any_element()
-        }
+        InspectorDetail::Loading(message) => LoadingMessage::from_text(message).into_any_element(),
         InspectorDetail::Error(error) => {
             LoadingMessage::new(SearchViewModel::inspector_error_message(error)).into_any_element()
         }

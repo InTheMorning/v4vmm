@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred seventy-seven implementation slices completed on 2026-05-04.
+In progress - first one hundred eighty-two implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1150,7 +1150,36 @@ Verified starting notes, 2026-05-03:
     - Remove renderer-side `display.item_key.clone()` from both
       screens while preserving repeated-click cloning inside listeners.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-178. Migrate remaining fallback batches, smallest blast radius first.
+178. Loading-message borrowed-text ownership
+    - Add `LoadingMessage::from_text()` so borrowed VM strings can be
+      converted to owned GPUI text inside the primitive.
+    - Remove renderer pressure to clone loading/empty display strings
+      just to satisfy element lifetimes.
+    - Add primitive coverage for borrowed-message ownership.
+179. Multiline-text borrowed-text ownership
+    - Add `MultilineText::from_text()` so borrowed VM strings can be
+      converted to owned GPUI text inside the primitive.
+    - Remove renderer pressure to clone multiline display strings just
+      to satisfy element lifetimes.
+    - Add primitive coverage for borrowed-value ownership.
+180. Discover metadata drag-preview display consumption
+    - Consume `TrackMetadataDragPreviewDisplay` in the drag-preview
+      renderer without cloning the display value directly in the screen.
+    - Route the multiline value through `MultilineText::from_text()`.
+    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+181. Discover inspector loading-message consumption
+    - Consume the VM-owned inspector loading message through
+      `LoadingMessage::from_text()`.
+    - Remove `LoadingMessage::new(message.clone())` from Discover
+      inspector rendering.
+    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+182. Library metadata-panel empty-message consumption
+    - Consume Library deferred metadata-panel empty messages through
+      `LoadingMessage::from_text()`.
+    - Remove `LoadingMessage::new(label.clone())` from Library compare
+      and MusicBrainz panel rendering.
+    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+183. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2896,6 +2925,48 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks renderer-side
   `display.item_key.clone()` from returning in both screens.
 
+## One-Hundred-Seventy-Eighth-Slice Implementation Notes
+
+- `LoadingMessage::from_text()` now owns borrowed VM display strings
+  inside the primitive.
+- Screens can pass borrowed loading/empty labels without local
+  `String::clone()` calls.
+- Primitive coverage pins borrowed-message ownership.
+
+## One-Hundred-Seventy-Ninth-Slice Implementation Notes
+
+- `MultilineText::from_text()` now owns borrowed VM display strings
+  inside the primitive.
+- Screens can pass borrowed multiline labels without local
+  `String::clone()` calls.
+- Primitive coverage pins borrowed-value ownership.
+
+## One-Hundred-Eightieth-Slice Implementation Notes
+
+- Discover metadata drag previews now consume
+  `TrackMetadataDragPreviewDisplay` through primitive owned-text
+  conversion for the multiline value.
+- The direct renderer-side `self.display.value.clone()` path is blocked
+  from returning.
+- The existing drag-preview display contract tests remain focused on
+  the VM-owned label/value projection.
+
+## One-Hundred-Eighty-First-Slice Implementation Notes
+
+- Discover inspector loading messages now render through
+  `LoadingMessage::from_text()`.
+- The screen no longer calls `LoadingMessage::new(message.clone())`.
+- The architecture guard blocks that renderer-side loading-message clone
+  from returning.
+
+## One-Hundred-Eighty-Second-Slice Implementation Notes
+
+- Library compare and MusicBrainz deferred empty messages now render
+  through `LoadingMessage::from_text()`.
+- The screen no longer calls `LoadingMessage::new(label.clone())`.
+- The architecture guard blocks that renderer-side metadata-panel
+  empty-message clone from returning.
+
 ## Test Commands
 
 ```sh
@@ -3004,6 +3075,9 @@ cargo test playlist_track_row_vm_display_projects_row_text_media_and_controls
 cargo test library_track_row_vm_projects_row_and_toggle_ids
 cargo test playlist_detail_vm_projects_rename_and_delete_controls
 cargo test track_metadata_action_state_projects_loading_and_staged_id3_display
+cargo test from_text_owns_borrowed_message
+cargo test from_text_owns_borrowed_value
+cargo test drag_preview_display_projects_owned_label_and_value
 cargo test lazy_panel_error_owns_error_prefix_display
 cargo test library_view_model_deferred_panel_error_message_owns_error_prefix
 cargo test track_metadata_action_state_projects_file_actions_and_id3_errors

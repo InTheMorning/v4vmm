@@ -25,6 +25,10 @@ impl LoadingMessage {
         }
     }
 
+    pub fn from_text(message: &str) -> Self {
+        Self::new(message.to_owned())
+    }
+
     pub fn appearance(mut self, appearance: Appearance) -> Self {
         self.appearance = Some(appearance);
         self
@@ -53,6 +57,12 @@ mod tests {
     fn defaults_have_no_overrides() {
         let message = LoadingMessage::new("Loading");
         assert!(message.appearance.is_none());
+    }
+
+    #[test]
+    fn from_text_owns_borrowed_message() {
+        let message = LoadingMessage::from_text("Loading");
+        assert_eq!(message.message, SharedString::from("Loading"));
     }
 
     #[test]

@@ -2123,6 +2123,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover metadata drag preview should consume TrackMetadataDragPreviewDisplay",
         ),
         (
+            "src/search.rs",
+            "self.display.label.clone()",
+            "Discover metadata drag preview should consume TrackMetadataDragPreviewDisplay without renderer-side label cloning",
+        ),
+        (
+            "src/search.rs",
+            "self.display.value.clone()",
+            "Discover metadata drag preview should consume TrackMetadataDragPreviewDisplay without renderer-side value cloning",
+        ),
+        (
+            "src/search.rs",
+            "LoadingMessage::new(message.clone())",
+            "Discover inspector loading text should be consumed without renderer-side message cloning",
+        ),
+        (
+            "src/library.rs",
+            "LoadingMessage::new(label.clone())",
+            "Library deferred metadata-panel empty labels should be consumed without renderer-side label cloning",
+        ),
+        (
             "src/library.rs",
             "display.label.clone()",
             "Library metadata group labels should be consumed from TrackMetadataGroupHeadingDisplay",

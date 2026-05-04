@@ -3164,7 +3164,7 @@ fn render_track_compare_panel(frame: &InspectorFrame) -> AnyElement {
             LoadingMessage::new(TrackMetadataActionState::compare_panel_loading_message())
                 .into_any_element()
         }
-        LazyPanel::Empty(label) => LoadingMessage::new(label.clone()).into_any_element(),
+        LazyPanel::Empty(label) => LoadingMessage::from_text(label).into_any_element(),
         LazyPanel::Hidden => div().into_any_element(),
     }
 }
@@ -3326,7 +3326,7 @@ fn library_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp
             LoadingMessage::new(TrackMetadataActionState::musicbrainz_panel_loading_message())
                 .into_any_element()
         }
-        LazyPanel::Empty(label) => LoadingMessage::new(label.clone()).into_any_element(),
+        LazyPanel::Empty(label) => LoadingMessage::from_text(label).into_any_element(),
         LazyPanel::Hidden => div().into_any_element(),
     }
 }

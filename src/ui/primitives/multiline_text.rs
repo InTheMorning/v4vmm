@@ -49,6 +49,10 @@ impl MultilineText {
         }
     }
 
+    pub fn from_text(value: &str) -> Self {
+        Self::new(value.to_owned())
+    }
+
     /// Maximum number of lines to render before truncating with an
     /// ellipsis line. Mirrors `SwiftUI` `.lineLimit(n)`.
     pub fn max_lines(mut self, max_lines: usize) -> Self {
@@ -144,6 +148,12 @@ mod tests {
     fn empty_value_renders_single_blank_line() {
         let lines = lines_for_render("", 4);
         assert_eq!(lines, vec![BLANK_PLACEHOLDER.to_string()]);
+    }
+
+    #[test]
+    fn from_text_owns_borrowed_value() {
+        let text = MultilineText::from_text("value");
+        assert_eq!(text.value, SharedString::from("value"));
     }
 
     #[test]
