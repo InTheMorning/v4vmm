@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first ninety-nine implementation slices completed on 2026-05-03.
+In progress - first one hundred one implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -675,7 +675,19 @@ Verified starting notes, 2026-05-03:
     - Keep GPUI color-token mapping in the screens while removing
       screen-local ID3 version/color classification.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-100. Migrate remaining fallback batches, smallest blast radius first.
+100. Metadata text value display
+    - Add `TrackMetadataGridVm::text_value_display()` so Library and
+      Discover metadata text cells receive VM-owned display strings.
+    - Remove screen-local text-cell `to_string()` projection from
+      metadata compare cells, transcript lines, and raw fallback rows.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+101. Expanded metadata raw/display value policy
+    - Add `TrackMetadataGridVm::expanded_display_value()` so Library
+      and Discover expanded metadata cells use a VM-owned
+      raw-vs-display fallback policy.
+    - Remove direct screen calls to `expanded_metadata_display_string`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+102. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -1682,6 +1694,25 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks screen-local ID3 frame
   version/color classification from returning.
 
+## Ninety-Ninth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::text_value_display()` now carries metadata text
+  cell value projection for Library and Discover.
+- Library and Discover still choose GPUI text widgets and line limits,
+  but no longer project metadata text values with screen-local
+  `to_string()` calls.
+- The architecture guard now blocks screen-local metadata text value
+  projection from returning.
+
+## One-Hundredth-Slice Implementation Notes
+
+- `TrackMetadataGridVm::expanded_display_value()` now carries expanded
+  metadata raw-vs-display fallback policy.
+- Library and Discover still own their expanded cell layout variants,
+  but no longer call `expanded_metadata_display_string()` directly.
+- The architecture guard now blocks direct screen calls to expanded
+  metadata display fallback selection from returning.
+
 ## Test Commands
 
 ```sh
@@ -1703,6 +1734,8 @@ cargo test field_label_preserves_raw_metadata_field_display
 cargo test drag_preview_display_projects_owned_label_and_value
 cargo test id3_frame_color_role_classifies_library_context
 cargo test id3_frame_color_role_classifies_discover_context
+cargo test text_value_display_projects_owned_text_value
+cargo test expanded_display_value_preserves_metadata_raw_display_policy
 cargo test id3_generated_row_display_projects_ids_and_labels
 cargo test source_drag_display_projects_discover_source_cell_ids
 cargo test contributor_summary_falls_back_to_display_value_when_unsummarized

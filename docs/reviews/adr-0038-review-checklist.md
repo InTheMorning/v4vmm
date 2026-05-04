@@ -119,8 +119,9 @@ Metadata expanded field-kind classification and expandability gates have
 also moved into `TrackMetadataGridVm`.
 Library playlist row text, media lookup, and control projection have
 also moved into `PlaylistTrackRowVm::display()`.
-Metadata field labels, drag preview display, ID3 frame display labels,
-and ID3 frame color-role classification have also moved into
+Metadata field labels, metadata text value display, expanded
+raw/display fallback selection, drag preview display, ID3 frame display
+labels, and ID3 frame color-role classification have also moved into
 `TrackMetadataGridVm`.
 
 ## Required Questions For Every UI Change
@@ -158,7 +159,7 @@ and ID3 frame color-role classification have also moved into
 |---|---|---|---|
 | 1 | Layer Relocation                              | Implemented with visual-proof caveat | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Visual proof remains open; no provisional screenshot artifacts are retained. |
 | 2 | Composite Display-Contract Audit              | Implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; `DetailHeader` title/subtitle/data rows now enter through `DetailHeaderDisplay`; `DetailGrid` key/value rows now enter through `DetailElementRow` or `DetailTextRow`; release track sections now enter through `ReleaseTrackSectionDisplay`; playlist popovers now enter through `AddToPlaylistDisplay` and `PlaylistOptionDisplay`; metadata grid cells now enter through `TrackMetadataGroupDisplay`, `TrackMetadataFieldDisplay`, `TrackMetadataFrameDisplay`, `TrackMetadataTagDisplay`, and `TrackMetadataTextDisplay`; action-row status messages now enter through `ActionRowMessageDisplay`; disclosure headings now enter through `DisclosureGroupDisplay`; segmented options now enter through `SegmentDisplay`; badge labels now enter through `TagBadgeDisplay`; metadata-action labels now enter through `ActionButtonDisplay`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow`, `DetailHeader`, `DetailGrid`, release track-section, playlist popover, metadata-grid cell, action-row message, disclosure-group, segmented-control, tag-badge, and action-button string builders |
-| 3 | Library/Search VM Consolidation               | In progress - first ninety-nine implementation slices completed | `TrackMetadataGridVm` now owns metadata field labels, drag preview label/value display, ID3 frame display labels, ID3 frame color-role classification, metadata cell fallback/precedence, expansion, grouping, source-drag ids, Value Routes summaries, JSON scalar labels, comparison roles/glyphs, and pending-source roles used by Library and Discover. Library/Search no longer perform the migrated fallback/classification work screen-locally, and `view_models_own_display_fallbacks_for_library_and_search` has been tightened to block those patterns from returning. |
+| 3 | Library/Search VM Consolidation               | In progress - first one hundred one implementation slices completed | `TrackMetadataGridVm` now owns metadata field labels, metadata text value display, expanded raw/display fallback selection, drag preview label/value display, ID3 frame display labels, ID3 frame color-role classification, metadata cell fallback/precedence, expansion, grouping, source-drag ids, Value Routes summaries, JSON scalar labels, comparison roles/glyphs, and pending-source roles used by Library and Discover. Library/Search no longer perform the migrated fallback/classification work screen-locally, and `view_models_own_display_fallbacks_for_library_and_search` has been tightened to block those patterns from returning. |
 | 4 | HIG Dark-Mode Parity Audit                    | Stub           | `style.rs` resolution; light + dark screenshots per surface |
 | 5 | HIG Accessibility-Label Contract              | Stub           | A11y labels per interactive composite; new guard; coverage table |
 | 6 | PageVm Generalization                         | Stub           | `<Entity>DetailPageVm` per surface; shell helpers; new guard |

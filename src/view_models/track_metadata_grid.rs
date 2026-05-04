@@ -10,8 +10,8 @@
 use std::collections::BTreeSet;
 
 use crate::metadata::{
-    id3_frame_base, id3_frame_version, metadata_field_is_expandable, summarize_contributor_value,
-    Id3FrameVersion, MetadataColumn,
+    expanded_metadata_display_string, id3_frame_base, id3_frame_version,
+    metadata_field_is_expandable, summarize_contributor_value, Id3FrameVersion, MetadataColumn,
 };
 use crate::track_compare::ComparisonStatus;
 
@@ -169,6 +169,16 @@ impl TrackMetadataGridVm {
     #[must_use]
     pub fn field_label(field: &str) -> String {
         field.to_string()
+    }
+
+    #[must_use]
+    pub fn text_value_display(value: &str) -> String {
+        value.to_string()
+    }
+
+    #[must_use]
+    pub fn expanded_display_value(field: &str, raw_value: &str, display_value: &str) -> String {
+        expanded_metadata_display_string(field, raw_value, display_value)
     }
 
     #[must_use]
@@ -745,6 +755,44 @@ mod tests {
     fn field_label_preserves_raw_metadata_field_display() {
         assert_eq!(TrackMetadataGridVm::field_label("Title"), "Title");
         assert_eq!(TrackMetadataGridVm::field_label(""), "");
+    }
+
+    #[test]
+    fn text_value_display_projects_owned_text_value() {
+        assert_eq!(TrackMetadataGridVm::text_value_display("Title"), "Title");
+        assert_eq!(TrackMetadataGridVm::text_value_display(""), "");
+    }
+
+    #[test]
+    fn expanded_display_value_preserves_metadata_raw_display_policy() {
+        assert_eq!(
+            TrackMetadataGridVm::expanded_display_value(
+                "Contributors",
+                "guitar: Alice / drums: Bob",
+                "2 contributors",
+            ),
+            "Alice\n  - guitar\nBob\n  - drums"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expanded_display_value(
+                "Contributors",
+                "Alice and Bob",
+                "Alice and Bob",
+            ),
+            "Alice and Bob"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expanded_display_value("Transcript", "raw text", "summary"),
+            "raw text"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expanded_display_value("Title", "raw title", ""),
+            "raw title"
+        );
+        assert_eq!(
+            TrackMetadataGridVm::expanded_display_value("Title", "raw title", "display title"),
+            "display title"
+        );
     }
 
     #[test]

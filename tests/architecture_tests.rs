@@ -2155,6 +2155,46 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover metadata ID3 frame color role belongs in TrackMetadataGridVm::id3_frame_color_role",
         ),
         (
+            "src/library.rs",
+            "expanded_metadata_display_string(",
+            "Library expanded metadata raw/display selection belongs in TrackMetadataGridVm::expanded_display_value",
+        ),
+        (
+            "src/search.rs",
+            "expanded_metadata_display_string(",
+            "Discover expanded metadata raw/display selection belongs in TrackMetadataGridVm::expanded_display_value",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(display_value.to_string())",
+            "Library metadata text display values belong in TrackMetadataGridVm::text_value_display",
+        ),
+        (
+            "src/search.rs",
+            "SharedString::from(display_value.to_string())",
+            "Discover metadata text display values belong in TrackMetadataGridVm::text_value_display",
+        ),
+        (
+            "src/library.rs",
+            "value: SharedString::from(value.to_string())",
+            "Library metadata text value projection belongs in TrackMetadataGridVm::text_value_display",
+        ),
+        (
+            "src/search.rs",
+            "MultilineText::new(value.to_string())",
+            "Discover metadata text value projection belongs in TrackMetadataGridVm::text_value_display",
+        ),
+        (
+            "src/library.rs",
+            "MultilineText::new(raw_value.to_string())",
+            "Library expanded metadata raw fallback belongs in TrackMetadataGridVm::text_value_display",
+        ),
+        (
+            "src/search.rs",
+            "SharedString::from(line.to_string())",
+            "Discover expanded metadata line display belongs in TrackMetadataGridVm::text_value_display",
+        ),
+        (
             "src/search.rs",
             "fn compare_row_id(",
             "Discover metadata compare-row slug display belongs in TrackMetadataGridVm::compare_row_id",

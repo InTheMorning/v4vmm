@@ -3703,7 +3703,7 @@ fn expandable_cell(
             | TrackMetadataExpandedFieldKind::Text
             | TrackMetadataExpandedFieldKind::ValueRoutes => {
                 let expanded_display =
-                    expanded_metadata_display_string(field, raw_value, display_value);
+                    TrackMetadataGridVm::expanded_display_value(field, raw_value, display_value);
                 container =
                     container.child(
                         div()
@@ -3795,7 +3795,9 @@ fn expandable_tag_cell(
                                 .text_size(typography::SIZE_MICRO)
                                 .line_height(typography::LINE_BODY)
                                 .text_color(color)
-                                .child(SharedString::from(display_value.to_string())),
+                                .child(SharedString::from(
+                                    TrackMetadataGridVm::text_value_display(display_value),
+                                )),
                         )
                         .child(
                             ImagePrimitive::new(image.clone())
@@ -3810,7 +3812,9 @@ fn expandable_tag_cell(
                         .text_size(typography::SIZE_MICRO)
                         .line_height(typography::LINE_BODY)
                         .text_color(color)
-                        .child(SharedString::from(display_value.to_string()))
+                        .child(SharedString::from(TrackMetadataGridVm::text_value_display(
+                            display_value,
+                        )))
                         .into_any_element()
                 }
             }
@@ -3826,7 +3830,7 @@ fn expandable_tag_cell(
                 .into_any_element(),
             TrackMetadataExpandedFieldKind::Text | TrackMetadataExpandedFieldKind::ValueRoutes => {
                 let expanded_display =
-                    expanded_metadata_display_string(field, raw_value, display_value);
+                    TrackMetadataGridVm::expanded_display_value(field, raw_value, display_value);
                 div()
                     .flex_1()
                     .min_w_0()
@@ -3961,7 +3965,9 @@ fn json_tree_elements(raw_value: &str, display_value: &str, color: gpui::Rgba) -
             let line = TrackMetadataGridVm::transcript_line_display(line);
             div()
                 .truncate()
-                .child(SharedString::from(line.to_string()))
+                .child(SharedString::from(TrackMetadataGridVm::text_value_display(
+                    line,
+                )))
                 .into_any_element()
         })
         .collect()
@@ -4138,14 +4144,16 @@ fn transcript_text_elements(raw_value: &str, color: gpui::Rgba) -> Vec<AnyElemen
             let line = TrackMetadataGridVm::transcript_line_display(line);
             div()
                 .text_color(color)
-                .child(SharedString::from(line.to_string()))
+                .child(SharedString::from(TrackMetadataGridVm::text_value_display(
+                    line,
+                )))
                 .into_any_element()
         })
         .collect()
 }
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
-    let mut cell = MultilineText::new(value.to_string())
+    let mut cell = MultilineText::new(TrackMetadataGridVm::text_value_display(value))
         .max_lines(4)
         .size(FontSize::Micro)
         .line_height(typography::LINE_BODY);
@@ -4164,7 +4172,7 @@ fn compare_tag_cell(
     let frame_label = TrackMetadataGridVm::id3_frame_display_label(frame_id);
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
 
-    let mut body = MultilineText::new(value.to_string())
+    let mut body = MultilineText::new(TrackMetadataGridVm::text_value_display(value))
         .max_lines(4)
         .size(FontSize::Micro)
         .line_height(typography::LINE_BODY);

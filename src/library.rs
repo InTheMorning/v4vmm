@@ -50,9 +50,9 @@ use crate::library_service;
 use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, display_metadata_value,
-    expand_woar_metadata_rows, expanded_metadata_display_string, pending_id3_conflict_descriptions,
-    pending_id3_edits_for_apply, track_metadata_rows, AlignedCompareRow, MetadataColumn,
-    MetadataGridRow, MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
+    expand_woar_metadata_rows, pending_id3_conflict_descriptions, pending_id3_edits_for_apply,
+    track_metadata_rows, AlignedCompareRow, MetadataColumn, MetadataGridRow,
+    MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext,
 };
 use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
@@ -3677,14 +3677,16 @@ fn expanded_metadata_value(
                 .flex()
                 .flex_col()
                 .gap(spacing::XS)
-                .child(SharedString::from(display_value.to_string()))
+                .child(SharedString::from(TrackMetadataGridVm::text_value_display(
+                    display_value,
+                )))
                 .child(
                     Thumbnail::new(EntityKind::Track, ThumbnailSize::Lg).image(Some(image.clone())),
                 )
                 .into_any_element();
         }
     }
-    let value = expanded_metadata_display_string(field, raw_value, display_value);
+    let value = TrackMetadataGridVm::expanded_display_value(field, raw_value, display_value);
     MultilineText::new(value)
         .max_lines(20)
         .color_raw(color)
@@ -3700,10 +3702,12 @@ fn value_routes_tree_elements(
     cx: &mut Context<LibraryApp>,
 ) -> Vec<AnyElement> {
     let Ok(routes) = serde_json::from_str::<Vec<serde_json::Value>>(raw_value) else {
-        return vec![MultilineText::new(raw_value.to_string())
-            .max_lines(20)
-            .color_raw(color)
-            .into_any_element()];
+        return vec![
+            MultilineText::new(TrackMetadataGridVm::text_value_display(raw_value))
+                .max_lines(20)
+                .color_raw(color)
+                .into_any_element(),
+        ];
     };
 
     routes
@@ -3802,7 +3806,7 @@ fn value_routes_tree_elements(
 
 fn compare_cell(value: &str, color: Option<gpui::Rgba>) -> AnyElement {
     let mut cell = TrackMetadataTextValue::new(TrackMetadataTextDisplay {
-        value: SharedString::from(value.to_string()),
+        value: SharedString::from(TrackMetadataGridVm::text_value_display(value)),
     });
     if let Some(color) = color {
         cell = cell.color_raw(color);
@@ -3817,7 +3821,7 @@ fn compare_tag_cell(
     frame_color: Option<gpui::Rgba>,
 ) -> AnyElement {
     let mut body = TrackMetadataTextValue::new(TrackMetadataTextDisplay {
-        value: SharedString::from(value.to_string()),
+        value: SharedString::from(TrackMetadataGridVm::text_value_display(value)),
     });
     if let Some(color) = color {
         body = body.color_raw(color);
