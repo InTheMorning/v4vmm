@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred seventy-three implementation slices completed on 2026-05-04.
+In progress - first one hundred seventy-seven implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1123,7 +1123,34 @@ Verified starting notes, 2026-05-03:
     - Remove setup-time `action.target.clone()` from the Discover
       contributor identity renderer.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-174. Migrate remaining fallback batches, smallest blast radius first.
+174. Library metadata expandable-cell key consumption
+    - Destructure `TrackMetadataExpandableCellDisplay` before rendering
+      Library metadata expansion controls.
+    - Remove renderer-side `display.cell_key.clone()` from Library
+      metadata cells while preserving repeated-click cloning inside the
+      event listener.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+175. Discover RSS metadata expandable-cell key consumption
+    - Destructure `TrackMetadataExpandableCellDisplay` before rendering
+      Discover RSS metadata expansion controls.
+    - Remove renderer-side `display.cell_key.clone()` from Discover RSS
+      metadata cells while preserving repeated-click cloning inside the
+      event listener.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+176. Discover ID3 metadata expandable-cell key consumption
+    - Destructure `TrackMetadataExpandableCellDisplay` before rendering
+      Discover ID3 metadata expansion controls.
+    - Remove renderer-side `display.cell_key.clone()` from Discover ID3
+      metadata cells while preserving repeated-click cloning inside the
+      event listener.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+177. Value Routes item-key display consumption
+    - Destructure `TrackMetadataValueRouteItemDisplay` in Library and
+      Discover Value Routes item renderers.
+    - Remove renderer-side `display.item_key.clone()` from both
+      screens while preserving repeated-click cloning inside listeners.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+178. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2829,6 +2856,45 @@ Verified starting notes, 2026-05-03:
   the VM display contract.
 - The architecture guard now blocks the old Discover target clone from
   returning.
+
+## One-Hundred-Seventy-Fourth-Slice Implementation Notes
+
+- Library metadata cells now destructure
+  `TrackMetadataExpandableCellDisplay` before rendering expansion
+  controls.
+- Cell keys, cell ids, header ids, and disclosure glyphs are consumed
+  directly from the VM display contract.
+- The architecture guard now blocks renderer-side
+  `display.cell_key.clone()` from returning in Library.
+
+## One-Hundred-Seventy-Fifth-Slice Implementation Notes
+
+- Discover RSS metadata cells now destructure
+  `TrackMetadataExpandableCellDisplay` before rendering expansion
+  controls.
+- RSS cell keys, cell ids, header ids, and disclosure glyphs are
+  consumed directly from the VM display contract.
+- The architecture guard now blocks renderer-side
+  `display.cell_key.clone()` from returning in Discover.
+
+## One-Hundred-Seventy-Sixth-Slice Implementation Notes
+
+- Discover ID3 metadata cells now destructure
+  `TrackMetadataExpandableCellDisplay` before rendering expansion
+  controls.
+- ID3 cell keys, cell ids, header ids, and disclosure glyphs are
+  consumed directly from the VM display contract.
+- The architecture guard now blocks renderer-side
+  `display.cell_key.clone()` from returning in Discover.
+
+## One-Hundred-Seventy-Seventh-Slice Implementation Notes
+
+- Library and Discover Value Routes items now destructure
+  `TrackMetadataValueRouteItemDisplay` before rendering.
+- Item keys, item ids, header ids, and disclosure glyphs are consumed
+  directly from the VM display contract.
+- The architecture guard now blocks renderer-side
+  `display.item_key.clone()` from returning in both screens.
 
 ## Test Commands
 

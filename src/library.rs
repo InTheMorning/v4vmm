@@ -99,8 +99,9 @@ use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::playlist_option_displays;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{
-    TrackMetadataComparisonRole, TrackMetadataExpandedFieldKind, TrackMetadataGridVm,
-    TrackMetadataId3FrameColorContext, TrackMetadataId3FrameColorRole, ValueRouteFieldContext,
+    TrackMetadataComparisonRole, TrackMetadataExpandableCellDisplay,
+    TrackMetadataExpandedFieldKind, TrackMetadataGridVm, TrackMetadataId3FrameColorContext,
+    TrackMetadataId3FrameColorRole, TrackMetadataValueRouteItemDisplay, ValueRouteFieldContext,
     ValueRoutesSummaryFallback,
 };
 use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts, TrackRef, TrackView};
@@ -3605,7 +3606,12 @@ fn metadata_value_cell(
         ValueRoutesSummaryFallback::DisplayValue,
     );
     if expanded && field_kind == TrackMetadataExpandedFieldKind::ValueRoutes {
-        let header_key = display.cell_key.clone();
+        let TrackMetadataExpandableCellDisplay {
+            cell_key: header_key,
+            header_id,
+            disclosure_glyph,
+            ..
+        } = display;
         return div()
             .text_size(typography::SIZE_MICRO)
             .line_height(typography::LINE_BODY)
@@ -3614,7 +3620,7 @@ fn metadata_value_cell(
             .flex_col()
             .child(
                 div()
-                    .id(SharedString::from(display.header_id))
+                    .id(SharedString::from(header_id))
                     .cursor_pointer()
                     .flex()
                     .flex_row()
@@ -3627,7 +3633,7 @@ fn metadata_value_cell(
                         div()
                             .text_size(typography::SIZE_MICRO)
                             .text_color(color::text_muted())
-                            .child(display.disclosure_glyph),
+                            .child(disclosure_glyph),
                     ),
             )
             .child(div().flex().flex_col().children(value_routes_tree_elements(
@@ -3656,9 +3662,14 @@ fn metadata_value_cell(
             .child(SharedString::from(summary))
             .into_any_element()
     };
-    let cell_key = display.cell_key.clone();
+    let TrackMetadataExpandableCellDisplay {
+        cell_key,
+        cell_id,
+        disclosure_glyph,
+        ..
+    } = display;
     div()
-        .id(SharedString::from(display.cell_id))
+        .id(SharedString::from(cell_id))
         .cursor_pointer()
         .text_size(typography::SIZE_MICRO)
         .line_height(typography::LINE_BODY)
@@ -3673,7 +3684,7 @@ fn metadata_value_cell(
             div()
                 .text_size(typography::SIZE_MICRO)
                 .text_color(color::text_muted())
-                .child(display.disclosure_glyph),
+                .child(disclosure_glyph),
         )
         .child(div().flex_1().min_w_0().child(content))
         .into_any_element()
@@ -3785,20 +3796,23 @@ fn value_routes_tree_elements(
                 index,
                 expanded_cells.contains(&item_key),
             );
-            let sub_expanded = expanded_cells.contains(&display.item_key);
-            let header_key = display.item_key.clone();
+            let TrackMetadataValueRouteItemDisplay {
+                item_key: header_key,
+                item_id,
+                header_id,
+                disclosure_glyph,
+            } = display;
+            let sub_expanded = expanded_cells.contains(&header_key);
 
             let mut item = div()
-                .id(SharedString::from(display.item_id))
+                .id(SharedString::from(item_id))
                 .flex()
                 .flex_col()
                 .gap(spacing::XXS)
                 .child(
                     div()
                         .id(SharedString::from(
-                            display
-                                .header_id
-                                .expect("Library value-route rows have header ids"),
+                            header_id.expect("Library value-route rows have header ids"),
                         ))
                         .cursor_pointer()
                         .flex()
@@ -3812,7 +3826,7 @@ fn value_routes_tree_elements(
                             div()
                                 .text_size(typography::SIZE_MICRO)
                                 .text_color(color::text_muted())
-                                .child(display.disclosure_glyph),
+                                .child(disclosure_glyph),
                         )
                         .child(
                             div()

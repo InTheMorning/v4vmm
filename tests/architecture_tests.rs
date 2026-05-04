@@ -3318,6 +3318,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover value-route disclosure glyph belongs in TrackMetadataGridVm value-route item display",
         ),
         (
+            "src/library.rs",
+            "display.cell_key.clone()",
+            "Library metadata expansion keys should be consumed by destructuring TrackMetadataExpandableCellDisplay",
+        ),
+        (
+            "src/search.rs",
+            "display.cell_key.clone()",
+            "Discover metadata expansion keys should be consumed by destructuring TrackMetadataExpandableCellDisplay",
+        ),
+        (
+            "src/library.rs",
+            "display.item_key.clone()",
+            "Library Value Routes item keys should be consumed by destructuring TrackMetadataValueRouteItemDisplay",
+        ),
+        (
+            "src/search.rs",
+            "display.item_key.clone()",
+            "Discover Value Routes item keys should be consumed by destructuring TrackMetadataValueRouteItemDisplay",
+        ),
+        (
             "src/ui/shells/entity.rs",
             "format!(\"{id_prefix}-{}:{payload}\", kind_slug(kind))",
             "feed identity action id display belongs in EntityActionVm::identity_display",

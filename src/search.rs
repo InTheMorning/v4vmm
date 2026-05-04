@@ -85,8 +85,9 @@ use crate::view_models::search::{
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::track_metadata_grid::{
-    TrackMetadataDragPreviewDisplay, TrackMetadataExpandedFieldKind, TrackMetadataGridVm,
-    TrackMetadataId3FrameColorContext, TrackMetadataId3FrameColorRole, ValueRouteFieldContext,
+    TrackMetadataDragPreviewDisplay, TrackMetadataExpandableCellDisplay,
+    TrackMetadataExpandedFieldKind, TrackMetadataGridVm, TrackMetadataId3FrameColorContext,
+    TrackMetadataId3FrameColorRole, TrackMetadataValueRouteItemDisplay, ValueRouteFieldContext,
     ValueRoutesSummaryFallback,
 };
 use crate::views::{ContributorView, FeedRef, TrackView};
@@ -3600,11 +3601,15 @@ fn expandable_cell(
     } = params;
     let display =
         TrackMetadataGridVm::discover_expandable_cell_display("rss", field, row_id, expanded);
-    let glyph = display.disclosure_glyph;
     let field_kind = TrackMetadataGridVm::expanded_field_kind(field);
 
     if expanded && field_kind == TrackMetadataExpandedFieldKind::ValueRoutes {
-        let cell_key_h = display.cell_key.clone();
+        let TrackMetadataExpandableCellDisplay {
+            cell_key,
+            header_id,
+            disclosure_glyph,
+            ..
+        } = display;
         return div()
             .text_size(typography::SIZE_MICRO)
             .line_height(typography::LINE_BODY)
@@ -3613,10 +3618,10 @@ fn expandable_cell(
             .flex_col()
             .child(
                 div()
-                    .id(SharedString::from(display.header_id))
+                    .id(SharedString::from(header_id))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        this.toggle_metadata_cell(cell_key_h.clone(), cx);
+                        this.toggle_metadata_cell(cell_key.clone(), cx);
                     }))
                     .flex()
                     .flex_row()
@@ -3625,7 +3630,7 @@ fn expandable_cell(
                         div()
                             .text_size(typography::SIZE_MICRO)
                             .text_color(color::text_muted())
-                            .child(glyph),
+                            .child(disclosure_glyph),
                     ),
             )
             .children(value_routes_tree_elements(
@@ -3639,9 +3644,14 @@ fn expandable_cell(
             .into_any_element();
     }
 
-    let cell_key = display.cell_key.clone();
+    let TrackMetadataExpandableCellDisplay {
+        cell_key,
+        cell_id,
+        disclosure_glyph,
+        ..
+    } = display;
     let mut container = div()
-        .id(SharedString::from(display.cell_id))
+        .id(SharedString::from(cell_id))
         .cursor_pointer()
         .text_size(typography::SIZE_MICRO)
         .line_height(typography::LINE_BODY)
@@ -3668,7 +3678,7 @@ fn expandable_cell(
                                 div()
                                     .text_size(typography::SIZE_MICRO)
                                     .text_color(color::text_muted())
-                                    .child(glyph),
+                                    .child(disclosure_glyph),
                             )
                             .child(div().text_color(color::accent()).truncate().child(
                                 SharedString::from(TrackMetadataGridVm::artwork_url_display(
@@ -3694,7 +3704,7 @@ fn expandable_cell(
                             div()
                                 .text_size(typography::SIZE_MICRO)
                                 .text_color(color::text_muted())
-                                .child(glyph),
+                                .child(disclosure_glyph),
                         )
                         .child(
                             div()
@@ -3722,7 +3732,7 @@ fn expandable_cell(
                                 div()
                                     .text_size(typography::SIZE_MICRO)
                                     .text_color(color::text_muted())
-                                    .child(glyph),
+                                    .child(disclosure_glyph),
                             )
                             .child(
                                 div().flex_1().min_w_0().flex().flex_col().children(
@@ -3748,7 +3758,7 @@ fn expandable_cell(
                     div()
                         .text_size(typography::SIZE_MICRO)
                         .text_color(color::text_muted())
-                        .child(glyph),
+                        .child(disclosure_glyph),
                 )
                 .child(
                     div()
@@ -3782,7 +3792,7 @@ fn expandable_tag_cell(
     } = params;
     let display =
         TrackMetadataGridVm::discover_expandable_cell_display("id3", field, row_id, expanded);
-    let glyph = display.disclosure_glyph;
+    let display_disclosure_glyph = display.disclosure_glyph;
     let frame_color = frame_color.unwrap_or_else(color::text_muted);
     let frame_label = TrackMetadataGridVm::id3_frame_display_label(frame_id);
     let field_kind = TrackMetadataGridVm::expanded_field_kind(field);
@@ -3869,7 +3879,7 @@ fn expandable_tag_cell(
                 div()
                     .text_size(typography::SIZE_MICRO)
                     .text_color(color::text_muted())
-                    .child(glyph),
+                    .child(display_disclosure_glyph),
             )
             .child(
                 div()
@@ -3882,7 +3892,12 @@ fn expandable_tag_cell(
 
     // Value Routes when expanded: separate header click from sub-item clicks
     if expanded && field_kind == TrackMetadataExpandedFieldKind::ValueRoutes {
-        let cell_key = display.cell_key.clone();
+        let TrackMetadataExpandableCellDisplay {
+            cell_key,
+            header_id,
+            disclosure_glyph,
+            ..
+        } = display;
         return div()
             .flex()
             .flex_col()
@@ -3891,7 +3906,7 @@ fn expandable_tag_cell(
             .text_color(color)
             .child(
                 div()
-                    .id(SharedString::from(display.header_id))
+                    .id(SharedString::from(header_id))
                     .cursor_pointer()
                     .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                         this.toggle_metadata_cell(cell_key.clone(), cx);
@@ -3913,7 +3928,7 @@ fn expandable_tag_cell(
                         div()
                             .text_size(typography::SIZE_MICRO)
                             .text_color(color::text_muted())
-                            .child(glyph),
+                            .child(disclosure_glyph),
                     ),
             )
             .child(
@@ -3933,9 +3948,11 @@ fn expandable_tag_cell(
             .into_any_element();
     }
 
-    let cell_key = display.cell_key.clone();
+    let TrackMetadataExpandableCellDisplay {
+        cell_key, cell_id, ..
+    } = display;
     div()
-        .id(SharedString::from(display.cell_id))
+        .id(SharedString::from(cell_id))
         .cursor_pointer()
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.toggle_metadata_cell(cell_key.clone(), cx);
@@ -4072,17 +4089,22 @@ fn value_routes_tree_elements(
                 i,
                 expanded_cells.contains(&item_key),
             );
-            let sub_expanded = expanded_cells.contains(&display.item_key);
+            let TrackMetadataValueRouteItemDisplay {
+                item_key,
+                item_id,
+                disclosure_glyph,
+                ..
+            } = display;
+            let sub_expanded = expanded_cells.contains(&item_key);
 
             let mut item = div()
-                .id(SharedString::from(display.item_id))
+                .id(SharedString::from(item_id))
                 .cursor_pointer()
                 .flex()
                 .flex_col();
 
-            let sub_key_click = display.item_key.clone();
             item = item.on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                this.toggle_metadata_cell(sub_key_click.clone(), cx);
+                this.toggle_metadata_cell(item_key.clone(), cx);
             }));
 
             item = item.child(
@@ -4094,7 +4116,7 @@ fn value_routes_tree_elements(
                         div()
                             .text_size(typography::SIZE_MICRO)
                             .text_color(color::text_muted())
-                            .child(display.disclosure_glyph),
+                            .child(disclosure_glyph),
                     )
                     .child(
                         div()
