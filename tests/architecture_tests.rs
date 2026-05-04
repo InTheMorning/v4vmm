@@ -1560,19 +1560,17 @@ fn library_advanced_provenance_cells_use_shared_grid_composites() {
 
 #[test]
 fn discovery_recent_tiles_use_shared_composite() {
-    let source = read_source(&manifest_path("src/search.rs"));
+    let source = read_source(&manifest_path("src/ui/shells/discover/recent.rs"));
     let start = source
-        .find("fn render_recent_feeds_tiles(")
+        .find("fn render_discover_recent(")
         .expect("Discover recent-feed renderer should exist");
-    let end = source[start..]
-        .find("\nfn render_inspector_empty(")
-        .map_or(source.len(), |offset| start + offset);
-    let body = &source[start..end];
+    let body = &source[start..];
     let mut violations = Vec::new();
 
     if !body.contains("RecentFeedTile::new(") {
         violations.push(
-            "src/search.rs: render_recent_feeds_tiles must compose `RecentFeedTile`".to_string(),
+            "src/ui/shells/discover/recent.rs: render_discover_recent must compose `RecentFeedTile`"
+                .to_string(),
         );
     }
 
@@ -1585,7 +1583,7 @@ fn discovery_recent_tiles_use_shared_composite() {
     ] {
         if body.contains(pattern) {
             violations.push(format!(
-                "src/search.rs: render_recent_feeds_tiles must not own recent tile chrome or placeholder labels; found `{pattern}`"
+                "src/ui/shells/discover/recent.rs: render_discover_recent must not own recent tile chrome or placeholder labels; found `{pattern}`"
             ));
         }
     }
@@ -2078,14 +2076,14 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
         ),
         (
             "Library artist detail",
-            "src/library.rs",
+            "src/ui/shells/library/feed_list.rs",
             "LibraryArtistDetailVm::new(",
             ".page()",
             "render_artist_detail_shell(",
         ),
         (
             "Library playlist detail",
-            "src/library.rs",
+            "src/ui/shells/library/playlist_detail.rs",
             "PlaylistDetailVm::new(",
             ".page(",
             "render_playlist_detail_shell(",

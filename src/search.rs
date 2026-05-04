@@ -17,7 +17,7 @@ use gpui::{
     Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::input::{InputEvent, InputState};
 use gpui_component::spinner::Spinner;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable, Root, Size};
@@ -53,16 +53,25 @@ use crate::ui::composites::{
     ActionRowMessage, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
     DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
     DisclosureGroup, DisclosureGroupDisplay, EntityKind, IdentityActionButtonDisplay,
-    IdentityActionKind, ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay,
-    ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge,
-    TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackInspectorPane, TrackMetadataGrid,
-    TrackSurfaceElement,
+    IdentityActionKind, PlaylistOption, PlaylistOptionDisplay, ProvenanceRole,
+    ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail, ThumbnailSize, TrackInspectorPane,
+    TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
 use crate::ui::primitives::SectionHeader;
 use crate::ui::primitives::{
     Button as UiButton, Image as ImagePrimitive, ImageSize, Label, LoadingMessage, MultilineText,
+};
+use crate::ui::shells::discover::recent::{
+    render_discover_recent, DiscoverRecentParams, DiscoverRecentTile,
+};
+use crate::ui::shells::discover::result_list::{
+    render_discover_result_list, DiscoverResultEmptyState, DiscoverResultListParams,
+    DiscoverResultPagination, DiscoverResultRow,
+};
+use crate::ui::shells::discover::search_input::{
+    render_discover_search_input, DiscoverSearchInputParams,
 };
 use crate::ui::shells::entity::{render_contributor_rows, ContributorRowSlot};
 use crate::ui::shells::{artist, feed, track};
@@ -79,9 +88,8 @@ use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
     ActionRowVm, DeferredPanelKind, InspectorChromeDisplay, LazyPanel, PaymentRouteVm,
     PlaylistAppendIntent, PlaylistAppendOutcome, PublisherInspectorVm, PublisherLinkDisplay,
-    RecentFeedTileDisplay, RecentFeedTileVm, ResultRow, ResultRowRenderItem, SearchBatch,
-    SearchSubscriptionCommand, SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm,
-    TrackRowActionVm,
+    RecentFeedTileDisplay, RecentFeedTileVm, ResultRow, SearchBatch, SearchSubscriptionCommand,
+    SearchViewModel, TrackFeedLinkDisplay, TrackInspectorHeaderVm, TrackRowActionVm,
 };
 use crate::view_models::track::{TrackPlayAudioDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
@@ -210,7 +218,7 @@ pub struct SearchApp {
     command_runner: GpuiCommandRunner,
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
-    input: Entity<InputState>,
+    pub(crate) input: Entity<InputState>,
     /// Stateful screen view-model. Owns all pure UI scalars,
     /// pane-state flags, and loaded snapshots (results, recent feeds,
     /// playlists). Fields kept on `SearchApp` itself are GPUI-bound
@@ -284,7 +292,7 @@ impl SearchApp {
         cx.notify();
     }
 
-    fn load_recent_feeds(&mut self, append: bool, cx: &mut Context<Self>) {
+    pub(crate) fn load_recent_feeds(&mut self, append: bool, cx: &mut Context<Self>) {
         let Some(intent) = self.vm.begin_recent_feed_load(append) else {
             return;
         };
@@ -363,7 +371,7 @@ impl SearchApp {
         }
     }
 
-    fn do_search(&mut self, append: bool, cx: &mut Context<Self>) {
+    pub(crate) fn do_search(&mut self, append: bool, cx: &mut Context<Self>) {
         let Some(query) = normalized_search_query(&self.input.read(cx).value()) else {
             return;
         };
@@ -418,7 +426,7 @@ impl SearchApp {
         .detach();
     }
 
-    fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
         self.vm.toggle_fuzzy_search();
         let has_query = normalized_search_query(&self.input.read(cx).value()).is_some();
         cx.notify();
@@ -427,7 +435,7 @@ impl SearchApp {
         }
     }
 
-    fn show_recent_feeds(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn show_recent_feeds(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.input.update(cx, |input, cx| {
             input.set_value("", window, cx);
         });
@@ -488,7 +496,7 @@ impl SearchApp {
         None
     }
 
-    fn select_result(
+    pub(crate) fn select_result(
         &mut self,
         entity_type: String,
         entity_id: String,
@@ -499,7 +507,12 @@ impl SearchApp {
         self.load_inspector(entity_type, entity_id, title, false, cx);
     }
 
-    fn open_recent_feed(&mut self, feed_guid: String, title: String, cx: &mut Context<Self>) {
+    pub(crate) fn open_recent_feed(
+        &mut self,
+        feed_guid: String,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
         self.vm.select_recent_feed(&feed_guid);
         self.load_inspector("feed".into(), feed_guid, title, false, cx);
     }
@@ -1701,30 +1714,13 @@ impl Render for SearchApp {
         let status_text = snapshot.status.display_text;
 
         let list_focused = self.list_focus.is_focused(window);
-        let results: Vec<AnyElement> = snapshot
+        let results: Vec<DiscoverResultRow> = snapshot
             .rows
             .iter()
             .map(|row| {
                 let item = row.render_item();
                 let thumbnail = self.thumbnail_for_url(item.display.image_url.as_deref(), cx);
-                render_result_item(
-                    item,
-                    snapshot.selected_key.as_deref(),
-                    thumbnail.clone(),
-                    list_focused,
-                    cx,
-                )
-            })
-            .collect();
-        let type_filters: Vec<AnyElement> = SearchViewModel::type_filter_options()
-            .iter()
-            .map(|option| {
-                render_filter_button(
-                    option.index,
-                    option.label,
-                    option.index == snapshot.type_filter,
-                    cx,
-                )
+                DiscoverResultRow::new(item, thumbnail)
             })
             .collect();
         let show_back = should_show_inspector_back(stack.len());
@@ -1735,14 +1731,12 @@ impl Render for SearchApp {
             self,
             cx,
         );
-        let active_input = self.input.clone();
         let is_loading = snapshot.loading;
         let is_empty = snapshot.empty;
         let has_more = snapshot.has_more;
         let fuzzy_search = snapshot.fuzzy_search;
         let show_recents_command = snapshot.show_recents_command;
         let pane_display = snapshot.pane_display.clone();
-        let search_label = pane_display.search_button_label;
 
         let leading_pane = div()
             .flex()
@@ -1750,144 +1744,35 @@ impl Render for SearchApp {
             .flex_1()
             .min_h_0()
             .overflow_hidden()
-            .child(
-                div()
-                    .p(spacing::MD)
-                    .border_b_1()
-                    .border_color(color::border_subtle())
-                    .flex()
-                    .flex_col()
-                    .gap(spacing::SM)
-                    .child(
-                        div()
-                            .text_size(typography::SIZE_MICRO)
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(color::text_muted())
-                            .child(pane_display.heading),
-                    )
-                    .child(
-                        Input::new(&active_input)
-                            .cleanable(true)
-                            .scaled(Size::Small, cx),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .flex_wrap()
-                            .gap(spacing::SM)
-                            .children(type_filters),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(spacing::SM)
-                            .child(
-                                // CONTROL-COMPAT(reason): native Button does not yet expose loading state.
-                                Button::new(pane_display.search_button_id)
-                                    .label(search_label)
-                                    .primary()
-                                    .scaled(Size::Small, cx)
-                                    .text_color(color::text_on_accent())
-                                    .loading(is_loading)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.do_search(false, cx);
-                                    })),
-                            )
-                            .child(
-                                UiButton::styled(
-                                    pane_display.fuzzy_toggle_id,
-                                    if fuzzy_search {
-                                        ControlStyle::Pill
-                                    } else {
-                                        ControlStyle::Ghost
-                                    },
-                                )
-                                .label(pane_display.fuzzy_toggle_label)
-                                .on_click(cx.listener(
-                                    |this, _, _, cx| {
-                                        this.toggle_fuzzy_search(cx);
-                                    },
-                                )),
-                            )
-                            .when(show_recents_command, |el| {
-                                el.child(
-                                    UiButton::styled(
-                                        pane_display.recents_button_id,
-                                        ControlStyle::Ghost,
-                                    )
-                                    .label(pane_display.recents_button_label)
-                                    .on_click(cx.listener(
-                                        |this, _, window, cx| {
-                                            this.show_recent_feeds(window, cx);
-                                        },
-                                    )),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(status_color)
-                            .child(SharedString::from(status_text)),
-                    ),
-            )
-            .child(
-                div()
-                    .id(pane_display.results_scroll_id)
-                    .track_focus(&self.list_focus)
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .p(spacing::SM)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(spacing::XXS)
-                            .children(results)
-                            .when(is_empty && !is_loading && status_empty, |el| {
-                                el.child(
-                                    div()
-                                        .text_center()
-                                        .p(spacing::XXL)
-                                        .text_color(color::text_muted())
-                                        .child(div().text_2xl().child(pane_display.empty_icon))
-                                        .child(
-                                            div().mt(spacing::SM).child(pane_display.empty_label),
-                                        ),
-                                )
-                            })
-                            .when(is_empty && !is_loading && !status_empty, |el| {
-                                el.child(
-                                    div()
-                                        .text_center()
-                                        .p(spacing::XXL)
-                                        .text_color(color::text_muted())
-                                        .child(div().text_2xl().child(pane_display.empty_icon))
-                                        .child(
-                                            div().mt(spacing::SM).child(pane_display.empty_label),
-                                        ),
-                                )
-                            })
-                            .when(has_more && !is_loading, |el| {
-                                el.child(
-                                    UiButton::styled(
-                                        pane_display.load_more_button_id,
-                                        ControlStyle::Ghost,
-                                    )
-                                    .label(pane_display.load_more_label)
-                                    .on_click(cx.listener(
-                                        |this, _, _, cx| {
-                                            this.do_search(true, cx);
-                                        },
-                                    )),
-                                )
-                            }),
-                    ),
-            )
+            .child(render_discover_search_input(
+                DiscoverSearchInputParams {
+                    input: self.input.clone(),
+                    type_filter: snapshot.type_filter,
+                    is_loading,
+                    fuzzy_search,
+                    show_recents_command,
+                    pane_display: pane_display.clone(),
+                    status_color,
+                    status_text,
+                },
+                cx,
+            ))
+            .child(render_discover_result_list(
+                DiscoverResultListParams {
+                    rows: results,
+                    selected_key: snapshot.selected_key.clone(),
+                    list_focused,
+                    empty_state: DiscoverResultEmptyState {
+                        is_empty,
+                        is_loading,
+                        status_empty,
+                    },
+                    pagination: DiscoverResultPagination { has_more },
+                    pane_display: pane_display.clone(),
+                    list_focus: &self.list_focus,
+                },
+                cx,
+            ))
             .into_any_element();
 
         let trailing_pane = div()
@@ -2361,102 +2246,6 @@ fn persist_musicindex_artist_facts(
 
 fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBrainzLookupResult> {
     subscribe_service::lookup_musicbrainz_track(client, entity_id)
-}
-
-fn render_filter_button(
-    idx: usize,
-    label: &'static str,
-    selected: bool,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    UiButton::styled(
-        ("type-filter", idx),
-        if selected {
-            ControlStyle::Pill
-        } else {
-            ControlStyle::Ghost
-        },
-    )
-    .label(label)
-    .on_click(cx.listener(move |this, _, _, cx| {
-        if this.vm.set_type_filter_if_changed(idx) {
-            let has_query = normalized_search_query(&this.input.read(cx).value()).is_some();
-            cx.notify();
-            if has_query {
-                this.do_search(false, cx);
-            }
-        }
-    }))
-    .into_any_element()
-}
-
-fn render_result_item(
-    item: ResultRowRenderItem,
-    selected_key: Option<&str>,
-    thumbnail: Option<Arc<Image>>,
-    list_focused: bool,
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    let ResultRowRenderItem {
-        selection_key,
-        navigation_target,
-        display,
-    } = item;
-    let element_id = display.element_id;
-    let line1 = display.line1;
-    let line2 = display.line2;
-    let line3 = display.line3;
-    let kind_label = display.kind_label;
-    let row_a11y_label = format!("{kind_label}: {line1}");
-    let is_selected = selected_key == Some(selection_key.as_str());
-
-    let kind = EntityKind::from_legacy_str(&kind_label);
-
-    ListRow::new(SharedString::from(element_id))
-        .a11y_label(ListRowA11yLabel {
-            label: row_a11y_label.into(),
-        })
-        .selected(is_selected)
-        .focused(is_selected && list_focused)
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            let (entity_type, entity_id, title) = navigation_target.clone().into_parts();
-            this.select_result(entity_type, entity_id, title, cx);
-        }))
-        .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    Label::new(line1)
-                        .size(FontSize::Micro)
-                        .weight(FontWeight::MEDIUM)
-                        .truncated(),
-                )
-                .when(!line2.is_empty(), |el| {
-                    el.child(
-                        Label::new(line2)
-                            .size(FontSize::Micro)
-                            .color(SemanticColor::TertiaryLabel)
-                            .truncated(),
-                    )
-                })
-                .when(!line3.is_empty(), |el| {
-                    el.child(
-                        div().opacity(0.7).child(
-                            Label::new(line3)
-                                .size(FontSize::Micro)
-                                .color(SemanticColor::TertiaryLabel)
-                                .truncated(),
-                        ),
-                    )
-                }),
-        )
-        .child(TagBadge::new(TagBadgeDisplay {
-            kind,
-            label: Some(SharedString::from(kind_label)),
-        }))
-        .into_any_element()
 }
 
 fn render_inspector(
@@ -4763,7 +4552,7 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
     let loading = snapshot.loading;
     let is_empty = snapshot.empty;
 
-    let mut tiles: Vec<AnyElement> = Vec::with_capacity(feeds.len());
+    let mut tiles: Vec<DiscoverRecentTile> = Vec::with_capacity(feeds.len());
     for feed in feeds {
         let tile_vm = RecentFeedTileVm::new(&feed);
         let display = tile_vm.display();
@@ -4772,62 +4561,20 @@ fn render_recent_feeds_tiles(app: &mut SearchApp, cx: &mut Context<SearchApp>) -
             continue;
         }
         let thumbnail = app.thumbnail_for_url(display.image_url.as_deref(), cx);
-        let tile = RecentFeedTile::new(display)
-            .thumbnail(thumbnail)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_recent_feed(target.guid.clone(), target.title.clone(), cx);
-            }))
-            .into_any_element();
-        tiles.push(tile);
+        tiles.push(DiscoverRecentTile::new(display, thumbnail));
     }
 
-    div()
-        .flex()
-        .flex_col()
-        .gap(spacing::MD)
-        .child(
-            div()
-                .text_size(typography::SIZE_HEADLINE)
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(display.heading),
-        )
-        .when(!status.is_empty(), |el| {
-            el.child(
-                div()
-                    .text_xs()
-                    .text_color(color::text_muted())
-                    .child(SharedString::from(status)),
-            )
-        })
-        .when(is_empty && !loading, |el| {
-            el.child(
-                div()
-                    .text_center()
-                    .p(spacing::XXL)
-                    .text_color(color::text_muted())
-                    .child(display.empty_label),
-            )
-        })
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .flex_wrap()
-                .gap(spacing::MD)
-                .children(tiles),
-        )
-        .when(has_more && !loading, |el| {
-            el.child(
-                div().pt(spacing::SM).child(
-                    UiButton::styled(display.load_more_button_id, ControlStyle::Ghost)
-                        .label(display.load_more_label)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.load_recent_feeds(true, cx);
-                        })),
-                ),
-            )
-        })
-        .into_any_element()
+    render_discover_recent(
+        DiscoverRecentParams {
+            tiles,
+            display,
+            status,
+            has_more,
+            loading,
+            is_empty,
+        },
+        cx,
+    )
 }
 
 fn render_inspector_empty(display: InspectorChromeDisplay) -> AnyElement {

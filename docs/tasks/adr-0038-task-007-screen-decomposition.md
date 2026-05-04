@@ -2,9 +2,26 @@
 
 ## Status
 
-Planned (2026-05-04). Per-slice plans live under
-`docs/tasks/adr-0038-task-007-slices/`. Starts after Task 006 (PageVm
-Generalization) lands — already complete on 2026-05-04.
+In progress (2026-05-04). Per-slice plans live under
+`docs/tasks/adr-0038-task-007-slices/`. Task 006 (PageVm
+Generalization) landed on 2026-05-04, unblocking this task.
+
+Completed in the first Task 007 implementation batch:
+
+- Slice 0: `src/ui/shells/library/` and
+  `src/ui/shells/discover/` module roots.
+- Slice L1: Library playlist detail moved to
+  `src/ui/shells/library/playlist_detail.rs`.
+- Slice L2: Library feed list / artist-selected feed list moved to
+  `src/ui/shells/library/feed_list.rs`.
+- Slice D1: Discover search input moved to
+  `src/ui/shells/discover/search_input.rs`.
+- Slice D2: Discover result list moved to
+  `src/ui/shells/discover/result_list.rs`.
+- Slice D3: Discover recent feed tiles moved to
+  `src/ui/shells/discover/recent.rs`.
+
+Remaining: L3-L6, D4-D6, and Slice F guards/readiness.
 
 ## Goal
 

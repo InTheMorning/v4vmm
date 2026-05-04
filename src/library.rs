@@ -73,14 +73,12 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
     Button as UiButton, Image as ImagePrimitive, Label, LoadingMessage, MultilineText,
 };
-use crate::ui::shells::artist::{render_artist_detail_shell, ArtistDetailBehaviorSlots};
 use crate::ui::shells::entity::{
     render_contributor_panel, render_feed_identity_actions, render_release_detail_shell,
     ContributorRowSlot, ReleaseDetailBehaviorSlots,
 };
-use crate::ui::shells::playlist::{
-    click_slot, render_playlist_detail_shell, PlaylistDetailBehaviorSlots, PlaylistTrackRowSlot,
-};
+use crate::ui::shells::library::feed_list::render_library_feed_list;
+use crate::ui::shells::library::playlist_detail::render_library_playlist_detail;
 use crate::ui::shells::track;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{Radius, SemanticColor};
@@ -90,12 +88,12 @@ use crate::view_models::entity_detail::{
     MetadataPanelState, ReleaseDetailVm, TrackMetadataActionState,
 };
 use crate::view_models::library::{
-    AlbumNode, ArtistFeedSummaryDisplay, ArtistNode, FeedUpdateActionDisplay, FeedUpdateActionKind,
-    FeedUpdateDisplay, FeedUpdatePhase, LibraryAlbumDetailVm, LibraryAlbumTreeDisplay,
-    LibraryArtistDetailVm, LibraryArtistTreeDisplay, LibraryChromeDisplay, LibraryTrackActionVm,
-    LibraryTrackRowDisplay, LibraryTrackRowVm, LibraryTree, LibraryTreeTrackDisplay,
-    LibraryViewModel, MbStatusKind, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
-    PlaylistDetailVm, PlaylistSidebarRowVm, PlaylistSidebarVm, TrackSubscribeOutcome,
+    AlbumNode, ArtistNode, FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay,
+    FeedUpdatePhase, LibraryAlbumDetailVm, LibraryAlbumTreeDisplay, LibraryArtistTreeDisplay,
+    LibraryChromeDisplay, LibraryTrackActionVm, LibraryTrackRowDisplay, LibraryTrackRowVm,
+    LibraryTree, LibraryTreeTrackDisplay, LibraryViewModel, MbStatusKind, MbTrackStatus,
+    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistSidebarRowVm, PlaylistSidebarVm,
+    TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
@@ -123,15 +121,15 @@ enum LibraryDetail {
 }
 
 #[derive(Clone, Debug)]
-struct LibraryArtistDetail {
-    name: String,
-    tracks: Vec<TrackRow>,
+pub(crate) struct LibraryArtistDetail {
+    pub(crate) name: String,
+    pub(crate) tracks: Vec<TrackRow>,
 }
 
 #[derive(Clone, Debug)]
-struct PlaylistDetail {
-    playlist: db::Playlist,
-    tracks: Vec<TrackRow>,
+pub(crate) struct PlaylistDetail {
+    pub(crate) playlist: db::Playlist,
+    pub(crate) tracks: Vec<TrackRow>,
 }
 
 #[derive(Clone, Debug)]
@@ -469,7 +467,7 @@ impl LibraryApp {
         );
     }
 
-    fn delete_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
+    pub(crate) fn delete_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
         let command = DeletePlaylist::new(Arc::clone(&self.conn), id);
         self.command_runner.run(
             command,
@@ -485,7 +483,7 @@ impl LibraryApp {
         );
     }
 
-    fn remove_playlist_track_at(
+    pub(crate) fn remove_playlist_track_at(
         &mut self,
         playlist_id: i64,
         position: i64,
@@ -506,7 +504,7 @@ impl LibraryApp {
         );
     }
 
-    fn move_playlist_track(
+    pub(crate) fn move_playlist_track(
         &mut self,
         playlist_id: i64,
         from: i64,
@@ -696,6 +694,19 @@ impl LibraryApp {
         }
     }
 
+    pub(crate) fn select_album_by_name(&mut self, name: &str, cx: &mut Context<Self>) {
+        let tree_artists = self.vm.tree().artists.clone();
+        for artist_node in &tree_artists {
+            for album in &artist_node.albums {
+                if album.name == name {
+                    self.select_album(album, cx);
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+    }
+
     fn hydrate_album_identity_on_view(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
         if album_has_feed_identity_actions(&album.identity_facts) {
             return;
@@ -859,7 +870,7 @@ impl LibraryApp {
         );
     }
 
-    fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
+    pub(crate) fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
         self.vm.select_library_item(track.id);
         let image = track
             .track_image_href
@@ -2371,96 +2382,7 @@ fn render_library_artist_detail(
     chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let vm = LibraryArtistDetailVm::new(&detail.name, &detail.tracks);
-    let page = vm.page();
-
-    let feed_rows: Vec<AnyElement> = vm
-        .feed_summaries()
-        .into_iter()
-        .map(|summary| {
-            let ArtistFeedSummaryDisplay {
-                element_id,
-                title,
-                thumb_url,
-                track_count_label,
-            } = summary.display();
-            let thumb_image = thumb_url
-                .as_ref()
-                .and_then(|url| album_thumbs.get(url.as_str()))
-                .and_then(|opt| opt.clone());
-            let feed_name_for_click = title.clone();
-
-            div()
-                .id(SharedString::from(element_id))
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(spacing::SM)
-                .px(spacing::SM)
-                .py(spacing::XS)
-                .rounded(radius::SM)
-                .hover(|el| el.bg(color::bg_surface_hi()))
-                .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    let feed_name_to_match = feed_name_for_click.clone();
-                    let tree_artists = this.vm.tree().artists.clone();
-                    for artist_node in &tree_artists {
-                        for album in &artist_node.albums {
-                            if album.name == feed_name_to_match {
-                                this.select_album(album, cx);
-                                cx.notify();
-                                return;
-                            }
-                        }
-                    }
-                }))
-                .child(Thumbnail::new(EntityKind::Feed, ThumbnailSize::Sm).image(thumb_image))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(spacing::XXS)
-                        .child(
-                            div()
-                                .text_size(typography::SIZE_MICRO)
-                                .font_weight(FontWeight::MEDIUM)
-                                .truncate()
-                                .child(SharedString::from(title)),
-                        )
-                        .child(DisclosureSupplementLabel::new(
-                            DisclosureSupplementDisplay {
-                                label: track_count_label.into(),
-                            },
-                        )),
-                )
-                .into_any_element()
-        })
-        .collect();
-
-    div()
-        .id(chrome.artist_detail_scroll_id)
-        .flex_1()
-        .min_h_0()
-        .min_w_0()
-        .overflow_y_scroll()
-        .p(spacing::LG)
-        .child(render_artist_detail_shell(
-            &page,
-            ArtistDetailBehaviorSlots {
-                image: None,
-                feed_section: Some(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(spacing::XXS)
-                        .children(feed_rows)
-                        .into_any_element(),
-                ),
-            },
-        ))
-        .into_any_element()
+    render_library_feed_list(detail, album_thumbs, chrome, cx)
 }
 
 fn render_album_detail(
@@ -2769,58 +2691,7 @@ fn render_playlist_detail(
     chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let page = PlaylistDetailVm::new(&detail.playlist, &detail.tracks)
-        .page(chrome.playlist_detail_scroll_id);
-    let playlist_id = page.playlist_id();
-    let track_rows = page
-        .track_rows()
-        .into_iter()
-        .map(|row| {
-            let track_for_select = row.track().clone();
-            let position = row.position();
-            let thumbnail = row
-                .thumb_url()
-                .and_then(|url| album_thumbs.get(url))
-                .and_then(|opt| opt.clone());
-
-            PlaylistTrackRowSlot {
-                thumbnail: Some(render_album_thumb(thumbnail, 24.0)),
-                on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
-                    this.select_track(&track_for_select, cx);
-                    cx.notify();
-                }))),
-                on_play: Some(click_slot(cx.listener(move |_this, _, _, cx| {
-                    cx.emit(LibraryAppEvent::PlayPlaylistAt {
-                        playlist_id,
-                        playlist_position: position,
-                    });
-                }))),
-                on_move_up: Some(click_slot(cx.listener(move |this, _, _, cx| {
-                    this.move_playlist_track(playlist_id, position, position - 1, cx);
-                }))),
-                on_move_down: Some(click_slot(cx.listener(move |this, _, _, cx| {
-                    this.move_playlist_track(playlist_id, position, position + 1, cx);
-                }))),
-                on_remove: Some(click_slot(cx.listener(move |this, _, _, cx| {
-                    this.remove_playlist_track_at(playlist_id, position, cx);
-                }))),
-            }
-        })
-        .collect();
-
-    render_playlist_detail_shell(
-        &page,
-        PlaylistDetailBehaviorSlots {
-            on_rename: Some(click_slot(cx.listener(move |_this, _, _, cx| {
-                // TODO Stage 3: implement inline rename modal/input
-                cx.notify();
-            }))),
-            on_delete: Some(click_slot(cx.listener(move |this, _, _, cx| {
-                this.delete_playlist(playlist_id, cx);
-            }))),
-            track_rows,
-        },
-    )
+    render_library_playlist_detail(detail, album_thumbs, chrome, cx)
 }
 
 fn render_track_detail(
