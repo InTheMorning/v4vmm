@@ -1147,6 +1147,11 @@ pub(crate) struct SearchPaneDisplay {
     pub(crate) load_more_label: &'static str,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SearchInputDisplay {
+    pub(crate) placeholder: &'static str,
+}
+
 impl SearchPaneDisplay {
     #[must_use]
     const fn new(fuzzy_search: bool) -> Self {
@@ -1356,6 +1361,13 @@ const TYPE_FILTER_OPTIONS: [SearchTypeFilterOptionDisplay; 4] = [
 const TYPE_FILTER_LEN: usize = TYPE_FILTER_OPTIONS.len();
 
 impl SearchViewModel {
+    #[must_use]
+    pub(crate) const fn search_input_display() -> SearchInputDisplay {
+        SearchInputDisplay {
+            placeholder: "Discover artists, feeds, and tracks...",
+        }
+    }
+
     /// Construct a view-model with `SearchApp::new` defaults: `All`
     /// filter, fuzzy search on, no selection, no inspector frame, no
     /// active operation, both panes idle.
@@ -3106,6 +3118,14 @@ mod tests {
         assert_eq!(snapshot.text, "Ready");
         assert_eq!(snapshot.display_text, "Ready");
         assert!(!snapshot.is_error);
+    }
+
+    #[test]
+    fn search_input_display_projects_placeholder() {
+        assert_eq!(
+            SearchViewModel::search_input_display().placeholder,
+            "Discover artists, feeds, and tracks..."
+        );
     }
 
     #[test]

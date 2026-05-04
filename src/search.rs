@@ -240,8 +240,9 @@ impl SearchApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let input_display = SearchViewModel::search_input_display();
         let input = cx.new(|cx: &mut Context<InputState>| {
-            InputState::new(window, cx).placeholder("Discover artists, feeds, and tracks...")
+            InputState::new(window, cx).placeholder(input_display.placeholder)
         });
         let input_sub = cx.subscribe(&input, Self::on_input_event);
         let command_runner = GpuiCommandRunner::new(

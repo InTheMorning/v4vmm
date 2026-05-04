@@ -227,27 +227,27 @@ fn render_contributor_person_row(
     person: &ContributorPersonVm<'_>,
     slot: ContributorRowSlot,
 ) -> AnyElement {
-    let Some(contributor) = person.primary() else {
+    if person.primary().is_none() {
         return div().into_any_element();
-    };
-    let label = person.name().to_string();
+    }
+    let display = person.row_display();
     let mut detail = div().flex_1().min_w_0().child(
-        Label::new(label.clone())
+        Label::new(display.name)
             .size(FontSize::Micro)
             .weight(gpui::FontWeight::MEDIUM)
             .truncated(),
     );
 
-    if let Some(href) = contributor.href() {
+    if let Some(href) = display.href {
         detail = detail.child(
-            Label::new(href.to_string())
+            Label::new(href)
                 .size(FontSize::Micro)
                 .color(SemanticColor::TertiaryLabel)
                 .truncated(),
         );
     }
 
-    let mut row = ListRow::compact(SharedString::from(person.row_id()))
+    let mut row = ListRow::compact(SharedString::from(display.id))
         .child(Thumbnail::new(EntityKind::Artist, ThumbnailSize::Sm).image(slot.thumbnail))
         .child(detail);
 

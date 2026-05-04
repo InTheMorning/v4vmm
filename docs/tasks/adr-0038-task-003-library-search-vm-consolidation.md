@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred forty implementation slices completed on 2026-05-04.
+In progress - first one hundred forty-two implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -925,7 +925,20 @@ Verified starting notes, 2026-05-03:
     - Remove shared-shell `entity-track:{index}` id formatting from
       `ui::shells::entity`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-141. Migrate remaining fallback batches, smallest blast radius first.
+141. Discover search input placeholder display
+    - Add `SearchViewModel::search_input_display()` so Discover search
+      input placeholder text is VM-owned.
+    - Remove screen-local `"Discover artists, feeds, and tracks..."`
+      from `SearchApp::new`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+142. Contributor person row content display
+    - Add `ContributorPersonVm::row_display()` so contributor row id,
+      name, and href text enter the shared shell as one display
+      contract.
+    - Remove shared-shell `person.name().to_string()` and
+      `contributor.href()` display reads from contributor row rendering.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+143. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2330,6 +2343,25 @@ Verified starting notes, 2026-05-03:
   elements, but no longer formats `entity-track:{index}` ids locally.
 - The architecture guard now blocks shared release track row id
   formatting from returning to the shell.
+
+## One-Hundred-Fortieth-Slice Implementation Notes
+
+- `SearchViewModel::search_input_display()` now carries the Discover
+  search input placeholder.
+- `SearchApp::new` still owns GPUI input construction and event wiring,
+  but no longer authors the placeholder text locally.
+- The architecture guard now blocks the placeholder literal from
+  returning to `src/search.rs`.
+
+## One-Hundred-Forty-First-Slice Implementation Notes
+
+- `ContributorPersonVm::row_display()` now carries contributor person
+  row id, display name, and href display text.
+- The shared entity shell still renders labels, thumbnails, and action
+  slots, but no longer pulls person row display text directly from
+  individual VM accessors.
+- The architecture guard now blocks those screen-local contributor row
+  display reads from returning.
 
 ## Test Commands
 

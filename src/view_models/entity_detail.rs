@@ -1057,6 +1057,13 @@ pub struct ContributorRoleRowVm {
     pub label: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContributorPersonRowDisplay {
+    pub id: String,
+    pub name: String,
+    pub href: Option<String>,
+}
+
 impl<'a> ContributorPersonVm<'a> {
     #[must_use]
     pub fn name(&self) -> &str {
@@ -1066,6 +1073,18 @@ impl<'a> ContributorPersonVm<'a> {
     #[must_use]
     pub fn row_id(&self) -> String {
         format!("contributor:{}", self.name)
+    }
+
+    #[must_use]
+    pub fn row_display(&self) -> ContributorPersonRowDisplay {
+        ContributorPersonRowDisplay {
+            id: self.row_id(),
+            name: self.name.clone(),
+            href: self
+                .primary()
+                .and_then(ContributorRowVm::href)
+                .map(str::to_string),
+        }
     }
 
     #[must_use]
@@ -1583,6 +1602,14 @@ mod tests {
         assert_eq!(people[0].name(), "Alice");
         assert_eq!(people[0].roles(), vec!["vocals".to_string()]);
         assert_eq!(people[0].row_id(), "contributor:Alice");
+        assert_eq!(
+            people[0].row_display(),
+            ContributorPersonRowDisplay {
+                id: "contributor:Alice".to_string(),
+                name: "Alice".to_string(),
+                href: Some("https://example.test/alice".to_string()),
+            }
+        );
         assert_eq!(
             people[0].role_rows(),
             vec![ContributorRoleRowVm {

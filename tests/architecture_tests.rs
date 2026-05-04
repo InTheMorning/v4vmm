@@ -2898,6 +2898,21 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Release track row id belongs in SharedTrackRowVm",
         ),
         (
+            "src/search.rs",
+            "\"Discover artists, feeds, and tracks...\"",
+            "Discover search input placeholder belongs in SearchViewModel::search_input_display",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "let label = person.name().to_string()",
+            "Contributor person row display text belongs in ContributorPersonVm",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "contributor.href()",
+            "Contributor person row href display belongs in ContributorPersonVm",
+        ),
+        (
             "src/library.rs",
             "\"Checking...\"",
             "Library feed-update checking label belongs in LibraryViewModel::feed_update_display",
