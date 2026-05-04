@@ -2938,6 +2938,21 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Release hero supporting-line value belongs in ReleaseHeroVm::display",
         ),
         (
+            "src/ui/shells/entity.rs",
+            "SharedString::from(title.to_string())",
+            "Release text-panel title belongs in ReleaseTextPanelDisplay",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "SharedString::from(role.id.clone())",
+            "Contributor role row id should be consumed from ContributorRoleRowVm",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "SharedString::from(role.label.clone())",
+            "Contributor role row label should be consumed from ContributorRoleRowVm",
+        ),
+        (
             "src/search.rs",
             "EntityKind::from_legacy_str(&row.entity_type)",
             "Discover result thumbnail kind belongs with ResultRowDisplay kind projection",

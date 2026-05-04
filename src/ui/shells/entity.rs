@@ -24,7 +24,7 @@ use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::entity_detail::{
     ContributorListVm, ContributorPersonVm, ContributorRoleRowVm, ContributorRowVm,
     EntitySurfaceKind, IdentityActionDisplayKind, ReleaseDetailPageVm, ReleaseHeroVm,
-    ReleasePanelKind, ReleasePanelVm, SharedTrackRowVm,
+    ReleasePanelKind, ReleasePanelVm, ReleaseTextPanelDisplay, SharedTrackRowVm,
 };
 
 type ReleaseTrackRowClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -217,7 +217,7 @@ pub fn render_contributor_rows(
         let slot = row_slot(primary);
         rows.push(render_contributor_person_row(&person, slot));
         for role in person.role_rows() {
-            rows.push(render_contributor_role_row(&role));
+            rows.push(render_contributor_role_row(role));
         }
     }
     rows
@@ -266,13 +266,13 @@ fn render_contributor_person_row(
     row.into_any_element()
 }
 
-fn render_contributor_role_row(role: &ContributorRoleRowVm) -> AnyElement {
+fn render_contributor_role_row(role: ContributorRoleRowVm) -> AnyElement {
     div()
-        .id(SharedString::from(role.id.clone()))
+        .id(SharedString::from(role.id))
         .pl(spacing::XL)
         .text_size(typography::SIZE_MICRO)
         .text_color(color::text_muted())
-        .child(SharedString::from(role.label.clone()))
+        .child(SharedString::from(role.label))
         .into_any_element()
 }
 
@@ -318,7 +318,7 @@ fn render_release_panel(panel: &ReleasePanelVm) -> AnyElement {
             let display = panel
                 .text_display()
                 .expect("description panels carry text display");
-            render_text_panel(display.title, display.body)
+            render_text_panel(display)
         }
         ReleasePanelKind::Identity => DetailGrid::new(
             panel
@@ -337,7 +337,7 @@ fn render_release_panel(panel: &ReleasePanelVm) -> AnyElement {
     }
 }
 
-fn render_text_panel(title: &str, value: String) -> AnyElement {
+fn render_text_panel(display: ReleaseTextPanelDisplay) -> AnyElement {
     div()
         .border_1()
         .border_color(color::border_subtle())
@@ -348,11 +348,11 @@ fn render_text_panel(title: &str, value: String) -> AnyElement {
                 .text_size(typography::SIZE_MICRO)
                 .font_weight(gpui::FontWeight::BOLD)
                 .text_color(color::text_muted())
-                .child(SharedString::from(title.to_string())),
+                .child(display.title),
         )
         .child(
             div().mt(spacing::XS).child(
-                crate::ui::primitives::MultilineText::new(value)
+                crate::ui::primitives::MultilineText::new(display.body)
                     .max_lines(3)
                     .size(FontSize::Micro)
                     .line_height(typography::LINE_DETAIL)

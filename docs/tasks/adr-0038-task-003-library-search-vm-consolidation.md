@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred forty-six implementation slices completed on 2026-05-04.
+In progress - first one hundred forty-eight implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -964,7 +964,18 @@ Verified starting notes, 2026-05-03:
     - Remove shared-shell hero title/subtitle string projection and
       hardcoded publisher data-row assembly.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-147. Migrate remaining fallback batches, smallest blast radius first.
+147. Release text-panel display consumption
+    - Make the shared entity shell render `ReleaseTextPanelDisplay`
+      directly instead of accepting loose title/body arguments.
+    - Remove shared-shell `SharedString::from(title.to_string())`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+148. Contributor role row display consumption
+    - Consume `ContributorRoleRowVm` directly in the shared entity
+      shell so role row id and label are not cloned/re-projected.
+    - Remove shared-shell `role.id.clone()` and `role.label.clone()`
+      display binding.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+149. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2428,6 +2439,24 @@ Verified starting notes, 2026-05-03:
   or the `Publisher` data-row label locally.
 - The architecture guard now blocks the old shared-shell hero header
   projection from returning.
+
+## One-Hundred-Forty-Seventh-Slice Implementation Notes
+
+- The shared entity shell now renders `ReleaseTextPanelDisplay`
+  directly for release description panels.
+- `render_text_panel` no longer accepts loose title/body arguments or
+  converts a panel title locally.
+- The architecture guard now blocks local text-panel title conversion
+  from returning.
+
+## One-Hundred-Forty-Eighth-Slice Implementation Notes
+
+- Contributor role rows are now consumed directly from
+  `ContributorRoleRowVm` in the shared entity shell.
+- The shell still owns GPUI row layout, but no longer clones/re-projects
+  role row id and label values during rendering.
+- The architecture guard now blocks those shared-shell role-row display
+  clones from returning.
 
 ## Test Commands
 
