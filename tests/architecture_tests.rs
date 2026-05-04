@@ -2913,6 +2913,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Contributor person row href display belongs in ContributorPersonVm",
         ),
         (
+            "src/search.rs",
+            "EntityKind::from_legacy_str(&row.entity_type)",
+            "Discover result thumbnail kind belongs with ResultRowDisplay kind projection",
+        ),
+        (
             "src/library.rs",
             "\"Checking...\"",
             "Library feed-update checking label belongs in LibraryViewModel::feed_update_display",

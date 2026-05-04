@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred forty-two implementation slices completed on 2026-05-04.
+In progress - first one hundred forty-three implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -938,7 +938,13 @@ Verified starting notes, 2026-05-03:
     - Remove shared-shell `person.name().to_string()` and
       `contributor.href()` display reads from contributor row rendering.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-143. Migrate remaining fallback batches, smallest blast radius first.
+143. Discover result thumbnail kind display
+    - Reuse `ResultRowDisplay::kind_label` for Discover result
+      thumbnail kind mapping so badge and thumbnail kind use the same
+      VM-owned projection.
+    - Remove renderer-side `EntityKind::from_legacy_str(&row.entity_type)`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+144. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2362,6 +2368,17 @@ Verified starting notes, 2026-05-03:
   individual VM accessors.
 - The architecture guard now blocks those screen-local contributor row
   display reads from returning.
+
+## One-Hundred-Forty-Third-Slice Implementation Notes
+
+- Discover result thumbnails now derive their UI kind from
+  `ResultRowDisplay::kind_label`, matching the existing VM-owned badge
+  label projection.
+- `src/search.rs` still maps the legacy kind string to the GPUI
+  `EntityKind`, but no longer reads `row.entity_type` directly for
+  presentation.
+- The architecture guard now blocks the old screen-local thumbnail kind
+  mapping from returning.
 
 ## Test Commands
 

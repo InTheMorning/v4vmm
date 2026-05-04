@@ -2378,7 +2378,7 @@ fn render_result_item(
     let entity_id = row.entity_id.clone();
     let title = row.inspector_title();
 
-    let kind = EntityKind::from_legacy_str(&row.entity_type);
+    let kind = EntityKind::from_legacy_str(&kind_label);
 
     ListRow::new(SharedString::from(element_id))
         .selected(is_selected)
