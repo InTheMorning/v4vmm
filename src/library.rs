@@ -2066,8 +2066,8 @@ impl Render for LibraryApp {
             .overflow_hidden()
             .child(detail_pane)
             .into_any_element();
-        let split_pane = SplitPane::new("library-pane-container")
-            .resize_handle_id("library-resize-handle")
+        let split_pane = SplitPane::new(chrome.split_pane_id)
+            .resize_handle_id(chrome.resize_handle_id)
             .leading_width(px(self.vm.split_pane_width()))
             .leading_min_width(layout::INSPECTOR_MIN_WIDTH)
             .leading(leading_pane)
@@ -2557,7 +2557,7 @@ fn render_album_detail(
         primary_actions: vec![ReleaseSurfaceElement::from_element(
             buttons.into_any_element(),
         )],
-        identity_actions: render_feed_identity_actions(&page, "library-feed"),
+        identity_actions: render_feed_identity_actions(&page),
         track_rows: Some(track_rows),
         ..ReleaseDetailBehaviorSlots::default()
     };

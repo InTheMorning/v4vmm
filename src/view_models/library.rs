@@ -222,6 +222,8 @@ pub(crate) struct PlaylistSidebarRowVm {
 /// Static labels for the Library shell chrome.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryChromeDisplay {
+    pub(crate) split_pane_id: &'static str,
+    pub(crate) resize_handle_id: &'static str,
     pub(crate) search_button_id: &'static str,
     pub(crate) list_scroll_id: &'static str,
     pub(crate) artist_detail_scroll_id: &'static str,
@@ -237,6 +239,8 @@ pub(crate) struct LibraryChromeDisplay {
 
 impl LibraryChromeDisplay {
     const VALUE: Self = Self {
+        split_pane_id: "library-pane-container",
+        resize_handle_id: "library-resize-handle",
         search_button_id: "lib-search-btn",
         list_scroll_id: "library-list",
         artist_detail_scroll_id: "artist-detail-scroll",
@@ -3078,6 +3082,8 @@ mod tests {
     #[test]
     fn library_chrome_display_projects_shell_labels() {
         let display = LibraryViewModel::chrome_display();
+        assert_eq!(display.split_pane_id, "library-pane-container");
+        assert_eq!(display.resize_handle_id, "library-resize-handle");
         assert_eq!(display.search_button_id, "lib-search-btn");
         assert_eq!(display.list_scroll_id, "library-list");
         assert_eq!(display.artist_detail_scroll_id, "artist-detail-scroll");

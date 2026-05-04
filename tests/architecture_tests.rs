@@ -2726,6 +2726,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/search.rs",
+            "SplitPane::new(\"pane-container\")",
+            "Discover split-pane container id belongs in SearchViewModel render snapshot display",
+        ),
+        (
+            "src/search.rs",
+            "resize_handle_id(\"resize-handle\")",
+            "Discover split-pane resize handle id belongs in SearchViewModel render snapshot display",
+        ),
+        (
+            "src/search.rs",
             "\"No contributors found\"",
             "Discover contributor-panel empty label belongs in SearchViewModel::deferred_panel_display",
         ),
@@ -2803,6 +2813,31 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             "finish_apply_feed_updates(format!(\"Feed update error:",
             "Library feed-update apply error formatting belongs in LibraryViewModel",
+        ),
+        (
+            "src/library.rs",
+            "SplitPane::new(\"library-pane-container\")",
+            "Library split-pane container id belongs in LibraryViewModel::chrome_display",
+        ),
+        (
+            "src/library.rs",
+            "resize_handle_id(\"library-resize-handle\")",
+            "Library split-pane resize handle id belongs in LibraryViewModel::chrome_display",
+        ),
+        (
+            "src/library.rs",
+            "render_feed_identity_actions(&page, \"library-feed\")",
+            "Library feed identity action prefix belongs in ReleaseDetailPageVm",
+        ),
+        (
+            "src/ui/shells/feed.rs",
+            "render_feed_identity_actions(&page, \"discover-feed\")",
+            "Discover feed identity action prefix belongs in ReleaseDetailPageVm",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "id_prefix: &str",
+            "Feed identity action rendering should consume ReleaseDetailPageVm identity prefix",
         ),
         (
             "src/library.rs",

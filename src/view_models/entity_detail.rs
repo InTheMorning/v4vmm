@@ -584,6 +584,7 @@ pub struct ReleaseDetailPageVm<'a> {
     pub hero: ReleaseHeroVm<'a>,
     pub primary_actions: Vec<EntityActionVm>,
     pub identity_actions: Vec<EntityActionVm>,
+    pub identity_action_prefix: &'static str,
     pub summary_facts: Vec<ReleaseFactVm>,
     pub panels: Vec<ReleasePanelVm>,
     pub tracks: TrackListVm<'a>,
@@ -698,6 +699,7 @@ impl<'a> ReleaseDetailVm<'a> {
             hero: self.hero(),
             primary_actions: self.actions(),
             identity_actions: self.identity_actions(),
+            identity_action_prefix: self.identity_action_prefix(),
             summary_facts: self.summary_facts(),
             panels: self.panels(),
             tracks: self.track_list(),
@@ -817,6 +819,14 @@ impl<'a> ReleaseDetailVm<'a> {
             );
         }
         actions
+    }
+
+    #[must_use]
+    pub const fn identity_action_prefix(&self) -> &'static str {
+        match self.context {
+            EntitySurfaceContext::Discover => "discover-feed",
+            EntitySurfaceContext::Library => "library-feed",
+        }
     }
 
     #[must_use]
@@ -1453,6 +1463,31 @@ mod tests {
             ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).identity_actions();
 
         assert_eq!(discover_actions, library_actions);
+    }
+
+    #[test]
+    fn release_detail_page_projects_identity_action_prefix_by_context() {
+        let feed = feed_view();
+
+        let discover = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Discover).page();
+        let library = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).page();
+
+        assert_eq!(discover.identity_action_prefix, "discover-feed");
+        assert_eq!(library.identity_action_prefix, "library-feed");
+        assert_eq!(
+            discover.identity_actions[0]
+                .identity_display(discover.identity_action_prefix)
+                .expect("discover website identity display")
+                .id,
+            "discover-feed-website:https://example.test"
+        );
+        assert_eq!(
+            library.identity_actions[0]
+                .identity_display(library.identity_action_prefix)
+                .expect("library website identity display")
+                .id,
+            "library-feed-website:https://example.test"
+        );
     }
 
     #[test]

@@ -113,14 +113,11 @@ pub fn render_release_detail_shell(
 }
 
 #[must_use]
-pub fn render_feed_identity_actions(
-    page: &ReleaseDetailPageVm<'_>,
-    id_prefix: &str,
-) -> Vec<ReleaseSurfaceElement> {
+pub fn render_feed_identity_actions(page: &ReleaseDetailPageVm<'_>) -> Vec<ReleaseSurfaceElement> {
     page.identity_actions
         .iter()
         .filter_map(|action| {
-            let display = action.identity_display(id_prefix)?;
+            let display = action.identity_display(page.identity_action_prefix)?;
             let kind = match display.kind {
                 IdentityActionDisplayKind::Website => IdentityActionKind::Website,
                 IdentityActionDisplayKind::Nostr => IdentityActionKind::Nostr,

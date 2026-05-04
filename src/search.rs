@@ -1867,8 +1867,8 @@ impl Render for SearchApp {
             .overflow_hidden()
             .child(inspector)
             .into_any_element();
-        let split_pane = SplitPane::new("pane-container")
-            .resize_handle_id("resize-handle")
+        let split_pane = SplitPane::new(pane_display.split_pane_id)
+            .resize_handle_id(pane_display.resize_handle_id)
             .leading_width(px(self.vm.split_pane_width()))
             .leading_min_width(layout::INSPECTOR_MIN_WIDTH)
             .leading(leading_pane)

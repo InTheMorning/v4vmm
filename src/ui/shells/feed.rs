@@ -29,7 +29,7 @@ pub(crate) fn render_feed_view(
         primary_actions: vec![ReleaseSurfaceElement::from_element(
             discover_inspector_action_row(frame, app, cx),
         )],
-        identity_actions: render_feed_identity_actions(&page, "discover-feed"),
+        identity_actions: render_feed_identity_actions(&page),
         ..ReleaseDetailBehaviorSlots::default()
     };
 

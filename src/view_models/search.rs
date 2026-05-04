@@ -1133,6 +1133,8 @@ impl SearchStatusSnapshot {
 /// Static labels and dynamic toggle label for the Discover results pane.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SearchPaneDisplay {
+    pub(crate) split_pane_id: &'static str,
+    pub(crate) resize_handle_id: &'static str,
     pub(crate) search_button_id: &'static str,
     pub(crate) fuzzy_toggle_id: &'static str,
     pub(crate) results_scroll_id: &'static str,
@@ -1149,6 +1151,8 @@ impl SearchPaneDisplay {
     #[must_use]
     const fn new(fuzzy_search: bool) -> Self {
         Self {
+            split_pane_id: "pane-container",
+            resize_handle_id: "resize-handle",
             search_button_id: "search-btn",
             fuzzy_toggle_id: "fuzzy-toggle",
             results_scroll_id: "results-scroll",
@@ -3141,6 +3145,11 @@ mod tests {
         assert!(empty_snapshot.empty);
         assert!(empty_snapshot.status.is_empty());
         assert_eq!(empty_snapshot.status.display_text, "");
+        assert_eq!(empty_snapshot.pane_display.split_pane_id, "pane-container");
+        assert_eq!(
+            empty_snapshot.pane_display.resize_handle_id,
+            "resize-handle"
+        );
         assert_eq!(empty_snapshot.pane_display.search_button_id, "search-btn");
         assert_eq!(empty_snapshot.pane_display.fuzzy_toggle_id, "fuzzy-toggle");
         assert_eq!(

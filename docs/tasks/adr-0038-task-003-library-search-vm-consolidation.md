@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred thirty implementation slices completed on 2026-05-03.
+In progress - first one hundred thirty-four implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -864,7 +864,31 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local apply-error message formatting from
       `LibraryApp`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-131. Migrate remaining fallback batches, smallest blast radius first.
+131. Library split-pane chrome id display
+    - Extend `LibraryChromeDisplay` with the split-pane container id and
+      resize-handle id used by the Library shell.
+    - Remove `SplitPane::new("library-pane-container")` and
+      `resize_handle_id("library-resize-handle")` from `src/library.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+132. Discover split-pane chrome id display
+    - Extend `SearchPaneDisplay` with the split-pane container id and
+      resize-handle id used by the Discover shell.
+    - Remove `SplitPane::new("pane-container")` and
+      `resize_handle_id("resize-handle")` from `src/search.rs`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+133. Library feed identity-action prefix display
+    - Extend `ReleaseDetailPageVm` with the Library feed
+      identity-action id prefix derived from `EntitySurfaceContext`.
+    - Remove the Library screen-local `"library-feed"` prefix argument
+      from `render_feed_identity_actions`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+134. Discover feed identity-action prefix display
+    - Reuse `ReleaseDetailPageVm::identity_action_prefix` for the
+      Discover feed shell prefix derived from `EntitySurfaceContext`.
+    - Remove the Discover shell-local `"discover-feed"` prefix argument
+      from `render_feed_identity_actions`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+135. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2170,6 +2194,45 @@ Verified starting notes, 2026-05-03:
   `"Feed update error: ..."` status message.
 - The architecture guard now blocks apply-error formatting from
   returning to the screen.
+
+## One-Hundred-Thirtieth-Slice Implementation Notes
+
+- `LibraryChromeDisplay` now carries the Library split-pane container
+  id and resize-handle id.
+- `LibraryApp` still owns split-pane wiring and resize events, but no
+  longer authors those shell chrome ids in render glue.
+- The architecture guard now blocks those Library split-pane literals
+  from returning to the screen.
+
+## One-Hundred-Thirty-First-Slice Implementation Notes
+
+- `SearchPaneDisplay` now carries the Discover split-pane container id
+  and resize-handle id through the render snapshot.
+- `SearchApp` still owns split-pane wiring and resize events, but no
+  longer authors those shell chrome ids in render glue.
+- The architecture guard now blocks those Discover split-pane literals
+  from returning to the screen.
+
+## One-Hundred-Thirty-Second-Slice Implementation Notes
+
+- `ReleaseDetailPageVm::identity_action_prefix` now carries the
+  Library feed identity-action prefix derived from
+  `EntitySurfaceContext::Library`.
+- `LibraryApp` still owns behavior slots, but no longer passes a
+  screen-local `"library-feed"` prefix into the shared feed identity
+  renderer.
+- The architecture guard now blocks the Library prefix argument from
+  returning.
+
+## One-Hundred-Thirty-Third-Slice Implementation Notes
+
+- `ReleaseDetailPageVm::identity_action_prefix` also carries the
+  Discover feed identity-action prefix derived from
+  `EntitySurfaceContext::Discover`.
+- The Discover feed shell still owns GPUI click wiring, but no longer
+  passes a shell-local `"discover-feed"` prefix.
+- The architecture guard now blocks feed identity render helpers from
+  accepting an external prefix argument again.
 
 ## Test Commands
 
