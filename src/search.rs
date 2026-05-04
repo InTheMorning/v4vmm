@@ -3920,7 +3920,7 @@ fn expandable_tag_cell(
                             .text_color(frame_color)
                             .text_size(typography::SIZE_MICRO)
                             .line_height(typography::LINE_BODY)
-                            .child(SharedString::from(frame_label.clone())),
+                            .child(SharedString::from(frame_label)),
                     )
                     .child(
                         div()

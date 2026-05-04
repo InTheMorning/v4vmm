@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred eighty-two implementation slices completed on 2026-05-04.
+In progress - first one hundred eighty-four implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1179,7 +1179,18 @@ Verified starting notes, 2026-05-03:
     - Remove `LoadingMessage::new(label.clone())` from Library compare
       and MusicBrainz panel rendering.
     - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
-183. Migrate remaining fallback batches, smallest blast radius first.
+183. Feed identity-action payload consumption
+    - Destructure `IdentityActionDisplay` in the shared entity feed
+      identity-action renderer.
+    - Remove setup-time `display.payload.clone()` from feed identity
+      action rendering.
+    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+184. Discover ID3 frame-label display consumption
+    - Consume `TrackMetadataGridVm::id3_frame_display_label()` directly
+      in the expanded Discover Value Routes header.
+    - Remove renderer-side `frame_label.clone()` from that branch.
+    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+185. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2967,6 +2978,25 @@ Verified starting notes, 2026-05-03:
 - The architecture guard blocks that renderer-side metadata-panel
   empty-message clone from returning.
 
+## One-Hundred-Eighty-Third-Slice Implementation Notes
+
+- Shared feed identity actions now destructure `IdentityActionDisplay`
+  before rendering.
+- Identity action id, kind, and payload are consumed directly from the
+  VM display contract in the entity shell.
+- The architecture guard now blocks the old entity-shell setup-time
+  payload clone from returning.
+
+## One-Hundred-Eighty-Fourth-Slice Implementation Notes
+
+- Discover expanded ID3 Value Routes headers now consume
+  `TrackMetadataGridVm::id3_frame_display_label()` without a
+  renderer-side label clone.
+- The early-return branch now moves the frame label directly into the
+  `SharedString`.
+- The architecture guard now blocks `SharedString::from(frame_label.clone())`
+  from returning.
+
 ## Test Commands
 
 ```sh
@@ -3061,6 +3091,7 @@ cargo test contributor_identity_actions_project_ids_kinds_and_targets
 cargo test contributor_identity_actions_omit_absent_targets
 cargo test contributor_panel_display_projects_surface_chrome
 cargo test identity_action_display_projects_id_kind_and_payload
+cargo test release_feed_identity_actions_use_shared_renderer
 cargo test track_detail_identity_action_display_projects_ids
 cargo test row_controls_display_projects_track_row_ids_and_playlist_label
 cargo test track_row_action_vm_download_display_projects_ids_and_tooltip
@@ -3075,6 +3106,7 @@ cargo test playlist_track_row_vm_display_projects_row_text_media_and_controls
 cargo test library_track_row_vm_projects_row_and_toggle_ids
 cargo test playlist_detail_vm_projects_rename_and_delete_controls
 cargo test track_metadata_action_state_projects_loading_and_staged_id3_display
+cargo test id3_frame_display_label_projects_owned_display_string
 cargo test from_text_owns_borrowed_message
 cargo test from_text_owns_borrowed_value
 cargo test drag_preview_display_projects_owned_label_and_value

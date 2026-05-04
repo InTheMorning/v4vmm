@@ -2173,6 +2173,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Track identity action payload should be consumed from IdentityActionDisplay",
         ),
         (
+            "src/ui/shells/entity.rs",
+            "display.payload.clone()",
+            "Feed identity action payload should be consumed from IdentityActionDisplay",
+        ),
+        (
             "src/library.rs",
             "let target_for_click = action.target.clone()",
             "Library contributor identity action target should be consumed from ContributorIdentityActionDisplay",
@@ -2266,6 +2271,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/search.rs",
             "SharedString::from(frame_label.to_string())",
             "Discover metadata ID3 frame label display belongs in TrackMetadataGridVm::id3_frame_display_label",
+        ),
+        (
+            "src/search.rs",
+            "SharedString::from(frame_label.clone())",
+            "Discover metadata ID3 frame label display should be consumed without renderer-side cloning",
         ),
         (
             "src/library.rs",
