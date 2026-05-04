@@ -14,8 +14,9 @@ use crate::api::{Feed, Track};
 use crate::db;
 use crate::search::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
 use crate::ui::composites::{
-    identity_action_button, AddToPlaylistDisplay, AddToPlaylistPopover, IdentityActionKind,
-    PlaylistOption, PlaylistOptionDisplay, TrackRow, TrackSurfaceElement,
+    identity_action_button, AddToPlaylistDisplay, AddToPlaylistPopover,
+    IdentityActionButtonDisplay, IdentityActionKind, PlaylistOption, PlaylistOptionDisplay,
+    TrackRow, TrackSurfaceElement,
 };
 use crate::view_models::entity_detail::{IdentityActionDisplay, IdentityActionDisplayKind};
 use crate::view_models::playlist_option_displays;
@@ -49,26 +50,31 @@ pub(crate) fn render_track_identity_actions(
         .into_iter()
         .filter_map(|action| {
             let display = action.identity_display(detail.identity_action_prefix())?;
-            let IdentityActionDisplay { id, kind, payload } = display;
+            let IdentityActionDisplay {
+                id,
+                kind,
+                payload,
+                a11y_label,
+            } = display;
             let kind = match kind {
                 IdentityActionDisplayKind::Website => IdentityActionKind::Website,
                 IdentityActionDisplayKind::Nostr => IdentityActionKind::Nostr,
                 IdentityActionDisplayKind::Rss => IdentityActionKind::Rss,
             };
             let payload_for_click = payload;
-            let button =
-                identity_action_button(SharedString::from(id), kind).on_click(move |_, _, cx| {
-                    match kind {
-                        IdentityActionKind::Website | IdentityActionKind::Rss => {
-                            let _ = open::that(&payload_for_click);
-                        }
-                        IdentityActionKind::Nostr => {
-                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                payload_for_click.clone(),
-                            ));
-                        }
-                    }
-                });
+            let button = identity_action_button(IdentityActionButtonDisplay {
+                id: SharedString::from(id),
+                kind,
+                a11y_label: SharedString::from(a11y_label),
+            })
+            .on_click(move |_, _, cx| match kind {
+                IdentityActionKind::Website | IdentityActionKind::Rss => {
+                    let _ = open::that(&payload_for_click);
+                }
+                IdentityActionKind::Nostr => {
+                    cx.write_to_clipboard(ClipboardItem::new_string(payload_for_click.clone()));
+                }
+            });
 
             Some(TrackSurfaceElement::from_element(button.into_any_element()))
         })

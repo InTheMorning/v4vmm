@@ -62,13 +62,13 @@ use crate::ui::composites::{
     AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
     DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureIndicator,
     DisclosureIndicatorDisplay, DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind,
-    FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption,
-    PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
-    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataFieldDisplay,
-    TrackMetadataFrameDisplay, TrackMetadataGrid, TrackMetadataGroupCell,
-    TrackMetadataGroupDisplay, TrackMetadataSourceCell, TrackMetadataTagCell,
-    TrackMetadataTagDisplay, TrackMetadataTextDisplay, TrackMetadataTextValue,
-    TrackRow as TrackRowComposite, TrackSurfaceElement,
+    FileHeader, IdentityActionButtonDisplay, IdentityActionKind, ListRow, MusicBrainzPanel,
+    PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane,
+    StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell,
+    TrackMetadataFieldDisplay, TrackMetadataFrameDisplay, TrackMetadataGrid,
+    TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
+    TrackMetadataTagCell, TrackMetadataTagDisplay, TrackMetadataTextDisplay,
+    TrackMetadataTextValue, TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -2625,24 +2625,36 @@ fn library_contributor_identity_actions(
         .identity_actions()
         .into_iter()
         .map(|action| {
-            let ContributorIdentityActionDisplay { id, kind, target } = action;
+            let ContributorIdentityActionDisplay {
+                id,
+                kind,
+                target,
+                a11y_label,
+            } = action;
             let target_for_click = target;
+            let a11y_label = SharedString::from(a11y_label);
             match kind {
                 ContributorIdentityActionKind::Website => {
-                    identity_action_button(SharedString::from(id), IdentityActionKind::Website)
-                        .on_click(move |_, _, _| {
-                            let _ = open::that(&target_for_click);
-                        })
-                        .into_any_element()
+                    identity_action_button(IdentityActionButtonDisplay {
+                        id: SharedString::from(id),
+                        kind: IdentityActionKind::Website,
+                        a11y_label,
+                    })
+                    .on_click(move |_, _, _| {
+                        let _ = open::that(&target_for_click);
+                    })
+                    .into_any_element()
                 }
                 ContributorIdentityActionKind::Nostr => {
-                    identity_action_button(SharedString::from(id), IdentityActionKind::Nostr)
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                target_for_click.clone(),
-                            ));
-                        })
-                        .into_any_element()
+                    identity_action_button(IdentityActionButtonDisplay {
+                        id: SharedString::from(id),
+                        kind: IdentityActionKind::Nostr,
+                        a11y_label,
+                    })
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(target_for_click.clone()));
+                    })
+                    .into_any_element()
                 }
             }
         })

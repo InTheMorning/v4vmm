@@ -52,9 +52,9 @@ use crate::ui::composites::{
     action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowMessage,
     AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
     DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureGroup,
-    DisclosureGroupDisplay, EntityKind, IdentityActionKind, ListRow, PlaylistOption,
-    PlaylistOptionDisplay, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement, SplitPane,
-    StatusRole, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackDetailSurface,
+    DisclosureGroupDisplay, EntityKind, IdentityActionButtonDisplay, IdentityActionKind, ListRow,
+    PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement,
+    SplitPane, StatusRole, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackDetailSurface,
     TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
@@ -2993,24 +2993,36 @@ fn contributor_identity_actions(contributor: &ContributorRowVm<'_>) -> Vec<Relea
         .identity_actions()
         .into_iter()
         .map(|action| {
-            let ContributorIdentityActionDisplay { id, kind, target } = action;
+            let ContributorIdentityActionDisplay {
+                id,
+                kind,
+                target,
+                a11y_label,
+            } = action;
             let target_for_click = target;
+            let a11y_label = SharedString::from(a11y_label);
             match kind {
                 ContributorIdentityActionKind::Website => {
-                    identity_action_button(SharedString::from(id), IdentityActionKind::Website)
-                        .on_click(move |_, _, _| {
-                            let _ = open::that(&target_for_click);
-                        })
-                        .into_any_element()
+                    identity_action_button(IdentityActionButtonDisplay {
+                        id: SharedString::from(id),
+                        kind: IdentityActionKind::Website,
+                        a11y_label,
+                    })
+                    .on_click(move |_, _, _| {
+                        let _ = open::that(&target_for_click);
+                    })
+                    .into_any_element()
                 }
                 ContributorIdentityActionKind::Nostr => {
-                    identity_action_button(SharedString::from(id), IdentityActionKind::Nostr)
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                target_for_click.clone(),
-                            ));
-                        })
-                        .into_any_element()
+                    identity_action_button(IdentityActionButtonDisplay {
+                        id: SharedString::from(id),
+                        kind: IdentityActionKind::Nostr,
+                        a11y_label,
+                    })
+                    .on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(target_for_click.clone()));
+                    })
+                    .into_any_element()
                 }
             }
         })

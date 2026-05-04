@@ -49,7 +49,9 @@ pub use disclosure_group::{
     DisclosureSupplementDisplay, DisclosureSupplementLabel,
 };
 pub use file_header::FileHeader;
-pub use identity_action::{identity_action_button, IdentityActionKind};
+pub use identity_action::{
+    identity_action_button, IdentityActionButtonDisplay, IdentityActionKind,
+};
 pub use list_row::{ListRow, ListRowDensity};
 pub use musicbrainz_panel::MusicBrainzPanel;
 pub use now_playing_bar::{NowPlayingBar, NowPlayingData, PlaybackState as NowPlayingState};

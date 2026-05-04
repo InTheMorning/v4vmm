@@ -1081,8 +1081,13 @@ fn interactive_composites_carry_accessibility_labels() {
     // `a11y_label` on its public display contract so view-models own the
     // accessibility surface alongside visible labels. The list grows as
     // composites are migrated; do not remove entries.
-    let migrated_composites: &[(&str, &str)] =
-        &[("ActionButtonDisplay", "src/ui/composites/action_button.rs")];
+    let migrated_composites: &[(&str, &str)] = &[
+        ("ActionButtonDisplay", "src/ui/composites/action_button.rs"),
+        (
+            "IdentityActionButtonDisplay",
+            "src/ui/composites/identity_action.rs",
+        ),
+    ];
 
     let mut violations = Vec::new();
     for (display, path) in migrated_composites {

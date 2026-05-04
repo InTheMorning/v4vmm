@@ -81,6 +81,21 @@ pub struct IdentityActionDisplay {
     pub id: String,
     pub kind: IdentityActionDisplayKind,
     pub payload: String,
+    pub a11y_label: String,
+}
+
+impl IdentityActionDisplayKind {
+    /// Default screen-reader label for an identity action when the
+    /// view-model has no payload-specific text. Mirrors
+    /// `IdentityActionKind::default_a11y_label` on the composite side.
+    #[must_use]
+    pub const fn default_a11y_label(self) -> &'static str {
+        match self {
+            Self::Website => "Open website",
+            Self::Nostr => "Copy Nostr identifier",
+            Self::Rss => "Open RSS feed",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -580,6 +595,7 @@ impl EntityActionVm {
             id: format!("{id_prefix}-{}:{payload}", kind.slug()),
             kind,
             payload: payload.clone(),
+            a11y_label: kind.default_a11y_label().to_string(),
         })
     }
 }
@@ -994,6 +1010,18 @@ pub struct ContributorIdentityActionDisplay {
     pub id: String,
     pub kind: ContributorIdentityActionKind,
     pub target: String,
+    pub a11y_label: String,
+}
+
+impl ContributorIdentityActionKind {
+    /// Default screen-reader label for a contributor identity action.
+    #[must_use]
+    pub const fn default_a11y_label(self) -> &'static str {
+        match self {
+            Self::Website => "Open contributor website",
+            Self::Nostr => "Copy contributor Nostr identifier",
+        }
+    }
 }
 
 impl<'a> ContributorRowVm<'a> {
@@ -1037,6 +1065,9 @@ impl<'a> ContributorRowVm<'a> {
                 id: format!("{id_prefix}-website:{label}:{href}"),
                 kind: ContributorIdentityActionKind::Website,
                 target: href.to_string(),
+                a11y_label: ContributorIdentityActionKind::Website
+                    .default_a11y_label()
+                    .to_string(),
             });
         }
         if let Some(npub) = self.nostr_npub() {
@@ -1044,6 +1075,9 @@ impl<'a> ContributorRowVm<'a> {
                 id: format!("{id_prefix}-nostr:{label}:{npub}"),
                 kind: ContributorIdentityActionKind::Nostr,
                 target: npub.to_string(),
+                a11y_label: ContributorIdentityActionKind::Nostr
+                    .default_a11y_label()
+                    .to_string(),
             });
         }
         actions
@@ -1613,16 +1647,25 @@ mod tests {
                     id: "library-feed-website:https://example.test".to_string(),
                     kind: IdentityActionDisplayKind::Website,
                     payload: "https://example.test".to_string(),
+                    a11y_label: IdentityActionDisplayKind::Website
+                        .default_a11y_label()
+                        .to_string(),
                 },
                 IdentityActionDisplay {
                     id: "library-feed-nostr:npub1artist".to_string(),
                     kind: IdentityActionDisplayKind::Nostr,
                     payload: "npub1artist".to_string(),
+                    a11y_label: IdentityActionDisplayKind::Nostr
+                        .default_a11y_label()
+                        .to_string(),
                 },
                 IdentityActionDisplay {
                     id: "library-feed-rss:https://feeds.example.test/rss.xml".to_string(),
                     kind: IdentityActionDisplayKind::Rss,
                     payload: "https://feeds.example.test/rss.xml".to_string(),
+                    a11y_label: IdentityActionDisplayKind::Rss
+                        .default_a11y_label()
+                        .to_string(),
                 },
             ]
         );
@@ -1783,11 +1826,17 @@ mod tests {
                     id: "contributor-website:Alice (vocals):https://example.test/alice".to_string(),
                     kind: ContributorIdentityActionKind::Website,
                     target: "https://example.test/alice".to_string(),
+                    a11y_label: ContributorIdentityActionKind::Website
+                        .default_a11y_label()
+                        .to_string(),
                 },
                 ContributorIdentityActionDisplay {
                     id: "contributor-nostr:Alice (vocals):npub1alice".to_string(),
                     kind: ContributorIdentityActionKind::Nostr,
                     target: "npub1alice".to_string(),
+                    a11y_label: ContributorIdentityActionKind::Nostr
+                        .default_a11y_label()
+                        .to_string(),
                 },
             ]
         );

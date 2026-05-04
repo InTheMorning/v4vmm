@@ -15,8 +15,9 @@ use gpui::{
 
 use crate::ui::composites::{
     identity_action_button, DetailGrid, DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay,
-    DetailRow, DetailTextRow, EntityKind, IdentityActionKind, ListRow, ReleaseDetailSurface,
-    ReleaseSurfaceElement, ReleaseTrackSectionDisplay, Thumbnail, ThumbnailSize, TrackRow,
+    DetailRow, DetailTextRow, EntityKind, IdentityActionButtonDisplay, IdentityActionKind, ListRow,
+    ReleaseDetailSurface, ReleaseSurfaceElement, ReleaseTrackSectionDisplay, Thumbnail,
+    ThumbnailSize, TrackRow,
 };
 use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
@@ -117,26 +118,31 @@ pub fn render_feed_identity_actions(page: &ReleaseDetailPageVm<'_>) -> Vec<Relea
         .iter()
         .filter_map(|action| {
             let display = action.identity_display(page.identity_action_prefix)?;
-            let IdentityActionDisplay { id, kind, payload } = display;
+            let IdentityActionDisplay {
+                id,
+                kind,
+                payload,
+                a11y_label,
+            } = display;
             let kind = match kind {
                 IdentityActionDisplayKind::Website => IdentityActionKind::Website,
                 IdentityActionDisplayKind::Nostr => IdentityActionKind::Nostr,
                 IdentityActionDisplayKind::Rss => IdentityActionKind::Rss,
             };
             let payload_for_click = payload;
-            let button =
-                identity_action_button(SharedString::from(id), kind).on_click(move |_, _, cx| {
-                    match kind {
-                        IdentityActionKind::Website | IdentityActionKind::Rss => {
-                            let _ = open::that(&payload_for_click);
-                        }
-                        IdentityActionKind::Nostr => {
-                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                payload_for_click.clone(),
-                            ));
-                        }
-                    }
-                });
+            let button = identity_action_button(IdentityActionButtonDisplay {
+                id: SharedString::from(id),
+                kind,
+                a11y_label: SharedString::from(a11y_label),
+            })
+            .on_click(move |_, _, cx| match kind {
+                IdentityActionKind::Website | IdentityActionKind::Rss => {
+                    let _ = open::that(&payload_for_click);
+                }
+                IdentityActionKind::Nostr => {
+                    cx.write_to_clipboard(ClipboardItem::new_string(payload_for_click.clone()));
+                }
+            });
 
             Some(ReleaseSurfaceElement::from_element(
                 button.into_any_element(),

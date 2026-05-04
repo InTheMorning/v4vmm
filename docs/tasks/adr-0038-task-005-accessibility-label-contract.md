@@ -2,16 +2,20 @@
 
 ## Status
 
-In progress (2026-05-04). First slice landed: `ActionButtonDisplay` carries
+In progress (2026-05-04). Slices landed: (1) `ActionButtonDisplay` carries
 `a11y_label`; `EntityActionVm::a11y_label()` and
-`LibraryAlbumMusicBrainzActionVm::a11y_label` source it; architecture guard
-`interactive_composites_carry_accessibility_labels` blocks regression. GPUI
-0.2.x has no accessibility-label sink on its button widget — the field is
-contract-only until the framework grows the surface. Remaining composites
-(`ActionRow`, `identity_action_button`, `AddToPlaylistPopover`, `TrackRow`,
-`ListRow`, `RecentFeedTile`, `DisclosureGroup`, `SegmentedControl`,
-`NowPlayingBar`, release/track detail action overlays) follow in future
-slices.
+`LibraryAlbumMusicBrainzActionVm::a11y_label` source it. (2)
+`identity_action_button` migrated to `IdentityActionButtonDisplay`;
+`IdentityActionDisplay` and `ContributorIdentityActionDisplay` now carry
+`a11y_label` projected from per-kind defaults
+(`IdentityActionDisplayKind::default_a11y_label`,
+`ContributorIdentityActionKind::default_a11y_label`). The architecture guard
+`interactive_composites_carry_accessibility_labels` covers both composites.
+GPUI 0.2.x has no accessibility-label sink on its button widget — the field
+is contract-only until the framework grows the surface. Remaining composites
+(`ActionRow`, `AddToPlaylistPopover`, `TrackRow`, `ListRow`, `RecentFeedTile`,
+`DisclosureGroup`, `SegmentedControl`, `NowPlayingBar`, release/track detail
+action overlays) follow in future slices.
 
 ## Goal
 
