@@ -582,6 +582,7 @@ pub struct EntityDetailRow {
 #[derive(Clone, Debug)]
 pub struct ReleaseDetailPageVm<'a> {
     pub hero: ReleaseHeroVm<'a>,
+    pub detail_scroll_id: &'static str,
     pub primary_actions: Vec<EntityActionVm>,
     pub identity_actions: Vec<EntityActionVm>,
     pub identity_action_prefix: &'static str,
@@ -697,6 +698,7 @@ impl<'a> ReleaseDetailVm<'a> {
     pub fn page(&self) -> ReleaseDetailPageVm<'a> {
         ReleaseDetailPageVm {
             hero: self.hero(),
+            detail_scroll_id: self.detail_scroll_id(),
             primary_actions: self.actions(),
             identity_actions: self.identity_actions(),
             identity_action_prefix: self.identity_action_prefix(),
@@ -826,6 +828,14 @@ impl<'a> ReleaseDetailVm<'a> {
         match self.context {
             EntitySurfaceContext::Discover => "discover-feed",
             EntitySurfaceContext::Library => "library-feed",
+        }
+    }
+
+    #[must_use]
+    pub const fn detail_scroll_id(&self) -> &'static str {
+        match self.context {
+            EntitySurfaceContext::Discover => "discover-feed-detail",
+            EntitySurfaceContext::Library => "album-detail-scroll",
         }
     }
 
@@ -1041,10 +1051,21 @@ pub struct ContributorPersonVm<'a> {
     contributors: Vec<ContributorRowVm<'a>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContributorRoleRowVm {
+    pub id: String,
+    pub label: String,
+}
+
 impl<'a> ContributorPersonVm<'a> {
     #[must_use]
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    #[must_use]
+    pub fn row_id(&self) -> String {
+        format!("contributor:{}", self.name)
     }
 
     #[must_use]
@@ -1064,6 +1085,17 @@ impl<'a> ContributorPersonVm<'a> {
             }
         }
         roles
+    }
+
+    #[must_use]
+    pub fn role_rows(&self) -> Vec<ContributorRoleRowVm> {
+        self.roles()
+            .into_iter()
+            .map(|role| ContributorRoleRowVm {
+                id: format!("contributor-role:{}:{role}", self.name),
+                label: format!("- {role}"),
+            })
+            .collect()
     }
 }
 
@@ -1088,7 +1120,8 @@ impl<'a> TrackListVm<'a> {
     pub fn rows(&self) -> Vec<SharedTrackRowVm<'a>> {
         self.tracks
             .iter()
-            .map(|track| SharedTrackRowVm::new(track, self.context))
+            .enumerate()
+            .map(|(index, track)| SharedTrackRowVm::new(track, self.context, index))
             .collect()
     }
 
@@ -1112,12 +1145,22 @@ impl<'a> TrackListVm<'a> {
 pub struct SharedTrackRowVm<'a> {
     track: &'a TrackView,
     context: EntitySurfaceContext,
+    index: usize,
 }
 
 impl<'a> SharedTrackRowVm<'a> {
     #[must_use]
-    pub const fn new(track: &'a TrackView, context: EntitySurfaceContext) -> Self {
-        Self { track, context }
+    pub const fn new(track: &'a TrackView, context: EntitySurfaceContext, index: usize) -> Self {
+        Self {
+            track,
+            context,
+            index,
+        }
+    }
+
+    #[must_use]
+    pub fn element_id(&self) -> String {
+        format!("entity-track:{}", self.index)
     }
 
     #[must_use]
@@ -1491,6 +1534,8 @@ mod tests {
 
         assert_eq!(discover.identity_action_prefix, "discover-feed");
         assert_eq!(library.identity_action_prefix, "library-feed");
+        assert_eq!(discover.detail_scroll_id, "discover-feed-detail");
+        assert_eq!(library.detail_scroll_id, "album-detail-scroll");
         assert_eq!(
             discover.identity_actions[0]
                 .identity_display(discover.identity_action_prefix)
@@ -1537,6 +1582,14 @@ mod tests {
         assert_eq!(people.len(), 2);
         assert_eq!(people[0].name(), "Alice");
         assert_eq!(people[0].roles(), vec!["vocals".to_string()]);
+        assert_eq!(people[0].row_id(), "contributor:Alice");
+        assert_eq!(
+            people[0].role_rows(),
+            vec![ContributorRoleRowVm {
+                id: "contributor-role:Alice:vocals".to_string(),
+                label: "- vocals".to_string(),
+            }]
+        );
         let alice = people[0]
             .primary()
             .expect("person group should expose a primary contributor");
@@ -1644,6 +1697,7 @@ mod tests {
             track_list.rows()[0].duration_display().as_deref(),
             Some("1:05")
         );
+        assert_eq!(track_list.rows()[0].element_id(), "entity-track:0");
     }
 
     #[test]

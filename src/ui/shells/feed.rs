@@ -61,5 +61,5 @@ pub(crate) fn render_feed_view(
             .push(ReleaseSurfaceElement::from_element(panel));
     }
 
-    render_release_detail_shell("discover-feed-detail", &page, slots)
+    render_release_detail_shell(&page, slots)
 }

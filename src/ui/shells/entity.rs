@@ -22,9 +22,9 @@ use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::entity_detail::{
-    ContributorListVm, ContributorPersonVm, ContributorRowVm, EntitySurfaceKind,
-    IdentityActionDisplayKind, ReleaseDetailPageVm, ReleaseHeroVm, ReleasePanelKind,
-    ReleasePanelVm, SharedTrackRowVm,
+    ContributorListVm, ContributorPersonVm, ContributorRoleRowVm, ContributorRowVm,
+    EntitySurfaceKind, IdentityActionDisplayKind, ReleaseDetailPageVm, ReleaseHeroVm,
+    ReleasePanelKind, ReleasePanelVm, SharedTrackRowVm,
 };
 
 type ReleaseTrackRowClick = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -66,11 +66,10 @@ pub struct ReleaseDetailBehaviorSlots {
 
 #[must_use]
 pub fn render_release_detail_shell(
-    id: impl Into<SharedString>,
     page: &ReleaseDetailPageVm<'_>,
     slots: ReleaseDetailBehaviorSlots,
 ) -> AnyElement {
-    let mut surface = ReleaseDetailSurface::new(id)
+    let mut surface = ReleaseDetailSurface::new(page.detail_scroll_id)
         .scrollable(true)
         .header(ReleaseSurfaceElement::from_element(render_contract_header(
             &page.hero,
@@ -217,8 +216,8 @@ pub fn render_contributor_rows(
         };
         let slot = row_slot(primary);
         rows.push(render_contributor_person_row(&person, slot));
-        for role in person.roles() {
-            rows.push(render_contributor_role_row(person.name(), &role));
+        for role in person.role_rows() {
+            rows.push(render_contributor_role_row(&role));
         }
     }
     rows
@@ -248,7 +247,7 @@ fn render_contributor_person_row(
         );
     }
 
-    let mut row = ListRow::compact(SharedString::from(format!("contributor:{label}")))
+    let mut row = ListRow::compact(SharedString::from(person.row_id()))
         .child(Thumbnail::new(EntityKind::Artist, ThumbnailSize::Sm).image(slot.thumbnail))
         .child(detail);
 
@@ -267,15 +266,13 @@ fn render_contributor_person_row(
     row.into_any_element()
 }
 
-fn render_contributor_role_row(person: &str, role: &str) -> AnyElement {
+fn render_contributor_role_row(role: &ContributorRoleRowVm) -> AnyElement {
     div()
-        .id(SharedString::from(format!(
-            "contributor-role:{person}:{role}"
-        )))
+        .id(SharedString::from(role.id.clone()))
         .pl(spacing::XL)
         .text_size(typography::SIZE_MICRO)
         .text_color(color::text_muted())
-        .child(SharedString::from(format!("- {role}")))
+        .child(SharedString::from(role.label.clone()))
         .into_any_element()
 }
 
@@ -402,10 +399,9 @@ fn render_action_slots(
 
 fn render_track_rows(rows: Vec<SharedTrackRowVm<'_>>) -> Vec<ReleaseSurfaceElement> {
     rows.into_iter()
-        .enumerate()
-        .map(|(index, row)| {
+        .map(|row| {
             render_release_track_row(
-                SharedString::from(format!("entity-track:{index}")),
+                SharedString::from(row.element_id()),
                 row,
                 ReleaseTrackRowSlot::default(),
             )

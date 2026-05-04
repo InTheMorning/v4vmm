@@ -2566,7 +2566,7 @@ fn render_album_detail(
             .after_section
             .push(ReleaseSurfaceElement::from_element(panel));
     }
-    render_release_detail_shell("album-detail-scroll", &page, slots)
+    render_release_detail_shell(&page, slots)
 }
 
 fn render_library_contributors_panel(

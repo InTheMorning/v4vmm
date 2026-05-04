@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred thirty-six implementation slices completed on 2026-05-04.
+In progress - first one hundred forty implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -902,7 +902,30 @@ Verified starting notes, 2026-05-03:
       prefix arguments from Library and Discover contributor action
       render glue.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-137. Migrate remaining fallback batches, smallest blast radius first.
+137. Library release detail scroll id display
+    - Extend `ReleaseDetailPageVm` with the Library feed/release detail
+      scroll id derived from `EntitySurfaceContext`.
+    - Remove screen-local `"album-detail-scroll"` from Library release
+      detail render glue.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+138. Discover feed detail scroll id display
+    - Reuse `ReleaseDetailPageVm::detail_scroll_id` for the Discover
+      feed detail scroll id derived from `EntitySurfaceContext`.
+    - Remove screen-local `"discover-feed-detail"` from the Discover
+      feed shell.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+139. Contributor row chrome display
+    - Add contributor person row ids and role row ids/labels to
+      `ContributorPersonVm`.
+    - Remove shared-shell contributor row id, role row id, and dash
+      label formatting from `ui::shells::entity`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+140. Release track row chrome display
+    - Add default release track row ids to `SharedTrackRowVm`.
+    - Remove shared-shell `entity-track:{index}` id formatting from
+      `ui::shells::entity`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+141. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2269,6 +2292,44 @@ Verified starting notes, 2026-05-03:
   VM.
 - The architecture guard now blocks screen-local contributor identity
   prefix arguments from returning.
+
+## One-Hundred-Thirty-Sixth-Slice Implementation Notes
+
+- `ReleaseDetailPageVm::detail_scroll_id` now carries the Library
+  release detail scroll id derived from `EntitySurfaceContext::Library`.
+- Library still owns behavior slots and album action wiring, but no
+  longer passes a screen-local `"album-detail-scroll"` id into the
+  shared release detail shell.
+- The architecture guard now blocks that Library scroll id from
+  returning to render glue.
+
+## One-Hundred-Thirty-Seventh-Slice Implementation Notes
+
+- `ReleaseDetailPageVm::detail_scroll_id` also carries the Discover
+  feed detail scroll id derived from `EntitySurfaceContext::Discover`.
+- The Discover feed shell still wires inspector actions and track-row
+  slots, but no longer passes a shell-local `"discover-feed-detail"` id.
+- The architecture guard now blocks the Discover feed detail scroll id
+  from returning to the feed shell.
+
+## One-Hundred-Thirty-Eighth-Slice Implementation Notes
+
+- `ContributorPersonVm` now carries contributor person row ids and role
+  row ids/labels.
+- The shared entity shell still renders contributor rows, thumbnails,
+  and action slots, but no longer formats contributor row chrome
+  locally.
+- The architecture guard now blocks contributor row id and role-label
+  formatting from returning to the shell.
+
+## One-Hundred-Thirty-Ninth-Slice Implementation Notes
+
+- `SharedTrackRowVm` now carries default release track row ids from the
+  track list projection.
+- The shared entity shell still maps VM rows into `ReleaseTrackRow`
+  elements, but no longer formats `entity-track:{index}` ids locally.
+- The architecture guard now blocks shared release track row id
+  formatting from returning to the shell.
 
 ## Test Commands
 

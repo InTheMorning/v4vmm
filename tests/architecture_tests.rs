@@ -2869,6 +2869,36 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "\"album-detail-scroll\"",
+            "Library release detail scroll id belongs in ReleaseDetailPageVm",
+        ),
+        (
+            "src/ui/shells/feed.rs",
+            "\"discover-feed-detail\"",
+            "Discover feed detail scroll id belongs in ReleaseDetailPageVm",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "format!(\"contributor:{",
+            "Contributor person row id belongs in ContributorPersonVm",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "format!(\"contributor-role:",
+            "Contributor role row id belongs in ContributorPersonVm",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "format!(\"- {role}\")",
+            "Contributor role row label belongs in ContributorPersonVm",
+        ),
+        (
+            "src/ui/shells/entity.rs",
+            "format!(\"entity-track:{index}\")",
+            "Release track row id belongs in SharedTrackRowVm",
+        ),
+        (
+            "src/library.rs",
             "\"Checking...\"",
             "Library feed-update checking label belongs in LibraryViewModel::feed_update_display",
         ),
