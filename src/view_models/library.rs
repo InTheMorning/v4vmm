@@ -415,6 +415,16 @@ impl<'a> LibraryTrackActionVm<'a> {
     }
 
     #[must_use]
+    pub(crate) const fn track_subscribe_begin_status() -> &'static str {
+        "Subscribing track..."
+    }
+
+    #[must_use]
+    pub(crate) const fn track_subscribe_success_message() -> &'static str {
+        "Downloaded track"
+    }
+
+    #[must_use]
     pub(crate) const fn add_to_playlist_label() -> &'static str {
         "Add to playlist"
     }
@@ -1168,9 +1178,17 @@ impl LibraryViewModel {
         }
     }
 
-    pub(crate) fn set_feed_check_error(&mut self, message: impl Into<String>) {
+    pub(crate) fn finish_feed_view_check_error(
+        &mut self,
+        feed_id: i64,
+        error: impl std::fmt::Display,
+    ) {
+        self.finish_feed_view_check(feed_id, Err(format!("{error:#}")));
+    }
+
+    pub(crate) fn set_feed_check_error(&mut self, message: impl std::fmt::Display) {
         self.snapshot.feed_update_state.status_message =
-            Some(format!("Feed check error: {}", message.into()));
+            Some(format!("Feed check error: {message:#}"));
     }
 
     pub(crate) fn set_no_subscribed_feeds(&mut self) {
@@ -1217,6 +1235,10 @@ impl LibraryViewModel {
         self.snapshot.feed_update_state.phase = FeedUpdatePhase::Idle;
         self.snapshot.feed_update_state.stale.clear();
         self.snapshot.feed_update_state.status_message = Some(message);
+    }
+
+    pub(crate) fn finish_apply_feed_updates_error(&mut self, error: impl std::fmt::Display) {
+        self.finish_apply_feed_updates(format!("Feed update error: {error:#}"));
     }
 
     pub(crate) fn apply_search_query(&mut self, query: impl Into<String>) {
@@ -3371,6 +3393,14 @@ mod tests {
             LibraryTrackActionVm::subscription_error_message(false, "offline"),
             "Unsubscribe error: offline"
         );
+        assert_eq!(
+            LibraryTrackActionVm::track_subscribe_begin_status(),
+            "Subscribing track..."
+        );
+        assert_eq!(
+            LibraryTrackActionVm::track_subscribe_success_message(),
+            "Downloaded track"
+        );
     }
 
     #[test]
@@ -3611,6 +3641,35 @@ mod tests {
         assert_eq!(
             vm.feed_update_state().status_message.as_deref(),
             Some("Done")
+        );
+
+        vm.begin_all_feed_check(1);
+        vm.set_feed_check_error("offline");
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some("Feed check error: offline")
+        );
+
+        vm.begin_feed_view_check(7);
+        vm.finish_feed_view_check_error(7, "timeout");
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some("Feed check error: timeout")
+        );
+
+        vm.finish_all_feed_check(vec![feed_service::StaleFeed {
+            feed_id: 2,
+            feed_guid: "two".into(),
+            title: None,
+            new_updated_at: 10,
+        }]);
+        vm.begin_apply_feed_updates()
+            .expect("stale feeds should apply");
+        vm.finish_apply_feed_updates_error("offline");
+        assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Idle);
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some("Feed update error: offline")
         );
     }
 

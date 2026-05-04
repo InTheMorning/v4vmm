@@ -2791,6 +2791,21 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "finish_feed_view_check(feed_id, Err(format!",
+            "Library single-feed check error formatting belongs in LibraryViewModel",
+        ),
+        (
+            "src/library.rs",
+            "set_feed_check_error(format!",
+            "Library feed-check error formatting belongs in LibraryViewModel",
+        ),
+        (
+            "src/library.rs",
+            "finish_apply_feed_updates(format!(\"Feed update error:",
+            "Library feed-update apply error formatting belongs in LibraryViewModel",
+        ),
+        (
+            "src/library.rs",
             "\"Checking...\"",
             "Library feed-update checking label belongs in LibraryViewModel::feed_update_display",
         ),
@@ -3221,6 +3236,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "\"Subscribing track...\"",
+            "Library track subscribe busy status belongs in LibraryTrackActionVm",
+        ),
+        (
+            "src/library.rs",
+            "\"Downloaded track\"",
+            "Library track subscribe success label belongs in LibraryTrackActionVm",
+        ),
+        (
+            "src/library.rs",
             "frame.subscription_message = Some(\"Subscribing...\"",
             "Library local subscription progress message belongs in LibraryTrackActionVm",
         ),
@@ -3243,6 +3268,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/search.rs",
             "LazyPanel::Empty(format!(\"Error: {error}\"))",
             "Discover deferred-panel error prefix belongs in LazyPanel",
+        ),
+        (
+            "src/search.rs",
+            "\"Downloaded track\"",
+            "Discover track download success label belongs in SearchSubscriptionCommand",
         ),
         (
             "src/library.rs",

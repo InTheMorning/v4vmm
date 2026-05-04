@@ -940,7 +940,7 @@ impl SearchApp {
                 mark_feed_subscribed: false,
                 return_tag_compare: true,
             },
-            "Downloaded track",
+            SearchSubscriptionCommand::track_download_success_message(),
         );
         cx.notify();
 
@@ -1114,7 +1114,7 @@ impl SearchApp {
                         mark_feed_subscribed,
                         return_tag_compare: true,
                     },
-                    "Downloaded track",
+                    SearchSubscriptionCommand::track_download_success_message(),
                 );
                 let success_entity_type = entity_type.clone();
                 let success_entity_id = entity_id.clone();

@@ -629,6 +629,11 @@ impl SearchSubscriptionCommand {
     }
 
     #[must_use]
+    pub(crate) const fn track_download_success_message() -> &'static str {
+        "Downloaded track"
+    }
+
+    #[must_use]
     pub(crate) fn error_message(self, error: impl std::fmt::Display) -> String {
         match self {
             Self::Download => format!("Download error: {error:#}"),
@@ -641,7 +646,7 @@ impl SearchSubscriptionCommand {
         match self {
             Self::Download => {
                 if applied_edits == 0 {
-                    "Downloaded track".into()
+                    Self::track_download_success_message().into()
                 } else {
                     format!(
                         "Downloaded track, applied {applied_edits} ID3 edit{}",
@@ -3710,6 +3715,10 @@ mod tests {
         assert_eq!(
             SearchSubscriptionCommand::Download.begin_message(),
             "Downloading..."
+        );
+        assert_eq!(
+            SearchSubscriptionCommand::track_download_success_message(),
+            "Downloaded track"
         );
         assert_eq!(
             SearchSubscriptionCommand::Remove.begin_message(),

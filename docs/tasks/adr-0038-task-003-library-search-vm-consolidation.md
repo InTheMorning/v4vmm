@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred twenty four implementation slices completed on 2026-05-03.
+In progress - first one hundred thirty implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -828,7 +828,43 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `"Subscribing..."`, `"Unsubscribing..."`, and
       action-name error formatting from `LibraryApp`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-125. Migrate remaining fallback batches, smallest blast radius first.
+125. Library track subscribe busy status
+    - Add `LibraryTrackActionVm::track_subscribe_begin_status()` so the
+      Library track-download operation status lives in the action VM.
+    - Remove screen-local `"Subscribing track..."`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+126. Library track subscribe success label
+    - Add `LibraryTrackActionVm::track_subscribe_success_message()` so
+      the `SubscribeTrack` command completion label is VM-owned.
+    - Remove screen-local `"Downloaded track"` from Library command
+      construction.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+127. Discover track row download success label
+    - Add `SearchSubscriptionCommand::track_download_success_message()`
+      so Discover track-row download command construction does not own
+      the completion label.
+    - Remove screen-local `"Downloaded track"` from the row download
+      command path.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+128. Discover inspector track download success label
+    - Reuse `SearchSubscriptionCommand::track_download_success_message()`
+      for inspector track download command construction.
+    - Remove screen-local `"Downloaded track"` from the inspector
+      download command path.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+129. Library feed-check error formatting
+    - Add `LibraryViewModel::finish_feed_view_check_error()` and make
+      `set_feed_check_error()` accept displayable errors directly.
+    - Remove screen-local `format!("{error:#}")`/`format!("{err:#}")`
+      feed-check error projections.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+130. Library feed-update apply error formatting
+    - Add `LibraryViewModel::finish_apply_feed_updates_error()` so the
+      `"Feed update error: ..."` prefix lives with feed-update state.
+    - Remove screen-local apply-error message formatting from
+      `LibraryApp`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+131. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2081,6 +2117,60 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks the old screen-local subscription
   progress and error formatting from returning.
 
+## One-Hundred-Twenty-Fourth-Slice Implementation Notes
+
+- `LibraryTrackActionVm::track_subscribe_begin_status()` now owns the
+  Library track-download operation status label.
+- `LibraryApp` still starts the busy-track operation, but no longer
+  authors `"Subscribing track..."`.
+- The architecture guard now blocks that screen-local busy status label
+  from returning.
+
+## One-Hundred-Twenty-Fifth-Slice Implementation Notes
+
+- `LibraryTrackActionVm::track_subscribe_success_message()` now owns the
+  Library `SubscribeTrack` success label.
+- Library command construction still passes the command its completion
+  message, but no longer authors the user-facing label locally.
+- The architecture guard now blocks Library screen-local
+  `"Downloaded track"` command labels.
+
+## One-Hundred-Twenty-Sixth-Slice Implementation Notes
+
+- `SearchSubscriptionCommand::track_download_success_message()` now owns
+  the Discover track-row `SubscribeTrack` success label.
+- The row download command path still owns service dispatch, but no
+  longer authors `"Downloaded track"` locally.
+- The architecture guard now blocks Discover screen-local download
+  success labels.
+
+## One-Hundred-Twenty-Seventh-Slice Implementation Notes
+
+- The Discover inspector track-download command now reuses
+  `SearchSubscriptionCommand::track_download_success_message()`.
+- Inspector command construction still owns the selected entity wiring,
+  but not the completion label.
+- The architecture guard covers both Discover command construction
+  paths.
+
+## One-Hundred-Twenty-Eighth-Slice Implementation Notes
+
+- `LibraryViewModel::finish_feed_view_check_error()` and
+  `set_feed_check_error()` now own Library feed-check error projection.
+- `LibraryApp` passes command/query errors directly to the VM instead
+  of formatting `{error:#}` strings locally.
+- The architecture guard now blocks feed-check error formatting from
+  returning to the screen.
+
+## One-Hundred-Twenty-Ninth-Slice Implementation Notes
+
+- `LibraryViewModel::finish_apply_feed_updates_error()` now owns the
+  Library feed-update apply error prefix and formatting.
+- `LibraryApp` still owns command dispatch, but no longer formats the
+  `"Feed update error: ..."` status message.
+- The architecture guard now blocks apply-error formatting from
+  returning to the screen.
+
 ## Test Commands
 
 ```sh
@@ -2108,6 +2198,8 @@ cargo test deferred_panel_empty_line_projects_label
 cargo test deferred_panel_display_projects_heading_and_loading_labels
 cargo test feed_inspector_tracks_defaults_missing_tracks_to_empty_list
 cargo test library_track_action_vm_formats_subscription_labels
+cargo test search_subscription_command_formats_begin_and_error_messages
+cargo test library_view_model_bulk_feed_check_and_apply_transitions_are_pure
 cargo test artwork_url_display_projects_raw_url_text
 cargo test feed_header_display_filters_empty_subtitle
 cargo test search_type_filter_options_project_labels_and_values

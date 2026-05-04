@@ -770,8 +770,7 @@ impl LibraryApp {
                     .finish_feed_view_check(checked_feed_id, Ok(outcome.into_stale()));
             },
             move |this, error, _cx| {
-                this.vm
-                    .finish_feed_view_check(feed_id, Err(format!("{error:#}")));
+                this.vm.finish_feed_view_check_error(feed_id, error);
             },
         );
     }
@@ -796,7 +795,7 @@ impl LibraryApp {
             {
                 Ok(rows) => rows,
                 Err(err) => {
-                    self.vm.set_feed_check_error(format!("{err:#}"));
+                    self.vm.set_feed_check_error(err);
                     cx.notify();
                     return;
                 }
@@ -823,7 +822,7 @@ impl LibraryApp {
                 this.vm.finish_all_feed_check(outcome.into_stale());
             },
             |this, error, _cx| {
-                this.vm.set_feed_check_error(format!("{error:#}"));
+                this.vm.set_feed_check_error(error);
             },
         );
     }
@@ -848,8 +847,7 @@ impl LibraryApp {
                     .finish_apply_feed_updates(outcome.message().to_string());
             },
             |this, error, _cx| {
-                this.vm
-                    .finish_apply_feed_updates(format!("Feed update error: {error:#}"));
+                this.vm.finish_apply_feed_updates_error(error);
             },
         );
     }
@@ -934,7 +932,10 @@ impl LibraryApp {
             return;
         }
         let track_id = track.id;
-        self.vm.begin_busy_track(track_id, "Subscribing track...");
+        self.vm.begin_busy_track(
+            track_id,
+            LibraryTrackActionVm::track_subscribe_begin_status(),
+        );
         cx.notify();
 
         let command = SubscribeTrack::new(
@@ -943,7 +944,7 @@ impl LibraryApp {
             SubscribeTrackRequest::LibraryTrack {
                 track: Box::new(track),
             },
-            "Downloaded track",
+            LibraryTrackActionVm::track_subscribe_success_message(),
         );
         self.command_runner.run(
             command,
