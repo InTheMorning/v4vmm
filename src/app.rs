@@ -482,26 +482,31 @@ fn render_ui_scale_picker(
             id: "ui-scale-xs".into(),
             key: UiScale::XSmall,
             label: "XS".into(),
+            a11y_label: "Extra small UI scale".into(),
         }),
         Segment::new(SegmentDisplay {
             id: "ui-scale-s".into(),
             key: UiScale::Small,
             label: "S".into(),
+            a11y_label: "Small UI scale".into(),
         }),
         Segment::new(SegmentDisplay {
             id: "ui-scale-m".into(),
             key: UiScale::Medium,
             label: "M".into(),
+            a11y_label: "Medium UI scale".into(),
         }),
         Segment::new(SegmentDisplay {
             id: "ui-scale-l".into(),
             key: UiScale::Large,
             label: "L".into(),
+            a11y_label: "Large UI scale".into(),
         }),
         Segment::new(SegmentDisplay {
             id: "ui-scale-xl".into(),
             key: UiScale::XLarge,
             label: "XL".into(),
+            a11y_label: "Extra large UI scale".into(),
         }),
     ];
 
@@ -526,6 +531,7 @@ fn render_theme_profile_picker(
             id: profile.as_str().into(),
             key: profile,
             label: profile.settings_label().into(),
+            a11y_label: format!("{} theme profile", profile.settings_label()).into(),
         })
     });
 

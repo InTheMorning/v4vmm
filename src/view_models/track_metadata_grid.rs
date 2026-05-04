@@ -31,6 +31,7 @@ pub struct TrackMetadataGridHeading {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TrackMetadataGroupHeadingDisplay {
     pub label: String,
+    pub a11y_label: String,
     pub disclosure_id: Option<String>,
 }
 
@@ -424,8 +425,10 @@ impl TrackMetadataGridVm {
         unused_count: usize,
         group_key: Option<&str>,
     ) -> TrackMetadataGroupHeadingDisplay {
+        let label = Self::group_heading_label(label, unused_count);
         TrackMetadataGroupHeadingDisplay {
-            label: Self::group_heading_label(label, unused_count),
+            a11y_label: format!("Toggle {label} metadata group"),
+            label,
             disclosure_id: group_key.map(|key| format!("section:id3-frame-group:{key}")),
         }
     }
@@ -1236,6 +1239,7 @@ mod tests {
             TrackMetadataGridVm::group_heading_display("People", 3, Some("people-credits")),
             TrackMetadataGroupHeadingDisplay {
                 label: "People (3 unused)".to_string(),
+                a11y_label: "Toggle People (3 unused) metadata group".to_string(),
                 disclosure_id: Some("section:id3-frame-group:people-credits".to_string()),
             }
         );
@@ -1243,6 +1247,7 @@ mod tests {
             TrackMetadataGridVm::group_heading_display("People", 0, None),
             TrackMetadataGroupHeadingDisplay {
                 label: "People".to_string(),
+                a11y_label: "Toggle People metadata group".to_string(),
                 disclosure_id: None,
             }
         );

@@ -16,8 +16,8 @@ use gpui::{
 use crate::ui::composites::{
     identity_action_button, DetailGrid, DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay,
     DetailRow, DetailTextRow, EntityKind, IdentityActionButtonDisplay, IdentityActionKind, ListRow,
-    ReleaseDetailSurface, ReleaseSurfaceElement, ReleaseTrackSectionDisplay, Thumbnail,
-    ThumbnailSize, TrackRow,
+    ListRowA11yLabel, ReleaseActionGroupDisplay, ReleaseDetailSurface, ReleaseSurfaceElement,
+    ReleaseTrackSectionDisplay, Thumbnail, ThumbnailSize, TrackRow,
 };
 use crate::ui::primitives::Label;
 use crate::ui::style::{color, spacing, typography};
@@ -81,7 +81,12 @@ pub fn render_release_detail_shell(
         )));
 
     if let Some(actions) = render_action_slots(slots.primary_actions, slots.identity_actions) {
-        surface = surface.actions(actions);
+        surface = surface.actions(
+            actions,
+            ReleaseActionGroupDisplay {
+                a11y_label: page.actions_a11y_label.into(),
+            },
+        );
     }
 
     for overlay in slots.action_overlays {
@@ -241,8 +246,10 @@ fn render_contributor_person_row(
         return div().into_any_element();
     }
     let display = person.row_display();
+    let name = display.name;
+    let row_a11y_label = format!("Contributor: {name}");
     let mut detail = div().flex_1().min_w_0().child(
-        Label::new(display.name)
+        Label::new(name)
             .size(FontSize::Micro)
             .weight(gpui::FontWeight::MEDIUM)
             .truncated(),
@@ -258,6 +265,9 @@ fn render_contributor_person_row(
     }
 
     let mut row = ListRow::compact(SharedString::from(display.id))
+        .a11y_label(ListRowA11yLabel {
+            label: row_a11y_label.into(),
+        })
         .child(Thumbnail::new(EntityKind::Artist, ThumbnailSize::Sm).image(slot.thumbnail))
         .child(detail);
 

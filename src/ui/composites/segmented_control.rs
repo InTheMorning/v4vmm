@@ -4,6 +4,9 @@
 //! Mutually-exclusive horizontal selector built on the [`Button`] primitive.
 //! The currently-selected segment renders with the `Filled` variant; the rest
 //! render `Ghost`. Spacing between segments scales with the global UI scale.
+//!
+//! Accessibility note (ADR 0038 task 005): every segment carries a VM/screen
+//! display-contract label distinct from the visible abbreviation when needed.
 
 use std::rc::Rc;
 
@@ -22,6 +25,7 @@ pub struct Segment<K: Clone + PartialEq + 'static> {
     pub id: ElementId,
     pub key: K,
     pub label: SharedString,
+    pub a11y_label: SharedString,
 }
 
 /// Display-ready segment fields for a [`SegmentedControl`].
@@ -30,6 +34,7 @@ pub struct SegmentDisplay<K: Clone + PartialEq + 'static> {
     pub id: ElementId,
     pub key: K,
     pub label: SharedString,
+    pub a11y_label: SharedString,
 }
 
 impl<K: Clone + PartialEq + 'static> Segment<K> {
@@ -38,6 +43,7 @@ impl<K: Clone + PartialEq + 'static> Segment<K> {
             id: display.id,
             key: display.key,
             label: display.label,
+            a11y_label: display.a11y_label,
         }
     }
 }
@@ -92,7 +98,9 @@ impl<K: Clone + PartialEq + 'static> RenderOnce for SegmentedControl<K> {
             } else {
                 ButtonVariant::Plain
             };
-            let mut button = Button::new(segment.id, variant).label(segment.label.clone());
+            let mut button = Button::new(segment.id, variant)
+                .label(segment.label.clone())
+                .a11y_label(segment.a11y_label.clone());
             if let Some(handler) = on_select.clone() {
                 let key_for_click = key.clone();
                 button = button.on_click(move |event: &ClickEvent, window, cx| {
@@ -117,9 +125,11 @@ mod tests {
             id: "scale-medium".into(),
             key: 2_u8,
             label: "M".into(),
+            a11y_label: "Medium UI scale".into(),
         });
 
         assert_eq!(segment.key, 2);
         assert_eq!(segment.label, SharedString::from("M"));
+        assert_eq!(segment.a11y_label, SharedString::from("Medium UI scale"));
     }
 }

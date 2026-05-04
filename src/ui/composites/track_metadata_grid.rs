@@ -108,6 +108,7 @@ impl TrackMetadataGroupCell {
             DisclosureGroup::new(DisclosureGroupDisplay {
                 id: id.into(),
                 label: self.label.clone(),
+                a11y_label: format!("Toggle {} metadata group", self.label).into(),
             })
             .collapsed(collapsed)
             .on_toggle(handler)

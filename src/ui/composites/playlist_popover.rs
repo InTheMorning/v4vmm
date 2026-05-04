@@ -10,6 +10,11 @@
 //! Built on top of `crate::ui::primitives` — the trigger and inline buttons
 //! are `primitives::Button` variants, the floating panel body is a
 //! `primitives::Surface`, and section breaks use `primitives::Divider`.
+//!
+//! Accessibility note (ADR 0038 task 005): trigger, option, and inline create
+//! controls all receive labels through display contracts. GPUI 0.2.x does not
+//! yet expose a final accessibility sink; the primitive retains the labels as
+//! contract data.
 
 #![warn(clippy::pedantic)]
 
@@ -55,6 +60,10 @@ pub struct AddToPlaylistPopover {
     id: SharedString,
     playlists: Vec<PlaylistOption>,
     trigger_label: SharedString,
+    trigger_a11y_label: SharedString,
+    new_playlist_a11y_label: SharedString,
+    back_a11y_label: SharedString,
+    create_a11y_label: SharedString,
     disabled: bool,
     on_select: Option<SelectHandler>,
     on_create: Option<CreateHandler>,
@@ -66,6 +75,10 @@ pub struct AddToPlaylistDisplay {
     pub id: SharedString,
     pub playlists: Vec<PlaylistOption>,
     pub trigger_label: SharedString,
+    pub trigger_a11y_label: SharedString,
+    pub new_playlist_a11y_label: SharedString,
+    pub back_a11y_label: SharedString,
+    pub create_a11y_label: SharedString,
 }
 
 /// Display-ready playlist option for the shared playlist popover.
@@ -73,6 +86,7 @@ pub struct AddToPlaylistDisplay {
 pub struct PlaylistOption {
     id: i64,
     name: SharedString,
+    a11y_label: SharedString,
 }
 
 /// Display-ready playlist option fields.
@@ -80,6 +94,7 @@ pub struct PlaylistOption {
 pub struct PlaylistOptionDisplay {
     pub id: i64,
     pub name: SharedString,
+    pub a11y_label: SharedString,
 }
 
 impl PlaylistOption {
@@ -89,6 +104,7 @@ impl PlaylistOption {
         Self {
             id: display.id,
             name: display.name,
+            a11y_label: display.a11y_label,
         }
     }
 }
@@ -100,6 +116,10 @@ impl AddToPlaylistPopover {
             id: display.id,
             playlists: display.playlists,
             trigger_label: display.trigger_label,
+            trigger_a11y_label: display.trigger_a11y_label,
+            new_playlist_a11y_label: display.new_playlist_a11y_label,
+            back_a11y_label: display.back_a11y_label,
+            create_a11y_label: display.create_a11y_label,
             disabled: false,
             on_select: None,
             on_create: None,
@@ -138,6 +158,10 @@ impl RenderOnce for AddToPlaylistPopover {
         let open = state.read(cx).open;
         let playlists = Rc::new(self.playlists);
         let trigger_label = self.trigger_label;
+        let trigger_a11y_label = self.trigger_a11y_label;
+        let new_playlist_a11y_label = self.new_playlist_a11y_label;
+        let back_a11y_label = self.back_a11y_label;
+        let create_a11y_label = self.create_a11y_label;
         let on_select = self.on_select;
         let on_create = self.on_create;
         let can_create = on_create.is_some();
@@ -169,6 +193,7 @@ impl RenderOnce for AddToPlaylistPopover {
                 Button::tinted(trigger_id)
                     .size(ButtonSize::Sm)
                     .label(trigger_label)
+                    .a11y_label(trigger_a11y_label)
                     .disabled(disabled),
             )
             .content(move |_window, cx| {
@@ -178,13 +203,21 @@ impl RenderOnce for AddToPlaylistPopover {
                 };
 
                 if creating {
-                    build_create_mode(state.clone(), name_input, on_create.clone(), cx)
+                    build_create_mode(
+                        state.clone(),
+                        name_input,
+                        on_create.clone(),
+                        back_a11y_label.clone(),
+                        create_a11y_label.clone(),
+                        cx,
+                    )
                 } else {
                     build_list_mode(
                         state.clone(),
                         playlists.clone(),
                         on_select.clone(),
                         can_create,
+                        new_playlist_a11y_label.clone(),
                         cx,
                     )
                 }
@@ -205,6 +238,7 @@ fn build_list_mode(
     playlists: Rc<Vec<PlaylistOption>>,
     on_select: Option<SelectHandler>,
     can_create: bool,
+    new_playlist_a11y_label: SharedString,
     cx: &App,
 ) -> Div {
     let playlist_buttons = playlists.iter().map(|p| {
@@ -216,6 +250,7 @@ fn build_list_mode(
             .full_width()
             .align_leading()
             .label(label)
+            .a11y_label(p.a11y_label.clone())
             .on_click(move |_, window, cx| {
                 state.update(cx, |s, cx| {
                     s.open = false;
@@ -248,6 +283,7 @@ fn build_list_mode(
             .align_leading()
             .leading_icon(IconName::Add)
             .label("New Playlist")
+            .a11y_label(new_playlist_a11y_label)
             .on_click({
                 let state = state.clone();
                 move |_, _window, cx| {
@@ -281,6 +317,8 @@ fn build_create_mode(
     state: Entity<AddToPlaylistState>,
     name_input: Entity<InputState>,
     on_create: Option<CreateHandler>,
+    back_a11y_label: SharedString,
+    create_a11y_label: SharedString,
     cx: &App,
 ) -> Div {
     let back_btn = Button::plain("pl-back")
@@ -288,6 +326,7 @@ fn build_create_mode(
         .align_leading()
         .leading_icon(IconName::Back)
         .label("Back")
+        .a11y_label(back_a11y_label)
         .on_click({
             let state = state.clone();
             move |_, _window, cx| {
@@ -301,6 +340,7 @@ fn build_create_mode(
     let create_btn = Button::filled("pl-create-confirm")
         .full_width()
         .label("Create & Add")
+        .a11y_label(create_a11y_label)
         .on_click({
             let state = state.clone();
             let name_input = name_input.clone();

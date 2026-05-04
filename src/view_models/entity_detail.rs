@@ -249,6 +249,7 @@ pub struct TrackMetadataActionState {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StagedId3EditsDisplay {
+    pub action_row_a11y_label: &'static str,
     pub message: ActionStatusMessageDisplay,
     pub apply_label: String,
     pub apply_enabled: bool,
@@ -406,6 +407,7 @@ impl TrackMetadataActionState {
 
         let has_conflicts = conflict_text.is_some_and(|text| !text.trim().is_empty());
         Some(StagedId3EditsDisplay {
+            action_row_a11y_label: "Metadata edit actions",
             message: ActionStatusMessageDisplay::neutral(format!(
                 "{count} staged tag edit{}",
                 if count == 1 { "" } else { "s" }
@@ -613,6 +615,7 @@ pub struct ReleaseDetailPageVm<'a> {
     pub primary_actions: Vec<EntityActionVm>,
     pub identity_actions: Vec<EntityActionVm>,
     pub identity_action_prefix: &'static str,
+    pub actions_a11y_label: &'static str,
     pub summary_facts: Vec<ReleaseFactVm>,
     pub panels: Vec<ReleasePanelVm>,
     pub tracks: TrackListVm<'a>,
@@ -780,6 +783,7 @@ impl<'a> ReleaseDetailVm<'a> {
             primary_actions: self.actions(),
             identity_actions: self.identity_actions(),
             identity_action_prefix: self.identity_action_prefix(),
+            actions_a11y_label: self.actions_a11y_label(),
             summary_facts: self.summary_facts(),
             panels: self.panels(),
             tracks: self.track_list(),
@@ -906,6 +910,14 @@ impl<'a> ReleaseDetailVm<'a> {
         match self.context {
             EntitySurfaceContext::Discover => "discover-feed",
             EntitySurfaceContext::Library => "library-feed",
+        }
+    }
+
+    #[must_use]
+    pub const fn actions_a11y_label(&self) -> &'static str {
+        match self.context {
+            EntitySurfaceContext::Discover => "Discover release actions",
+            EntitySurfaceContext::Library => "Library release actions",
         }
     }
 
@@ -1297,6 +1309,14 @@ impl<'a> SharedTrackRowVm<'a> {
     #[must_use]
     pub fn duration_display(&self) -> Option<String> {
         self.track.duration_secs.map(fmt_dur)
+    }
+
+    #[must_use]
+    pub fn a11y_label(&self) -> String {
+        self.duration_display().map_or_else(
+            || self.title(),
+            |duration| format!("{}, {duration}", self.title()),
+        )
     }
 
     #[must_use]
@@ -2087,6 +2107,7 @@ mod tests {
         assert_eq!(
             state.staged_id3_edits_display(2, false, Some("TIT2")),
             Some(StagedId3EditsDisplay {
+                action_row_a11y_label: "Metadata edit actions",
                 message: ActionStatusMessageDisplay::neutral("2 staged tag edits"),
                 apply_label: "Apply tags (2)".into(),
                 apply_enabled: false,
@@ -2101,6 +2122,7 @@ mod tests {
         assert_eq!(
             state.staged_id3_edits_display(1, true, None),
             Some(StagedId3EditsDisplay {
+                action_row_a11y_label: "Metadata edit actions",
                 message: ActionStatusMessageDisplay::neutral("1 staged tag edit"),
                 apply_label: "Applying tags...".into(),
                 apply_enabled: false,

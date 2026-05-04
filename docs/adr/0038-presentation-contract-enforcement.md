@@ -229,8 +229,8 @@ as historical context.
   6. `docs/tasks/adr-0038-task-006-page-vm-generalization.md`
   7. `docs/tasks/adr-0038-task-007-screen-decomposition.md`
   8. `docs/tasks/adr-0038-task-008-final-sweep-and-readiness-gate.md`
-- A child ADR will cover dynamic-type policy (text scale ramps, max
-  scale, truncation rules). To be opened after Task 005 lands.
+- Child ADR `docs/adr/0039-dynamic-type-ramp.md` covers dynamic-type
+  policy (text scale ramps, max scale, truncation rules) after Task 005.
 
 ## Enforcing Tests (current and planned)
 

@@ -2,20 +2,26 @@
 
 ## Status
 
-In progress (2026-05-04). Slices landed: (1) `ActionButtonDisplay` carries
-`a11y_label`; `EntityActionVm::a11y_label()` and
-`LibraryAlbumMusicBrainzActionVm::a11y_label` source it. (2)
-`identity_action_button` migrated to `IdentityActionButtonDisplay`;
-`IdentityActionDisplay` and `ContributorIdentityActionDisplay` now carry
-`a11y_label` projected from per-kind defaults
-(`IdentityActionDisplayKind::default_a11y_label`,
-`ContributorIdentityActionKind::default_a11y_label`). The architecture guard
-`interactive_composites_carry_accessibility_labels` covers both composites.
-GPUI 0.2.x has no accessibility-label sink on its button widget — the field
-is contract-only until the framework grows the surface. Remaining composites
-(`ActionRow`, `AddToPlaylistPopover`, `TrackRow`, `ListRow`, `RecentFeedTile`,
-`DisclosureGroup`, `SegmentedControl`, `NowPlayingBar`, release/track detail
-action overlays) follow in future slices.
+Completed on 2026-05-04.
+
+The interactive composite inventory now carries VM- or display-contract-sourced
+accessibility labels:
+
+- `ActionButtonDisplay` carries `a11y_label` from `EntityActionVm::a11y_label()`
+  and `LibraryAlbumMusicBrainzActionVm::a11y_label`.
+- `IdentityActionButtonDisplay` carries labels from `IdentityActionDisplay` and
+  `ContributorIdentityActionDisplay`.
+- `ActionRowDisplay`, `AddToPlaylistDisplay`, `PlaylistOptionDisplay`,
+  `TrackRowDisplay`, `ListRow`, `RecentFeedTileDisplay`,
+  `DisclosureGroupDisplay`, `SegmentDisplay`, `NowPlayingData`,
+  `ReleaseDetailPageVm`/`ReleaseDetailSurface`, `TrackDetailSurface`, and
+  `TrackRowVm` all expose explicit a11y-label fields.
+- `interactive_composites_carry_accessibility_labels` enforces the expanded
+  coverage list.
+
+GPUI 0.2.x still has no final accessibility-label sink for these widgets. The
+labels are contract data today and can be plumbed into the framework once GPUI
+exposes the surface.
 
 ## Goal
 

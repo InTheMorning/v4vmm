@@ -64,9 +64,11 @@ pub fn identity_action_button(display: IdentityActionButtonDisplay) -> Button {
     let IdentityActionButtonDisplay {
         id,
         kind,
-        a11y_label: _,
+        a11y_label,
     } = display;
-    let mut button = Button::styled(id, ControlStyle::RowAction).label(kind.label());
+    let mut button = Button::styled(id, ControlStyle::RowAction)
+        .label(kind.label())
+        .a11y_label(a11y_label);
     if let Some(icon) = kind.leading_icon() {
         button = button.leading_icon(icon);
     }

@@ -68,6 +68,7 @@ pub struct Button {
     variant: ButtonVariant,
     size: ButtonSize,
     label: Option<gpui::SharedString>,
+    a11y_label: Option<gpui::SharedString>,
     leading_icon: Option<IconName>,
     on_click: Option<ClickHandler>,
     appearance: Option<Appearance>,
@@ -88,6 +89,7 @@ impl Button {
             variant,
             size: ButtonSize::Md,
             label: None,
+            a11y_label: None,
             leading_icon: None,
             on_click: None,
             appearance: None,
@@ -117,6 +119,11 @@ impl Button {
 
     pub fn label(mut self, label: impl Into<gpui::SharedString>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    pub fn a11y_label(mut self, label: impl Into<gpui::SharedString>) -> Self {
+        self.a11y_label = Some(label.into());
         self
     }
 
@@ -344,5 +351,15 @@ mod tests {
 
         assert!(button.full_width);
         assert_eq!(button.content_alignment, ButtonContentAlignment::Leading);
+    }
+
+    #[test]
+    fn button_carries_contract_accessibility_label() {
+        let button = Button::plain("remove").a11y_label("Remove feed from library");
+
+        assert_eq!(
+            button.a11y_label,
+            Some(gpui::SharedString::from("Remove feed from library"))
+        );
     }
 }

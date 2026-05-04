@@ -11,6 +11,9 @@
 //! trailing action elements (download button, playlist popover, play button).
 //! The composite owns no fallback policy — it is purely presentational.
 //!
+//! Accessibility note (ADR 0038 task 005): the row label is projected by
+//! `TrackRowVm` / `SharedTrackRowVm` and retained on the row/ListRow contract.
+//!
 //! # Examples
 //!
 //! ```ignore
@@ -35,7 +38,7 @@ use gpui::{
     Styled, Window,
 };
 
-use crate::ui::composites::{EntityKind, ListRow, Thumbnail, ThumbnailSize};
+use crate::ui::composites::{EntityKind, ListRow, ListRowA11yLabel, Thumbnail, ThumbnailSize};
 use crate::ui::primitives::Label;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::entity_detail::SharedTrackRowVm;
@@ -48,6 +51,7 @@ struct TrackRowDisplay {
     number: String,
     title: String,
     duration: Option<String>,
+    a11y_label: String,
 }
 
 impl TrackRowDisplay {
@@ -56,6 +60,7 @@ impl TrackRowDisplay {
             number: vm.number.clone(),
             title: vm.title.clone(),
             duration: vm.duration.clone(),
+            a11y_label: vm.a11y_label(),
         }
     }
 
@@ -64,6 +69,7 @@ impl TrackRowDisplay {
             number: vm.number_label(),
             title: vm.title(),
             duration: vm.duration_display(),
+            a11y_label: vm.a11y_label(),
         }
     }
 }
@@ -79,6 +85,7 @@ pub struct TrackRow {
     number: String,
     title: String,
     duration: Option<String>,
+    a11y_label: String,
     thumbnail: Option<Arc<Image>>,
     on_click: Option<ClickHandler>,
     trailing: Vec<gpui::AnyElement>,
@@ -91,6 +98,7 @@ impl TrackRow {
             number: display.number,
             title: display.title,
             duration: display.duration,
+            a11y_label: display.a11y_label,
             thumbnail: None,
             on_click: None,
             trailing: Vec::new(),
@@ -138,6 +146,7 @@ impl RenderOnce for TrackRow {
         let number = SharedString::from(self.number);
         let title = self.title;
         let duration = self.duration;
+        let a11y_label = self.a11y_label;
         let on_click = self.on_click;
         let thumbnail = self.thumbnail;
 
@@ -201,7 +210,11 @@ impl RenderOnce for TrackRow {
             );
         }
 
-        let mut row = ListRow::compact(self.id).child(body);
+        let mut row = ListRow::compact(self.id)
+            .a11y_label(ListRowA11yLabel {
+                label: a11y_label.into(),
+            })
+            .child(body);
         for child in self.trailing {
             row = row.child(child);
         }
@@ -225,6 +238,7 @@ mod tests {
             title: "Song".to_string(),
             subtitle: Some("Artist".to_string()),
             duration: Some("3:00".to_string()),
+            a11y_label: "Song, 3 minutes".to_string(),
         };
         let row = TrackRow::from_vm("test", &vm);
 
@@ -241,11 +255,13 @@ mod tests {
                 number: "7".to_string(),
                 title: "My Track".to_string(),
                 duration: Some("3:45".to_string()),
+                a11y_label: "My Track, 3 minutes 45 seconds".to_string(),
             },
         );
         assert_eq!(row.number, "7");
         assert_eq!(row.title, "My Track");
         assert_eq!(row.duration.as_deref(), Some("3:45"));
+        assert_eq!(row.a11y_label, "My Track, 3 minutes 45 seconds");
     }
 
     #[test]
@@ -256,6 +272,7 @@ mod tests {
                 number: "\u{00B7}".to_string(),
                 title: "Song".to_string(),
                 duration: None,
+                a11y_label: "Song".to_string(),
             },
         );
         assert!(row.thumbnail.is_none());
@@ -270,6 +287,7 @@ mod tests {
                 number: "3".to_string(),
                 title: "Song".to_string(),
                 duration: Some("2:30".to_string()),
+                a11y_label: "Song, 2 minutes 30 seconds".to_string(),
             },
         )
         .trailing_child(gpui::div())

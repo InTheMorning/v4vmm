@@ -32,6 +32,7 @@ pub struct TrackDetailSurface {
     description_label: String,
     description: Option<String>,
     primary_actions: Vec<TrackSurfaceElement>,
+    primary_actions_a11y_label: String,
     external_links: Vec<TrackSurfaceElement>,
     sections: Vec<TrackDetailSection>,
     section_elements: Vec<TrackSurfaceElement>,
@@ -49,6 +50,7 @@ impl TrackDetailSurface {
             description_label: vm.labels().description_label().to_string(),
             description: vm.description(),
             primary_actions: Vec::new(),
+            primary_actions_a11y_label: vm.primary_actions_a11y_label().to_string(),
             external_links: Vec::new(),
             sections: Vec::new(),
             section_elements: Vec::new(),
@@ -131,6 +133,7 @@ fn render_loaded_surface(surface: TrackDetailSurface, cx: &mut App) -> AnyElemen
     );
 
     if !surface.primary_actions.is_empty() {
+        std::mem::drop(surface.primary_actions_a11y_label);
         stack = stack.child(
             div()
                 .flex()

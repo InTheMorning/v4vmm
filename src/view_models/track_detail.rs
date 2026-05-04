@@ -317,6 +317,14 @@ impl<'a> TrackDetailVm<'a> {
             TrackDetailSurfaceContext::Library => "library-track",
         }
     }
+
+    #[must_use]
+    pub const fn primary_actions_a11y_label(&self) -> &'static str {
+        match self.context {
+            TrackDetailSurfaceContext::Discover => "Discover track actions",
+            TrackDetailSurfaceContext::Library => "Library track actions",
+        }
+    }
 }
 
 /// Row-shaped projection of [`TrackDetailVm`].
@@ -327,22 +335,42 @@ pub struct TrackRowVm {
     pub title: String,
     pub subtitle: Option<String>,
     pub duration: Option<String>,
+    pub a11y_label: String,
 }
 
 impl TrackRowVm {
     #[must_use]
     pub fn from_detail(detail: &TrackDetailVm<'_>) -> Self {
+        let title = detail.display_title();
+        let duration = detail.duration_display();
         Self {
             element_key: track_element_key(detail.track),
             number: detail
                 .track
                 .track_number
                 .map_or_else(|| "\u{00B7}".to_string(), |number| number.to_string()),
-            title: detail.display_title(),
+            a11y_label: track_row_a11y_label(&title, duration.as_deref()),
+            title,
             subtitle: Some(detail.display_artist()).filter(|artist| artist != UNKNOWN_ARTIST),
-            duration: detail.duration_display(),
+            duration,
         }
     }
+
+    #[must_use]
+    pub fn a11y_label(&self) -> String {
+        if self.a11y_label.is_empty() {
+            track_row_a11y_label(&self.title, self.duration.as_deref())
+        } else {
+            self.a11y_label.clone()
+        }
+    }
+}
+
+fn track_row_a11y_label(title: &str, duration: Option<&str>) -> String {
+    duration.map_or_else(
+        || title.to_string(),
+        |duration| format!("{title}, {duration}"),
+    )
 }
 
 /// Typed non-artwork slots accepted by the shared track detail surface.

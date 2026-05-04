@@ -108,15 +108,24 @@ pub struct ActionStatusMessageDisplay {
 pub(crate) struct PlaylistOptionDisplayVm {
     pub(crate) id: i64,
     pub(crate) name: String,
+    pub(crate) a11y_label: String,
 }
 
 #[must_use]
 pub(crate) fn playlist_option_displays(playlists: &[db::Playlist]) -> Vec<PlaylistOptionDisplayVm> {
     playlists
         .iter()
-        .map(|playlist| PlaylistOptionDisplayVm {
-            id: playlist.id,
-            name: playlist.name.clone(),
+        .map(|playlist| {
+            let a11y_label = if playlist.name.trim().is_empty() {
+                "Add to unnamed playlist".to_string()
+            } else {
+                format!("Add to playlist {}", playlist.name)
+            };
+            PlaylistOptionDisplayVm {
+                id: playlist.id,
+                name: playlist.name.clone(),
+                a11y_label,
+            }
         })
         .collect()
 }
@@ -279,10 +288,12 @@ mod tests {
                 PlaylistOptionDisplayVm {
                     id: 7,
                     name: "Focus".into(),
+                    a11y_label: "Add to playlist Focus".into(),
                 },
                 PlaylistOptionDisplayVm {
                     id: 9,
                     name: String::new(),
+                    a11y_label: "Add to unnamed playlist".into(),
                 },
             ]
         );

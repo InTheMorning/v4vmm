@@ -49,13 +49,14 @@ use crate::subscribe_service::{
 };
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{
-    action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowMessage,
-    AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
-    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureGroup,
-    DisclosureGroupDisplay, EntityKind, IdentityActionButtonDisplay, IdentityActionKind, ListRow,
-    PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement,
-    SplitPane, StatusRole, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackDetailSurface,
-    TrackInspectorPane, TrackMetadataGrid, TrackSurfaceElement,
+    action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowDisplay,
+    ActionRowMessage, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
+    DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
+    DisclosureGroup, DisclosureGroupDisplay, EntityKind, IdentityActionButtonDisplay,
+    IdentityActionKind, ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay,
+    ProvenanceRole, RecentFeedTile, ReleaseSurfaceElement, SplitPane, StatusRole, TagBadge,
+    TagBadgeDisplay, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackInspectorPane,
+    TrackMetadataGrid, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::detail_row::DetailRow;
@@ -2379,11 +2380,15 @@ fn render_result_item(
     let line2 = display.line2;
     let line3 = display.line3;
     let kind_label = display.kind_label;
+    let row_a11y_label = format!("{kind_label}: {line1}");
     let is_selected = selected_key == Some(selection_key.as_str());
 
     let kind = EntityKind::from_legacy_str(&kind_label);
 
     ListRow::new(SharedString::from(element_id))
+        .a11y_label(ListRowA11yLabel {
+            label: row_a11y_label.into(),
+        })
         .selected(is_selected)
         .focused(is_selected && list_focused)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
@@ -2766,6 +2771,10 @@ pub(crate) fn discover_inspector_action_row(
             id: SharedString::from(playlist_display.popover_id),
             playlists: playlist_options(&playlists),
             trigger_label: SharedString::from(playlist_display.trigger_label),
+            trigger_a11y_label: SharedString::from("Add to playlist"),
+            new_playlist_a11y_label: SharedString::from("Create a new playlist"),
+            back_a11y_label: SharedString::from("Back to playlist choices"),
+            create_a11y_label: SharedString::from("Create playlist and add item"),
         })
         .disabled(playlist_disabled || playlist_target.is_none())
         .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
@@ -2827,7 +2836,10 @@ pub(crate) fn discover_inspector_action_row(
         .into_any_element(),
     ];
 
-    let mut row = ActionRow::new().control_group(controls);
+    let mut row = ActionRow::new(ActionRowDisplay {
+        a11y_label: SharedString::from(vm.action_row_a11y_label()),
+    })
+    .control_group(controls);
 
     if let Some(message) = vm.subscription_message_display() {
         row = row.message(ActionRowMessage::from_status_display(message));
@@ -2896,6 +2908,7 @@ fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
             PlaylistOption::new(PlaylistOptionDisplay {
                 id: option.id,
                 name: SharedString::from(option.name),
+                a11y_label: SharedString::from(option.a11y_label),
             })
         })
         .collect()
@@ -3082,6 +3095,7 @@ fn render_contributors_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> 
     DisclosureGroup::new(DisclosureGroupDisplay {
         id: display.section_id.into(),
         label: display.heading_label.into(),
+        a11y_label: display.heading_a11y_label.into(),
     })
     .collapsed(collapsed)
     .on_toggle(cx.listener(|this, _, _, cx| {
@@ -3095,6 +3109,7 @@ fn render_value_routes_heading(collapsed: bool, cx: &mut Context<SearchApp>) -> 
     DisclosureGroup::new(DisclosureGroupDisplay {
         id: display.section_id.into(),
         label: display.heading_label.into(),
+        a11y_label: display.heading_a11y_label.into(),
     })
     .collapsed(collapsed)
     .on_toggle(cx.listener(|this, _, _, cx| {
@@ -3460,6 +3475,7 @@ fn metadata_group_cell(
             DisclosureGroup::new(DisclosureGroupDisplay {
                 id: SharedString::from(disclosure_id).into(),
                 label: SharedString::from(display.label),
+                a11y_label: SharedString::from(display.a11y_label),
             })
             .collapsed(!expanded)
             .on_toggle(cx.listener(move |this, _, _, cx| {

@@ -25,18 +25,13 @@ pub struct ActionButtonDisplay {
 
 /// Build a metadata-action button with the standard accent-bordered style.
 pub fn action_button(display: ActionButtonDisplay, _cx: &App) -> Button {
-    // `a11y_label` is contract-only until GPUI exposes an accessibility-label
-    // sink on its button widget; see module-level note. Keep the field on the
-    // display contract so view-models stay the source of truth.
-    let ActionButtonDisplay {
-        label,
-        a11y_label: _,
-    } = display;
+    let ActionButtonDisplay { label, a11y_label } = display;
     Button::styled(
         SharedString::from(format!("metadata-action:{label}")),
         ControlStyle::MetadataAction,
     )
     .label(label)
+    .a11y_label(a11y_label)
 }
 
 #[cfg(test)]

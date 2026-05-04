@@ -136,6 +136,7 @@ pub struct RecentFeedTileDisplay {
     pub recent_tile_id: String,
     pub podroll_tile_id: String,
     pub title: String,
+    pub a11y_label: String,
     pub subtitle: Option<String>,
     pub episode_note: Option<String>,
     pub image_url: Option<String>,
@@ -194,12 +195,14 @@ impl<'a> RecentFeedTileVm<'a> {
     #[must_use]
     pub(crate) fn display(&self) -> RecentFeedTileDisplay {
         let id = self.feed.feed_guid.clone().unwrap_or_default();
+        let title = feed_display_title(self.feed);
         RecentFeedTileDisplay {
             feed_list_tile_id: format!("feed-tile:{id}"),
             recent_tile_id: format!("recent-tile:{id}"),
             podroll_tile_id: format!("podroll-tile:{id}"),
             id,
-            title: feed_display_title(self.feed),
+            a11y_label: format!("Feed: {title}"),
+            title,
             subtitle: nonempty_text(self.feed.release_artist.as_deref())
                 .or_else(|| nonempty_text(self.feed.publisher_text.as_deref()))
                 .map(str::to_string),
@@ -654,6 +657,15 @@ impl<'a> ActionRowVm<'a> {
     #[must_use]
     pub(crate) fn subscription_message_display(&self) -> Option<ActionStatusMessageDisplay> {
         ActionStatusMessageDisplay::subscription(self.subscription_message)
+    }
+
+    #[expect(
+        clippy::unused_self,
+        reason = "kept as an instance method so action-row labels travel with the VM contract"
+    )]
+    #[must_use]
+    pub(crate) const fn action_row_a11y_label(&self) -> &'static str {
+        "Inspector actions"
     }
 }
 
@@ -1294,6 +1306,7 @@ pub(crate) enum DeferredPanelKind {
 pub(crate) struct DeferredPanelDisplay {
     pub(crate) section_id: &'static str,
     pub(crate) heading_label: &'static str,
+    pub(crate) heading_a11y_label: &'static str,
     pub(crate) loading_label: &'static str,
     pub(crate) empty_label: &'static str,
 }
@@ -1312,12 +1325,14 @@ impl DeferredPanelDisplay {
             DeferredPanelKind::Contributors => Self {
                 section_id: "section:contributors",
                 heading_label: "Contributors",
+                heading_a11y_label: "Toggle Contributors section",
                 loading_label: "Loading contributors...",
                 empty_label: "No contributors found",
             },
             DeferredPanelKind::ValueRoutes => Self {
                 section_id: "section:value-routes",
                 heading_label: "Value Routes",
+                heading_a11y_label: "Toggle Value Routes section",
                 loading_label: "Loading value routes...",
                 empty_label: "No value routes found",
             },

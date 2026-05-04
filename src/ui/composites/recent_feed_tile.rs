@@ -4,6 +4,9 @@
 //! The view model owns title/subtitle/image URL fallback policy; this
 //! composite owns the HIG-style tile chrome: artwork, spacing, label hierarchy,
 //! hover state, and click target.
+//!
+//! Accessibility note (ADR 0038 task 005): the tile receives a VM-owned
+//! `a11y_label` through [`RecentFeedTileDisplay`].
 
 #![warn(clippy::pedantic)]
 

@@ -22,6 +22,7 @@ pub struct ReleaseDetailSurface {
     scrollable: bool,
     header: Option<ReleaseSurfaceElement>,
     actions: Option<ReleaseSurfaceElement>,
+    actions_a11y_label: Option<SharedString>,
     details: Option<ReleaseSurfaceElement>,
     panels: Vec<ReleaseSurfaceElement>,
     track_section: Option<ReleaseTrackSectionDisplay>,
@@ -35,6 +36,10 @@ pub struct ReleaseTrackSectionDisplay {
     pub rows: Vec<ReleaseSurfaceElement>,
 }
 
+pub struct ReleaseActionGroupDisplay {
+    pub a11y_label: SharedString,
+}
+
 impl ReleaseDetailSurface {
     pub fn new(id: impl Into<SharedString>) -> Self {
         Self {
@@ -42,6 +47,7 @@ impl ReleaseDetailSurface {
             scrollable: false,
             header: None,
             actions: None,
+            actions_a11y_label: None,
             details: None,
             panels: Vec::new(),
             track_section: None,
@@ -59,8 +65,13 @@ impl ReleaseDetailSurface {
         self
     }
 
-    pub fn actions(mut self, actions: ReleaseSurfaceElement) -> Self {
+    pub fn actions(
+        mut self,
+        actions: ReleaseSurfaceElement,
+        display: ReleaseActionGroupDisplay,
+    ) -> Self {
         self.actions = Some(actions);
+        self.actions_a11y_label = Some(display.a11y_label);
         self
     }
 
@@ -105,6 +116,7 @@ impl RenderOnce for ReleaseDetailSurface {
         }
 
         if let Some(actions) = self.actions {
+            std::mem::drop(self.actions_a11y_label);
             root = root.child(actions);
         }
 

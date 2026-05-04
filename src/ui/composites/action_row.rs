@@ -4,6 +4,11 @@
 //! shared presentation contract for inspector actions: a compact vertical
 //! stack, optional wrapped control groups, and tokenized neutral/danger
 //! status messages.
+//!
+//! Accessibility note (ADR 0038 task 005): [`ActionRowDisplay`] carries a
+//! VM-sourced group label. GPUI 0.2.x does not expose an accessibility group
+//! sink for a plain `div`, so the value is retained as a contract field until
+//! the framework can consume it.
 
 #![warn(clippy::pedantic)]
 
@@ -36,6 +41,11 @@ pub struct ActionRowMessage {
 pub struct ActionRowMessageDisplay {
     pub text: SharedString,
     pub tone: ActionRowMessageTone,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActionRowDisplay {
+    pub a11y_label: SharedString,
 }
 
 impl ActionRowMessage {
@@ -83,13 +93,15 @@ enum ActionRowItem {
 #[derive(IntoElement)]
 #[must_use]
 pub struct ActionRow {
+    a11y_label: SharedString,
     items: Vec<ActionRowItem>,
     appearance: Option<Appearance>,
 }
 
 impl ActionRow {
-    pub fn new() -> Self {
+    pub fn new(display: ActionRowDisplay) -> Self {
         Self {
+            a11y_label: display.a11y_label,
             items: Vec::new(),
             appearance: None,
         }
@@ -119,12 +131,15 @@ impl ActionRow {
 
 impl Default for ActionRow {
     fn default() -> Self {
-        Self::new()
+        Self::new(ActionRowDisplay {
+            a11y_label: SharedString::from("Actions"),
+        })
     }
 }
 
 impl RenderOnce for ActionRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        std::mem::drop(self.a11y_label);
         let mut row = div()
             .flex()
             .flex_col()
@@ -182,6 +197,15 @@ fn render_message(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_row_carries_group_accessibility_label() {
+        let row = ActionRow::new(ActionRowDisplay {
+            a11y_label: SharedString::from("Track actions"),
+        });
+
+        assert_eq!(row.a11y_label, SharedString::from("Track actions"));
+    }
 
     #[test]
     fn message_defaults_to_expected_widths_and_tones() {

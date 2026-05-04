@@ -27,6 +27,11 @@
 //!
 //! The `collapsed` flag mirrors the legacy `render_clickable_section_heading`
 //! contract — pass `true` for the collapsed state, `false` for expanded.
+//!
+//! Accessibility note (ADR 0038 task 005): [`DisclosureGroupDisplay`] carries
+//! the VM-sourced action label for the toggle affordance. GPUI 0.2.x does not
+//! expose a final accessibility sink for this `div`, so the field is retained
+//! as contract data.
 
 #![warn(clippy::pedantic)]
 
@@ -47,6 +52,7 @@ type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 pub struct DisclosureGroup {
     id: ElementId,
     label: SharedString,
+    a11y_label: SharedString,
     collapsed: bool,
     on_toggle: Option<ClickHandler>,
 }
@@ -79,6 +85,7 @@ pub struct DisclosureSupplementDisplay {
 pub struct DisclosureGroupDisplay {
     pub id: ElementId,
     pub label: SharedString,
+    pub a11y_label: SharedString,
 }
 
 impl DisclosureGroup {
@@ -86,6 +93,7 @@ impl DisclosureGroup {
         Self {
             id: display.id,
             label: display.label,
+            a11y_label: display.a11y_label,
             collapsed: false,
             on_toggle: None,
         }
@@ -141,6 +149,7 @@ impl RenderOnce for DisclosureSupplementLabel {
 
 impl RenderOnce for DisclosureGroup {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let _a11y_label = self.a11y_label;
         let mut row = div()
             .id(self.id)
             .cursor_pointer()
@@ -161,9 +170,11 @@ mod tests {
         let g = DisclosureGroup::new(DisclosureGroupDisplay {
             id: "d".into(),
             label: "Hello".into(),
+            a11y_label: "Toggle Hello section".into(),
         });
         assert!(!g.collapsed);
         assert!(g.on_toggle.is_none());
+        assert_eq!(g.a11y_label, SharedString::from("Toggle Hello section"));
     }
 
     #[test]
@@ -171,6 +182,7 @@ mod tests {
         let g = DisclosureGroup::new(DisclosureGroupDisplay {
             id: "d".into(),
             label: "Hello".into(),
+            a11y_label: "Toggle Hello section".into(),
         })
         .collapsed(true)
         .on_toggle(|_, _, _| {});

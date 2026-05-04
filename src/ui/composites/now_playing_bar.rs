@@ -5,6 +5,9 @@
 //! playback state) and renders artwork · transport controls · scrubber.
 //! All actions are callbacks so the composite carries no domain state.
 //!
+//! Accessibility note (ADR 0038 task 005): transport-control labels are part
+//! of [`NowPlayingData`] so the app/query layer owns state-dependent wording.
+//!
 //! This is the migration target for `app.rs::render_playback_controls`.
 //! The inline free function will be removed once `TopApp::render` binds
 //! this composite directly.
@@ -35,12 +38,31 @@ pub enum PlaybackState {
 ///
 /// All fields are already-formatted strings — projection lives in the
 /// screen or view-model layer.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct NowPlayingData {
     pub title: Option<String>,
     pub artist: Option<String>,
     pub state: Option<PlaybackState>,
     pub thumbnail: Option<Arc<Image>>,
+    pub previous_a11y_label: &'static str,
+    pub play_pause_a11y_label: &'static str,
+    pub next_a11y_label: &'static str,
+    pub stop_a11y_label: &'static str,
+}
+
+impl Default for NowPlayingData {
+    fn default() -> Self {
+        Self {
+            title: None,
+            artist: None,
+            state: None,
+            thumbnail: None,
+            previous_a11y_label: "Previous track",
+            play_pause_a11y_label: "Play",
+            next_a11y_label: "Next track",
+            stop_a11y_label: "Stop playback",
+        }
+    }
 }
 
 /// The persistent playback bar rendered above the tab content area.
@@ -192,6 +214,7 @@ impl RenderOnce for NowPlayingBar {
                     .child(transport_btn(
                         "np-prev",
                         IconName::Previous,
+                        self.data.previous_a11y_label,
                         self.on_prev,
                         is_active,
                         cx,
@@ -199,6 +222,7 @@ impl RenderOnce for NowPlayingBar {
                     .child(transport_btn(
                         "np-playpause",
                         play_pause_icon,
+                        self.data.play_pause_a11y_label,
                         self.on_play_pause,
                         is_active,
                         cx,
@@ -206,6 +230,7 @@ impl RenderOnce for NowPlayingBar {
                     .child(transport_btn(
                         "np-next",
                         IconName::Next,
+                        self.data.next_a11y_label,
                         self.on_next,
                         is_active,
                         cx,
@@ -213,6 +238,7 @@ impl RenderOnce for NowPlayingBar {
                     .child(transport_btn(
                         "np-stop",
                         IconName::Stop,
+                        self.data.stop_a11y_label,
                         self.on_stop,
                         is_active,
                         cx,
@@ -224,6 +250,7 @@ impl RenderOnce for NowPlayingBar {
 fn transport_btn(
     id: &'static str,
     icon: IconName,
+    _a11y_label: &'static str,
     handler: Option<ClickCallback>,
     enabled: bool,
     cx: &App,

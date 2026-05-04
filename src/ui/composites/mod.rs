@@ -41,7 +41,9 @@ pub mod track_metadata_grid;
 pub mod track_row;
 
 pub use action_button::{action_button, ActionButtonDisplay};
-pub use action_row::{ActionRow, ActionRowMessage, ActionRowMessageDisplay, ActionRowMessageTone};
+pub use action_row::{
+    ActionRow, ActionRowDisplay, ActionRowMessage, ActionRowMessageDisplay, ActionRowMessageTone,
+};
 pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
 pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};
 pub use disclosure_group::{
@@ -52,7 +54,7 @@ pub use file_header::FileHeader;
 pub use identity_action::{
     identity_action_button, IdentityActionButtonDisplay, IdentityActionKind,
 };
-pub use list_row::{ListRow, ListRowDensity};
+pub use list_row::{ListRow, ListRowA11yLabel, ListRowDensity};
 pub use musicbrainz_panel::MusicBrainzPanel;
 pub use now_playing_bar::{NowPlayingBar, NowPlayingData, PlaybackState as NowPlayingState};
 pub use playlist_popover::{
@@ -60,7 +62,8 @@ pub use playlist_popover::{
 };
 pub use recent_feed_tile::RecentFeedTile;
 pub use release_detail_surface::{
-    ReleaseDetailSurface, ReleaseSurfaceElement, ReleaseTrackSectionDisplay,
+    ReleaseActionGroupDisplay, ReleaseDetailSurface, ReleaseSurfaceElement,
+    ReleaseTrackSectionDisplay,
 };
 pub use segmented_control::{Segment, SegmentDisplay, SegmentedControl};
 pub use split_pane::SplitPane;

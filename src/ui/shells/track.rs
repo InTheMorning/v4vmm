@@ -36,6 +36,7 @@ fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
             PlaylistOption::new(PlaylistOptionDisplay {
                 id: option.id,
                 name: SharedString::from(option.name),
+                a11y_label: SharedString::from(option.a11y_label),
             })
         })
         .collect()
@@ -167,6 +168,10 @@ fn render_discover_track_row(
                 id: SharedString::from(playlist_popover_id),
                 playlists: playlist_options(playlists),
                 trigger_label: SharedString::from(playlist_trigger_label),
+                trigger_a11y_label: SharedString::from("Add track to playlist"),
+                new_playlist_a11y_label: SharedString::from("Create a new playlist"),
+                back_a11y_label: SharedString::from("Back to playlist choices"),
+                create_a11y_label: SharedString::from("Create playlist and add track"),
             })
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_search_track_to_playlist(

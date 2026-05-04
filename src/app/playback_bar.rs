@@ -102,6 +102,14 @@ pub(super) fn build_playback_bar(app: &TopApp, cx: &mut Context<TopApp>) -> NowP
             artist: None,
             state: np_state,
             thumbnail: None,
+            play_pause_a11y_label: if !state.is_active() {
+                "Play"
+            } else if state.is_paused() {
+                "Resume playback"
+            } else {
+                "Pause playback"
+            },
+            ..NowPlayingData::default()
         })
         .on_prev(cx.listener(|this, _, _, cx| this.skip_playback_previous(cx)))
         .on_play_pause(cx.listener(|this, _, _, cx| this.toggle_playback_paused(cx)))

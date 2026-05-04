@@ -58,17 +58,18 @@ use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
-    action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowMessage,
-    AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
-    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureIndicator,
-    DisclosureIndicatorDisplay, DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind,
-    FileHeader, IdentityActionButtonDisplay, IdentityActionKind, ListRow, MusicBrainzPanel,
-    PlaylistOption, PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane,
-    StatusRole, Thumbnail, ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell,
-    TrackMetadataFieldDisplay, TrackMetadataFrameDisplay, TrackMetadataGrid,
-    TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
-    TrackMetadataTagCell, TrackMetadataTagDisplay, TrackMetadataTextDisplay,
-    TrackMetadataTextValue, TrackRow as TrackRowComposite, TrackSurfaceElement,
+    action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowDisplay,
+    ActionRowMessage, AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader,
+    DetailHeaderDisplay, DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow,
+    DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
+    DisclosureSupplementLabel, EntityKind, FileHeader, IdentityActionButtonDisplay,
+    IdentityActionKind, ListRow, ListRowA11yLabel, MusicBrainzPanel, PlaylistOption,
+    PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
+    ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataFieldDisplay,
+    TrackMetadataFrameDisplay, TrackMetadataGrid, TrackMetadataGroupCell,
+    TrackMetadataGroupDisplay, TrackMetadataSourceCell, TrackMetadataTagCell,
+    TrackMetadataTagDisplay, TrackMetadataTextDisplay, TrackMetadataTextValue,
+    TrackRow as TrackRowComposite, TrackSurfaceElement,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
@@ -1889,8 +1890,12 @@ impl Render for LibraryApp {
                     track_count_label,
                     selected,
                 } = row;
+                let row_a11y_label = format!("Playlist: {name}");
                 left_items.push(
                     ListRow::compact(SharedString::from(element_id))
+                        .a11y_label(ListRowA11yLabel {
+                            label: row_a11y_label.into(),
+                        })
                         .selected(selected)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
                             this.select_playlist(playlist_id, cx);
@@ -2352,6 +2357,7 @@ fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
             PlaylistOption::new(PlaylistOptionDisplay {
                 id: option.id,
                 name: SharedString::from(option.name),
+                a11y_label: SharedString::from(option.a11y_label),
             })
         })
         .collect()
@@ -2567,6 +2573,10 @@ fn render_album_detail(
                 id: SharedString::from(playlist_display.popover_id),
                 playlists: playlist_options(playlists),
                 trigger_label: SharedString::from(playlist_display.trigger_label),
+                trigger_a11y_label: SharedString::from("Add feed to playlist"),
+                new_playlist_a11y_label: SharedString::from("Create a new playlist"),
+                back_a11y_label: SharedString::from("Back to playlist choices"),
+                create_a11y_label: SharedString::from("Create playlist and add feed"),
             })
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_album_to_playlist(fid, *playlist_id, cx);
@@ -2735,6 +2745,10 @@ fn render_library_track_row(
             id: SharedString::from(playlist_display.popover_id),
             playlists: playlist_options(playlists),
             trigger_label: SharedString::from(playlist_display.trigger_label),
+            trigger_a11y_label: SharedString::from("Add track to playlist"),
+            new_playlist_a11y_label: SharedString::from("Create a new playlist"),
+            back_a11y_label: SharedString::from("Back to playlist choices"),
+            create_a11y_label: SharedString::from("Create playlist and add track"),
         })
         .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
             this.add_track_to_playlist(track_id, *playlist_id, cx);
@@ -3193,33 +3207,39 @@ fn library_track_action_row(
     let track_id = frame.entity_id;
     let playlist_display = LibraryTrackActionVm::playlist_display(track_id);
 
-    let mut row = ActionRow::new()
-        .control(
-            action_button(
-                ActionButtonDisplay {
-                    label: SharedString::from(action_vm.subscription_button_label()),
-                    a11y_label: SharedString::from(action_vm.subscription_button_label()),
-                },
-                cx,
-            )
-            .disabled(frame.subscription_busy)
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.toggle_local_subscription(cx);
-            })),
+    let mut row = ActionRow::new(ActionRowDisplay {
+        a11y_label: SharedString::from(action_vm.action_row_a11y_label()),
+    })
+    .control(
+        action_button(
+            ActionButtonDisplay {
+                label: SharedString::from(action_vm.subscription_button_label()),
+                a11y_label: SharedString::from(action_vm.subscription_button_label()),
+            },
+            cx,
         )
-        .control(
-            AddToPlaylistPopover::new(AddToPlaylistDisplay {
-                id: SharedString::from(playlist_display.popover_id),
-                playlists: playlist_options(playlists),
-                trigger_label: SharedString::from(playlist_display.trigger_label),
-            })
-            .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
-                this.add_track_to_playlist(track_id, *playlist_id, cx);
-            }))
-            .on_create(cx.listener(move |this, name: &String, _window, cx| {
-                this.create_playlist_and_add_track(name, track_id, cx);
-            })),
-        );
+        .disabled(frame.subscription_busy)
+        .on_click(cx.listener(|this, _, _, cx| {
+            this.toggle_local_subscription(cx);
+        })),
+    )
+    .control(
+        AddToPlaylistPopover::new(AddToPlaylistDisplay {
+            id: SharedString::from(playlist_display.popover_id),
+            playlists: playlist_options(playlists),
+            trigger_label: SharedString::from(playlist_display.trigger_label),
+            trigger_a11y_label: SharedString::from("Add track to playlist"),
+            new_playlist_a11y_label: SharedString::from("Create a new playlist"),
+            back_a11y_label: SharedString::from("Back to playlist choices"),
+            create_a11y_label: SharedString::from("Create playlist and add track"),
+        })
+        .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
+            this.add_track_to_playlist(track_id, *playlist_id, cx);
+        }))
+        .on_create(cx.listener(move |this, name: &String, _window, cx| {
+            this.create_playlist_and_add_track(name, track_id, cx);
+        })),
+    );
 
     if let Some(message) = action_vm.subscription_message_display() {
         row = row.message(ActionRowMessage::from_status_display(message));
@@ -3265,23 +3285,25 @@ fn library_track_action_row(
         frame.applying_id3_edits,
         conflict_text.as_deref(),
     ) {
-        let mut staged_controls = ActionRow::new()
-            .message(ActionRowMessage::from_status_display(
-                staged_display.message,
-            ))
-            .control(
-                action_button(
-                    ActionButtonDisplay {
-                        label: SharedString::from(staged_display.apply_label.clone()),
-                        a11y_label: SharedString::from(staged_display.apply_label),
-                    },
-                    cx,
-                )
-                .disabled(!staged_display.apply_enabled)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.apply_pending_id3_edits(cx);
-                })),
-            );
+        let mut staged_controls = ActionRow::new(ActionRowDisplay {
+            a11y_label: SharedString::from(staged_display.action_row_a11y_label),
+        })
+        .message(ActionRowMessage::from_status_display(
+            staged_display.message,
+        ))
+        .control(
+            action_button(
+                ActionButtonDisplay {
+                    label: SharedString::from(staged_display.apply_label.clone()),
+                    a11y_label: SharedString::from(staged_display.apply_label),
+                },
+                cx,
+            )
+            .disabled(!staged_display.apply_enabled)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.apply_pending_id3_edits(cx);
+            })),
+        );
 
         if let Some(conflict_message) = staged_display.conflict_message {
             staged_controls =

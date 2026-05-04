@@ -1078,26 +1078,95 @@ fn ui_style_does_not_reintroduce_provenance_diff_roles() {
 #[test]
 fn interactive_composites_carry_accessibility_labels() {
     // ADR 0038 task 005: every interactive composite must expose an
-    // `a11y_label` on its public display contract so view-models own the
-    // accessibility surface alongside visible labels. The list grows as
-    // composites are migrated; do not remove entries.
-    let migrated_composites: &[(&str, &str)] = &[
-        ("ActionButtonDisplay", "src/ui/composites/action_button.rs"),
+    // `a11y_label` (or a named action-group a11y label) on its display
+    // contract so view-models own the accessibility surface alongside
+    // visible labels. Do not remove entries.
+    let migrated_composites: &[(&str, &str, &str)] = &[
+        (
+            "ActionButtonDisplay",
+            "src/ui/composites/action_button.rs",
+            "a11y_label",
+        ),
         (
             "IdentityActionButtonDisplay",
             "src/ui/composites/identity_action.rs",
+            "a11y_label",
+        ),
+        (
+            "ActionRowDisplay",
+            "src/ui/composites/action_row.rs",
+            "a11y_label",
+        ),
+        (
+            "AddToPlaylistDisplay",
+            "src/ui/composites/playlist_popover.rs",
+            "trigger_a11y_label",
+        ),
+        (
+            "PlaylistOptionDisplay",
+            "src/ui/composites/playlist_popover.rs",
+            "a11y_label",
+        ),
+        (
+            "TrackRowDisplay",
+            "src/ui/composites/track_row.rs",
+            "a11y_label",
+        ),
+        ("ListRow", "src/ui/composites/list_row.rs", "a11y_label"),
+        (
+            "RecentFeedTileDisplay",
+            "src/view_models/search.rs",
+            "a11y_label",
+        ),
+        (
+            "DisclosureGroupDisplay",
+            "src/ui/composites/disclosure_group.rs",
+            "a11y_label",
+        ),
+        (
+            "SegmentDisplay",
+            "src/ui/composites/segmented_control.rs",
+            "a11y_label",
+        ),
+        (
+            "NowPlayingData",
+            "src/ui/composites/now_playing_bar.rs",
+            "play_pause_a11y_label",
+        ),
+        (
+            "ReleaseDetailPageVm",
+            "src/view_models/entity_detail.rs",
+            "actions_a11y_label",
+        ),
+        (
+            "ReleaseDetailSurface",
+            "src/ui/composites/release_detail_surface.rs",
+            "actions_a11y_label",
+        ),
+        (
+            "TrackDetailSurface",
+            "src/ui/composites/track_detail_surface.rs",
+            "primary_actions_a11y_label",
+        ),
+        (
+            "TrackRowVm",
+            "src/view_models/track_detail.rs",
+            "a11y_label",
         ),
     ];
 
     let mut violations = Vec::new();
-    for (display, path) in migrated_composites {
+    for (display, path, label_field) in migrated_composites {
         let source = read_source(&manifest_path(path));
-        let needle = format!("pub struct {display} ");
+        let exact_struct = format!("struct {display} ");
+        let braced_struct = format!("struct {display} {{");
+        let generic_struct = format!("struct {display}<");
         let Some(struct_offset) = source
-            .find(&needle)
-            .or_else(|| source.find(&format!("pub struct {display}\n")))
+            .find(&exact_struct)
+            .or_else(|| source.find(&braced_struct))
+            .or_else(|| source.find(&generic_struct))
         else {
-            violations.push(format!("{path}: expected `pub struct {display}` to exist"));
+            violations.push(format!("{path}: expected `struct {display}` to exist"));
             continue;
         };
 
@@ -1112,9 +1181,9 @@ fn interactive_composites_carry_accessibility_labels() {
             .map_or(source.len(), |i| body_start + i);
         let body = &source[body_start..close];
 
-        if !body.contains("a11y_label") {
+        if !body.contains(label_field) {
             violations.push(format!(
-                "{path}: `{display}` must declare an `a11y_label` field (ADR 0038 task 005)"
+                "{path}: `{display}` must declare `{label_field}` on its display contract (ADR 0038 task 005)"
             ));
         }
     }

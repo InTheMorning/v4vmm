@@ -445,6 +445,15 @@ impl<'a> LibraryTrackActionVm<'a> {
     pub(crate) fn subscription_message_display(&self) -> Option<ActionStatusMessageDisplay> {
         ActionStatusMessageDisplay::subscription(self.subscription_message)
     }
+
+    #[expect(
+        clippy::unused_self,
+        reason = "kept as an instance method so action-row labels travel with the VM contract"
+    )]
+    #[must_use]
+    pub(crate) const fn action_row_a11y_label(&self) -> &'static str {
+        "Track actions"
+    }
 }
 
 impl PlaylistAppendIntent {

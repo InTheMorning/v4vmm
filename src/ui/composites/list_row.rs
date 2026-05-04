@@ -2,6 +2,11 @@
 //! Generic list row layout — a horizontal stack with HIG-conformant padding,
 //! gap, and corner radius. Callers fill it with arbitrary children
 //! (thumbnail, title, trailing actions). All dimensions scale.
+//!
+//! Accessibility note (ADR 0038 task 005): clickable rows can carry a
+//! VM-sourced `a11y_label`. GPUI 0.2.x does not expose a row-level label sink
+//! for `div`; the field is retained as contract data until the framework can
+//! consume it.
 
 use std::rc::Rc;
 
@@ -14,6 +19,11 @@ use crate::ui::primitives::HStack;
 use crate::ui::tokens::{color, Radius, SemanticColor, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListRowA11yLabel {
+    pub label: gpui::SharedString,
+}
 
 /// Vertical density for a [`ListRow`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -49,6 +59,7 @@ pub struct ListRow {
     density: ListRowDensity,
     selected: bool,
     focused: bool,
+    a11y_label: Option<gpui::SharedString>,
     on_click: Option<ClickHandler>,
     children: Vec<gpui::AnyElement>,
 }
@@ -60,6 +71,7 @@ impl ListRow {
             density: ListRowDensity::default(),
             selected: false,
             focused: false,
+            a11y_label: None,
             on_click: None,
             children: Vec::new(),
         }
@@ -81,6 +93,11 @@ impl ListRow {
 
     pub fn focused(mut self, focused: bool) -> Self {
         self.focused = focused;
+        self
+    }
+
+    pub fn a11y_label(mut self, label: ListRowA11yLabel) -> Self {
+        self.a11y_label = Some(label.label);
         self
     }
 
@@ -134,5 +151,22 @@ impl RenderOnce for ListRow {
         }
 
         row
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clickable_row_carries_accessibility_label() {
+        let row = ListRow::new("result:1").a11y_label(ListRowA11yLabel {
+            label: "Open search result".into(),
+        });
+
+        assert_eq!(
+            row.a11y_label,
+            Some(gpui::SharedString::from("Open search result"))
+        );
     }
 }
