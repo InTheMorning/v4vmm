@@ -19,7 +19,7 @@ use crate::ui::composites::{
 };
 use crate::view_models::entity_detail::IdentityActionDisplayKind;
 use crate::view_models::playlist_option_displays;
-use crate::view_models::track::TrackVm;
+use crate::view_models::track::{TrackRowControlsDisplay, TrackVm};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::views::TrackView;
 
@@ -124,7 +124,12 @@ fn render_discover_track_row(
     let vm = TrackVm::new(track);
     let guid = vm.guid();
     let title = vm.title();
-    let controls_display = vm.row_controls_display();
+    let TrackRowControlsDisplay {
+        row_id,
+        play_button_id,
+        playlist_popover_id,
+        playlist_trigger_label,
+    } = vm.row_controls_display();
     let audio_display = vm.play_audio_display();
     let guid_for_click = guid.clone();
     let title_for_click = title.clone();
@@ -135,12 +140,9 @@ fn render_discover_track_row(
     let download_btn =
         render_track_download_button(track.clone(), feed, is_downloaded, is_in_flight, cx)
             .into_any_element();
-    let play_btn = render_play_icon_button_with_id(
-        SharedString::from(controls_display.play_button_id.clone()),
-        audio_display,
-        cx,
-    )
-    .into_any_element();
+    let play_btn =
+        render_play_icon_button_with_id(SharedString::from(play_button_id), audio_display, cx)
+            .into_any_element();
     let mut actions = vec![download_btn];
 
     if let Some(ref fguid) = feed_guid_owned {
@@ -152,9 +154,9 @@ fn render_discover_track_row(
             let feed_url_cre = feed_url_sel.clone();
             let track_guid_cre = track_guid_sel.clone();
             let popover = AddToPlaylistPopover::new(AddToPlaylistDisplay {
-                id: SharedString::from(controls_display.playlist_popover_id.clone()),
+                id: SharedString::from(playlist_popover_id),
                 playlists: playlist_options(playlists),
-                trigger_label: SharedString::from(controls_display.playlist_trigger_label),
+                trigger_label: SharedString::from(playlist_trigger_label),
             })
             .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
                 this.add_search_track_to_playlist(
@@ -180,7 +182,7 @@ fn render_discover_track_row(
 
     actions.push(play_btn);
 
-    let mut row = TrackRow::from_vm(SharedString::from(controls_display.row_id), &row_vm)
+    let mut row = TrackRow::from_vm(SharedString::from(row_id), &row_vm)
         .thumbnail(thumbnail)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.push_inspector(

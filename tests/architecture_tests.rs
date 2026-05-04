@@ -3208,6 +3208,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover track playlist trigger label belongs in TrackVm::row_controls_display",
         ),
         (
+            "src/ui/shells/track.rs",
+            "SharedString::from(controls_display.play_button_id.clone())",
+            "Discover track play-button id should be consumed from TrackRowControlsDisplay",
+        ),
+        (
+            "src/ui/shells/track.rs",
+            "SharedString::from(controls_display.playlist_popover_id.clone())",
+            "Discover track playlist popover id should be consumed from TrackRowControlsDisplay",
+        ),
+        (
             "src/search.rs",
             "format!(\"track-row-download-spin:{key}\")",
             "Discover track download spinner id display belongs in TrackRowActionVm::download_display",
@@ -3351,6 +3361,31 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             "format!(\"lib-toggle-{track_id}\")",
             "Library track toggle id belongs in LibraryTrackRowVm::row_display",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(row_display.toggle_button_id.clone())",
+            "Library album-track toggle id should be consumed from LibraryTrackRowDisplay",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(controls_display.move_up_button_id.clone())",
+            "Library playlist move-up id should be consumed from PlaylistTrackControlsDisplay",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(controls_display.move_down_button_id.clone())",
+            "Library playlist move-down id should be consumed from PlaylistTrackControlsDisplay",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(controls_display.remove_button_id.clone())",
+            "Library playlist remove id should be consumed from PlaylistTrackControlsDisplay",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(controls_display.play_button_id.clone())",
+            "Library playlist play id should be consumed from PlaylistTrackControlsDisplay",
         ),
         (
             "src/library.rs",

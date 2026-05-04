@@ -87,9 +87,10 @@ use crate::view_models::entity_detail::{
 };
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdateActionKind, FeedUpdatePhase, LibraryAlbumDetailVm,
-    LibraryArtistDetailVm, LibraryChromeDisplay, LibraryTrackActionVm, LibraryTrackRowVm,
-    LibraryTree, LibraryViewModel, MbStatusKind, MbTrackStatus, PlaylistAppendIntent,
-    PlaylistAppendOutcome, PlaylistDetailVm, TrackSubscribeOutcome,
+    LibraryArtistDetailVm, LibraryChromeDisplay, LibraryTrackActionVm, LibraryTrackRowDisplay,
+    LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbStatusKind, MbTrackStatus,
+    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailVm, PlaylistTrackControlsDisplay,
+    TrackSubscribeOutcome,
 };
 use crate::view_models::metadata::{value_route_recipient_label, FileHeaderVm};
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
@@ -2637,7 +2638,10 @@ fn render_library_track_row(
     let is_busy = busy_track == Some(track_id);
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
     let primary_action = vm.primary_action_vm(is_busy);
-    let row_display = vm.row_display();
+    let LibraryTrackRowDisplay {
+        row_id,
+        toggle_button_id,
+    } = vm.row_display();
     let in_library = primary_action.kind == EntityActionKind::Remove;
     let mb_text = vm.mb_status_text();
     let mb_kind = vm.mb_status_kind();
@@ -2652,20 +2656,17 @@ fn render_library_track_row(
         _ => ControlStyle::RowAction,
     };
 
-    let toggle_button = UiButton::styled(
-        SharedString::from(row_display.toggle_button_id.clone()),
-        primary_style,
-    )
-    .label(primary_action.label.clone())
-    .disabled(!primary_action.enabled)
-    .on_click(cx.listener(move |this, _, _, cx| {
-        if in_library {
-            this.remove_track(track_id, cx);
-        } else {
-            this.subscribe_track(track_for_click.clone(), cx);
-        }
-        cx.notify();
-    }));
+    let toggle_button = UiButton::styled(SharedString::from(toggle_button_id), primary_style)
+        .label(primary_action.label.clone())
+        .disabled(!primary_action.enabled)
+        .on_click(cx.listener(move |this, _, _, cx| {
+            if in_library {
+                this.remove_track(track_id, cx);
+            } else {
+                this.subscribe_track(track_for_click.clone(), cx);
+            }
+            cx.notify();
+        }));
     let mut actions = vec![toggle_button.into_any_element()];
 
     if let Some(text) = mb_text {
@@ -2702,7 +2703,7 @@ fn render_library_track_row(
 
     let track_view = TrackView::from_local(track.clone());
     let row_vm = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library).row();
-    let mut row = TrackRowComposite::from_vm(SharedString::from(row_display.row_id), &row_vm)
+    let mut row = TrackRowComposite::from_vm(SharedString::from(row_id), &row_vm)
         .thumbnail(thumbnail)
         .on_click(cx.listener(move |this, _, _, cx| {
             this.select_track(&track_for_select, cx);
@@ -2745,53 +2746,65 @@ fn render_playlist_detail(
                     .as_deref()
                     .and_then(|url| album_thumbs.get(url))
                     .and_then(|opt| opt.clone());
-                let controls_display = row_display.controls;
+                let PlaylistTrackControlsDisplay {
+                    row_id,
+                    row_body_id,
+                    play_button_id,
+                    play_label,
+                    play_enabled,
+                    move_up_button_id,
+                    move_up_label,
+                    move_up_enabled,
+                    move_down_button_id,
+                    move_down_label,
+                    move_down_enabled,
+                    remove_button_id,
+                    remove_label,
+                } = row_display.controls;
                 let position = row_display.position;
 
                 let up_btn = UiButton::styled(
-                    SharedString::from(controls_display.move_up_button_id.clone()),
+                    SharedString::from(move_up_button_id),
                     ControlStyle::RowAction,
                 )
-                .label(controls_display.move_up_label)
-                .disabled(!controls_display.move_up_enabled)
+                .label(move_up_label)
+                .disabled(!move_up_enabled)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position - 1, cx);
                 }));
 
                 let down_btn = UiButton::styled(
-                    SharedString::from(controls_display.move_down_button_id.clone()),
+                    SharedString::from(move_down_button_id),
                     ControlStyle::RowAction,
                 )
-                .label(controls_display.move_down_label)
-                .disabled(!controls_display.move_down_enabled)
+                .label(move_down_label)
+                .disabled(!move_down_enabled)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(pl_id, position, position + 1, cx);
                 }));
 
                 let remove_btn = UiButton::styled(
-                    SharedString::from(controls_display.remove_button_id.clone()),
+                    SharedString::from(remove_button_id),
                     ControlStyle::Destructive,
                 )
-                .label(controls_display.remove_label)
+                .label(remove_label)
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.remove_playlist_track_at(pl_id, position, cx);
                 }));
 
-                let play_btn = UiButton::styled(
-                    SharedString::from(controls_display.play_button_id.clone()),
-                    ControlStyle::RowAction,
-                )
-                .label(controls_display.play_label)
-                .disabled(!controls_display.play_enabled)
-                .on_click(cx.listener(move |_this, _, _, cx| {
-                    cx.emit(LibraryAppEvent::PlayPlaylistAt {
-                        playlist_id: pl_id,
-                        playlist_position: position,
-                    });
-                }));
+                let play_btn =
+                    UiButton::styled(SharedString::from(play_button_id), ControlStyle::RowAction)
+                        .label(play_label)
+                        .disabled(!play_enabled)
+                        .on_click(cx.listener(move |_this, _, _, cx| {
+                            cx.emit(LibraryAppEvent::PlayPlaylistAt {
+                                playlist_id: pl_id,
+                                playlist_position: position,
+                            });
+                        }));
 
                 div()
-                    .id(SharedString::from(controls_display.row_id))
+                    .id(SharedString::from(row_id))
                     .flex()
                     .flex_row()
                     .items_center()
@@ -2802,7 +2815,7 @@ fn render_playlist_detail(
                     .hover(|el| el.bg(color::bg_surface_hi()))
                     .child(
                         div()
-                            .id(SharedString::from(controls_display.row_body_id))
+                            .id(SharedString::from(row_body_id))
                             .flex()
                             .flex_row()
                             .items_center()

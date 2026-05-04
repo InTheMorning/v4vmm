@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred forty-eight implementation slices completed on 2026-05-04.
+In progress - first one hundred fifty-one implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -975,7 +975,26 @@ Verified starting notes, 2026-05-03:
     - Remove shared-shell `role.id.clone()` and `role.label.clone()`
       display binding.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-149. Migrate remaining fallback batches, smallest blast radius first.
+149. Discover track-row control display consumption
+    - Destructure `TrackRowControlsDisplay` in the shared track shell
+      so row, play-button, and playlist-popover ids are consumed
+      directly.
+    - Remove renderer-side `controls_display.play_button_id.clone()`
+      and `controls_display.playlist_popover_id.clone()` display
+      binding.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+150. Library album-track row display consumption
+    - Destructure `LibraryTrackRowDisplay` in the Library album-track
+      renderer so row/toggle ids are consumed directly.
+    - Remove renderer-side `row_display.toggle_button_id.clone()`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+151. Library playlist track control display consumption
+    - Destructure `PlaylistTrackControlsDisplay` in the playlist detail
+      renderer so row/body/action ids and labels are consumed directly.
+    - Remove renderer-side playlist control id clones for move-up,
+      move-down, remove, and play actions.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+152. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2457,6 +2476,33 @@ Verified starting notes, 2026-05-03:
   role row id and label values during rendering.
 - The architecture guard now blocks those shared-shell role-row display
   clones from returning.
+
+## One-Hundred-Forty-Ninth-Slice Implementation Notes
+
+- The shared Discover track-row shell now destructures
+  `TrackRowControlsDisplay` and consumes row/control ids directly.
+- Play-button and playlist-popover ids are no longer cloned from a
+  local display aggregate during rendering.
+- The architecture guard now blocks those Discover track-row control id
+  clones from returning.
+
+## One-Hundred-Fiftieth-Slice Implementation Notes
+
+- Library album-track rows now destructure `LibraryTrackRowDisplay`
+  before rendering.
+- Album-track row and toggle ids are consumed directly from the VM
+  display contract.
+- The architecture guard now blocks the old toggle id clone from
+  returning.
+
+## One-Hundred-Fifty-First-Slice Implementation Notes
+
+- Playlist detail rows now destructure `PlaylistTrackControlsDisplay`
+  before constructing row action buttons.
+- Move-up, move-down, remove, and play action ids and labels are
+  consumed directly from the VM display contract.
+- The architecture guard now blocks playlist control id clones from
+  returning.
 
 ## Test Commands
 
