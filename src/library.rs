@@ -74,6 +74,7 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{
     Button as UiButton, Image as ImagePrimitive, Label, LoadingMessage, MultilineText,
 };
+use crate::ui::shells::artist::{render_artist_detail_shell, ArtistDetailBehaviorSlots};
 use crate::ui::shells::entity::{
     render_contributor_panel, render_feed_identity_actions, render_release_detail_shell,
     ContributorRowSlot, ReleaseDetailBehaviorSlots,
@@ -2370,6 +2371,7 @@ fn render_library_artist_detail(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let vm = LibraryArtistDetailVm::new(&detail.name, &detail.tracks);
+    let page = vm.page();
 
     let feed_rows: Vec<AnyElement> = vm
         .feed_summaries()
@@ -2443,34 +2445,20 @@ fn render_library_artist_detail(
         .min_w_0()
         .overflow_y_scroll()
         .p(spacing::LG)
-        .flex()
-        .flex_col()
-        .gap(spacing::LG)
-        .child(DetailHeader::new(DetailHeaderDisplay {
-            kind: EntityKind::Artist,
-            title: vm.artist_name_or_unknown().into(),
-            subtitle: None,
-            data_rows: Vec::new(),
-        }))
-        .child(DetailGrid::new(
-            vm.detail_rows()
-                .into_iter()
-                .map(|(k, v)| {
-                    CompositeDetailRow::text(CompositeDetailTextRow {
-                        key: k.into(),
-                        value: v,
-                        max_lines: 6,
-                    })
-                })
-                .collect::<Vec<_>>(),
+        .child(render_artist_detail_shell(
+            &page,
+            ArtistDetailBehaviorSlots {
+                image: None,
+                feed_section: Some(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(spacing::XXS)
+                        .children(feed_rows)
+                        .into_any_element(),
+                ),
+            },
         ))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(spacing::XXS)
-                .children(feed_rows),
-        )
         .into_any_element()
 }
 

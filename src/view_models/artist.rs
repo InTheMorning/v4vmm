@@ -12,6 +12,7 @@
 #![warn(clippy::pedantic)]
 
 use crate::api::Feed;
+use crate::view_models::artist_detail::{ArtistDetailFactVm, ArtistDetailPageVm};
 use crate::views::ArtistView;
 
 /// Display-ready projection of an [`ArtistView`].
@@ -127,6 +128,19 @@ impl<'a> ArtistVm<'a> {
         );
         push_optional(&mut rows, "Website", self.view.url.clone(), 6);
         rows
+    }
+
+    #[must_use]
+    pub fn page(&self) -> ArtistDetailPageVm {
+        ArtistDetailPageVm::new(
+            self.title(),
+            Some(self.subtitle()),
+            self.detail_rows()
+                .into_iter()
+                .map(|row| ArtistDetailFactVm::new(row.key, row.value, row.max_lines))
+                .collect(),
+            self.has_feeds(),
+        )
     }
 }
 
@@ -254,6 +268,31 @@ mod tests {
         let vm_empty = ArtistVm::new(&view, &[], false, None);
         assert!(!vm_empty.has_feeds());
         assert_eq!(vm_empty.feed_count(), 0);
+    }
+
+    #[test]
+    fn page_projects_header_rows_and_feed_section_policy() {
+        let view = ArtistView {
+            name: Some("Aphex Twin".into()),
+            track_count: Some(3),
+            ..ArtistView::default()
+        };
+        let feed = Feed {
+            title: Some("Feed".into()),
+            ..Feed::default()
+        };
+        let feeds = [feed];
+        let vm = ArtistVm::new(&view, &feeds, true, None);
+        let page = vm.page();
+
+        assert_eq!(page.title, "Aphex Twin");
+        assert_eq!(
+            page.subtitle.as_deref(),
+            Some("Feeds with tracks by this artist")
+        );
+        assert!(page.shows_feed_section);
+        assert_eq!(page.detail_rows[0].key, "Tracks");
+        assert_eq!(page.detail_rows[0].value, "3+");
     }
 
     #[test]

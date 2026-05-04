@@ -21,10 +21,12 @@ Already on the pattern:
 - Track detail — `TrackDetailPageVm` now wraps `TrackDetailVm`, and
   Library/Discover track detail surfaces now pass through
   `src/ui/shells/track.rs::build_track_detail_surface`.
+- Artist detail — `ArtistDetailPageVm` now carries shared artist header
+  and fact rows, and Library/Discover artist detail surfaces render
+  through `src/ui/shells/artist.rs::render_artist_detail_shell`.
 
 Not yet on the pattern:
 
-- Artist detail — `src/ui/shells/artist.rs` (post-relocation).
 - Playlist detail — currently spread across
   `library.rs`/`search.rs`/`view_models/library.rs`.
 - Search results / recent-feed tiles — multi-row composite that may
@@ -49,9 +51,27 @@ renderer-routing refactor with no intended visual output change. If a
 later Task 006 slice changes visible hierarchy, capture light + dark
 screenshots through the user-directed navigation workflow.
 
+### Artist Detail PageVm Parity — 2026-05-04
+
+- Added `ArtistDetailPageVm` and `ArtistDetailFactVm` in
+  `src/view_models/artist_detail.rs`.
+- Projected Discover artist detail through `ArtistVm::page()` and the
+  shared artist shell helper.
+- Projected Library artist detail through `LibraryArtistDetailVm::page()`
+  and the same shell helper, with feed rows kept as behavior slots.
+- Expanded
+  `entity_detail_pages_render_through_shell_helper_and_page_vm` to cover
+  Library and Discover artist detail.
+- Added VM unit tests for both Discover and Library artist page
+  projections.
+
+Visual smoke was not captured for this slice because the shell shape is
+unchanged; the refactor moves page assembly ownership into the VM/shell
+contract.
+
 ## Files Likely To Change
 
-- `src/view_models/artist_detail.rs` (new) — `ArtistDetailPageVm`.
+- `src/view_models/artist_detail.rs` — `ArtistDetailPageVm`.
 - `src/view_models/playlist_detail.rs` (new) — `PlaylistDetailPageVm`.
 - `src/view_models/track_detail.rs` — possibly a `TrackDetailPageVm`
   wrapper for parity with `ReleaseDetailPageVm`.
@@ -98,8 +118,6 @@ screenshots through the user-directed navigation workflow.
 
 ## Remaining Work
 
-- Add `ArtistDetailPageVm` and route artist detail through the artist
-  shell helper.
 - Add `PlaylistDetailPageVm` and route playlist detail through a
   playlist shell helper.
 - Decide whether search results / recent-feed tiles remain row

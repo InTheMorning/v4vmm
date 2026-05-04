@@ -23,6 +23,7 @@ use std::fmt::Write as _;
 use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
+use crate::view_models::artist_detail::{ArtistDetailFactVm, ArtistDetailPageVm};
 use crate::view_models::entity_detail::{
     EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseActionState,
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
@@ -1670,6 +1671,19 @@ impl<'a> LibraryArtistDetailVm<'a> {
         rows
     }
 
+    #[must_use]
+    pub(crate) fn page(&self) -> ArtistDetailPageVm {
+        ArtistDetailPageVm::new(
+            self.artist_name_or_unknown(),
+            None::<String>,
+            self.detail_rows()
+                .into_iter()
+                .map(|(key, value)| ArtistDetailFactVm::new(key, value, 6))
+                .collect(),
+            !self.feed_summaries().is_empty(),
+        )
+    }
+
     /// One [`ArtistFeedSummaryVm`] per distinct feed, ordered by
     /// `feed_id` (matches `BTreeMap` iteration of the legacy renderer).
     #[must_use]
@@ -2387,6 +2401,20 @@ mod tests {
         let rows = vm.detail_rows();
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[2], ("Downloaded".into(), "1".into()));
+    }
+
+    #[test]
+    fn artist_detail_page_projects_library_header_rows_and_feed_policy() {
+        let tracks = [track_for_feed(1, Some("A"))];
+        let vm = LibraryArtistDetailVm::new("", &tracks);
+        let page = vm.page();
+
+        assert_eq!(page.title, "Unknown");
+        assert_eq!(page.subtitle, None);
+        assert!(page.shows_feed_section);
+        assert_eq!(page.detail_rows[0].key, "Albums");
+        assert_eq!(page.detail_rows[0].value, "1");
+        assert_eq!(page.detail_rows[0].max_lines, 6);
     }
 
     #[test]

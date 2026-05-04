@@ -2072,6 +2072,20 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
             ".page()",
             "track::build_track_detail_surface(",
         ),
+        (
+            "Library artist detail",
+            "src/library.rs",
+            "LibraryArtistDetailVm::new(",
+            ".page()",
+            "render_artist_detail_shell(",
+        ),
+        (
+            "Discover artist detail",
+            "src/ui/shells/artist.rs",
+            "ArtistVm::new(",
+            ".page()",
+            "render_artist_detail_shell(",
+        ),
     ];
     let mut violations = Vec::new();
 
@@ -2100,6 +2114,13 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
     if !track_vm.contains("pub struct TrackDetailPageVm") {
         violations.push(
             "src/view_models/track_detail.rs: Task 006 requires `TrackDetailPageVm`".to_string(),
+        );
+    }
+
+    let artist_vm = read_source(&manifest_path("src/view_models/artist_detail.rs"));
+    if !artist_vm.contains("pub struct ArtistDetailPageVm") {
+        violations.push(
+            "src/view_models/artist_detail.rs: Task 006 requires `ArtistDetailPageVm`".to_string(),
         );
     }
 

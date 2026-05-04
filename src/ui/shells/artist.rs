@@ -5,9 +5,16 @@ use crate::ui::composites::{
 use crate::ui::primitives::VStack;
 use crate::ui::tokens::Spacing;
 use crate::view_models::artist::ArtistVm;
+use crate::view_models::artist_detail::ArtistDetailPageVm;
 use crate::views::ArtistView;
 use gpui::{prelude::*, AnyElement};
 use std::sync::Arc;
+
+#[derive(Default)]
+pub struct ArtistDetailBehaviorSlots {
+    pub image: Option<Arc<gpui::Image>>,
+    pub feed_section: Option<AnyElement>,
+}
 
 #[must_use]
 pub fn render_artist_view(
@@ -19,14 +26,29 @@ pub fn render_artist_view(
     feed_section: Option<AnyElement>,
 ) -> AnyElement {
     let vm = ArtistVm::new(view, feeds, has_more_tracks, track_count_override);
+    let page = vm.page();
 
-    let rows: Vec<DetailRow> = vm
-        .detail_rows()
-        .into_iter()
+    render_artist_detail_shell(
+        &page,
+        ArtistDetailBehaviorSlots {
+            image,
+            feed_section,
+        },
+    )
+}
+
+#[must_use]
+pub fn render_artist_detail_shell(
+    page: &ArtistDetailPageVm,
+    slots: ArtistDetailBehaviorSlots,
+) -> AnyElement {
+    let rows: Vec<DetailRow> = page
+        .detail_rows
+        .iter()
         .map(|entry| {
             DetailRow::text(DetailTextRow {
-                key: entry.key.into(),
-                value: entry.value,
+                key: entry.key.clone().into(),
+                value: entry.value.clone(),
                 max_lines: entry.max_lines,
             })
         })
@@ -38,16 +60,16 @@ pub fn render_artist_view(
         .child(
             DetailHeader::new(DetailHeaderDisplay {
                 kind: EntityKind::Artist,
-                title: vm.title().into(),
-                subtitle: Some(vm.subtitle().into()),
+                title: page.title.clone().into(),
+                subtitle: page.subtitle.clone().map(Into::into),
                 data_rows: Vec::new(),
             })
-            .image(image),
+            .image(slots.image),
         )
         .child(DetailGrid::new(rows));
 
-    if vm.has_feeds() {
-        if let Some(feed_section) = feed_section {
+    if page.shows_feed_section {
+        if let Some(feed_section) = slots.feed_section {
             stack = stack.child(feed_section);
         }
     }
