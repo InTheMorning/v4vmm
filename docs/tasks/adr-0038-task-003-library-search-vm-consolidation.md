@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred eighty-seven implementation slices completed on 2026-05-04.
+In progress - first one hundred eighty-eight implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1209,7 +1209,12 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local muted count label construction from Library
       artist, album, and feed-summary rows.
     - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
-188. Migrate remaining fallback batches, smallest blast radius first.
+188. Library playlist sidebar supplemental count label
+    - Reuse `DisclosureSupplementLabel` for playlist sidebar row
+      track-count labels.
+    - Remove the remaining sidebar-local muted caption count label.
+    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+189. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -3042,6 +3047,15 @@ Verified starting notes, 2026-05-03:
   count labels with screen-local muted text branches.
 - The architecture guard now blocks direct `SharedString` rendering of
   Library tree count display fields from returning.
+
+## One-Hundred-Eighty-Eighth-Slice Implementation Notes
+
+- Playlist sidebar row track-count labels now reuse
+  `DisclosureSupplementLabel`.
+- Library no longer constructs the playlist sidebar count label with a
+  screen-local `Label::new(track_count_label)` branch.
+- The architecture guard now blocks that sidebar count label path from
+  returning.
 
 ## Test Commands
 

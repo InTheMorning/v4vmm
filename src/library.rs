@@ -80,7 +80,7 @@ use crate::ui::shells::entity::{
 };
 use crate::ui::shells::track;
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::tokens::{FontSize, Radius, SemanticColor};
+use crate::ui::tokens::{Radius, SemanticColor};
 use crate::view_models::entity_detail::{
     ContributorIdentityActionDisplay, ContributorIdentityActionKind, ContributorRowVm,
     EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm, EntitySurfaceContext,
@@ -1909,11 +1909,11 @@ impl Render for LibraryApp {
                                         })
                                         .truncated(),
                                 )
-                                .child(
-                                    Label::new(track_count_label)
-                                        .size(FontSize::Caption)
-                                        .color(SemanticColor::TertiaryLabel),
-                                ),
+                                .child(DisclosureSupplementLabel::new(
+                                    DisclosureSupplementDisplay {
+                                        label: track_count_label.into(),
+                                    },
+                                )),
                         )
                         .into_any_element(),
                 );

@@ -3219,6 +3219,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "Label::new(track_count_label)",
+            "Library sidebar count labels should render through DisclosureSupplementLabel",
+        ),
+        (
+            "src/library.rs",
             "SharedString::from(disclosure_glyph)",
             "Library tree disclosure glyph should render through DisclosureIndicator",
         ),
