@@ -652,8 +652,11 @@ impl SearchApp {
                                     .map(ContributorView::from)
                                     .collect()
                             });
+                            let display = SearchViewModel::deferred_panel_display(
+                                DeferredPanelKind::Contributors,
+                            );
                             frame.contributors =
-                                LazyPanel::from_items_result(contributors, "No contributors found");
+                                LazyPanel::from_items_result(contributors, display.empty_label);
                         }
                         cx.notify();
                     },
@@ -696,8 +699,11 @@ impl SearchApp {
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
                         if let Some(frame) = this.inspector_stack.last_mut() {
+                            let display = SearchViewModel::deferred_panel_display(
+                                DeferredPanelKind::ValueRoutes,
+                            );
                             frame.value_routes =
-                                LazyPanel::from_items_result(routes, "No value routes found");
+                                LazyPanel::from_items_result(routes, display.empty_label);
                         }
                         cx.notify();
                     },
@@ -2536,7 +2542,7 @@ fn render_discover_feed_inspector(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     let view = crate::views::FeedView::from_api(feed.clone());
-    let tracks = feed.tracks.clone().unwrap_or_default();
+    let tracks = SearchViewModel::feed_inspector_tracks(feed);
     let ctx = crate::ui_context::ViewContext::Discover;
     let mut panels = Vec::new();
     if let Some(section) = podroll_section(frame, app, cx) {

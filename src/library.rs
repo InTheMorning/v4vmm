@@ -1103,12 +1103,14 @@ impl LibraryApp {
             Some(frame) if frame.subscription_busy => return,
             Some(frame) if frame.local_subscription => {
                 frame.subscription_busy = true;
-                frame.subscription_message = Some("Unsubscribing...".into());
+                frame.subscription_message =
+                    Some(LibraryTrackActionVm::subscription_busy_message(false).into());
                 Some((frame.entity_id, false))
             }
             Some(frame) => {
                 frame.subscription_busy = true;
-                frame.subscription_message = Some("Subscribing...".into());
+                frame.subscription_message =
+                    Some(LibraryTrackActionVm::subscription_busy_message(true).into());
                 Some((frame.entity_id, true))
             }
             None => None,
@@ -1136,12 +1138,9 @@ impl LibraryApp {
                 if let Some(frame) = this.selected_track_frame_mut() {
                     if frame.entity_id == track_id {
                         frame.subscription_busy = false;
-                        let action = if subscribe {
-                            "Subscribe"
-                        } else {
-                            "Unsubscribe"
-                        };
-                        frame.subscription_message = Some(format!("{action} error: {err:#}"));
+                        frame.subscription_message = Some(
+                            LibraryTrackActionVm::subscription_error_message(subscribe, err),
+                        );
                     }
                 }
             },

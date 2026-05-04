@@ -1243,6 +1243,7 @@ pub(crate) struct DeferredPanelDisplay {
     pub(crate) section_id: &'static str,
     pub(crate) heading_label: &'static str,
     pub(crate) loading_label: &'static str,
+    pub(crate) empty_label: &'static str,
 }
 
 /// Display-ready feed header text for the legacy Discover feed header.
@@ -1260,11 +1261,13 @@ impl DeferredPanelDisplay {
                 section_id: "section:contributors",
                 heading_label: "Contributors",
                 loading_label: "Loading contributors...",
+                empty_label: "No contributors found",
             },
             DeferredPanelKind::ValueRoutes => Self {
                 section_id: "section:value-routes",
                 heading_label: "Value Routes",
                 loading_label: "Loading value routes...",
+                empty_label: "No value routes found",
             },
         }
     }
@@ -1554,6 +1557,11 @@ impl SearchViewModel {
             title: title.to_string(),
             subtitle: nonempty_text(subtitle).map(str::to_string),
         }
+    }
+
+    #[must_use]
+    pub(crate) fn feed_inspector_tracks(feed: &Feed) -> Vec<Track> {
+        feed.tracks.clone().unwrap_or_default()
     }
 
     #[must_use]
@@ -3199,11 +3207,13 @@ mod tests {
         assert_eq!(contributors.section_id, "section:contributors");
         assert_eq!(contributors.heading_label, "Contributors");
         assert_eq!(contributors.loading_label, "Loading contributors...");
+        assert_eq!(contributors.empty_label, "No contributors found");
 
         let value_routes = SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes);
         assert_eq!(value_routes.section_id, "section:value-routes");
         assert_eq!(value_routes.heading_label, "Value Routes");
         assert_eq!(value_routes.loading_label, "Loading value routes...");
+        assert_eq!(value_routes.empty_label, "No value routes found");
     }
 
     #[test]
@@ -3237,6 +3247,21 @@ mod tests {
                 subtitle: None,
             }
         );
+    }
+
+    #[test]
+    fn feed_inspector_tracks_defaults_missing_tracks_to_empty_list() {
+        let feed = Feed::default();
+        assert!(SearchViewModel::feed_inspector_tracks(&feed).is_empty());
+
+        let feed = Feed {
+            tracks: Some(vec![Track {
+                title: Some("Track".into()),
+                ..Track::default()
+            }]),
+            ..Feed::default()
+        };
+        assert_eq!(SearchViewModel::feed_inspector_tracks(&feed).len(), 1);
     }
 
     #[test]

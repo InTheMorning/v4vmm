@@ -2036,6 +2036,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/search.rs",
+            "feed.tracks.clone().unwrap_or_default()",
+            "Discover feed-inspector missing-track fallback belongs in SearchViewModel::feed_inspector_tracks",
+        ),
+        (
+            "src/search.rs",
             "let episode_note =",
             "Discover feed-list episode note belongs in RecentFeedTileVm::display",
         ),
@@ -2721,6 +2726,16 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/search.rs",
+            "\"No contributors found\"",
+            "Discover contributor-panel empty label belongs in SearchViewModel::deferred_panel_display",
+        ),
+        (
+            "src/search.rs",
+            "\"No value routes found\"",
+            "Discover value-route-panel empty label belongs in SearchViewModel::deferred_panel_display",
+        ),
+        (
+            "src/search.rs",
             "id: \"section:contributors\".into()",
             "Discover contributor-panel heading id belongs in SearchViewModel::deferred_panel_display",
         ),
@@ -3203,6 +3218,26 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             "LazyPanel::Empty(format!(\"Error: {error}\"))",
             "Library deferred-panel error prefix belongs in LibraryViewModel",
+        ),
+        (
+            "src/library.rs",
+            "frame.subscription_message = Some(\"Subscribing...\"",
+            "Library local subscription progress message belongs in LibraryTrackActionVm",
+        ),
+        (
+            "src/library.rs",
+            "frame.subscription_message = Some(\"Unsubscribing...\"",
+            "Library local unsubscription progress message belongs in LibraryTrackActionVm",
+        ),
+        (
+            "src/library.rs",
+            "let action = if subscribe",
+            "Library local subscription error label belongs in LibraryTrackActionVm",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"{action} error: {err:#}\")",
+            "Library local subscription error message belongs in LibraryTrackActionVm",
         ),
         (
             "src/search.rs",

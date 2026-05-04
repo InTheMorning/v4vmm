@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred twenty one implementation slices completed on 2026-05-03.
+In progress - first one hundred twenty four implementation slices completed on 2026-05-03.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -808,7 +808,27 @@ Verified starting notes, 2026-05-03:
     - Remove screen-local `playlist.name.clone()` option projection
       from `src/ui/shells/track.rs`.
     - Extend `view_models_own_display_fallbacks_for_library_and_search`.
-122. Migrate remaining fallback batches, smallest blast radius first.
+122. Discover deferred-panel empty labels
+    - Extend `DeferredPanelDisplay` with the empty-state label for the
+      Contributors and Value Routes deferred panels.
+    - Remove the Discover screen-local `"No contributors found"` and
+      `"No value routes found"` fetch-result labels.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+123. Discover feed-inspector track-list fallback
+    - Add `SearchViewModel::feed_inspector_tracks()` so missing feed
+      track lists normalize before the renderer calls the shared feed
+      shell.
+    - Remove screen-local `feed.tracks.clone().unwrap_or_default()`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+124. Library local subscription messages
+    - Add `LibraryTrackActionVm::subscription_busy_message()` and
+      `subscription_error_message()` so local track subscription progress
+      and error labels live beside the existing action-row display
+      contract.
+    - Remove screen-local `"Subscribing..."`, `"Unsubscribing..."`, and
+      action-name error formatting from `LibraryApp`.
+    - Extend `view_models_own_display_fallbacks_for_library_and_search`.
+125. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -2032,6 +2052,35 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks the track-shell raw playlist-name
   option projection from returning.
 
+## One-Hundred-Twenty-First-Slice Implementation Notes
+
+- `DeferredPanelDisplay` now carries empty-state labels for the
+  Contributors and Value Routes panels.
+- Discover still maps fetch results into `LazyPanel`, but no longer
+  owns the human-facing empty labels in the async completion handlers.
+- The architecture guard now blocks the screen-local deferred-panel
+  empty labels from returning.
+
+## One-Hundred-Twenty-Second-Slice Implementation Notes
+
+- `SearchViewModel::feed_inspector_tracks()` now normalizes a missing
+  feed track list to an empty list before the Discover feed shell
+  renders.
+- The Discover feed-inspector renderer no longer performs
+  `feed.tracks.clone().unwrap_or_default()` locally.
+- The architecture guard now blocks the screen-local feed-track list
+  fallback from returning.
+
+## One-Hundred-Twenty-Third-Slice Implementation Notes
+
+- `LibraryTrackActionVm` now owns local subscription progress and error
+  messages through `subscription_busy_message()` and
+  `subscription_error_message()`.
+- `LibraryApp` still owns command execution and frame mutation, but no
+  longer formats the user-facing subscribe/unsubscribe state labels.
+- The architecture guard now blocks the old screen-local subscription
+  progress and error formatting from returning.
+
 ## Test Commands
 
 ```sh
@@ -2056,6 +2105,9 @@ cargo test id3_frame_color_role_classifies_discover_context
 cargo test text_value_display_projects_owned_text_value
 cargo test expanded_display_value_preserves_metadata_raw_display_policy
 cargo test deferred_panel_empty_line_projects_label
+cargo test deferred_panel_display_projects_heading_and_loading_labels
+cargo test feed_inspector_tracks_defaults_missing_tracks_to_empty_list
+cargo test library_track_action_vm_formats_subscription_labels
 cargo test artwork_url_display_projects_raw_url_text
 cargo test feed_header_display_filters_empty_subtitle
 cargo test search_type_filter_options_project_labels_and_values

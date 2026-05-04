@@ -393,6 +393,28 @@ impl<'a> LibraryTrackActionVm<'a> {
     }
 
     #[must_use]
+    pub(crate) const fn subscription_busy_message(subscribe: bool) -> &'static str {
+        if subscribe {
+            "Subscribing..."
+        } else {
+            "Unsubscribing..."
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn subscription_error_message(
+        subscribe: bool,
+        error: impl std::fmt::Display,
+    ) -> String {
+        let action = if subscribe {
+            "Subscribe"
+        } else {
+            "Unsubscribe"
+        };
+        format!("{action} error: {error:#}")
+    }
+
+    #[must_use]
     pub(crate) const fn add_to_playlist_label() -> &'static str {
         "Add to playlist"
     }
@@ -3332,6 +3354,22 @@ mod tests {
         assert_eq!(
             LibraryTrackActionVm::new(true, true, None).subscription_button_label(),
             "Unsubscribing..."
+        );
+        assert_eq!(
+            LibraryTrackActionVm::subscription_busy_message(true),
+            "Subscribing..."
+        );
+        assert_eq!(
+            LibraryTrackActionVm::subscription_busy_message(false),
+            "Unsubscribing..."
+        );
+        assert_eq!(
+            LibraryTrackActionVm::subscription_error_message(true, "offline"),
+            "Subscribe error: offline"
+        );
+        assert_eq!(
+            LibraryTrackActionVm::subscription_error_message(false, "offline"),
+            "Unsubscribe error: offline"
         );
     }
 
