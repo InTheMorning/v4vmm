@@ -3194,6 +3194,11 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
+            "SharedString::from(album_count_label)",
+            "Library artist album-count label should render through DisclosureSupplementLabel",
+        ),
+        (
+            "src/library.rs",
             "format!(\"album-{}-{}\"",
             "Library album tree row id belongs in AlbumNode::tree_display",
         ),
@@ -3206,6 +3211,21 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "src/library.rs",
             "format!(\"({track_count})\"",
             "Library album track-count label belongs in AlbumNode::tree_display",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(track_count_label)",
+            "Library album tree track-count label should render through DisclosureSupplementLabel",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(disclosure_glyph)",
+            "Library tree disclosure glyph should render through DisclosureIndicator",
+        ),
+        (
+            "src/library.rs",
+            "SharedString::from(playlist_disclosure_glyph)",
+            "Library playlist disclosure glyph should render through DisclosureIndicator",
         ),
         (
             "src/library.rs",

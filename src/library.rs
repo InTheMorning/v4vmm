@@ -60,7 +60,8 @@ use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, identity_action_button, ActionButtonDisplay, ActionRow, ActionRowMessage,
     AddToPlaylistDisplay, AddToPlaylistPopover, DetailGrid, DetailHeader, DetailHeaderDisplay,
-    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, EntityKind,
+    DetailRow as CompositeDetailRow, DetailTextRow as CompositeDetailTextRow, DisclosureIndicator,
+    DisclosureIndicatorDisplay, DisclosureSupplementDisplay, DisclosureSupplementLabel, EntityKind,
     FileHeader, IdentityActionKind, ListRow, MusicBrainzPanel, PlaylistOption,
     PlaylistOptionDisplay, ProvenanceRole, ReleaseSurfaceElement, SplitPane, StatusRole, Thumbnail,
     ThumbnailSize, TrackDetailSurface, TrackMetadataFieldCell, TrackMetadataFieldDisplay,
@@ -1844,13 +1845,9 @@ impl Render for LibraryApp {
                         .flex_row()
                         .gap(spacing::XS)
                         .items_baseline()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(color::text_muted())
-                                .w(spacing::MD)
-                                .child(SharedString::from(playlist_disclosure_glyph)),
-                        )
+                        .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
+                            glyph: playlist_disclosure_glyph.into(),
+                        }))
                         .child(
                             div()
                                 .font_weight(FontWeight::SEMIBOLD)
@@ -2170,25 +2167,20 @@ pub(crate) fn render_tree(
                         .flex_row()
                         .gap(spacing::XS)
                         .items_baseline()
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(color::text_muted())
-                                .w(spacing::MD)
-                                .child(SharedString::from(disclosure_glyph)),
-                        )
+                        .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
+                            glyph: disclosure_glyph.into(),
+                        }))
                         .child(
                             div()
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(color::text_primary())
                                 .child(SharedString::from(title)),
                         )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(color::text_muted())
-                                .child(SharedString::from(album_count_label)),
-                        ),
+                        .child(DisclosureSupplementLabel::new(
+                            DisclosureSupplementDisplay {
+                                label: album_count_label.into(),
+                            },
+                        )),
                 )
                 .into_any_element(),
         );
@@ -2232,13 +2224,9 @@ pub(crate) fn render_tree(
                                 .flex_row()
                                 .gap(spacing::XS)
                                 .items_center()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(color::text_muted())
-                                        .w(spacing::MD)
-                                        .child(SharedString::from(disclosure_glyph)),
-                                )
+                                .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
+                                    glyph: disclosure_glyph.into(),
+                                }))
                                 .child(hoverable_thumb(
                                     thumb_url.clone(),
                                     thumb_image.clone(),
@@ -2251,12 +2239,11 @@ pub(crate) fn render_tree(
                                         .text_color(color::accent())
                                         .child(SharedString::from(title)),
                                 )
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(color::text_muted())
-                                        .child(SharedString::from(track_count_label)),
-                                ),
+                                .child(DisclosureSupplementLabel::new(
+                                    DisclosureSupplementDisplay {
+                                        label: track_count_label.into(),
+                                    },
+                                )),
                         )
                         .into_any_element(),
                 );
@@ -2434,12 +2421,11 @@ fn render_library_artist_detail(
                                 .truncate()
                                 .child(SharedString::from(title)),
                         )
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(color::text_muted())
-                                .child(SharedString::from(track_count_label)),
-                        ),
+                        .child(DisclosureSupplementLabel::new(
+                            DisclosureSupplementDisplay {
+                                label: track_count_label.into(),
+                            },
+                        )),
                 )
                 .into_any_element()
         })

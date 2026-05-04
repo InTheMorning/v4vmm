@@ -37,7 +37,8 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
-use crate::ui::primitives::SectionHeader;
+use crate::ui::primitives::{Label, SectionHeader};
+use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -48,6 +49,30 @@ pub struct DisclosureGroup {
     label: SharedString,
     collapsed: bool,
     on_toggle: Option<ClickHandler>,
+}
+
+/// Fixed-width disclosure glyph used beside tree and sidebar labels.
+#[derive(IntoElement)]
+#[must_use]
+pub struct DisclosureIndicator {
+    glyph: SharedString,
+}
+
+/// Muted supplemental label shown at the trailing edge of disclosure rows.
+#[derive(IntoElement)]
+#[must_use]
+pub struct DisclosureSupplementLabel {
+    label: SharedString,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisclosureIndicatorDisplay {
+    pub glyph: SharedString,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisclosureSupplementDisplay {
+    pub label: SharedString,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +102,40 @@ impl DisclosureGroup {
     ) -> Self {
         self.on_toggle = Some(Rc::new(handler));
         self
+    }
+}
+
+impl DisclosureIndicator {
+    pub fn new(display: DisclosureIndicatorDisplay) -> Self {
+        Self {
+            glyph: display.glyph,
+        }
+    }
+}
+
+impl DisclosureSupplementLabel {
+    pub fn new(display: DisclosureSupplementDisplay) -> Self {
+        Self {
+            label: display.label,
+        }
+    }
+}
+
+impl RenderOnce for DisclosureIndicator {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        div().w(Spacing::MD.scaled(cx)).child(
+            Label::new(self.glyph)
+                .size(FontSize::Caption)
+                .color(SemanticColor::TertiaryLabel),
+        )
+    }
+}
+
+impl RenderOnce for DisclosureSupplementLabel {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        Label::new(self.label)
+            .size(FontSize::Caption)
+            .color(SemanticColor::TertiaryLabel)
     }
 }
 
@@ -117,5 +176,23 @@ mod tests {
         .on_toggle(|_, _, _| {});
         assert!(g.collapsed);
         assert!(g.on_toggle.is_some());
+    }
+
+    #[test]
+    fn indicator_owns_display_glyph() {
+        let indicator = DisclosureIndicator::new(DisclosureIndicatorDisplay {
+            glyph: SharedString::from("\u{25B6}"),
+        });
+
+        assert_eq!(indicator.glyph, SharedString::from("\u{25B6}"));
+    }
+
+    #[test]
+    fn supplement_label_owns_display_text() {
+        let label = DisclosureSupplementLabel::new(DisclosureSupplementDisplay {
+            label: SharedString::from("(2 albums)"),
+        });
+
+        assert_eq!(label.label, SharedString::from("(2 albums)"));
     }
 }

@@ -2,7 +2,7 @@
 
 ## Status
 
-In progress - first one hundred eighty-five implementation slices completed on 2026-05-04.
+In progress - first one hundred eighty-seven implementation slices completed on 2026-05-04.
 May split into Task 003a (Library) and Task 003b (Discover) once the
 full inventory is in hand.
 
@@ -1197,7 +1197,19 @@ Verified starting notes, 2026-05-03:
     - Remove renderer-side `label.clone()` from Library metadata group
       rendering.
     - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
-186. Migrate remaining fallback batches, smallest blast radius first.
+186. Library sidebar disclosure indicator chrome
+    - Add `DisclosureIndicator` so playlist, artist, and album
+      disclosure glyph cells use one shared fixed-width composite.
+    - Remove screen-local muted disclosure glyph cell construction
+      from Library sidebar/tree rendering.
+    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+187. Library sidebar supplemental count labels
+    - Add `DisclosureSupplementLabel` so adjacent count labels share
+      the same muted caption chrome.
+    - Remove screen-local muted count label construction from Library
+      artist, album, and feed-summary rows.
+    - Tighten `view_models_own_display_fallbacks_for_library_and_search`.
+188. Migrate remaining fallback batches, smallest blast radius first.
 
 ## Constraints
 
@@ -3013,6 +3025,24 @@ Verified starting notes, 2026-05-03:
 - The architecture guard now blocks `label: label.clone()` from
   returning in Library metadata group rendering.
 
+## One-Hundred-Eighty-Sixth-Slice Implementation Notes
+
+- `DisclosureIndicator` now owns the fixed-width muted disclosure glyph
+  chrome used by Library playlist, artist, and album rows.
+- Library sidebar/tree rendering no longer builds those disclosure glyph
+  cells with raw screen-local text, color, and width calls.
+- The architecture guard now blocks direct `SharedString` rendering of
+  Library disclosure glyph display fields from returning.
+
+## One-Hundred-Eighty-Seventh-Slice Implementation Notes
+
+- `DisclosureSupplementLabel` now owns muted caption chrome for
+  sidebar/tree supplemental count labels.
+- Library artist, album, and feed-summary rows no longer construct
+  count labels with screen-local muted text branches.
+- The architecture guard now blocks direct `SharedString` rendering of
+  Library tree count display fields from returning.
+
 ## Test Commands
 
 ```sh
@@ -3063,6 +3093,8 @@ cargo test expandable_cell_summary_owns_context_fallbacks
 cargo test artwork_url_and_summary_preserve_legacy_http_policy
 cargo test transcript_line_display_preserves_blank_visual_rows
 cargo test group_cell_builds_disclosure_from_display_label
+cargo test indicator_owns_display_glyph
+cargo test supplement_label_owns_display_text
 cargo test logical_field_maps_raw_musicindex_txxx_fields
 cargo test value_route_child_field_visibility_preserves_screen_contexts
 cargo test json_tree_scalar_label_preserves_raw_json_leaf_display
