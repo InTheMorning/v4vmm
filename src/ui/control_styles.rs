@@ -100,7 +100,7 @@ impl ControlStyle {
                 size: ButtonSize::Sm,
                 font_size: FontSize::Micro,
                 radius: Radius::Full,
-                foreground: Some(SemanticColor::OnAccent),
+                foreground: None,
                 border: None,
             },
         }
@@ -166,5 +166,13 @@ mod tests {
         assert!(ControlStyle::DestructiveRowAction.prefers_tooltip());
         assert!(!ControlStyle::Primary.prefers_tooltip());
         assert!(!ControlStyle::Ghost.prefers_tooltip());
+    }
+
+    #[test]
+    fn pill_uses_tinted_button_foreground_contract() {
+        let spec = ControlStyle::Pill.spec();
+
+        assert_eq!(spec.variant, ButtonVariant::Tinted);
+        assert!(spec.foreground.is_none());
     }
 }

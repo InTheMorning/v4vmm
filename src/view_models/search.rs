@@ -150,7 +150,9 @@ pub(crate) struct PodrollSectionDisplay {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SearchTypeFilterOptionDisplay {
     pub(crate) index: usize,
+    pub(crate) button_id: &'static str,
     pub(crate) label: &'static str,
+    pub(crate) a11y_label: &'static str,
     pub(crate) value: Option<&'static str>,
 }
 
@@ -1368,22 +1370,30 @@ impl PlaylistAppendOutcome {
 const TYPE_FILTER_OPTIONS: [SearchTypeFilterOptionDisplay; 4] = [
     SearchTypeFilterOptionDisplay {
         index: 0,
+        button_id: "type-filter-all",
         label: "All",
+        a11y_label: "Show all search result types",
         value: None,
     },
     SearchTypeFilterOptionDisplay {
         index: 1,
+        button_id: "type-filter-artist",
         label: "Artist",
+        a11y_label: "Show artist search results",
         value: Some("artist"),
     },
     SearchTypeFilterOptionDisplay {
         index: 2,
+        button_id: "type-filter-feed",
         label: "Feed",
+        a11y_label: "Show feed search results",
         value: Some("feed"),
     },
     SearchTypeFilterOptionDisplay {
         index: 3,
+        button_id: "type-filter-track",
         label: "Track",
+        a11y_label: "Show track search results",
         value: Some("track"),
     },
 ];
@@ -3086,22 +3096,30 @@ mod tests {
             [
                 SearchTypeFilterOptionDisplay {
                     index: 0,
+                    button_id: "type-filter-all",
                     label: "All",
+                    a11y_label: "Show all search result types",
                     value: None,
                 },
                 SearchTypeFilterOptionDisplay {
                     index: 1,
+                    button_id: "type-filter-artist",
                     label: "Artist",
+                    a11y_label: "Show artist search results",
                     value: Some("artist"),
                 },
                 SearchTypeFilterOptionDisplay {
                     index: 2,
+                    button_id: "type-filter-feed",
                     label: "Feed",
+                    a11y_label: "Show feed search results",
                     value: Some("feed"),
                 },
                 SearchTypeFilterOptionDisplay {
                     index: 3,
+                    button_id: "type-filter-track",
                     label: "Track",
+                    a11y_label: "Show track search results",
                     value: Some("track"),
                 },
             ]

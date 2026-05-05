@@ -965,6 +965,63 @@ fn row_context_menu_chrome_has_shared_primitive_contract() {
 }
 
 #[test]
+fn pressable_button_chrome_does_not_use_on_accent_on_ghost_surfaces() {
+    let mut violations = Vec::new();
+
+    for file in [
+        "src/ui/control_styles.rs",
+        "src/ui/shells/discover/actions.rs",
+        "src/ui/shells/discover/search_input.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("ControlStyle::Pill") && line.contains("OnAccent") {
+                violations.push(format!(
+                    "{file}:{line_number}: tinted pill buttons must use accent text, not OnAccent"
+                ));
+            }
+            if line.contains(".ghost()") {
+                let following = source
+                    .lines()
+                    .skip(line_number)
+                    .take(12)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if following.contains("text_on_accent()") {
+                    violations.push(format!(
+                        "{file}:{line_number}: ghost buttons must not render OnAccent text on transparent surfaces"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "pressable button contrast routing violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn discover_type_filter_uses_segmented_control_contract() {
+    let source = read_source(&manifest_path("src/ui/shells/discover/search_input.rs"));
+
+    assert!(
+        source.contains("render_type_filter_control(params.type_filter, cx)")
+            && source.contains("SegmentedControl::new(selected)")
+            && source.contains(".filter_style()"),
+        "Discover type filters must render through the shared segmented-control filter style"
+    );
+    assert!(
+        !source.contains("fn render_filter_button")
+            && !source.contains("(\"type-filter\", idx)")
+            && !source.contains("option.index == params.type_filter"),
+        "Discover type filters must not swap screen-local Ghost/Pill button styles"
+    );
+}
+
+#[test]
 fn core_non_ui_modules_do_not_import_ui_modules() {
     let mut violations = Vec::new();
     for path in non_ui_core_rust_files() {

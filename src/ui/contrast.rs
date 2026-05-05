@@ -49,6 +49,19 @@ pub fn ratio(a: Rgba, b: Rgba) -> f32 {
     (lighter + 0.05) / (darker + 0.05)
 }
 
+/// Composite `fg` over an opaque `bg`.
+#[must_use]
+pub fn composite_over(fg: Rgba, bg: Rgba) -> Rgba {
+    let alpha = fg.a.clamp(0.0, 1.0);
+    let inverse_alpha = 1.0 - alpha;
+    Rgba {
+        r: fg.r.mul_add(alpha, bg.r * inverse_alpha),
+        g: fg.g.mul_add(alpha, bg.g * inverse_alpha),
+        b: fg.b.mul_add(alpha, bg.b * inverse_alpha),
+        a: 1.0,
+    }
+}
+
 /// WCAG relative luminance of an sRGB color (alpha is ignored).
 #[must_use]
 pub fn relative_luminance(c: Rgba) -> f32 {
@@ -267,6 +280,7 @@ mod tests {
     use super::*;
     use crate::theme_profile::ThemeProfile;
     use crate::ui::icons::IconName;
+    use crate::ui::primitives::button::{TINTED_BUTTON_BG_ALPHA, TINTED_BUTTON_HOVER_BG_ALPHA};
     use crate::ui::theme_profiles::resolve_profile_color;
     use crate::ui::tokens::{Appearance, SemanticColor};
 
@@ -344,6 +358,81 @@ mod tests {
         assert!(
             failures.is_empty(),
             "WCAG contrast failures in {profile:?} profile:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    fn tinted_button_background(profile: ThemeProfile, surface: SemanticColor, alpha: f32) -> Rgba {
+        let mut tint = resolve_profile_color(profile, SemanticColor::Accent);
+        tint.a = alpha;
+        composite_over(tint, resolve_profile_color(profile, surface))
+    }
+
+    #[test]
+    fn pressable_button_token_pairs_meet_wcag() {
+        let profiles = [
+            ThemeProfile::Dark,
+            ThemeProfile::Light,
+            ThemeProfile::HighContrastDark,
+            ThemeProfile::HighContrastLight,
+        ];
+        let surfaces = [
+            SemanticColor::SystemBackground,
+            SemanticColor::SecondarySystemBackground,
+            SemanticColor::TertiarySystemBackground,
+        ];
+        let mut failures = Vec::new();
+        let required = ContrastLevel::LargeOrGraphic.min_ratio();
+
+        for profile in profiles {
+            let accent = resolve_profile_color(profile, SemanticColor::Accent);
+            let on_accent = resolve_profile_color(profile, SemanticColor::OnAccent);
+            let danger = resolve_profile_color(profile, SemanticColor::Danger);
+            let on_danger = resolve_profile_color(profile, SemanticColor::OnDanger);
+            let actual = ratio(on_accent, accent);
+            if actual + 0.005 < required {
+                failures.push(format!(
+                    "{profile:?}: filled button OnAccent on Accent = {actual:.2}:1; need {required:.2}:1"
+                ));
+            }
+            let actual = ratio(on_danger, danger);
+            if actual + 0.005 < required {
+                failures.push(format!(
+                    "{profile:?}: destructive button OnDanger on Danger = {actual:.2}:1; need {required:.2}:1"
+                ));
+            }
+
+            for surface in surfaces {
+                let surface_color = resolve_profile_color(profile, surface);
+                let actual = ratio(accent, surface_color);
+                if actual + 0.005 < required {
+                    failures.push(format!(
+                        "{profile:?}: plain button Accent on {surface:?} = {actual:.2}:1; need {required:.2}:1"
+                    ));
+                }
+
+                let tinted_bg = tinted_button_background(profile, surface, TINTED_BUTTON_BG_ALPHA);
+                let actual = ratio(accent, tinted_bg);
+                if actual + 0.005 < required {
+                    failures.push(format!(
+                        "{profile:?}: tinted button Accent on tinted {surface:?} = {actual:.2}:1; need {required:.2}:1"
+                    ));
+                }
+
+                let tinted_hover_bg =
+                    tinted_button_background(profile, surface, TINTED_BUTTON_HOVER_BG_ALPHA);
+                let actual = ratio(accent, tinted_hover_bg);
+                if actual + 0.005 < required {
+                    failures.push(format!(
+                        "{profile:?}: tinted hover button Accent on tinted {surface:?} = {actual:.2}:1; need {required:.2}:1"
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "pressable button contrast failures:\n{}",
             failures.join("\n")
         );
     }

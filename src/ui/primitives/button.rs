@@ -64,6 +64,9 @@ enum ButtonContentAlignment {
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
+pub(crate) const TINTED_BUTTON_BG_ALPHA: f32 = 0.08;
+pub(crate) const TINTED_BUTTON_HOVER_BG_ALPHA: f32 = 0.12;
+
 #[derive(IntoElement)]
 #[must_use]
 pub struct Button {
@@ -264,9 +267,9 @@ impl Button {
             ),
             ButtonVariant::Tinted => {
                 let mut tint = resolve_color(cx, SemanticColor::Accent, appearance);
-                tint.a = 0.15;
+                tint.a = TINTED_BUTTON_BG_ALPHA;
                 let mut hover = tint;
-                hover.a = 0.25;
+                hover.a = TINTED_BUTTON_HOVER_BG_ALPHA;
                 (
                     tint,
                     resolve_color(cx, SemanticColor::Accent, appearance),

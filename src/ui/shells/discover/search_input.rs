@@ -8,6 +8,7 @@ use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
 
 use crate::search::SearchApp;
+use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::sizable_bridge::SizableScaled;
@@ -29,17 +30,6 @@ pub(crate) fn render_discover_search_input(
     params: DiscoverSearchInputParams,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let type_filters: Vec<AnyElement> = SearchViewModel::type_filter_options()
-        .iter()
-        .map(|option| {
-            render_filter_button(
-                option.index,
-                option.label,
-                option.index == params.type_filter,
-                cx,
-            )
-        })
-        .collect();
     let search_label = params.pane_display.search_button_label;
 
     div()
@@ -67,7 +57,7 @@ pub(crate) fn render_discover_search_input(
                 .flex_row()
                 .flex_wrap()
                 .gap(spacing::SM)
-                .children(type_filters),
+                .child(render_type_filter_control(params.type_filter, cx)),
         )
         .child(
             div()
@@ -123,29 +113,36 @@ pub(crate) fn render_discover_search_input(
         .into_any_element()
 }
 
-fn render_filter_button(
-    idx: usize,
-    label: &'static str,
-    selected: bool,
+fn render_type_filter_control(
+    selected: usize,
     cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    UiButton::styled(
-        ("type-filter", idx),
-        if selected {
-            ControlStyle::Pill
-        } else {
-            ControlStyle::Ghost
-        },
-    )
-    .label(label)
-    .on_click(cx.listener(move |this, _, _, cx| {
-        if this.vm.set_type_filter_if_changed(idx) {
-            let has_query = normalized_search_query(&this.input.read(cx).value()).is_some();
-            cx.notify();
-            if has_query {
-                this.do_search(false, cx);
-            }
-        }
-    }))
-    .into_any_element()
+) -> SegmentedControl<usize> {
+    let type_filter_segments = SearchViewModel::type_filter_options()
+        .iter()
+        .map(|option| {
+            Segment::new(SegmentDisplay {
+                id: option.button_id.into(),
+                key: option.index,
+                label: option.label.into(),
+                a11y_label: option.a11y_label.into(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let entity = cx.entity();
+
+    SegmentedControl::new(selected)
+        .filter_style()
+        .segments(type_filter_segments)
+        .on_select(move |idx, _window, cx| {
+            let idx = *idx;
+            entity.update(cx, |this, cx| {
+                if this.vm.set_type_filter_if_changed(idx) {
+                    let has_query = normalized_search_query(&this.input.read(cx).value()).is_some();
+                    cx.notify();
+                    if has_query {
+                        this.do_search(false, cx);
+                    }
+                }
+            });
+        })
 }

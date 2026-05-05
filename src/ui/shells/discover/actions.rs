@@ -274,7 +274,7 @@ fn render_play_icon_button_parts(
         .min_h(layout::MIN_HIT_TARGET)
         .px(spacing::NONE)
         .py(spacing::NONE)
-        .text_color(color::text_on_accent())
+        .text_color(color::accent())
         .rounded(radius::SM)
         .border_1()
         .border_color(color::accent())

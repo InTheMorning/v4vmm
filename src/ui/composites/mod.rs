@@ -65,7 +65,7 @@ pub use release_detail_surface::{
     ReleaseActionGroupDisplay, ReleaseDetailSurface, ReleaseSurfaceElement,
     ReleaseTrackSectionDisplay,
 };
-pub use segmented_control::{Segment, SegmentDisplay, SegmentedControl};
+pub use segmented_control::{Segment, SegmentDisplay, SegmentedControl, SegmentedControlStyle};
 pub use split_pane::SplitPane;
 pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge, TagBadgeDisplay};
 pub use thumbnail::{Thumbnail, ThumbnailSize};
