@@ -2,7 +2,7 @@
 
 ## Status
 
-Code complete (2026-05-04). Per-slice plans live under
+Implemented (2026-05-04). Per-slice plans live under
 `docs/tasks/adr-0038-task-007-slices/`. Task 006 (PageVm
 Generalization) landed on 2026-05-04, unblocking this task.
 
@@ -243,3 +243,9 @@ verification commands, and the commit message template.
 Task 006 landed 2026-05-04. Task 007 unblocked. Suggest running
 Slice 0 + L1 + D1 first so both decomposition chains are visibly in
 motion before scheduling further subagent work.
+
+## Verification Closeout
+
+Light/dark visual smoke passed by operator confirmation after
+checklist-based app smoke. No screenshot artifacts were created or
+retained.

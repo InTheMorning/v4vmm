@@ -629,6 +629,33 @@ fn shared_ui_render_paths_use_scale_aware_tokens() {
 }
 
 #[test]
+fn tooltip_chrome_routes_through_primitive() {
+    let mut violations = Vec::new();
+
+    for path in rust_files_under("src") {
+        let relative = rel_path(&path);
+        if relative == "src/ui/primitives/tooltip.rs" {
+            continue;
+        }
+
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("gpui_component::tooltip::Tooltip") {
+                violations.push(format!(
+                    "{relative}:{line_number}: tooltip chrome must route through `src/ui/primitives/tooltip.rs`, not direct gpui_component tooltip usage: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "tooltip primitive routing violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn shared_header_badges_use_intrinsic_flex_rows() {
     let mut violations = Vec::new();
     for file in [

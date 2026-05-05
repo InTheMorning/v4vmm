@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use gpui::{
     div, prelude::*, App, ClickEvent, ElementId, FontWeight, IntoElement, MouseButton, RenderOnce,
-    Window,
+    Rgba, Window,
 };
 
 use crate::ui::control_styles::ControlStyle;
@@ -24,6 +24,8 @@ use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::tokens::{
     resolve_color, Appearance, FontSize, Radius, SemanticColor, Size, Spacing,
 };
+
+use super::tooltip::Tooltip;
 
 /// HIG button styles.
 ///
@@ -76,6 +78,8 @@ pub struct Button {
     font_size: Option<FontSize>,
     foreground: Option<SemanticColor>,
     border: Option<SemanticColor>,
+    control_style: Option<ControlStyle>,
+    tooltip: Option<Tooltip>,
     full_width: bool,
     content_alignment: ButtonContentAlignment,
     disabled: bool,
@@ -97,6 +101,8 @@ impl Button {
             font_size: None,
             foreground: None,
             border: None,
+            control_style: None,
+            tooltip: None,
             full_width: false,
             content_alignment: ButtonContentAlignment::Center,
             disabled: false,
@@ -127,6 +133,11 @@ impl Button {
         self
     }
 
+    pub fn tooltip(mut self, label: impl Into<gpui::SharedString>) -> Self {
+        self.tooltip = Tooltip::non_empty(label);
+        self
+    }
+
     pub const fn leading_icon(mut self, icon: IconName) -> Self {
         self.leading_icon = Some(icon);
         self
@@ -145,6 +156,7 @@ impl Button {
         self.radius = Some(spec.radius);
         self.foreground = spec.foreground;
         self.border = spec.border;
+        self.control_style = Some(style);
         self
     }
 
@@ -219,20 +231,26 @@ impl Button {
             ButtonSize::Lg => FontSize::Headline,
         }
     }
-}
 
-impl RenderOnce for Button {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let height = self.height(cx);
-        let pad = self.px_inset().scaled(cx);
-        let font = self
-            .font_size
-            .unwrap_or_else(|| self.font_size())
-            .scaled(cx);
-        let radius = self.radius.unwrap_or(Radius::MD).scaled(cx);
-        let appearance = self.appearance;
+    fn effective_tooltip(&self) -> Option<Tooltip> {
+        if let Some(tooltip) = self.tooltip.clone() {
+            return Some(tooltip);
+        }
 
-        // Resolve the variant's color triple: (bg, fg, hover_bg).
+        if !self
+            .control_style
+            .is_some_and(ControlStyle::prefers_tooltip)
+        {
+            return None;
+        }
+
+        self.a11y_label
+            .clone()
+            .or_else(|| self.label.clone())
+            .and_then(Tooltip::non_empty)
+    }
+
+    fn resolved_colors(&self, cx: &App, appearance: Option<Appearance>) -> (Rgba, Rgba, Rgba) {
         let (bg, mut fg, hover_bg) = match self.variant {
             ButtonVariant::Filled => (
                 resolve_color(cx, SemanticColor::Accent, appearance),
@@ -275,6 +293,22 @@ impl RenderOnce for Button {
         if let Some(foreground) = self.foreground {
             fg = resolve_color(cx, foreground, appearance);
         }
+        (bg, fg, hover_bg)
+    }
+}
+
+impl RenderOnce for Button {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let height = self.height(cx);
+        let pad = self.px_inset().scaled(cx);
+        let font = self
+            .font_size
+            .unwrap_or_else(|| self.font_size())
+            .scaled(cx);
+        let radius = self.radius.unwrap_or(Radius::MD).scaled(cx);
+        let appearance = self.appearance;
+
+        let (bg, fg, hover_bg) = self.resolved_colors(cx, appearance);
 
         let label = self.label.clone().unwrap_or_default();
         let leading_icon = self.leading_icon;
@@ -282,6 +316,7 @@ impl RenderOnce for Button {
         let disabled = self.disabled;
         let full_width = self.full_width;
         let content_alignment = self.content_alignment;
+        let tooltip = self.effective_tooltip();
 
         let mut row = div()
             .id(self.id)
@@ -311,6 +346,10 @@ impl RenderOnce for Button {
 
         if full_width {
             row = row.w_full();
+        }
+
+        if let Some(tooltip) = tooltip {
+            row = row.tooltip(move |window, cx| tooltip.build(window, cx));
         }
 
         if disabled {
@@ -361,5 +400,40 @@ mod tests {
             button.a11y_label,
             Some(gpui::SharedString::from("Remove feed from library"))
         );
+    }
+
+    #[test]
+    fn row_action_tooltip_uses_accessibility_label() {
+        let button = Button::styled("remove", ControlStyle::RowAction)
+            .label("Remove")
+            .a11y_label("Remove feed from library");
+
+        assert_eq!(
+            button
+                .effective_tooltip()
+                .expect("row action has tooltip")
+                .label(),
+            gpui::SharedString::from("Remove feed from library")
+        );
+    }
+
+    #[test]
+    fn toolbar_icon_tooltip_falls_back_to_visible_label() {
+        let button = Button::styled("sort", ControlStyle::ToolbarIcon).label("Sort A-Z");
+
+        assert_eq!(
+            button
+                .effective_tooltip()
+                .expect("toolbar action has tooltip")
+                .label(),
+            gpui::SharedString::from("Sort A-Z")
+        );
+    }
+
+    #[test]
+    fn non_compact_button_does_not_invent_tooltip() {
+        let button = Button::styled("search", ControlStyle::Primary).label("Search");
+
+        assert!(button.effective_tooltip().is_none());
     }
 }

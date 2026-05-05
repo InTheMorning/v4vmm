@@ -5,7 +5,6 @@
 use gpui::{div, prelude::*, AnyElement, ClickEvent, Context, SharedString, Styled};
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::spinner::Spinner;
-use gpui_component::tooltip::Tooltip;
 use gpui_component::{Disableable, Size};
 
 use crate::api::{Feed, Track};
@@ -18,7 +17,7 @@ use crate::ui::composites::{
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
-use crate::ui::primitives::Button as UiButton;
+use crate::ui::primitives::{Button as UiButton, Tooltip};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::{color, radius, spacing};
 use crate::view_models::entity_detail::{
@@ -261,6 +260,8 @@ fn render_play_icon_button_parts(
     disabled: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
+    let tooltip = Tooltip::new(tooltip);
+
     // CONTROL-COMPAT(reason): native Button is needed for compact icon chrome.
     Button::new(id)
         .label(button_label)
@@ -275,7 +276,7 @@ fn render_play_icon_button_parts(
         .rounded(radius::SM)
         .border_1()
         .border_color(color::accent())
-        .tooltip(tooltip)
+        .tooltip(tooltip.label())
         .disabled(disabled)
         .on_click(cx.listener(move |_this, _: &ClickEvent, _window, _cx| {
             if let Some(url) = &click_url {
@@ -300,7 +301,7 @@ pub(crate) fn render_track_download_button(
     let display = action_vm.download_display();
 
     if action_vm.is_in_flight() {
-        let tip = SharedString::from(display.busy_tooltip);
+        let tooltip = Tooltip::new(display.busy_tooltip);
         return div()
             .id(SharedString::from(display.busy_indicator_id))
             .w(layout::ACTION_ICON_SIZE)
@@ -311,7 +312,7 @@ pub(crate) fn render_track_download_button(
             .rounded(radius::SM)
             .border_1()
             .border_color(color::accent())
-            .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+            .tooltip(move |window, cx| tooltip.build(window, cx))
             .child(
                 Spinner::new()
                     .scaled(Size::XSmall, cx)

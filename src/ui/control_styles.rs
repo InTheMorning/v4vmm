@@ -105,6 +105,15 @@ impl ControlStyle {
             },
         }
     }
+
+    /// Whether this compact action role should expose hover help by default.
+    #[must_use]
+    pub const fn prefers_tooltip(self) -> bool {
+        matches!(
+            self,
+            Self::ToolbarIcon | Self::RowAction | Self::DestructiveRowAction
+        )
+    }
 }
 
 #[cfg(test)]
@@ -148,5 +157,14 @@ mod tests {
         assert_eq!(spec.radius, Radius::SM);
         assert_eq!(spec.foreground, Some(SemanticColor::DangerLabel));
         assert!(spec.border.is_none());
+    }
+
+    #[test]
+    fn compact_action_roles_prefer_tooltips() {
+        assert!(ControlStyle::ToolbarIcon.prefers_tooltip());
+        assert!(ControlStyle::RowAction.prefers_tooltip());
+        assert!(ControlStyle::DestructiveRowAction.prefers_tooltip());
+        assert!(!ControlStyle::Primary.prefers_tooltip());
+        assert!(!ControlStyle::Ghost.prefers_tooltip());
     }
 }

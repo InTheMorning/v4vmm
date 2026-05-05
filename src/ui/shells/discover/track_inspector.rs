@@ -10,7 +10,6 @@ use gpui::{
     div, prelude::*, AnyElement, ClipboardItem, Context, FontWeight, InteractiveElement,
     SharedString, Styled,
 };
-use gpui_component::tooltip::Tooltip;
 
 use crate::api::PaymentRoute;
 use crate::metadata::TrackContext;
@@ -19,7 +18,7 @@ use crate::ui::composites::{
     identity_action_button, DisclosureGroup, DisclosureGroupDisplay, IdentityActionButtonDisplay,
     IdentityActionKind, ReleaseSurfaceElement, TrackInspectorPane, TrackSurfaceElement,
 };
-use crate::ui::primitives::LoadingMessage;
+use crate::ui::primitives::{LoadingMessage, Tooltip};
 use crate::ui::shells::discover::actions::{
     discover_inspector_action_row, render_play_icon_button_with_id,
 };
@@ -128,13 +127,14 @@ fn render_feed_link_value(link: TrackFeedLinkDisplay, cx: &mut Context<SearchApp
     } = link;
     let title = label;
     let click_title = title.clone();
+    let tooltip = Tooltip::new(tooltip);
     div()
         .id(SharedString::from(element_id))
         .cursor_pointer()
         .text_color(color::accent())
         .text_size(typography::SIZE_MICRO)
         .line_height(typography::LINE_DETAIL)
-        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .tooltip(move |window, cx| tooltip.build(window, cx))
         .on_click(cx.listener(move |this, _, _, cx| {
             this.push_inspector("feed".into(), guid.clone(), click_title.clone(), cx);
         }))

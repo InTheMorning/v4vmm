@@ -30,6 +30,7 @@ pub mod popover;
 pub mod section_header;
 pub mod stack;
 pub mod surface;
+pub mod tooltip;
 
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use divider::Divider;
@@ -41,3 +42,4 @@ pub use popover::{Popover, PopoverAlignment, PopoverPlacement};
 pub use section_header::SectionHeader;
 pub use stack::{HStack, Spacer, StackAlignment, VStack, ZStack};
 pub use surface::{Surface, SurfaceElevation};
+pub use tooltip::Tooltip;

@@ -12,9 +12,9 @@ use gpui::{
     ParentElement, Pixels, RenderOnce, Rgba, SharedString, StatefulInteractiveElement, Styled,
     Window,
 };
-use gpui_component::tooltip::Tooltip;
 
 use crate::ui::layouts as layout;
+use crate::ui::primitives::Tooltip;
 use crate::ui::style::radius;
 use crate::ui::tokens::{FontSize, ScaleFactor};
 
@@ -171,6 +171,7 @@ pub fn render_rss_icon_link(id_seed: &str, url: Option<String>) -> AnyElement {
     );
     let has_url = url.is_some();
     let click_url = url;
+    let tooltip = Tooltip::new(tooltip);
 
     div()
         .id(id)
@@ -181,7 +182,7 @@ pub fn render_rss_icon_link(id_seed: &str, url: Option<String>) -> AnyElement {
         .justify_center()
         .rounded(radius::SM)
         .overflow_hidden()
-        .tooltip(move |window: &mut Window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
+        .tooltip(move |window: &mut Window, cx| tooltip.build(window, cx))
         .when(has_url, gpui::Styled::cursor_pointer)
         .when(!has_url, |el| el.opacity(0.45))
         .child(Icon::new(IconName::Rss).size(IconSize::Action))
