@@ -339,6 +339,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/bootstrap.rs",
     "src/app/events.rs",
     "src/app/keyboard.rs",
+    "src/app/menu.rs",
     "src/app/playback_bar.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
@@ -778,6 +779,51 @@ fn top_level_keyboard_shortcuts_route_through_key_binding_taxonomy() {
     assert!(
         violations.is_empty(),
         "top-level keyboard shortcut taxonomy violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn macos_app_menu_bootstrap_exposes_standard_app_commands() {
+    let menu_source = read_source(&manifest_path("src/app/menu.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let bootstrap_source = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "MenuItem::action(\"Preferences...\", OpenPreferences)",
+        "MenuItem::os_submenu(\"Services\", SystemMenuType::Services)",
+        "MenuItem::action(\"Hide v4vmm\", HideApp)",
+        "MenuItem::action(\"Hide Others\", HideOtherApps)",
+        "MenuItem::action(\"Show All\", ShowAllApps)",
+        "MenuItem::action(\"Quit v4vmm\", QuitApp)",
+        "keystroke: \"cmd-,\"",
+        "keystroke: \"cmd-h\"",
+        "keystroke: \"cmd-alt-h\"",
+        "keystroke: \"cmd-q\"",
+    ] {
+        if !menu_source.contains(required) {
+            violations.push(format!(
+                "src/app/menu.rs: missing standard app-menu contract `{required}`"
+            ));
+        }
+    }
+
+    if !bootstrap_source.contains("install_app_menu(cx)") {
+        violations.push(
+            "src/app/bootstrap.rs: app bootstrap must install the macOS app menu".to_string(),
+        );
+    }
+
+    if !app_source.contains(".on_action(cx.listener(TopApp::handle_open_preferences))") {
+        violations.push(
+            "src/app.rs: Preferences menu action must route to the Settings surface".to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "macOS app-menu bootstrap violations:\n{}",
         violations.join("\n")
     );
 }

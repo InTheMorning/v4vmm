@@ -29,6 +29,7 @@ use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 mod bootstrap;
 mod events;
 mod keyboard;
+mod menu;
 mod playback_bar;
 mod tab_bar;
 
@@ -452,6 +453,7 @@ impl Render for TopApp {
             .on_action(cx.listener(TopApp::handle_toggle_playback))
             .on_action(cx.listener(TopApp::handle_skip_playback_next))
             .on_action(cx.listener(TopApp::handle_skip_playback_previous))
+            .on_action(cx.listener(TopApp::handle_open_preferences))
             .on_action(cx.listener(TopApp::handle_focus_search))
             .on_action(cx.listener(TopApp::handle_new_playlist))
             .on_action(cx.listener(TopApp::handle_select_library_tab))
