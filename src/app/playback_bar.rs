@@ -30,19 +30,19 @@ impl TopApp {
         self.run_playback_command(command, cx);
     }
 
-    fn skip_playback_next(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn skip_playback_next(&mut self, cx: &mut Context<Self>) {
         let command =
             SkipPlaybackNext::new(Arc::clone(&self.conn), Arc::clone(&self.playback_owner));
         self.run_playback_command(command, cx);
     }
 
-    fn skip_playback_previous(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn skip_playback_previous(&mut self, cx: &mut Context<Self>) {
         let command =
             SkipPlaybackPrevious::new(Arc::clone(&self.conn), Arc::clone(&self.playback_owner));
         self.run_playback_command(command, cx);
     }
 
-    fn toggle_playback_paused(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn toggle_playback_paused(&mut self, cx: &mut Context<Self>) {
         if self.playback_bar_state().is_paused() {
             let command =
                 ResumePlayback::new(Arc::clone(&self.conn), Arc::clone(&self.playback_owner));

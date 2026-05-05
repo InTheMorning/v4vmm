@@ -734,6 +734,55 @@ fn application_layer_does_not_import_gpui_or_screen_layers() {
 }
 
 #[test]
+fn top_level_keyboard_shortcuts_route_through_key_binding_taxonomy() {
+    let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let bootstrap_source = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "APP_KEY_BINDING_SPECS",
+        "TogglePlayback",
+        "SkipPlaybackNext",
+        "SkipPlaybackPrevious",
+        "FocusSearch",
+        "NewPlaylist",
+        "SelectLibraryTab",
+        "SelectDiscoverTab",
+        "SelectSettingsTab",
+        "MoveSelectionUp",
+        "MoveSelectionDown",
+        "ConfirmSelection",
+    ] {
+        if !keyboard_source.contains(required) {
+            violations.push(format!(
+                "src/app/keyboard.rs: missing keyboard taxonomy entry `{required}`"
+            ));
+        }
+    }
+
+    if !bootstrap_source.contains("install_key_bindings(cx)") {
+        violations.push(
+            "src/app/bootstrap.rs: app bootstrap must install the keyboard binding registry"
+                .to_string(),
+        );
+    }
+
+    if app_source.contains(".on_key_down(cx.listener(TopApp::handle_key_down))") {
+        violations.push(
+            "src/app.rs: top-level keyboard routing must use typed actions, not raw key-down matching"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "top-level keyboard shortcut taxonomy violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn core_non_ui_modules_do_not_import_ui_modules() {
     let mut violations = Vec::new();
     for path in non_ui_core_rust_files() {

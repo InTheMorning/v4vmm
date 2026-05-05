@@ -165,6 +165,16 @@ impl LibraryApp {
         });
     }
 
+    pub fn begin_new_playlist(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.vm.playlist_sidebar().creating_playlist {
+            self.vm.toggle_creating_playlist();
+        }
+        self.new_playlist_input.update(cx, |input, cx| {
+            input.focus(window, cx);
+        });
+        cx.notify();
+    }
+
     pub fn pop_inspector(&mut self, cx: &mut Context<Self>) {
         if !matches!(self.detail, LibraryDetail::None) {
             self.detail = LibraryDetail::None;

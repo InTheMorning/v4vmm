@@ -14,7 +14,7 @@ use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
 use crate::ui::layouts as layout;
 
-use super::TopApp;
+use super::{keyboard::install_key_bindings, TopApp};
 
 /// Run the desktop GPUI application.
 ///
@@ -31,6 +31,7 @@ pub fn run_app() {
 
     app.run(move |cx| {
         gpui_component::init(cx);
+        install_key_bindings(cx);
         // Pre-config: install with default scale so the loading window is
         // themed; we re-install with the user's preference once config is
         // loaded a few lines below.
