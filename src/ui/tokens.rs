@@ -458,6 +458,8 @@ impl From<Weight> for FontWeight {
 /// when a future `ScaleFactor` token is introduced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Size {
+    /// 44 px — minimum interactive hit region.
+    MinHitTarget,
     /// 28 px — compact button / toolbar affordance.
     ButtonSm,
     /// 32 px — default button.
@@ -496,7 +498,7 @@ impl Size {
             Self::ColumnRegular => px(320.0),
             Self::ColumnTall => px(480.0),
             Self::RowMd => px(36.0),
-            Self::RowLg => px(44.0),
+            Self::MinHitTarget | Self::RowLg => px(44.0),
         }
     }
 
@@ -559,8 +561,8 @@ impl gpui::Global for ScaleFactor {}
 /// Bundled rendering context that primitives and composites consult.
 ///
 /// Modeled after `SwiftUI`'s `Environment`: a single typed value carrying the
-/// appearance scheme and Dynamic-Type-style scale that every component
-/// observes. Today it lives as a `gpui::Global` (app-scoped); per-subtree
+/// appearance scheme, Dynamic-Type-style scale, and motion preference that
+/// every component observes. Today it lives as a `gpui::Global` (app-scoped); per-subtree
 /// override would be a wrapper element that swaps the global for the duration
 /// of its render.
 ///
@@ -580,6 +582,9 @@ pub struct Environment {
     pub profile: ThemeProfile,
     pub appearance: Appearance,
     pub scale: ScaleFactor,
+    /// Mirrors the platform Reduce Motion preference when the runtime exposes
+    /// it. Keep all animation decisions routed through [`Self::allows_motion`].
+    pub reduce_motion: bool,
 }
 
 impl Environment {
@@ -588,6 +593,12 @@ impl Environment {
     #[must_use]
     pub fn current(cx: &App) -> Self {
         cx.try_global::<Environment>().copied().unwrap_or_default()
+    }
+
+    /// Returns whether user-visible animation may run.
+    #[must_use]
+    pub const fn allows_motion(self) -> bool {
+        !self.reduce_motion
     }
 
     /// Installs the environment as a `gpui::Global` and mirrors the scale
@@ -673,6 +684,16 @@ mod tests {
         assert!(Radius::MD.px() < Radius::LG.px());
         assert!(Radius::LG.px() < Radius::XL.px());
         assert!(Radius::XL.px() < Radius::Full.px());
+    }
+
+    #[test]
+    fn reduce_motion_disables_environment_motion() {
+        let env = Environment {
+            reduce_motion: true,
+            ..Environment::default()
+        };
+
+        assert!(!env.allows_motion());
     }
 
     #[test]

@@ -519,6 +519,7 @@ impl LibraryApp {
         if url.is_empty() {
             return None;
         }
+        let animated = animated && crate::ui::tokens::Environment::current(cx).allows_motion();
         let cached = if animated {
             self.cache.peek(url)
         } else {

@@ -44,7 +44,8 @@ pub enum ButtonVariant {
     Destructive,
 }
 
-/// Button height tier. All sizes meet Apple's minimum 28pt hit target.
+/// Button visual-height tier. The primitive wraps every size in the shared
+/// 44pt minimum hit-target contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonSize {
     /// 28pt height — toolbar, inline list actions.
@@ -217,6 +218,10 @@ impl Button {
         }
     }
 
+    fn min_hit_target(cx: &App) -> gpui::Pixels {
+        Size::MinHitTarget.scaled(cx)
+    }
+
     fn px_inset(&self) -> Spacing {
         match self.size {
             ButtonSize::Sm => Spacing::SM,
@@ -301,6 +306,7 @@ impl RenderOnce for Button {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let height = self.height(cx);
         let pad = self.px_inset().scaled(cx);
+        let min_hit_target = Self::min_hit_target(cx);
         let font = self
             .font_size
             .unwrap_or_else(|| self.font_size())
@@ -318,8 +324,7 @@ impl RenderOnce for Button {
         let content_alignment = self.content_alignment;
         let tooltip = self.effective_tooltip();
 
-        let mut row = div()
-            .id(self.id)
+        let mut visual = div()
             .flex()
             .flex_row()
             .items_center()
@@ -330,44 +335,56 @@ impl RenderOnce for Button {
             .bg(bg)
             .text_color(fg)
             .text_size(font)
-            .font_weight(FontWeight::SEMIBOLD)
-            .cursor_pointer();
+            .font_weight(FontWeight::SEMIBOLD);
 
-        row = match content_alignment {
-            ButtonContentAlignment::Center => row.justify_center(),
-            ButtonContentAlignment::Leading => row.justify_start(),
+        visual = match content_alignment {
+            ButtonContentAlignment::Center => visual.justify_center(),
+            ButtonContentAlignment::Leading => visual.justify_start(),
         };
 
         if let Some(border) = self.border {
-            row = row
+            visual = visual
                 .border_1()
                 .border_color(resolve_color(cx, border, appearance));
         }
 
         if full_width {
-            row = row.w_full();
+            visual = visual.w_full();
+        }
+
+        let mut hit_target = div()
+            .id(self.id)
+            .min_w(min_hit_target)
+            .min_h(min_hit_target)
+            .flex()
+            .items_center()
+            .justify_center()
+            .cursor_pointer();
+
+        if full_width {
+            hit_target = hit_target.w_full();
         }
 
         if let Some(tooltip) = tooltip {
-            row = row.tooltip(move |window, cx| tooltip.build(window, cx));
+            hit_target = hit_target.tooltip(move |window, cx| tooltip.build(window, cx));
         }
 
         if disabled {
-            row = row.opacity(0.4).cursor_default();
+            hit_target = hit_target.opacity(0.4).cursor_default();
         } else {
-            row = row.hover(move |s| s.bg(hover_bg));
+            visual = visual.hover(move |s| s.bg(hover_bg));
             if let Some(handler) = on_click {
-                row = row.on_mouse_down(MouseButton::Left, move |_, _, _| {});
-                row = row.on_click(move |event, window, cx| {
+                hit_target = hit_target.on_mouse_down(MouseButton::Left, move |_, _, _| {});
+                hit_target = hit_target.on_click(move |event, window, cx| {
                     handler(event, window, cx);
                 });
             }
         }
 
         if let Some(icon) = leading_icon {
-            row = row.child(Icon::new(icon).size(IconSize::Transport).color(fg));
+            visual = visual.child(Icon::new(icon).size(IconSize::Transport).color(fg));
         }
-        row.child(label)
+        hit_target.child(visual.child(label))
     }
 }
 

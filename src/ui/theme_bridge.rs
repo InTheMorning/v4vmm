@@ -82,6 +82,7 @@ fn install_theme_for_appearance(
         profile,
         appearance,
         scale,
+        reduce_motion: false,
     }
     .install(cx);
 

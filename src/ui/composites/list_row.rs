@@ -16,7 +16,7 @@ use gpui::{
 };
 
 use crate::ui::primitives::HStack;
-use crate::ui::tokens::{color, Radius, SemanticColor, Spacing};
+use crate::ui::tokens::{color, Radius, SemanticColor, Size, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -129,11 +129,15 @@ impl RenderOnce for ListRow {
         let accent = color(cx, SemanticColor::Accent);
         let focus = color(cx, SemanticColor::Focus);
         let hover_bg = color(cx, SemanticColor::SecondarySystemBackground);
+        let has_click_action = on_click.is_some();
 
         let mut row = div()
             .id(self.id)
             .px(pad_x)
             .py(pad_y)
+            .when(has_click_action, |el| {
+                el.min_h(Size::MinHitTarget.scaled(cx))
+            })
             .rounded(radius)
             .border_1()
             .border_color(gpui::transparent_black())

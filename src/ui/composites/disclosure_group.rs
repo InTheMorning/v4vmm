@@ -43,7 +43,7 @@ use gpui::{
 };
 
 use crate::ui::primitives::{Label, SectionHeader};
-use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
+use crate::ui::tokens::{FontSize, SemanticColor, Size, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -148,10 +148,11 @@ impl RenderOnce for DisclosureSupplementLabel {
 }
 
 impl RenderOnce for DisclosureGroup {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let _a11y_label = self.a11y_label;
         let mut row = div()
             .id(self.id)
+            .min_h(Size::MinHitTarget.scaled(cx))
             .cursor_pointer()
             .child(SectionHeader::new(self.label).disclosure(self.collapsed));
         if let Some(handler) = self.on_toggle {

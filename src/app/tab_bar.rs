@@ -119,7 +119,7 @@ fn render_app_tab(
     let bg_surface_hi_color = color(cx, SemanticColor::TertiarySystemBackground);
     let focus_ring_color = color(cx, SemanticColor::Focus);
     let spacing_md = Spacing::MD.scaled(cx);
-    let hit_target_min = layout::HIT_TARGET_MIN;
+    let hit_target_min = layout::MIN_HIT_TARGET;
     let radius_lg = Radius::LG.scaled(cx);
 
     div()

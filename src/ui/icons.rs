@@ -30,6 +30,7 @@ pub enum IconName {
     Stop,
     Previous,
     Next,
+    More,
 }
 
 impl IconName {
@@ -44,7 +45,8 @@ impl IconName {
             | Self::Pause
             | Self::Stop
             | Self::Previous
-            | Self::Next => None,
+            | Self::Next
+            | Self::More => None,
         }
     }
 
@@ -58,6 +60,7 @@ impl IconName {
             Self::Stop => Some("\u{23F9}"),
             Self::Previous => Some("\u{23EE}"),
             Self::Next => Some("\u{23ED}"),
+            Self::More => Some("\u{22EF}"),
             Self::Rss | Self::Nostr => None,
         }
     }
@@ -74,7 +77,8 @@ impl IconName {
             | Self::Pause
             | Self::Stop
             | Self::Previous
-            | Self::Next => None,
+            | Self::Next
+            | Self::More => None,
         }
     }
 }
@@ -175,8 +179,8 @@ pub fn render_rss_icon_link(id_seed: &str, url: Option<String>) -> AnyElement {
 
     div()
         .id(id)
-        .w(layout::ACTION_ICON_SIZE)
-        .h(layout::ACTION_ICON_SIZE)
+        .min_w(layout::MIN_HIT_TARGET)
+        .min_h(layout::MIN_HIT_TARGET)
         .flex()
         .items_center()
         .justify_center()

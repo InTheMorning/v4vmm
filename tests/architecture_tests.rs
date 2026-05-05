@@ -829,6 +829,142 @@ fn macos_app_menu_bootstrap_exposes_standard_app_commands() {
 }
 
 #[test]
+fn interactive_surfaces_route_through_minimum_hit_target_token() {
+    let token_source = read_source(&manifest_path("src/ui/tokens.rs"));
+    let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));
+    let mut violations = Vec::new();
+
+    if !token_source.contains("MinHitTarget") || !token_source.contains("px(44.0)") {
+        violations.push(
+            "src/ui/tokens.rs: minimum hit target must be a named 44 px size token".to_string(),
+        );
+    }
+
+    if !layout_source.contains("MIN_HIT_TARGET: Pixels = px(44.0)") {
+        violations.push(
+            "src/ui/layouts.rs: layout constants must expose `MIN_HIT_TARGET` at the HIG 44 px floor"
+                .to_string(),
+        );
+    }
+
+    for (file, required) in [
+        ("src/app/tab_bar.rs", "layout::MIN_HIT_TARGET"),
+        (
+            "src/ui/composites/disclosure_group.rs",
+            "Size::MinHitTarget",
+        ),
+        ("src/ui/composites/list_row.rs", "Size::MinHitTarget"),
+        ("src/ui/composites/track_row.rs", "layouts::MIN_HIT_TARGET"),
+        ("src/ui/icons.rs", "layout::MIN_HIT_TARGET"),
+        ("src/ui/primitives/button.rs", "Size::MinHitTarget"),
+        (
+            "src/ui/shells/discover/actions.rs",
+            "layout::MIN_HIT_TARGET",
+        ),
+    ] {
+        let source = read_source(&manifest_path(file));
+        if !source.contains(required) {
+            violations.push(format!(
+                "{file}: shared interactive surface must route hit sizing through `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "minimum hit-target contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn animation_paths_route_through_reduce_motion_environment() {
+    let token_source = read_source(&manifest_path("src/ui/tokens.rs"));
+    let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let theme_source = read_source(&manifest_path("src/ui/theme_bridge.rs"));
+    let mut violations = Vec::new();
+
+    for required in ["reduce_motion: bool", "allows_motion"] {
+        if !token_source.contains(required) {
+            violations.push(format!(
+                "src/ui/tokens.rs: Environment must expose Reduce Motion contract `{required}`"
+            ));
+        }
+    }
+
+    if !theme_source.contains("reduce_motion: false") {
+        violations.push(
+            "src/ui/theme_bridge.rs: environment bootstrap must initialize Reduce Motion policy"
+                .to_string(),
+        );
+    }
+
+    if !library_source.contains("Environment::current(cx).allows_motion()") {
+        violations.push(
+            "src/library/app_impl.rs: animated thumbnail loading must respect the shared Reduce Motion environment"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Reduce Motion routing violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn row_context_menu_chrome_has_shared_primitive_contract() {
+    let primitive_source = read_source(&manifest_path("src/ui/primitives/context_menu.rs"));
+    let mod_source = read_source(&manifest_path("src/ui/primitives/mod.rs"));
+    let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub struct ContextMenu",
+        "pub struct ContextMenuItem",
+        "pub struct ContextMenuItemDisplay",
+        "pub enum ContextMenuScope",
+        "ContextMenuScope::FeedList",
+        "ContextMenuScope::TrackList",
+        "ContextMenuScope::PlaylistTrack",
+        "ControlStyle::RowAction",
+        "ControlStyle::DestructiveRowAction",
+        "Size::MenuRegular",
+        "Spacing::SM",
+        "Popover::new",
+    ] {
+        if !primitive_source.contains(required) {
+            violations.push(format!(
+                "src/ui/primitives/context_menu.rs: missing shared context-menu contract `{required}`"
+            ));
+        }
+    }
+
+    if !mod_source.contains("pub mod context_menu")
+        || !mod_source.contains("pub use context_menu::{")
+    {
+        violations.push(
+            "src/ui/primitives/mod.rs: context-menu primitive must be exported from the primitive layer"
+                .to_string(),
+        );
+    }
+
+    if !icon_source.contains("IconName::More") && !icon_source.contains("More =>") {
+        violations.push(
+            "src/ui/icons.rs: context-menu trigger affordance must use the semantic icon catalog"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "row context-menu primitive violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn core_non_ui_modules_do_not_import_ui_modules() {
     let mut violations = Vec::new();
     for path in non_ui_core_rust_files() {

@@ -21,6 +21,7 @@
 #![warn(clippy::pedantic)]
 
 pub mod button;
+pub mod context_menu;
 pub mod divider;
 pub mod image;
 pub mod label;
@@ -33,6 +34,7 @@ pub mod surface;
 pub mod tooltip;
 
 pub use button::{Button, ButtonSize, ButtonVariant};
+pub use context_menu::{ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope};
 pub use divider::Divider;
 pub use image::{Image, ImageSize};
 pub use label::{Label, LabelVariant};
