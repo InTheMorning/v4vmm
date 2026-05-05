@@ -437,16 +437,36 @@ For Task 003 current slices:
 - `cargo test view_models_own_display_fallbacks_for_library_and_search`
 - `cargo test track_identity_links_use_shared_renderer`
 
-## Readiness Gate (filled by Task 008)
+## Readiness Gate (Task 008, 2026-05-04)
 
 | Question | Answer | Evidence |
 |---|---|---|
-| All architecture guards green, baselines zero?           | TBD | TBD |
-| Every entity detail page on PageVm + shell helper?       | TBD | TBD |
-| Every interactive composite carries a11y label?           | TBD | TBD |
-| Light + dark visual smoke covers every main surface?     | TBD | TBD |
-| `library.rs` and `search.rs` are thin entries?           | TBD | TBD |
-| Zero remaining screen-local fallback strings?            | TBD | TBD |
-| Deferred-architecture-work index reconciled?             | TBD | TBD |
+| All architecture guards green, baselines zero?           | Yes | `cargo test --tests` reports 62/62 architecture tests passing; every baseline array in `tests/architecture_tests.rs` declares `max_count: 0` (`DEPRECATED_VISUAL_HELPER_BASELINES`, `DIRECT_COMPONENT_BUTTON_BASELINES`, `PROVENANCE_DIFF_HELPER_BASELINES`, `SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES`); `RENDER_HELPER_DUPLICATION_BASELINES` is empty after Task 008 sweep. |
+| Every entity detail page on PageVm + shell helper?       | Yes | Task 006 closed 2026-05-04; guard `entity_detail_pages_render_through_shell_helper_and_page_vm` enumerates Library/Discover release, track, artist, and playlist surfaces. |
+| Every interactive composite carries a11y label?           | Yes | Task 005 closed 2026-05-04; guard `interactive_composites_carry_accessibility_labels` covers `ActionButtonDisplay`, `IdentityActionButtonDisplay`, `ActionRow`, `AddToPlaylistPopover`, `TrackRow`, `ListRow`, `RecentFeedTile`, `DisclosureGroup`, `SegmentedControl`, `NowPlayingBar`. |
+| Light + dark visual smoke covers every main surface?     | Yes (per project policy) | Tasks 004/006/007 verified light + dark via operator-navigated transient captures; project instruction is to not retain screenshot artifacts. |
+| `library.rs` and `search.rs` are thin entries?           | Yes | `wc -l src/library.rs src/search.rs` → 128 and 238 lines; guard `screen_entry_modules_under_500_loc` enforces ≤500. |
+| Zero remaining screen-local fallback strings?            | Yes | Task 003 closed 2026-05-04; guard `view_models_own_display_fallbacks_for_library_and_search` enforces every fallback string lives in a VM. Spot sweep of screen `unwrap_or_default()` / `unwrap_or("")` sites in `src/library/app_impl.rs` and `src/search/app_impl.rs` finds only non-display data fallbacks (Vec defaults for failed DB reads, scoring normalization, dedup keys); no display-string fallbacks remain. |
+| Deferred-architecture-work index reconciled?             | Yes | ADR 0038 added no new deferred items; the backend-driven items in `docs/plans/deferred-architecture-work-index.md` (artist binding, person identity, query thinning, staged metadata durability, non-URL artwork, playback supervision, visual polish) were already deferred before ADR 0038 and remain so. |
 
-Decision: TBD (`Proceed` or `Defer`).
+Decision: **Proceed**. The presentation contract is now mechanically
+enforced. Richer playlist/playback feature work can begin against a
+clean architecture baseline.
+
+## Task 008 Sweep Outcomes
+
+- Confirmed `render_track_row` consolidation: only canonical owner
+  remains at `src/ui/shells/track.rs::render_track_row`. The legacy
+  Discover stage-4 wrapper in `src/ui/shells/discover/track_rows.rs`
+  was inlined into `render_track_list_rows`; downstream callers go
+  directly through the shared owner.
+- Confirmed direct `gpui_component::button::Button` usage in
+  `src/ui/shells/discover/actions.rs` and
+  `src/ui/shells/discover/search_input.rs` is properly marked with
+  `// CONTROL-COMPAT(reason): ...` allowlist comments. No unmarked
+  direct usage in screens or shells.
+- Confirmed superseded plans
+  (`docs/plans/one-owner-per-surface-plan.md`,
+  `docs/plans/post-adr-0033-ui-consolidation-plan.md`) drive no open
+  work; their items either landed under ADR 0038 tasks 002/003/007
+  or already roll up to the deferred-architecture-work index.

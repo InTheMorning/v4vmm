@@ -43,6 +43,11 @@ prioritized, and routed to the right governance artifact.
 
 ## Recently Resolved
 
+- ADR 0038 presentation-contract enforcement closed on 2026-05-04 with
+  readiness gate `Proceed`. Layer relocation, composite display
+  contracts, VM consolidation, dark-mode parity, accessibility labels,
+  PageVm generalization, screen decomposition, and final sweep are all
+  complete. ADR 0038 added no new deferred items.
 - ADR 0029 explicit artist identity persistence is complete for its runtime
   scope. It persists explicit MusicIndex artist source facts and hydrates
   `ArtistRef::Musicindex` locally without name matching.

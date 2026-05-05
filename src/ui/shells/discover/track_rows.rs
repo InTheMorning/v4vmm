@@ -2,12 +2,9 @@
 
 #![warn(clippy::pedantic)]
 
-use std::sync::Arc;
-
-use gpui::{AnyElement, Context, Image};
+use gpui::{AnyElement, Context};
 
 use crate::api::{Feed, Track};
-use crate::db;
 use crate::library_service;
 use crate::search::{FeedTrackListContext, SearchApp};
 use crate::ui::shells::track;
@@ -58,7 +55,7 @@ pub(crate) fn render_track_list_rows(
             let key = TrackRowActionVm::new(&track, is_downloaded, false).key();
             let is_in_flight = app.vm.is_track_operation_in_flight(&key);
             let thumb = app.thumbnail_for_url(track.image_url.as_deref(), cx);
-            render_track_row(
+            track::render_track_row(
                 track,
                 thumb,
                 feed.clone(),
@@ -67,37 +64,9 @@ pub(crate) fn render_track_list_rows(
                 feed_guid.as_deref(),
                 feed_url.as_deref(),
                 &playlists,
+                track::TrackRowMode::Discover,
                 cx,
             )
         })
         .collect()
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "stage 4 keeps the legacy Discover row wrapper stable while delegating"
-)]
-fn render_track_row(
-    track: Track,
-    thumbnail: Option<Arc<Image>>,
-    feed: Option<Feed>,
-    is_downloaded: bool,
-    is_in_flight: bool,
-    feed_guid: Option<&str>,
-    feed_url: Option<&str>,
-    playlists: &[db::Playlist],
-    cx: &mut Context<SearchApp>,
-) -> AnyElement {
-    track::render_track_row(
-        track,
-        thumbnail,
-        feed,
-        is_downloaded,
-        is_in_flight,
-        feed_guid,
-        feed_url,
-        playlists,
-        track::TrackRowMode::Discover,
-        cx,
-    )
 }

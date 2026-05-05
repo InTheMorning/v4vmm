@@ -1,8 +1,40 @@
-# ADR 0038 Task 008: Final Sweep and Readiness Gate (Stub)
+# ADR 0038 Task 008: Final Sweep and Readiness Gate
 
 ## Status
 
-Stub. Starts after Task 007 (Screen Decomposition) lands.
+Completed on 2026-05-04. Readiness gate decision: **Proceed**.
+
+Sweep outcomes:
+
+- `render_track_row` legacy Discover wrapper inlined; only the
+  canonical shared owner at
+  `src/ui/shells/track.rs::render_track_row` remains.
+- All baseline arrays in `tests/architecture_tests.rs` confirmed at
+  zero (`DEPRECATED_VISUAL_HELPER_BASELINES`,
+  `DIRECT_COMPONENT_BUTTON_BASELINES`,
+  `PROVENANCE_DIFF_HELPER_BASELINES`,
+  `SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES`,
+  `RENDER_HELPER_DUPLICATION_BASELINES`).
+- Direct `gpui_component::button::Button` usage in
+  `src/ui/shells/discover/actions.rs` and
+  `src/ui/shells/discover/search_input.rs` carries
+  `// CONTROL-COMPAT(reason): ...` allowlist markers; no unmarked
+  direct component usage anywhere.
+- Screen `unwrap_or_default()` / `unwrap_or("")` audit confirms no
+  display-string fallbacks remain in `src/library/app_impl.rs` or
+  `src/search/app_impl.rs`; the four remaining sites are non-display
+  data fallbacks (Vec default for failed DB reads, candidate-score
+  normalization, dedup-key construction).
+- Superseded plans `docs/plans/one-owner-per-surface-plan.md` and
+  `docs/plans/post-adr-0033-ui-consolidation-plan.md` confirmed as
+  no longer driving open work; their items landed under ADR 0038
+  tasks 002/003/007 or roll up to the
+  deferred-architecture-work index.
+- Deferred-architecture-work index reconciled: ADR 0038 added no
+  new deferred items.
+
+Final readiness gate captured in
+`docs/reviews/adr-0038-review-checklist.md`.
 
 ## Goal
 
