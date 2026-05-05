@@ -304,8 +304,14 @@ const SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES: &[ScreenLocalPlaylistPopoverBasel
 
 const RENDER_HELPER_DUPLICATION_BASELINES: &[RenderHelperDuplicationBaseline] = &[];
 
-const PLAYLIST_POPOVER_CALLSITE_FILES: &[&str] =
-    &["src/library.rs", "src/search.rs", "src/ui/shells/track.rs"];
+const PLAYLIST_POPOVER_CALLSITE_FILES: &[&str] = &[
+    "src/library.rs",
+    "src/search.rs",
+    "src/ui/shells/track.rs",
+    "src/ui/shells/library/feed_detail.rs",
+    "src/ui/shells/library/track_detail_metadata.rs",
+    "src/ui/shells/discover/actions.rs",
+];
 
 const RELEASE_PLAYLIST_POPOVER_FORBIDDEN_PATTERNS: &[&str] = &[
     "render_album_track_add_panel",
@@ -337,6 +343,41 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/tab_bar.rs",
     "src/library.rs",
     "src/search.rs",
+];
+
+const SCREEN_SURFACE_DIRS: &[&str] = &["src/ui/shells/library", "src/ui/shells/discover"];
+
+const LIBRARY_SCREEN_SURFACE_FILES: &[&str] = &[
+    "src/ui/shells/library/mod.rs",
+    "src/ui/shells/library/detail.rs",
+    "src/ui/shells/library/feed_detail.rs",
+    "src/ui/shells/library/feed_list.rs",
+    "src/ui/shells/library/playlist_detail.rs",
+    "src/ui/shells/library/sidebar.rs",
+    "src/ui/shells/library/thumbnail.rs",
+    "src/ui/shells/library/track_detail.rs",
+    "src/ui/shells/library/track_detail_metadata.rs",
+    "src/ui/shells/library/track_detail_metadata_cells.rs",
+    "src/ui/shells/library/track_detail_metadata_grid.rs",
+    "src/ui/shells/library/track_detail_metadata_values.rs",
+];
+
+const DISCOVER_SCREEN_SURFACE_FILES: &[&str] = &[
+    "src/ui/shells/discover/mod.rs",
+    "src/ui/shells/discover/actions.rs",
+    "src/ui/shells/discover/feed_inspector.rs",
+    "src/ui/shells/discover/feed_lists.rs",
+    "src/ui/shells/discover/recent.rs",
+    "src/ui/shells/discover/result_list.rs",
+    "src/ui/shells/discover/search_input.rs",
+    "src/ui/shells/discover/track_inspector.rs",
+    "src/ui/shells/discover/track_inspector_metadata.rs",
+    "src/ui/shells/discover/track_inspector_metadata_cells.rs",
+    "src/ui/shells/discover/track_inspector_metadata_expandable.rs",
+    "src/ui/shells/discover/track_inspector_metadata_grid.rs",
+    "src/ui/shells/discover/track_inspector_metadata_test_helpers.rs",
+    "src/ui/shells/discover/track_inspector_metadata_tree.rs",
+    "src/ui/shells/discover/track_rows.rs",
 ];
 
 const PRESENTATION_GLUE_FILES: &[&str] = &[
@@ -738,7 +779,8 @@ fn screen_contributor_panels_use_shared_projection_facts() {
 #[test]
 fn screens_do_not_reintroduce_raw_color_or_numeric_px_literals() {
     let mut violations = Vec::new();
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
@@ -765,7 +807,8 @@ fn screens_do_not_reintroduce_raw_color_or_numeric_px_literals() {
 #[test]
 fn screens_do_not_call_migrated_playlist_service_paths() {
     let mut violations = Vec::new();
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
@@ -789,7 +832,8 @@ fn screens_do_not_call_migrated_playlist_service_paths() {
 #[test]
 fn screens_do_not_call_migrated_subscription_remove_paths() {
     let mut violations = Vec::new();
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
@@ -813,7 +857,8 @@ fn screens_do_not_call_migrated_subscription_remove_paths() {
 #[test]
 fn screens_do_not_call_migrated_feed_update_paths() {
     let mut violations = Vec::new();
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
@@ -837,7 +882,8 @@ fn screens_do_not_call_migrated_feed_update_paths() {
 #[test]
 fn screens_do_not_call_migrated_playback_paths() {
     let mut violations = Vec::new();
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
@@ -861,7 +907,8 @@ fn screens_do_not_call_migrated_playback_paths() {
 #[test]
 fn screens_do_not_add_unapproved_hardcoded_dark_defaults() {
     let mut violations = Vec::new();
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
@@ -885,11 +932,12 @@ fn screens_do_not_add_unapproved_hardcoded_dark_defaults() {
 #[test]
 fn screens_do_not_grow_deprecated_visual_helper_usage() {
     let mut violations = Vec::new();
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         for baseline in DEPRECATED_VISUAL_HELPER_BASELINES {
-            if baseline.file == *file {
+            if baseline.file == file {
                 let count = deprecated_helper_count(&source, baseline);
                 if count > baseline.max_count {
                     violations.push(format!(
@@ -935,7 +983,8 @@ fn screens_do_not_grow_deprecated_visual_helper_usage() {
 #[test]
 fn screens_do_not_define_inline_icon_svg_helpers() {
     let mut violations = Vec::new();
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
@@ -1219,7 +1268,8 @@ fn ui_style_resolves_colors_through_token_layer() {
 #[test]
 fn screens_do_not_grow_unmarked_direct_component_button_usage() {
     let mut violations = Vec::new();
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let path = manifest_path(file);
         let source = read_source(&path);
         let unmarked = unmarked_direct_component_button_lines(&source);
@@ -1300,7 +1350,8 @@ fn screens_do_not_grow_screen_local_playlist_popover_panels() {
 fn screens_do_not_duplicate_render_helpers_without_baseline() {
     let mut helpers: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             if let Some(helper) = render_helper_name(&line) {
@@ -1343,7 +1394,8 @@ fn screens_do_not_duplicate_render_helpers_without_baseline() {
 
 #[test]
 fn screens_do_not_inline_value_route_recipient_label_fallbacks() {
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let source = read_source(&manifest_path(file));
         assert!(
             !source.contains(".get(\"recipient_name\")"),
@@ -1381,29 +1433,91 @@ fn shared_top_level_ui_shells_do_not_import_screen_modules() {
 }
 
 #[test]
-fn library_release_detail_playlist_popovers_use_shared_composite() {
-    let path = manifest_path("src/library.rs");
-    let source = read_source(&path);
+fn library_screen_modules_are_decomposed_under_src_ui_shells_library() {
+    assert_screen_surface_files("Library", LIBRARY_SCREEN_SURFACE_FILES);
+}
+
+#[test]
+fn discover_screen_modules_are_decomposed_under_src_ui_shells_discover() {
+    assert_screen_surface_files("Discover", DISCOVER_SCREEN_SURFACE_FILES);
+}
+
+#[test]
+fn screen_entry_modules_under_500_loc() {
+    let ceilings = [("src/library.rs", 500), ("src/search.rs", 500)];
     let mut violations = Vec::new();
 
-    for (line_number, line) in code_lines(&source) {
-        for pattern in RELEASE_PLAYLIST_POPOVER_FORBIDDEN_PATTERNS {
-            if line.contains(pattern) {
-                violations.push(format!(
-                    "src/library.rs:{line_number}: ADR 0032 Library release-detail playlist chrome must use `AddToPlaylistPopover`, not `{pattern}`: `{line}`"
-                ));
+    for (file, ceiling) in ceilings {
+        let source = read_source(&manifest_path(file));
+        let loc = code_lines(&source).count();
+        if loc > ceiling {
+            violations.push(format!("{file} exceeds {ceiling} LOC ceiling: {loc}"));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0038 Task 007 screen entry module LOC violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn surface_modules_under_500_loc() {
+    let mut violations = Vec::new();
+
+    for dir in SCREEN_SURFACE_DIRS {
+        for path in rust_files_under(dir) {
+            let file = rel_path(&path);
+            if file.ends_with("/mod.rs") {
+                continue;
+            }
+            let source = read_source(&path);
+            let loc = code_lines(&source).count();
+            if loc > 500 {
+                violations.push(format!("{file} exceeds 500 LOC ceiling: {loc}"));
             }
         }
     }
 
-    let shared_popover_count = source
-        .lines()
-        .map(strip_line_comment)
-        .filter(|line| line.contains("AddToPlaylistPopover::new("))
-        .count();
+    assert!(
+        violations.is_empty(),
+        "ADR 0038 Task 007 screen surface module LOC violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn library_release_detail_playlist_popovers_use_shared_composite() {
+    let files = [
+        "src/library.rs",
+        "src/ui/shells/library/feed_detail.rs",
+        "src/ui/shells/library/track_detail_metadata.rs",
+    ];
+    let mut violations = Vec::new();
+    let mut shared_popover_count = 0;
+
+    for file in files {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for pattern in RELEASE_PLAYLIST_POPOVER_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: ADR 0032 Library release-detail playlist chrome must use `AddToPlaylistPopover`, not `{pattern}`: `{line}`"
+                    ));
+                }
+            }
+        }
+
+        shared_popover_count += source
+            .lines()
+            .map(strip_line_comment)
+            .filter(|line| line.contains("AddToPlaylistPopover::new("))
+            .count();
+    }
     if shared_popover_count < 2 {
         violations.push(format!(
-            "src/library.rs: ADR 0032 expects Library feed and track release-detail playlist actions to use `AddToPlaylistPopover`; found {shared_popover_count} call(s)"
+            "Library release-detail shells: ADR 0032 expects feed and track playlist actions to use `AddToPlaylistPopover`; found {shared_popover_count} call(s)"
         ));
     }
 
@@ -1523,7 +1637,15 @@ fn release_detail_surface_uses_scale_aware_spacing_tokens() {
 
 #[test]
 fn library_advanced_provenance_cells_use_shared_grid_composites() {
-    let source = read_source(&manifest_path("src/library.rs"));
+    let files = [
+        "src/ui/shells/library/track_detail_metadata_cells.rs",
+        "src/ui/shells/library/track_detail_metadata_values.rs",
+    ];
+    let source = files
+        .iter()
+        .map(|file| read_source(&manifest_path(file)))
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut violations = Vec::new();
 
     for required in [
@@ -1535,19 +1657,22 @@ fn library_advanced_provenance_cells_use_shared_grid_composites() {
     ] {
         if !source.contains(required) {
             violations.push(format!(
-                "src/library.rs: advanced Library provenance grid must use shared `{required}` grammar"
+                "Library metadata shell: advanced Library provenance grid must use shared `{required}` grammar"
             ));
         }
     }
 
-    for forbidden in [
-        "w(layout::COMPACT_COLUMN_WIDTH)",
-        "w(layout::METADATA_LABEL_WIDTH)",
-    ] {
-        if source.contains(forbidden) {
-            violations.push(format!(
-                "src/library.rs: advanced provenance cell widths belong in `src/ui/composites/track_metadata_grid.rs`, not screen-local `{forbidden}`"
-            ));
+    for file in files {
+        let file_source = read_source(&manifest_path(file));
+        for forbidden in [
+            "w(layout::COMPACT_COLUMN_WIDTH)",
+            "w(layout::METADATA_LABEL_WIDTH)",
+        ] {
+            if file_source.contains(forbidden) {
+                violations.push(format!(
+                    "{file}: advanced provenance cell widths belong in `src/ui/composites/track_metadata_grid.rs`, not screen-local `{forbidden}`"
+                ));
+            }
         }
     }
 
@@ -1600,7 +1725,8 @@ fn screens_do_not_inline_unknown_artist_or_album_fallbacks() {
     let forbidden = ["\"Unknown Artist\"", "\"Unknown Album\""];
     let mut violations = Vec::new();
 
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             for pattern in forbidden {
@@ -1625,7 +1751,8 @@ fn screens_do_not_inline_untitled_fallback() {
     let forbidden = ["\"Untitled\"", "\"[untitled]\""];
     let mut violations = Vec::new();
 
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             for pattern in forbidden {
@@ -1877,16 +2004,16 @@ fn release_feed_identity_actions_use_shared_renderer() {
 fn track_identity_links_use_shared_renderer() {
     let mut violations = Vec::new();
 
-    let search = read_source(&manifest_path("src/search.rs"));
+    let search = read_source(&manifest_path("src/ui/shells/discover/track_inspector.rs"));
     if search.contains("fn render_nostr_icon_button") {
         violations.push(
-            "src/search.rs: ADR 0037 track Nostr identity links must not keep a screen-local Nostr button renderer"
+            "src/ui/shells/discover/track_inspector.rs: ADR 0037 track Nostr identity links must not keep a screen-local Nostr button renderer"
                 .to_string(),
         );
     }
     if search.contains("render_nostr_icon_button(npub, \"track\"") {
         violations.push(
-            "src/search.rs: ADR 0037 track Nostr identity links must be rendered by `ui::shells::track::render_track_page_identity_actions`"
+            "src/ui/shells/discover/track_inspector.rs: ADR 0037 track Nostr identity links must be rendered by `ui::shells::track::render_track_page_identity_actions`"
                 .to_string(),
         );
     }
@@ -1894,17 +2021,17 @@ fn track_identity_links_use_shared_renderer() {
         && !search.contains("\"discover-track\""))
     {
         violations.push(
-            "src/search.rs: ADR 0037 Discover track detail must call `render_track_page_identity_actions(&detail_page)` and leave the prefix in TrackDetailPageVm"
+            "src/ui/shells/discover/track_inspector.rs: ADR 0037 Discover track detail must call `render_track_page_identity_actions(&detail_page)` and leave the prefix in TrackDetailPageVm"
                 .to_string(),
         );
     }
 
-    let library = read_source(&manifest_path("src/library.rs"));
+    let library = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
     if !(library.contains("render_track_page_identity_actions(&detail_page)")
         && !library.contains("\"library-track\""))
     {
         violations.push(
-            "src/library.rs: ADR 0037 Library track detail must call `render_track_page_identity_actions(&detail_page)` and leave the prefix in TrackDetailPageVm"
+            "src/ui/shells/library/track_detail.rs: ADR 0037 Library track detail must call `render_track_page_identity_actions(&detail_page)` and leave the prefix in TrackDetailPageVm"
                 .to_string(),
         );
     }
@@ -1936,7 +2063,8 @@ fn screens_do_not_define_local_track_detail_surface_chrome() {
     ];
     let mut violations = Vec::new();
 
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             for pattern in forbidden {
@@ -1961,7 +2089,8 @@ fn screens_do_not_define_local_track_row_chrome() {
     let forbidden = ["TrackRow::new(", "TrackRowComposite::new("];
     let mut violations = Vec::new();
 
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             for pattern in forbidden {
@@ -2048,7 +2177,7 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
     let consumers = [
         (
             "Library release detail",
-            "src/library.rs",
+            "src/ui/shells/library/feed_detail.rs",
             "ReleaseDetailVm::new(",
             ".page()",
             "render_release_detail_shell(&page",
@@ -2062,14 +2191,14 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
         ),
         (
             "Library track detail",
-            "src/library.rs",
+            "src/ui/shells/library/track_detail.rs",
             "TrackDetailVm::new(",
             ".page()",
             "track::build_track_detail_surface(",
         ),
         (
             "Discover track detail",
-            "src/search.rs",
+            "src/ui/shells/discover/track_inspector.rs",
             "TrackDetailVm::new(",
             ".page()",
             "track::build_track_detail_surface(",
@@ -2184,7 +2313,8 @@ fn release_surface_consumers_use_release_detail_vm() {
 fn screens_do_not_coerce_empty_feed_url_to_empty_string() {
     let mut violations = Vec::new();
 
-    for file in SCREEN_FILES {
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             if line.contains("feed_url") && line.contains("unwrap_or_default") {
@@ -4502,6 +4632,54 @@ fn rust_files_under(relative_dir: &str) -> Vec<PathBuf> {
     collect_rust_files(&root, &mut files);
     files.sort();
     files
+}
+
+fn screen_enforcement_files() -> Vec<String> {
+    let mut files = SCREEN_FILES
+        .iter()
+        .map(|file| (*file).to_string())
+        .collect::<Vec<_>>();
+    for dir in SCREEN_SURFACE_DIRS {
+        files.extend(
+            rust_files_under(dir)
+                .into_iter()
+                .map(|path| rel_path(&path)),
+        );
+    }
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn assert_screen_surface_files(surface_name: &str, expected_files: &[&str]) {
+    let mut violations = Vec::new();
+
+    for file in expected_files {
+        let path = manifest_path(file);
+        if !path.is_file() {
+            violations.push(format!("{file} is missing"));
+            continue;
+        }
+
+        let source = read_source(&path);
+        if source.trim().is_empty() {
+            violations.push(format!("{file} is empty"));
+        }
+        if !file.ends_with("/mod.rs")
+            && !source.contains("pub(crate) fn")
+            && !source.contains("pub(super) fn")
+        {
+            violations.push(format!(
+                "{file} must expose at least one bounded screen-surface function"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0038 Task 007 {surface_name} screen decomposition violations:\n{}",
+        violations.join("\n")
+    );
 }
 
 fn non_ui_core_rust_files() -> Vec<PathBuf> {

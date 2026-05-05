@@ -101,28 +101,6 @@ pub(crate) struct ResultRowRenderItem {
     pub(crate) display: ResultRowDisplay,
 }
 
-/// Display-ready publisher link text and tooltip.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PublisherLinkDisplay {
-    pub(crate) id: String,
-    pub(crate) title: String,
-    pub(crate) target: String,
-    pub(crate) tooltip: String,
-}
-
-impl PublisherLinkDisplay {
-    #[must_use]
-    pub(crate) fn new(publisher_text: impl Into<String>) -> Self {
-        let title = publisher_text.into().trim().to_string();
-        Self {
-            id: format!("publisher-link:{title}"),
-            target: title.clone(),
-            tooltip: format!("Open publisher: {title}"),
-            title,
-        }
-    }
-}
-
 /// Borrow-only projection for one recent-feed tile.
 pub(crate) struct RecentFeedTileVm<'a> {
     feed: &'a Feed,
@@ -1316,13 +1294,6 @@ pub(crate) struct DeferredPanelDisplay {
     pub(crate) empty_label: &'static str,
 }
 
-/// Display-ready feed header text for the legacy Discover feed header.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SearchFeedHeaderDisplay {
-    pub(crate) title: String,
-    pub(crate) subtitle: Option<String>,
-}
-
 impl DeferredPanelDisplay {
     #[must_use]
     const fn for_kind(kind: DeferredPanelKind) -> Self {
@@ -1625,17 +1596,6 @@ impl SearchViewModel {
     #[must_use]
     pub(crate) fn deferred_panel_empty_line(label: &str) -> String {
         label.to_string()
-    }
-
-    #[must_use]
-    pub(crate) fn feed_header_display(
-        title: &str,
-        subtitle: Option<&str>,
-    ) -> SearchFeedHeaderDisplay {
-        SearchFeedHeaderDisplay {
-            title: title.to_string(),
-            subtitle: nonempty_text(subtitle).map(str::to_string),
-        }
     }
 
     #[must_use]
@@ -3293,15 +3253,6 @@ mod tests {
     }
 
     #[test]
-    fn publisher_link_display_trims_title_and_tooltip() {
-        let display = PublisherLinkDisplay::new("  Acme Audio  ");
-        assert_eq!(display.id, "publisher-link:Acme Audio");
-        assert_eq!(display.title, "Acme Audio");
-        assert_eq!(display.target, "Acme Audio");
-        assert_eq!(display.tooltip, "Open publisher: Acme Audio");
-    }
-
-    #[test]
     fn inspector_chrome_display_projects_back_and_empty_state() {
         let display = SearchViewModel::inspector_chrome_display();
         assert_eq!(display.back_button_id, "inspector-back");
@@ -3343,31 +3294,6 @@ mod tests {
         assert_eq!(
             SearchViewModel::deferred_panel_empty_line("No value routes found"),
             "No value routes found"
-        );
-    }
-
-    #[test]
-    fn feed_header_display_filters_empty_subtitle() {
-        assert_eq!(
-            SearchViewModel::feed_header_display("Way to Go", Some("  Survival Guide  ")),
-            SearchFeedHeaderDisplay {
-                title: "Way to Go".into(),
-                subtitle: Some("Survival Guide".into()),
-            }
-        );
-        assert_eq!(
-            SearchViewModel::feed_header_display("Way to Go", Some(" ... ")),
-            SearchFeedHeaderDisplay {
-                title: "Way to Go".into(),
-                subtitle: None,
-            }
-        );
-        assert_eq!(
-            SearchViewModel::feed_header_display("Way to Go", None),
-            SearchFeedHeaderDisplay {
-                title: "Way to Go".into(),
-                subtitle: None,
-            }
         );
     }
 

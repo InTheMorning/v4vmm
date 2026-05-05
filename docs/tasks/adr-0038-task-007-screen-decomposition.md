@@ -2,11 +2,11 @@
 
 ## Status
 
-In progress (2026-05-04). Per-slice plans live under
+Code complete (2026-05-04). Per-slice plans live under
 `docs/tasks/adr-0038-task-007-slices/`. Task 006 (PageVm
 Generalization) landed on 2026-05-04, unblocking this task.
 
-Completed in the first Task 007 implementation batch:
+Completed slices:
 
 - Slice 0: `src/ui/shells/library/` and
   `src/ui/shells/discover/` module roots.
@@ -14,14 +14,32 @@ Completed in the first Task 007 implementation batch:
   `src/ui/shells/library/playlist_detail.rs`.
 - Slice L2: Library feed list / artist-selected feed list moved to
   `src/ui/shells/library/feed_list.rs`.
+- Slice L3: Library sidebar moved to
+  `src/ui/shells/library/sidebar.rs`.
+- Slice L4: Library feed detail moved to
+  `src/ui/shells/library/feed_detail.rs`.
+- Slice L5: Library track detail core moved to
+  `src/ui/shells/library/track_detail.rs`.
+- Slice L6: Library track metadata moved to
+  `src/ui/shells/library/track_detail_metadata*.rs`.
 - Slice D1: Discover search input moved to
   `src/ui/shells/discover/search_input.rs`.
 - Slice D2: Discover result list moved to
   `src/ui/shells/discover/result_list.rs`.
 - Slice D3: Discover recent feed tiles moved to
   `src/ui/shells/discover/recent.rs`.
+- Slice D4: Discover feed inspector moved to
+  `src/ui/shells/discover/feed_inspector.rs`.
+- Slice D5: Discover track inspector core moved to
+  `src/ui/shells/discover/track_inspector.rs`.
+- Slice D6: Discover track metadata moved to
+  `src/ui/shells/discover/track_inspector_metadata*.rs`.
+- Slice F: architecture guards added for surface presence, entry
+  module LOC, and surface module LOC.
 
-Remaining: L3-L6, D4-D6, and Slice F guards/readiness.
+Visual smoke is not captured in git. The code pass did not create
+screenshot artifacts; any follow-up visual proof should use
+operator-navigated transient captures per project instruction.
 
 ## Goal
 
@@ -77,12 +95,33 @@ top-level entry modules shrink to thin command/state wiring (target
 ## Sub-Split Decision (Resolves Open Question 4)
 
 `track_detail` (~817 LOC) and `track_inspector` (~560 LOC) exceed the
-≤500 LOC ceiling. Each splits into two siblings:
+≤500 LOC ceiling. Each splits into core and metadata siblings:
 
 - `track_detail.rs` (core) + `track_detail_metadata.rs` (id3 + tag
   compare + MusicBrainz)
 - `track_inspector.rs` (core) + `track_inspector_metadata.rs` (id3 +
   tag compare + MusicBrainz)
+
+During implementation, both metadata surfaces also exceeded the file
+budget when the dense cell/tree helpers were moved intact. They are
+therefore split into bounded sibling modules:
+
+- Library: `track_detail_metadata.rs`,
+  `track_detail_metadata_grid.rs`, `track_detail_metadata_cells.rs`,
+  and `track_detail_metadata_values.rs`.
+- Discover: `track_inspector_metadata.rs`,
+  `track_inspector_metadata_grid.rs`,
+  `track_inspector_metadata_cells.rs`,
+  `track_inspector_metadata_expandable.rs`,
+  `track_inspector_metadata_tree.rs`, and
+  `track_inspector_metadata_test_helpers.rs`.
+
+The entry modules are now thin type/state roots:
+
+- `src/library.rs` is 131 lines; screen command wiring lives in
+  `src/library/app_impl.rs`.
+- `src/search.rs` is 238 lines; screen command wiring lives in
+  `src/search/app_impl.rs`, with unit tests in `src/search/tests.rs`.
 
 The metadata file is the natural fault line: id3-cell/MB-lookup
 machinery has its own lazy-load lifecycle distinct from track
@@ -165,7 +204,8 @@ fn surface_modules_under_500_loc() {
 ## Definition of Done
 
 - `src/library.rs` and `src/search.rs` are ≤ 500 LOC and contain only
-  command wiring, selected-entity state, and listener boilerplate.
+  selected-entity state, type declarations, and private child-module
+  wiring.
 - Every surface lives in its own file under
   `src/ui/shells/{library,discover}/`. All ≤ 500 LOC.
 - Four new architecture guards green (file presence, two

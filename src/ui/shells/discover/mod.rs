@@ -14,6 +14,13 @@
 
 #![warn(clippy::pedantic)]
 
+pub mod actions;
+pub mod feed_inspector;
+pub mod feed_lists;
 pub mod recent;
 pub mod result_list;
 pub mod search_input;
+pub mod track_inspector;
+pub mod track_inspector_metadata;
+pub mod track_inspector_metadata_grid;
+pub mod track_rows;

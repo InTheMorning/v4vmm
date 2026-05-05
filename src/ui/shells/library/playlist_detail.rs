@@ -11,7 +11,8 @@ use std::sync::Arc;
 
 use gpui::{AnyElement, Context, Image};
 
-use crate::library::{render_album_thumb, LibraryApp, LibraryAppEvent, PlaylistDetail};
+use crate::library::{LibraryApp, LibraryAppEvent, PlaylistDetail};
+use crate::ui::shells::library::thumbnail::render_album_thumb;
 use crate::ui::shells::playlist::{
     click_slot, render_playlist_detail_shell, PlaylistDetailBehaviorSlots, PlaylistTrackRowSlot,
 };

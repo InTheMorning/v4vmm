@@ -13,5 +13,14 @@
 
 #![warn(clippy::pedantic)]
 
+pub mod detail;
+pub mod feed_detail;
 pub mod feed_list;
 pub mod playlist_detail;
+pub mod sidebar;
+pub mod thumbnail;
+pub mod track_detail;
+pub mod track_detail_metadata;
+pub mod track_detail_metadata_cells;
+pub mod track_detail_metadata_grid;
+pub mod track_detail_metadata_values;

@@ -250,7 +250,7 @@ domain/control plumbing rather than display fallback policy.
 | 4 | HIG Dark-Mode Parity Audit                    | Implemented    | `src/ui/style.rs` no longer holds raw `gpui::rgb(0x…)` literals — the four ID3 frame-color helpers (`id3_frame_v22`, `id3_frame_v23_only`, `id3_frame_v24_only`, `id3_frame_unknown`) now resolve through new `SemanticColor::Id3FrameV22 / V23Only / V24Only / Unknown` tokens with light/dark and high-contrast variants. Module-level docs in `src/ui/style.rs` declare the file token-resolved. New architecture test `ui_style_resolves_colors_through_token_layer` blocks future raw rgb literals in `src/ui/style.rs`. Discover's reset-to-recents command is now VM-owned and restores the recent-feed tile surface after search. Light/dark visual smoke completed with operator-navigated, transient `/tmp` captures; no screenshot artifacts are retained in git. |
 | 5 | HIG Accessibility-Label Contract              | Implemented | `ActionButtonDisplay`, `IdentityActionButtonDisplay`, `ActionRowDisplay`, `AddToPlaylistDisplay`, `PlaylistOptionDisplay`, `TrackRowDisplay`, `ListRow`, `RecentFeedTileDisplay`, `DisclosureGroupDisplay`, `SegmentDisplay`, `NowPlayingData`, `ReleaseDetailPageVm`/`ReleaseDetailSurface`, `TrackDetailSurface`, and `TrackRowVm` now expose VM/display-contract accessibility-label fields. `interactive_composites_carry_accessibility_labels` scans the expanded coverage list. GPUI 0.2.x has no final accessibility-label sink for these widgets, so labels are enforced as contract data until framework plumbing exists. |
 | 6 | PageVm Generalization                         | Implemented    | Track detail parity slice landed: `TrackDetailPageVm` wraps `TrackDetailVm`, `src/ui/shells/track.rs::build_track_detail_surface` is the shared helper, and Library/Discover track detail no longer construct `TrackDetailSurface` directly. Artist detail parity slice landed: `ArtistDetailPageVm` carries shared artist header/fact rows, `src/ui/shells/artist.rs::render_artist_detail_shell` is the shared helper, and Library/Discover artist detail now project through page VMs. Playlist detail parity slice landed: `PlaylistDetailPageVm` wraps `PlaylistDetailVm`, `src/ui/shells/playlist.rs::render_playlist_detail_shell` owns the page hierarchy, and Library supplies only thumbnails plus command callbacks. Search results / recent-feed tiles remain row/list composites because they are not entity detail pages; the reset-to-recents command is already VM-owned. `entity_detail_pages_render_through_shell_helper_and_page_vm` guards release + track + artist + playlist surfaces, and `shared_top_level_ui_shells_do_not_import_screen_modules` covers the new playlist shell. |
-| 7 | Screen Decomposition                          | In progress    | First batch landed Slice 0, L1, L2, D1, D2, and D3: module roots plus `library/feed_list.rs`, `library/playlist_detail.rs`, `discover/search_input.rs`, `discover/result_list.rs`, and `discover/recent.rs`. `entity_detail_pages_render_through_shell_helper_and_page_vm` now follows moved Library artist/playlist detail shells. Remaining evidence: L3-L6, D4-D6, Slice F guard expansion (`src/ui/shells/{library,discover}` included in screen-scope guards), entry modules ≤ 500 LOC, and visual smoke. |
+| 7 | Screen Decomposition                          | Code complete | Library surfaces now live under `src/ui/shells/library/` (`detail`, `feed_detail`, `feed_list`, `playlist_detail`, `sidebar`, `thumbnail`, `track_detail`, and bounded `track_detail_metadata*` modules). Discover surfaces now live under `src/ui/shells/discover/` (`actions`, `feed_inspector`, `feed_lists`, `recent`, `result_list`, `search_input`, `track_inspector`, bounded `track_inspector_metadata*` modules, and `track_rows`). `src/library.rs` is 131 lines and `src/search.rs` is 238 lines; command wiring moved to `src/library/app_impl.rs` and `src/search/app_impl.rs`. Slice F guards `library_screen_modules_are_decomposed_under_src_ui_shells_library`, `discover_screen_modules_are_decomposed_under_src_ui_shells_discover`, `screen_entry_modules_under_500_loc`, and `surface_modules_under_500_loc` are green. Visual smoke was not re-run in this code batch; no screenshot artifacts were created or retained. |
 | 8 | Final Sweep + Readiness Gate                  | Stub           | All baselines zero; full visual smoke; gate decision recorded |
 
 ## Visual Smoke Ledger
@@ -284,6 +284,13 @@ Task 006 PageVm visual smoke:
 | Library artist detail | Transient pass | Transient pass | `HeyCitizen` artist detail with feed section | Verified 2026-05-04 |
 | Discover artist detail | Transient pass | Transient pass | `HeyCitizen` artist detail with feed tiles | Verified 2026-05-04 |
 | Library playlist detail | Transient pass | Transient pass | `My Playlist` with seven tracks | Verified 2026-05-04 |
+
+Task 007 decomposition visual smoke:
+
+| Surface | Light | Dark | Fixture | Status |
+|---|---|---|---|---|
+| Library decomposed surfaces | Not re-run in code batch | Not re-run in code batch | Existing Task 004/006 Library fixtures | Deferred; requires operator navigation and transient captures |
+| Discover decomposed surfaces | Not re-run in code batch | Not re-run in code batch | Existing Task 004/006 Discover fixtures | Deferred; requires operator navigation and transient captures |
 
 Task 001 relocation smoke:
 
@@ -368,6 +375,18 @@ For Task 006 current slices:
 - `cargo test entity_detail_pages_render_through_shell_helper_and_page_vm`
 - `cargo test playlist_detail_page_vm_wraps_existing_detail_contract`
 
+For Task 007 current slices:
+
+- `cargo test --test architecture_tests`
+- `cargo test --test architecture_tests library_screen_modules_are_decomposed_under_src_ui_shells_library`
+- `cargo test --test architecture_tests discover_screen_modules_are_decomposed_under_src_ui_shells_discover`
+- `cargo test --test architecture_tests screen_entry_modules_under_500_loc`
+- `cargo test --test architecture_tests surface_modules_under_500_loc`
+- `cargo test --lib search::tests`
+- `cargo check`
+- `cargo clippy -- -D warnings`
+- `cargo fmt -- --check`
+
 For Task 003 current slices:
 
 - `cargo test track_inspector_header_vm_projects_feed_link_display_contract`
@@ -397,7 +416,6 @@ For Task 003 current slices:
 - `cargo test search_status_snapshot_prefixes_error_display`
 - `cargo test search_render_snapshot_projects_result_pane_display_labels`
 - `cargo test recent_feeds_snapshot_projects_panel_display_labels`
-- `cargo test publisher_link_display_trims_title_and_tooltip`
 - `cargo test inspector_chrome_display_projects_back_and_empty_state`
 - `cargo test inspector_status_messages_are_vm_owned`
 - `cargo test deferred_panel_display_projects_heading_and_loading_labels`
