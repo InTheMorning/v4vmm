@@ -231,6 +231,14 @@ as historical context.
   8. `docs/tasks/adr-0038-task-008-final-sweep-and-readiness-gate.md`
 - Child ADR `docs/adr/0039-dynamic-type-ramp.md` covers dynamic-type
   policy (text scale ramps, max scale, truncation rules) after Task 005.
+- ADR 0040 (Async View-Model Runtime) introduces `AsyncCommandRunner`
+  as the canonical screen-side dispatch path; `GpuiCommandRunner`
+  becomes a CLI/test affordance and is retired in ADR 0040 Phase F.
+- ADR 0041 (Windowed Paged View-Models) introduces `PagedListVm` for
+  list-shaped VMs that may exceed ~10k rows.
+- ADR 0042 (Layer Consolidation) formalises the composite vs shell
+  rule referenced by Task 001 (layer relocation) and the architecture
+  test suite below.
 
 ## Enforcing Tests (current and planned)
 

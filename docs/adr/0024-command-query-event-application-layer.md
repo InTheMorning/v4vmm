@@ -4,6 +4,13 @@
 
 Accepted and implemented - 2026-05-01.
 
+Partially superseded for scheduling concerns by ADR 0040 (Async
+View-Model Runtime) on 2026-05-06: the synchronous `CommandBus`
+and `GpuiCommandRunner` remain valid for CLI / tests / one-shot
+flows, but new screen-side dispatch goes through ADR 0040's
+`AsyncCommandRunner`. The typed `ApplicationCommand` /
+`CommandOutcome` / `ApplicationEvent` surface is unchanged.
+
 Implementation completed through the phase plan in
 `docs/plans/adr-0024-application-layer-phase-plan.md` and task packets
 `docs/tasks/adr-0024-task-001-*.md` through
@@ -554,12 +561,18 @@ This ADR is fulfilled when:
   workflows.
 - Replace source-scan architecture tests with a `syn`-based AST test only if
   the current scans become too brittle.
+- Adopt ADR 0040's async runtime for new screen-side dispatch; retire
+  `GpuiCommandRunner` once unreferenced (planned in ADR 0040 Phase F).
+- Adopt ADR 0041's `PagedListVm` for any list-shaped query that may
+  exceed ~10k rows (`cached_tracks` is the immediate candidate).
 
 ## References
 
 - ADR 0015 - Non-UI Service Boundaries.
 - ADR 0022 - UI-Agnostic Core Extraction.
 - ADR 0023 - Design System and View-Model Architecture.
+- ADR 0040 - Async View-Model Runtime (supersedes scheduling).
+- ADR 0041 - Windowed Paged View-Models (memory shape for queries).
 - `docs/architecture/architecture-diagrams.md` - current and ideal mermaid
   diagrams.
 - `docs/plans/adr-0023-design-system-migration.md` - completed ADR 0023 work

@@ -480,12 +480,27 @@ already true at merge of PR #5; others are explicitly tracked in
       screen-VM, shell, surface, and boundary-gate slices, and each slice
       records its test command before being marked done.
 
+## Scheduling (added 2026-05-06 per ADR 0040)
+
+This ADR established the *shape* of view-models (GPUI-free projections,
+borrow-don't-clone, fresh-per-render). It deliberately did not address
+*how* view-model state is owned or updated over time. ADR 0040 (Async
+View-Model Runtime) supplies that: view-models are snapshots produced
+by tokio actors and delivered to screens through `tokio::sync::watch`
+receivers, drained once per frame by a single `GpuiVmBridge` on the
+foreground executor. Screens read snapshots; they do not own them.
+Stateful screen-side `LibraryViewModel` / `SearchViewModel` patterns
+introduced here remain valid as the *shape* the actor publishes.
+
 ## References
 
 - ADR 0013 — Shared Discover Track Row Module (predecessor; first shared
   render helper).
 - ADR 0015 — Non-UI Service Boundaries (south-side companion).
 - ADR 0022 — UI-Agnostic Core Extraction (south-side companion).
+- ADR 0040 — Async View-Model Runtime (scheduling layer added on top).
+- ADR 0041 — Windowed Paged View-Models (memory shape for list VMs).
+- ADR 0042 — Layer Consolidation (primitive vs composite vs shell rule).
 - `docs/architecture/architecture-diagrams.md` — current and target architecture
   diagrams.
 - `docs/plans/adr-0023-design-system-migration.md` — completed ADR 0023
