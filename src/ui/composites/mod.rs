@@ -28,7 +28,6 @@ pub mod list_row;
 pub mod musicbrainz_panel;
 pub mod now_playing_bar;
 pub mod playlist_popover;
-pub mod recent_feed_tile;
 pub mod release_detail_surface;
 pub mod segmented_control;
 pub mod split_pane;
@@ -60,7 +59,6 @@ pub use now_playing_bar::{NowPlayingBar, NowPlayingData, PlaybackState as NowPla
 pub use playlist_popover::{
     AddToPlaylistDisplay, AddToPlaylistPopover, PlaylistOption, PlaylistOptionDisplay,
 };
-pub use recent_feed_tile::RecentFeedTile;
 pub use release_detail_surface::{
     ReleaseActionGroupDisplay, ReleaseDetailSurface, ReleaseSurfaceElement,
     ReleaseTrackSectionDisplay,

@@ -5,16 +5,129 @@
 
 #![warn(clippy::pedantic)]
 
+use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, AnyElement, Context, FontWeight, Image, SharedString, Styled};
+use gpui::{
+    div, prelude::*, AnyElement, App, ClickEvent, Context, ElementId, FontWeight, Image,
+    InteractiveElement, IntoElement, RenderOnce, SharedString, Styled, Window,
+};
 
 use crate::search::SearchApp;
-use crate::ui::composites::RecentFeedTile;
+use crate::ui::composites::EntityKind;
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::Button as UiButton;
+use crate::ui::layouts as layout;
+use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label};
 use crate::ui::style::{color, spacing, typography};
+use crate::ui::tokens::{color as token_color, FontSize, Radius, SemanticColor, Spacing};
 use crate::view_models::search::{RecentFeedTileDisplay, RecentFeedsDisplay};
+
+type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+
+#[derive(IntoElement)]
+#[must_use]
+struct RecentFeedTile {
+    id: ElementId,
+    display: RecentFeedTileDisplay,
+    thumbnail: Option<Arc<Image>>,
+    on_click: Option<ClickHandler>,
+}
+
+impl RecentFeedTile {
+    fn new(mut display: RecentFeedTileDisplay) -> Self {
+        let id = SharedString::from(display.take_recent_tile_id());
+        Self {
+            id: id.into(),
+            display,
+            thumbnail: None,
+            on_click: None,
+        }
+    }
+
+    fn thumbnail(mut self, thumbnail: Option<Arc<Image>>) -> Self {
+        self.thumbnail = thumbnail;
+        self
+    }
+
+    fn on_click<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    {
+        self.on_click = Some(Rc::new(handler));
+        self
+    }
+}
+
+impl RenderOnce for RecentFeedTile {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let gap = Spacing::SM.scaled(cx);
+        let pad = Spacing::SM.scaled(cx);
+        let radius_lg = Radius::LG.scaled(cx);
+        let radius_md = Radius::MD.scaled(cx);
+        let fallback_size = FontSize::Title2.scaled(cx);
+        let hover_bg = token_color(cx, SemanticColor::SecondarySystemBackground);
+        let fallback_bg = token_color(cx, SemanticColor::SystemFill);
+        let has_thumbnail = self.thumbnail.is_some();
+
+        let mut tile = div()
+            .id(self.id)
+            .flex()
+            .flex_col()
+            .gap(gap)
+            .w(layout::SEARCH_TILE_WIDTH)
+            .p(pad)
+            .rounded(radius_lg);
+
+        if let Some(handler) = self.on_click {
+            tile = tile
+                .cursor_pointer()
+                .hover(move |el| el.bg(hover_bg))
+                .on_click(move |event, window, cx| handler(event, window, cx));
+        }
+
+        tile.child(
+            div()
+                .w(layout::THUMBNAIL_XL)
+                .h(layout::THUMBNAIL_XL)
+                .rounded(radius_md)
+                .overflow_hidden()
+                .flex_shrink_0()
+                .when_some(self.thumbnail, |el, image| {
+                    el.child(
+                        ImagePrimitive::new(image)
+                            .dimension(layout::THUMBNAIL_XL)
+                            .radius(Radius::MD),
+                    )
+                })
+                .when(!has_thumbnail, |el| {
+                    el.bg(fallback_bg)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(fallback_size)
+                        .child(EntityKind::Feed.emoji())
+                }),
+        )
+        .child(
+            div().w(layout::THUMBNAIL_XL).min_w_0().child(
+                Label::new(self.display.title)
+                    .size(FontSize::Caption)
+                    .weight(FontWeight::MEDIUM)
+                    .truncated(),
+            ),
+        )
+        .when_some(self.display.subtitle, |el, subtitle| {
+            el.child(
+                div().w(layout::THUMBNAIL_XL).min_w_0().child(
+                    Label::new(subtitle)
+                        .size(FontSize::Micro)
+                        .color(SemanticColor::TertiaryLabel)
+                        .truncated(),
+                ),
+            )
+        })
+    }
+}
 
 pub(crate) struct DiscoverRecentTile {
     display: RecentFeedTileDisplay,
