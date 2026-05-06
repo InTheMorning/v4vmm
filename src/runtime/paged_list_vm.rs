@@ -160,6 +160,24 @@ where
         RowSlot::Pending(Placeholder { id, index })
     }
 
+    /// Read-only variant of [`Self::row`]. Returns the cached body if
+    /// present without touching the LRU order or queuing a page
+    /// request. Use this from the render path; the screen owner is
+    /// responsible for separately driving prefetch through
+    /// [`Self::report_visible`] on the actor inbox.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index >= self.total()`.
+    #[must_use]
+    pub fn peek_row(&self, index: usize) -> RowSlot<Id, Row> {
+        let id = self.index[index];
+        if let Some(row) = self.cache.peek(&id) {
+            return RowSlot::Ready(Arc::clone(row));
+        }
+        RowSlot::Pending(Placeholder { id, index })
+    }
+
     /// Inform the VM about the currently visible row range. Drives
     /// direction-aware prefetch.
     pub fn report_visible(&mut self, range: Range<usize>) {
@@ -476,6 +494,31 @@ mod tests {
         match vm.row(0) {
             RowSlot::Ready(s) => assert_eq!(&*s, "k3"),
             RowSlot::Pending(_) => panic!("body for id 3 should still be cached"),
+        }
+    }
+
+    #[test]
+    fn peek_row_does_not_queue_requests_or_change_version() {
+        let mut vm = vm(100, 10, 100);
+        let v0 = vm.version();
+        let slot = vm.peek_row(0);
+        assert!(matches!(slot, RowSlot::Pending(_)));
+        assert!(
+            vm.drain_requests().is_empty(),
+            "peek_row must not queue page requests"
+        );
+        assert_eq!(vm.version(), v0, "peek_row must not bump version");
+    }
+
+    #[test]
+    fn peek_row_returns_cached_body_when_present() {
+        let mut vm = vm(100, 10, 100);
+        let _ = vm.row(0);
+        let _ = vm.drain_requests();
+        vm.fulfill_page(0, (0..10u64).map(|i| (i, format!("row{i}"))));
+        match vm.peek_row(3) {
+            RowSlot::Ready(s) => assert_eq!(&*s, "row3"),
+            RowSlot::Pending(_) => panic!("expected cache hit"),
         }
     }
 }
