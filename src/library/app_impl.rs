@@ -48,7 +48,7 @@ use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
     DisclosureSupplementLabel, ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay,
-    SplitPane, StatusRole,
+    SkeletonTrackRow, SplitPane, StatusRole,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
@@ -141,7 +141,7 @@ impl LibraryApp {
             #[cfg(feature = "async-runtime")]
             playlist_actor: None,
         };
-        app.reload();
+        app.start_async_reload(cx);
         app
     }
 
@@ -164,8 +164,7 @@ impl LibraryApp {
     }
 
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.reload();
-        cx.notify();
+        self.start_async_reload(cx);
     }
 
     pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -250,23 +249,52 @@ impl LibraryApp {
         cx.notify();
     }
 
-    fn reload(&mut self) {
-        let conn = self.conn.lock().expect("lock db");
-        match library_service::library_tracks(&conn) {
-            Ok(rows) => {
-                let count = rows.len();
-                self.vm.replace_tree(build_tree(&rows, &conn));
-                self.vm.finish_library_reload(count);
-            }
-            Err(err) => {
-                self.vm.set_error_status(err);
-            }
-        }
-        drop(conn);
-        self.reload_playlists();
+    /// Kick off a non-blocking library reload.
+    ///
+    /// The render thread returns immediately; the heavy
+    /// `library_tracks` + `build_tree` work runs on the background
+    /// executor. While the reload is in flight the view-model is
+    /// flagged so the sidebar paints skeleton placeholders instead of
+    /// blocking the cold-open paint.
+    pub(crate) fn start_async_reload(&mut self, cx: &mut Context<Self>) {
+        self.vm.begin_library_reload();
         self.vm.clear_library_selection();
-        self.detail = LibraryDetail::None;
         self.vm.clear_mb_status();
+        self.detail = LibraryDetail::None;
+        cx.notify();
+
+        // Playlists are a small single-table query: keep them on the
+        // foreground for now so the playlist sidebar stays responsive
+        // and we don't grow a second async path until proven needed.
+        self.reload_playlists();
+
+        let conn = Arc::clone(&self.conn);
+        cx.spawn(
+            async move |this: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let conn = conn.lock().expect("lock db");
+                        library_service::library_tracks(&conn).map(|rows| {
+                            let count = rows.len();
+                            let tree = build_tree(&rows, &conn);
+                            (count, tree)
+                        })
+                    })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    match result {
+                        Ok((count, tree)) => {
+                            this.vm.replace_tree(tree);
+                            this.vm.finish_library_reload(count);
+                        }
+                        Err(err) => this.vm.set_error_status(err),
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .detach();
     }
 
     fn reload_playlists(&mut self) {
@@ -901,7 +929,7 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, _result, _cx| this.reload(),
+            |this, _result, cx| this.start_async_reload(cx),
             |this, err, _cx| this.vm.set_error_status(err),
         );
     }
@@ -912,7 +940,7 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, _result, _cx| this.reload(),
+            |this, _result, cx| this.start_async_reload(cx),
             |this, err, _cx| this.vm.set_error_status(err),
         );
     }
@@ -940,12 +968,12 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, outcome, _cx| {
+            |this, outcome, cx| {
                 this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
                     outcome.path().to_string(),
                     outcome.format_warning().map(str::to_string),
                 ));
-                this.reload();
+                this.start_async_reload(cx);
             },
             |this, error, _cx| this.vm.fail_track_subscribe(error),
         );
@@ -1936,7 +1964,17 @@ impl Render for LibraryApp {
             }
         }
 
-        left_items.extend(tree_items);
+        if self.vm.is_library_loading() && tree_items.is_empty() {
+            for i in 0..6_usize {
+                left_items.push(
+                    SkeletonTrackRow::new(("library-skeleton-row", i))
+                        .show_thumbnail(false)
+                        .into_any_element(),
+                );
+            }
+        } else {
+            left_items.extend(tree_items);
+        }
 
         let detail_pane = render_library_detail(
             &self.detail,

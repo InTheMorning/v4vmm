@@ -564,6 +564,7 @@ pub(crate) struct LibraryViewModel {
     // Operation state.
     busy_track: Option<i64>,
     status: String,
+    library_loading: bool,
     // Layout / drag state.
     split_pane: SplitPaneState,
     // Search + playlist creation.
@@ -589,6 +590,7 @@ impl LibraryViewModel {
             hovered_thumb_url: None,
             busy_track: None,
             status: String::new(),
+            library_loading: false,
             split_pane: SplitPaneState::new(DEFAULT_SPLIT_PANE_WIDTH),
             search_query: String::new(),
             creating_playlist: false,
@@ -625,7 +627,24 @@ impl LibraryViewModel {
     }
 
     pub(crate) fn finish_library_reload(&mut self, track_count: usize) {
+        self.library_loading = false;
         self.status = format!("{track_count} library track{}", plural(track_count));
+    }
+
+    /// Mark the library tree as actively reloading.
+    ///
+    /// Render code consults [`Self::is_library_loading`] to decide
+    /// whether to paint skeleton placeholders while the background
+    /// reload is in flight. The status string is updated so the
+    /// existing chrome reflects the in-progress state.
+    pub(crate) fn begin_library_reload(&mut self) {
+        self.library_loading = true;
+        self.status = "Loading library\u{2026}".to_string();
+    }
+
+    #[must_use]
+    pub(crate) fn is_library_loading(&self) -> bool {
+        self.library_loading
     }
 
     #[must_use]
@@ -967,6 +986,7 @@ impl LibraryViewModel {
     }
 
     pub(crate) fn set_error_status(&mut self, error: impl std::fmt::Display) {
+        self.library_loading = false;
         self.status = format!("Error: {error:#}");
     }
 
@@ -3238,6 +3258,33 @@ mod tests {
 
         vm.finish_library_reload(2);
         assert_eq!(vm.status(), "2 library tracks");
+    }
+
+    #[test]
+    fn library_view_model_begin_library_reload_sets_loading_flag() {
+        let mut vm = LibraryViewModel::new();
+        assert!(!vm.is_library_loading());
+
+        vm.begin_library_reload();
+        assert!(vm.is_library_loading());
+        assert_eq!(vm.status(), "Loading library\u{2026}");
+        assert!(!vm.status_snapshot().is_error);
+
+        vm.finish_library_reload(3);
+        assert!(!vm.is_library_loading());
+        assert_eq!(vm.status(), "3 library tracks");
+    }
+
+    #[test]
+    fn library_view_model_set_error_status_clears_loading_flag() {
+        let mut vm = LibraryViewModel::new();
+        vm.begin_library_reload();
+        assert!(vm.is_library_loading());
+
+        vm.set_error_status("db down");
+
+        assert!(!vm.is_library_loading());
+        assert!(vm.status_snapshot().is_error);
     }
 
     #[test]
