@@ -174,17 +174,20 @@ impl Actor for PagedTrackListActor {
         }
     }
 
-    /// Translate runtime invalidations into local cache mutations.
+    /// Translate VM-bus invalidations into local cache mutations.
     ///
-    /// * [`VmEvent::TrackChanged`] — drop the single cached row body
+    /// * [`VmEvent::TrackChanged`] — drop the cached row for `track_id`
     ///   so the next read re-fetches the page.
     /// * [`VmEvent::InvalidateAll`] — re-read the identity index from
     ///   the database (cached page bodies for surviving ids are kept
     ///   by [`PagedListVm::replace_index`]).
-    /// * Other variants are ignored: `FeedChanged` and `PlaylistChanged`
-    ///   never affect a `TrackListing::Library` / `Cached` ordering by
-    ///   themselves; if they ever should, callers can send a
-    ///   [`PagedTrackListMsg::Refresh`] explicitly.
+    /// * [`VmEvent::PlaylistChanged`] — only relevant when this actor
+    ///   is listing that playlist; when it matches the listing's
+    ///   `playlist_id`, the index is re-read (track membership and/or
+    ///   ordering may have changed).
+    /// * Other variants are ignored: `FeedChanged` does not affect
+    ///   library/cached/playlist orderings; if it ever should, callers
+    ///   can send a [`PagedTrackListMsg::Refresh`] explicitly.
     fn handle_event(&mut self, event: VmEvent, _bus: &VmBus) -> Option<Self::State> {
         let changed = match event {
             VmEvent::TrackChanged { track_id } => {
@@ -200,7 +203,24 @@ impl Actor for PagedTrackListActor {
                 }
                 true
             }
-            VmEvent::FeedChanged { .. } | VmEvent::PlaylistChanged { .. } => false,
+            VmEvent::PlaylistChanged { playlist_id } => {
+                let matches_listing = matches!(
+                    self.listing,
+                    TrackListing::Playlist { playlist_id: my } if my == playlist_id
+                );
+                if matches_listing {
+                    if let Err(err) = self.refresh_index() {
+                        eprintln!(
+                            "v4vmm::runtime: PagedTrackList PlaylistChanged refresh failed: {err}"
+                        );
+                        return None;
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            VmEvent::FeedChanged { .. } => false,
         };
 
         if changed {
@@ -358,9 +378,94 @@ mod tests {
         assert!(actor
             .handle_event(VmEvent::FeedChanged { feed_id: 1 }, &bus)
             .is_none());
+        // A library-listing actor ignores playlist-scoped events.
         assert!(actor
             .handle_event(VmEvent::PlaylistChanged { playlist_id: 1 }, &bus)
             .is_none());
         assert_eq!(actor.vm.lock().unwrap().version(), v0);
+    }
+
+    #[test]
+    fn handle_event_matching_playlist_changed_refreshes_index() {
+        let conn = open_db();
+        let playlist_id: i64 = {
+            conn.execute("INSERT INTO playlists (name) VALUES ('P')", [])
+                .unwrap();
+            conn.last_insert_rowid()
+        };
+        conn.execute(
+            "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, 1, 0)",
+            rusqlite::params![playlist_id],
+        )
+        .unwrap();
+
+        let mut actor =
+            PagedTrackListActor::new(conn, TrackListing::Playlist { playlist_id }).unwrap();
+        assert_eq!(actor.vm.lock().unwrap().total(), 1);
+
+        // Append a second row directly to playlist_tracks, then signal
+        // PlaylistChanged for THIS playlist; the index must grow.
+        actor
+            .conn
+            .execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?1, 2, 1)",
+                rusqlite::params![playlist_id],
+            )
+            .unwrap();
+
+        let bus = VmBus::new();
+        let snapshot = actor.handle_event(VmEvent::PlaylistChanged { playlist_id }, &bus);
+        assert!(snapshot.is_some(), "matching PlaylistChanged must refresh");
+        assert_eq!(actor.vm.lock().unwrap().total(), 2);
+
+        // A different playlist id is a no-op.
+        let other_snapshot =
+            actor.handle_event(VmEvent::PlaylistChanged { playlist_id: 9_999 }, &bus);
+        assert!(
+            other_snapshot.is_none(),
+            "non-matching PlaylistChanged must be ignored"
+        );
+    }
+
+    #[test]
+    fn playlist_listing_indexes_only_attached_tracks_in_position_order() {
+        let conn = open_db();
+        // open_db() inserts 200 library tracks; pick three and append in
+        // a non-id order so we can prove the actor follows
+        // playlist_tracks.position rather than track id.
+        let playlist_id: i64 = {
+            conn.execute("INSERT INTO playlists (name) VALUES ('P')", [])
+                .unwrap();
+            conn.last_insert_rowid()
+        };
+        for (pos, track_id) in [(0_i64, 50_i64), (1, 10), (2, 199)] {
+            conn.execute(
+                "INSERT INTO playlist_tracks (playlist_id, track_id, position)
+                 VALUES (?1, ?2, ?3)",
+                rusqlite::params![playlist_id, track_id, pos],
+            )
+            .unwrap();
+        }
+
+        let mut actor =
+            PagedTrackListActor::new(conn, TrackListing::Playlist { playlist_id }).unwrap();
+        assert_eq!(actor.vm.lock().unwrap().total(), 3);
+
+        // Force the page to load so we can inspect rows.
+        let _ = actor.vm.lock().unwrap().row(0);
+        let _ = actor.vm.lock().unwrap().row(2);
+        actor.drain_and_fulfill();
+
+        let mut vm = actor.vm.lock().unwrap();
+        let r0 = match vm.row(0) {
+            RowSlot::Ready(row) => row.id,
+            RowSlot::Pending(_) => panic!("row 0 must be ready after drain"),
+        };
+        let r2 = match vm.row(2) {
+            RowSlot::Ready(row) => row.id,
+            RowSlot::Pending(_) => panic!("row 2 must be ready after drain"),
+        };
+        assert_eq!(r0, 50);
+        assert_eq!(r2, 199);
     }
 }

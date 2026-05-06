@@ -623,6 +623,11 @@ pub enum TrackListing {
     Library,
     /// Tracks marked `is_in_library = 0` (cached / discovery view).
     Cached,
+    /// Tracks attached to one playlist, ordered by `playlist_tracks.position`.
+    Playlist {
+        /// `playlists.id` of the playlist whose tracks should be listed.
+        playlist_id: i64,
+    },
 }
 
 impl TrackListing {
@@ -630,6 +635,9 @@ impl TrackListing {
         match self {
             Self::Library => "t.is_in_library = 1",
             Self::Cached => "t.is_in_library = 0",
+            // Playlist listings filter by JOIN, not WHERE; this branch is
+            // unused but kept for exhaustiveness.
+            Self::Playlist { .. } => "1 = 1",
         }
     }
 }
@@ -638,11 +646,17 @@ impl TrackListing {
 ///
 /// Returns `(track_id, sort_key)` in display order. The sort key is a
 /// stable string suitable for jump-to-key UI; v1 uses
-/// `feed_title|disc|track_no|title` and is opaque to callers.
+/// `feed_title|disc|track_no|title` for library/cached listings and a
+/// zero-padded `position` for playlist listings. The key is opaque to
+/// callers.
 pub fn track_ids_ordered_by(
     conn: &Connection,
     listing: TrackListing,
 ) -> Result<Vec<(i64, String)>> {
+    if let TrackListing::Playlist { playlist_id } = listing {
+        return playlist_track_ids_ordered(conn, playlist_id);
+    }
+
     let sql = format!(
         "SELECT t.id,
                 COALESCE(f.title, '')                  AS feed_title,
@@ -670,6 +684,29 @@ pub fn track_ids_ordered_by(
         .context("query track_ids_ordered_by")?
         .collect::<std::result::Result<Vec<_>, _>>()
         .context("collect track_ids_ordered_by")?;
+    Ok(rows)
+}
+
+fn playlist_track_ids_ordered(conn: &Connection, playlist_id: i64) -> Result<Vec<(i64, String)>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT pt.track_id, pt.position
+             FROM playlist_tracks pt
+             WHERE pt.playlist_id = ?1
+             ORDER BY pt.position",
+        )
+        .context("prepare playlist_track_ids_ordered")?;
+    let rows = stmt
+        .query_map([playlist_id], |row| {
+            let id: i64 = row.get(0)?;
+            let position: i64 = row.get(1)?;
+            // Zero-pad so jump-to-key sorts numerically; eight digits
+            // covers any plausible playlist length.
+            Ok((id, format!("{position:08}")))
+        })
+        .context("query playlist_track_ids_ordered")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect playlist_track_ids_ordered")?;
     Ok(rows)
 }
 
@@ -2366,6 +2403,53 @@ mod tests {
     fn tracks_by_ids_handles_empty_input() -> Result<()> {
         let conn = setup_test_db()?;
         assert!(tracks_by_ids(&conn, &[])?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn track_ids_ordered_by_playlist_follows_position_order() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let a = insert_track_full(&conn, feed_id, "A", Some(1), true)?;
+        let b = insert_track_full(&conn, feed_id, "B", Some(2), true)?;
+        let c = insert_track_full(&conn, feed_id, "C", Some(3), true)?;
+        let playlist_id = playlist_create(&conn, "P")?;
+        // Append in non-alphabetical order; result must follow append
+        // order, not the library's title-sorted order.
+        playlist_append(&conn, playlist_id, c)?;
+        playlist_append(&conn, playlist_id, a)?;
+        playlist_append(&conn, playlist_id, b)?;
+
+        let rows = track_ids_ordered_by(&conn, TrackListing::Playlist { playlist_id })?;
+        assert_eq!(
+            rows.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![c, a, b]
+        );
+        // Sort keys must be monotonic so jump-to-key UIs stay stable.
+        assert!(rows[0].1 < rows[1].1);
+        assert!(rows[1].1 < rows[2].1);
+        Ok(())
+    }
+
+    #[test]
+    fn track_ids_ordered_by_playlist_isolated_from_other_playlists() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let a = insert_track_full(&conn, feed_id, "A", Some(1), true)?;
+        let b = insert_track_full(&conn, feed_id, "B", Some(2), true)?;
+        let p1 = playlist_create(&conn, "P1")?;
+        let p2 = playlist_create(&conn, "P2")?;
+        playlist_append(&conn, p1, a)?;
+        playlist_append(&conn, p2, b)?;
+
+        let p1_rows = track_ids_ordered_by(&conn, TrackListing::Playlist { playlist_id: p1 })?;
+        assert_eq!(
+            p1_rows.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![a]
+        );
+
+        let empty = track_ids_ordered_by(&conn, TrackListing::Playlist { playlist_id: 9_999 })?;
+        assert!(empty.is_empty());
         Ok(())
     }
 
