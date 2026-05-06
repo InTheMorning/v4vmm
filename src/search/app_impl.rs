@@ -431,8 +431,22 @@ impl SearchApp {
                         }
                         cx.notify();
                         if let Some(url) = image_url_to_fetch {
-                            this.load_inspector_image(entity_type, entity_id, url, cx);
+                            this.load_inspector_image(
+                                entity_type.clone(),
+                                entity_id.clone(),
+                                url,
+                                cx,
+                            );
                         }
+                        // Eagerly prefetch the deferred panels in the
+                        // background. The user is consuming the populated
+                        // text content; by the time they reach for
+                        // contributors / value routes the data is already
+                        // resident. We do not flip the collapsed flags —
+                        // disclosures stay in their default closed state,
+                        // they just open instantly when the user clicks.
+                        this.prefetch_contributors(entity_type.clone(), entity_id.clone(), cx);
+                        this.prefetch_value_routes(entity_type, entity_id, cx);
                     },
                 )
                 .ok();
@@ -474,6 +488,104 @@ impl SearchApp {
                             && frame.image.is_none()
                         {
                             frame.image = image;
+                            cx.notify();
+                        }
+                    }
+                });
+            },
+        )
+        .detach();
+    }
+
+    /// Background-prefetch the contributor list for the inspector frame
+    /// matching `entity_type`/`entity_id`. Unlike [`Self::toggle_contributors`]
+    /// this never touches `contributors_collapsed` — the disclosure stays in
+    /// its default closed state. The point is to have the data resident by
+    /// the time the user reaches for it.
+    fn prefetch_contributors(
+        &mut self,
+        entity_type: String,
+        entity_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.entity_type != entity_type || frame.entity_id != entity_id {
+            return;
+        }
+        if !matches!(frame.contributors, LazyPanel::Hidden) {
+            return;
+        }
+        frame.contributors = LazyPanel::Loading;
+        let client = self.api_client();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let req_type = entity_type.clone();
+                let req_id = entity_id.clone();
+                let contributors = cx
+                    .background_executor()
+                    .spawn(async move { client.fetch_contributors(&req_type, &req_id) })
+                    .await;
+                let _ = this.update(cx, move |this, cx| {
+                    if let Some(frame) = this.inspector_stack.last_mut() {
+                        if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                            let contributors = contributors.map(|contributors| {
+                                contributors
+                                    .into_iter()
+                                    .map(ContributorView::from)
+                                    .collect()
+                            });
+                            let display = SearchViewModel::deferred_panel_display(
+                                DeferredPanelKind::Contributors,
+                            );
+                            frame.contributors =
+                                LazyPanel::from_items_result(contributors, display.empty_label);
+                            cx.notify();
+                        }
+                    }
+                });
+            },
+        )
+        .detach();
+    }
+
+    /// Background-prefetch the value-routes list. Same contract as
+    /// [`Self::prefetch_contributors`]: never expands the disclosure,
+    /// only hydrates the panel data.
+    fn prefetch_value_routes(
+        &mut self,
+        entity_type: String,
+        entity_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.entity_type != entity_type || frame.entity_id != entity_id {
+            return;
+        }
+        if !matches!(frame.value_routes, LazyPanel::Hidden) {
+            return;
+        }
+        frame.value_routes = LazyPanel::Loading;
+        let client = self.api_client();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let req_type = entity_type.clone();
+                let req_id = entity_id.clone();
+                let routes = cx
+                    .background_executor()
+                    .spawn(async move { client.fetch_value_routes(&req_type, &req_id) })
+                    .await;
+                let _ = this.update(cx, move |this, cx| {
+                    if let Some(frame) = this.inspector_stack.last_mut() {
+                        if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                            let display = SearchViewModel::deferred_panel_display(
+                                DeferredPanelKind::ValueRoutes,
+                            );
+                            frame.value_routes =
+                                LazyPanel::from_items_result(routes, display.empty_label);
                             cx.notify();
                         }
                     }

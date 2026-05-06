@@ -1001,7 +1001,6 @@ pub(crate) enum LazyPanel<T> {
 pub(crate) enum LazyPanelToggle {
     Fetch,
     Toggled,
-    Ignored,
 }
 
 impl LazyPanelToggle {
@@ -1037,7 +1036,15 @@ impl<T> LazyPanel<T> {
                 *collapsed = !*collapsed;
                 LazyPanelToggle::Toggled
             }
-            Self::Loading => LazyPanelToggle::Ignored,
+            // Background prefetch may have moved the panel into `Loading`
+            // before the user interacted with it. Treat the click as a
+            // simple expand: the disclosure opens to reveal the loading
+            // state and will swap to `Loaded`/`Empty` when the in-flight
+            // fetch completes. We do not start a second fetch.
+            Self::Loading => {
+                *collapsed = false;
+                LazyPanelToggle::Toggled
+            }
             Self::Hidden => {
                 *self = Self::Loading;
                 *collapsed = false;
@@ -2966,7 +2973,7 @@ mod tests {
     }
 
     #[test]
-    fn lazy_panel_collapsible_toggle_starts_fetch_toggles_and_ignores_loading() {
+    fn lazy_panel_collapsible_toggle_starts_fetch_then_expands_on_loading() {
         let mut panel: LazyPanel<Vec<i32>> = LazyPanel::Hidden;
         let mut collapsed = true;
 
@@ -2977,10 +2984,16 @@ mod tests {
         assert_eq!(panel, LazyPanel::Loading);
         assert!(!collapsed);
 
+        // Re-collapse, then click while a fetch (or background prefetch)
+        // is in flight: the disclosure expands again to reveal the loading
+        // state, but we do not start a second fetch.
+        collapsed = true;
         let action = panel.begin_collapsible_toggle(&mut collapsed, false);
-        assert_eq!(action, LazyPanelToggle::Ignored);
+        assert_eq!(action, LazyPanelToggle::Toggled);
         assert!(!action.should_fetch());
-        assert!(!action.should_notify());
+        assert!(action.should_notify());
+        assert!(!collapsed);
+        assert_eq!(panel, LazyPanel::Loading);
 
         panel = LazyPanel::Loaded(vec![1]);
         let action = panel.begin_collapsible_toggle(&mut collapsed, false);
