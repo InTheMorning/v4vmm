@@ -2,7 +2,12 @@
 
 ## Status
 
-Proposed — 2026-05-06.
+Accepted — 2026-05-06. Phase E in flight: `PagedListVm` shipped with
+`PagedTrackListActor`, `Skeleton` primitive, runtime `VmBus`
+subscription. The screen swap (`library-track-list-paged-vm`) is the
+remaining work; the parallel-additive
+`view_models::paged_playlist_detail::PagedPlaylistDetailVm` is in
+place to make it a small slice.
 
 Depends on ADR 0040 (Async VM Runtime) for the actor + snapshot layer
 that owns the cache.
@@ -48,76 +53,124 @@ row body cache   (lazy, paged, LRU)    LruCache<Id, Arc<Row>>
 
 ### Rules
 
-1. **Eager identity index.** On first load the actor fetches
-   `Vec<(Id, SortKey)>` via a dedicated cheap query
-   (`fn ids_ordered_by(conn, sort) -> Vec<(Id, SortKey)>`).
-   ~50–100 bytes per row. 100k rows ≈ 5–10 MB, acceptable.
+1. **Eager identity index.** On first load the actor fetches an
+   ordered `Vec<Id>` via a dedicated cheap query
+   (`fn track_ids_ordered_by(conn, listing) -> Vec<i64>`). ~8 bytes
+   per row for `i64` ids; 100k rows ≈ 0.8 MB. The composite sort key
+   is resolved inside the query.
 2. **Lazy body cache.** Row bodies load in pages of N
-   (default 64; configurable per actor). Each page is one
-   `bodies_by_ids(conn, &[Id])` query bound to a page-shaped slice
-   of the index.
+   (default `DEFAULT_PAGE_SIZE = 64`; configurable per actor). Each
+   page is one `bodies_by_ids(conn, &[Id])` query bound to a
+   page-shaped slice of the index.
 3. **LRU eviction.** The cache is `LruCache<Id, Arc<Row>>` capped at
-   `4 × visible_window_pages` by default. Pages outside the window
-   evict automatically.
-4. **Synchronous reads with placeholders.** `vm.row(i)` returns
-   immediately:
-   - `Either::Right(RowVm)` on cache hit;
-   - `Either::Left(Placeholder { id, sort_key })` on miss, *and*
-     enqueues a fetch of the missing page if not already loading.
-   Screens render the placeholder via a `Skeleton` primitive
-   (added in `ui/primitives/skeleton.rs`). When the page arrives the
-   actor publishes a new snapshot version; the screen repaints next
-   frame and renders the real row.
+   `DEFAULT_CACHE_PAGES * DEFAULT_PAGE_SIZE = 256` rows by default.
+   Pages outside the hot window evict automatically.
+4. **Synchronous reads with placeholders.** The VM exposes two
+   variants:
+   - `vm.row(i)` (mutating): returns `RowSlot::Ready(Arc<Row>)` on
+     hit; on miss returns `RowSlot::Pending(Placeholder { id, index })`
+     *and* enqueues a fetch of the missing page if not already
+     loading. Used by the actor when handling a `Read` inbox message.
+   - `vm.peek_row(i)` (read-only): same return shape but never
+     enqueues, never bumps LRU, never bumps `version`. Used by the
+     render path so screen redraws are pure projections.
+   Screens render placeholders via the `Skeleton` primitive
+   (`ui/primitives/skeleton.rs`). When a page arrives the actor
+   bumps `version` and publishes a fresh snapshot; the GPUI bridge
+   notifies the entity and the screen repaints.
 5. **Direction-aware prefetch.** The screen reports its visible
-   range each frame. The actor diffs against the previous range to
-   infer scroll direction and pre-loads the next page before it is
-   asked for. On slow disks this is what hides latency.
-6. **Event-driven invalidation.**
-   `ApplicationEvent::TrackTagged { id }` invalidates one cache entry,
-   not the list. `TrackAdded { id, sort_key }` inserts into the index
-   in sort order; no SELECT. `TrackRemoved { id }` removes from index
-   and cache. The actor subscribes to the relevant `ApplicationEvent`
-   families and applies these directly.
+   range each frame via `PagedTrackListMsg::ReportVisible`. The VM
+   diffs against the previous range to infer scroll direction and
+   pre-loads one page beyond the trailing edge. On a forward→backward
+   flip the prefetch target switches to the page *behind* the
+   visible range.
+6. **Event-driven invalidation via `VmBus`.** The runtime broadcast
+   bus (`runtime::VmBus` carrying `runtime::VmEvent`) wires
+   `AsyncCommandRunner` outputs to actor inboxes. Mappings:
+   - `VmEvent::TrackChanged { track_id }` → `vm.invalidate(id)`
+     drops one cache entry; siblings stay hot. Next read for that id
+     enqueues an *incremental* page request whose `ids` slice
+     contains only the dropped id.
+   - `VmEvent::InvalidateAll` → `actor.refresh_index()` rereads the
+     identity index (e.g. for sort/filter changes or coarse
+     `Library/Feed/Download/Metadata::Changed` events).
+   - `VmEvent::PlaylistChanged { playlist_id }` /
+     `VmEvent::FeedChanged { feed_id }` are routed to listings that
+     depend on those scopes; the default `PagedTrackListActor` over
+     `Library`/`Cached` listings ignores them.
+   The actor inbox always wins under load: the spawn loop uses
+   `tokio::select! { biased; ... }` with the inbox above the bus.
+   On broadcast `Lagged`, the actor synthesises an `InvalidateAll`
+   so caches drop conservatively.
 7. **Sort and filter changes rebuild only the index.** Bodies stay
    cached because they are keyed by `Id`, not by position.
+   `replace_index` clears `pending`/`requests`/`last_visible` and
+   resets direction; the LRU survives.
 
-### `PagedListVm` API (sketch)
+### `PagedListVm` API (shipped)
 
 ```rust
-pub struct PagedListVm<Id, Row, Sort> { /* … */ }
+pub enum RowSlot<Id, Row> {
+    Pending(Placeholder<Id>),
+    Ready(Arc<Row>),
+}
 
-impl<Id: Hash + Eq + Copy + Send + 'static,
-     Row: Clone + Send + 'static,
-     Sort: Ord + Clone + Send + 'static>
-    PagedListVm<Id, Row, Sort>
-{
+pub struct Placeholder<Id> { pub id: Id, pub index: usize }
+
+pub struct PageRequest<Id> { pub page: usize, pub ids: Vec<Id> }
+
+pub struct PagedListVm<Id, Row>
+where Id: Eq + Hash + Copy { /* … */ }
+
+impl<Id: Eq + Hash + Copy, Row> PagedListVm<Id, Row> {
+    pub fn new(index: Vec<Id>) -> Self;
+    pub fn with_capacity(index: Vec<Id>, page_size: usize, cache: usize) -> Self;
+
     pub fn total(&self) -> usize;
-    pub fn row(&mut self, index: usize) -> Either<Placeholder<Id, Sort>, Arc<Row>>;
+    pub const fn version(&self) -> u64;
+    pub const fn page_size(&self) -> usize;
+
+    // Mutating reads (actor side).
+    pub fn row(&mut self, index: usize) -> RowSlot<Id, Row>;
     pub fn report_visible(&mut self, range: Range<usize>);
+    pub fn drain_requests(&mut self) -> Vec<PageRequest<Id>>;
+    pub fn fulfill_page(&mut self, page: usize, rows: impl IntoIterator<Item = (Id, Row)>);
+
+    // Read-only (render side).
+    pub fn peek_row(&self, index: usize) -> RowSlot<Id, Row>;
+
+    // Event-driven mutations.
     pub fn invalidate(&mut self, id: Id);
-    pub fn insert(&mut self, id: Id, sort_key: Sort);
+    pub fn insert(&mut self, position: usize, id: Id, body: Option<Row>);
     pub fn remove(&mut self, id: Id);
-    pub fn snapshot(&self) -> watch::Receiver<Version>;
+    pub fn replace_index(&mut self, index: Vec<Id>);
 }
 ```
 
-A `Version` counter on the snapshot lets screens detect changes
-without inspecting the cache.
+The monotonically increasing `version()` is the snapshot signal. The
+actor wraps the VM in an `ActorHandle` whose `tokio::sync::watch`
+channel emits `PagedTrackListSnapshot { version, total }` so the
+GPUI bridge (`presentation::gpui_vm_bridge::bridge_watch`) can
+trigger `cx.notify()` only when something observable changed.
+
+The `Sort` generic from the original sketch was dropped: sort order
+is resolved inside the db helper that produces `Vec<Id>`. Bodies
+remain `Id`-keyed, so the LRU survives `replace_index`.
 
 ### DB query contract
 
 For every paged collection, `db.rs` exposes two helpers:
 
 ```rust
-fn ids_ordered_by(conn: &Connection, sort: Sort) -> Result<Vec<(Id, SortKey)>>;
-fn bodies_by_ids(conn: &Connection, ids: &[Id]) -> Result<Vec<Row>>;
+fn track_ids_ordered_by(conn: &Connection, listing: TrackListing) -> Result<Vec<i64>>;
+fn tracks_by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<TrackRow>>;
 ```
 
-`bodies_by_ids` uses `WHERE id IN (?,?,…)` with chunking at ~500 ids
-to stay under SQLite's variable limit. Existing single-`SELECT`
-helpers (`cached_tracks`, etc.) remain for CLI / tests; they become
-thin wrappers that read the index then call `bodies_by_ids` with all
-ids.
+`tracks_by_ids` uses `WHERE id IN (?,?,…)` chunked at 500 ids per
+SQL call to stay under SQLite's `SQLITE_MAX_VARIABLE_NUMBER`
+(default 999). Existing single-`SELECT` helpers (`cached_tracks`,
+etc.) remain for CLI / tests; they stay as-is rather than wrapping
+the new path because the CLI does not benefit from windowing.
 
 ### Skeleton primitive
 
@@ -135,36 +188,50 @@ Positive:
 - Smooth scroll on slow disks because adjacent pages prefetch.
 - Bounded memory: 100k-track library uses the same cache footprint
   as 1k.
-- One mutation does not reload the list — `TrackTagged` invalidates
-  one entry.
+- One mutation does not reload the list — `VmEvent::TrackChanged{id}`
+  invalidates one entry; the next read on that row triggers an
+  incremental SQL fetch whose `IN (?,?,…)` slice contains only the
+  dropped id.
 - The screen's `TableDelegate` shape is unchanged; only `rows_count()`
-  and `render_td` indirect through `vm.row(i)`.
+  and `render_td` indirect through `vm.peek_row(i)`.
 
 Negative:
 
 - Two new query shapes per paged collection. Acceptable; mechanical.
-- A `Skeleton` primitive must exist before any paged screen ships.
-  Trivial.
-- The `Either<Placeholder, Row>` return makes `render_td` slightly
+- A `Skeleton` primitive must exist before any paged screen ships
+  (shipped at `ui/primitives/skeleton.rs`).
+- The `RowSlot::{Pending, Ready}` return makes `render_td` slightly
   more verbose. Mitigated by a `match` helper in the screen.
-- LRU + index together still cost memory; defaults must be tuned.
+- LRU + index together still cost memory; defaults
+  (`DEFAULT_CACHE_PAGES * DEFAULT_PAGE_SIZE = 256` rows) must be
+  tuned per measured workload.
 
 ## Implementation notes
 
-- Suggested defaults: `page_size = 64`, `lru_capacity = page_size *
-  4`. Override per actor where measured behaviour demands it.
-- `Sort` is generic so we can support multiple sort modes without
-  losing static dispatch. Common bound: `Ord + Clone + Send + 'static`.
+- Defaults: `DEFAULT_PAGE_SIZE = 64`,
+  `DEFAULT_CACHE_PAGES = 4` (cache holds 256 rows). Override per
+  actor where measured behaviour demands it.
+- Sort order is resolved inside the db helper, not the VM. Switching
+  sort modes calls `replace_index(new_ids)` and keeps the body
+  cache hot.
 - Chunk size for `WHERE id IN (?,?,…)` is `500` (SQLite default
   `SQLITE_MAX_VARIABLE_NUMBER` is 999; 500 leaves room for other
   bound params).
 - `report_visible` is the only place a screen mutates the actor each
-  frame. Cheap: it's a tagged `Range<usize>` over a `mpsc`.
-- Placeholders carry `sort_key` so the row can render *some*
-  meaningful display (e.g. track title prefix) without waiting for
-  the body. Index can be augmented with up to ~32 bytes per row of
-  "skeleton-friendly" hints if measurement shows it improves UX.
-- Tests: fake-clock + assert that `vm.row(i)` for an unloaded page
-  produces exactly one fetch task; that scrolling forward triggers
-  prefetch of `page+1`; that `invalidate(id)` does not refetch the
-  whole page.
+  frame. Cheap: it's a tagged `Range<usize>` over an `mpsc`. Render
+  itself uses `peek_row` and never holds the actor inbox.
+- Placeholders carry the stable `id` and the eager `index`. The
+  screen renders a `Skeleton` row (no shimmer per ADR 0034 / Apple
+  HIG analogue of `.redacted(.placeholder)`); when the page fulfils,
+  the same id transitions to `Ready(Arc<Row>)` under the same
+  position.
+- `tokio::select!` on the actor's spawn loop is `biased`. Inbox
+  handling wins under load; the bus is consulted second. On a
+  broadcast `Lagged` the actor calls `handle_event(InvalidateAll)`;
+  on `Closed` it resubscribes (VmBus owners outlive actors in
+  practice).
+- Tests covering the contract live in `runtime::paged_list_vm`:
+  direction flip, mid-page invalidation (incremental fill),
+  placeholder→ready transition, full-page invalidation,
+  empty/overshoot visible ranges, LRU eviction, and `peek_row`
+  read-only invariants.
