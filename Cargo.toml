@@ -38,7 +38,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"
 tokio-util = { version = "0.7", features = ["rt"], optional = true }
 
 [features]
-default = []
+default = ["async-runtime"]
 async-runtime = ["dep:tokio", "dep:tokio-util"]
 
 [dev-dependencies]

@@ -146,8 +146,10 @@ Positive:
 Negative:
 
 - Adds `tokio` (`rt-multi-thread`, `sync`, `time`, `macros`) and
-  `tokio-util` (`sync`) deps. Initially behind feature flag
-  `async-runtime`; default-on once Phase F lands.
+  `tokio-util` (`sync`) deps. Default-on as of the Phase F flip — the
+  feature flag remains so the legacy synchronous code path is still
+  buildable with `--no-default-features` until the legacy paths are
+  retired (tracked alongside `retire-gpui-command-runner`).
 - Two indirection layers added: `Actor → Snapshot → Bridge → Screen`.
   Acceptable cost for the determinism it buys.
 - Every screen with paged or long-lived state grows an actor module.
