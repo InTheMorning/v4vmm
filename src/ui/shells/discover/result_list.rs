@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use gpui::{
     div, prelude::*, AnyElement, ClickEvent, Context, FocusHandle, FontWeight, Image,
-    InteractiveElement, SharedString, Styled,
+    InteractiveElement, ScrollHandle, ScrollWheelEvent, SharedString, Styled,
 };
 
 use crate::search::SearchApp;
@@ -20,7 +20,9 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label};
 use crate::ui::style::{color, spacing};
 use crate::ui::tokens::{FontSize, SemanticColor};
-use crate::view_models::search::{ResultRowRenderItem, SearchPaneDisplay};
+use crate::view_models::search::{
+    should_auto_load_more, ResultRowRenderItem, SearchPaneDisplay, AUTO_PAGINATE_THRESHOLD_PX,
+};
 
 pub(crate) struct DiscoverResultRow {
     item: ResultRowRenderItem,
@@ -42,6 +44,7 @@ pub(crate) struct DiscoverResultListParams<'a> {
     pub(crate) pagination: DiscoverResultPagination,
     pub(crate) pane_display: SearchPaneDisplay,
     pub(crate) list_focus: &'a FocusHandle,
+    pub(crate) scroll_handle: &'a ScrollHandle,
 }
 
 pub(crate) struct DiscoverResultEmptyState {
@@ -79,13 +82,37 @@ pub(crate) fn render_discover_result_list(
         })
         .collect::<Vec<_>>();
 
+    let has_more = params.pagination.has_more;
+    let is_loading_for_listener = params.empty_state.is_loading;
+    let scroll_for_listener = params.scroll_handle.clone();
+
     div()
         .id(params.pane_display.results_scroll_id)
         .track_focus(params.list_focus)
+        .track_scroll(params.scroll_handle)
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
         .p(spacing::SM)
+        .on_scroll_wheel(cx.listener(
+            move |this: &mut SearchApp, _event: &ScrollWheelEvent, _window, cx| {
+                if !has_more {
+                    return;
+                }
+                let max_y = f32::from(scroll_for_listener.max_offset().height);
+                // GPUI scroll offsets are non-positive when scrolled down.
+                let offset_y = f32::from(scroll_for_listener.offset().y);
+                let remaining = max_y + offset_y;
+                if should_auto_load_more(
+                    remaining,
+                    AUTO_PAGINATE_THRESHOLD_PX,
+                    has_more,
+                    is_loading_for_listener,
+                ) {
+                    this.do_search(true, cx);
+                }
+            },
+        ))
         .child(
             div()
                 .flex()

@@ -141,6 +141,11 @@ pub struct SearchApp {
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
+    /// Scroll handle for the search-results list. Used to detect
+    /// near-bottom scroll position so we can auto-trigger pagination
+    /// (`do_search(true, _)`) without requiring the operator to click
+    /// the explicit "Load more" affordance.
+    pub(crate) results_scroll: ScrollHandle,
     /// Reserved for paged search results (ADR 0040 follow-up).
     #[cfg(feature = "async-runtime")]
     #[allow(dead_code)]

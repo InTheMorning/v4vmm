@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use gpui::{
     div, prelude::*, px, Context, Entity, Image, IntoElement, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Render, Styled, Window,
+    MouseUpEvent, Render, ScrollHandle, Styled, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
 use rusqlite::Connection;
@@ -92,6 +92,7 @@ impl SearchApp {
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
             list_focus: cx.focus_handle(),
+            results_scroll: ScrollHandle::new(),
             #[cfg(feature = "async-runtime")]
             runtime_host,
         };
@@ -1600,6 +1601,7 @@ impl Render for SearchApp {
                     pagination: DiscoverResultPagination { has_more },
                     pane_display: pane_display.clone(),
                     list_focus: &self.list_focus,
+                    scroll_handle: &self.results_scroll,
                 },
                 cx,
             ))

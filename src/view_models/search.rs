@@ -379,6 +379,31 @@ pub(crate) fn normalized_search_query(value: &str) -> Option<String> {
     }
 }
 
+/// Distance from the bottom of a scrollable list, in pixels, at which
+/// auto-pagination should fire. Tuned to feel like "minimal resistance":
+/// roughly two-to-three rows shy of the bottom — close enough that the
+/// next page is already in flight by the time the operator reaches the
+/// last visible row, far enough not to fire on a flick that overshoots
+/// by a hair.
+pub(crate) const AUTO_PAGINATE_THRESHOLD_PX: f32 = 240.0;
+
+/// Pure pagination policy: should we kick a "load more" request given
+/// the current scroll position? Centralising this keeps the rule
+/// testable and consistent across panes (search results, recents, and
+/// future paged surfaces).
+///
+/// `remaining_px` is the unscrolled distance to the bottom of the list
+/// (i.e. `max_offset.y - current_offset.y` in absolute terms).
+#[must_use]
+pub(crate) fn should_auto_load_more(
+    remaining_px: f32,
+    threshold_px: f32,
+    has_more: bool,
+    loading: bool,
+) -> bool {
+    has_more && !loading && remaining_px.is_finite() && remaining_px <= threshold_px
+}
+
 /// Borrow-only projection of a [`Publisher`] inspector panel.
 ///
 /// Owns the title fallback (`"Unknown publisher"`), the feed-count and
@@ -2081,6 +2106,23 @@ fn nonempty_text(value: Option<&str>) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::api::{Recording, Release};
+
+    #[test]
+    fn auto_load_more_fires_only_when_near_bottom_with_more_pages_and_idle() {
+        // Far from bottom: no fire even if more pages exist.
+        assert!(!should_auto_load_more(800.0, 240.0, true, false));
+        // Within threshold + has_more + not loading: fire.
+        assert!(should_auto_load_more(120.0, 240.0, true, false));
+        // Exactly at threshold: fire (boundary inclusive — kinder to the operator).
+        assert!(should_auto_load_more(240.0, 240.0, true, false));
+        // Near bottom but no more pages: do not fire (no work to queue).
+        assert!(!should_auto_load_more(50.0, 240.0, false, false));
+        // Near bottom but already loading: do not fire (re-entry guard).
+        assert!(!should_auto_load_more(50.0, 240.0, true, true));
+        // NaN / non-finite remaining (e.g. before first layout): do not fire.
+        assert!(!should_auto_load_more(f32::NAN, 240.0, true, false));
+        assert!(!should_auto_load_more(f32::INFINITY, 240.0, true, false));
+    }
 
     fn assert_width_eq(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < f32::EPSILON);
