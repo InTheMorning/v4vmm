@@ -6,7 +6,11 @@
 pub mod event_bridge;
 pub mod gpui_command_runner;
 pub mod gpui_event_bridge;
+#[cfg(feature = "async-runtime")]
+pub mod gpui_vm_bridge;
 
 pub use event_bridge::PresentationEventBridge;
 pub use gpui_command_runner::GpuiCommandRunner;
 pub use gpui_event_bridge::GpuiEventBridge;
+#[cfg(feature = "async-runtime")]
+pub use gpui_vm_bridge::bridge_watch;
