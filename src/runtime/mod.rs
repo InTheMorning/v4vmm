@@ -22,7 +22,9 @@
 #![warn(clippy::pedantic)]
 
 pub mod actor;
+pub mod paged_list_vm;
 pub mod vm_bus;
 
 pub use actor::{Actor, ActorHandle, Snapshot};
+pub use paged_list_vm::{PageRequest, PagedListVm, Placeholder, RowSlot};
 pub use vm_bus::{VmBus, VmEvent};

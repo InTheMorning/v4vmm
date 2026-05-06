@@ -5259,3 +5259,40 @@ fn rel_path(path: &Path) -> String {
         .display()
         .to_string()
 }
+
+const RUNTIME_FORBIDDEN_PATTERNS: &[&str] = &[
+    "use gpui",
+    "gpui::",
+    "use gpui_component",
+    "gpui_component::",
+    "crate::ui::",
+    "crate::ui_",
+    "crate::library::",
+    "crate::search::",
+    "crate::app::",
+    "crate::presentation",
+];
+
+#[test]
+fn runtime_layer_does_not_import_gpui_or_ui() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src/runtime") {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in RUNTIME_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{}:{line_number}: ADR 0040 runtime boundary violation `{pattern}` in `{line}`",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0040 runtime layer must not import gpui/ui:\n{}",
+        violations.join("\n")
+    );
+}
