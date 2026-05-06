@@ -320,6 +320,13 @@ impl LibraryApp {
         let Some(host) = self.runtime_host.clone() else {
             return;
         };
+        // Idempotent: if the actor for this playlist is already running,
+        // keep it (and its warm cache) rather than churning a new one.
+        if let Some(state) = &self.playlist_actor {
+            if state.playlist_id == playlist_id {
+                return;
+            }
+        }
         // Open a dedicated connection for the actor: rusqlite Connections
         // are not Sync, and the actor consumes its connection by value.
         let cfg = match crate::config::config_path()
