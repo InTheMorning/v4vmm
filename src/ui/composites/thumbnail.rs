@@ -56,7 +56,7 @@ impl ThumbnailSize {
         }
     }
 
-    fn scaled(self, cx: &App) -> Pixels {
+    pub(crate) fn scaled(self, cx: &App) -> Pixels {
         gpui::px(self.base() * ScaleFactor::current(cx).multiplier())
     }
 
