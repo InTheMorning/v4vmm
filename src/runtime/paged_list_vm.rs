@@ -521,4 +521,141 @@ mod tests {
             RowSlot::Pending(_) => panic!("expected cache hit"),
         }
     }
+
+    // ─── Phase E paged-vm-tests todo scenarios ────────────────────
+
+    #[test]
+    fn direction_flip_forward_then_backward_changes_prefetch_target() {
+        // Establish forward direction by walking the visible window
+        // up the index, then jump backward and observe that the next
+        // batch of requests includes the page *behind* the new
+        // visible range (backward prefetch) and excludes any page
+        // *ahead* of it (forward prefetch is no longer active).
+        //
+        // Pages already enqueued via earlier `report_visible` calls
+        // are deduped by `pending`, so this test focuses on the
+        // direction-driven prefetch slot, not coverage of the
+        // visible range itself.
+        let mut vm = vm(500, 50, 500);
+        vm.report_visible(50..100); // baseline, no direction yet
+        let _ = vm.drain_requests();
+        vm.report_visible(100..150); // Forward
+        let _ = vm.drain_requests();
+        vm.report_visible(150..200); // still Forward; would prefetch page 4
+        let _ = vm.drain_requests();
+
+        // Flip backward.
+        vm.report_visible(50..100);
+        let pages: Vec<usize> = vm.drain_requests().iter().map(|r| r.page).collect();
+        assert!(
+            pages.contains(&0),
+            "after a forward→backward flip, the page behind the visible range is prefetched (got {pages:?})"
+        );
+        assert!(
+            !pages.iter().any(|p| *p >= 4),
+            "forward prefetch should not be active after the flip (got {pages:?})"
+        );
+    }
+
+    #[test]
+    fn mid_page_invalidation_re_requests_only_the_dropped_row() {
+        // Fulfill a full page, drop one row, observe that the next
+        // read for that row queues a request whose ids slice contains
+        // exactly the invalidated id (incremental fill, not the full
+        // page).
+        let mut vm = vm(100, 10, 100);
+        let _ = vm.row(0);
+        let _ = vm.drain_requests();
+        vm.fulfill_page(0, (0..10u64).map(|i| (i, format!("row{i}"))));
+
+        let v0 = vm.version();
+        vm.invalidate(5);
+        assert!(vm.version() > v0, "invalidate must bump version");
+
+        // Surrounding rows are still cached.
+        assert!(matches!(vm.peek_row(4), RowSlot::Ready(_)));
+        assert!(matches!(vm.peek_row(6), RowSlot::Ready(_)));
+        assert!(matches!(vm.peek_row(5), RowSlot::Pending(_)));
+
+        // Reading the dropped row queues a request for *only* id 5.
+        let _ = vm.row(5);
+        let reqs = vm.drain_requests();
+        assert_eq!(reqs.len(), 1, "exactly one page-request enqueued");
+        assert_eq!(reqs[0].page, 0);
+        assert_eq!(
+            reqs[0].ids,
+            vec![5u64],
+            "incremental fill — only the missing id"
+        );
+    }
+
+    #[test]
+    fn placeholder_transitions_pending_to_ready_after_fulfill() {
+        // Same id appears in the Placeholder before fulfill and as a
+        // Ready body afterwards; version bumps; second peek does not
+        // re-queue work.
+        let mut vm = vm(100, 10, 100);
+        let placeholder = match vm.row(7) {
+            RowSlot::Pending(p) => p,
+            RowSlot::Ready(_) => panic!("first read must be a cache miss"),
+        };
+        assert_eq!(placeholder.index, 7);
+        assert_eq!(placeholder.id, 7);
+
+        let v0 = vm.version();
+        let _ = vm.drain_requests();
+        vm.fulfill_page(0, (0..10u64).map(|i| (i, format!("k{i}"))));
+        assert!(vm.version() > v0, "fulfill must bump version");
+
+        match vm.peek_row(7) {
+            RowSlot::Ready(s) => assert_eq!(&*s, "k7", "placeholder body landed under same id"),
+            RowSlot::Pending(_) => panic!("placeholder should now be ready"),
+        }
+        assert!(
+            vm.drain_requests().is_empty(),
+            "ready peek must not re-queue"
+        );
+    }
+
+    #[test]
+    fn fulfilled_pages_can_be_re_requested_after_full_page_invalidation() {
+        // Invalidate every row in a fulfilled page; the next read in
+        // that page should be able to queue a fresh request (the
+        // pending-set bookkeeping was cleared by fulfill).
+        let mut vm = vm(50, 10, 50);
+        let _ = vm.row(0);
+        let _ = vm.drain_requests();
+        vm.fulfill_page(0, (0..10u64).map(|i| (i, format!("a{i}"))));
+
+        for id in 0..10u64 {
+            vm.invalidate(id);
+        }
+        let _ = vm.row(3);
+        let reqs = vm.drain_requests();
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].page, 0);
+        assert_eq!(reqs[0].ids.len(), 10, "all ten ids missing again");
+    }
+
+    #[test]
+    fn report_visible_with_empty_range_does_not_panic_or_request() {
+        let mut vm = vm(100, 10, 100);
+        vm.report_visible(0..0);
+        assert!(vm.drain_requests().is_empty());
+    }
+
+    #[test]
+    fn report_visible_clamps_out_of_range_end() {
+        // Total = 25, page = 10. A visible range that overshoots the
+        // end must clamp without panicking and only request real pages.
+        let mut vm = vm(25, 10, 25);
+        vm.report_visible(20..40);
+        let pages: Vec<usize> = vm.drain_requests().iter().map(|r| r.page).collect();
+        // Last real page is 2 (rows 20..25). Page 3 must not appear.
+        assert!(pages.contains(&2));
+        assert!(
+            !pages.iter().any(|p| *p > 2),
+            "no requests beyond the index end (got {pages:?})"
+        );
+    }
 }
