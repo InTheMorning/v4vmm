@@ -8,10 +8,14 @@
 #![warn(clippy::pedantic)]
 
 use gpui::{
-    div, App, FontWeight, IntoElement, ParentElement, RenderOnce, SharedString, Styled, Window,
+    div, App, FontWeight, IntoElement, ParentElement, RenderOnce, Rgba, SharedString, Styled,
+    Window,
 };
 
-use crate::ui::tokens::{Appearance, FontSize, Radius, SemanticColor, Spacing};
+use crate::ui::tokens::{
+    color, resolve_color, Appearance, FontSize, Radius, SemanticColor, Spacing,
+};
+use crate::view_models::track_metadata_grid::TrackMetadataComparisonRole;
 
 /// Domain entity kinds the badge knows how to color.
 ///
@@ -106,6 +110,16 @@ impl EntityKind {
             Self::Generic => SemanticColor::Label,
         }
     }
+
+    #[must_use]
+    pub fn fill_color(self, cx: &App) -> Rgba {
+        color(cx, self.fill_token())
+    }
+
+    #[must_use]
+    pub fn on_fill_color(self, cx: &App) -> Rgba {
+        color(cx, self.on_fill_token())
+    }
 }
 
 impl From<&str> for EntityKind {
@@ -114,28 +128,118 @@ impl From<&str> for EntityKind {
     }
 }
 
+/// Visual role for metadata provenance/diff states.
+///
+/// Color and glyph resolve together so comparison state never depends on
+/// color alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProvenanceRole {
+    Match,
+    Different,
+    Missing,
+}
+
+impl ProvenanceRole {
+    #[must_use]
+    pub fn color_token(self) -> SemanticColor {
+        match self {
+            Self::Match => SemanticColor::DiffMatch,
+            Self::Different => SemanticColor::DiffDifferent,
+            Self::Missing => SemanticColor::DiffMissing,
+        }
+    }
+
+    #[must_use]
+    pub fn color(self, cx: &App) -> Rgba {
+        color(cx, self.color_token())
+    }
+
+    #[must_use]
+    pub fn glyph(self) -> &'static str {
+        match self {
+            Self::Match => "=",
+            Self::Different => "\u{2260}",
+            Self::Missing => "\u{2205}",
+        }
+    }
+
+    #[must_use]
+    pub fn accessibility_label(self) -> &'static str {
+        match self {
+            Self::Match => "matches",
+            Self::Different => "different",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+impl From<TrackMetadataComparisonRole> for ProvenanceRole {
+    fn from(role: TrackMetadataComparisonRole) -> Self {
+        match role {
+            TrackMetadataComparisonRole::Match => Self::Match,
+            TrackMetadataComparisonRole::Different => Self::Different,
+            TrackMetadataComparisonRole::Missing => Self::Missing,
+        }
+    }
+}
+
+/// Visual role for general status messages.
+///
+/// Color and glyph resolve together so status does not rely on color alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusRole {
+    Success,
+    Warning,
+    Danger,
+}
+
+impl StatusRole {
+    #[must_use]
+    pub fn color_token(self) -> SemanticColor {
+        match self {
+            Self::Success => SemanticColor::Success,
+            Self::Warning => SemanticColor::Warning,
+            Self::Danger => SemanticColor::Danger,
+        }
+    }
+
+    #[must_use]
+    pub fn color(self, cx: &App) -> Rgba {
+        color(cx, self.color_token())
+    }
+
+    #[must_use]
+    pub const fn glyph(self) -> &'static str {
+        match self {
+            Self::Success => "\u{2713}",
+            Self::Warning => "\u{26A0}",
+            Self::Danger => "\u{2717}",
+        }
+    }
+}
+
 #[derive(IntoElement)]
 #[must_use]
 pub struct TagBadge {
     kind: EntityKind,
-    /// Optional override for the displayed label (defaults to
-    /// [`EntityKind::label`]).
     label: Option<SharedString>,
     appearance: Option<Appearance>,
 }
 
+/// Display-ready badge fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagBadgeDisplay {
+    pub kind: EntityKind,
+    pub label: Option<SharedString>,
+}
+
 impl TagBadge {
-    pub fn new(kind: EntityKind) -> Self {
+    pub fn new(display: TagBadgeDisplay) -> Self {
         Self {
-            kind,
-            label: None,
+            kind: display.kind,
+            label: display.label,
             appearance: None,
         }
-    }
-
-    pub fn label(mut self, label: impl Into<SharedString>) -> Self {
-        self.label = Some(label.into());
-        self
     }
 
     pub fn appearance(mut self, appearance: Appearance) -> Self {
@@ -146,14 +250,14 @@ impl TagBadge {
 
 impl RenderOnce for TagBadge {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
-        let bg = self.kind.fill_token().resolve(appearance);
-        let fg = self.kind.on_fill_token().resolve(appearance);
+        let bg = resolve_color(cx, self.kind.fill_token(), self.appearance);
+        let fg = resolve_color(cx, self.kind.on_fill_token(), self.appearance);
         let label = self
             .label
             .unwrap_or_else(|| SharedString::from(self.kind.label()));
 
         div()
+            .flex_none()
             .text_size(FontSize::Micro.scaled(cx))
             .font_weight(FontWeight::BOLD)
             .text_color(fg)
@@ -162,5 +266,31 @@ impl RenderOnce for TagBadge {
             .py(Spacing::XXS.scaled(cx))
             .rounded(Radius::SM.scaled(cx))
             .child(label)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tag_badge_uses_display_contract() {
+        let badge = TagBadge::new(TagBadgeDisplay {
+            kind: EntityKind::Feed,
+            label: Some(SharedString::from("podcast")),
+        });
+
+        assert_eq!(badge.kind, EntityKind::Feed);
+        assert_eq!(badge.label, Some(SharedString::from("podcast")));
+    }
+
+    #[test]
+    fn status_roles_resolve_color_and_glyph_together() {
+        assert_eq!(StatusRole::Success.color_token(), SemanticColor::Success);
+        assert_eq!(StatusRole::Warning.color_token(), SemanticColor::Warning);
+        assert_eq!(StatusRole::Danger.color_token(), SemanticColor::Danger);
+        assert_eq!(StatusRole::Success.glyph(), "\u{2713}");
+        assert_eq!(StatusRole::Warning.glyph(), "\u{26A0}");
+        assert_eq!(StatusRole::Danger.glyph(), "\u{2717}");
     }
 }

@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::api::DEFAULT_BASE_URL;
+use crate::theme_profile::ThemeProfile;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -33,6 +34,11 @@ pub struct Config {
     /// Missing value defaults to `medium` (1.0×).
     #[serde(default, deserialize_with = "deserialize_ui_scale")]
     pub ui_scale: UiScale,
+
+    /// Runtime theme profile. Missing value defaults to the existing dark
+    /// profile so older config files keep their appearance.
+    #[serde(default)]
+    pub theme_profile: ThemeProfile,
 }
 
 /// Persisted UI scale enum — TOML representation is a lowercase string
@@ -213,7 +219,8 @@ pub fn save_app_settings(
     music_dir: &str,
     flac_path: &str,
     ui_scale: UiScale,
-) -> Result<(String, PathBuf, Option<PathBuf>, UiScale)> {
+    theme_profile: ThemeProfile,
+) -> Result<(String, PathBuf, Option<PathBuf>, UiScale, ThemeProfile)> {
     let endpoint = normalize_musicindex_endpoint(endpoint)?;
     let music_dir = normalize_music_dir(music_dir)?;
     let flac_path = normalize_flac_path(flac_path)?;
@@ -238,6 +245,10 @@ pub fn save_app_settings(
         "ui_scale".into(),
         toml::Value::String(ui_scale.as_str().to_string()),
     );
+    table.insert(
+        "theme_profile".into(),
+        toml::Value::String(theme_profile.as_str().to_string()),
+    );
     match &flac_path {
         Some(path) => {
             table.insert(
@@ -253,7 +264,7 @@ pub fn save_app_settings(
     let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
     fs::write(cfg_path, updated.as_bytes())
         .with_context(|| format!("write config {}", cfg_path.display()))?;
-    Ok((endpoint, music_dir, flac_path, ui_scale))
+    Ok((endpoint, music_dir, flac_path, ui_scale, theme_profile))
 }
 
 pub fn normalize_musicindex_endpoint(endpoint: &str) -> Result<String> {
@@ -350,6 +361,10 @@ db_path = "{}"
 
 # MusicIndex API endpoint
 musicindex_endpoint = "{}"
+
+# Visual profile. Supported values: "system", "dark", "light",
+# "high-contrast-dark", and "high-contrast-light".
+theme_profile = "dark"
 
 # Optional override for the `flac` CLI used to silently upgrade WAV downloads
 # to FLAC so they can be tagged. Leave unset to resolve `flac` via $PATH.
@@ -448,6 +463,85 @@ db_path = "/tmp/v4vmm.sqlite"
     }
 
     #[test]
+    fn load_config_defaults_missing_theme_profile_to_dark() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(cfg.theme_profile, ThemeProfile::Dark);
+    }
+
+    #[test]
+    fn load_config_parses_theme_profile() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+theme_profile = "light"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(cfg.theme_profile, ThemeProfile::Light);
+    }
+
+    #[test]
+    fn load_config_parses_system_theme_profile() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+theme_profile = "system"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(cfg.theme_profile, ThemeProfile::System);
+    }
+
+    #[test]
+    fn load_config_rejects_unknown_theme_profile() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+theme_profile = "solarized"
+"#,
+        )
+        .expect("write config");
+
+        let error = load_config(&cfg_path).expect_err("unknown theme profile should fail");
+        let message = format!("{error:#}");
+
+        assert!(
+            message.contains("unknown variant `solarized`"),
+            "unexpected error: {message}"
+        );
+    }
+
+    #[test]
     fn load_config_parses_mpv_playback_config() {
         let cfg = parse_playback_config(
             r#"
@@ -509,12 +603,13 @@ extra = "keep"
         )
         .expect("write config");
 
-        let (endpoint, music_dir, flac_path, ui_scale) = save_app_settings(
+        let (endpoint, music_dir, flac_path, ui_scale, theme_profile) = save_app_settings(
             &cfg_path,
             "api.musicindex.org/",
             "~/V4Vmusic",
             "/usr/bin/flac",
             UiScale::Medium,
+            ThemeProfile::Light,
         )
         .expect("save");
         let raw = fs::read_to_string(&cfg_path).expect("read config");
@@ -524,6 +619,7 @@ extra = "keep"
         assert_eq!(music_dir, default_music_dir().expect("default music dir"));
         assert_eq!(flac_path, Some(PathBuf::from("/usr/bin/flac")));
         assert_eq!(ui_scale, UiScale::Medium);
+        assert_eq!(theme_profile, ThemeProfile::Light);
         assert_eq!(
             table.get("flac_path").and_then(toml::Value::as_str),
             Some("/usr/bin/flac")
@@ -540,6 +636,10 @@ extra = "keep"
                 .get("musicindex_endpoint")
                 .and_then(toml::Value::as_str),
             Some(DEFAULT_BASE_URL)
+        );
+        assert_eq!(
+            table.get("theme_profile").and_then(toml::Value::as_str),
+            Some("light")
         );
         assert_eq!(
             table.get("extra").and_then(toml::Value::as_str),

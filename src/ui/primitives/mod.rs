@@ -15,27 +15,33 @@
 //! * Be implemented as `RenderOnce` builders so they can be cheaply composed
 //!   inside a parent's `render()` call without owning state.
 //!
-//! See `docs/architecture-diagrams.md` § 2.3 for where this layer fits in the
+//! See `docs/architecture/architecture-diagrams.md` § 2.3 for where this layer fits in the
 //! ideal architecture pyramid.
 
 #![warn(clippy::pedantic)]
 
 pub mod button;
+pub mod context_menu;
 pub mod divider;
 pub mod image;
 pub mod label;
+pub mod loading;
 pub mod multiline_text;
 pub mod popover;
 pub mod section_header;
 pub mod stack;
 pub mod surface;
+pub mod tooltip;
 
 pub use button::{Button, ButtonSize, ButtonVariant};
+pub use context_menu::{ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope};
 pub use divider::Divider;
 pub use image::{Image, ImageSize};
 pub use label::{Label, LabelVariant};
+pub use loading::LoadingMessage;
 pub use multiline_text::MultilineText;
 pub use popover::{Popover, PopoverAlignment, PopoverPlacement};
 pub use section_header::SectionHeader;
 pub use stack::{HStack, Spacer, StackAlignment, VStack, ZStack};
 pub use surface::{Surface, SurfaceElevation};
+pub use tooltip::Tooltip;

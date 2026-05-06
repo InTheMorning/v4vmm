@@ -1,0 +1,12 @@
+//! Presentation adapter helpers.
+//!
+//! Presentation code may depend on UI runtimes such as GPUI. The application
+//! layer must not depend on this module.
+
+pub mod event_bridge;
+pub mod gpui_command_runner;
+pub mod gpui_event_bridge;
+
+pub use event_bridge::PresentationEventBridge;
+pub use gpui_command_runner::GpuiCommandRunner;
+pub use gpui_event_bridge::GpuiEventBridge;

@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use crate::api;
 use crate::db;
 use crate::library_service;
+use crate::local_identity;
 use crate::views::{ArtistRef, ArtistView, FeedRef, FeedView, TrackRef, TrackView};
 
 #[derive(Clone, Copy, Debug)]
@@ -103,22 +104,49 @@ impl LocalSource {
     }
 }
 
+fn local_track_view(conn: &Connection, row: db::TrackRow) -> Result<TrackView> {
+    let facts = local_identity::track_facts(conn, row.id)?;
+    Ok(TrackView::from_local_with_identity(row, facts))
+}
+
+fn local_feed_view(
+    conn: &Connection,
+    feed_row: db::FeedRow,
+    tracks: Vec<db::TrackRow>,
+) -> Result<FeedView> {
+    let track_views = tracks
+        .into_iter()
+        .map(|row| local_track_view(conn, row))
+        .collect::<Result<Vec<_>>>()?;
+    let facts = local_identity::feed_facts(conn, feed_row.id)?;
+    Ok(FeedView::from_local_with_identity(
+        feed_row,
+        track_views,
+        facts,
+    ))
+}
+
 impl MetadataSource for LocalSource {
     fn fetch_artist(&self, r: &ArtistRef) -> Result<ArtistView> {
-        let name = match r {
-            ArtistRef::LocalArtistName(s) => s.clone(),
-            _ => return Err(anyhow!("LocalSource only handles Local refs")),
-        };
         let conn = self.conn.lock().map_err(|e| anyhow!("conn lock: {e}"))?;
-        let rows = library_service::library_tracks(&conn)?;
-        let filtered: Vec<_> = rows
-            .into_iter()
-            .filter(|t| {
-                t.album_artist_name.as_deref() == Some(&name)
-                    || t.artist_name.as_deref() == Some(&name)
-            })
-            .collect();
-        Ok(ArtistView::from_local_rows(&name, &filtered))
+        match r {
+            ArtistRef::Musicindex(id) => {
+                let row = db::artist_source_fact(&conn, "musicindex", id)?
+                    .ok_or_else(|| anyhow!("artist source fact {id} not found"))?;
+                Ok(ArtistView::from_artist_source_fact(row))
+            }
+            ArtistRef::LocalArtistName(name) => {
+                let rows = library_service::library_tracks(&conn)?;
+                let filtered: Vec<_> = rows
+                    .into_iter()
+                    .filter(|t| {
+                        t.album_artist_name.as_deref() == Some(name.as_str())
+                            || t.artist_name.as_deref() == Some(name.as_str())
+                    })
+                    .collect();
+                Ok(ArtistView::from_local_rows(name, &filtered))
+            }
+        }
     }
 
     fn fetch_feed(&self, r: &FeedRef, _mode: FetchMode) -> Result<FeedView> {
@@ -145,7 +173,7 @@ impl MetadataSource for LocalSource {
                 },
             )
             .map_err(|e| anyhow!("feed {id} not found: {e}"))?;
-        Ok(FeedView::from_local(feed_row, tracks))
+        local_feed_view(&conn, feed_row, tracks)
     }
 
     fn fetch_track(&self, r: &TrackRef) -> Result<TrackView> {
@@ -154,45 +182,8 @@ impl MetadataSource for LocalSource {
             _ => return Err(anyhow!("LocalSource only handles Local refs")),
         };
         let conn = self.conn.lock().map_err(|e| anyhow!("conn lock: {e}"))?;
-        let row: db::TrackRow = conn
-            .query_row(
-                "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
-                        t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
-                        t.enclosure_url, t.enclosure_type, t.track_image_href,
-                        t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
-                 FROM tracks t
-                 JOIN feeds f ON f.id = t.feed_id
-                 LEFT JOIN local_files lf ON lf.track_id = t.id
-                 WHERE t.id = ?1",
-                rusqlite::params![id],
-                |row| {
-                    Ok(db::TrackRow {
-                        id: row.get(0)?,
-                        feed_id: row.get(1)?,
-                        feed_guid: row.get(2)?,
-                        item_guid: row.get(3)?,
-                        track_title: row.get(4)?,
-                        artist_name: row.get(5)?,
-                        album_title: row.get(6)?,
-                        album_artist_name: row.get(7)?,
-                        track_number: row.get(8)?,
-                        disc_number: row.get(9)?,
-                        duration_seconds: row.get(10)?,
-                        enclosure_url: row.get(11)?,
-                        enclosure_type: row.get(12)?,
-                        track_image_href: row.get(13)?,
-                        is_in_library: row.get::<_, i64>(14)? != 0,
-                        feed_title: row.get(15)?,
-                        album_image_href: row.get(16)?,
-                        local_path: row.get(17)?,
-                        transcript_url: db::transcript_url_from_extra_json(
-                            row.get::<_, Option<String>>(18)?.as_deref(),
-                        ),
-                    })
-                },
-            )
-            .map_err(|e| anyhow!("track {id} not found: {e}"))?;
-        Ok(TrackView::from_local(row))
+        let row = db::track_row_by_id(&conn, id)?.ok_or_else(|| anyhow!("track {id} not found"))?;
+        local_track_view(&conn, row)
     }
 
     fn list_feeds_for_artist(&self, r: &ArtistRef) -> Result<Vec<FeedView>> {
@@ -230,9 +221,284 @@ impl MetadataSource for LocalSource {
                 )
                 .ok();
             if let Some(feed_row) = feed_row {
-                out.push(FeedView::from_local(feed_row, tracks));
+                out.push(local_feed_view(&conn, feed_row, tracks)?);
             }
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup_test_db() -> Result<Connection> {
+        let conn = Connection::open_in_memory()?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        db::init_schema(&conn)?;
+        db::migrate_schema(&conn)?;
+        Ok(conn)
+    }
+
+    fn create_feed_and_track(conn: &Connection) -> Result<(i64, i64)> {
+        conn.execute(
+            "INSERT INTO feeds (feed_url, feed_guid, title, album_image_href)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![
+                "https://example.test/feed.xml",
+                "feed-guid",
+                "Feed",
+                "https://example.test/feed.jpg"
+            ],
+        )?;
+        let feed_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO tracks (
+                 feed_id, item_guid, track_title, artist_name, album_title,
+                 track_image_href, is_in_library
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)",
+            rusqlite::params![
+                feed_id,
+                "track-guid",
+                "Track",
+                "Alice",
+                "Feed",
+                "https://example.test/track.jpg"
+            ],
+        )?;
+        Ok((feed_id, conn.last_insert_rowid()))
+    }
+
+    fn add_feed_identity(conn: &mut Connection, feed_id: i64) -> Result<()> {
+        db::replace_local_identity_links(
+            conn,
+            db::LocalIdentityOwner::Feed(feed_id),
+            "musicindex",
+            &[db::LocalIdentityLinkInput {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/feed".into()),
+                ..db::LocalIdentityLinkInput::default()
+            }],
+        )?;
+        db::replace_local_identity_ids(
+            conn,
+            db::LocalIdentityOwner::Feed(feed_id),
+            "musicindex",
+            &[db::LocalIdentityIdInput {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1feed".into()),
+                ..db::LocalIdentityIdInput::default()
+            }],
+        )?;
+        db::replace_local_contributors(
+            conn,
+            db::LocalEntityOwner::Feed(feed_id),
+            "musicindex",
+            &[db::LocalContributorInput {
+                position: 0,
+                name: Some("Feed Contributor".into()),
+                href: Some("https://example.test/feed-contributor".into()),
+                image_url: Some("https://example.test/feed-contributor.jpg".into()),
+                nostr_npub: Some("npub1feedcontributor".into()),
+                ..db::LocalContributorInput::default()
+            }],
+        )
+    }
+
+    fn add_track_identity(conn: &mut Connection, track_id: i64) -> Result<()> {
+        db::replace_local_identity_links(
+            conn,
+            db::LocalIdentityOwner::Track(track_id),
+            "musicindex",
+            &[db::LocalIdentityLinkInput {
+                link_type: Some("website".into()),
+                url: Some("https://example.test/track".into()),
+                ..db::LocalIdentityLinkInput::default()
+            }],
+        )?;
+        db::replace_local_identity_ids(
+            conn,
+            db::LocalIdentityOwner::Track(track_id),
+            "musicindex",
+            &[db::LocalIdentityIdInput {
+                scheme: Some("nostr_npub".into()),
+                value: Some("npub1track".into()),
+                ..db::LocalIdentityIdInput::default()
+            }],
+        )?;
+        db::replace_local_contributors(
+            conn,
+            db::LocalEntityOwner::Track(track_id),
+            "musicindex",
+            &[db::LocalContributorInput {
+                position: 0,
+                name: Some("Track Contributor".into()),
+                href: Some("https://example.test/track-contributor".into()),
+                image_url: Some("https://example.test/track-contributor.jpg".into()),
+                nostr_npub: Some("npub1trackcontributor".into()),
+                ..db::LocalContributorInput::default()
+            }],
+        )
+    }
+
+    #[test]
+    fn local_source_fetch_track_hydrates_persisted_identity_facts() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        add_track_identity(&mut conn, track_id)?;
+        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
+
+        let view = source.fetch_track(&TrackRef::LocalTrackId(track_id))?;
+
+        assert_eq!(
+            view.identity.website_url.as_deref(),
+            Some("https://example.test/track")
+        );
+        assert_eq!(view.identity.nostr_npub.as_deref(), Some("npub1track"));
+        assert_eq!(view.identity.source_links.len(), 1);
+        assert_eq!(view.identity.source_ids.len(), 1);
+        assert_eq!(view.contributors.len(), 1);
+        assert_eq!(
+            view.contributors[0].image_url.as_deref(),
+            Some("https://example.test/track-contributor.jpg")
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn local_source_fetch_feed_hydrates_feed_and_track_identity_facts() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (feed_id, track_id) = create_feed_and_track(&conn)?;
+        add_feed_identity(&mut conn, feed_id)?;
+        add_track_identity(&mut conn, track_id)?;
+        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
+
+        let view = source.fetch_feed(&FeedRef::LocalFeedId(feed_id), FetchMode::WithTracks)?;
+
+        assert_eq!(
+            view.identity.website_url.as_deref(),
+            Some("https://example.test/feed")
+        );
+        assert_eq!(view.identity.nostr_npub.as_deref(), Some("npub1feed"));
+        assert_eq!(view.contributors.len(), 1);
+        assert_eq!(
+            view.contributors[0].href.as_deref(),
+            Some("https://example.test/feed-contributor")
+        );
+        assert_eq!(view.tracks.len(), 1);
+        assert_eq!(
+            view.tracks[0].identity.website_url.as_deref(),
+            Some("https://example.test/track")
+        );
+        assert_eq!(view.tracks[0].contributors.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn local_source_fetch_musicindex_artist_hydrates_persisted_source_fact() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        db::replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-123",
+            &db::ArtistSourceFactInput {
+                name: Some("Alice".into()),
+                image_url: Some("https://example.test/alice.jpg".into()),
+                website_url: Some("https://example.test/alice".into()),
+                aliases: vec!["A. Example".into()],
+                area: Some("Montreal".into()),
+                begin_year: Some(2020),
+                source_links: vec![db::LocalIdentityLinkInput {
+                    link_type: Some("website".into()),
+                    url: Some("https://example.test/source-link".into()),
+                    ..db::LocalIdentityLinkInput::default()
+                }],
+                source_ids: vec![db::LocalIdentityIdInput {
+                    scheme: Some("nostr_npub".into()),
+                    value: Some("npub1artist".into()),
+                    ..db::LocalIdentityIdInput::default()
+                }],
+                ..db::ArtistSourceFactInput::default()
+            },
+        )?;
+        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
+
+        let view = source.fetch_artist(&ArtistRef::Musicindex("artist-123".into()))?;
+
+        assert!(matches!(
+            view.id,
+            Some(ArtistRef::Musicindex(ref id)) if id == "artist-123"
+        ));
+        assert_eq!(view.name.as_deref(), Some("Alice"));
+        assert_eq!(
+            view.image_url.as_deref(),
+            Some("https://example.test/alice.jpg")
+        );
+        assert_eq!(view.url.as_deref(), Some("https://example.test/alice"));
+        assert_eq!(
+            view.identity.website_url.as_deref(),
+            Some("https://example.test/source-link")
+        );
+        assert_eq!(view.identity.nostr_npub.as_deref(), Some("npub1artist"));
+        assert_eq!(view.aliases, vec!["A. Example"]);
+        assert_eq!(view.area.as_deref(), Some("Montreal"));
+        assert_eq!(view.begin_year, Some(2020));
+
+        Ok(())
+    }
+
+    #[test]
+    fn local_source_fetch_musicindex_artist_requires_persisted_fact() -> Result<()> {
+        let conn = setup_test_db()?;
+        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
+
+        let error = source
+            .fetch_artist(&ArtistRef::Musicindex("missing-artist".into()))
+            .expect_err("missing explicit artist fact should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("artist source fact missing-artist not found"),
+            "unexpected error: {error:#}"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn local_source_fetch_local_artist_name_does_not_use_source_facts() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        create_feed_and_track(&conn)?;
+        db::replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-123",
+            &db::ArtistSourceFactInput {
+                name: Some("Alice".into()),
+                image_url: Some("https://example.test/source-artist.jpg".into()),
+                website_url: Some("https://example.test/alice".into()),
+                ..db::ArtistSourceFactInput::default()
+            },
+        )?;
+        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
+
+        let view = source.fetch_artist(&ArtistRef::LocalArtistName("Alice".into()))?;
+
+        assert!(matches!(
+            view.id,
+            Some(ArtistRef::LocalArtistName(ref name)) if name == "Alice"
+        ));
+        assert_eq!(
+            view.image_url.as_deref(),
+            Some("https://example.test/feed.jpg")
+        );
+        assert_eq!(view.url, None);
+        assert_eq!(view.identity.website_url, None);
+
+        Ok(())
     }
 }

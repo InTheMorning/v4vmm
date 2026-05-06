@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-The staged plan in `docs/unify-discover-library-views.md` extracts shared view models and shared feed/artist renderers before reusing the same track-row UI in Discover and Library. Stage 4 requires moving the Discover track row into a dedicated module without changing current behavior.
+The staged plan in `docs/plans/unify-discover-library-views.md` extracts shared view models and shared feed/artist renderers before reusing the same track-row UI in Discover and Library. Stage 4 requires moving the Discover track row into a dedicated module without changing current behavior.
 
 ## Decision
 

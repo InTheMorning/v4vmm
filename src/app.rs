@@ -1,44 +1,42 @@
+#![warn(clippy::pedantic)]
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use gpui::{
-    div, img, prelude::*, px, size, Application, Bounds, Context, Entity, Image, ImageFormat,
-    KeyDownEvent, ObjectFit, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
-};
-use gpui_component::button::{Button, ButtonVariants as _};
+use gpui::{div, prelude::*, Context, Entity, Render, SharedString, Styled, Window};
 use gpui_component::input::{Input, InputState};
-use gpui_component::Disableable;
-use gpui_component::{Root, Size};
+use gpui_component::Size;
 use rusqlite::Connection;
 
+use crate::application::commands::download::RemoveCachedFiles;
+use crate::application::{ApplicationEventSubscriber, ApplicationServices, CommandContext};
 use crate::config;
-use crate::db;
-use crate::library::{build_tree, cleanup_empty_parents, LibraryApp, LibraryAppEvent, LibraryTree};
-use crate::library_service;
+use crate::library::{build_tree, LibraryApp, LibraryAppEvent};
 use crate::media::ImageCache;
-use crate::playback;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
+use crate::presentation::{GpuiCommandRunner, GpuiEventBridge};
 use crate::search::{SearchApp, SearchAppEvent};
+use crate::theme_profile::ThemeProfile;
+use crate::ui::control_styles::ControlStyle;
+use crate::ui::layouts as layout;
+use crate::ui::primitives::Button as UiButton;
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::theme::color;
-use crate::ui::theme::layout;
-#[allow(unused_imports)]
-use crate::ui::theme::radius;
-use crate::ui::theme::spacing;
-use crate::ui::theme::typography;
+use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
+use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 
-// ---------------------------------------------------------------------------
-// Color helpers (same palette)
-// ---------------------------------------------------------------------------
+mod bootstrap;
+mod events;
+mod keyboard;
+mod menu;
+mod playback_bar;
+mod tab_bar;
 
-fn app_logo() -> Arc<Image> {
-    Arc::new(Image::from_bytes(
-        ImageFormat::Png,
-        include_bytes!("assets/music_network_logo.png").to_vec(),
-    ))
-}
+pub use bootstrap::run_app;
+
+use playback_bar::build_playback_bar;
+use tab_bar::render_tab_bar;
 
 // ---------------------------------------------------------------------------
 // AppTab
@@ -63,6 +61,7 @@ pub struct TopApp {
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
     ui_scale: crate::config::UiScale,
+    theme_profile: ThemeProfile,
     cfg_path: PathBuf,
     settings_status: String,
     library_tab_focus: gpui::FocusHandle,
@@ -70,22 +69,27 @@ pub struct TopApp {
     settings_tab_focus: gpui::FocusHandle,
     _search_sub: gpui::Subscription,
     _library_sub: gpui::Subscription,
-    playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
+    _appearance_sub: gpui::Subscription,
+    playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
     conn: Arc<Mutex<Connection>>,
     cached_tree: LibraryTree,
-}
-
-#[derive(Clone, Debug, Default)]
-struct PlaybackBarState {
-    active: bool,
-    paused: bool,
-    title: String,
+    application_services: Arc<ApplicationServices>,
+    command_runner: GpuiCommandRunner,
+    application_event_bridge: Arc<GpuiEventBridge>,
 }
 
 impl TopApp {
     #[expect(
         clippy::too_many_arguments,
         reason = "top-level app bootstrap still wires shared state explicitly"
+    )]
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "bootstrap takes ownership of shared app resources before distributing them to child entities"
+    )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "top-level app bootstrap still owns one-time child entity and service wiring"
     )]
     fn new(
         conn: Arc<Mutex<Connection>>,
@@ -95,21 +99,53 @@ impl TopApp {
         music_dir: PathBuf,
         flac_path: Option<PathBuf>,
         ui_scale: crate::config::UiScale,
-        playback_owner: PlaybackOwner<ConfiguredPlaybackDriver>,
+        theme_profile: ThemeProfile,
+        playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        crate::ui::theme_bridge::install_theme_for_window(
+            theme_profile,
+            ui_scale.into(),
+            window,
+            cx,
+        );
         let search_conn = Arc::clone(&conn);
         let search_cache = Arc::clone(&image_cache);
         let library_cache = Arc::clone(&image_cache);
         let search_endpoint = musicindex_endpoint.clone();
-        let search =
-            cx.new(|cx| SearchApp::new(search_conn, search_cache, search_endpoint, window, cx));
+        let application_services = Arc::new(
+            ApplicationServices::local_with_service_adapters()
+                .expect("application services are fully wired"),
+        );
+        let application_event_bridge = Arc::new(GpuiEventBridge::new());
+        let application_event_subscriber: Arc<dyn ApplicationEventSubscriber> =
+            application_event_bridge.clone();
+        application_services
+            .event_bus()
+            .subscribe(application_event_subscriber);
+        let command_runner = GpuiCommandRunner::new(
+            application_services.command_bus(),
+            application_services.event_bus(),
+        );
+        let search_services = Arc::clone(&application_services);
+        let library_services = Arc::clone(&application_services);
+        let search = cx.new(|cx| {
+            SearchApp::new(
+                search_conn,
+                search_cache,
+                search_endpoint,
+                search_services,
+                window,
+                cx,
+            )
+        });
         let library = cx.new(|cx| {
             LibraryApp::new(
                 conn.clone(),
                 library_cache,
                 musicindex_endpoint.clone(),
+                library_services,
                 window,
                 cx,
             )
@@ -119,7 +155,7 @@ impl TopApp {
             &search,
             move |_this: &mut Self, _search, event: &SearchAppEvent, cx| match event {
                 SearchAppEvent::LibraryMutated => {
-                    library_for_sub.update(cx, |lib, cx| lib.refresh(cx));
+                    library_for_sub.update(cx, LibraryApp::refresh);
                 }
             },
         );
@@ -132,6 +168,17 @@ impl TopApp {
                 } => this.play_playlist_at(*playlist_id, *playlist_position, cx),
             },
         );
+        let appearance_sub = cx.observe_window_appearance(window, |this, window, cx| {
+            if this.theme_profile == ThemeProfile::System {
+                crate::ui::theme_bridge::install_theme_for_window(
+                    ThemeProfile::System,
+                    this.ui_scale.into(),
+                    window,
+                    cx,
+                );
+                cx.notify();
+            }
+        });
         let endpoint_default = musicindex_endpoint.clone();
         let endpoint_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx)
@@ -162,6 +209,7 @@ impl TopApp {
             music_dir_input,
             flac_path_input,
             ui_scale,
+            theme_profile,
             cfg_path,
             settings_status: String::new(),
             library_tab_focus: cx.focus_handle(),
@@ -169,19 +217,30 @@ impl TopApp {
             settings_tab_focus: cx.focus_handle(),
             _search_sub: search_sub,
             _library_sub: library_sub,
+            _appearance_sub: appearance_sub,
             playback_owner,
             conn,
             cached_tree: LibraryTree::default(),
+            application_services,
+            command_runner,
+            application_event_bridge,
         }
     }
 
     fn maybe_start_playback_polling(&mut self, cx: &mut Context<Self>) {
-        if !self.playback_owner.driver().is_live_driver() {
+        if !self
+            .playback_owner
+            .lock()
+            .expect("lock playback owner")
+            .driver()
+            .is_live_driver()
+        {
             return;
         }
         {
             let conn = self.conn.lock().expect("lock db");
-            if let Err(error) = self.playback_owner.load_current_session(&conn) {
+            let mut playback_owner = self.playback_owner.lock().expect("lock playback owner");
+            if let Err(error) = playback_owner.load_current_session(&conn) {
                 self.settings_status = format!("Playback error: {error:#}");
             }
         }
@@ -206,7 +265,8 @@ impl TopApp {
 
     fn poll_playback_owner(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.poll(&conn) {
+        let mut playback_owner = self.playback_owner.lock().expect("lock playback owner");
+        match playback_owner.poll(&conn) {
             Ok(PollOutcome::NoSession | PollOutcome::Reconciled(None)) => {}
             Ok(PollOutcome::Reconciled(Some(_)) | PollOutcome::Advanced(_)) => {
                 self.settings_status.clear();
@@ -217,105 +277,41 @@ impl TopApp {
         }
     }
 
-    fn play_playlist_at(
+    fn set_ui_scale(
         &mut self,
-        playlist_id: i64,
-        playlist_position: i64,
+        scale: crate::config::UiScale,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let conn = self.conn.lock().expect("lock db");
-        match self
-            .playback_owner
-            .play_playlist_at(&conn, playlist_id, playlist_position)
-        {
-            Ok(update) => {
-                self.settings_status = format!("Playing {}", update.title);
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
-        cx.notify();
-    }
-
-    fn skip_playback_next(&mut self, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.skip_next(&conn) {
-            Ok(update) => {
-                self.settings_status = format!("Playing {}", update.title);
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
-        cx.notify();
-    }
-
-    fn skip_playback_previous(&mut self, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.skip_previous(&conn) {
-            Ok(update) => {
-                self.settings_status = format!("Playing {}", update.title);
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
-        cx.notify();
-    }
-
-    fn set_playback_paused(&mut self, paused: bool, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.pause(&conn, paused) {
-            Ok(update) => {
-                let verb = if paused { "Paused" } else { "Playing" };
-                self.settings_status = format!("{verb} {}", update.title);
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
-        cx.notify();
-    }
-
-    fn stop_playback_owner(&mut self, cx: &mut Context<Self>) {
-        let conn = self.conn.lock().expect("lock db");
-        match self.playback_owner.stop(&conn) {
-            Ok(_) => {
-                self.settings_status = "Playback stopped".to_string();
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
-            }
-        }
-        cx.notify();
-    }
-
-    fn playback_bar_state(&self) -> PlaybackBarState {
-        let conn = self.conn.lock().expect("lock db");
-        let Ok(Some(session)) = db::playback_session(&conn, playback::DEFAULT_SESSION_ID) else {
-            return PlaybackBarState::default();
-        };
-        if session.state == "stopped" {
-            return PlaybackBarState::default();
-        }
-        let title = playback::now_playing_update(&conn, playback::DEFAULT_SESSION_ID)
-            .ok()
-            .flatten()
-            .map(|update| update.title)
-            .unwrap_or_else(|| "Current track".to_string());
-        PlaybackBarState {
-            active: true,
-            paused: session.state == "paused",
-            title,
-        }
-    }
-
-    fn set_ui_scale(&mut self, scale: crate::config::UiScale, cx: &mut Context<Self>) {
         if self.ui_scale == scale {
             return;
         }
         self.ui_scale = scale;
+        crate::ui::theme_bridge::install_theme_for_window(
+            self.theme_profile,
+            scale.into(),
+            window,
+            cx,
+        );
+        cx.notify();
+    }
+
+    fn set_theme_profile(
+        &mut self,
+        profile: ThemeProfile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.theme_profile == profile {
+            return;
+        }
+        self.theme_profile = profile;
+        crate::ui::theme_bridge::install_theme_for_window(
+            profile,
+            self.ui_scale.into(),
+            window,
+            cx,
+        );
         cx.notify();
     }
 
@@ -324,9 +320,22 @@ impl TopApp {
         let music_dir = self.music_dir_input.read(cx).value().to_string();
         let flac_path = self.flac_path_input.read(cx).value().to_string();
         let ui_scale = self.ui_scale;
-        match config::save_app_settings(&self.cfg_path, &endpoint, &music_dir, &flac_path, ui_scale)
-        {
-            Ok((normalized_endpoint, normalized_music_dir, normalized_flac_path, saved_scale)) => {
+        let theme_profile = self.theme_profile;
+        match config::save_app_settings(
+            &self.cfg_path,
+            &endpoint,
+            &music_dir,
+            &flac_path,
+            ui_scale,
+            theme_profile,
+        ) {
+            Ok((
+                normalized_endpoint,
+                normalized_music_dir,
+                normalized_flac_path,
+                saved_scale,
+                saved_profile,
+            )) => {
                 let cfg = match config::load_config(&self.cfg_path)
                     .and_then(|cfg| config::ensure_dirs(&cfg).map(|()| cfg))
                 {
@@ -356,10 +365,11 @@ impl TopApp {
                 self.flac_path_input.update(cx, |input, cx| {
                     input.set_value(flac_display, window, cx);
                 });
-                // Apply scale change immediately so the UI reflects it.
-                crate::ui::theme_bridge::install_theme(
-                    crate::ui::tokens::Appearance::Dark,
+                // Apply scale/profile change immediately so the UI reflects it.
+                crate::ui::theme_bridge::install_theme_for_window(
+                    saved_profile,
                     saved_scale.into(),
+                    window,
                     cx,
                 );
                 self.settings_status = format!(
@@ -376,7 +386,11 @@ impl TopApp {
 
     fn reload_cached(&mut self) {
         let conn = self.conn.lock().expect("lock db");
-        match library_service::cached_tracks(&conn) {
+        match self
+            .application_services
+            .query_service()
+            .cached_tracks(&conn)
+        {
             Ok(rows) => {
                 self.cached_tree = build_tree(&rows, &conn);
             }
@@ -386,24 +400,11 @@ impl TopApp {
         }
     }
 
-    fn delete_cached_file(&mut self, path: String) {
-        if let Err(err) = std::fs::remove_file(&path) {
-            if err.kind() != std::io::ErrorKind::NotFound {
-                self.settings_status = format!("Error deleting file: {err:#}");
-                return;
-            }
-        }
-        cleanup_empty_parents(std::path::Path::new(&path));
-        let conn = self.conn.lock().expect("lock db");
-        if let Err(err) = library_service::delete_local_file(&conn, &path) {
-            self.settings_status = format!("Error: {err:#}");
-            return;
-        }
-        drop(conn);
-        self.reload_cached();
+    fn delete_cached_file(&mut self, path: String, cx: &mut Context<Self>) {
+        self.delete_cached_files(vec![path], cx);
     }
 
-    fn delete_all_cached(&mut self) {
+    fn delete_all_cached(&mut self, cx: &mut Context<Self>) {
         let paths: Vec<String> = self
             .cached_tree
             .artists
@@ -412,167 +413,58 @@ impl TopApp {
             .flat_map(|a| &a.tracks)
             .filter_map(|t| t.local_path.clone())
             .collect();
-        for path in &paths {
-            if let Err(err) = std::fs::remove_file(path) {
-                if err.kind() != std::io::ErrorKind::NotFound {
-                    self.settings_status = format!("Error deleting {path}: {err:#}");
-                    return;
-                }
-            }
-            cleanup_empty_parents(std::path::Path::new(path));
+        self.delete_cached_files(paths, cx);
+    }
+
+    fn delete_cached_files(&mut self, paths: Vec<String>, cx: &mut Context<Self>) {
+        if paths.is_empty() {
+            return;
         }
-        let conn = self.conn.lock().expect("lock db");
-        for path in &paths {
-            if let Err(err) = library_service::delete_local_file(&conn, path) {
-                self.settings_status = format!("Error: {err:#}");
-                return;
-            }
-        }
-        drop(conn);
-        self.reload_cached();
+        let command = RemoveCachedFiles::new(Arc::clone(&self.conn), paths);
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            |this, result, _cx| {
+                this.settings_status = result.message().to_string();
+                this.reload_cached();
+            },
+            |this, error, _cx| {
+                this.settings_status = format!("Error: {error:#}");
+            },
+        );
     }
 }
 
 impl Render for TopApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let playback_controls = render_playback_controls(self, cx);
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.defer_application_event_drain(window, cx);
+        let playback_bar = build_playback_bar(self, cx);
+        let bg_canvas = color(cx, SemanticColor::SystemBackground);
+        let text_primary = color(cx, SemanticColor::Label);
         div()
             .size_full()
-            .bg(color::bg_canvas())
-            .text_color(color::text_primary())
+            .bg(bg_canvas)
+            .text_color(text_primary)
             .text_sm()
             .flex()
             .flex_col()
             .overflow_hidden()
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                let modifiers = event.keystroke.modifiers;
-                let key = event.keystroke.key.as_str();
-
-                if modifiers.platform {
-                    match key {
-                        "1" => {
-                            this.tab = AppTab::Library;
-                            cx.notify();
-                        }
-                        "2" => {
-                            this.tab = AppTab::Discover;
-                            cx.notify();
-                        }
-                        "3" => {
-                            this.tab = AppTab::Settings;
-                            cx.notify();
-                        }
-                        "f" => match this.tab {
-                            AppTab::Library => this
-                                .library
-                                .update(cx, |lib, cx| lib.focus_search(window, cx)),
-                            AppTab::Discover => {
-                                this.search.update(cx, |s, cx| s.focus_search(window, cx))
-                            }
-                            _ => {}
-                        },
-                        "r" => {
-                            if this.tab == AppTab::Library {
-                                this.library.update(cx, |lib, cx| lib.refresh(cx));
-                            }
-                        }
-                        _ => {}
-                    }
-                } else {
-                    match key {
-                        "escape" => match this.tab {
-                            AppTab::Library => {
-                                this.library.update(cx, |lib, cx| lib.pop_inspector(cx))
-                            }
-                            AppTab::Discover => this.search.update(cx, |s, cx| s.pop_inspector(cx)),
-                            _ => {}
-                        },
-                        "up" => match this.tab {
-                            AppTab::Library => this.library.update(cx, |lib, cx| lib.move_up(cx)),
-                            AppTab::Discover => this.search.update(cx, |s, cx| s.move_up(cx)),
-                            _ => {}
-                        },
-                        "down" => match this.tab {
-                            AppTab::Library => this.library.update(cx, |lib, cx| lib.move_down(cx)),
-                            AppTab::Discover => this.search.update(cx, |s, cx| s.move_down(cx)),
-                            _ => {}
-                        },
-                        "enter" => match this.tab {
-                            AppTab::Library => this.library.update(cx, |lib, cx| lib.confirm(cx)),
-                            AppTab::Discover => this.search.update(cx, |s, cx| s.confirm(cx)),
-                            _ => {}
-                        },
-                        _ => {}
-                    }
-                }
-            }))
-            // Top-level tab bar
-            .child(
-                div()
-                    .h(layout::TAB_BAR_HEIGHT)
-                    .flex_shrink_0()
-                    .bg(color::bg_surface())
-                    .border_b_1()
-                    .border_color(color::border_subtle())
-                    .px(spacing::MD)
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(spacing::XS)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(spacing::SM)
-                            .mr(spacing::MD)
-                            .child(
-                                div()
-                                    .w(px(26.0))
-                                    .h(px(26.0))
-                                    .rounded(spacing::XS)
-                                    .overflow_hidden()
-                                    .flex_shrink_0()
-                                    .child(
-                                        img(app_logo())
-                                            .w(px(26.0))
-                                            .h(px(26.0))
-                                            .object_fit(ObjectFit::Cover),
-                                    ),
-                            )
-                            .child(
-                                typography::type_headline(div())
-                                    .text_color(color::accent())
-                                    .child("V4V Music Manager"),
-                            ),
-                    )
-                    .child(render_app_tab(
-                        "Library",
-                        AppTab::Library,
-                        self.tab,
-                        &self.library_tab_focus,
-                        _window,
-                        cx,
-                    ))
-                    .child(render_app_tab(
-                        "Discover",
-                        AppTab::Discover,
-                        self.tab,
-                        &self.discover_tab_focus,
-                        _window,
-                        cx,
-                    ))
-                    .child(render_app_tab(
-                        "Settings",
-                        AppTab::Settings,
-                        self.tab,
-                        &self.settings_tab_focus,
-                        _window,
-                        cx,
-                    ))
-                    .child(div().flex_1())
-                    .child(playback_controls),
-            )
+            .on_action(cx.listener(TopApp::handle_toggle_playback))
+            .on_action(cx.listener(TopApp::handle_skip_playback_next))
+            .on_action(cx.listener(TopApp::handle_skip_playback_previous))
+            .on_action(cx.listener(TopApp::handle_open_preferences))
+            .on_action(cx.listener(TopApp::handle_focus_search))
+            .on_action(cx.listener(TopApp::handle_new_playlist))
+            .on_action(cx.listener(TopApp::handle_select_library_tab))
+            .on_action(cx.listener(TopApp::handle_select_discover_tab))
+            .on_action(cx.listener(TopApp::handle_select_settings_tab))
+            .on_action(cx.listener(TopApp::handle_refresh_library))
+            .on_action(cx.listener(TopApp::handle_cancel_active_pane))
+            .on_action(cx.listener(TopApp::handle_move_selection_up))
+            .on_action(cx.listener(TopApp::handle_move_selection_down))
+            .on_action(cx.listener(TopApp::handle_confirm_selection))
+            .child(render_tab_bar(self, playback_bar, window, cx))
             // Active tab content
             .child(
                 div()
@@ -597,26 +489,80 @@ fn render_ui_scale_picker(
     cx: &mut Context<TopApp>,
 ) -> gpui::AnyElement {
     use crate::config::UiScale;
-    use crate::ui::composites::{Segment, SegmentedControl};
+    use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
 
     let segments = [
-        Segment::new("ui-scale-xs", UiScale::XSmall, "XS"),
-        Segment::new("ui-scale-s", UiScale::Small, "S"),
-        Segment::new("ui-scale-m", UiScale::Medium, "M"),
-        Segment::new("ui-scale-l", UiScale::Large, "L"),
-        Segment::new("ui-scale-xl", UiScale::XLarge, "XL"),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-xs".into(),
+            key: UiScale::XSmall,
+            label: "XS".into(),
+            a11y_label: "Extra small UI scale".into(),
+        }),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-s".into(),
+            key: UiScale::Small,
+            label: "S".into(),
+            a11y_label: "Small UI scale".into(),
+        }),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-m".into(),
+            key: UiScale::Medium,
+            label: "M".into(),
+            a11y_label: "Medium UI scale".into(),
+        }),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-l".into(),
+            key: UiScale::Large,
+            label: "L".into(),
+            a11y_label: "Large UI scale".into(),
+        }),
+        Segment::new(SegmentDisplay {
+            id: "ui-scale-xl".into(),
+            key: UiScale::XLarge,
+            label: "XL".into(),
+            a11y_label: "Extra large UI scale".into(),
+        }),
     ];
 
     let entity = cx.entity();
     SegmentedControl::new(current)
         .segments(segments)
-        .on_select(move |scale, _window, cx| {
+        .on_select(move |scale, window, cx| {
             let scale = *scale;
-            entity.update(cx, |this, cx| this.set_ui_scale(scale, cx));
+            entity.update(cx, |this, cx| this.set_ui_scale(scale, window, cx));
         })
         .into_any_element()
 }
 
+fn render_theme_profile_picker(
+    current: ThemeProfile,
+    cx: &mut Context<TopApp>,
+) -> gpui::AnyElement {
+    use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
+
+    let segments = ThemeProfile::USER_SELECTABLE.map(|profile| {
+        Segment::new(SegmentDisplay {
+            id: profile.as_str().into(),
+            key: profile,
+            label: profile.settings_label().into(),
+            a11y_label: format!("{} theme profile", profile.settings_label()).into(),
+        })
+    });
+
+    let entity = cx.entity();
+    SegmentedControl::new(current)
+        .segments(segments)
+        .on_select(move |profile, window, cx| {
+            let profile = *profile;
+            entity.update(cx, |this, cx| this.set_theme_profile(profile, window, cx));
+        })
+        .into_any_element()
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "settings screen remains a single legacy render function during ADR 0023 migration"
+)]
 fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {
     app.reload_cached();
 
@@ -625,9 +571,9 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
     let flac_path_input = app.flac_path_input.clone();
     let status = app.settings_status.clone();
     let status_color = if status.starts_with("Error:") {
-        color::status_danger()
+        color(cx, SemanticColor::Danger)
     } else {
-        color::text_muted()
+        color(cx, SemanticColor::TertiaryLabel)
     };
 
     let cached_count = app
@@ -641,23 +587,29 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
 
     div()
         .id("settings-scroll")
-        .size_full()
-        .bg(color::bg_canvas())
-        .p(spacing::XL)
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .bg(color(cx, SemanticColor::SystemBackground))
+        .p(Spacing::XL.scaled(cx))
         .overflow_y_scroll()
         .child(
             div()
-                .max_w(px(720.0))
+                .max_w(layout::SETTINGS_COLUMN_WIDTH)
                 .flex()
                 .flex_col()
-                .gap(spacing::LG)
+                .gap(Spacing::LG.scaled(cx))
                 .child(
-                    typography::type_title(div())
+                    div()
+                        .text_size(FontSize::Title2.scaled(cx))
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
                         .child("Settings"),
                 )
                 .child(
-                    typography::type_caption_strong(div())
-                        .text_color(color::text_muted())
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child("MusicIndex endpoint"),
                 )
                 .child(
@@ -666,13 +618,16 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .scaled(Size::Small, cx),
                 )
                 .child(
-                    typography::type_caption(div())
-                        .text_color(color::text_muted())
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child("Use api.musicindex.org or a full http/https URL."),
                 )
                 .child(
-                    typography::type_caption_strong(div())
-                        .text_color(color::text_muted())
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child("Music directory"),
                 )
                 .child(
@@ -681,13 +636,16 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .scaled(Size::Small, cx),
                 )
                 .child(
-                    typography::type_caption(div())
-                        .text_color(color::text_muted())
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child("Downloads are organized under an artists subfolder."),
                 )
                 .child(
-                    typography::type_caption_strong(div())
-                        .text_color(color::text_muted())
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child("flac binary (optional)"),
                 )
                 .child(
@@ -696,47 +654,59 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .scaled(Size::Small, cx),
                 )
                 .child(
-                    typography::type_caption(div())
-                        .text_color(color::text_muted())
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child(
                             "Used to silently upgrade WAV downloads to FLAC. Leave blank to resolve `flac` via $PATH.",
                         ),
                 )
                 .child(
-                    typography::type_caption_strong(div())
-                        .text_color(color::text_muted())
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child("UI scale"),
                 )
                 .child(render_ui_scale_picker(app.ui_scale, cx))
                 .child(
-                    typography::type_caption(div())
-                        .text_color(color::text_muted())
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child(
-                            "Scales every dimension token (spacing, radius, font, sizes). Click Save to persist.",
+                            "Scales every dimension token. Applies immediately; click Save to persist.",
                         ),
+                )
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
+                        .child("Theme"),
+                )
+                .child(render_theme_profile_picker(app.theme_profile, cx))
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
+                        .child("Applies immediately. Click Save to persist."),
                 )
                 .child(
                     div()
                         .flex()
                         .flex_row()
                         .items_center()
-                        .gap(spacing::SM)
+                        .gap(Spacing::SM.scaled(cx))
                         .child(
-                            Button::new("settings-save")
+                            UiButton::styled("settings-save", ControlStyle::Primary)
                                 .label("Save")
-                                .primary()
-                                .scaled(Size::Small, cx)
-                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.save_settings(window, cx);
                                 })),
                         )
                         .child(
-                            Button::new("settings-default")
+                            UiButton::styled("settings-default", ControlStyle::Ghost)
                                 .label("Use Defaults")
-                                .ghost()
-                                .scaled(Size::Small, cx)
-                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.endpoint_input.update(cx, |input, cx| {
                                         input.set_value(crate::api::DEFAULT_BASE_URL, window, cx);
@@ -744,6 +714,12 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                                     this.flac_path_input.update(cx, |input, cx| {
                                         input.set_value("", window, cx);
                                     });
+                                    this.set_ui_scale(
+                                        crate::config::UiScale::Medium,
+                                        window,
+                                        cx,
+                                    );
+                                    this.set_theme_profile(ThemeProfile::default(), window, cx);
                                     match config::default_music_dir() {
                                         Ok(default_music_dir) => {
                                             this.music_dir_input.update(cx, |input, cx| {
@@ -772,11 +748,13 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             .child(SharedString::from(status)),
                     )
                 })
-                .child(div().border_t_1().border_color(color::border_subtle()))
+                .child(div().border_t_1().border_color(color(cx, SemanticColor::Separator)))
                 .child(
-                    typography::type_caption_strong(div())
-                        .text_color(color::text_muted())
-                        .child(format!("Cached files ({})", cached_count)),
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
+                        .child(format!("Cached files ({cached_count})")),
                 )
                 .when(!cached_is_empty, |el| {
                     let cached_tree = &app.cached_tree;
@@ -786,37 +764,36 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                             div()
                                 .text_sm()
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
-                                .text_color(color::text_primary())
+                                .text_color(color(cx, SemanticColor::Label))
                                 .child(SharedString::from(artist.name.clone()))
                                 .into_any_element()
                         );
                         for album in &artist.albums {
                             for track in &album.tracks {
-                                let title = track.track_title.as_deref().unwrap_or("[untitled]");
+                                let title = LibraryTrackRowVm::new(track, None).compact_title();
                                 let path_clone = track.local_path.clone().unwrap_or_default();
                                 cached_items.push(
                                     div()
-                                        .pl(spacing::MD)
+                                        .pl(Spacing::MD.scaled(cx))
                                         .flex()
                                         .flex_row()
                                         .items_center()
-                                        .gap(spacing::XS)
+                                        .gap(Spacing::XS.scaled(cx))
                                         .child(
                                             div()
                                                 .flex_1()
                                                 .text_xs()
-                                                .text_color(color::text_primary())
-                                                .child(SharedString::from(title.to_string()))
+                                                .text_color(color(cx, SemanticColor::Label))
+                                                .child(SharedString::from(title.clone()))
                                         )
                                         .child(
-                                            Button::new(SharedString::from(format!("del-cached-{}", track.id)))
+                                            UiButton::styled(
+                                                SharedString::from(format!("del-cached-{}", track.id)),
+                                                ControlStyle::Destructive,
+                                            )
                                                 .label("Delete")
-                                                .danger()
-                                                .scaled(Size::XSmall, cx)
-                                                .text_color(color::text_on_accent())
                                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                                    this.delete_cached_file(path_clone.clone());
-                                                    cx.notify();
+                                                    this.delete_cached_file(path_clone.clone(), cx);
                                                 }))
                                         )
                                         .into_any_element()
@@ -828,21 +805,17 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         div()
                             .flex()
                             .flex_col()
-                            .gap(spacing::XXS)
+                            .gap(Spacing::XXS.scaled(cx))
                             .children(cached_items)
                     )
                 })
                 .when(!cached_is_empty, |el| {
                     el.child(
-                        div().pt(spacing::SM).child(
-                            Button::new("delete-all-cached-settings")
+                        div().pt(Spacing::SM.scaled(cx)).child(
+                            UiButton::styled("delete-all-cached-settings", ControlStyle::Destructive)
                                 .label("Delete All Cached")
-                                .danger()
-                                .scaled(Size::XSmall, cx)
-                                .text_color(color::text_on_accent())
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.delete_all_cached();
-                                    cx.notify();
+                                    this.delete_all_cached(cx);
                                 })),
                         )
                     )
@@ -851,235 +824,10 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                     el.child(
                         div()
                             .text_xs()
-                            .text_color(color::text_muted())
+                            .text_color(color(cx, SemanticColor::TertiaryLabel))
                             .child("No cached files"),
                     )
                 }),
         )
         .into_any_element()
-}
-
-fn render_playback_controls(app: &TopApp, cx: &mut Context<TopApp>) -> gpui::AnyElement {
-    let state = app.playback_bar_state();
-    let title = if state.active {
-        state.title
-    } else {
-        "Not playing".to_string()
-    };
-    let toggle_label = if state.paused { "▶" } else { "⏸" };
-    let toggle_paused = !state.paused;
-
-    div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(spacing::XS)
-        .min_w(px(280.0))
-        .max_w(px(420.0))
-        .child(
-            typography::type_caption(div())
-                .text_color(color::text_muted())
-                .truncate()
-                .flex_1()
-                .child(SharedString::from(title)),
-        )
-        .child(
-            Button::new("playback-prev")
-                .label("⏮")
-                .ghost()
-                .scaled(Size::XSmall, cx)
-                .disabled(!state.active)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.skip_playback_previous(cx);
-                })),
-        )
-        .child(
-            Button::new("playback-toggle")
-                .label(toggle_label)
-                .ghost()
-                .scaled(Size::XSmall, cx)
-                .disabled(!state.active)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.set_playback_paused(toggle_paused, cx);
-                })),
-        )
-        .child(
-            Button::new("playback-next")
-                .label("⏭")
-                .ghost()
-                .scaled(Size::XSmall, cx)
-                .disabled(!state.active)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.skip_playback_next(cx);
-                })),
-        )
-        .child(
-            Button::new("playback-stop")
-                .label("⏹")
-                .ghost()
-                .scaled(Size::XSmall, cx)
-                .disabled(!state.active)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.stop_playback_owner(cx);
-                })),
-        )
-        .into_any_element()
-}
-
-fn render_app_tab(
-    label: &'static str,
-    tab: AppTab,
-    active: AppTab,
-    focus_handle: &gpui::FocusHandle,
-    window: &gpui::Window,
-    cx: &mut Context<TopApp>,
-) -> gpui::AnyElement {
-    let is_active = tab == active;
-    let is_focused = focus_handle.is_focused(window);
-
-    div()
-        .id(SharedString::from(format!("app-tab-{label}")))
-        .track_focus(focus_handle)
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.tab = tab;
-            if tab == AppTab::Library {
-                this.library.update(cx, |lib, cx| lib.refresh(cx));
-            }
-            cx.notify();
-        }))
-        .px(spacing::MD)
-        .min_h(layout::HIT_TARGET_MIN)
-        .flex()
-        .items_center()
-        .rounded(radius::LG)
-        .when(is_active, |el| {
-            el.bg(color::accent()).text_color(color::text_on_accent())
-        })
-        .when(!is_active, |el| {
-            el.text_color(color::text_secondary())
-                .hover(|s| s.bg(color::bg_surface_hi()))
-        })
-        .when(is_focused, |el| {
-            el.border_2().border_color(color::focus_ring())
-        })
-        .child(typography::type_body(div()).child(label))
-        .into_any_element()
-}
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
-
-pub fn run_app() {
-    let app = Application::new().with_assets(gpui_component_assets::Assets);
-
-    app.run(move |cx| {
-        gpui_component::init(cx);
-        // Pre-config: install with default scale so the loading window is
-        // themed; we re-install with the user's preference once config is
-        // loaded a few lines below.
-        crate::ui::theme_bridge::install_theme(
-            crate::ui::tokens::Appearance::Dark,
-            crate::ui::tokens::ScaleFactor::Medium,
-            cx,
-        );
-
-        // Load config + open DB
-        let cfg_path = config::config_path().expect("config path");
-        let cfg = config::load_config(&cfg_path).expect("load config");
-        let musicindex_endpoint =
-            config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
-        config::ensure_dirs(&cfg).expect("ensure dirs");
-
-        // Re-apply theme now that config has provided the user's UI scale.
-        crate::ui::theme_bridge::install_theme(
-            crate::ui::tokens::Appearance::Dark,
-            cfg.ui_scale.into(),
-            cx,
-        );
-        let conn = db::open_db(&cfg).expect("open db");
-        let conn = Arc::new(Mutex::new(conn));
-        let playback_driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)
-            .expect("configure playback driver");
-        let playback_owner = PlaybackOwner::new(playback_driver, playback::DEFAULT_SESSION_ID);
-
-        let thumbnail_cache_dir = cfg_path
-            .parent()
-            .expect("config path has parent")
-            .join("thumbnail-cache");
-        let http = reqwest::blocking::Client::new();
-        let image_cache = ImageCache::new(http, thumbnail_cache_dir);
-
-        let window_handle = cx
-            .open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                        None,
-                        size(px(1120.0), px(760.0)),
-                        cx,
-                    ))),
-                    ..Default::default()
-                },
-                |window, cx| {
-                    let view = cx.new(|cx| {
-                        let mut app = TopApp::new(
-                            conn,
-                            image_cache,
-                            cfg_path,
-                            musicindex_endpoint,
-                            cfg.music_dir,
-                            cfg.flac_path,
-                            cfg.ui_scale,
-                            playback_owner,
-                            window,
-                            cx,
-                        );
-                        app.maybe_start_playback_polling(cx);
-                        app
-                    });
-                    let root = cx.new(|cx| Root::new(view, window, cx));
-                    window.refresh();
-                    root
-                },
-            )
-            .expect("failed to open window");
-        let window_handle = gpui::AnyWindowHandle::from(window_handle);
-        window_handle
-            .update(cx, |_, window, cx| {
-                window.activate_window();
-                window.refresh();
-                cx.refresh_windows();
-            })
-            .expect("activate initial window");
-        cx.activate(true);
-        cx.refresh_windows();
-        cx.defer(move |cx| {
-            let _ = window_handle.update(cx, |_, window, cx| {
-                window.activate_window();
-                window.refresh();
-                cx.refresh_windows();
-            });
-            cx.activate(true);
-            cx.refresh_windows();
-        });
-        cx.spawn(async move |cx: &mut gpui::AsyncApp| {
-            cx.background_executor()
-                .timer(Duration::from_millis(16))
-                .await;
-            let _ = cx.update(|cx| {
-                let _ = window_handle.update(cx, |_, window, cx| {
-                    window.activate_window();
-                    window.refresh();
-                    cx.refresh_windows();
-                });
-                cx.activate(true);
-                cx.refresh_windows();
-            });
-            cx.background_executor()
-                .timer(Duration::from_millis(100))
-                .await;
-            let _ = cx.refresh();
-        })
-        .detach();
-    });
 }

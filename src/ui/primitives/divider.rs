@@ -5,7 +5,7 @@
 
 use gpui::{div, prelude::*, px, App, IntoElement, RenderOnce, Window};
 
-use crate::ui::tokens::{Appearance, SemanticColor};
+use crate::ui::tokens::{resolve_color, Appearance, SemanticColor};
 
 /// Orientation of the divider line. The "long" axis stretches to fill the
 /// parent; the "short" axis is fixed at 1px.
@@ -54,13 +54,12 @@ impl Divider {
 
 impl RenderOnce for Divider {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let token = if self.strong {
             SemanticColor::OpaqueSeparator
         } else {
             SemanticColor::Separator
         };
-        let color = token.resolve(appearance);
+        let color = resolve_color(cx, token, self.appearance);
         match self.orientation {
             DividerOrientation::Horizontal => div().w_full().h(px(1.0)).bg(color),
             DividerOrientation::Vertical => div().h_full().w(px(1.0)).bg(color),

@@ -21,6 +21,25 @@ pub struct TrackVm<'a> {
     track: &'a Track,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use]
+pub struct TrackPlayAudioDisplay {
+    pub button_id: String,
+    pub button_label: &'static str,
+    pub url: Option<String>,
+    pub tooltip: String,
+    pub disabled: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use]
+pub struct TrackRowControlsDisplay {
+    pub row_id: String,
+    pub play_button_id: String,
+    pub playlist_popover_id: String,
+    pub playlist_trigger_label: &'static str,
+}
+
 impl<'a> TrackVm<'a> {
     #[must_use]
     pub fn new(track: &'a Track) -> Self {
@@ -50,6 +69,33 @@ impl<'a> TrackVm<'a> {
             .or_else(|| self.track.name.clone())
             .or_else(|| self.track.track_guid.clone())
             .unwrap_or_else(|| "Untitled".into())
+    }
+
+    /// Display title with an optional inspector-provided override.
+    /// Empty overrides preserve the legacy fallback to [`Self::title`].
+    #[must_use]
+    pub fn display_title(&self, override_title: Option<&str>) -> String {
+        override_title.map_or_else(
+            || self.title(),
+            |title| {
+                if title.is_empty() {
+                    self.title()
+                } else {
+                    title.to_string()
+                }
+            },
+        )
+    }
+
+    /// Header artist, with the shared fallback chain
+    /// `track_artist -> release_artist -> "Unknown"`.
+    #[must_use]
+    pub fn artist(&self) -> String {
+        self.track
+            .track_artist
+            .clone()
+            .or_else(|| self.track.release_artist.clone())
+            .unwrap_or_else(|| "Unknown".into())
     }
 
     /// Track number formatted for the discover-row leading column —
@@ -89,6 +135,46 @@ impl<'a> TrackVm<'a> {
                     .as_deref()
                     .and_then(first_source_enclosure_url)
             })
+    }
+
+    pub fn play_audio_display(&self) -> TrackPlayAudioDisplay {
+        let url = self.play_url();
+        let tooltip = url.clone().unwrap_or_else(|| "No audio URL".into());
+        let disabled = url.is_none();
+        TrackPlayAudioDisplay {
+            button_id: "track-play-audio".into(),
+            button_label: "▶",
+            url,
+            tooltip,
+            disabled,
+        }
+    }
+
+    pub fn row_controls_display(&self) -> TrackRowControlsDisplay {
+        let guid = self.guid();
+        TrackRowControlsDisplay {
+            row_id: format!("track-row:{guid}"),
+            play_button_id: format!("track-row-play:{guid}"),
+            playlist_popover_id: format!("add-pl:{guid}"),
+            playlist_trigger_label: "+ Playlist",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[must_use]
+pub struct TrackHeaderVm {
+    pub title: String,
+    pub artist: String,
+}
+
+impl TrackHeaderVm {
+    pub fn new(track: &Track, override_title: Option<&str>) -> Self {
+        let vm = TrackVm::new(track);
+        Self {
+            title: vm.display_title(override_title),
+            artist: vm.artist(),
+        }
     }
 }
 
@@ -158,6 +244,48 @@ mod tests {
     }
 
     #[test]
+    fn display_title_uses_nonempty_override_else_title_fallback() {
+        let mut t = track();
+        t.title = Some("Track title".into());
+
+        assert_eq!(
+            TrackVm::new(&t).display_title(Some("Inspector title")),
+            "Inspector title"
+        );
+        assert_eq!(TrackVm::new(&t).display_title(Some("")), "Track title");
+        assert_eq!(TrackVm::new(&t).display_title(None), "Track title");
+    }
+
+    #[test]
+    fn artist_prefers_track_then_release_then_unknown() {
+        let mut t = track();
+        t.track_artist = Some("Track Artist".into());
+        t.release_artist = Some("Release Artist".into());
+        assert_eq!(TrackVm::new(&t).artist(), "Track Artist");
+
+        t.track_artist = None;
+        assert_eq!(TrackVm::new(&t).artist(), "Release Artist");
+
+        t.release_artist = None;
+        assert_eq!(TrackVm::new(&t).artist(), "Unknown");
+    }
+
+    #[test]
+    fn track_header_vm_projects_display_contract() {
+        let mut t = track();
+        t.title = Some("Track title".into());
+        t.track_artist = Some("Artist".into());
+
+        assert_eq!(
+            TrackHeaderVm::new(&t, Some("Header title")),
+            TrackHeaderVm {
+                title: "Header title".into(),
+                artist: "Artist".into(),
+            }
+        );
+    }
+
+    #[test]
     fn guid_defaults_to_empty_string() {
         assert_eq!(TrackVm::new(&track()).guid(), "");
         let mut t = track();
@@ -198,6 +326,62 @@ mod tests {
         assert_eq!(
             TrackVm::new(&t).play_url().as_deref(),
             Some("https://e/x.mp3")
+        );
+    }
+
+    #[test]
+    fn play_audio_display_uses_url_tooltip_else_missing_audio_fallback() {
+        let mut playable = track();
+        playable.enclosure_url = Some(" https://e/x.mp3 ".into());
+        assert_eq!(
+            TrackVm::new(&playable).play_audio_display(),
+            TrackPlayAudioDisplay {
+                button_id: "track-play-audio".into(),
+                button_label: "▶",
+                url: Some("https://e/x.mp3".into()),
+                tooltip: "https://e/x.mp3".into(),
+                disabled: false,
+            }
+        );
+
+        assert_eq!(
+            TrackVm::new(&track()).play_audio_display(),
+            TrackPlayAudioDisplay {
+                button_id: "track-play-audio".into(),
+                button_label: "▶",
+                url: None,
+                tooltip: "No audio URL".into(),
+                disabled: true,
+            }
+        );
+    }
+
+    #[test]
+    fn row_controls_display_projects_track_row_ids_and_playlist_label() {
+        let mut t = track();
+        t.track_guid = Some("guid-1".into());
+
+        assert_eq!(
+            TrackVm::new(&t).row_controls_display(),
+            TrackRowControlsDisplay {
+                row_id: "track-row:guid-1".into(),
+                play_button_id: "track-row-play:guid-1".into(),
+                playlist_popover_id: "add-pl:guid-1".into(),
+                playlist_trigger_label: "+ Playlist",
+            }
+        );
+    }
+
+    #[test]
+    fn row_controls_display_preserves_empty_guid_ids() {
+        assert_eq!(
+            TrackVm::new(&track()).row_controls_display(),
+            TrackRowControlsDisplay {
+                row_id: "track-row:".into(),
+                play_button_id: "track-row-play:".into(),
+                playlist_popover_id: "add-pl:".into(),
+                playlist_trigger_label: "+ Playlist",
+            }
         );
     }
 

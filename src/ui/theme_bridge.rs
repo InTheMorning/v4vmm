@@ -17,10 +17,12 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{App, Hsla, Rgba};
+use gpui::{App, Hsla, Rgba, Window};
 use gpui_component::{Theme, ThemeMode};
 
 use crate::config::UiScale;
+use crate::theme_profile::ThemeProfile;
+use crate::ui::theme_profiles::{appearance_for_profile, effective_profile, resolve_profile_color};
 use crate::ui::tokens::{Appearance, ScaleFactor, SemanticColor};
 
 impl From<UiScale> for ScaleFactor {
@@ -40,16 +42,49 @@ impl From<UiScale> for ScaleFactor {
 ///
 /// Idempotent: safe to call from every window-construction path, and to
 /// re-call when the user changes appearance or scale at runtime.
+pub fn install_theme(profile: ThemeProfile, scale: ScaleFactor, cx: &mut App) {
+    install_theme_for_appearance(profile, scale, cx.window_appearance().into(), None, cx);
+}
+
+/// Install v4vmm's palette using a concrete window's platform appearance.
+///
+/// Use this when the caller has a `Window`; it is the most accurate source on
+/// Linux and mirrors `gpui-component`'s own system-appearance strategy.
+pub fn install_theme_for_window(
+    profile: ThemeProfile,
+    scale: ScaleFactor,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    install_theme_for_appearance(profile, scale, window.appearance().into(), Some(window), cx);
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "flat field-by-field assignment list is clearer than splitting"
 )]
-pub fn install_theme(appearance: Appearance, scale: ScaleFactor, cx: &mut App) {
+fn install_theme_for_appearance(
+    profile: ThemeProfile,
+    scale: ScaleFactor,
+    system_appearance: Appearance,
+    window: Option<&mut Window>,
+    cx: &mut App,
+) {
+    let appearance = appearance_for_profile(profile, system_appearance);
+    let concrete_profile = effective_profile(profile, system_appearance);
+    crate::ui::style::install_profile(concrete_profile);
+
     // Install the bundled Environment so every component can read appearance
     // and scale through the single SwiftUI-style accessor. Mirrors the scale
     // into the legacy `ScaleFactor` global for any code still reading it
     // directly during the migration.
-    crate::ui::tokens::Environment { appearance, scale }.install(cx);
+    crate::ui::tokens::Environment {
+        profile,
+        appearance,
+        scale,
+        reduce_motion: false,
+    }
+    .install(cx);
 
     let mode = match appearance {
         Appearance::Dark => ThemeMode::Dark,
@@ -57,35 +92,41 @@ pub fn install_theme(appearance: Appearance, scale: ScaleFactor, cx: &mut App) {
     };
 
     // Initialise / reset gpui-component's defaults for this mode.
-    Theme::change(mode, None, cx);
+    Theme::change(mode, window, cx);
 
     let theme = Theme::global_mut(cx);
 
     // Backgrounds.
-    let bg = hsla(SemanticColor::SystemBackground.resolve(appearance));
-    let bg2 = hsla(SemanticColor::SecondarySystemBackground.resolve(appearance));
-    let bg3 = hsla(SemanticColor::TertiarySystemBackground.resolve(appearance));
+    let bg = hsla(resolve(concrete_profile, SemanticColor::SystemBackground));
+    let bg2 = hsla(resolve(
+        concrete_profile,
+        SemanticColor::SecondarySystemBackground,
+    ));
+    let bg3 = hsla(resolve(
+        concrete_profile,
+        SemanticColor::TertiarySystemBackground,
+    ));
 
     // Labels.
-    let label = hsla(SemanticColor::Label.resolve(appearance));
-    let label2 = hsla(SemanticColor::SecondaryLabel.resolve(appearance));
+    let label = hsla(resolve(concrete_profile, SemanticColor::Label));
+    let label2 = hsla(resolve(concrete_profile, SemanticColor::SecondaryLabel));
 
     // Fills / accents / borders.
-    let fill = hsla(SemanticColor::SystemFill.resolve(appearance));
-    let separator = hsla(SemanticColor::Separator.resolve(appearance));
-    let opaque_sep = hsla(SemanticColor::OpaqueSeparator.resolve(appearance));
-    let accent = hsla(SemanticColor::Accent.resolve(appearance));
-    let accent_h = hsla(SemanticColor::AccentHover.resolve(appearance));
-    let accent_p = hsla(SemanticColor::AccentPressed.resolve(appearance));
-    let on_accent = hsla(SemanticColor::OnAccent.resolve(appearance));
-    let focus = hsla(SemanticColor::Focus.resolve(appearance));
-    let selected = hsla(SemanticColor::SelectedContent.resolve(appearance));
+    let fill = hsla(resolve(concrete_profile, SemanticColor::SystemFill));
+    let separator = hsla(resolve(concrete_profile, SemanticColor::Separator));
+    let opaque_sep = hsla(resolve(concrete_profile, SemanticColor::OpaqueSeparator));
+    let accent = hsla(resolve(concrete_profile, SemanticColor::Accent));
+    let accent_h = hsla(resolve(concrete_profile, SemanticColor::AccentHover));
+    let accent_p = hsla(resolve(concrete_profile, SemanticColor::AccentPressed));
+    let on_accent = hsla(resolve(concrete_profile, SemanticColor::OnAccent));
+    let focus = hsla(resolve(concrete_profile, SemanticColor::Focus));
+    let selected = hsla(resolve(concrete_profile, SemanticColor::SelectedContent));
 
     // Status.
-    let success = hsla(SemanticColor::Success.resolve(appearance));
-    let danger = hsla(SemanticColor::Danger.resolve(appearance));
-    let warning = hsla(SemanticColor::Warning.resolve(appearance));
-    let info = hsla(SemanticColor::Info.resolve(appearance));
+    let success = hsla(resolve(concrete_profile, SemanticColor::Success));
+    let danger = hsla(resolve(concrete_profile, SemanticColor::Danger));
+    let warning = hsla(resolve(concrete_profile, SemanticColor::Warning));
+    let info = hsla(resolve(concrete_profile, SemanticColor::Info));
 
     // Window / canvas.
     theme.background = bg;
@@ -202,6 +243,10 @@ pub fn install_theme(appearance: Appearance, scale: ScaleFactor, cx: &mut App) {
     // picked up immediately. Without this, the next user interaction (or a
     // background timer) would be needed before any visual change.
     cx.refresh_windows();
+}
+
+fn resolve(profile: ThemeProfile, token: SemanticColor) -> Rgba {
+    resolve_profile_color(profile, token)
 }
 
 /// Convert our `Rgba` token output to gpui's `Hsla` that the theme stores.

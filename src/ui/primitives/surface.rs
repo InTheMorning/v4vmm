@@ -9,7 +9,7 @@
 
 use gpui::{div, prelude::*, AnyElement, App, Div, IntoElement, RenderOnce, Window};
 
-use crate::ui::tokens::{Appearance, Radius, SemanticColor, Spacing};
+use crate::ui::tokens::{resolve_color, Appearance, Radius, SemanticColor, Spacing};
 
 /// HIG-aligned elevation tiers. Each tier maps to a different background +
 /// border combination so nested surfaces remain visually distinguishable
@@ -76,7 +76,6 @@ impl ParentElement for Surface {
 
 impl RenderOnce for Surface {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let bg = match self.elevation {
             SurfaceElevation::Sunken | SurfaceElevation::Raised => {
                 SemanticColor::SecondarySystemBackground
@@ -89,11 +88,11 @@ impl RenderOnce for Surface {
         };
 
         let mut el: Div = div()
-            .bg(bg.resolve(appearance))
+            .bg(resolve_color(cx, bg, self.appearance))
             .border_1()
-            .border_color(border.resolve(appearance))
-            .rounded(self.radius.px())
-            .p(self.padding.px());
+            .border_color(resolve_color(cx, border, self.appearance))
+            .rounded(self.radius.scaled(cx))
+            .p(self.padding.scaled(cx));
 
         el.extend(self.children);
         el

@@ -1,0 +1,472 @@
+# ADR 0038 Review Checklist
+
+## Reviewed Artifacts
+
+- `docs/adr/0038-presentation-contract-enforcement.md`
+- `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`
+- `docs/tasks/adr-0038-task-001-layer-relocation.md`
+- `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`
+- `docs/tasks/adr-0038-task-003-library-search-vm-consolidation.md` (stub)
+- `docs/tasks/adr-0038-task-004-dark-mode-parity-audit.md` (stub)
+- `docs/tasks/adr-0038-task-005-accessibility-label-contract.md` (stub)
+- `docs/tasks/adr-0038-task-006-page-vm-generalization.md` (stub)
+- `docs/tasks/adr-0038-task-007-screen-decomposition.md` (in progress)
+- `docs/tasks/adr-0038-task-008-final-sweep-and-readiness-gate.md` (stub)
+
+## Gate Status
+
+Status: Task 006 (PageVm Generalization) is implemented. Task 004
+(HIG Dark-Mode Parity Audit) is implemented with operator-navigated,
+transient visual verification and no screenshot artifacts retained.
+Task 002 migrated `TrackRow`, `DetailHeader`, `DetailGrid`,
+`ReleaseDetailSurface::track_section`, `AddToPlaylistPopover`, and
+`TrackMetadataGrid` cells off public loose string builders. The
+`ActionRow`, `DisclosureGroup`, `SegmentedControl`, `TagBadge`, and
+`action_button`
+generic-control sub-slices have also moved status messages, disclosure
+labels, segment labels, badge labels, and metadata-action labels to
+display contracts, tightening the composite display-contract guard.
+Task 003 has started by moving the Discover track-inspector feed-link
+label and URL fallback into `TrackFeedLinkDisplay`, then moving
+payment-route address, custom-field, and summary display into
+`PaymentRouteVm`, and feed-list tile id/title/count display into
+`RecentFeedTileVm`, and Library tree track-number prefix display into
+`LibraryTrackRowVm`, and metadata RSS cell missing-value display into
+`TrackMetadataGridVm`, and metadata ID3 cell value precedence into
+`TrackMetadataGridVm`, and metadata MusicBrainz cell missing-value
+display into `TrackMetadataGridVm`, and metadata ID3 cell frame
+precedence into `TrackMetadataGridVm`, and Discover metadata drag frame
+display into `TrackMetadataGridVm`, and Discover displayed ID3 frame
+label fallback into `TrackMetadataGridVm`.
+Contributor metadata summary fallback has also moved into
+`TrackMetadataGridVm`.
+Collapsed Value Routes summary display has also moved into
+`TrackMetadataGridVm`.
+Discover track play-audio action display has also moved into
+`TrackVm`.
+The stale Discover track Nostr action renderer has also been removed in
+favor of the shared track identity-action shell.
+Metadata group heading display and expanded Value Routes item labels
+have also moved into `TrackMetadataGridVm`.
+Expanded Value Routes field labels have moved into
+`TrackMetadataGridVm`, and Discover track feed-link tooltip display has
+moved into `TrackFeedLinkDisplay`.
+Metadata comparison role/glyph display, staged pending-source role
+display, and standalone-ID3 status fallback display have also moved
+into `TrackMetadataGridVm`.
+Discover result-pane chrome labels, status error-prefix display,
+recent-feeds chrome labels, and publisher-link tooltip display have
+also moved into `SearchRenderSnapshot`, `SearchStatusSnapshot`,
+`RecentFeedsSnapshot`, and `PublisherLinkDisplay`.
+Discover inspector chrome labels, inspector loading/error messages, and
+deferred-panel loading labels have also moved into `SearchViewModel`
+display contracts.
+Library shell chrome labels, playlist sidebar chrome labels,
+feed-update toolbar display, and status/empty-state display have also
+moved into `LibraryViewModel` and `PlaylistSidebarVm` display
+contracts.
+Library artist tree-row chrome, album tree-row chrome, and tree-track
+row id/title display have also moved into `ArtistNode`,
+`AlbumNode`, and `LibraryTrackRowVm` display contracts.
+Library artist feed-summary row display, album MusicBrainz action
+display, and album playlist popover display have also moved into
+`ArtistFeedSummaryVm` and `LibraryAlbumDetailVm` display contracts.
+Discover track row controls, Discover track download controls,
+Discover inspector playlist popover ids, and Library track playlist
+popover display have also moved into `TrackVm`, `TrackRowActionVm`,
+`ActionRowVm`, `LibraryTrackRowVm`, and `LibraryTrackActionVm`
+display contracts.
+Discover feed-list/recent/podroll tile ids, track-inspector play and
+feed-link ids, and Library playlist track controls have also moved into
+`RecentFeedTileVm`, `TrackVm`, `TrackFeedLinkDisplay`, and
+`PlaylistTrackRowVm` display contracts.
+Library album-track row/toggle ids, playlist rename/delete actions,
+metadata panel loading labels, staged ID3 edit controls, and
+deferred-panel error prefixes have also moved into
+`LibraryTrackRowVm`, `PlaylistDetailVm`, `TrackMetadataActionState`,
+`LazyPanel`, and `LibraryViewModel` display contracts.
+Library file-header metadata action labels, duplicate ID3 target
+messages, ID3 apply error messages, Discover download success messages,
+and Discover results empty-state icons have also moved into
+`TrackMetadataActionState`, `SearchSubscriptionCommand`, and
+`SearchPaneDisplay` display contracts.
+Discover deferred-panel empty-line display, expanded Artwork URL text,
+and legacy feed-header title/subtitle display have also moved into
+`SearchViewModel` and `TrackMetadataGridVm` display contracts.
+Discover type-filter labels/query values and feed-list section heading
+display have also moved into `SearchViewModel` display contracts.
+Discover result type badge labels, inspector title display, playlist
+trigger fallback labels, payment-route group headings, and the Library
+album-row MusicBrainz status text binding have also moved into
+`ResultRowDisplay`, `SearchViewModel`, `ActionRowVm`,
+`PaymentRouteVm`, and `LibraryTrackRowVm` display contracts.
+Library artist/album tree titles, artist feed-summary title/media
+display, playlist detail header title display, and Library/Discover
+metadata disclosure-id binding have also moved into `ArtistNode`,
+`AlbumNode`, `ArtistFeedSummaryVm`, `PlaylistDetailVm`, and
+`TrackMetadataGridVm` display contracts.
+Library, Discover, and shared track-shell playlist popover option
+display has also moved into shared `playlist_option_displays()`.
+Discover result row ids, podroll section chrome, Library hover
+thumbnail ids, and Library album-thumbnail fallback icons have also
+moved into `ResultRowDisplay`, `PodrollSectionDisplay`, and
+`LibraryViewModel` display contracts.
+Discover results-pane control ids, inspector chrome ids, recent-feeds
+load-more ids, and Library sidebar/search/feed-update/list ids have
+also moved into `SearchPaneDisplay`, `InspectorChromeDisplay`,
+`RecentFeedsDisplay`, `PlaylistSidebarVm`, `LibraryChromeDisplay`, and
+`FeedUpdateActionDisplay` display contracts.
+Library artist, playlist, and track detail scroll ids have also moved
+into `LibraryChromeDisplay`.
+Library and Discover metadata expandable cell ids, cell keys, header
+ids, disclosure glyphs, and nested Value Routes item chrome have also
+moved into `TrackMetadataGridVm`.
+Discover generated metadata compare-row slugs, unused-ID3 row ids, and
+used-ID3 row ids/labels have also moved into `TrackMetadataGridVm`.
+Discover metadata source-drag ids, collapsed expandable-cell summaries,
+artwork URL/filename summary policy, and Discover transcript blank-line
+display have also moved into `TrackMetadataGridVm`.
+Library raw metadata logical-field aliases, Library/Discover Value
+Routes child-field visibility, and Discover JSON-tree scalar labels
+have also moved into `TrackMetadataGridVm`.
+Action-row status message severity and width policy, Library track
+subscription messages, Library staged-ID3/action-error messages, and
+Discover inspector subscription messages have also moved into
+`ActionStatusMessageDisplay`, `LibraryTrackActionVm`,
+`TrackMetadataActionState`, and `ActionRowVm`.
+Metadata expanded field-kind classification and expandability gates have
+also moved into `TrackMetadataGridVm`.
+Library playlist row text, media lookup, and control projection have
+also moved into `PlaylistTrackRowVm::display()`.
+Metadata field labels, metadata text value display, expanded
+raw/display fallback selection, drag preview display, ID3 frame display
+labels, and ID3 frame color-role classification have also moved into
+`TrackMetadataGridVm`.
+Discover deferred-panel empty labels, Discover feed-inspector track-list
+fallback, and Library local subscription progress/error messages have
+also moved into `DeferredPanelDisplay`, `SearchViewModel`, and
+`LibraryTrackActionVm`.
+Library track-subscribe busy/success labels, Discover track-download
+success labels, and Library feed-update error formatting have also
+moved into `LibraryTrackActionVm`, `SearchSubscriptionCommand`, and
+`LibraryViewModel`.
+Library and Discover split-pane chrome ids have also moved into
+`LibraryChromeDisplay` and `SearchPaneDisplay`.
+Library and Discover feed identity-action prefixes have also moved into
+`ReleaseDetailPageVm`.
+Library and Discover track/contributor identity-action prefixes have
+also moved into `TrackDetailVm` and `ContributorRowVm`.
+Release detail scroll ids, contributor row chrome, and default release
+track row ids have also moved into `ReleaseDetailPageVm`,
+`ContributorPersonVm`, and `SharedTrackRowVm`.
+Discover search input placeholder and contributor person row content
+display have also moved into `SearchViewModel` and
+`ContributorPersonVm`.
+Discover result thumbnail kind mapping now consumes
+`ResultRowDisplay::kind_label`.
+Discover result row selection keys and click navigation targets now
+enter the renderer through `ResultRowRenderItem`.
+Release description panel text and release hero header display now
+enter shared entity shells through `ReleasePanelVm::text_display()` and
+`ReleaseHeroVm::display()`.
+Release text panels and contributor role rows are now consumed directly
+from their VM display contracts in the shared entity shell.
+Discover track controls, Library album-track controls, and playlist
+track controls now consume their VM display contracts directly.
+Library sidebar, tree, and artist feed-summary rows now consume their
+VM display contracts directly.
+Discover podroll/feed-list tiles, track feed links, and publisher links
+now consume their VM display contracts directly.
+Discover recent-feed tiles now consume their VM open-target/id contract
+through `RecentFeedTileDisplay` and `RecentFeedTile`.
+Discover track inspector play controls now consume `TrackPlayAudioDisplay`
+directly for header play-button ids.
+Library playlist rows and metadata group headings now consume
+`PlaylistTrackRowDisplay` and `TrackMetadataGroupHeadingDisplay`
+directly.
+Discover metadata drag previews, status text, and action labels now
+consume `TrackMetadataDragPreviewDisplay`, `SearchRenderSnapshot`, and
+`EntityActionVm` directly. Library status text and primary track-row
+actions now consume `LibraryStatusSnapshot` and `EntityActionVm`
+directly.
+Library feed-update chrome and shared/contributor identity actions now
+consume `FeedUpdateDisplay`, `IdentityActionDisplay`, and
+`ContributorIdentityActionDisplay` directly.
+Library and Discover metadata expansion controls and Value Routes item
+controls now destructure `TrackMetadataExpandableCellDisplay` and
+`TrackMetadataValueRouteItemDisplay` directly.
+Deferred loading/empty text and Discover metadata drag-preview body
+text now use primitive-owned borrowed-text conversion through
+`LoadingMessage::from_text()` and `MultilineText::from_text()`.
+Feed identity actions now consume `IdentityActionDisplay` directly in
+the shared entity shell, and Discover expanded ID3 Value Routes headers
+consume frame-label display without renderer-side label cloning.
+Library metadata group disclosure labels now duplicate inside
+`TrackMetadataGroupCell` instead of in the screen renderer.
+Library sidebar disclosure glyph and supplemental count chrome,
+including playlist row counts, now render through `DisclosureIndicator`
+and `DisclosureSupplementLabel`.
+Task 003 completion is guarded by
+`screen_level_fallback_expressions_stay_domain_only`, which keeps any
+remaining screen-level `unwrap_or*` expressions restricted to documented
+domain/control plumbing rather than display fallback policy.
+
+## Required Questions For Every UI Change
+
+- Which architectural layer does this change live in (1–8)?
+- What repeated presentation concept is changing?
+- Who owns it: primitive, composite, shell, or VM?
+- What display contract carries title, subtitle, metadata, state,
+  availability, fallback labels, and command intent?
+- For interactive composites: what accessibility label and hint?
+- For visible changes: light + dark visual smoke?
+- Which screen-local pattern is being deleted or prevented?
+- Which architecture test, unit test, visual smoke, or baseline
+  reduction blocks the regression from returning?
+- If Library and Discover differ, is the difference a named additive
+  context policy rather than a forked page skeleton?
+
+## Contract Matrix
+
+| Contract | Pass Condition | Common Failure |
+|---|---|---|
+| Shared owner | Repeated chrome lives in `src/ui/primitives` or `src/ui/composites` | Copying a row/header/action helper into another screen |
+| Display contract | GPUI-free VM or co-located display struct owns labels and state | Screen calls `unwrap_or("Untitled")` or formats availability locally |
+| Token/icon discipline | Named tokens and icon catalog are used | Raw `px`, `rgb`, glyph strings, inline SVGs outside allowed layers |
+| Additive context policy | Context-specific actions attach through slots | Library/Discover rebuild different page skeletons for the same entity |
+| Regression guard | Guard lands with the consolidation | Visual patch lands without test or visual-smoke evidence |
+| Page VM | Entity detail pages render through shell helper + `<Entity>DetailPageVm` | Screen assembles a page from individual VM accessors |
+| Layer architecture | Imports respect layer order; shells live under `src/ui/shells/` | Top-level `src/ui_*.rs` shell file added; layer skipped |
+| Theme adaptivity | Colors resolve through `theme_bridge`; light + dark verified | Raw `rgb(0x…)` outside the token layer |
+| Accessibility contract | Interactive composites carry VM-sourced a11y labels | Icon-only button without label; screen-side a11y string |
+
+## Task Results
+
+| # | Task | Status | Required Evidence |
+|---|---|---|---|
+| 1 | Layer Relocation                              | Implemented | Files moved under `src/ui/shells/`; `KNOWN_SHARED_UI_SHELL_FILES` removed; `top_level_shells_live_under_src_ui_shells` green. Original coordinate-driven captures were discarded; visual acceptance is closed by the 2026-05-04 Task 004 operator-navigated Library/Discover light + dark smoke pass, with no screenshot artifacts retained. |
+| 2 | Composite Display-Contract Audit              | Implemented | `TrackRow` row number/title/duration now enter through `TrackRowVm` or `SharedTrackRowVm`; `DetailHeader` title/subtitle/data rows now enter through `DetailHeaderDisplay`; `DetailGrid` key/value rows now enter through `DetailElementRow` or `DetailTextRow`; release track sections now enter through `ReleaseTrackSectionDisplay`; playlist popovers now enter through `AddToPlaylistDisplay` and `PlaylistOptionDisplay`; metadata grid cells now enter through `TrackMetadataGroupDisplay`, `TrackMetadataFieldDisplay`, `TrackMetadataFrameDisplay`, `TrackMetadataTagDisplay`, and `TrackMetadataTextDisplay`; action-row status messages now enter through `ActionRowMessageDisplay`; disclosure headings now enter through `DisclosureGroupDisplay`; segmented options now enter through `SegmentDisplay`; badge labels now enter through `TagBadgeDisplay`; metadata-action labels now enter through `ActionButtonDisplay`; guard renamed/tightened to scan multi-line signatures; allowlist shrank by the old `TrackRow`, `DetailHeader`, `DetailGrid`, release track-section, playlist popover, metadata-grid cell, action-row message, disclosure-group, segmented-control, tag-badge, and action-button string builders |
+| 3 | Library/Search VM Consolidation               | Implemented | `TrackMetadataGridVm` now owns metadata field labels, metadata text value display, expanded raw/display fallback selection, expanded Artwork URL text, drag preview label/value display, ID3 frame display labels, ID3 frame color-role classification, metadata cell fallback/precedence, expansion, grouping, source-drag ids, Value Routes summaries, JSON scalar labels, comparison roles/glyphs, pending-source roles, and disclosure ids used by Library and Discover. `SearchViewModel` also owns deferred-panel empty-line text, deferred-panel empty labels, feed-header title/subtitle projection, feed-inspector track-list fallback, type-filter labels/query values, feed-list section heading display, inspector title display, and Discover search input placeholder display. `ResultRowDisplay`, `ResultRowRenderItem`, `ActionRowVm`, `PaymentRouteVm`, `ReleaseHeroVm`, `ReleasePanelVm`, `ReleaseTextPanelDisplay`, `TrackRowControlsDisplay`, `LibraryTrackRowDisplay`, `LibraryTrackRowVm`, `LibraryTrackActionVm`, `SearchSubscriptionCommand`, `ArtistNode`, `AlbumNode`, `ArtistFeedSummaryVm`, `ArtistFeedSummaryDisplay`, `LibraryArtistTreeDisplay`, `LibraryAlbumTreeDisplay`, `LibraryTreeTrackDisplay`, `RecentFeedTileDisplay`, `RecentFeedTile`, `TrackPlayAudioDisplay`, `TrackFeedLinkDisplay`, `PublisherLinkDisplay`, `PlaylistDetailVm`, `PlaylistSidebarVm`, `PlaylistSidebarRowVm`, `PlaylistTrackControlsDisplay`, `PlaylistTrackRowDisplay`, `LibraryViewModel`, `LibraryChromeDisplay`, `SearchPaneDisplay`, `ReleaseDetailPageVm`, `TrackDetailVm`, `ContributorRowVm`, `ContributorPersonVm`, `ContributorRoleRowVm`, `SharedTrackRowVm`, `TrackMetadataDragPreviewDisplay`, `LibraryStatusSnapshot`, `FeedUpdateDisplay`, `IdentityActionDisplay`, `TrackMetadataExpandableCellDisplay`, `TrackMetadataValueRouteItemDisplay`, `TrackMetadataGroupCell`, `DisclosureIndicator`, `DisclosureSupplementLabel`, `LoadingMessage`, `MultilineText`, and shared `playlist_option_displays()` own the newly migrated result badge/thumbnail kind projection, result-row selection/navigation targets, release hero/panel text display, contributor role-row display consumption, track-row control display consumption, playlist trigger, payment-route group heading, MusicBrainz status text, local subscription/download messages, Discover download success labels, feed-update errors, split-pane chrome ids, identity-action prefixes, release detail scroll ids, contributor identity action consumption, contributor row chrome/content display, sidebar/tree row display consumption, Discover feed tile/link display consumption, recent-feed open-target/id consumption, track play-button id consumption, playlist row display consumption, metadata group label consumption, metadata expansion-key/item-key consumption, deferred loading/empty text consumption, feed identity-action payload consumption, status text consumption, action label consumption, default release track row ids, tree-title, feed-summary, playlist-header, playlist-option, disclosure-indicator, and supplemental-count display contracts. Library/Search no longer perform the migrated fallback/classification work screen-locally; `view_models_own_display_fallbacks_for_library_and_search` blocks those patterns from returning; `screen_level_fallback_expressions_stay_domain_only` freezes the residual non-display `unwrap_or*` expressions as documented domain/control plumbing. |
+| 4 | HIG Dark-Mode Parity Audit                    | Implemented    | `src/ui/style.rs` no longer holds raw `gpui::rgb(0x…)` literals — the four ID3 frame-color helpers (`id3_frame_v22`, `id3_frame_v23_only`, `id3_frame_v24_only`, `id3_frame_unknown`) now resolve through new `SemanticColor::Id3FrameV22 / V23Only / V24Only / Unknown` tokens with light/dark and high-contrast variants. Module-level docs in `src/ui/style.rs` declare the file token-resolved. New architecture test `ui_style_resolves_colors_through_token_layer` blocks future raw rgb literals in `src/ui/style.rs`. Discover's reset-to-recents command is now VM-owned and restores the recent-feed tile surface after search. Light/dark visual smoke completed with operator-navigated, transient `/tmp` captures; no screenshot artifacts are retained in git. |
+| 5 | HIG Accessibility-Label Contract              | Implemented | `ActionButtonDisplay`, `IdentityActionButtonDisplay`, `ActionRowDisplay`, `AddToPlaylistDisplay`, `PlaylistOptionDisplay`, `TrackRowDisplay`, `ListRow`, `RecentFeedTileDisplay`, `DisclosureGroupDisplay`, `SegmentDisplay`, `NowPlayingData`, `ReleaseDetailPageVm`/`ReleaseDetailSurface`, `TrackDetailSurface`, and `TrackRowVm` now expose VM/display-contract accessibility-label fields. `interactive_composites_carry_accessibility_labels` scans the expanded coverage list. GPUI 0.2.x has no final accessibility-label sink for these widgets, so labels are enforced as contract data until framework plumbing exists. |
+| 6 | PageVm Generalization                         | Implemented    | Track detail parity slice landed: `TrackDetailPageVm` wraps `TrackDetailVm`, `src/ui/shells/track.rs::build_track_detail_surface` is the shared helper, and Library/Discover track detail no longer construct `TrackDetailSurface` directly. Artist detail parity slice landed: `ArtistDetailPageVm` carries shared artist header/fact rows, `src/ui/shells/artist.rs::render_artist_detail_shell` is the shared helper, and Library/Discover artist detail now project through page VMs. Playlist detail parity slice landed: `PlaylistDetailPageVm` wraps `PlaylistDetailVm`, `src/ui/shells/playlist.rs::render_playlist_detail_shell` owns the page hierarchy, and Library supplies only thumbnails plus command callbacks. Search results / recent-feed tiles remain row/list composites because they are not entity detail pages; the reset-to-recents command is already VM-owned. `entity_detail_pages_render_through_shell_helper_and_page_vm` guards release + track + artist + playlist surfaces, and `shared_top_level_ui_shells_do_not_import_screen_modules` covers the new playlist shell. |
+| 7 | Screen Decomposition                          | Implemented | Library surfaces now live under `src/ui/shells/library/` (`detail`, `feed_detail`, `feed_list`, `playlist_detail`, `sidebar`, `thumbnail`, `track_detail`, and bounded `track_detail_metadata*` modules). Discover surfaces now live under `src/ui/shells/discover/` (`actions`, `feed_inspector`, `feed_lists`, `recent`, `result_list`, `search_input`, `track_inspector`, bounded `track_inspector_metadata*` modules, and `track_rows`). `src/library.rs` is 131 lines and `src/search.rs` is 238 lines; command wiring moved to `src/library/app_impl.rs` and `src/search/app_impl.rs`. Slice F guards `library_screen_modules_are_decomposed_under_src_ui_shells_library`, `discover_screen_modules_are_decomposed_under_src_ui_shells_discover`, `screen_entry_modules_under_500_loc`, and `surface_modules_under_500_loc` are green. Light/dark visual smoke passed by operator confirmation after checklist-based app smoke; no screenshot artifacts were created or retained. |
+| 8 | Final Sweep + Readiness Gate                  | Stub           | All baselines zero; full visual smoke; gate decision recorded |
+
+## Visual Smoke Ledger
+
+Task 004 verification used operator-navigated app states and transient
+`/tmp` captures on 2026-05-04. Per operator instruction, screenshot
+artifacts are not retained or committed; the table records inspected
+surfaces and fixtures instead.
+
+| Surface | Light | Dark | Fixture | Status |
+|---|---|---|---|---|
+| Library list                | Transient pass | Transient pass | Library tree/search with expanded HeyCitizen release | Verified 2026-05-04 |
+| Library inspector           | Covered by Library feed + track detail | Covered by Library feed + track detail | Library detail pane populated from selected feed/track | Verified 2026-05-04 |
+| Library track detail        | Transient pass | Transient pass | `MoeFactz` track detail | Verified 2026-05-04 |
+| Library feed detail         | Transient pass | Transient pass | `The Heycitizen Experience` / `Way to Go` feed detail | Verified 2026-05-04 |
+| Discover list               | Transient pass | Transient pass | Discover search result list for HeyCitizen query | Verified 2026-05-04 |
+| Discover inspector          | Covered by Discover track + feed detail | Covered by Discover track + feed detail | Discover detail pane populated from selected track/feed | Verified 2026-05-04 |
+| Discover track detail       | Transient pass | Transient pass | `Chocolates` track detail | Verified 2026-05-04 |
+| Discover feed detail        | Transient pass | Transient pass | `The Heycitizen Experience` feed detail | Verified 2026-05-04 |
+| Playlist popover            | Transient pass | Transient pass | `Add feed to playlist` popover with existing playlists and `New Playlist` row | Verified 2026-05-04 |
+| Now-playing bar             | Transient pass across captures | Transient pass across captures | Global now-playing chrome visible during every visual state | Verified 2026-05-04 |
+| Recent feed tiles           | Transient pass | Transient pass | Discover `Recent Feeds` tile grid restored after search via VM-owned command | Verified 2026-05-04 |
+| Search results              | Covered by Discover list | Covered by Discover list | Discover search result list for HeyCitizen query | Verified 2026-05-04 |
+
+Task 006 PageVm visual smoke:
+
+| Surface | Light | Dark | Fixture | Status |
+|---|---|---|---|---|
+| Feed/release detail | Covered by Task 004 feed detail rows above | Covered by Task 004 feed detail rows above | Library/Discover feed detail states | Verified 2026-05-04 |
+| Track detail | Covered by Task 004 track detail rows above | Covered by Task 004 track detail rows above | Library/Discover track detail states | Verified 2026-05-04 |
+| Library artist detail | Transient pass | Transient pass | `HeyCitizen` artist detail with feed section | Verified 2026-05-04 |
+| Discover artist detail | Transient pass | Transient pass | `HeyCitizen` artist detail with feed tiles | Verified 2026-05-04 |
+| Library playlist detail | Transient pass | Transient pass | `My Playlist` with seven tracks | Verified 2026-05-04 |
+
+Task 007 decomposition visual smoke:
+
+| Surface | Light | Dark | Fixture | Status |
+|---|---|---|---|---|
+| Library decomposed surfaces | Operator pass | Operator pass | Existing Task 004/006 Library fixtures | Verified by operator confirmation; no screenshot artifacts retained |
+| Discover decomposed surfaces | Operator pass | Operator pass | Existing Task 004/006 Discover fixtures | Verified by operator confirmation; no screenshot artifacts retained |
+
+Task 001 relocation smoke:
+
+| Surface | Evidence | Status |
+|---|---|---|
+| Library shell | Covered by Task 004 operator-navigated Library list/feed/track detail light + dark smoke | Verified 2026-05-04 |
+| Discover shell | Covered by Task 004 operator-navigated Discover list/feed/track detail light + dark smoke | Verified 2026-05-04 |
+
+Visual-proof caveat resolution, 2026-05-04: coordinate-driven X11
+captures from 2026-05-03 were discarded and are not retained in the
+repository. Task 004 later verified the relocated Library and Discover
+shells through operator navigation in both light and dark themes. Per
+operator instruction, evidence is ledgered here without committing
+screenshot artifacts.
+
+## Accessibility Coverage Ledger
+
+To be filled by Task 005. Composites that render interactive chrome:
+
+| Composite | A11y label source | A11y hint? | Guard entry | Status |
+|---|---|---|---|---|
+| `action_button`              | `EntityActionVm::a11y_label()` / `LibraryAlbumMusicBrainzActionVm::a11y_label` | No (label suffices for current call sites) | `ActionButtonDisplay` | Migrated 2026-05-04 |
+| `ActionRow`                  | `ActionRowDisplay::a11y_label` from `ActionRowVm`, `LibraryTrackActionVm`, and `StagedId3EditsDisplay` | No (group label only) | `ActionRowDisplay` | Migrated 2026-05-04 |
+| `identity_action_button`     | `IdentityActionDisplay::a11y_label` / `ContributorIdentityActionDisplay::a11y_label` | No (kind-default phrasing disambiguates) | `IdentityActionButtonDisplay` | Migrated 2026-05-04 |
+| `AddToPlaylistPopover`       | `AddToPlaylistDisplay::trigger_a11y_label` and `PlaylistOptionDisplay::a11y_label` | No | `AddToPlaylistDisplay`, `PlaylistOptionDisplay` | Migrated 2026-05-04 |
+| `TrackRow`                   | `TrackRowVm::a11y_label` / `SharedTrackRowVm::a11y_label` | No | `TrackRowDisplay`, `TrackRowVm` | Migrated 2026-05-04 |
+| `ListRow`                    | Row display/caller projections for result, playlist, contributor, and track rows | No | `ListRow` | Migrated 2026-05-04 |
+| `RecentFeedTile`             | `RecentFeedTileDisplay::a11y_label` | No | `RecentFeedTileDisplay` | Migrated 2026-05-04 |
+| `DisclosureGroup`            | `DisclosureGroupDisplay::a11y_label` from deferred-panel and metadata group displays | No | `DisclosureGroupDisplay` | Migrated 2026-05-04 |
+| `SegmentedControl`           | `SegmentDisplay::a11y_label` | No | `SegmentDisplay` | Migrated 2026-05-04 |
+| `NowPlayingBar`              | `NowPlayingData` transport labels, including state-dependent play/pause label | No | `NowPlayingData` | Migrated 2026-05-04 |
+| Release detail action overlays | `ReleaseDetailPageVm::actions_a11y_label` / `ReleaseDetailSurface::actions_a11y_label` | No (child controls carry action labels) | `ReleaseDetailPageVm`, `ReleaseDetailSurface` | Migrated 2026-05-04 |
+| Track detail action overlays  | `TrackDetailVm::primary_actions_a11y_label` / `TrackDetailSurface::primary_actions_a11y_label` | No (child controls carry action labels) | `TrackDetailSurface` | Migrated 2026-05-04 |
+
+Pure-text/pure-layout composites are exempt:
+`detail_grid`, `detail_header`, `multiline_text`, `divider`, `loading`.
+
+## Automated Checks
+
+For Task 001:
+
+- `cargo fmt -- --check`
+- `cargo check`
+- `cargo test top_level_shells_live_under_src_ui_shells`
+- `cargo test`
+- `cargo clippy -- -D warnings`
+- `git diff --check`
+
+For each subsequent task: re-run the full set, plus the task's
+targeted guard test.
+
+For Task 002 current slices:
+
+- `cargo test composite_signatures_take_display_contracts_not_loose_strings`
+
+For Task 004 current slices:
+
+- `cargo test ui_style_resolves_colors_through_token_layer`
+- `cargo test --lib ui::tokens`
+- `cargo test --lib ui::theme_profiles`
+- `cargo test search_view_model`
+- `cargo test search_render_snapshot`
+
+For Task 005 current slices:
+
+- `cargo test interactive_composites_carry_accessibility_labels`
+- `cargo test --lib entity_detail::tests::entity_action_a11y_label_defaults_to_visible_label`
+- `cargo test --lib ui::composites::action_button`
+- `cargo test --lib ui::composites::identity_action`
+- `cargo test --lib ui::composites::action_row`
+- `cargo test --lib ui::composites::playlist_popover`
+- `cargo test --lib ui::composites::track_row`
+- `cargo test --lib ui::composites::list_row`
+- `cargo test --lib ui::composites::disclosure_group`
+- `cargo test --lib ui::composites::segmented_control`
+- `cargo test --lib ui::composites::now_playing_bar`
+- `cargo test --lib view_models::track_metadata_grid::tests::group_heading_display_projects_label_and_disclosure_id`
+- `cargo test --lib view_models::tests::playlist_option_displays_project_ids_and_names`
+
+For Task 006 current slices:
+
+- `cargo test entity_detail_pages_render_through_shell_helper_and_page_vm`
+- `cargo test playlist_detail_page_vm_wraps_existing_detail_contract`
+
+For Task 007 current slices:
+
+- `cargo test --test architecture_tests`
+- `cargo test --test architecture_tests library_screen_modules_are_decomposed_under_src_ui_shells_library`
+- `cargo test --test architecture_tests discover_screen_modules_are_decomposed_under_src_ui_shells_discover`
+- `cargo test --test architecture_tests screen_entry_modules_under_500_loc`
+- `cargo test --test architecture_tests surface_modules_under_500_loc`
+- `cargo test --lib search::tests`
+- `cargo check`
+- `cargo clippy -- -D warnings`
+- `cargo fmt -- --check`
+
+For Task 003 current slices:
+
+- `cargo test track_inspector_header_vm_projects_feed_link_display_contract`
+- `cargo test payment_route_vm_projects_address_without_coercing_presence`
+- `cargo test payment_route_vm_projects_custom_fields_without_coercing_presence`
+- `cargo test payment_route_vm_projects_primary_summary`
+- `cargo test recent_feed_tile_vm_projects_id_and_episode_note`
+- `cargo test tree_number_prefix_preserves_legacy_zero_padded_display`
+- `cargo test rss_cell_value_preserves_empty_vs_missing_display`
+- `cargo test id3_cell_value_prefers_pending_then_preserves_empty_vs_missing_display`
+- `cargo test id3_cell_frame_prefers_pending_then_preserves_empty_vs_missing_display`
+- `cargo test id3_drag_frame_preserves_empty_vs_missing_display`
+- `cargo test id3_frame_label_preserves_empty_vs_missing_display`
+- `cargo test contributor_summary_falls_back_to_display_value_when_unsummarized`
+- `cargo test value_routes_summary_counts_routes_and_owns_fallback_policy`
+- `cargo test group_heading_label_appends_unused_count_only_when_present`
+- `cargo test value_route_item_label_appends_split_when_present`
+- `cargo test value_route_split_label_formats_percent_and_ignores_empty_values`
+- `cargo test value_route_field_key_label_adds_separator`
+- `cargo test value_route_field_value_label_trims_and_suppresses_empty_values`
+- `cargo test play_audio_display_uses_url_tooltip_else_missing_audio_fallback`
+- `cargo test musicbrainz_cell_value_preserves_empty_vs_missing_display`
+- `cargo test comparison_role_maps_compare_statuses`
+- `cargo test display_with_glyph_preserves_empty_values`
+- `cargo test pending_source_role_compares_trimmed_values`
+- `cargo test id3_status_role_suppresses_standalone_id3_values`
+- `cargo test search_status_snapshot_prefixes_error_display`
+- `cargo test search_render_snapshot_projects_result_pane_display_labels`
+- `cargo test recent_feeds_snapshot_projects_panel_display_labels`
+- `cargo test inspector_chrome_display_projects_back_and_empty_state`
+- `cargo test inspector_status_messages_are_vm_owned`
+- `cargo test deferred_panel_display_projects_heading_and_loading_labels`
+- `cargo test library_chrome_display_projects_shell_labels`
+- `cargo test library_status_snapshot_classifies_error_prefix`
+- `cargo test feed_update_display_projects_toolbar_action_labels`
+- `cargo test library_tree_artist_display_projects_row_chrome`
+- `cargo test library_tree_album_display_projects_row_chrome`
+- `cargo test library_tree_track_display_projects_id_and_prefixed_title`
+- `cargo test artist_feed_summary_display_projects_row_id_and_track_count`
+- `cargo test album_detail_vm_musicbrainz_action_projects_label_and_disabled_state`
+- `cargo test album_detail_vm_playlist_display_projects_popover_id_and_label`
+- `cargo test contributor_identity_actions_project_ids_kinds_and_targets`
+- `cargo test contributor_identity_actions_omit_absent_targets`
+- `cargo test contributor_panel_display_projects_surface_chrome`
+- `cargo test group_heading_display_projects_label_and_disclosure_id`
+- `cargo test identity_action_display_projects_id_kind_and_payload`
+- `cargo test track_detail_identity_action_display_projects_ids`
+- `cargo test view_models_own_display_fallbacks_for_library_and_search`
+- `cargo test track_identity_links_use_shared_renderer`
+
+## Readiness Gate (Task 008, 2026-05-04)
+
+| Question | Answer | Evidence |
+|---|---|---|
+| All architecture guards green, baselines zero?           | Yes | `cargo test --tests` reports 62/62 architecture tests passing; every baseline array in `tests/architecture_tests.rs` declares `max_count: 0` (`DEPRECATED_VISUAL_HELPER_BASELINES`, `DIRECT_COMPONENT_BUTTON_BASELINES`, `PROVENANCE_DIFF_HELPER_BASELINES`, `SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES`); `RENDER_HELPER_DUPLICATION_BASELINES` is empty after Task 008 sweep. |
+| Every entity detail page on PageVm + shell helper?       | Yes | Task 006 closed 2026-05-04; guard `entity_detail_pages_render_through_shell_helper_and_page_vm` enumerates Library/Discover release, track, artist, and playlist surfaces. |
+| Every interactive composite carries a11y label?           | Yes | Task 005 closed 2026-05-04; guard `interactive_composites_carry_accessibility_labels` covers `ActionButtonDisplay`, `IdentityActionButtonDisplay`, `ActionRow`, `AddToPlaylistPopover`, `TrackRow`, `ListRow`, `RecentFeedTile`, `DisclosureGroup`, `SegmentedControl`, `NowPlayingBar`. |
+| Light + dark visual smoke covers every main surface?     | Yes (per project policy) | Tasks 004/006/007 verified light + dark via operator-navigated transient captures; project instruction is to not retain screenshot artifacts. |
+| `library.rs` and `search.rs` are thin entries?           | Yes | `wc -l src/library.rs src/search.rs` → 128 and 238 lines; guard `screen_entry_modules_under_500_loc` enforces ≤500. |
+| Zero remaining screen-local fallback strings?            | Yes | Task 003 closed 2026-05-04; guard `view_models_own_display_fallbacks_for_library_and_search` enforces every fallback string lives in a VM. Spot sweep of screen `unwrap_or_default()` / `unwrap_or("")` sites in `src/library/app_impl.rs` and `src/search/app_impl.rs` finds only non-display data fallbacks (Vec defaults for failed DB reads, scoring normalization, dedup keys); no display-string fallbacks remain. |
+| Deferred-architecture-work index reconciled?             | Yes | ADR 0038 added no new deferred items; the backend-driven items in `docs/plans/deferred-architecture-work-index.md` (artist binding, person identity, query thinning, staged metadata durability, non-URL artwork, playback supervision, visual polish) were already deferred before ADR 0038 and remain so. |
+
+Decision: **Proceed**. The presentation contract is now mechanically
+enforced. Richer playlist/playback feature work can begin against a
+clean architecture baseline.
+
+## Task 008 Sweep Outcomes
+
+- Confirmed `render_track_row` consolidation: only canonical owner
+  remains at `src/ui/shells/track.rs::render_track_row`. The legacy
+  Discover stage-4 wrapper in `src/ui/shells/discover/track_rows.rs`
+  was inlined into `render_track_list_rows`; downstream callers go
+  directly through the shared owner.
+- Confirmed direct `gpui_component::button::Button` usage in
+  `src/ui/shells/discover/actions.rs` and
+  `src/ui/shells/discover/search_input.rs` is properly marked with
+  `// CONTROL-COMPAT(reason): ...` allowlist comments. No unmarked
+  direct usage in screens or shells.
+- Confirmed superseded plans
+  (`docs/plans/one-owner-per-surface-plan.md`,
+  `docs/plans/post-adr-0033-ui-consolidation-plan.md`) drive no open
+  work; their items either landed under ADR 0038 tasks 002/003/007
+  or already roll up to the deferred-architecture-work index.

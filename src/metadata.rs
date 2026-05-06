@@ -2875,6 +2875,31 @@ pub fn display_picard_people_list(value: &str) -> String {
         .join("\n")
 }
 
+pub fn display_contributor_tree(value: &str) -> Option<String> {
+    let entries = grouped_contributor_entries(value);
+    if entries.is_empty() {
+        return None;
+    }
+    Some(
+        entries
+            .into_iter()
+            .map(|(name, roles)| {
+                if roles.is_empty() {
+                    name
+                } else {
+                    let role_lines = roles
+                        .into_iter()
+                        .map(|role| format!("  - {role}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    format!("{name}\n{role_lines}")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
 pub fn display_value_routes(value: &str) -> String {
     display_pretty_json_tree(value).unwrap_or_else(|| value.to_string())
 }
@@ -2914,6 +2939,21 @@ pub fn expanded_metadata_display_value<'a>(
         "Transcript" | "Transcript text" => raw_value,
         _ if display_value.is_empty() => raw_value,
         _ => display_value,
+    }
+}
+
+pub fn expanded_metadata_display_string(
+    field: &str,
+    raw_value: &str,
+    display_value: &str,
+) -> String {
+    match field {
+        "Contributors" => {
+            display_contributor_tree(raw_value).unwrap_or_else(|| display_value.to_string())
+        }
+        "Transcript" | "Transcript text" => raw_value.to_string(),
+        _ if display_value.is_empty() => raw_value.to_string(),
+        _ => display_value.to_string(),
     }
 }
 
@@ -3154,8 +3194,9 @@ pub fn metadata_drag_value(
 #[cfg(test)]
 mod tests {
     use super::{
-        display_metadata_value, expanded_metadata_display_value, id3_frame_base,
-        pending_id3_target_key, summarize_contributor_value,
+        display_contributor_tree, display_metadata_value, expanded_metadata_display_string,
+        expanded_metadata_display_value, id3_frame_base, pending_id3_target_key,
+        summarize_contributor_value,
     };
 
     #[test]
@@ -3177,6 +3218,28 @@ mod tests {
         assert_eq!(
             summarize_contributor_value(value).as_deref(),
             Some("2 contributors")
+        );
+    }
+
+    #[test]
+    fn contributor_tree_displays_people_with_indented_roles() {
+        let value = "guitarist: Alice / musician: Alice / audio engineer: Bob";
+        assert_eq!(
+            display_contributor_tree(value).as_deref(),
+            Some("Alice\n  - guitarist\n  - musician\nBob\n  - audio engineer")
+        );
+        assert_eq!(
+            expanded_metadata_display_string("Contributors", value, "2 contributors"),
+            "Alice\n  - guitarist\n  - musician\nBob\n  - audio engineer"
+        );
+    }
+
+    #[test]
+    fn contributor_tree_falls_back_for_unstructured_values() {
+        assert_eq!(display_contributor_tree("Alice and Bob"), None);
+        assert_eq!(
+            expanded_metadata_display_string("Contributors", "Alice and Bob", "Alice and Bob"),
+            "Alice and Bob"
         );
     }
 

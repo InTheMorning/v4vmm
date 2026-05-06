@@ -534,6 +534,7 @@ mod tests {
     use crate::audio_format::AudioFormat;
     use crate::audio_tags::AudioTags;
     use crate::config::{Config, PlaybackConfig};
+    use crate::theme_profile::ThemeProfile;
 
     fn track() -> Track {
         Track {
@@ -618,6 +619,7 @@ mod tests {
             flac_path: None,
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
+            theme_profile: ThemeProfile::default(),
         };
 
         assert_eq!(
@@ -638,6 +640,7 @@ mod tests {
             flac_path: None,
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
+            theme_profile: ThemeProfile::default(),
         };
         let mut track = track();
         track.track_artist = Some("CON".into());
@@ -662,6 +665,7 @@ mod tests {
             flac_path: None,
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
+            theme_profile: ThemeProfile::default(),
         };
         let mut track = track();
         track.track_artist = Some("Artist\tName".into());
@@ -759,6 +763,7 @@ mod tests {
             flac_path: None,
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
+            theme_profile: ThemeProfile::default(),
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));

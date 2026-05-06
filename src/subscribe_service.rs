@@ -9,6 +9,7 @@ use crate::api::{track_with_feed_defaults, Client, Feed, SourceEntityLink, Track
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, Id3v24Edit};
 use crate::config;
 use crate::db::{self, TrackRow};
+use crate::identity_ingest;
 use crate::library_service;
 use crate::metadata::{MusicBrainzLookupResult, TagCompareResult, TrackContext};
 use crate::metadata_service::{id3_edits_for_track_context, musicbrainz_lookup_metadata};
@@ -138,6 +139,12 @@ pub(crate) fn subscribe_feed_with_config(
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         rss::subscribe_feed(cfg, &mut db, &feed_url, &musicindex_endpoint)?;
+        identity_ingest::persist_musicindex_context_by_feed_url(
+            &mut db,
+            &feed_url,
+            Some(&feed),
+            None,
+        )?;
     }
 
     let api_client = Client::new_with_base_url(musicindex_endpoint.clone());
@@ -148,17 +155,30 @@ pub(crate) fn subscribe_feed_with_config(
     let track_count = tracks.len();
 
     for track in tracks {
-        let mut track = track_with_feed_defaults(track, Some(&feed));
-        if let Some(track_guid) = track.track_guid.as_deref() {
+        let original_track = track;
+        let mut track_for_metadata = original_track.clone();
+        let mut track_for_persistence = original_track.clone();
+        if let Some(track_guid) = track_for_metadata.track_guid.as_deref() {
             if let Ok(hydrated) = api_client.fetch_track(
                 track_guid,
                 Some(
                     "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
                 ),
             ) {
-                track = track_with_feed_defaults(hydrated, Some(&feed));
+                track_for_persistence = hydrated.clone();
+                track_for_metadata = hydrated;
             }
         }
+        {
+            let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+            identity_ingest::persist_musicindex_context_by_feed_url(
+                &mut db,
+                &feed_url,
+                None,
+                Some(&track_for_persistence),
+            )?;
+        }
+        let mut track = track_with_feed_defaults(track_for_metadata, Some(&feed));
         let mut context_feed = feed.clone();
         enrich_track_context_from_rss(&mut track, Some(&mut context_feed));
         let track_context = TrackContext {
@@ -258,7 +278,8 @@ fn subscribe_track_from_search_internal(
     return_tag_compare: bool,
 ) -> Result<SubscribeTrackOutcome> {
     let mut feed = track_context.feed;
-    let mut track = track_with_feed_defaults(track_context.track.clone(), feed.as_ref());
+    let original_track = track_context.track.clone();
+    let mut track = track_with_feed_defaults(original_track.clone(), feed.as_ref());
     enrich_track_context_from_rss(&mut track, feed.as_mut());
     let feed_url = track
         .feed_url
@@ -274,6 +295,12 @@ fn subscribe_track_from_search_internal(
     {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         rss::subscribe_feed(cfg, &mut db, &feed_url, &musicindex_endpoint)?;
+        identity_ingest::persist_musicindex_context_by_feed_url(
+            &mut db,
+            &feed_url,
+            feed.as_ref(),
+            Some(&original_track),
+        )?;
         if !mark_feed_subscribed && !prior_subscribed {
             db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
         }
@@ -539,6 +566,7 @@ mod tests {
     use super::*;
     use crate::api::SourceEnclosure;
     use crate::config::{Config, PlaybackConfig};
+    use crate::theme_profile::ThemeProfile;
 
     fn cfg(temp: &std::path::Path) -> Config {
         Config {
@@ -547,6 +575,7 @@ mod tests {
             flac_path: None,
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
+            theme_profile: ThemeProfile::default(),
         }
     }
 

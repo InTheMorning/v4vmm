@@ -49,6 +49,19 @@ pub fn ratio(a: Rgba, b: Rgba) -> f32 {
     (lighter + 0.05) / (darker + 0.05)
 }
 
+/// Composite `fg` over an opaque `bg`.
+#[must_use]
+pub fn composite_over(fg: Rgba, bg: Rgba) -> Rgba {
+    let alpha = fg.a.clamp(0.0, 1.0);
+    let inverse_alpha = 1.0 - alpha;
+    Rgba {
+        r: fg.r.mul_add(alpha, bg.r * inverse_alpha),
+        g: fg.g.mul_add(alpha, bg.g * inverse_alpha),
+        b: fg.b.mul_add(alpha, bg.b * inverse_alpha),
+        a: 1.0,
+    }
+}
+
 /// WCAG relative luminance of an sRGB color (alpha is ignored).
 #[must_use]
 pub fn relative_luminance(c: Rgba) -> f32 {
@@ -265,7 +278,11 @@ pub const REQUIRED_PAIRS: &[ContrastPair] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::tokens::Appearance;
+    use crate::theme_profile::ThemeProfile;
+    use crate::ui::icons::IconName;
+    use crate::ui::primitives::button::{TINTED_BUTTON_BG_ALPHA, TINTED_BUTTON_HOVER_BG_ALPHA};
+    use crate::ui::theme_profiles::resolve_profile_color;
+    use crate::ui::tokens::{Appearance, SemanticColor};
 
     /// Sanity: black-on-white is the WCAG reference at 21 : 1.
     #[test]
@@ -322,6 +339,104 @@ mod tests {
         );
     }
 
+    fn check_profile_matrix(profile: ThemeProfile) {
+        let mut failures = Vec::new();
+        for pair in REQUIRED_PAIRS {
+            let fg = resolve_profile_color(profile, pair.fg);
+            let bg = resolve_profile_color(profile, pair.bg);
+            let actual = ratio(fg, bg);
+            let required = pair.level.min_ratio();
+            if actual + 0.005 < required {
+                failures.push(format!(
+                    "{profile:?}: {fg:?} on {bg:?} = {actual:.2}:1 (need {required:.2}:1) — {note}",
+                    fg = pair.fg,
+                    bg = pair.bg,
+                    note = pair.note,
+                ));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "WCAG contrast failures in {profile:?} profile:\n{}",
+            failures.join("\n")
+        );
+    }
+
+    fn tinted_button_background(profile: ThemeProfile, surface: SemanticColor, alpha: f32) -> Rgba {
+        let mut tint = resolve_profile_color(profile, SemanticColor::Accent);
+        tint.a = alpha;
+        composite_over(tint, resolve_profile_color(profile, surface))
+    }
+
+    #[test]
+    fn pressable_button_token_pairs_meet_wcag() {
+        let profiles = [
+            ThemeProfile::Dark,
+            ThemeProfile::Light,
+            ThemeProfile::HighContrastDark,
+            ThemeProfile::HighContrastLight,
+        ];
+        let surfaces = [
+            SemanticColor::SystemBackground,
+            SemanticColor::SecondarySystemBackground,
+            SemanticColor::TertiarySystemBackground,
+        ];
+        let mut failures = Vec::new();
+        let required = ContrastLevel::LargeOrGraphic.min_ratio();
+
+        for profile in profiles {
+            let accent = resolve_profile_color(profile, SemanticColor::Accent);
+            let on_accent = resolve_profile_color(profile, SemanticColor::OnAccent);
+            let danger = resolve_profile_color(profile, SemanticColor::Danger);
+            let on_danger = resolve_profile_color(profile, SemanticColor::OnDanger);
+            let actual = ratio(on_accent, accent);
+            if actual + 0.005 < required {
+                failures.push(format!(
+                    "{profile:?}: filled button OnAccent on Accent = {actual:.2}:1; need {required:.2}:1"
+                ));
+            }
+            let actual = ratio(on_danger, danger);
+            if actual + 0.005 < required {
+                failures.push(format!(
+                    "{profile:?}: destructive button OnDanger on Danger = {actual:.2}:1; need {required:.2}:1"
+                ));
+            }
+
+            for surface in surfaces {
+                let surface_color = resolve_profile_color(profile, surface);
+                let actual = ratio(accent, surface_color);
+                if actual + 0.005 < required {
+                    failures.push(format!(
+                        "{profile:?}: plain button Accent on {surface:?} = {actual:.2}:1; need {required:.2}:1"
+                    ));
+                }
+
+                let tinted_bg = tinted_button_background(profile, surface, TINTED_BUTTON_BG_ALPHA);
+                let actual = ratio(accent, tinted_bg);
+                if actual + 0.005 < required {
+                    failures.push(format!(
+                        "{profile:?}: tinted button Accent on tinted {surface:?} = {actual:.2}:1; need {required:.2}:1"
+                    ));
+                }
+
+                let tinted_hover_bg =
+                    tinted_button_background(profile, surface, TINTED_BUTTON_HOVER_BG_ALPHA);
+                let actual = ratio(accent, tinted_hover_bg);
+                if actual + 0.005 < required {
+                    failures.push(format!(
+                        "{profile:?}: tinted hover button Accent on tinted {surface:?} = {actual:.2}:1; need {required:.2}:1"
+                    ));
+                }
+            }
+        }
+
+        assert!(
+            failures.is_empty(),
+            "pressable button contrast failures:\n{}",
+            failures.join("\n")
+        );
+    }
+
     #[test]
     fn dark_palette_meets_wcag() {
         check_matrix(Appearance::Dark);
@@ -330,5 +445,53 @@ mod tests {
     #[test]
     fn light_palette_meets_wcag() {
         check_matrix(Appearance::Light);
+    }
+
+    #[test]
+    fn high_contrast_dark_profile_meets_wcag() {
+        check_profile_matrix(ThemeProfile::HighContrastDark);
+    }
+
+    #[test]
+    fn high_contrast_light_profile_meets_wcag() {
+        check_profile_matrix(ThemeProfile::HighContrastLight);
+    }
+
+    #[test]
+    fn high_contrast_profiles_are_distinct_from_base_profiles() {
+        for token in [
+            SemanticColor::SecondaryLabel,
+            SemanticColor::Separator,
+            SemanticColor::Accent,
+            SemanticColor::Focus,
+            SemanticColor::SelectedContent,
+        ] {
+            assert_ne!(
+                resolve_profile_color(ThemeProfile::HighContrastDark, token),
+                resolve_profile_color(ThemeProfile::Dark, token),
+                "{token:?} should differ in high-contrast dark"
+            );
+            assert_ne!(
+                resolve_profile_color(ThemeProfile::HighContrastLight, token),
+                resolve_profile_color(ThemeProfile::Light, token),
+                "{token:?} should differ in high-contrast light"
+            );
+        }
+    }
+
+    #[test]
+    fn brand_protocol_icon_fills_contrast_on_current_dark_canvas() {
+        let bg = SemanticColor::SystemBackground.resolve(Appearance::Dark);
+        let required = ContrastLevel::LargeOrGraphic.min_ratio();
+        for icon in [IconName::Rss, IconName::Nostr] {
+            let fill = icon
+                .brand_fill()
+                .expect("brand/protocol icon exposes fill color");
+            let actual = ratio(fill, bg);
+            assert!(
+                actual + 0.005 >= required,
+                "{icon:?} brand fill = {actual:.2}:1 on dark canvas; need {required:.2}:1"
+            );
+        }
     }
 }

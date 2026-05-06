@@ -13,24 +13,69 @@
 //! Unlike primitives they may make opinionated layout choices (e.g. "the
 //! detail header always shows a thumbnail to the left of the title block").
 //!
-//! See `docs/architecture-diagrams.md` § 2.3.
+//! See `docs/architecture/architecture-diagrams.md` § 2.3.
 
 #![warn(clippy::pedantic)]
 
 pub mod action_button;
+pub mod action_row;
 pub mod detail_grid;
 pub mod detail_header;
 pub mod disclosure_group;
+pub mod file_header;
+pub mod identity_action;
 pub mod list_row;
+pub mod musicbrainz_panel;
+pub mod now_playing_bar;
+pub mod playlist_popover;
+pub mod recent_feed_tile;
+pub mod release_detail_surface;
 pub mod segmented_control;
+pub mod split_pane;
 pub mod tag_badge;
 pub mod thumbnail;
+pub mod track_detail_surface;
+pub mod track_header;
+pub mod track_inspector_pane;
+pub mod track_metadata_grid;
+pub mod track_row;
 
-pub use action_button::action_button;
-pub use detail_grid::{DetailGrid, DetailRow};
-pub use detail_header::DetailHeader;
-pub use disclosure_group::DisclosureGroup;
-pub use list_row::{ListRow, ListRowDensity};
-pub use segmented_control::{Segment, SegmentedControl};
-pub use tag_badge::{EntityKind, TagBadge};
+pub use action_button::{action_button, ActionButtonDisplay};
+pub use action_row::{
+    ActionRow, ActionRowDisplay, ActionRowMessage, ActionRowMessageDisplay, ActionRowMessageTone,
+};
+pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
+pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};
+pub use disclosure_group::{
+    DisclosureGroup, DisclosureGroupDisplay, DisclosureIndicator, DisclosureIndicatorDisplay,
+    DisclosureSupplementDisplay, DisclosureSupplementLabel,
+};
+pub use file_header::FileHeader;
+pub use identity_action::{
+    identity_action_button, IdentityActionButtonDisplay, IdentityActionKind,
+};
+pub use list_row::{ListRow, ListRowA11yLabel, ListRowDensity};
+pub use musicbrainz_panel::MusicBrainzPanel;
+pub use now_playing_bar::{NowPlayingBar, NowPlayingData, PlaybackState as NowPlayingState};
+pub use playlist_popover::{
+    AddToPlaylistDisplay, AddToPlaylistPopover, PlaylistOption, PlaylistOptionDisplay,
+};
+pub use recent_feed_tile::RecentFeedTile;
+pub use release_detail_surface::{
+    ReleaseActionGroupDisplay, ReleaseDetailSurface, ReleaseSurfaceElement,
+    ReleaseTrackSectionDisplay,
+};
+pub use segmented_control::{Segment, SegmentDisplay, SegmentedControl, SegmentedControlStyle};
+pub use split_pane::SplitPane;
+pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge, TagBadgeDisplay};
 pub use thumbnail::{Thumbnail, ThumbnailSize};
+pub use track_detail_surface::{TrackDetailSurface, TrackSurfaceElement};
+pub use track_header::TrackHeader;
+pub use track_inspector_pane::TrackInspectorPane;
+pub use track_metadata_grid::{
+    TrackMetadataFieldCell, TrackMetadataFieldDisplay, TrackMetadataFrameDisplay,
+    TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,
+    TrackMetadataTagCell, TrackMetadataTagDisplay, TrackMetadataTextDisplay,
+    TrackMetadataTextValue,
+};
+pub use track_row::TrackRow;

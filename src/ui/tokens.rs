@@ -2,8 +2,9 @@
 //!
 //! Inspired by Apple Human Interface Guidelines: every value has a semantic name
 //! (`Label`, `SecondaryLabel`, `SystemBackground`, `SystemFill`, `Separator`,
-//! `Accent`, …) rather than a raw hex literal. Each color token resolves
-//! against an [`Appearance`] (`Light` or `Dark`).
+//! `Accent`, …) rather than a raw hex literal. Base color tokens resolve
+//! against an [`Appearance`] (`Light` or `Dark`); app rendering resolves them
+//! through the active [`crate::theme_profile::ThemeProfile`].
 //!
 //! Call sites should never use raw `rgb(0x…)` literals. Use:
 //!
@@ -17,9 +18,11 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{px, App, FontWeight, Pixels, Rgba};
+use gpui::{px, App, FontWeight, Pixels, Rgba, WindowAppearance};
 
 use gpui_component::ActiveTheme;
+
+use crate::theme_profile::ThemeProfile;
 
 /// Visual appearance scheme.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -44,6 +47,15 @@ impl Appearance {
             Self::Dark
         } else {
             Self::Light
+        }
+    }
+}
+
+impl From<WindowAppearance> for Appearance {
+    fn from(appearance: WindowAppearance) -> Self {
+        match appearance {
+            WindowAppearance::Light | WindowAppearance::VibrantLight => Self::Light,
+            WindowAppearance::Dark | WindowAppearance::VibrantDark => Self::Dark,
         }
     }
 }
@@ -113,6 +125,14 @@ pub enum SemanticColor {
     DiffMatch,
     DiffDifferent,
     DiffMissing,
+
+    // v4vmm-specific ID3 frame version chips. Used as label and frame-tag
+    // color on metadata rows so the user can spot frame-version provenance
+    // at a glance.
+    Id3FrameV22,
+    Id3FrameV23Only,
+    Id3FrameV24Only,
+    Id3FrameUnknown,
 }
 
 impl SemanticColor {
@@ -182,6 +202,11 @@ impl SemanticColor {
             Self::DiffMatch => hex(0x6f_d4a3),
             Self::DiffDifferent => hex(0xff_d27a),
             Self::DiffMissing => hex(0xff_a07f),
+
+            Self::Id3FrameV22 => hex(0xb0_6cf4),
+            Self::Id3FrameV23Only => hex(0xff_c857),
+            Self::Id3FrameV24Only => hex(0x3a_c4c4),
+            Self::Id3FrameUnknown => hex(0xff_8a65),
         }
     }
 
@@ -241,6 +266,13 @@ impl SemanticColor {
             Self::DiffMatch => hex(0x1f_7a3a),
             Self::DiffDifferent => hex(0x96_5a00),
             Self::DiffMissing => hex(0xb1_3c20),
+
+            // Light-mode frame chips: darker, lower-saturation variants of
+            // the dark-mode hues, tuned to read as labels on white.
+            Self::Id3FrameV22 => hex(0x5b_3b9e),
+            Self::Id3FrameV23Only => hex(0x8b_5a00),
+            Self::Id3FrameV24Only => hex(0x00_6d77),
+            Self::Id3FrameUnknown => hex(0xb1_3c20),
         }
     }
 }
@@ -248,7 +280,19 @@ impl SemanticColor {
 /// Resolve a semantic color against the current appearance.
 #[must_use]
 pub fn color(cx: &App, token: SemanticColor) -> Rgba {
-    token.resolve(Appearance::current(cx))
+    let env = Environment::current(cx);
+    crate::ui::theme_profiles::resolve_profile_color_for_appearance(
+        env.profile,
+        env.appearance,
+        token,
+    )
+}
+
+/// Resolve a semantic color for a render context, honoring an explicit
+/// light/dark appearance override when one is provided.
+#[must_use]
+pub fn resolve_color(cx: &App, token: SemanticColor, appearance: Option<Appearance>) -> Rgba {
+    appearance.map_or_else(|| color(cx, token), |appearance| token.resolve(appearance))
 }
 
 // -----------------------------------------------------------------------------
@@ -414,6 +458,14 @@ impl From<Weight> for FontWeight {
 /// when a future `ScaleFactor` token is introduced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Size {
+    /// 44 px — minimum interactive hit region.
+    MinHitTarget,
+    /// 28 px — compact button / toolbar affordance.
+    ButtonSm,
+    /// 32 px — default button.
+    ButtonMd,
+    /// 40 px — prominent dialog / sheet button.
+    ButtonLg,
     /// 160 px — compact menu / dropdown.
     MenuCompact,
     /// 220 px — regular menu / popover (default).
@@ -436,6 +488,9 @@ impl Size {
     #[must_use]
     pub const fn px(self) -> Pixels {
         match self {
+            Self::ButtonSm => px(28.0),
+            Self::ButtonMd => px(32.0),
+            Self::ButtonLg => px(40.0),
             Self::MenuCompact => px(160.0),
             Self::MenuRegular => px(220.0),
             Self::MenuWide => px(280.0),
@@ -443,7 +498,7 @@ impl Size {
             Self::ColumnRegular => px(320.0),
             Self::ColumnTall => px(480.0),
             Self::RowMd => px(36.0),
-            Self::RowLg => px(44.0),
+            Self::MinHitTarget | Self::RowLg => px(44.0),
         }
     }
 
@@ -506,8 +561,8 @@ impl gpui::Global for ScaleFactor {}
 /// Bundled rendering context that primitives and composites consult.
 ///
 /// Modeled after `SwiftUI`'s `Environment`: a single typed value carrying the
-/// appearance scheme and Dynamic-Type-style scale that every component
-/// observes. Today it lives as a `gpui::Global` (app-scoped); per-subtree
+/// appearance scheme, Dynamic-Type-style scale, and motion preference that
+/// every component observes. Today it lives as a `gpui::Global` (app-scoped); per-subtree
 /// override would be a wrapper element that swaps the global for the duration
 /// of its render.
 ///
@@ -516,13 +571,20 @@ impl gpui::Global for ScaleFactor {}
 /// ```ignore
 /// use crate::ui::tokens::Environment;
 /// let env = Environment::current(cx);
-/// let bg = SemanticColor::SystemBackground.resolve(env.appearance);
+/// let bg = crate::ui::theme_profiles::resolve_profile_color(
+///     env.profile,
+///     SemanticColor::SystemBackground,
+/// );
 /// let pad = Spacing::Md.scaled(cx);   // reads env.scale internally
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Environment {
+    pub profile: ThemeProfile,
     pub appearance: Appearance,
     pub scale: ScaleFactor,
+    /// Mirrors the platform Reduce Motion preference when the runtime exposes
+    /// it. Keep all animation decisions routed through [`Self::allows_motion`].
+    pub reduce_motion: bool,
 }
 
 impl Environment {
@@ -531,6 +593,12 @@ impl Environment {
     #[must_use]
     pub fn current(cx: &App) -> Self {
         cx.try_global::<Environment>().copied().unwrap_or_default()
+    }
+
+    /// Returns whether user-visible animation may run.
+    #[must_use]
+    pub const fn allows_motion(self) -> bool {
+        !self.reduce_motion
     }
 
     /// Installs the environment as a `gpui::Global` and mirrors the scale
@@ -616,6 +684,16 @@ mod tests {
         assert!(Radius::MD.px() < Radius::LG.px());
         assert!(Radius::LG.px() < Radius::XL.px());
         assert!(Radius::XL.px() < Radius::Full.px());
+    }
+
+    #[test]
+    fn reduce_motion_disables_environment_motion() {
+        let env = Environment {
+            reduce_motion: true,
+            ..Environment::default()
+        };
+
+        assert!(!env.allows_motion());
     }
 
     #[test]

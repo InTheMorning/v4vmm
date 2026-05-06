@@ -108,6 +108,7 @@ pub struct Feed {
     pub title: Option<String>,
     pub name: Option<String>,
     pub feed_url: Option<String>,
+    #[serde(alias = "owner_name")]
     pub release_artist: Option<String>,
     pub release_artist_sort: Option<String>,
     pub raw_medium: Option<String>,
@@ -122,8 +123,11 @@ pub struct Feed {
     pub description: Option<String>,
     pub image_url: Option<String>,
     pub tracks: Option<Vec<Track>>,
+    #[serde(alias = "persons")]
     pub source_contributors: Option<Vec<Contributor>>,
+    #[serde(alias = "links")]
     pub source_links: Option<Vec<SourceEntityLink>>,
+    #[serde(alias = "entity_ids")]
     pub source_ids: Option<Vec<SourceEntityId>>,
     pub source_release_claims: Option<Vec<SourceReleaseClaim>>,
     pub payment_routes: Option<Vec<PaymentRoute>>,
@@ -148,12 +152,16 @@ pub struct Track {
     pub enclosure_type: Option<String>,
     pub enclosure_bytes: Option<i64>,
     pub image_url: Option<String>,
+    #[serde(alias = "author_name")]
     pub track_artist: Option<String>,
     pub release_artist: Option<String>,
     pub publisher_text: Option<String>,
     pub artist_credit: Option<ArtistCredit>,
+    #[serde(alias = "persons")]
     pub source_contributors: Option<Vec<Contributor>>,
+    #[serde(alias = "links")]
     pub source_links: Option<Vec<SourceEntityLink>>,
+    #[serde(alias = "entity_ids")]
     pub source_ids: Option<Vec<SourceEntityId>>,
     pub source_release_claims: Option<Vec<SourceReleaseClaim>>,
     pub source_enclosures: Option<Vec<SourceEnclosure>>,
@@ -219,6 +227,8 @@ pub struct Contributor {
     pub name: Option<String>,
     pub role: Option<String>,
     pub href: Option<String>,
+    pub img: Option<String>,
+    pub npub: Option<String>,
     pub group_name: Option<String>,
 }
 
@@ -678,7 +688,7 @@ fn sanitize_api_query_value(value: &str) -> String {
     value
         .chars()
         .map(|ch| {
-            if ch == '\0' || ch.is_control() {
+            if ch == '\0' || ch == '\\' || ch.is_control() {
                 ' '
             } else {
                 ch
@@ -800,6 +810,36 @@ mod tests {
     }
 
     #[test]
+    fn build_url_sanitizes_backslash_query_values() {
+        let client = Client::new();
+        let url = client
+            .build_url(
+                &["v1", "search"],
+                &[
+                    ("q", r"john\doe".into()),
+                    ("slashes", r"\\".into()),
+                    ("mixed", r"one\\two\three".into()),
+                ],
+            )
+            .expect("url");
+
+        assert!(
+            !url.as_str().contains("%5C"),
+            "url should not contain encoded backslashes: {url}"
+        );
+
+        let query_pairs = url.query_pairs().collect::<Vec<_>>();
+        assert_eq!(
+            query_pairs,
+            vec![
+                ("q".into(), "john doe".into()),
+                ("slashes".into(), "".into()),
+                ("mixed".into(), "one two three".into()),
+            ]
+        );
+    }
+
+    #[test]
     fn track_with_feed_defaults_inherits_missing_source_metadata() {
         let track = Track {
             track_guid: Some("track-guid".into()),
@@ -836,6 +876,67 @@ mod tests {
         assert_eq!(hydrated.source_ids.as_ref().map(Vec::len), Some(1));
         assert_eq!(hydrated.source_contributors.as_ref().map(Vec::len), Some(1));
         assert_eq!(hydrated.payment_routes.as_ref().map(Vec::len), Some(1));
+    }
+
+    #[test]
+    fn contributor_deserializes_identity_fields() {
+        let contributor: Contributor = serde_json::from_str(
+            r#"{
+                "name": "Alice",
+                "role": "vocals",
+                "group_name": "Band",
+                "href": "https://example.com/alice",
+                "img": "https://example.com/alice.jpg",
+                "npub": "npub1alice"
+            }"#,
+        )
+        .expect("contributor identity JSON should deserialize");
+
+        assert_eq!(contributor.name.as_deref(), Some("Alice"));
+        assert_eq!(contributor.role.as_deref(), Some("vocals"));
+        assert_eq!(contributor.group_name.as_deref(), Some("Band"));
+        assert_eq!(
+            contributor.href.as_deref(),
+            Some("https://example.com/alice")
+        );
+        assert_eq!(
+            contributor.img.as_deref(),
+            Some("https://example.com/alice.jpg")
+        );
+        assert_eq!(contributor.npub.as_deref(), Some("npub1alice"));
+    }
+
+    #[test]
+    fn feed_and_track_deserialize_current_musicindex_identity_aliases() {
+        let feed: Feed = serde_json::from_str(
+            r#"{
+                "feed_guid": "feed-1",
+                "owner_name": "Album Artist",
+                "persons": [{"name": "Alice", "role": "vocals"}],
+                "links": [{"link_type": "website", "url": "https://example.com"}],
+                "entity_ids": [{"scheme": "nostr_npub", "value": "npub1feed"}]
+            }"#,
+        )
+        .expect("feed aliases should deserialize");
+        let track: Track = serde_json::from_str(
+            r#"{
+                "track_guid": "track-1",
+                "author_name": "Track Artist",
+                "persons": [{"name": "Bob", "role": "guitar"}],
+                "links": [{"link_type": "website", "url": "https://example.com/track"}],
+                "entity_ids": [{"scheme": "nostr_npub", "value": "npub1track"}]
+            }"#,
+        )
+        .expect("track aliases should deserialize");
+
+        assert_eq!(feed.release_artist.as_deref(), Some("Album Artist"));
+        assert_eq!(feed.source_contributors.as_ref().map(Vec::len), Some(1));
+        assert_eq!(feed.source_links.as_ref().map(Vec::len), Some(1));
+        assert_eq!(feed.source_ids.as_ref().map(Vec::len), Some(1));
+        assert_eq!(track.track_artist.as_deref(), Some("Track Artist"));
+        assert_eq!(track.source_contributors.as_ref().map(Vec::len), Some(1));
+        assert_eq!(track.source_links.as_ref().map(Vec::len), Some(1));
+        assert_eq!(track.source_ids.as_ref().map(Vec::len), Some(1));
     }
 
     #[test]

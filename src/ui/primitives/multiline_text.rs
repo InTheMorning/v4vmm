@@ -17,9 +17,9 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{div, prelude::*, px, App, IntoElement, Pixels, RenderOnce, Rgba, SharedString, Window};
+use gpui::{div, prelude::*, App, IntoElement, Pixels, RenderOnce, Rgba, SharedString, Window};
 
-use crate::ui::tokens::{Appearance, FontSize, SemanticColor};
+use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor};
 
 const ELLIPSIS: &str = "...";
 const BLANK_PLACEHOLDER: &str = " ";
@@ -47,6 +47,10 @@ impl MultilineText {
             line_height: None,
             appearance: None,
         }
+    }
+
+    pub fn from_text(value: &str) -> Self {
+        Self::new(value.to_owned())
     }
 
     /// Maximum number of lines to render before truncating with an
@@ -89,19 +93,19 @@ impl MultilineText {
 
 impl RenderOnce for MultilineText {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let appearance = self.appearance.unwrap_or_else(|| Appearance::current(cx));
         let size = self.size.unwrap_or(FontSize::Micro);
+        let text_size = size.scaled(cx);
 
-        let mut container = div().flex().flex_col().text_size(size.px());
+        let mut container = div().flex().flex_col().text_size(text_size);
         if let Some(color) = self.color {
-            container = container.text_color(color.resolve(appearance));
+            container = container.text_color(resolve_color(cx, color, self.appearance));
         } else if let Some(raw) = self.color_raw {
             container = container.text_color(raw);
         }
         if let Some(lh) = self.line_height {
             container = container.line_height(lh);
         } else {
-            container = container.line_height(px(17.0));
+            container = container.line_height(gpui::px(f32::from(text_size) * 1.55));
         }
 
         for line in lines_for_render(&self.value, self.max_lines) {
@@ -144,6 +148,12 @@ mod tests {
     fn empty_value_renders_single_blank_line() {
         let lines = lines_for_render("", 4);
         assert_eq!(lines, vec![BLANK_PLACEHOLDER.to_string()]);
+    }
+
+    #[test]
+    fn from_text_owns_borrowed_value() {
+        let text = MultilineText::from_text("value");
+        assert_eq!(text.value, SharedString::from("value"));
     }
 
     #[test]
