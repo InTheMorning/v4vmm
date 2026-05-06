@@ -2100,7 +2100,6 @@ fn track_detail_labels_owns_canonical_field_labels() {
     ];
     let allowed_composites = [
         "src/ui/composites/track_detail_surface.rs",
-        "src/ui/composites/track_inspector_pane.rs",
         "src/ui/composites/track_row.rs",
     ];
     let mut violations = Vec::new();
@@ -2146,7 +2145,6 @@ fn track_detail_labels_owns_canonical_field_labels() {
 fn track_surface_slots_are_typed() {
     let files = [
         "src/ui/composites/track_detail_surface.rs",
-        "src/ui/composites/track_inspector_pane.rs",
         "src/ui/composites/track_row.rs",
     ];
     let slot_method_markers = [

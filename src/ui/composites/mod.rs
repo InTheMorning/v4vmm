@@ -35,7 +35,6 @@ pub mod tag_badge;
 pub mod thumbnail;
 pub mod track_detail_surface;
 pub mod track_header;
-pub mod track_inspector_pane;
 pub mod track_metadata_grid;
 pub mod track_row;
 
@@ -69,7 +68,6 @@ pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge, TagBadgeDi
 pub use thumbnail::{Thumbnail, ThumbnailSize};
 pub use track_detail_surface::{TrackDetailSurface, TrackSurfaceElement};
 pub use track_header::TrackHeader;
-pub use track_inspector_pane::TrackInspectorPane;
 pub use track_metadata_grid::{
     TrackMetadataFieldCell, TrackMetadataFieldDisplay, TrackMetadataFrameDisplay,
     TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,

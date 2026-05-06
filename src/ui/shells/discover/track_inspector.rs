@@ -16,7 +16,7 @@ use crate::metadata::TrackContext;
 use crate::search::{InspectorFrame, SearchApp};
 use crate::ui::composites::{
     identity_action_button, DisclosureGroup, DisclosureGroupDisplay, IdentityActionButtonDisplay,
-    IdentityActionKind, ReleaseSurfaceElement, TrackInspectorPane, TrackSurfaceElement,
+    IdentityActionKind, ReleaseSurfaceElement, TrackDetailSurface, TrackSurfaceElement,
 };
 use crate::ui::primitives::{LoadingMessage, Tooltip};
 use crate::ui::shells::discover::actions::{
@@ -26,6 +26,7 @@ use crate::ui::shells::discover::track_inspector_metadata::render_discover_track
 use crate::ui::shells::entity::{render_contributor_rows, ContributorRowSlot};
 use crate::ui::shells::track;
 use crate::ui::style::{color, spacing, typography};
+use crate::ui::tokens::Spacing;
 use crate::view_models::entity_detail::{
     ContributorIdentityActionDisplay, ContributorIdentityActionKind, ContributorListVm,
     ContributorRowVm, EntitySurfaceContext,
@@ -79,6 +80,28 @@ pub(crate) fn render_discover_track_inspector_core(
     );
 
     TrackInspectorPane::new(surface).into_any_element()
+}
+
+#[derive(IntoElement)]
+#[must_use]
+struct TrackInspectorPane {
+    surface: TrackDetailSurface,
+}
+
+impl TrackInspectorPane {
+    const fn new(surface: TrackDetailSurface) -> Self {
+        Self { surface }
+    }
+}
+
+impl RenderOnce for TrackInspectorPane {
+    fn render(self, _window: &mut gpui::Window, cx: &mut gpui::App) -> impl IntoElement {
+        div()
+            .flex()
+            .flex_col()
+            .gap(Spacing::LG.scaled(cx))
+            .child(self.surface)
+    }
 }
 
 pub(crate) fn render_discover_track_inspector_lazy_sections(
