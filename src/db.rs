@@ -628,6 +628,12 @@ pub enum TrackListing {
         /// `playlists.id` of the playlist whose tracks should be listed.
         playlist_id: i64,
     },
+    /// All tracks belonging to one feed (subscribed or cached),
+    /// ordered by disc/track number then title.
+    Feed {
+        /// `feeds.id` whose tracks should be listed.
+        feed_id: i64,
+    },
 }
 
 impl TrackListing {
@@ -635,9 +641,9 @@ impl TrackListing {
         match self {
             Self::Library => "t.is_in_library = 1",
             Self::Cached => "t.is_in_library = 0",
-            // Playlist listings filter by JOIN, not WHERE; this branch is
-            // unused but kept for exhaustiveness.
-            Self::Playlist { .. } => "1 = 1",
+            // Playlist and Feed listings have dedicated query helpers;
+            // these branches are unused but kept for exhaustiveness.
+            Self::Playlist { .. } | Self::Feed { .. } => "1 = 1",
         }
     }
 }
@@ -655,6 +661,9 @@ pub fn track_ids_ordered_by(
 ) -> Result<Vec<(i64, String)>> {
     if let TrackListing::Playlist { playlist_id } = listing {
         return playlist_track_ids_ordered(conn, playlist_id);
+    }
+    if let TrackListing::Feed { feed_id } = listing {
+        return feed_track_ids_ordered(conn, feed_id);
     }
 
     let sql = format!(
@@ -707,6 +716,35 @@ fn playlist_track_ids_ordered(conn: &Connection, playlist_id: i64) -> Result<Vec
         .context("query playlist_track_ids_ordered")?
         .collect::<std::result::Result<Vec<_>, _>>()
         .context("collect playlist_track_ids_ordered")?;
+    Ok(rows)
+}
+
+fn feed_track_ids_ordered(conn: &Connection, feed_id: i64) -> Result<Vec<(i64, String)>> {
+    // Feed listings sort by disc/track number then title — same intra-feed
+    // ordering as the library/cached listings, just scoped to one feed.
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id,
+                    COALESCE(t.disc_number, 0)             AS disc_no,
+                    COALESCE(t.track_number, 0)            AS track_no,
+                    COALESCE(t.track_title, '')            AS title
+             FROM tracks t
+             WHERE t.feed_id = ?1
+             ORDER BY t.disc_number, t.track_number, t.track_title COLLATE NOCASE",
+        )
+        .context("prepare feed_track_ids_ordered")?;
+    let rows = stmt
+        .query_map([feed_id], |row| {
+            let id: i64 = row.get(0)?;
+            let disc_no: i64 = row.get(1)?;
+            let track_no: i64 = row.get(2)?;
+            let title: String = row.get(3)?;
+            let key = format!("{disc_no:04}|{track_no:04}|{title}");
+            Ok((id, key))
+        })
+        .context("query feed_track_ids_ordered")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect feed_track_ids_ordered")?;
     Ok(rows)
 }
 
@@ -2450,6 +2488,55 @@ mod tests {
 
         let empty = track_ids_ordered_by(&conn, TrackListing::Playlist { playlist_id: 9_999 })?;
         assert!(empty.is_empty());
+        Ok(())
+    }
+
+    fn create_named_feed(conn: &Connection, url: &str, title: &str) -> Result<i64> {
+        conn.execute(
+            "INSERT INTO feeds (feed_url, title) VALUES (?1, ?2)",
+            rusqlite::params![url, title],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    #[test]
+    fn track_ids_ordered_by_feed_orders_by_disc_track_title() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let b = insert_track_full(&conn, feed_id, "B", Some(2), true)?;
+        let a = insert_track_full(&conn, feed_id, "A", Some(1), true)?;
+        let c = insert_track_full(&conn, feed_id, "C", Some(3), false)?;
+
+        let rows = track_ids_ordered_by(&conn, TrackListing::Feed { feed_id })?;
+        // Feed listing includes both library + cached tracks and sorts
+        // by track number regardless of `is_in_library`.
+        assert_eq!(
+            rows.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![a, b, c]
+        );
+        assert!(rows[0].1 < rows[1].1);
+        assert!(rows[1].1 < rows[2].1);
+        Ok(())
+    }
+
+    #[test]
+    fn track_ids_ordered_by_feed_isolates_to_one_feed() -> Result<()> {
+        let conn = setup_test_db()?;
+        let f1 = create_named_feed(&conn, "http://a.feed", "Feed A")?;
+        let f2 = create_named_feed(&conn, "http://b.feed", "Feed B")?;
+        let a1 = insert_track_full(&conn, f1, "A", Some(1), true)?;
+        let _b1 = insert_track_full(&conn, f2, "B", Some(1), true)?;
+
+        let rows = track_ids_ordered_by(&conn, TrackListing::Feed { feed_id: f1 })?;
+        assert_eq!(rows.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![a1]);
+        Ok(())
+    }
+
+    #[test]
+    fn track_ids_ordered_by_feed_unknown_id_is_empty() -> Result<()> {
+        let conn = setup_test_db()?;
+        let rows = track_ids_ordered_by(&conn, TrackListing::Feed { feed_id: 9_999 })?;
+        assert!(rows.is_empty());
         Ok(())
     }
 

@@ -185,9 +185,13 @@ impl Actor for PagedTrackListActor {
     ///   is listing that playlist; when it matches the listing's
     ///   `playlist_id`, the index is re-read (track membership and/or
     ///   ordering may have changed).
-    /// * Other variants are ignored: `FeedChanged` does not affect
-    ///   library/cached/playlist orderings; if it ever should, callers
-    ///   can send a [`PagedTrackListMsg::Refresh`] explicitly.
+    /// * [`VmEvent::FeedChanged`] — only relevant when this actor is
+    ///   listing that feed; when it matches the listing's `feed_id`,
+    ///   the index is re-read.
+    /// * Other variants are ignored. A `FeedChanged` for a different
+    ///   feed never affects a `Library` / `Cached` / `Playlist`
+    ///   listing's contents directly; if it ever should, callers can
+    ///   send a [`PagedTrackListMsg::Refresh`] explicitly.
     fn handle_event(&mut self, event: VmEvent, _bus: &VmBus) -> Option<Self::State> {
         let changed = match event {
             VmEvent::TrackChanged { track_id } => {
@@ -220,7 +224,23 @@ impl Actor for PagedTrackListActor {
                     false
                 }
             }
-            VmEvent::FeedChanged { .. } => false,
+            VmEvent::FeedChanged { feed_id } => {
+                let matches_listing = matches!(
+                    self.listing,
+                    TrackListing::Feed { feed_id: my } if my == feed_id
+                );
+                if matches_listing {
+                    if let Err(err) = self.refresh_index() {
+                        eprintln!(
+                            "v4vmm::runtime: PagedTrackList FeedChanged refresh failed: {err}"
+                        );
+                        return None;
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
         };
 
         if changed {
@@ -467,5 +487,60 @@ mod tests {
         };
         assert_eq!(r0, 50);
         assert_eq!(r2, 199);
+    }
+
+    #[test]
+    fn handle_event_matching_feed_changed_refreshes_index() {
+        let conn = open_db();
+        // open_db() created a single feed (id=1) with 200 tracks.
+        let mut actor = PagedTrackListActor::new(conn, TrackListing::Feed { feed_id: 1 }).unwrap();
+        assert_eq!(actor.vm.lock().unwrap().total(), 200);
+
+        actor
+            .conn
+            .execute(
+                "INSERT INTO tracks (feed_id, item_guid, track_title, track_number, is_in_library)
+                 VALUES (1, 'extra-feed', 'X', 9999, 1)",
+                [],
+            )
+            .unwrap();
+
+        let bus = VmBus::new();
+        let snapshot = actor.handle_event(VmEvent::FeedChanged { feed_id: 1 }, &bus);
+        assert!(snapshot.is_some(), "matching FeedChanged must refresh");
+        assert_eq!(actor.vm.lock().unwrap().total(), 201);
+
+        // Non-matching feed id is a no-op.
+        let other = actor.handle_event(VmEvent::FeedChanged { feed_id: 9_999 }, &bus);
+        assert!(other.is_none(), "non-matching FeedChanged must be ignored");
+    }
+
+    #[test]
+    fn feed_listing_indexes_only_attached_tracks() {
+        let conn = open_db();
+        // Create a second feed with two tracks.
+        conn.execute(
+            "INSERT INTO feeds (feed_url, title) VALUES ('http://other', 'Other')",
+            [],
+        )
+        .unwrap();
+        let other_feed_id: i64 = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO tracks (feed_id, item_guid, track_title, track_number, is_in_library)
+             VALUES (?1, 'o1', 'O1', 1, 0), (?1, 'o2', 'O2', 2, 1)",
+            rusqlite::params![other_feed_id],
+        )
+        .unwrap();
+
+        let actor = PagedTrackListActor::new(
+            conn,
+            TrackListing::Feed {
+                feed_id: other_feed_id,
+            },
+        )
+        .unwrap();
+        // Only the two tracks attached to other_feed_id, regardless of
+        // is_in_library.
+        assert_eq!(actor.vm.lock().unwrap().total(), 2);
     }
 }
