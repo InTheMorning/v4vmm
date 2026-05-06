@@ -97,7 +97,10 @@ impl ApplicationCommand for StageMusicBrainzTrack {
         }
         let staged = feed_service::lookup_musicbrainz_stage_for_track(&self.track)
             .map_err(|error| metadata_command_error(&error))?;
-        Ok(CommandOutcome::new(staged, metadata_changed_events()))
+        Ok(CommandOutcome::new(
+            staged,
+            metadata_track_tagged_events(self.track.id),
+        ))
     }
 }
 
@@ -125,12 +128,17 @@ impl ApplicationCommand for StageMusicBrainzCandidate {
         }
         let staged = feed_service::stage_candidate_for_track(&self.track, &self.candidate)
             .map_err(|error| metadata_command_error(&error))?;
-        Ok(CommandOutcome::new(staged, metadata_changed_events()))
+        Ok(CommandOutcome::new(
+            staged,
+            metadata_track_tagged_events(self.track.id),
+        ))
     }
 }
 
-fn metadata_changed_events() -> Vec<ApplicationEvent> {
-    vec![ApplicationEvent::Metadata(MetadataEvent::Changed)]
+fn metadata_track_tagged_events(track_id: i64) -> Vec<ApplicationEvent> {
+    vec![ApplicationEvent::Metadata(MetadataEvent::TrackTagged {
+        track_id,
+    })]
 }
 
 fn metadata_command_error(error: &anyhow::Error) -> CommandError {

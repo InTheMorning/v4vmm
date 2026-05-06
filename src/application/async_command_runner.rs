@@ -139,6 +139,11 @@ fn publish_vm_invalidations(bus: &VmBus, events: &[ApplicationEvent]) {
             | ApplicationEvent::Playlist(PlaylistEvent::Changed) => {
                 bus.publish(VmEvent::InvalidateAll);
             }
+            ApplicationEvent::Metadata(MetadataEvent::TrackTagged { track_id }) => {
+                bus.publish(VmEvent::TrackChanged {
+                    track_id: *track_id,
+                });
+            }
             ApplicationEvent::Playlist(PlaylistEvent::TracksChanged { playlist_id }) => {
                 bus.publish(VmEvent::PlaylistChanged {
                     playlist_id: *playlist_id,
@@ -320,6 +325,32 @@ mod tests {
         assert!(matches!(first, VmEvent::PlaylistChanged { playlist_id: 7 }));
         let second = vm_rx.recv().await.expect("vm event");
         assert!(matches!(second, VmEvent::InvalidateAll));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dispatch_maps_metadata_track_tagged_to_track_changed() {
+        use crate::application::events::metadata::MetadataEvent;
+        let vm_bus = VmBus::new();
+        let mut vm_rx = vm_bus.subscribe();
+        let runner = AsyncCommandRunner::with_vm_bus(
+            Arc::new(CommandBus::new()),
+            Arc::new(ApplicationEventBus::new()),
+            vm_bus,
+        );
+
+        let rx = runner.dispatch(
+            EchoCommand {
+                value: 0,
+                emit: vec![ApplicationEvent::Metadata(MetadataEvent::TrackTagged {
+                    track_id: 42,
+                })],
+            },
+            empty_context(),
+        );
+        let _ = rx.await.expect("oneshot");
+
+        let event = vm_rx.recv().await.expect("vm event");
+        assert!(matches!(event, VmEvent::TrackChanged { track_id: 42 }));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
