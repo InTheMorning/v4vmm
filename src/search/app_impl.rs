@@ -131,15 +131,27 @@ impl SearchApp {
                         })
                         .await;
                 let _ = this.update(cx, move |this, cx| {
+                    let mut should_eager_prefetch = false;
                     match result {
                         Ok(response) => {
                             this.vm.finish_recent_feed_load(response);
+                            // After the first page lands, eagerly request the
+                            // next one in the background so the user's first
+                            // scroll-to-bottom never pauses on a network round
+                            // trip. `begin_recent_feed_load(true)` is
+                            // idempotent against in-flight loads.
+                            if !append && this.vm.recent_has_more {
+                                should_eager_prefetch = true;
+                            }
                         }
                         Err(error) => {
                             this.vm.fail_recent_feed_load(error);
                         }
                     }
                     cx.notify();
+                    if should_eager_prefetch {
+                        this.load_recent_feeds(true, cx);
+                    }
                 });
             },
         )
@@ -386,10 +398,11 @@ impl SearchApp {
                                 .ok()
                                 .flatten()
                         });
+                        let mut image_url_to_fetch: Option<String> = None;
                         if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 match detail {
-                                    Ok((detail, image)) => {
+                                    Ok((detail, image_url)) => {
                                         if let InspectorDetail::Artist(ctx) = &detail {
                                             this.vm.merge_artist_result_detail(
                                                 &entity_id,
@@ -397,7 +410,7 @@ impl SearchApp {
                                             );
                                         }
                                         frame.detail = detail;
-                                        frame.image = image;
+                                        frame.image = None;
                                         frame.local_subscription = local_subscription;
                                         frame.subscription_message = None;
                                         if let InspectorDetail::Feed(feed) = &frame.detail {
@@ -408,6 +421,7 @@ impl SearchApp {
                                                 this.load_podroll(entity_id.clone(), feed_url, cx);
                                             }
                                         }
+                                        image_url_to_fetch = image_url;
                                     }
                                     Err(error) => {
                                         frame.detail = InspectorDetail::Error(error.to_string());
@@ -416,9 +430,54 @@ impl SearchApp {
                             }
                         }
                         cx.notify();
+                        if let Some(url) = image_url_to_fetch {
+                            this.load_inspector_image(entity_type, entity_id, url, cx);
+                        }
                     },
                 )
                 .ok();
+            },
+        )
+        .detach();
+    }
+
+    /// Fetch + decode an inspector hero image as a follow-up to the
+    /// structured detail fetch. The text/structured payload is rendered
+    /// the moment it lands; the image slots in via a second `cx.notify()`
+    /// when the bytes arrive. Keeping image work off the critical path
+    /// is the largest perceived-latency win in the discover flow because
+    /// HTTP-GET-then-decode for cover art was previously bundled into the
+    /// same background task as the structured fetch.
+    fn load_inspector_image(
+        &mut self,
+        entity_type: String,
+        entity_id: String,
+        image_url: String,
+        cx: &mut Context<Self>,
+    ) {
+        let client = self.api_client();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let image = cx
+                    .background_executor()
+                    .spawn(async move {
+                        download_image(&client.client, &image_url).map(image_from_bytes)
+                    })
+                    .await;
+                if image.is_none() {
+                    return;
+                }
+                let _ = this.update(cx, move |this, cx| {
+                    if let Some(frame) = this.inspector_stack.last_mut() {
+                        if frame.entity_type == entity_type
+                            && frame.entity_id == entity_id
+                            && frame.image.is_none()
+                        {
+                            frame.image = image;
+                            cx.notify();
+                        }
+                    }
+                });
             },
         )
         .detach();
@@ -1788,7 +1847,7 @@ fn fetch_inspector_detail(
     client: &Client,
     entity_type: &str,
     entity_id: &str,
-) -> Result<(InspectorDetail, Option<Arc<Image>>)> {
+) -> Result<(InspectorDetail, Option<String>)> {
     match entity_type {
         "artist" => {
             let response = client.fetch_tracks_by_artist(entity_id, Some(PAGE_LIMIT * 2), None)?;
@@ -1848,13 +1907,9 @@ fn fetch_inspector_detail(
                         nonempty_url(track.image_url.as_deref()).map(str::to_string)
                     })
                 });
-            let image = image_url
-                .as_deref()
-                .and_then(|url| download_image(&client.client, url))
-                .map(image_from_bytes);
             let artist = Artist {
                 name: Some(entity_id.to_string()),
-                image_url,
+                image_url: image_url.clone(),
                 track_count: Some(tracks.len() as i32),
                 feed_count: Some(feeds.len() as i32),
                 ..Artist::default()
@@ -1866,7 +1921,7 @@ fn fetch_inspector_detail(
                     feeds,
                     has_more_tracks,
                 })),
-                image,
+                image_url,
             ))
         }
         "feed" => {
@@ -1877,12 +1932,12 @@ fn fetch_inspector_detail(
                 ),
             )?;
             hydrate_feed_track_play_urls(client, &mut feed);
-            let image = feed
+            let image_url = feed
                 .image_url
                 .as_deref()
-                .and_then(|url| download_image(&client.client, url))
-                .map(image_from_bytes);
-            Ok((InspectorDetail::Feed(Box::new(feed)), image))
+                .and_then(|u| nonempty_url(Some(u)))
+                .map(str::to_string);
+            Ok((InspectorDetail::Feed(Box::new(feed)), image_url))
         }
         "track" => {
             let mut track = client.fetch_track(
@@ -1902,14 +1957,14 @@ fn fetch_inspector_detail(
                     .ok()
             });
             enrich_track_context_from_rss(&mut track, feed.as_mut());
-            let image = track
+            let image_url = track
                 .image_url
                 .as_deref()
-                .and_then(|url| download_image(&client.client, url))
-                .map(image_from_bytes);
+                .and_then(|u| nonempty_url(Some(u)))
+                .map(str::to_string);
             Ok((
                 InspectorDetail::Track(Box::new(TrackContext { track, feed })),
-                image,
+                image_url,
             ))
         }
         "publisher" => Ok((
