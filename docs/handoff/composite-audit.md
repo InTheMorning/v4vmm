@@ -67,3 +67,15 @@ Three single-use composites are scheduled for inlining in the next
 phase-C commits, one composite per commit (per todo
 `inline-single-use-composites`). Renaming pass (`composite-naming-pass`)
 runs after all inlines land.
+
+## Naming pass result (2026-05-06)
+
+ADR 0042 raised the question of whether `track_row` should fold into
+`list_row`. Inspection of `src/ui/composites/track_row.rs` shows it
+is already a domain wrapper that internally renders through
+`ListRow` — the layering is correct, not duplicated. With 17 call
+sites and a clear `TrackRowVm` / `SharedTrackRowVm` projection
+contract, folding it into `list_row` would require a parallel
+`TrackRowDisplay` on `list_row`, which would in turn break the
+"primitive vs composite" boundary `list_row` defends. No rename
+performed; both names retained as a deliberate two-tier shape.
