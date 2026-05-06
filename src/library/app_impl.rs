@@ -1985,6 +1985,8 @@ impl Render for LibraryApp {
             &album_thumbs,
             self.vm.playlists(),
             &chrome,
+            #[cfg(feature = "async-runtime")]
+            self.playlist_actor.as_ref(),
             cx,
         );
 

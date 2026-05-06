@@ -1119,6 +1119,34 @@ fn screens_do_not_reintroduce_raw_color_or_numeric_px_literals() {
     );
 }
 
+/// Renders run inside an active `entity.update`, so re-reading the owning
+/// entity (or any chain rooted at `cx.entity()`) panics with
+/// `cannot read X while it is already being updated`. Forbid that pattern in
+/// any file that participates in a screen render.
+#[test]
+fn screens_do_not_reread_owning_entity_during_render() {
+    let mut violations = Vec::new();
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("cx.entity().read(") || line.contains("entity.read(cx)") {
+                violations.push(format!(
+                    "{file}:{line_number}: re-reading the owning entity during render \
+                     causes a GPUI re-entrancy panic; pass the data in via parameter: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "GPUI re-entrancy hazard:\n{}",
+        violations.join("\n")
+    );
+}
+
 #[test]
 fn screens_do_not_call_migrated_playlist_service_paths() {
     let mut violations = Vec::new();
@@ -2412,8 +2440,8 @@ fn screens_do_not_define_local_track_row_chrome() {
                     let absolute = search_start + idx;
                     // Skip if the match is the suffix of a longer identifier
                     // (e.g. `SkeletonTrackRow::new(` ends with `TrackRow::new(`).
-                    let preceded_by_ident = absolute > 0
-                        && line.as_bytes()[absolute - 1].is_ascii_alphanumeric();
+                    let preceded_by_ident =
+                        absolute > 0 && line.as_bytes()[absolute - 1].is_ascii_alphanumeric();
                     if !preceded_by_ident {
                         violations.push(format!(
                             "{file}:{line_number}: track row chrome must be owned by `TrackRow` through `TrackRowVm`, not locally rebuilt; found `{pattern}` in `{line}`"

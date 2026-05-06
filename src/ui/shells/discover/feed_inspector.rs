@@ -91,8 +91,9 @@ pub(crate) fn render_inspector(
             } else if show_recents_root {
                 let recents_handle = app.recents_scroll.clone();
                 let recents_for_listener = recents_handle.clone();
-                scroll_box = scroll_box.track_scroll(&recents_handle).on_scroll_wheel(
-                    cx.listener(
+                scroll_box = scroll_box
+                    .track_scroll(&recents_handle)
+                    .on_scroll_wheel(cx.listener(
                         move |this: &mut SearchApp, _event: &ScrollWheelEvent, _window, cx| {
                             let max_y = f32::from(recents_for_listener.max_offset().height);
                             let offset_y = f32::from(recents_for_listener.offset().y);
@@ -106,8 +107,7 @@ pub(crate) fn render_inspector(
                                 this.load_recent_feeds(true, cx);
                             }
                         },
-                    ),
-                );
+                    ));
             }
             scroll_box.child(match frame {
                 Some(frame) => render_inspector_body(frame, app, cx),

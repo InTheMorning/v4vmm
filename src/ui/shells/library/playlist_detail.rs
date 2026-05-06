@@ -20,6 +20,8 @@ use std::sync::Arc;
 
 use gpui::{AnyElement, Context, Image};
 
+#[cfg(feature = "async-runtime")]
+use crate::library::PlaylistActorState;
 use crate::library::{LibraryApp, LibraryAppEvent, PlaylistDetail};
 use crate::ui::shells::library::thumbnail::render_album_thumb;
 use crate::ui::shells::playlist::{
@@ -32,11 +34,14 @@ pub(crate) fn render_library_playlist_detail(
     detail: &PlaylistDetail,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     chrome: &LibraryChromeDisplay,
+    #[cfg(feature = "async-runtime")] playlist_actor: Option<&PlaylistActorState>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     #[cfg(feature = "async-runtime")]
-    if let Some(rendered) = try_render_paged(detail, album_thumbs, chrome, cx) {
-        return rendered;
+    if let Some(state) = playlist_actor {
+        if let Some(rendered) = try_render_paged(detail, state, album_thumbs, chrome, cx) {
+            return rendered;
+        }
     }
 
     render_eager_playlist_detail(detail, album_thumbs, chrome, cx)
@@ -108,6 +113,7 @@ fn render_eager_playlist_detail(
 #[cfg(feature = "async-runtime")]
 fn try_render_paged(
     detail: &PlaylistDetail,
+    state: &PlaylistActorState,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
@@ -115,18 +121,12 @@ fn try_render_paged(
     use crate::application::paged_track_list::PagedTrackListMsg;
     use crate::view_models::paged_playlist_detail::{PagedPlaylistDetailVm, PagedPlaylistRow};
 
-    // Borrow the actor state briefly to clone the handle + backing VM,
-    // then release the borrow so we can use `cx` mutably for listeners.
-    let entity = cx.entity();
     let playlist_id = detail.playlist.id;
-    let (backing, inbox) = {
-        let app = entity.read(cx);
-        let state = app.playlist_actor.as_ref()?;
-        if state.playlist_id != playlist_id {
-            return None;
-        }
-        (state.snapshot.clone(), state.handle.clone())
-    };
+    if state.playlist_id != playlist_id {
+        return None;
+    }
+    let backing = state.snapshot.clone();
+    let inbox = state.handle.clone();
 
     let page = PlaylistDetailVm::new(&detail.playlist, &detail.tracks)
         .page(chrome.playlist_detail_scroll_id);

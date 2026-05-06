@@ -207,8 +207,7 @@ pub(crate) fn render_discover_recent(
                 .when(params.loading && params.is_empty, |el| {
                     let count = pending_skeleton_count(true, false);
                     el.children((0..count).map(|i| {
-                        SkeletonFeedTile::new(("discover-recent-skeleton", i))
-                            .into_any_element()
+                        SkeletonFeedTile::new(("discover-recent-skeleton", i)).into_any_element()
                     }))
                 })
                 .when(params.loading && !params.is_empty, |el| {
