@@ -14,7 +14,8 @@ use gpui::{AnyElement, Context, Image};
 use crate::library::{LibraryApp, LibraryAppEvent, PlaylistDetail};
 use crate::ui::shells::library::thumbnail::render_album_thumb;
 use crate::ui::shells::playlist::{
-    click_slot, render_playlist_detail_shell, PlaylistDetailBehaviorSlots, PlaylistTrackRowSlot,
+    click_slot, render_playlist_detail_shell, PlaylistDetailBehaviorSlots, PlaylistShellRow,
+    PlaylistTrackRowSlot,
 };
 use crate::view_models::library::{LibraryChromeDisplay, PlaylistDetailVm};
 
@@ -38,8 +39,9 @@ pub(crate) fn render_library_playlist_detail(
                 .and_then(|url| album_thumbs.get(url))
                 .cloned()
                 .flatten();
+            let display = row.display(playlist_id);
 
-            PlaylistTrackRowSlot {
+            let slot = PlaylistTrackRowSlot {
                 thumbnail: Some(render_album_thumb(thumbnail, 24.0)),
                 on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
                     this.select_track(&track_for_select, cx);
@@ -60,7 +62,8 @@ pub(crate) fn render_library_playlist_detail(
                 on_remove: Some(click_slot(cx.listener(move |this, _, _, cx| {
                     this.remove_playlist_track_at(playlist_id, position, cx);
                 }))),
-            }
+            };
+            PlaylistShellRow::Ready { display, slot }
         })
         .collect();
 
