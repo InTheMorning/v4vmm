@@ -29,21 +29,44 @@ use tokio::sync::oneshot;
 use crate::application::application_event_bus::ApplicationEventBus;
 use crate::application::command_bus::{ApplicationCommand, CommandBus, CommandResult};
 use crate::application::command_context::CommandContext;
+use crate::application::events::ApplicationEvent;
+use crate::runtime::{VmBus, VmEvent};
 
 /// Async wrapper that dispatches commands onto the tokio runtime.
 #[derive(Clone, Debug)]
+#[allow(clippy::struct_field_names)]
 pub struct AsyncCommandRunner {
     command_bus: Arc<CommandBus>,
     event_bus: Arc<ApplicationEventBus>,
+    vm_bus: Option<VmBus>,
 }
 
 impl AsyncCommandRunner {
-    /// Creates a new runner.
+    /// Creates a new runner without a `VmBus`.
+    ///
+    /// Callers that want command outcomes to invalidate VM caches should
+    /// use [`Self::with_vm_bus`] instead.
     #[must_use]
     pub const fn new(command_bus: Arc<CommandBus>, event_bus: Arc<ApplicationEventBus>) -> Self {
         Self {
             command_bus,
             event_bus,
+            vm_bus: None,
+        }
+    }
+
+    /// Creates a runner that also republishes successful command events
+    /// onto the runtime [`VmBus`] so paged actors can drop caches.
+    #[must_use]
+    pub fn with_vm_bus(
+        command_bus: Arc<CommandBus>,
+        event_bus: Arc<ApplicationEventBus>,
+        vm_bus: VmBus,
+    ) -> Self {
+        Self {
+            command_bus,
+            event_bus,
+            vm_bus: Some(vm_bus),
         }
     }
 
@@ -72,6 +95,7 @@ impl AsyncCommandRunner {
         let (tx, rx) = oneshot::channel();
         let command_bus = Arc::clone(&self.command_bus);
         let event_bus = Arc::clone(&self.event_bus);
+        let vm_bus = self.vm_bus.clone();
 
         tokio::task::spawn_blocking(move || {
             let result = command_bus.execute(command, &context);
@@ -79,6 +103,9 @@ impl AsyncCommandRunner {
             // observe state changes before the caller learns about them.
             if let Ok(outcome) = result.as_ref() {
                 event_bus.broadcast(outcome.events());
+                if let Some(bus) = vm_bus.as_ref() {
+                    publish_vm_invalidations(bus, outcome.events());
+                }
             }
             // Drop result to caller. If the receiver was dropped, the
             // send fails silently — that is the intended fire-and-forget
@@ -87,6 +114,39 @@ impl AsyncCommandRunner {
         });
 
         rx
+    }
+}
+
+/// Translate `ApplicationEvent`s emitted by a successful command into
+/// coarse-grained `VmEvent` invalidations on the runtime bus.
+///
+/// Most application events are id-less today, so they map to
+/// `InvalidateAll`; `PlaylistEvent::TracksChanged { playlist_id }`
+/// carries an id and maps to a precise `PlaylistChanged`. Add finer
+/// mappings here as the typed event surface grows.
+fn publish_vm_invalidations(bus: &VmBus, events: &[ApplicationEvent]) {
+    use crate::application::events::{
+        download::DownloadEvent, feed::FeedEvent, library::LibraryEvent, metadata::MetadataEvent,
+        playlist::PlaylistEvent,
+    };
+
+    for event in events {
+        match event {
+            ApplicationEvent::Library(LibraryEvent::Changed)
+            | ApplicationEvent::Feed(FeedEvent::Changed)
+            | ApplicationEvent::Download(DownloadEvent::Changed)
+            | ApplicationEvent::Metadata(MetadataEvent::Changed)
+            | ApplicationEvent::Playlist(PlaylistEvent::Changed) => {
+                bus.publish(VmEvent::InvalidateAll);
+            }
+            ApplicationEvent::Playlist(PlaylistEvent::TracksChanged { playlist_id }) => {
+                bus.publish(VmEvent::PlaylistChanged {
+                    playlist_id: *playlist_id,
+                });
+            }
+            // Playback events are session-state, not VM-cached state.
+            ApplicationEvent::Playback(_) => {}
+        }
     }
 }
 
@@ -231,5 +291,54 @@ mod tests {
             "expected early termination, got {}",
             outcome.value()
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dispatch_publishes_vm_invalidations_when_bus_attached() {
+        use crate::application::events::playlist::PlaylistEvent;
+        let vm_bus = VmBus::new();
+        let mut vm_rx = vm_bus.subscribe();
+        let runner = AsyncCommandRunner::with_vm_bus(
+            Arc::new(CommandBus::new()),
+            Arc::new(ApplicationEventBus::new()),
+            vm_bus,
+        );
+
+        let rx = runner.dispatch(
+            EchoCommand {
+                value: 0,
+                emit: vec![
+                    ApplicationEvent::Playlist(PlaylistEvent::TracksChanged { playlist_id: 7 }),
+                    ApplicationEvent::Playlist(PlaylistEvent::Changed),
+                ],
+            },
+            empty_context(),
+        );
+        let _ = rx.await.expect("oneshot");
+
+        let first = vm_rx.recv().await.expect("vm event");
+        assert!(matches!(first, VmEvent::PlaylistChanged { playlist_id: 7 }));
+        let second = vm_rx.recv().await.expect("vm event");
+        assert!(matches!(second, VmEvent::InvalidateAll));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dispatch_without_vm_bus_does_not_panic() {
+        // Smoke check the default constructor path still works after the
+        // optional vm_bus field was added.
+        use crate::application::events::library::LibraryEvent;
+        let runner = AsyncCommandRunner::new(
+            Arc::new(CommandBus::new()),
+            Arc::new(ApplicationEventBus::new()),
+        );
+        let rx = runner.dispatch(
+            EchoCommand {
+                value: 1,
+                emit: vec![ApplicationEvent::Library(LibraryEvent::Changed)],
+            },
+            empty_context(),
+        );
+        let outcome = rx.await.expect("oneshot").expect("ok");
+        assert_eq!(*outcome.value(), 1);
     }
 }
