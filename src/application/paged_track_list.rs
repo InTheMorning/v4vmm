@@ -27,7 +27,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::db::{self, TrackListing, TrackRow};
 use crate::runtime::actor::{self, Actor, ActorHandle};
-use crate::runtime::{PagedListVm, VmBus};
+use crate::runtime::{PagedListVm, VmBus, VmEvent};
 use rusqlite::Connection;
 
 /// Inbox messages for [`PagedTrackListActor`].
@@ -173,6 +173,42 @@ impl Actor for PagedTrackListActor {
             None
         }
     }
+
+    /// Translate runtime invalidations into local cache mutations.
+    ///
+    /// * [`VmEvent::TrackChanged`] — drop the single cached row body
+    ///   so the next read re-fetches the page.
+    /// * [`VmEvent::InvalidateAll`] — re-read the identity index from
+    ///   the database (cached page bodies for surviving ids are kept
+    ///   by [`PagedListVm::replace_index`]).
+    /// * Other variants are ignored: `FeedChanged` and `PlaylistChanged`
+    ///   never affect a `TrackListing::Library` / `Cached` ordering by
+    ///   themselves; if they ever should, callers can send a
+    ///   [`PagedTrackListMsg::Refresh`] explicitly.
+    fn handle_event(&mut self, event: VmEvent, _bus: &VmBus) -> Option<Self::State> {
+        let changed = match event {
+            VmEvent::TrackChanged { track_id } => {
+                let mut vm = self.vm.lock().expect("paged track vm mutex poisoned");
+                let v0 = vm.version();
+                vm.invalidate(track_id);
+                vm.version() != v0
+            }
+            VmEvent::InvalidateAll => {
+                if let Err(err) = self.refresh_index() {
+                    eprintln!("v4vmm::runtime: PagedTrackList InvalidateAll refresh failed: {err}");
+                    return None;
+                }
+                true
+            }
+            VmEvent::FeedChanged { .. } | VmEvent::PlaylistChanged { .. } => false,
+        };
+
+        if changed {
+            Some(Arc::clone(&self.vm))
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -267,5 +303,64 @@ mod tests {
         let v0 = vm.version();
         vm.invalidate(target_id);
         assert!(vm.version() > v0, "invalidate must bump version");
+    }
+
+    #[test]
+    fn handle_event_track_changed_invalidates_single_id() {
+        let conn = open_db();
+        let mut actor = PagedTrackListActor::new(conn, TrackListing::Library).unwrap();
+        actor.vm.lock().unwrap().row(0);
+        actor.drain_and_fulfill();
+        let target_id = match actor.vm.lock().unwrap().row(0) {
+            RowSlot::Ready(row) => row.id,
+            RowSlot::Pending(_) => panic!("row must be cached"),
+        };
+        let v0 = actor.vm.lock().unwrap().version();
+
+        let bus = VmBus::new();
+        let snapshot = actor.handle_event(
+            VmEvent::TrackChanged {
+                track_id: target_id,
+            },
+            &bus,
+        );
+        assert!(snapshot.is_some(), "track-change must publish a snapshot");
+        assert!(actor.vm.lock().unwrap().version() > v0);
+    }
+
+    #[test]
+    fn handle_event_invalidate_all_refreshes_index() {
+        let conn = open_db();
+        let mut actor = PagedTrackListActor::new(conn, TrackListing::Library).unwrap();
+        let before = actor.vm.lock().unwrap().total();
+
+        actor
+            .conn
+            .execute(
+                "INSERT INTO tracks (feed_id, item_guid, track_title, track_number, is_in_library)
+                 VALUES (1, 'extra', 'EXTRA', 9999, 1)",
+                [],
+            )
+            .unwrap();
+
+        let bus = VmBus::new();
+        let snapshot = actor.handle_event(VmEvent::InvalidateAll, &bus);
+        assert!(snapshot.is_some());
+        assert_eq!(actor.vm.lock().unwrap().total(), before + 1);
+    }
+
+    #[test]
+    fn handle_event_unrelated_variants_are_noop() {
+        let conn = open_db();
+        let mut actor = PagedTrackListActor::new(conn, TrackListing::Library).unwrap();
+        let bus = VmBus::new();
+        let v0 = actor.vm.lock().unwrap().version();
+        assert!(actor
+            .handle_event(VmEvent::FeedChanged { feed_id: 1 }, &bus)
+            .is_none());
+        assert!(actor
+            .handle_event(VmEvent::PlaylistChanged { playlist_id: 1 }, &bus)
+            .is_none());
+        assert_eq!(actor.vm.lock().unwrap().version(), v0);
     }
 }

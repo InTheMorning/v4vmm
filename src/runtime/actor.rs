@@ -20,9 +20,9 @@
 
 #![warn(clippy::pedantic)]
 
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 
-use super::vm_bus::VmBus;
+use super::vm_bus::{VmBus, VmEvent};
 
 const INBOX_CAPACITY: usize = 64;
 
@@ -37,6 +37,14 @@ impl<T> Snapshot for T where T: Clone + Send + Sync + 'static {}
 /// `Self::Message` carries typed inbox commands; `Self::State` is the
 /// snapshot type. `handle` mutates internal state and returns the new
 /// snapshot to publish (or `None` when nothing changed).
+///
+/// Actors are *automatically* subscribed to the runtime [`VmBus`].
+/// Override [`Actor::handle_event`] to react to invalidations
+/// (the default implementation discards every event). The spawn loop
+/// uses `tokio::select!` so inbox and bus events are handled with
+/// equal priority; if the broadcast channel lags (slow consumer +
+/// burst), the loop synthesizes a [`VmEvent::InvalidateAll`] so the
+/// actor can drop caches conservatively.
 pub trait Actor: Send + 'static {
     type Message: Send + 'static;
     type State: Snapshot;
@@ -47,6 +55,14 @@ pub trait Actor: Send + 'static {
     /// Handle a single inbox message. Return `Some(new_state)` to
     /// publish a new snapshot, `None` to skip publishing.
     fn handle(&mut self, message: Self::Message, bus: &VmBus) -> Option<Self::State>;
+
+    /// Handle a single [`VmBus`] invalidation. Defaults to a no-op so
+    /// existing actors compile unchanged. Override when the actor
+    /// caches state derived from another actor's domain.
+    #[allow(unused_variables)]
+    fn handle_event(&mut self, event: VmEvent, bus: &VmBus) -> Option<Self::State> {
+        None
+    }
 }
 
 /// Caller-side handle to a running actor.
@@ -121,11 +137,43 @@ where
     let initial = actor.initial_state();
     let (snapshot_tx, snapshot_rx) = watch::channel(initial);
     let (inbox_tx, mut inbox_rx) = mpsc::channel::<A::Message>(inbox_capacity);
+    let mut bus_rx = bus.subscribe();
 
     tokio::spawn(async move {
-        while let Some(message) = inbox_rx.recv().await {
-            if let Some(new_state) = actor.handle(message, &bus) {
-                let _ = snapshot_tx.send(new_state);
+        loop {
+            tokio::select! {
+                biased;
+                message = inbox_rx.recv() => {
+                    let Some(message) = message else { break };
+                    if let Some(new_state) = actor.handle(message, &bus) {
+                        let _ = snapshot_tx.send(new_state);
+                    }
+                }
+                event = bus_rx.recv() => {
+                    match event {
+                        Ok(event) => {
+                            if let Some(new_state) = actor.handle_event(event, &bus) {
+                                let _ = snapshot_tx.send(new_state);
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            // Bus is gone; keep serving inbox until that
+                            // closes too. Resubscribe is unnecessary —
+                            // VmBus owners outlive actors in practice.
+                            // Re-create a never-ready receiver so the
+                            // select arm stays inert.
+                            bus_rx = bus.subscribe();
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => {
+                            // We dropped events — be conservative.
+                            if let Some(new_state) =
+                                actor.handle_event(VmEvent::InvalidateAll, &bus)
+                            {
+                                let _ = snapshot_tx.send(new_state);
+                            }
+                        }
+                    }
+                }
             }
         }
     });
@@ -234,5 +282,100 @@ mod tests {
         // resolve to Err.
         let result = rx.changed().await;
         assert!(result.is_err(), "expected watch to close on actor drop");
+    }
+
+    /// Actor that re-publishes its current state every time it sees a
+    /// `VmEvent`, tagging the value so we can distinguish bus-triggered
+    /// publishes from inbox-triggered ones in tests.
+    struct EventReactor {
+        value: i64,
+    }
+
+    enum ReactorMsg {
+        Set(i64),
+    }
+
+    impl Actor for EventReactor {
+        type Message = ReactorMsg;
+        type State = i64;
+
+        fn initial_state(&self) -> Self::State {
+            self.value
+        }
+
+        fn handle(&mut self, message: ReactorMsg, _bus: &VmBus) -> Option<Self::State> {
+            let ReactorMsg::Set(n) = message;
+            self.value = n;
+            Some(self.value)
+        }
+
+        fn handle_event(&mut self, event: VmEvent, _bus: &VmBus) -> Option<Self::State> {
+            match event {
+                VmEvent::InvalidateAll => {
+                    self.value = -1;
+                    Some(self.value)
+                }
+                VmEvent::TrackChanged { track_id } => {
+                    self.value = track_id;
+                    Some(self.value)
+                }
+                _ => None,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn actor_reacts_to_vm_bus_events() {
+        let bus = VmBus::new();
+        let handle = spawn(EventReactor { value: 0 }, bus.clone());
+        let mut rx = handle.subscribe();
+
+        bus.publish(VmEvent::TrackChanged { track_id: 42 });
+        rx.changed().await.expect("change");
+        assert_eq!(*rx.borrow_and_update(), 42);
+
+        bus.publish(VmEvent::InvalidateAll);
+        rx.changed().await.expect("change");
+        assert_eq!(*rx.borrow_and_update(), -1);
+    }
+
+    #[tokio::test]
+    async fn inbox_and_bus_events_interleave() {
+        let bus = VmBus::new();
+        let handle = spawn(EventReactor { value: 0 }, bus.clone());
+        let mut rx = handle.subscribe();
+
+        assert!(handle.send(ReactorMsg::Set(7)).await);
+        rx.changed().await.expect("change");
+        assert_eq!(*rx.borrow_and_update(), 7);
+
+        bus.publish(VmEvent::TrackChanged { track_id: 99 });
+        rx.changed().await.expect("change");
+        assert_eq!(*rx.borrow_and_update(), 99);
+
+        assert!(handle.send(ReactorMsg::Set(3)).await);
+        rx.changed().await.expect("change");
+        assert_eq!(*rx.borrow_and_update(), 3);
+    }
+
+    #[tokio::test]
+    async fn default_handle_event_is_noop() {
+        // Counter does not override handle_event; bus traffic must not
+        // produce any snapshot publishes.
+        let bus = VmBus::new();
+        let handle = spawn(Counter { n: 5 }, bus.clone());
+        let mut rx = handle.subscribe();
+
+        // Drain the initial state so `changed` is meaningful.
+        let _ = *rx.borrow_and_update();
+
+        bus.publish(VmEvent::InvalidateAll);
+        bus.publish(VmEvent::TrackChanged { track_id: 1 });
+
+        // Race the bus publishes against a real inbox publish; the only
+        // snapshot we should observe is the inbox-triggered one.
+        assert!(handle.send(Msg::Set(11)).await);
+        rx.changed().await.expect("change");
+        assert_eq!(*rx.borrow_and_update(), 11);
     }
 }
