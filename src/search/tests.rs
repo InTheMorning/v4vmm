@@ -40,6 +40,18 @@ fn discover_back_button_is_visible_for_any_open_inspector() {
 }
 
 #[test]
+fn each_inspector_frame_owns_a_fresh_scroll_handle() {
+    use super::InspectorFrame;
+    let a = InspectorFrame::loading("feed".into(), "feed-1".into(), "Feed One".into());
+    let b = InspectorFrame::loading("track".into(), "track-1".into(), "Track One".into());
+    // Both frames must start at offset 0 with their own handle so a back
+    // pop restores the prior frame's offset rather than the latest one.
+    let zero = gpui::point(gpui::px(0.0), gpui::px(0.0));
+    assert_eq!(a.scroll_handle.offset(), zero);
+    assert_eq!(b.scroll_handle.offset(), zero);
+}
+
+#[test]
 fn search_results_are_limited_to_artist_feed_and_track() {
     assert!(
         search_result_type_is_visible("artist"),

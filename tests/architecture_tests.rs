@@ -1119,6 +1119,34 @@ fn screens_do_not_reintroduce_raw_color_or_numeric_px_literals() {
     );
 }
 
+/// Renders run inside an active `entity.update`, so re-reading the owning
+/// entity (or any chain rooted at `cx.entity()`) panics with
+/// `cannot read X while it is already being updated`. Forbid that pattern in
+/// any file that participates in a screen render.
+#[test]
+fn screens_do_not_reread_owning_entity_during_render() {
+    let mut violations = Vec::new();
+    for file_name in screen_enforcement_files() {
+        let file = file_name.as_str();
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("cx.entity().read(") || line.contains("entity.read(cx)") {
+                violations.push(format!(
+                    "{file}:{line_number}: re-reading the owning entity during render \
+                     causes a GPUI re-entrancy panic; pass the data in via parameter: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "GPUI re-entrancy hazard:\n{}",
+        violations.join("\n")
+    );
+}
+
 #[test]
 fn screens_do_not_call_migrated_playlist_service_paths() {
     let mut violations = Vec::new();
@@ -1494,7 +1522,7 @@ fn interactive_composites_carry_accessibility_labels() {
         ),
         (
             "NowPlayingData",
-            "src/ui/composites/now_playing_bar.rs",
+            "src/app/playback_bar.rs",
             "play_pause_a11y_label",
         ),
         (
@@ -2100,7 +2128,6 @@ fn track_detail_labels_owns_canonical_field_labels() {
     ];
     let allowed_composites = [
         "src/ui/composites/track_detail_surface.rs",
-        "src/ui/composites/track_inspector_pane.rs",
         "src/ui/composites/track_row.rs",
     ];
     let mut violations = Vec::new();
@@ -2146,7 +2173,6 @@ fn track_detail_labels_owns_canonical_field_labels() {
 fn track_surface_slots_are_typed() {
     let files = [
         "src/ui/composites/track_detail_surface.rs",
-        "src/ui/composites/track_inspector_pane.rs",
         "src/ui/composites/track_row.rs",
     ];
     let slot_method_markers = [
@@ -2409,10 +2435,19 @@ fn screens_do_not_define_local_track_row_chrome() {
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             for pattern in forbidden {
-                if line.contains(pattern) {
-                    violations.push(format!(
-                        "{file}:{line_number}: track row chrome must be owned by `TrackRow` through `TrackRowVm`, not locally rebuilt; found `{pattern}` in `{line}`"
-                    ));
+                let mut search_start = 0;
+                while let Some(idx) = line[search_start..].find(pattern) {
+                    let absolute = search_start + idx;
+                    // Skip if the match is the suffix of a longer identifier
+                    // (e.g. `SkeletonTrackRow::new(` ends with `TrackRow::new(`).
+                    let preceded_by_ident =
+                        absolute > 0 && line.as_bytes()[absolute - 1].is_ascii_alphanumeric();
+                    if !preceded_by_ident {
+                        violations.push(format!(
+                            "{file}:{line_number}: track row chrome must be owned by `TrackRow` through `TrackRowVm`, not locally rebuilt; found `{pattern}` in `{line}`"
+                        ));
+                    }
+                    search_start = absolute + pattern.len();
                 }
             }
         }
@@ -5260,4 +5295,41 @@ fn rel_path(path: &Path) -> String {
         .unwrap_or(path)
         .display()
         .to_string()
+}
+
+const RUNTIME_FORBIDDEN_PATTERNS: &[&str] = &[
+    "use gpui",
+    "gpui::",
+    "use gpui_component",
+    "gpui_component::",
+    "crate::ui::",
+    "crate::ui_",
+    "crate::library::",
+    "crate::search::",
+    "crate::app::",
+    "crate::presentation",
+];
+
+#[test]
+fn runtime_layer_does_not_import_gpui_or_ui() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src/runtime") {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in RUNTIME_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{}:{line_number}: ADR 0040 runtime boundary violation `{pattern}` in `{line}`",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0040 runtime layer must not import gpui/ui:\n{}",
+        violations.join("\n")
+    );
 }

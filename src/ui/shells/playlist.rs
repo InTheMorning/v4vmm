@@ -19,9 +19,7 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::style::{color, radius, spacing};
 use crate::ui::{layouts as layout, tokens::Radius};
-use crate::view_models::library::{
-    PlaylistTrackControlsDisplay, PlaylistTrackRowDisplay, PlaylistTrackRowVm,
-};
+use crate::view_models::library::{PlaylistTrackControlsDisplay, PlaylistTrackRowDisplay};
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 
 type PlaylistClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -30,7 +28,33 @@ type PlaylistClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'sta
 pub(crate) struct PlaylistDetailBehaviorSlots {
     pub(crate) on_rename: Option<PlaylistClickHandler>,
     pub(crate) on_delete: Option<PlaylistClickHandler>,
-    pub(crate) track_rows: Vec<PlaylistTrackRowSlot>,
+    pub(crate) track_rows: Vec<PlaylistShellRow>,
+}
+
+/// One row inside the playlist detail shell.
+///
+/// `Pending` is emitted by paged callers when the row body has not yet
+/// been fetched: the shell paints a [`SkeletonTrackRow`] sized to match
+/// the real row footprint so the scroll position does not jump on
+/// hydration. Eager callers always emit `Ready`.
+#[cfg_attr(
+    not(feature = "async-runtime"),
+    expect(
+        dead_code,
+        reason = "Pending variant is consumed by the paged playlist screen which is gated on `async-runtime`"
+    )
+)]
+pub(crate) enum PlaylistShellRow {
+    Pending {
+        position: usize,
+        last_position: usize,
+    },
+    Ready(Box<PlaylistShellReadyRow>),
+}
+
+pub(crate) struct PlaylistShellReadyRow {
+    pub(crate) display: PlaylistTrackRowDisplay,
+    pub(crate) slot: PlaylistTrackRowSlot,
 }
 
 #[derive(Default)]
@@ -57,16 +81,13 @@ pub(crate) fn render_playlist_detail_shell(
     slots: PlaylistDetailBehaviorSlots,
 ) -> AnyElement {
     let header_display = page.header_display();
-    let mut row_slots = slots.track_rows.into_iter();
-    let track_rows = if page.is_empty() {
+    let track_rows = if slots.track_rows.is_empty() {
         vec![render_empty_message(page.empty_message())]
     } else {
-        page.track_rows()
+        slots
+            .track_rows
             .into_iter()
-            .map(|row| {
-                let slot = row_slots.next().unwrap_or_default();
-                render_playlist_track_row(page.playlist_id(), &row, slot)
-            })
+            .map(|row| render_playlist_shell_row(page.playlist_id(), row))
             .collect()
     };
 
@@ -152,12 +173,49 @@ fn render_playlist_actions(
         .into_any_element()
 }
 
+fn render_playlist_shell_row(playlist_id: i64, row: PlaylistShellRow) -> AnyElement {
+    match row {
+        PlaylistShellRow::Pending {
+            position,
+            last_position,
+        } => render_pending_playlist_row(playlist_id, position, last_position),
+        PlaylistShellRow::Ready(ready) => {
+            render_playlist_track_row(playlist_id, ready.display, ready.slot)
+        }
+    }
+}
+
+fn render_pending_playlist_row(
+    playlist_id: i64,
+    position: usize,
+    last_position: usize,
+) -> AnyElement {
+    let row_id = SharedString::from(format!(
+        "playlist-{playlist_id}-row-{position}-of-{last_position}-pending"
+    ));
+    div()
+        .id(row_id)
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(spacing::SM)
+        .px(spacing::SM)
+        .py(spacing::XS)
+        .rounded(radius::SM)
+        .child(
+            crate::ui::composites::SkeletonTrackRow::new(("playlist-skeleton-row", position))
+                .show_thumbnail(true)
+                .show_duration(true),
+        )
+        .into_any_element()
+}
+
 fn render_playlist_track_row(
     playlist_id: i64,
-    row: &PlaylistTrackRowVm<'_>,
+    display: PlaylistTrackRowDisplay,
     slot: PlaylistTrackRowSlot,
 ) -> AnyElement {
-    let display = row.display(playlist_id);
+    let _ = playlist_id;
     let controls = display.controls.clone();
     let PlaylistTrackRowSlot {
         thumbnail,

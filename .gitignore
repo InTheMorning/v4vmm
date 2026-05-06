@@ -46,4 +46,4 @@ vision.md
 
 # Generic backup files
 *~
-*.bak
+*.bakcopilot --resume=*

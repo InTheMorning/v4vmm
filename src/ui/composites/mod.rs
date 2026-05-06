@@ -26,17 +26,17 @@ pub mod file_header;
 pub mod identity_action;
 pub mod list_row;
 pub mod musicbrainz_panel;
-pub mod now_playing_bar;
 pub mod playlist_popover;
-pub mod recent_feed_tile;
 pub mod release_detail_surface;
 pub mod segmented_control;
+pub mod skeleton_feed_tile;
+pub mod skeleton_inspector;
+pub mod skeleton_track_row;
 pub mod split_pane;
 pub mod tag_badge;
 pub mod thumbnail;
 pub mod track_detail_surface;
 pub mod track_header;
-pub mod track_inspector_pane;
 pub mod track_metadata_grid;
 pub mod track_row;
 
@@ -56,22 +56,22 @@ pub use identity_action::{
 };
 pub use list_row::{ListRow, ListRowA11yLabel, ListRowDensity};
 pub use musicbrainz_panel::MusicBrainzPanel;
-pub use now_playing_bar::{NowPlayingBar, NowPlayingData, PlaybackState as NowPlayingState};
 pub use playlist_popover::{
     AddToPlaylistDisplay, AddToPlaylistPopover, PlaylistOption, PlaylistOptionDisplay,
 };
-pub use recent_feed_tile::RecentFeedTile;
 pub use release_detail_surface::{
     ReleaseActionGroupDisplay, ReleaseDetailSurface, ReleaseSurfaceElement,
     ReleaseTrackSectionDisplay,
 };
 pub use segmented_control::{Segment, SegmentDisplay, SegmentedControl, SegmentedControlStyle};
+pub use skeleton_feed_tile::SkeletonFeedTile;
+pub use skeleton_inspector::SkeletonInspector;
+pub use skeleton_track_row::SkeletonTrackRow;
 pub use split_pane::SplitPane;
 pub use tag_badge::{EntityKind, ProvenanceRole, StatusRole, TagBadge, TagBadgeDisplay};
 pub use thumbnail::{Thumbnail, ThumbnailSize};
 pub use track_detail_surface::{TrackDetailSurface, TrackSurfaceElement};
 pub use track_header::TrackHeader;
-pub use track_inspector_pane::TrackInspectorPane;
 pub use track_metadata_grid::{
     TrackMetadataFieldCell, TrackMetadataFieldDisplay, TrackMetadataFrameDisplay,
     TrackMetadataGrid, TrackMetadataGroupCell, TrackMetadataGroupDisplay, TrackMetadataSourceCell,

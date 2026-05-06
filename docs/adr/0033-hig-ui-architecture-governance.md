@@ -170,6 +170,10 @@ follow-up ADR/task note explaining why it cannot yet be consolidated.
   permitted to call raw floating-chrome APIs.
 - Raw `rgb(...)` values and numeric `px(...)` literals appear only in
   `src/ui/tokens.rs` and theme bridges; everywhere else uses named tokens.
+  This rule extends to `src/ui/shells/` (added 2026-05-06).
+- Composites (`src/ui/composites/*`) must have ≥ 2 distinct call sites;
+  any composite used in exactly one shell collapses into that shell per
+  ADR 0042. Audited each ADR cycle (added 2026-05-06).
 - Screens may pass callbacks and already-prepared display data into shared UI;
   they may not pass service/query objects or backend row types into shared UI,
   including via callback parameter types.

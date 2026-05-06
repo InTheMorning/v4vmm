@@ -379,6 +379,56 @@ pub(crate) fn normalized_search_query(value: &str) -> Option<String> {
     }
 }
 
+/// Distance from the bottom of a scrollable list, in pixels, at which
+/// auto-pagination should fire. Tuned to feel like "minimal resistance":
+/// roughly two-to-three rows shy of the bottom — close enough that the
+/// next page is already in flight by the time the operator reaches the
+/// last visible row, far enough not to fire on a flick that overshoots
+/// by a hair.
+pub(crate) const AUTO_PAGINATE_THRESHOLD_PX: f32 = 240.0;
+
+/// Number of skeleton placeholders to paint when a list is loading
+/// from cold (no rows visible yet). Six rows fills a typical viewport
+/// without dwarfing it.
+pub(crate) const INITIAL_SKELETON_COUNT: usize = 6;
+
+/// Number of skeleton placeholders to paint at the tail of a list that
+/// is currently fetching the next page. Three rows is enough to signal
+/// "more incoming" without pushing existing rows off screen.
+pub(crate) const TAIL_SKELETON_COUNT: usize = 3;
+
+/// Pure skeleton-count policy: how many placeholder rows/tiles should a
+/// loading list paint right now? Zero means "no skeletons" (the list is
+/// idle). Centralising the rule keeps every pane consistent and lets us
+/// tune the experience from one place.
+#[must_use]
+pub(crate) fn pending_skeleton_count(loading: bool, has_existing_rows: bool) -> usize {
+    if !loading {
+        0
+    } else if has_existing_rows {
+        TAIL_SKELETON_COUNT
+    } else {
+        INITIAL_SKELETON_COUNT
+    }
+}
+
+/// Pure pagination policy: should we kick a "load more" request given
+/// the current scroll position? Centralising this keeps the rule
+/// testable and consistent across panes (search results, recents, and
+/// future paged surfaces).
+///
+/// `remaining_px` is the unscrolled distance to the bottom of the list
+/// (i.e. `max_offset.y - current_offset.y` in absolute terms).
+#[must_use]
+pub(crate) fn should_auto_load_more(
+    remaining_px: f32,
+    threshold_px: f32,
+    has_more: bool,
+    loading: bool,
+) -> bool {
+    has_more && !loading && remaining_px.is_finite() && remaining_px <= threshold_px
+}
+
 /// Borrow-only projection of a [`Publisher`] inspector panel.
 ///
 /// Owns the title fallback (`"Unknown publisher"`), the feed-count and
@@ -951,7 +1001,6 @@ pub(crate) enum LazyPanel<T> {
 pub(crate) enum LazyPanelToggle {
     Fetch,
     Toggled,
-    Ignored,
 }
 
 impl LazyPanelToggle {
@@ -987,7 +1036,15 @@ impl<T> LazyPanel<T> {
                 *collapsed = !*collapsed;
                 LazyPanelToggle::Toggled
             }
-            Self::Loading => LazyPanelToggle::Ignored,
+            // Background prefetch may have moved the panel into `Loading`
+            // before the user interacted with it. Treat the click as a
+            // simple expand: the disclosure opens to reveal the loading
+            // state and will swap to `Loaded`/`Empty` when the in-flight
+            // fetch completes. We do not start a second fetch.
+            Self::Loading => {
+                *collapsed = false;
+                LazyPanelToggle::Toggled
+            }
             Self::Hidden => {
                 *self = Self::Loading;
                 *collapsed = false;
@@ -2082,6 +2139,54 @@ mod tests {
     use super::*;
     use crate::api::{Recording, Release};
 
+    #[test]
+    fn auto_load_more_fires_only_when_near_bottom_with_more_pages_and_idle() {
+        // Far from bottom: no fire even if more pages exist.
+        assert!(!should_auto_load_more(800.0, 240.0, true, false));
+        // Within threshold + has_more + not loading: fire.
+        assert!(should_auto_load_more(120.0, 240.0, true, false));
+        // Exactly at threshold: fire (boundary inclusive — kinder to the operator).
+        assert!(should_auto_load_more(240.0, 240.0, true, false));
+        // Near bottom but no more pages: do not fire (no work to queue).
+        assert!(!should_auto_load_more(50.0, 240.0, false, false));
+        // Near bottom but already loading: do not fire (re-entry guard).
+        assert!(!should_auto_load_more(50.0, 240.0, true, true));
+        // NaN / non-finite remaining (e.g. before first layout): do not fire.
+        assert!(!should_auto_load_more(f32::NAN, 240.0, true, false));
+        assert!(!should_auto_load_more(f32::INFINITY, 240.0, true, false));
+    }
+
+    #[test]
+    fn pending_skeleton_count_paints_initial_grid_on_cold_load() {
+        assert_eq!(
+            pending_skeleton_count(true, false),
+            INITIAL_SKELETON_COUNT,
+            "cold load with no rows yet should paint the full skeleton grid"
+        );
+    }
+
+    #[test]
+    fn pending_skeleton_count_paints_tail_when_appending() {
+        assert_eq!(
+            pending_skeleton_count(true, true),
+            TAIL_SKELETON_COUNT,
+            "appending more rows should paint a short tail of skeletons"
+        );
+    }
+
+    #[test]
+    fn pending_skeleton_count_paints_nothing_when_idle() {
+        assert_eq!(pending_skeleton_count(false, false), 0);
+        assert_eq!(pending_skeleton_count(false, true), 0);
+    }
+
+    #[test]
+    fn skeleton_counts_are_sane() {
+        const _: () = assert!(INITIAL_SKELETON_COUNT >= TAIL_SKELETON_COUNT);
+        const _: () = assert!(TAIL_SKELETON_COUNT >= 1);
+        const _: () = assert!(INITIAL_SKELETON_COUNT <= 12);
+    }
+
     fn assert_width_eq(actual: f32, expected: f32) {
         assert!((actual - expected).abs() < f32::EPSILON);
     }
@@ -2868,7 +2973,7 @@ mod tests {
     }
 
     #[test]
-    fn lazy_panel_collapsible_toggle_starts_fetch_toggles_and_ignores_loading() {
+    fn lazy_panel_collapsible_toggle_starts_fetch_then_expands_on_loading() {
         let mut panel: LazyPanel<Vec<i32>> = LazyPanel::Hidden;
         let mut collapsed = true;
 
@@ -2879,10 +2984,16 @@ mod tests {
         assert_eq!(panel, LazyPanel::Loading);
         assert!(!collapsed);
 
+        // Re-collapse, then click while a fetch (or background prefetch)
+        // is in flight: the disclosure expands again to reveal the loading
+        // state, but we do not start a second fetch.
+        collapsed = true;
         let action = panel.begin_collapsible_toggle(&mut collapsed, false);
-        assert_eq!(action, LazyPanelToggle::Ignored);
+        assert_eq!(action, LazyPanelToggle::Toggled);
         assert!(!action.should_fetch());
-        assert!(!action.should_notify());
+        assert!(action.should_notify());
+        assert!(!collapsed);
+        assert_eq!(panel, LazyPanel::Loading);
 
         panel = LazyPanel::Loaded(vec![1]);
         let action = panel.begin_collapsible_toggle(&mut collapsed, false);

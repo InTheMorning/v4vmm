@@ -31,6 +31,16 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 sha2 = "0.10"
 lru = "0.12"
 
+# Async view-model runtime (ADR 0040). Behind a feature gate during the
+# Phase D bring-up so master-style synchronous CommandBus paths continue
+# to work without tokio runtime startup costs in CLI / tests.
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"], optional = true }
+tokio-util = { version = "0.7", features = ["rt"], optional = true }
+
+[features]
+default = ["async-runtime"]
+async-runtime = ["dep:tokio", "dep:tokio-util"]
+
 [dev-dependencies]
 tempfile = "3"
 

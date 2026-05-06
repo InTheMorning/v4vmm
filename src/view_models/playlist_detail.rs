@@ -42,6 +42,13 @@ impl<'a> PlaylistDetailPageVm<'a> {
     }
 
     #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept as a focused state accessor; shell now consults slot emptiness"
+        )
+    )]
     pub(crate) fn is_empty(&self) -> bool {
         self.detail.is_empty()
     }

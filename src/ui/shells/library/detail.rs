@@ -8,6 +8,8 @@ use std::sync::Arc;
 use gpui::{div, prelude::*, AnyElement, Context, Image, SharedString};
 
 use crate::db;
+#[cfg(feature = "async-runtime")]
+use crate::library::PlaylistActorState;
 use crate::library::{LibraryApp, LibraryDetail};
 use crate::ui::shells::library::feed_detail::render_library_feed_detail;
 use crate::ui::shells::library::feed_list::render_library_feed_list;
@@ -16,6 +18,14 @@ use crate::ui::shells::library::track_detail::render_library_track_detail;
 use crate::ui::style::color;
 use crate::view_models::library::{LibraryChromeDisplay, MbTrackStatus};
 
+#[cfg_attr(
+    feature = "async-runtime",
+    expect(
+        clippy::too_many_arguments,
+        reason = "render_library_detail dispatches to all detail-pane variants; \
+                  the `playlist_actor` argument exists to avoid GPUI re-entrancy."
+    )
+)]
 pub(crate) fn render_library_detail(
     detail: &LibraryDetail,
     busy_track: Option<i64>,
@@ -23,6 +33,7 @@ pub(crate) fn render_library_detail(
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
     chrome: &LibraryChromeDisplay,
+    #[cfg(feature = "async-runtime")] playlist_actor: Option<&PlaylistActorState>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     match detail {
@@ -47,8 +58,13 @@ pub(crate) fn render_library_detail(
 
         LibraryDetail::Track(frame) => render_library_track_detail(frame, playlists, chrome, cx),
 
-        LibraryDetail::Playlist(detail) => {
-            render_library_playlist_detail(detail, album_thumbs, chrome, cx)
-        }
+        LibraryDetail::Playlist(detail) => render_library_playlist_detail(
+            detail,
+            album_thumbs,
+            chrome,
+            #[cfg(feature = "async-runtime")]
+            playlist_actor,
+            cx,
+        ),
     }
 }

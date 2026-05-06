@@ -6,13 +6,13 @@
 #![warn(clippy::pedantic)]
 
 use gpui::{
-    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, InteractiveElement, SharedString,
-    Styled,
+    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, InteractiveElement,
+    ScrollWheelEvent, SharedString, Styled,
 };
 
 use crate::api::Feed;
 use crate::search::{InspectorDetail, InspectorFrame, SearchApp};
-use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
+use crate::ui::composites::{EntityKind, SkeletonInspector, Thumbnail, ThumbnailSize};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::{Button as UiButton, Label, LoadingMessage};
@@ -26,7 +26,8 @@ use crate::ui::shells::feed;
 use crate::ui::style::{color, radius, spacing, typography};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::search::{
-    InspectorChromeDisplay, LazyPanel, RecentFeedTileDisplay, RecentFeedTileVm, SearchViewModel,
+    should_auto_load_more, InspectorChromeDisplay, LazyPanel, RecentFeedTileDisplay,
+    RecentFeedTileVm, SearchViewModel, AUTO_PAGINATE_THRESHOLD_PX,
 };
 
 pub(crate) fn render_inspector(
@@ -78,19 +79,42 @@ pub(crate) fn render_inspector(
                     ),
                 ),
         )
-        .child(
-            div()
+        .child({
+            let mut scroll_box = div()
                 .id(chrome.scroll_id)
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
-                .p(spacing::LG)
-                .child(match frame {
-                    Some(frame) => render_inspector_body(frame, app, cx),
-                    None if show_recents_root => render_recent_feeds_tiles(app, cx),
-                    None => render_inspector_empty(&chrome),
-                }),
-        )
+                .p(spacing::LG);
+            if let Some(frame) = frame {
+                scroll_box = scroll_box.track_scroll(&frame.scroll_handle);
+            } else if show_recents_root {
+                let recents_handle = app.recents_scroll.clone();
+                let recents_for_listener = recents_handle.clone();
+                scroll_box = scroll_box
+                    .track_scroll(&recents_handle)
+                    .on_scroll_wheel(cx.listener(
+                        move |this: &mut SearchApp, _event: &ScrollWheelEvent, _window, cx| {
+                            let max_y = f32::from(recents_for_listener.max_offset().height);
+                            let offset_y = f32::from(recents_for_listener.offset().y);
+                            let remaining = max_y + offset_y;
+                            if should_auto_load_more(
+                                remaining,
+                                AUTO_PAGINATE_THRESHOLD_PX,
+                                this.vm.recent_has_more,
+                                this.vm.recent_loading,
+                            ) {
+                                this.load_recent_feeds(true, cx);
+                            }
+                        },
+                    ));
+            }
+            scroll_box.child(match frame {
+                Some(frame) => render_inspector_body(frame, app, cx),
+                None if show_recents_root => render_recent_feeds_tiles(app, cx),
+                None => render_inspector_empty(&chrome),
+            })
+        })
         .into_any_element()
 }
 
@@ -100,7 +124,7 @@ fn render_inspector_body(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     match &frame.detail {
-        InspectorDetail::Loading(message) => LoadingMessage::from_text(message).into_any_element(),
+        InspectorDetail::Loading(_) => skeleton_for_entity(&frame.entity_type).into_any_element(),
         InspectorDetail::Error(error) => {
             LoadingMessage::new(SearchViewModel::inspector_error_message(error)).into_any_element()
         }
@@ -112,6 +136,19 @@ fn render_inspector_body(
             render_discover_track_inspector_core(frame, track_context, app, cx)
         }
         InspectorDetail::Publisher(publisher) => render_publisher_inspector(publisher, app, cx),
+    }
+}
+
+/// Body-row count for the inspector skeleton, chosen to roughly mirror the
+/// populated layout for each entity kind so the placeholder occupies the
+/// same vertical footprint as the real content.
+fn skeleton_for_entity(entity_type: &str) -> SkeletonInspector {
+    match entity_type {
+        "track" => SkeletonInspector::new().body_rows(8),
+        "feed" => SkeletonInspector::new().body_rows(6),
+        "artist" => SkeletonInspector::new().body_rows(5),
+        "publisher" => SkeletonInspector::new().body_rows(4),
+        _ => SkeletonInspector::new(),
     }
 }
 

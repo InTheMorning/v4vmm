@@ -9,18 +9,22 @@ use std::sync::Arc;
 
 use gpui::{
     div, prelude::*, AnyElement, ClickEvent, Context, FocusHandle, FontWeight, Image,
-    InteractiveElement, SharedString, Styled,
+    InteractiveElement, ScrollHandle, ScrollWheelEvent, SharedString, Styled,
 };
 
 use crate::search::SearchApp;
 use crate::ui::composites::{
-    EntityKind, ListRow, ListRowA11yLabel, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
+    EntityKind, ListRow, ListRowA11yLabel, SkeletonTrackRow, TagBadge, TagBadgeDisplay, Thumbnail,
+    ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label};
 use crate::ui::style::{color, spacing};
 use crate::ui::tokens::{FontSize, SemanticColor};
-use crate::view_models::search::{ResultRowRenderItem, SearchPaneDisplay};
+use crate::view_models::search::{
+    pending_skeleton_count, should_auto_load_more, ResultRowRenderItem, SearchPaneDisplay,
+    AUTO_PAGINATE_THRESHOLD_PX,
+};
 
 pub(crate) struct DiscoverResultRow {
     item: ResultRowRenderItem,
@@ -42,6 +46,7 @@ pub(crate) struct DiscoverResultListParams<'a> {
     pub(crate) pagination: DiscoverResultPagination,
     pub(crate) pane_display: SearchPaneDisplay,
     pub(crate) list_focus: &'a FocusHandle,
+    pub(crate) scroll_handle: &'a ScrollHandle,
 }
 
 pub(crate) struct DiscoverResultEmptyState {
@@ -79,19 +84,68 @@ pub(crate) fn render_discover_result_list(
         })
         .collect::<Vec<_>>();
 
+    let has_more = params.pagination.has_more;
+    let is_loading_for_listener = params.empty_state.is_loading;
+    let scroll_for_listener = params.scroll_handle.clone();
+
     div()
         .id(params.pane_display.results_scroll_id)
         .track_focus(params.list_focus)
+        .track_scroll(params.scroll_handle)
         .flex_1()
         .min_h_0()
         .overflow_y_scroll()
         .p(spacing::SM)
+        .on_scroll_wheel(cx.listener(
+            move |this: &mut SearchApp, _event: &ScrollWheelEvent, _window, cx| {
+                if !has_more {
+                    return;
+                }
+                let max_y = f32::from(scroll_for_listener.max_offset().height);
+                // GPUI scroll offsets are non-positive when scrolled down.
+                let offset_y = f32::from(scroll_for_listener.offset().y);
+                let remaining = max_y + offset_y;
+                if should_auto_load_more(
+                    remaining,
+                    AUTO_PAGINATE_THRESHOLD_PX,
+                    has_more,
+                    is_loading_for_listener,
+                ) {
+                    this.do_search(true, cx);
+                }
+            },
+        ))
         .child(
             div()
                 .flex()
                 .flex_col()
                 .gap(spacing::XXS)
                 .children(rows)
+                .when(
+                    params.empty_state.is_loading && params.empty_state.is_empty,
+                    |el| {
+                        // Initial cold load: paint skeleton rows so the
+                        // pane has structure instead of an empty void.
+                        let count = pending_skeleton_count(true, false);
+                        el.children((0..count).map(|i| {
+                            SkeletonTrackRow::new(("discover-result-skeleton", i))
+                                .into_any_element()
+                        }))
+                    },
+                )
+                .when(
+                    params.empty_state.is_loading && !params.empty_state.is_empty,
+                    |el| {
+                        // Pagination tail: a few skeleton rows below the
+                        // existing results signal "more incoming" without
+                        // jumping the operator to a button.
+                        let count = pending_skeleton_count(true, true);
+                        el.children((0..count).map(|i| {
+                            SkeletonTrackRow::new(("discover-result-skeleton-tail", i))
+                                .into_any_element()
+                        }))
+                    },
+                )
                 .when(
                     params.empty_state.should_show_empty_message()
                         && params.empty_state.status_empty,

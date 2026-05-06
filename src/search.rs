@@ -8,7 +8,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use gpui::{prelude::*, size, Application, Bounds, Entity, Image, WindowBounds, WindowOptions};
+use gpui::{
+    prelude::*, size, Application, Bounds, Entity, Image, ScrollHandle, WindowBounds, WindowOptions,
+};
 use gpui_component::input::InputState;
 use gpui_component::Root;
 use rusqlite::Connection;
@@ -77,6 +79,12 @@ pub(crate) struct InspectorFrame {
     pub musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     pub musicbrainz_selected: usize,
     pub podroll: LazyPanel<Vec<Feed>>,
+    /// Per-frame scroll handle so popping back to a prior inspector
+    /// frame restores the user's scroll position. Without this, every
+    /// frame in the stack would share the single element-state-keyed
+    /// scroll on the inspector container — and content swaps reset it
+    /// to zero, which feels like a fresh navigation rather than a back.
+    pub scroll_handle: ScrollHandle,
 }
 
 impl InspectorFrame {
@@ -104,6 +112,7 @@ impl InspectorFrame {
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
             podroll: LazyPanel::Hidden,
+            scroll_handle: ScrollHandle::new(),
         }
     }
 }
@@ -132,6 +141,19 @@ pub struct SearchApp {
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
+    /// Scroll handle for the search-results list. Used to detect
+    /// near-bottom scroll position so we can auto-trigger pagination
+    /// (`do_search(true, _)`) without requiring the operator to click
+    /// the explicit "Load more" affordance.
+    pub(crate) results_scroll: ScrollHandle,
+    /// Scroll handle for the recents-root tile grid (the empty-frame
+    /// landing page of the inspector). Used to auto-paginate the recent
+    /// feeds list (`load_recent_feeds(true, _)`) on near-bottom scroll.
+    pub(crate) recents_scroll: ScrollHandle,
+    /// Reserved for paged search results (ADR 0040 follow-up).
+    #[cfg(feature = "async-runtime")]
+    #[allow(dead_code)]
+    pub(crate) runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
 }
 
 /// Events emitted by [`SearchApp`] to notify peer components (e.g. the
@@ -223,6 +245,8 @@ pub fn run_search_app() {
                         image_cache,
                         musicindex_endpoint,
                         application_services,
+                        #[cfg(feature = "async-runtime")]
+                        None,
                         window,
                         cx,
                     )

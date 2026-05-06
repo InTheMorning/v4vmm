@@ -68,6 +68,8 @@ pub mod format;
 pub mod library;
 pub mod metadata;
 pub mod musicbrainz_panel;
+pub mod paged_feed_detail;
+pub mod paged_playlist_detail;
 pub mod playlist_detail;
 pub mod search;
 pub mod track;

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use gpui::{
     div, prelude::*, px, Context, Entity, Image, IntoElement, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Render, Styled, Window,
+    MouseUpEvent, Render, ScrollHandle, Styled, Window,
 };
 use gpui_component::input::{InputEvent, InputState};
 use rusqlite::Connection;
@@ -64,6 +64,9 @@ impl SearchApp {
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
         application_services: Arc<ApplicationServices>,
+        #[cfg(feature = "async-runtime")] runtime_host: Option<
+            Arc<crate::presentation::RuntimeHost>,
+        >,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -89,6 +92,10 @@ impl SearchApp {
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
             list_focus: cx.focus_handle(),
+            results_scroll: ScrollHandle::new(),
+            recents_scroll: ScrollHandle::new(),
+            #[cfg(feature = "async-runtime")]
+            runtime_host,
         };
         this.load_playlists();
         this.load_recent_feeds(false, cx);
@@ -124,15 +131,27 @@ impl SearchApp {
                         })
                         .await;
                 let _ = this.update(cx, move |this, cx| {
+                    let mut should_eager_prefetch = false;
                     match result {
                         Ok(response) => {
                             this.vm.finish_recent_feed_load(response);
+                            // After the first page lands, eagerly request the
+                            // next one in the background so the user's first
+                            // scroll-to-bottom never pauses on a network round
+                            // trip. `begin_recent_feed_load(true)` is
+                            // idempotent against in-flight loads.
+                            if !append && this.vm.recent_has_more {
+                                should_eager_prefetch = true;
+                            }
                         }
                         Err(error) => {
                             this.vm.fail_recent_feed_load(error);
                         }
                     }
                     cx.notify();
+                    if should_eager_prefetch {
+                        this.load_recent_feeds(true, cx);
+                    }
                 });
             },
         )
@@ -379,10 +398,11 @@ impl SearchApp {
                                 .ok()
                                 .flatten()
                         });
+                        let mut image_url_to_fetch: Option<String> = None;
                         if let Some(frame) = this.inspector_stack.last_mut() {
                             if frame.entity_type == entity_type && frame.entity_id == entity_id {
                                 match detail {
-                                    Ok((detail, image)) => {
+                                    Ok((detail, image_url)) => {
                                         if let InspectorDetail::Artist(ctx) = &detail {
                                             this.vm.merge_artist_result_detail(
                                                 &entity_id,
@@ -390,7 +410,7 @@ impl SearchApp {
                                             );
                                         }
                                         frame.detail = detail;
-                                        frame.image = image;
+                                        frame.image = None;
                                         frame.local_subscription = local_subscription;
                                         frame.subscription_message = None;
                                         if let InspectorDetail::Feed(feed) = &frame.detail {
@@ -401,6 +421,7 @@ impl SearchApp {
                                                 this.load_podroll(entity_id.clone(), feed_url, cx);
                                             }
                                         }
+                                        image_url_to_fetch = image_url;
                                     }
                                     Err(error) => {
                                         frame.detail = InspectorDetail::Error(error.to_string());
@@ -409,9 +430,166 @@ impl SearchApp {
                             }
                         }
                         cx.notify();
+                        if let Some(url) = image_url_to_fetch {
+                            this.load_inspector_image(
+                                entity_type.clone(),
+                                entity_id.clone(),
+                                url,
+                                cx,
+                            );
+                        }
+                        // Eagerly prefetch the deferred panels in the
+                        // background. The user is consuming the populated
+                        // text content; by the time they reach for
+                        // contributors / value routes the data is already
+                        // resident. We do not flip the collapsed flags —
+                        // disclosures stay in their default closed state,
+                        // they just open instantly when the user clicks.
+                        this.prefetch_contributors(entity_type.clone(), entity_id.clone(), cx);
+                        this.prefetch_value_routes(entity_type, entity_id, cx);
                     },
                 )
                 .ok();
+            },
+        )
+        .detach();
+    }
+
+    /// Fetch + decode an inspector hero image as a follow-up to the
+    /// structured detail fetch. The text/structured payload is rendered
+    /// the moment it lands; the image slots in via a second `cx.notify()`
+    /// when the bytes arrive. Keeping image work off the critical path
+    /// is the largest perceived-latency win in the discover flow because
+    /// HTTP-GET-then-decode for cover art was previously bundled into the
+    /// same background task as the structured fetch.
+    fn load_inspector_image(
+        &mut self,
+        entity_type: String,
+        entity_id: String,
+        image_url: String,
+        cx: &mut Context<Self>,
+    ) {
+        let client = self.api_client();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let image = cx
+                    .background_executor()
+                    .spawn(async move {
+                        download_image(&client.client, &image_url).map(image_from_bytes)
+                    })
+                    .await;
+                if image.is_none() {
+                    return;
+                }
+                let _ = this.update(cx, move |this, cx| {
+                    if let Some(frame) = this.inspector_stack.last_mut() {
+                        if frame.entity_type == entity_type
+                            && frame.entity_id == entity_id
+                            && frame.image.is_none()
+                        {
+                            frame.image = image;
+                            cx.notify();
+                        }
+                    }
+                });
+            },
+        )
+        .detach();
+    }
+
+    /// Background-prefetch the contributor list for the inspector frame
+    /// matching `entity_type`/`entity_id`. Unlike [`Self::toggle_contributors`]
+    /// this never touches `contributors_collapsed` — the disclosure stays in
+    /// its default closed state. The point is to have the data resident by
+    /// the time the user reaches for it.
+    fn prefetch_contributors(
+        &mut self,
+        entity_type: String,
+        entity_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.entity_type != entity_type || frame.entity_id != entity_id {
+            return;
+        }
+        if !matches!(frame.contributors, LazyPanel::Hidden) {
+            return;
+        }
+        frame.contributors = LazyPanel::Loading;
+        let client = self.api_client();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let req_type = entity_type.clone();
+                let req_id = entity_id.clone();
+                let contributors = cx
+                    .background_executor()
+                    .spawn(async move { client.fetch_contributors(&req_type, &req_id) })
+                    .await;
+                let _ = this.update(cx, move |this, cx| {
+                    if let Some(frame) = this.inspector_stack.last_mut() {
+                        if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                            let contributors = contributors.map(|contributors| {
+                                contributors
+                                    .into_iter()
+                                    .map(ContributorView::from)
+                                    .collect()
+                            });
+                            let display = SearchViewModel::deferred_panel_display(
+                                DeferredPanelKind::Contributors,
+                            );
+                            frame.contributors =
+                                LazyPanel::from_items_result(contributors, display.empty_label);
+                            cx.notify();
+                        }
+                    }
+                });
+            },
+        )
+        .detach();
+    }
+
+    /// Background-prefetch the value-routes list. Same contract as
+    /// [`Self::prefetch_contributors`]: never expands the disclosure,
+    /// only hydrates the panel data.
+    fn prefetch_value_routes(
+        &mut self,
+        entity_type: String,
+        entity_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(frame) = self.inspector_stack.last_mut() else {
+            return;
+        };
+        if frame.entity_type != entity_type || frame.entity_id != entity_id {
+            return;
+        }
+        if !matches!(frame.value_routes, LazyPanel::Hidden) {
+            return;
+        }
+        frame.value_routes = LazyPanel::Loading;
+        let client = self.api_client();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let req_type = entity_type.clone();
+                let req_id = entity_id.clone();
+                let routes = cx
+                    .background_executor()
+                    .spawn(async move { client.fetch_value_routes(&req_type, &req_id) })
+                    .await;
+                let _ = this.update(cx, move |this, cx| {
+                    if let Some(frame) = this.inspector_stack.last_mut() {
+                        if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                            let display = SearchViewModel::deferred_panel_display(
+                                DeferredPanelKind::ValueRoutes,
+                            );
+                            frame.value_routes =
+                                LazyPanel::from_items_result(routes, display.empty_label);
+                            cx.notify();
+                        }
+                    }
+                });
             },
         )
         .detach();
@@ -1595,6 +1773,7 @@ impl Render for SearchApp {
                     pagination: DiscoverResultPagination { has_more },
                     pane_display: pane_display.clone(),
                     list_focus: &self.list_focus,
+                    scroll_handle: &self.results_scroll,
                 },
                 cx,
             ))
@@ -1780,7 +1959,7 @@ fn fetch_inspector_detail(
     client: &Client,
     entity_type: &str,
     entity_id: &str,
-) -> Result<(InspectorDetail, Option<Arc<Image>>)> {
+) -> Result<(InspectorDetail, Option<String>)> {
     match entity_type {
         "artist" => {
             let response = client.fetch_tracks_by_artist(entity_id, Some(PAGE_LIMIT * 2), None)?;
@@ -1840,13 +2019,9 @@ fn fetch_inspector_detail(
                         nonempty_url(track.image_url.as_deref()).map(str::to_string)
                     })
                 });
-            let image = image_url
-                .as_deref()
-                .and_then(|url| download_image(&client.client, url))
-                .map(image_from_bytes);
             let artist = Artist {
                 name: Some(entity_id.to_string()),
-                image_url,
+                image_url: image_url.clone(),
                 track_count: Some(tracks.len() as i32),
                 feed_count: Some(feeds.len() as i32),
                 ..Artist::default()
@@ -1858,7 +2033,7 @@ fn fetch_inspector_detail(
                     feeds,
                     has_more_tracks,
                 })),
-                image,
+                image_url,
             ))
         }
         "feed" => {
@@ -1869,12 +2044,12 @@ fn fetch_inspector_detail(
                 ),
             )?;
             hydrate_feed_track_play_urls(client, &mut feed);
-            let image = feed
+            let image_url = feed
                 .image_url
                 .as_deref()
-                .and_then(|url| download_image(&client.client, url))
-                .map(image_from_bytes);
-            Ok((InspectorDetail::Feed(Box::new(feed)), image))
+                .and_then(|u| nonempty_url(Some(u)))
+                .map(str::to_string);
+            Ok((InspectorDetail::Feed(Box::new(feed)), image_url))
         }
         "track" => {
             let mut track = client.fetch_track(
@@ -1894,14 +2069,14 @@ fn fetch_inspector_detail(
                     .ok()
             });
             enrich_track_context_from_rss(&mut track, feed.as_mut());
-            let image = track
+            let image_url = track
                 .image_url
                 .as_deref()
-                .and_then(|url| download_image(&client.client, url))
-                .map(image_from_bytes);
+                .and_then(|u| nonempty_url(Some(u)))
+                .map(str::to_string);
             Ok((
                 InspectorDetail::Track(Box::new(TrackContext { track, feed })),
-                image,
+                image_url,
             ))
         }
         "publisher" => Ok((

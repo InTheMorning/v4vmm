@@ -11,6 +11,8 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
 use rusqlite::Connection;
 
+#[cfg(feature = "async-runtime")]
+use super::PlaylistActorState;
 use super::{
     InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, LibraryTrackCompare,
     PlaylistDetail, ThumbnailState,
@@ -46,7 +48,7 @@ use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
     DisclosureSupplementLabel, ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay,
-    SplitPane, StatusRole,
+    SkeletonTrackRow, SplitPane, StatusRole,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
@@ -67,6 +69,7 @@ use crate::view_models::library::{
     PlaylistSidebarVm, TrackSubscribeOutcome,
 };
 use crate::view_models::playlist_option_displays;
+use crate::view_models::search::pending_skeleton_count;
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 
 impl InspectorFrame {
@@ -104,6 +107,9 @@ impl LibraryApp {
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
         application_services: Arc<ApplicationServices>,
+        #[cfg(feature = "async-runtime")] runtime_host: Option<
+            Arc<crate::presentation::RuntimeHost>,
+        >,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -131,8 +137,12 @@ impl LibraryApp {
             search_input,
             _search_sub: search_sub,
             new_playlist_input,
+            #[cfg(feature = "async-runtime")]
+            runtime_host,
+            #[cfg(feature = "async-runtime")]
+            playlist_actor: None,
         };
-        app.reload();
+        app.start_async_reload(cx);
         app
     }
 
@@ -155,8 +165,7 @@ impl LibraryApp {
     }
 
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.reload();
-        cx.notify();
+        self.start_async_reload(cx);
     }
 
     pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -241,23 +250,52 @@ impl LibraryApp {
         cx.notify();
     }
 
-    fn reload(&mut self) {
-        let conn = self.conn.lock().expect("lock db");
-        match library_service::library_tracks(&conn) {
-            Ok(rows) => {
-                let count = rows.len();
-                self.vm.replace_tree(build_tree(&rows, &conn));
-                self.vm.finish_library_reload(count);
-            }
-            Err(err) => {
-                self.vm.set_error_status(err);
-            }
-        }
-        drop(conn);
-        self.reload_playlists();
+    /// Kick off a non-blocking library reload.
+    ///
+    /// The render thread returns immediately; the heavy
+    /// `library_tracks` + `build_tree` work runs on the background
+    /// executor. While the reload is in flight the view-model is
+    /// flagged so the sidebar paints skeleton placeholders instead of
+    /// blocking the cold-open paint.
+    pub(crate) fn start_async_reload(&mut self, cx: &mut Context<Self>) {
+        self.vm.begin_library_reload();
         self.vm.clear_library_selection();
-        self.detail = LibraryDetail::None;
         self.vm.clear_mb_status();
+        self.detail = LibraryDetail::None;
+        cx.notify();
+
+        // Playlists are a small single-table query: keep them on the
+        // foreground for now so the playlist sidebar stays responsive
+        // and we don't grow a second async path until proven needed.
+        self.reload_playlists();
+
+        let conn = Arc::clone(&self.conn);
+        cx.spawn(
+            async move |this: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let conn = conn.lock().expect("lock db");
+                        library_service::library_tracks(&conn).map(|rows| {
+                            let count = rows.len();
+                            let tree = build_tree(&rows, &conn);
+                            (count, tree)
+                        })
+                    })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    match result {
+                        Ok((count, tree)) => {
+                            this.vm.replace_tree(tree);
+                            this.vm.finish_library_reload(count);
+                        }
+                        Err(err) => this.vm.set_error_status(err),
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .detach();
     }
 
     fn reload_playlists(&mut self) {
@@ -290,8 +328,78 @@ impl LibraryApp {
                 tracks: tracks.clone(),
             });
             self.vm.replace_playlist_tracks(tracks);
+            #[cfg(feature = "async-runtime")]
+            self.spawn_playlist_actor(id, cx);
         }
         cx.notify();
+    }
+
+    /// Spawn (or replace) the paged playlist actor for `playlist_id`.
+    ///
+    /// Dropping the previous handle closes its inbox so the actor task
+    /// exits gracefully. The new handle is bridged via
+    /// [`crate::presentation::bridge_watch`] so snapshot publishes
+    /// trigger a re-render automatically.
+    #[cfg(feature = "async-runtime")]
+    fn spawn_playlist_actor(&mut self, playlist_id: i64, cx: &mut Context<Self>) {
+        use crate::application::paged_track_list::PagedTrackListActor;
+        use crate::db::{open_db, TrackListing};
+        use crate::presentation::bridge_watch;
+
+        let Some(host) = self.runtime_host.clone() else {
+            return;
+        };
+        // Idempotent: if the actor for this playlist is already running,
+        // keep it (and its warm cache) rather than churning a new one.
+        if let Some(state) = &self.playlist_actor {
+            if state.playlist_id == playlist_id {
+                return;
+            }
+        }
+        // Open a dedicated connection for the actor: rusqlite Connections
+        // are not Sync, and the actor consumes its connection by value.
+        let cfg = match crate::config::config_path()
+            .ok()
+            .and_then(|path| crate::config::load_config(&path).ok())
+        {
+            Some(cfg) => cfg,
+            None => return,
+        };
+        let conn = match open_db(&cfg) {
+            Ok(conn) => conn,
+            Err(err) => {
+                eprintln!("v4vmm::library: failed to open actor DB conn: {err}");
+                return;
+            }
+        };
+        let actor = match PagedTrackListActor::new(conn, TrackListing::Playlist { playlist_id }) {
+            Ok(actor) => actor,
+            Err(err) => {
+                eprintln!("v4vmm::library: PagedTrackListActor::new failed: {err}");
+                return;
+            }
+        };
+        let bus = host.bus().clone();
+        let _enter = host.handle().enter();
+        let handle = actor.spawn(bus);
+        let snapshot = handle.borrow().clone();
+        let rx = handle.subscribe();
+        self.playlist_actor = Some(PlaylistActorState {
+            playlist_id,
+            snapshot,
+            handle,
+        });
+        bridge_watch(
+            rx,
+            move |this: &mut Self, snap, _cx| {
+                if let Some(state) = &mut this.playlist_actor {
+                    if state.playlist_id == playlist_id {
+                        state.snapshot = snap;
+                    }
+                }
+            },
+            cx,
+        );
     }
 
     fn create_playlist(&mut self, cx: &mut Context<Self>) {
@@ -822,7 +930,7 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, _result, _cx| this.reload(),
+            |this, _result, cx| this.start_async_reload(cx),
             |this, err, _cx| this.vm.set_error_status(err),
         );
     }
@@ -833,7 +941,7 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, _result, _cx| this.reload(),
+            |this, _result, cx| this.start_async_reload(cx),
             |this, err, _cx| this.vm.set_error_status(err),
         );
     }
@@ -861,12 +969,12 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, outcome, _cx| {
+            |this, outcome, cx| {
                 this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
                     outcome.path().to_string(),
                     outcome.format_warning().map(str::to_string),
                 ));
-                this.reload();
+                this.start_async_reload(cx);
             },
             |this, error, _cx| this.vm.fail_track_subscribe(error),
         );
@@ -1857,7 +1965,18 @@ impl Render for LibraryApp {
             }
         }
 
-        left_items.extend(tree_items);
+        if self.vm.is_library_loading() && tree_items.is_empty() {
+            let count = pending_skeleton_count(true, false);
+            for i in 0..count {
+                left_items.push(
+                    SkeletonTrackRow::new(("library-skeleton-row", i))
+                        .show_thumbnail(false)
+                        .into_any_element(),
+                );
+            }
+        } else {
+            left_items.extend(tree_items);
+        }
 
         let detail_pane = render_library_detail(
             &self.detail,
@@ -1866,6 +1985,8 @@ impl Render for LibraryApp {
             &album_thumbs,
             self.vm.playlists(),
             &chrome,
+            #[cfg(feature = "async-runtime")]
+            self.playlist_actor.as_ref(),
             cx,
         );
 

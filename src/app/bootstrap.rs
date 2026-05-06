@@ -60,6 +60,20 @@ pub fn run_app() {
             playback::DEFAULT_SESSION_ID,
         )));
 
+        // Construct the async-runtime host once. Behind `async-runtime`
+        // because the host owns a tokio Runtime + VmBus (ADR 0040).
+        #[cfg(feature = "async-runtime")]
+        let runtime_host: Option<Arc<crate::presentation::RuntimeHost>> =
+            match crate::presentation::RuntimeHost::new() {
+                Ok(host) => Some(host),
+                Err(err) => {
+                    eprintln!(
+                        "v4vmm::bootstrap: failed to start tokio runtime, paged actors disabled: {err}"
+                    );
+                    None
+                }
+            };
+
         let thumbnail_cache_dir = cfg_path
             .parent()
             .expect("config path has parent")
@@ -89,6 +103,8 @@ pub fn run_app() {
                             cfg.ui_scale,
                             cfg.theme_profile,
                             playback_owner,
+                            #[cfg(feature = "async-runtime")]
+                            runtime_host,
                             window,
                             cx,
                         );
