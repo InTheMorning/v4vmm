@@ -246,10 +246,7 @@ mod tests {
             let mut guard = h.lock().unwrap();
             let _ = guard.row(0);
             let _ = guard.drain_requests();
-            guard.fulfill_page(
-                0,
-                (0..3i64).map(|id| (id, track(id, &format!("t{id}")))),
-            );
+            guard.fulfill_page(0, (0..3i64).map(|id| (id, track(id, &format!("t{id}")))));
         }
 
         let vm = PagedPlaylistDetailVm::new(&pl, &h);
@@ -263,10 +260,7 @@ mod tests {
         // Pending past the warm window.
         for pos in [50usize, 150, 199] {
             let row = vm.row(pos);
-            assert!(
-                matches!(row, PagedPlaylistRow::Pending { .. }),
-                "pos {pos}"
-            );
+            assert!(matches!(row, PagedPlaylistRow::Pending { .. }), "pos {pos}");
         }
         // Render path is read-only — no requests queued by peeking.
         assert!(h.lock().unwrap().drain_requests().is_empty());

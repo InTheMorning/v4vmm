@@ -8,7 +8,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
-use gpui::{prelude::*, size, Application, Bounds, Entity, Image, WindowBounds, WindowOptions};
+use gpui::{
+    prelude::*, size, Application, Bounds, Entity, Image, ScrollHandle, WindowBounds, WindowOptions,
+};
 use gpui_component::input::InputState;
 use gpui_component::Root;
 use rusqlite::Connection;
@@ -77,6 +79,12 @@ pub(crate) struct InspectorFrame {
     pub musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     pub musicbrainz_selected: usize,
     pub podroll: LazyPanel<Vec<Feed>>,
+    /// Per-frame scroll handle so popping back to a prior inspector
+    /// frame restores the user's scroll position. Without this, every
+    /// frame in the stack would share the single element-state-keyed
+    /// scroll on the inspector container — and content swaps reset it
+    /// to zero, which feels like a fresh navigation rather than a back.
+    pub scroll_handle: ScrollHandle,
 }
 
 impl InspectorFrame {
@@ -104,6 +112,7 @@ impl InspectorFrame {
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
             podroll: LazyPanel::Hidden,
+            scroll_handle: ScrollHandle::new(),
         }
     }
 }

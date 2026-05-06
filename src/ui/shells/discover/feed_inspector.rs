@@ -78,19 +78,22 @@ pub(crate) fn render_inspector(
                     ),
                 ),
         )
-        .child(
-            div()
+        .child({
+            let mut scroll_box = div()
                 .id(chrome.scroll_id)
                 .flex_1()
                 .min_h_0()
                 .overflow_y_scroll()
-                .p(spacing::LG)
-                .child(match frame {
-                    Some(frame) => render_inspector_body(frame, app, cx),
-                    None if show_recents_root => render_recent_feeds_tiles(app, cx),
-                    None => render_inspector_empty(&chrome),
-                }),
-        )
+                .p(spacing::LG);
+            if let Some(frame) = frame {
+                scroll_box = scroll_box.track_scroll(&frame.scroll_handle);
+            }
+            scroll_box.child(match frame {
+                Some(frame) => render_inspector_body(frame, app, cx),
+                None if show_recents_root => render_recent_feeds_tiles(app, cx),
+                None => render_inspector_empty(&chrome),
+            })
+        })
         .into_any_element()
 }
 
