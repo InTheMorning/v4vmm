@@ -193,4 +193,43 @@ mod tests {
         }
         assert_eq!(seen.lock().expect("lock").len(), 1);
     }
+
+    struct CancellableCommand {
+        max_iters: u32,
+    }
+
+    impl ApplicationCommand for CancellableCommand {
+        type Output = u32;
+
+        fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+            for i in 0..self.max_iters {
+                if context.cancellation().is_cancelled() {
+                    return Ok(CommandOutcome::without_events(i));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Ok(CommandOutcome::without_events(self.max_iters))
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cancellation_token_short_circuits_long_running_command() {
+        use crate::application::command_context::{CancellationToken, OperationId, TraceId};
+        let token = CancellationToken::new();
+        let context = CommandContext::new(OperationId::new(1), token.clone(), TraceId::new(1));
+        let runner = AsyncCommandRunner::new(
+            Arc::new(CommandBus::new()),
+            Arc::new(ApplicationEventBus::new()),
+        );
+        let rx = runner.dispatch(CancellableCommand { max_iters: 1_000 }, context);
+        // Give the command a moment to start, then cancel.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        token.cancel();
+        let outcome = rx.await.expect("oneshot").expect("ok");
+        assert!(
+            *outcome.value() < 1_000,
+            "expected early termination, got {}",
+            outcome.value()
+        );
+    }
 }

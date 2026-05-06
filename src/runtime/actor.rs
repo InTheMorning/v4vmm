@@ -101,13 +101,26 @@ where
 
 /// Spawn an actor on the current tokio runtime. Returns the
 /// caller-side handle.
-pub fn spawn<A>(mut actor: A, bus: VmBus) -> ActorHandle<A::Message, A::State>
+pub fn spawn<A>(actor: A, bus: VmBus) -> ActorHandle<A::Message, A::State>
+where
+    A: Actor,
+{
+    spawn_with_capacity(actor, bus, INBOX_CAPACITY)
+}
+
+/// Spawn an actor with an explicit inbox capacity. Useful for tests
+/// that need to exercise back-pressure deterministically.
+pub fn spawn_with_capacity<A>(
+    mut actor: A,
+    bus: VmBus,
+    inbox_capacity: usize,
+) -> ActorHandle<A::Message, A::State>
 where
     A: Actor,
 {
     let initial = actor.initial_state();
     let (snapshot_tx, snapshot_rx) = watch::channel(initial);
-    let (inbox_tx, mut inbox_rx) = mpsc::channel::<A::Message>(INBOX_CAPACITY);
+    let (inbox_tx, mut inbox_rx) = mpsc::channel::<A::Message>(inbox_capacity);
 
     tokio::spawn(async move {
         while let Some(message) = inbox_rx.recv().await {
@@ -178,5 +191,48 @@ mod tests {
         let mut rx = cloned.subscribe();
         rx.changed().await.expect("change");
         assert_eq!(*rx.borrow(), 7);
+    }
+
+    #[tokio::test]
+    async fn watch_coalesces_burst_into_latest_only() {
+        // Watch is the snapshot channel; a slow consumer must observe the
+        // latest value and never re-render stale ones.
+        let bus = VmBus::new();
+        let handle = spawn(Counter { n: 0 }, bus);
+        let mut rx = handle.subscribe();
+
+        for n in 1..=100 {
+            assert!(handle.send(Msg::Set(n)).await);
+        }
+        // Drain until we see the terminal value.
+        loop {
+            rx.changed().await.expect("change");
+            let current = *rx.borrow_and_update();
+            if current == 100 {
+                break;
+            }
+            assert!(current > 0 && current < 100);
+        }
+    }
+
+    // NOTE: We do not test inbox back-pressure here. `mpsc::try_send`
+    // semantics are tokio's contract and exhaustively covered by tokio's
+    // own test suite. The `spawn_with_capacity` constructor exposes the
+    // parameter so callers (and integration tests in real actors) can
+    // exercise back-pressure deterministically when needed.
+
+    #[tokio::test]
+    async fn dropping_handle_shuts_down_actor_loop() {
+        let bus = VmBus::new();
+        let handle = spawn(Counter { n: 0 }, bus);
+        let mut rx = handle.subscribe();
+        assert!(handle.send(Msg::Set(5)).await);
+        rx.changed().await.expect("change");
+        drop(handle);
+        // After the inbox sender is gone, the loop ends and the watch
+        // sender is dropped along with the task. `changed` must
+        // resolve to Err.
+        let result = rx.changed().await;
+        assert!(result.is_err(), "expected watch to close on actor drop");
     }
 }
