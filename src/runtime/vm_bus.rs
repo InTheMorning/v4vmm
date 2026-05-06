@@ -49,12 +49,15 @@ impl VmBus {
     }
 
     /// Publish an event. Returns `true` when at least one receiver is live.
+    /// Producers commonly fire-and-forget; the boolean is informational.
+    #[allow(clippy::must_use_candidate)]
     pub fn publish(&self, event: VmEvent) -> bool {
         self.sender.send(event).is_ok()
     }
 
     /// Acquire a fresh receiver. Receivers see only events published
     /// after they subscribe.
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<VmEvent> {
         self.sender.subscribe()
     }

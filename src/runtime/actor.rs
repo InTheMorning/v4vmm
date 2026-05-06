@@ -86,12 +86,14 @@ where
     }
 
     /// Borrow the latest published snapshot without cloning.
+    #[must_use]
     pub fn borrow(&self) -> watch::Ref<'_, S> {
         self.snapshot.borrow()
     }
 
     /// Subscribe a fresh `watch::Receiver` to the snapshot channel.
     /// `GpuiVmBridge` uses this to install per-screen receivers.
+    #[must_use]
     pub fn subscribe(&self) -> watch::Receiver<S> {
         self.snapshot.clone()
     }

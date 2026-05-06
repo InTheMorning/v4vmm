@@ -6,6 +6,8 @@
 pub mod application_event_bus;
 pub mod application_query_service;
 pub mod application_services;
+#[cfg(feature = "async-runtime")]
+pub mod async_command_runner;
 pub mod command_bus;
 pub mod command_context;
 pub mod commands;
