@@ -69,6 +69,7 @@ use crate::view_models::library::{
     PlaylistSidebarVm, TrackSubscribeOutcome,
 };
 use crate::view_models::playlist_option_displays;
+use crate::view_models::search::pending_skeleton_count;
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 
 impl InspectorFrame {
@@ -1965,7 +1966,8 @@ impl Render for LibraryApp {
         }
 
         if self.vm.is_library_loading() && tree_items.is_empty() {
-            for i in 0..6_usize {
+            let count = pending_skeleton_count(true, false);
+            for i in 0..count {
                 left_items.push(
                     SkeletonTrackRow::new(("library-skeleton-row", i))
                         .show_thumbnail(false)

@@ -146,6 +146,10 @@ pub struct SearchApp {
     /// (`do_search(true, _)`) without requiring the operator to click
     /// the explicit "Load more" affordance.
     pub(crate) results_scroll: ScrollHandle,
+    /// Scroll handle for the recents-root tile grid (the empty-frame
+    /// landing page of the inspector). Used to auto-paginate the recent
+    /// feeds list (`load_recent_feeds(true, _)`) on near-bottom scroll.
+    pub(crate) recents_scroll: ScrollHandle,
     /// Reserved for paged search results (ADR 0040 follow-up).
     #[cfg(feature = "async-runtime")]
     #[allow(dead_code)]

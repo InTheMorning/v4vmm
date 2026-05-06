@@ -14,14 +14,16 @@ use gpui::{
 
 use crate::search::SearchApp;
 use crate::ui::composites::{
-    EntityKind, ListRow, ListRowA11yLabel, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
+    EntityKind, ListRow, ListRowA11yLabel, SkeletonTrackRow, TagBadge, TagBadgeDisplay, Thumbnail,
+    ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label};
 use crate::ui::style::{color, spacing};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::search::{
-    should_auto_load_more, ResultRowRenderItem, SearchPaneDisplay, AUTO_PAGINATE_THRESHOLD_PX,
+    pending_skeleton_count, should_auto_load_more, ResultRowRenderItem, SearchPaneDisplay,
+    AUTO_PAGINATE_THRESHOLD_PX,
 };
 
 pub(crate) struct DiscoverResultRow {
@@ -119,6 +121,31 @@ pub(crate) fn render_discover_result_list(
                 .flex_col()
                 .gap(spacing::XXS)
                 .children(rows)
+                .when(
+                    params.empty_state.is_loading && params.empty_state.is_empty,
+                    |el| {
+                        // Initial cold load: paint skeleton rows so the
+                        // pane has structure instead of an empty void.
+                        let count = pending_skeleton_count(true, false);
+                        el.children((0..count).map(|i| {
+                            SkeletonTrackRow::new(("discover-result-skeleton", i))
+                                .into_any_element()
+                        }))
+                    },
+                )
+                .when(
+                    params.empty_state.is_loading && !params.empty_state.is_empty,
+                    |el| {
+                        // Pagination tail: a few skeleton rows below the
+                        // existing results signal "more incoming" without
+                        // jumping the operator to a button.
+                        let count = pending_skeleton_count(true, true);
+                        el.children((0..count).map(|i| {
+                            SkeletonTrackRow::new(("discover-result-skeleton-tail", i))
+                                .into_any_element()
+                        }))
+                    },
+                )
                 .when(
                     params.empty_state.should_show_empty_message()
                         && params.empty_state.status_empty,

@@ -6,8 +6,8 @@
 #![warn(clippy::pedantic)]
 
 use gpui::{
-    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, InteractiveElement, SharedString,
-    Styled,
+    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, InteractiveElement,
+    ScrollWheelEvent, SharedString, Styled,
 };
 
 use crate::api::Feed;
@@ -26,7 +26,8 @@ use crate::ui::shells::feed;
 use crate::ui::style::{color, radius, spacing, typography};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::search::{
-    InspectorChromeDisplay, LazyPanel, RecentFeedTileDisplay, RecentFeedTileVm, SearchViewModel,
+    should_auto_load_more, InspectorChromeDisplay, LazyPanel, RecentFeedTileDisplay,
+    RecentFeedTileVm, SearchViewModel, AUTO_PAGINATE_THRESHOLD_PX,
 };
 
 pub(crate) fn render_inspector(
@@ -87,6 +88,26 @@ pub(crate) fn render_inspector(
                 .p(spacing::LG);
             if let Some(frame) = frame {
                 scroll_box = scroll_box.track_scroll(&frame.scroll_handle);
+            } else if show_recents_root {
+                let recents_handle = app.recents_scroll.clone();
+                let recents_for_listener = recents_handle.clone();
+                scroll_box = scroll_box.track_scroll(&recents_handle).on_scroll_wheel(
+                    cx.listener(
+                        move |this: &mut SearchApp, _event: &ScrollWheelEvent, _window, cx| {
+                            let max_y = f32::from(recents_for_listener.max_offset().height);
+                            let offset_y = f32::from(recents_for_listener.offset().y);
+                            let remaining = max_y + offset_y;
+                            if should_auto_load_more(
+                                remaining,
+                                AUTO_PAGINATE_THRESHOLD_PX,
+                                this.vm.recent_has_more,
+                                this.vm.recent_loading,
+                            ) {
+                                this.load_recent_feeds(true, cx);
+                            }
+                        },
+                    ),
+                );
             }
             scroll_box.child(match frame {
                 Some(frame) => render_inspector_body(frame, app, cx),

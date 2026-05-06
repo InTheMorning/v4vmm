@@ -93,6 +93,7 @@ impl SearchApp {
             _input_sub: input_sub,
             list_focus: cx.focus_handle(),
             results_scroll: ScrollHandle::new(),
+            recents_scroll: ScrollHandle::new(),
             #[cfg(feature = "async-runtime")]
             runtime_host,
         };

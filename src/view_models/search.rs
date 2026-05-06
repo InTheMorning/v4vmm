@@ -387,6 +387,31 @@ pub(crate) fn normalized_search_query(value: &str) -> Option<String> {
 /// by a hair.
 pub(crate) const AUTO_PAGINATE_THRESHOLD_PX: f32 = 240.0;
 
+/// Number of skeleton placeholders to paint when a list is loading
+/// from cold (no rows visible yet). Six rows fills a typical viewport
+/// without dwarfing it.
+pub(crate) const INITIAL_SKELETON_COUNT: usize = 6;
+
+/// Number of skeleton placeholders to paint at the tail of a list that
+/// is currently fetching the next page. Three rows is enough to signal
+/// "more incoming" without pushing existing rows off screen.
+pub(crate) const TAIL_SKELETON_COUNT: usize = 3;
+
+/// Pure skeleton-count policy: how many placeholder rows/tiles should a
+/// loading list paint right now? Zero means "no skeletons" (the list is
+/// idle). Centralising the rule keeps every pane consistent and lets us
+/// tune the experience from one place.
+#[must_use]
+pub(crate) fn pending_skeleton_count(loading: bool, has_existing_rows: bool) -> usize {
+    if !loading {
+        0
+    } else if has_existing_rows {
+        TAIL_SKELETON_COUNT
+    } else {
+        INITIAL_SKELETON_COUNT
+    }
+}
+
 /// Pure pagination policy: should we kick a "load more" request given
 /// the current scroll position? Centralising this keeps the rule
 /// testable and consistent across panes (search results, recents, and
@@ -2122,6 +2147,37 @@ mod tests {
         // NaN / non-finite remaining (e.g. before first layout): do not fire.
         assert!(!should_auto_load_more(f32::NAN, 240.0, true, false));
         assert!(!should_auto_load_more(f32::INFINITY, 240.0, true, false));
+    }
+
+    #[test]
+    fn pending_skeleton_count_paints_initial_grid_on_cold_load() {
+        assert_eq!(
+            pending_skeleton_count(true, false),
+            INITIAL_SKELETON_COUNT,
+            "cold load with no rows yet should paint the full skeleton grid"
+        );
+    }
+
+    #[test]
+    fn pending_skeleton_count_paints_tail_when_appending() {
+        assert_eq!(
+            pending_skeleton_count(true, true),
+            TAIL_SKELETON_COUNT,
+            "appending more rows should paint a short tail of skeletons"
+        );
+    }
+
+    #[test]
+    fn pending_skeleton_count_paints_nothing_when_idle() {
+        assert_eq!(pending_skeleton_count(false, false), 0);
+        assert_eq!(pending_skeleton_count(false, true), 0);
+    }
+
+    #[test]
+    fn skeleton_counts_are_sane() {
+        const _: () = assert!(INITIAL_SKELETON_COUNT >= TAIL_SKELETON_COUNT);
+        const _: () = assert!(TAIL_SKELETON_COUNT >= 1);
+        const _: () = assert!(INITIAL_SKELETON_COUNT <= 12);
     }
 
     fn assert_width_eq(actual: f32, expected: f32) {

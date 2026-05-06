@@ -14,13 +14,15 @@ use gpui::{
 };
 
 use crate::search::SearchApp;
-use crate::ui::composites::EntityKind;
+use crate::ui::composites::{EntityKind, SkeletonFeedTile};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label};
 use crate::ui::style::{color, spacing, typography};
 use crate::ui::tokens::{color as token_color, FontSize, Radius, SemanticColor, Spacing};
-use crate::view_models::search::{RecentFeedTileDisplay, RecentFeedsDisplay};
+use crate::view_models::search::{
+    pending_skeleton_count, RecentFeedTileDisplay, RecentFeedsDisplay,
+};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -201,7 +203,21 @@ pub(crate) fn render_discover_recent(
                 .flex_row()
                 .flex_wrap()
                 .gap(spacing::MD)
-                .children(tiles),
+                .children(tiles)
+                .when(params.loading && params.is_empty, |el| {
+                    let count = pending_skeleton_count(true, false);
+                    el.children((0..count).map(|i| {
+                        SkeletonFeedTile::new(("discover-recent-skeleton", i))
+                            .into_any_element()
+                    }))
+                })
+                .when(params.loading && !params.is_empty, |el| {
+                    let count = pending_skeleton_count(true, true);
+                    el.children((0..count).map(|i| {
+                        SkeletonFeedTile::new(("discover-recent-skeleton-tail", i))
+                            .into_any_element()
+                    }))
+                }),
         )
         .when(params.has_more && !params.loading, |el| {
             el.child(

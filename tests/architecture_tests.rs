@@ -2407,10 +2407,19 @@ fn screens_do_not_define_local_track_row_chrome() {
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             for pattern in forbidden {
-                if line.contains(pattern) {
-                    violations.push(format!(
-                        "{file}:{line_number}: track row chrome must be owned by `TrackRow` through `TrackRowVm`, not locally rebuilt; found `{pattern}` in `{line}`"
-                    ));
+                let mut search_start = 0;
+                while let Some(idx) = line[search_start..].find(pattern) {
+                    let absolute = search_start + idx;
+                    // Skip if the match is the suffix of a longer identifier
+                    // (e.g. `SkeletonTrackRow::new(` ends with `TrackRow::new(`).
+                    let preceded_by_ident = absolute > 0
+                        && line.as_bytes()[absolute - 1].is_ascii_alphanumeric();
+                    if !preceded_by_ident {
+                        violations.push(format!(
+                            "{file}:{line_number}: track row chrome must be owned by `TrackRow` through `TrackRowVm`, not locally rebuilt; found `{pattern}` in `{line}`"
+                        ));
+                    }
+                    search_start = absolute + pattern.len();
                 }
             }
         }
