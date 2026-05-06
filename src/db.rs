@@ -616,6 +616,103 @@ pub fn cached_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
     Ok(rows)
 }
 
+/// Listing scope for paged track queries (ADR 0041).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrackListing {
+    /// Tracks marked `is_in_library = 1` (library view).
+    Library,
+    /// Tracks marked `is_in_library = 0` (cached / discovery view).
+    Cached,
+}
+
+impl TrackListing {
+    fn where_clause(self) -> &'static str {
+        match self {
+            Self::Library => "t.is_in_library = 1",
+            Self::Cached => "t.is_in_library = 0",
+        }
+    }
+}
+
+/// ADR 0041 step 1: cheap identity index for a paged track listing.
+///
+/// Returns `(track_id, sort_key)` in display order. The sort key is a
+/// stable string suitable for jump-to-key UI; v1 uses
+/// `feed_title|disc|track_no|title` and is opaque to callers.
+pub fn track_ids_ordered_by(
+    conn: &Connection,
+    listing: TrackListing,
+) -> Result<Vec<(i64, String)>> {
+    let sql = format!(
+        "SELECT t.id,
+                COALESCE(f.title, '')                  AS feed_title,
+                COALESCE(t.disc_number, 0)             AS disc_no,
+                COALESCE(t.track_number, 0)            AS track_no,
+                COALESCE(t.track_title, '')            AS title
+         FROM tracks t
+         JOIN feeds f ON f.id = t.feed_id
+         WHERE {}
+         ORDER BY f.title COLLATE NOCASE, t.disc_number, t.track_number, t.track_title COLLATE NOCASE",
+        listing.where_clause()
+    );
+
+    let mut stmt = conn.prepare(&sql).context("prepare track_ids_ordered_by")?;
+    let rows = stmt
+        .query_map([], |row| {
+            let id: i64 = row.get(0)?;
+            let feed_title: String = row.get(1)?;
+            let disc_no: i64 = row.get(2)?;
+            let track_no: i64 = row.get(3)?;
+            let title: String = row.get(4)?;
+            let key = format!("{feed_title}|{disc_no:04}|{track_no:04}|{title}");
+            Ok((id, key))
+        })
+        .context("query track_ids_ordered_by")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect track_ids_ordered_by")?;
+    Ok(rows)
+}
+
+/// ADR 0041 step 2: hydrate a slice of track ids into full rows.
+///
+/// Chunks at 500 ids to respect SQLite's compile-time variable limit.
+/// Returned rows are in input order; missing ids are silently skipped.
+pub fn tracks_by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<TrackRow>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut by_id: std::collections::HashMap<i64, TrackRow> =
+        std::collections::HashMap::with_capacity(ids.len());
+
+    for chunk in ids.chunks(500) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
+                    t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
+                    t.enclosure_url, t.enclosure_type, t.track_image_href,
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+             FROM tracks t
+             JOIN feeds f ON f.id = t.feed_id
+             LEFT JOIN local_files lf ON lf.track_id = t.id
+             WHERE t.id IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql).context("prepare tracks_by_ids chunk")?;
+        let params = rusqlite::params_from_iter(chunk.iter().copied());
+        let rows = stmt
+            .query_map(params, track_row_from_sql)
+            .context("query tracks_by_ids chunk")?;
+        for row in rows {
+            let row = row.context("collect tracks_by_ids chunk")?;
+            by_id.insert(row.id, row);
+        }
+    }
+
+    Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
+}
+
 pub fn unsubscribe_feed_tracks(conn: &Connection, feed_id: i64) -> Result<()> {
     conn.execute(
         "UPDATE tracks SET is_in_library = 0 WHERE feed_id = ?1",
@@ -2208,6 +2305,68 @@ mod tests {
             rusqlite::params![feed_id, guid, "Test Track"],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    fn insert_track_full(
+        conn: &Connection,
+        feed_id: i64,
+        title: &str,
+        track_no: Option<i64>,
+        in_library: bool,
+    ) -> Result<i64> {
+        static COUNTER: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(10_000);
+        let guid = format!(
+            "guid-full-{}",
+            COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
+        conn.execute(
+            "INSERT INTO tracks (feed_id, item_guid, track_title, track_number, is_in_library)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![feed_id, guid, title, track_no, i64::from(in_library)],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    #[test]
+    fn track_ids_ordered_by_returns_only_listing_scope_in_sorted_order() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let lib_b = insert_track_full(&conn, feed_id, "B", Some(2), true)?;
+        let lib_a = insert_track_full(&conn, feed_id, "A", Some(1), true)?;
+        let _cached = insert_track_full(&conn, feed_id, "C", Some(3), false)?;
+
+        let library = track_ids_ordered_by(&conn, TrackListing::Library)?;
+        assert_eq!(
+            library.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![lib_a, lib_b]
+        );
+        assert!(library[0].1 < library[1].1, "sort keys must be monotonic");
+
+        let cached = track_ids_ordered_by(&conn, TrackListing::Cached)?;
+        assert_eq!(cached.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn tracks_by_ids_preserves_input_order_and_skips_unknown() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let a = insert_track_full(&conn, feed_id, "A", Some(1), true)?;
+        let b = insert_track_full(&conn, feed_id, "B", Some(2), true)?;
+        let c = insert_track_full(&conn, feed_id, "C", Some(3), true)?;
+
+        let rows = tracks_by_ids(&conn, &[c, a, b, 9_999])?;
+        assert_eq!(rows.iter().map(|r| r.id).collect::<Vec<_>>(), vec![c, a, b]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn tracks_by_ids_handles_empty_input() -> Result<()> {
+        let conn = setup_test_db()?;
+        assert!(tracks_by_ids(&conn, &[])?.is_empty());
+        Ok(())
     }
 
     #[test]
