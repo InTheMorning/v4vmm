@@ -13,6 +13,8 @@ pub mod command_context;
 pub mod commands;
 pub mod errors;
 pub mod events;
+#[cfg(feature = "async-runtime")]
+pub mod paged_track_list;
 pub mod ports;
 pub mod queries;
 
