@@ -26,7 +26,6 @@ pub mod file_header;
 pub mod identity_action;
 pub mod list_row;
 pub mod musicbrainz_panel;
-pub mod now_playing_bar;
 pub mod playlist_popover;
 pub mod release_detail_surface;
 pub mod segmented_control;
@@ -54,7 +53,6 @@ pub use identity_action::{
 };
 pub use list_row::{ListRow, ListRowA11yLabel, ListRowDensity};
 pub use musicbrainz_panel::MusicBrainzPanel;
-pub use now_playing_bar::{NowPlayingBar, NowPlayingData, PlaybackState as NowPlayingState};
 pub use playlist_popover::{
     AddToPlaylistDisplay, AddToPlaylistPopover, PlaylistOption, PlaylistOptionDisplay,
 };

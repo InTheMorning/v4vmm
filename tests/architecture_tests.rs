@@ -1494,7 +1494,7 @@ fn interactive_composites_carry_accessibility_labels() {
         ),
         (
             "NowPlayingData",
-            "src/ui/composites/now_playing_bar.rs",
+            "src/app/playback_bar.rs",
             "play_pause_a11y_label",
         ),
         (
