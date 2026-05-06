@@ -12,7 +12,7 @@ use gpui::{
 
 use crate::api::Feed;
 use crate::search::{InspectorDetail, InspectorFrame, SearchApp};
-use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
+use crate::ui::composites::{EntityKind, SkeletonInspector, Thumbnail, ThumbnailSize};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::{Button as UiButton, Label, LoadingMessage};
@@ -124,7 +124,7 @@ fn render_inspector_body(
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
     match &frame.detail {
-        InspectorDetail::Loading(message) => LoadingMessage::from_text(message).into_any_element(),
+        InspectorDetail::Loading(_) => skeleton_for_entity(&frame.entity_type).into_any_element(),
         InspectorDetail::Error(error) => {
             LoadingMessage::new(SearchViewModel::inspector_error_message(error)).into_any_element()
         }
@@ -136,6 +136,19 @@ fn render_inspector_body(
             render_discover_track_inspector_core(frame, track_context, app, cx)
         }
         InspectorDetail::Publisher(publisher) => render_publisher_inspector(publisher, app, cx),
+    }
+}
+
+/// Body-row count for the inspector skeleton, chosen to roughly mirror the
+/// populated layout for each entity kind so the placeholder occupies the
+/// same vertical footprint as the real content.
+fn skeleton_for_entity(entity_type: &str) -> SkeletonInspector {
+    match entity_type {
+        "track" => SkeletonInspector::new().body_rows(8),
+        "feed" => SkeletonInspector::new().body_rows(6),
+        "artist" => SkeletonInspector::new().body_rows(5),
+        "publisher" => SkeletonInspector::new().body_rows(4),
+        _ => SkeletonInspector::new(),
     }
 }
 
