@@ -101,6 +101,9 @@ impl TopApp {
         ui_scale: crate::config::UiScale,
         theme_profile: ThemeProfile,
         playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
+        #[cfg(feature = "async-runtime")] runtime_host: Option<
+            Arc<crate::presentation::RuntimeHost>,
+        >,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -136,6 +139,8 @@ impl TopApp {
                 search_cache,
                 search_endpoint,
                 search_services,
+                #[cfg(feature = "async-runtime")]
+                runtime_host.clone(),
                 window,
                 cx,
             )
@@ -146,6 +151,8 @@ impl TopApp {
                 library_cache,
                 musicindex_endpoint.clone(),
                 library_services,
+                #[cfg(feature = "async-runtime")]
+                runtime_host.clone(),
                 window,
                 cx,
             )

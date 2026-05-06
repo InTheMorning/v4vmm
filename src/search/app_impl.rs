@@ -64,6 +64,9 @@ impl SearchApp {
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
         application_services: Arc<ApplicationServices>,
+        #[cfg(feature = "async-runtime")] runtime_host: Option<
+            Arc<crate::presentation::RuntimeHost>,
+        >,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -89,6 +92,8 @@ impl SearchApp {
             thumbnails: BTreeMap::new(),
             _input_sub: input_sub,
             list_focus: cx.focus_handle(),
+            #[cfg(feature = "async-runtime")]
+            runtime_host,
         };
         this.load_playlists();
         this.load_recent_feeds(false, cx);

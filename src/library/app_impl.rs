@@ -11,6 +11,8 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
 use rusqlite::Connection;
 
+#[cfg(feature = "async-runtime")]
+use super::PlaylistActorState;
 use super::{
     InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, LibraryTrackCompare,
     PlaylistDetail, ThumbnailState,
@@ -104,6 +106,9 @@ impl LibraryApp {
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
         application_services: Arc<ApplicationServices>,
+        #[cfg(feature = "async-runtime")] runtime_host: Option<
+            Arc<crate::presentation::RuntimeHost>,
+        >,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -131,6 +136,10 @@ impl LibraryApp {
             search_input,
             _search_sub: search_sub,
             new_playlist_input,
+            #[cfg(feature = "async-runtime")]
+            runtime_host,
+            #[cfg(feature = "async-runtime")]
+            playlist_actor: None,
         };
         app.reload();
         app
@@ -290,8 +299,71 @@ impl LibraryApp {
                 tracks: tracks.clone(),
             });
             self.vm.replace_playlist_tracks(tracks);
+            #[cfg(feature = "async-runtime")]
+            self.spawn_playlist_actor(id, cx);
         }
         cx.notify();
+    }
+
+    /// Spawn (or replace) the paged playlist actor for `playlist_id`.
+    ///
+    /// Dropping the previous handle closes its inbox so the actor task
+    /// exits gracefully. The new handle is bridged via
+    /// [`crate::presentation::bridge_watch`] so snapshot publishes
+    /// trigger a re-render automatically.
+    #[cfg(feature = "async-runtime")]
+    fn spawn_playlist_actor(&mut self, playlist_id: i64, cx: &mut Context<Self>) {
+        use crate::application::paged_track_list::PagedTrackListActor;
+        use crate::db::{open_db, TrackListing};
+        use crate::presentation::bridge_watch;
+
+        let Some(host) = self.runtime_host.clone() else {
+            return;
+        };
+        // Open a dedicated connection for the actor: rusqlite Connections
+        // are not Sync, and the actor consumes its connection by value.
+        let cfg = match crate::config::config_path()
+            .ok()
+            .and_then(|path| crate::config::load_config(&path).ok())
+        {
+            Some(cfg) => cfg,
+            None => return,
+        };
+        let conn = match open_db(&cfg) {
+            Ok(conn) => conn,
+            Err(err) => {
+                eprintln!("v4vmm::library: failed to open actor DB conn: {err}");
+                return;
+            }
+        };
+        let actor = match PagedTrackListActor::new(conn, TrackListing::Playlist { playlist_id }) {
+            Ok(actor) => actor,
+            Err(err) => {
+                eprintln!("v4vmm::library: PagedTrackListActor::new failed: {err}");
+                return;
+            }
+        };
+        let bus = host.bus().clone();
+        let _enter = host.handle().enter();
+        let handle = actor.spawn(bus);
+        let snapshot = handle.borrow().clone();
+        let rx = handle.subscribe();
+        self.playlist_actor = Some(PlaylistActorState {
+            playlist_id,
+            snapshot,
+            handle,
+        });
+        bridge_watch(
+            rx,
+            move |this: &mut Self, snap, _cx| {
+                if let Some(state) = &mut this.playlist_actor {
+                    if state.playlist_id == playlist_id {
+                        state.snapshot = snap;
+                    }
+                }
+            },
+            cx,
+        );
     }
 
     fn create_playlist(&mut self, cx: &mut Context<Self>) {

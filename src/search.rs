@@ -132,6 +132,10 @@ pub struct SearchApp {
     thumbnails: BTreeMap<String, ThumbnailState>,
     _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
+    /// Reserved for paged search results (ADR 0040 follow-up).
+    #[cfg(feature = "async-runtime")]
+    #[allow(dead_code)]
+    pub(crate) runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
 }
 
 /// Events emitted by [`SearchApp`] to notify peer components (e.g. the
@@ -223,6 +227,8 @@ pub fn run_search_app() {
                         image_cache,
                         musicindex_endpoint,
                         application_services,
+                        #[cfg(feature = "async-runtime")]
+                        None,
                         window,
                         cx,
                     )
