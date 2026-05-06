@@ -233,4 +233,42 @@ mod tests {
         // peek_row must not have queued anything.
         assert!(h.lock().unwrap().drain_requests().is_empty());
     }
+
+    #[test]
+    fn mixed_pending_and_ready_in_partial_fulfillment() {
+        // Mirrors the paged screen render: actor has fulfilled the first
+        // page; later rows are still pending. The screen must see both
+        // states without crashing or queueing requests on the render path.
+        let pl = playlist(1, "p");
+        let h = handle((0..200).collect());
+        // Fulfill only positions 0..3 to simulate a partial first page.
+        {
+            let mut guard = h.lock().unwrap();
+            let _ = guard.row(0);
+            let _ = guard.drain_requests();
+            guard.fulfill_page(
+                0,
+                (0..3i64).map(|id| (id, track(id, &format!("t{id}")))),
+            );
+        }
+
+        let vm = PagedPlaylistDetailVm::new(&pl, &h);
+        assert_eq!(vm.track_count(), 200);
+
+        // Ready in the warm window.
+        for pos in 0..3usize {
+            let row = vm.row(pos);
+            assert!(matches!(row, PagedPlaylistRow::Ready { .. }), "pos {pos}");
+        }
+        // Pending past the warm window.
+        for pos in [50usize, 150, 199] {
+            let row = vm.row(pos);
+            assert!(
+                matches!(row, PagedPlaylistRow::Pending { .. }),
+                "pos {pos}"
+            );
+        }
+        // Render path is read-only — no requests queued by peeking.
+        assert!(h.lock().unwrap().drain_requests().is_empty());
+    }
 }

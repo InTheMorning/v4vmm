@@ -37,19 +37,24 @@ pub(crate) struct PlaylistDetailBehaviorSlots {
 /// been fetched: the shell paints a [`SkeletonTrackRow`] sized to match
 /// the real row footprint so the scroll position does not jump on
 /// hydration. Eager callers always emit `Ready`.
-#[expect(
-    dead_code,
-    reason = "Pending variant consumed once paged playlist actor wires through (p2b)"
+#[cfg_attr(
+    not(feature = "async-runtime"),
+    expect(
+        dead_code,
+        reason = "Pending variant is consumed by the paged playlist screen which is gated on `async-runtime`"
+    )
 )]
 pub(crate) enum PlaylistShellRow {
     Pending {
         position: usize,
         last_position: usize,
     },
-    Ready {
-        display: PlaylistTrackRowDisplay,
-        slot: PlaylistTrackRowSlot,
-    },
+    Ready(Box<PlaylistShellReadyRow>),
+}
+
+pub(crate) struct PlaylistShellReadyRow {
+    pub(crate) display: PlaylistTrackRowDisplay,
+    pub(crate) slot: PlaylistTrackRowSlot,
 }
 
 #[derive(Default)]
@@ -174,8 +179,8 @@ fn render_playlist_shell_row(playlist_id: i64, row: PlaylistShellRow) -> AnyElem
             position,
             last_position,
         } => render_pending_playlist_row(playlist_id, position, last_position),
-        PlaylistShellRow::Ready { display, slot } => {
-            render_playlist_track_row(playlist_id, display, slot)
+        PlaylistShellRow::Ready(ready) => {
+            render_playlist_track_row(playlist_id, ready.display, ready.slot)
         }
     }
 }

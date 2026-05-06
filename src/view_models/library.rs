@@ -1893,7 +1893,29 @@ pub(crate) struct PlaylistDetailHeaderDisplay {
     pub(crate) title: String,
 }
 
-impl PlaylistTrackRowVm<'_> {
+impl<'a> PlaylistTrackRowVm<'a> {
+    /// Construct a row VM from a borrowed track and its position in
+    /// the surrounding playlist.
+    ///
+    /// Used by both the eager projection (`PlaylistDetailVm::track_rows`)
+    /// and the paged screen path which materialises one row at a time
+    /// from a [`super::paged_playlist_detail::PagedPlaylistDetailVm`].
+    #[must_use]
+    #[cfg_attr(
+        not(feature = "async-runtime"),
+        expect(
+            dead_code,
+            reason = "constructor is consumed by the paged playlist screen which is gated on `async-runtime`"
+        )
+    )]
+    pub(crate) const fn new(track: &'a TrackRow, position: usize, last_position: usize) -> Self {
+        Self {
+            track,
+            position,
+            last_position,
+        }
+    }
+
     #[must_use]
     pub(crate) fn track(&self) -> &TrackRow {
         self.track
