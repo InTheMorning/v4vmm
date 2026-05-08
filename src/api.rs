@@ -299,6 +299,7 @@ pub struct SourceEnclosure {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ArtistCredit {
+    pub artist_id: Option<String>,
     pub display_name: Option<String>,
 }
 
@@ -922,6 +923,10 @@ mod tests {
             r#"{
                 "track_guid": "track-1",
                 "author_name": "Track Artist",
+                "artist_credit": {
+                    "artist_id": "artist-123",
+                    "display_name": "Track Artist"
+                },
                 "persons": [{"name": "Bob", "role": "guitar"}],
                 "links": [{"link_type": "website", "url": "https://example.com/track"}],
                 "entity_ids": [{"scheme": "nostr_npub", "value": "npub1track"}]
@@ -934,6 +939,11 @@ mod tests {
         assert_eq!(feed.source_links.as_ref().map(Vec::len), Some(1));
         assert_eq!(feed.source_ids.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.track_artist.as_deref(), Some("Track Artist"));
+        let artist_credit = track
+            .artist_credit
+            .expect("artist_credit should deserialize");
+        assert_eq!(artist_credit.artist_id.as_deref(), Some("artist-123"));
+        assert_eq!(artist_credit.display_name.as_deref(), Some("Track Artist"));
         assert_eq!(track.source_contributors.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.source_links.as_ref().map(Vec::len), Some(1));
         assert_eq!(track.source_ids.as_ref().map(Vec::len), Some(1));

@@ -1386,6 +1386,46 @@ pub fn replace_track_artist_source_bindings(
     )
     .context("delete track artist source bindings")?;
 
+    insert_track_artist_source_bindings(&tx, track_id, bindings)?;
+
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+pub fn replace_track_artist_source_bindings_for_source(
+    conn: &mut Connection,
+    track_id: i64,
+    source: &str,
+    bindings: &[TrackArtistSourceBindingInput],
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
+    for binding in bindings {
+        let binding_source = explicit_source_token(&binding.source)?;
+        anyhow::ensure!(
+            binding_source == source,
+            "artist binding source must match replacement source"
+        );
+    }
+
+    let tx = conn.transaction().context("start transaction")?;
+
+    tx.execute(
+        "DELETE FROM track_artist_source_bindings WHERE track_id = ?1 AND source = ?2",
+        rusqlite::params![track_id, source],
+    )
+    .context("delete source track artist source bindings")?;
+
+    insert_track_artist_source_bindings(&tx, track_id, bindings)?;
+
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+fn insert_track_artist_source_bindings(
+    tx: &rusqlite::Transaction<'_>,
+    track_id: i64,
+    bindings: &[TrackArtistSourceBindingInput],
+) -> Result<()> {
     for binding in bindings {
         let role = explicit_artist_role(&binding.role)?;
         let source = explicit_source_token(&binding.source)?;
@@ -1410,7 +1450,6 @@ pub fn replace_track_artist_source_bindings(
         .context("insert track artist source binding")?;
     }
 
-    tx.commit().context("commit transaction")?;
     Ok(())
 }
 
@@ -3170,6 +3209,83 @@ mod tests {
         assert!(
             artist_source_fact(&conn, "musicindex", "artist-123")?.is_some(),
             "deleting a track must not delete artist source facts"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_track_artist_source_bindings_source_replace_preserves_other_sources() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+        replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-123",
+            &ArtistSourceFactInput::default(),
+        )?;
+        replace_artist_source_fact(
+            &mut conn,
+            "other",
+            "artist-999",
+            &ArtistSourceFactInput::default(),
+        )?;
+        replace_track_artist_source_bindings(
+            &mut conn,
+            track_id,
+            &[
+                TrackArtistSourceBindingInput {
+                    role: "artist".to_owned(),
+                    source: "musicindex".to_owned(),
+                    source_artist_id: "artist-123".to_owned(),
+                    confidence: Some(1.0),
+                    provenance: Some("musicindex.track.artist_credit.artist_id".to_owned()),
+                    observed_at: Some(1),
+                },
+                TrackArtistSourceBindingInput {
+                    role: "artist".to_owned(),
+                    source: "other".to_owned(),
+                    source_artist_id: "artist-999".to_owned(),
+                    confidence: Some(0.8),
+                    provenance: Some("other.track.artist_id".to_owned()),
+                    observed_at: Some(2),
+                },
+            ],
+        )?;
+
+        replace_track_artist_source_bindings_for_source(&mut conn, track_id, "musicindex", &[])?;
+
+        let bindings = track_artist_source_bindings_for_track(&conn, track_id)?;
+        assert_eq!(
+            bindings,
+            vec![TrackArtistSourceBindingRow {
+                track_id,
+                role: "artist".to_owned(),
+                source: "other".to_owned(),
+                source_artist_id: "artist-999".to_owned(),
+                confidence: Some(0.8),
+                provenance: Some("other.track.artist_id".to_owned()),
+                observed_at: Some(2),
+            }]
+        );
+
+        let mismatched_source = replace_track_artist_source_bindings_for_source(
+            &mut conn,
+            track_id,
+            "musicindex",
+            &[TrackArtistSourceBindingInput {
+                role: "artist".to_owned(),
+                source: "other".to_owned(),
+                source_artist_id: "artist-999".to_owned(),
+                confidence: None,
+                provenance: None,
+                observed_at: None,
+            }],
+        );
+        assert!(
+            mismatched_source.is_err(),
+            "source-scoped replacement should reject bindings for other sources"
         );
 
         Ok(())

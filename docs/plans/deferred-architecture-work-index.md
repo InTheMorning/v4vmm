@@ -73,7 +73,8 @@ prioritized, and routed to the right governance artifact.
   below still require their named future ADR routes.
 - ADR 0045 planning artifacts were created on 2026-05-08 for the top
   deferred item: track-to-artist binding for name-derived Library artist
-  views. Runtime work must proceed task-by-task.
+  views. Tasks 001-002 have shipped; Tasks 003-004 remain and runtime
+  work must continue task-by-task.
 
 ## Execution Rule
 

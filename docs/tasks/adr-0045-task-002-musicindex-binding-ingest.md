@@ -5,6 +5,8 @@
 Persist track-to-artist bindings when MusicIndex responses provide explicit
 artist ids already accepted by ADR 0029.
 
+Status: Implemented - 2026-05-08.
+
 ## Files to Inspect
 
 - `docs/adr/0045-track-artist-binding.md`
@@ -36,17 +38,31 @@ artist ids already accepted by ADR 0029.
 
 ## Implementation Steps
 
-1. Locate where MusicIndex artist facts are persisted for tracks.
-2. Add binding inputs only when local track id and explicit artist id are both
-   present.
-3. Preserve role/provenance fields so the read model can explain the binding.
-4. Add tests proving explicit ids bind and name-only responses do not.
+1. Done: locate where MusicIndex artist facts are persisted for tracks.
+2. Done: add binding inputs only when local track id and explicit artist id are
+   both present.
+3. Done: preserve role/provenance fields so the read model can explain the
+   binding.
+4. Done: add tests proving explicit ids bind and name-only responses do not.
 
 ## Acceptance Criteria
 
-- Explicit MusicIndex artist ids create track bindings.
-- Name-only artists do not create bindings.
-- Existing ADR 0029 artist source-fact tests still pass.
+- [x] Explicit MusicIndex artist ids create track bindings.
+- [x] Name-only artists do not create bindings.
+- [x] Existing ADR 0029 artist source-fact tests still pass.
+
+## Implementation Notes
+
+- `api::ArtistCredit` now accepts explicit `artist_id` from MusicIndex track
+  payloads.
+- `identity_ingest::persist_musicindex_track()` writes source-scoped
+  MusicIndex bindings only from non-empty `artist_credit.artist_id` values.
+- Ingest creates a minimal MusicIndex artist source fact only when the explicit
+  artist id is missing from local storage; existing richer artist facts are not
+  replaced.
+- Name-only or missing artist credits clear MusicIndex-owned bindings for the
+  track without creating new artist source facts.
+- No UI, view-model, Library hydration, or audio-tag paths changed.
 
 ## Test Commands
 

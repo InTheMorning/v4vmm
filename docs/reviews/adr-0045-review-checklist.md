@@ -11,15 +11,15 @@
 
 ## Gate Status
 
-Status: Task 001 implemented on 2026-05-08. Tasks 002-004 pending.
+Status: Tasks 001-002 implemented on 2026-05-08. Tasks 003-004 pending.
 
 ## Required Checks
 
 - [x] Binding schema is additive.
 - [x] Bindings require explicit `(source, source_artist_id)`.
 - [x] Track removal deletes bindings but not artist source facts.
-- [ ] MusicIndex ingest writes bindings only from explicit artist ids.
-- [ ] Name-only artists do not create bindings.
+- [x] MusicIndex ingest writes bindings only from explicit artist ids.
+- [x] Name-only artists do not create bindings.
 - [ ] Library artist hydration uses read-model helpers, not renderer inference.
 - [ ] Multiple bound subjects under one local display name are not silently
       merged.
@@ -31,7 +31,7 @@ Status: Task 001 implemented on 2026-05-08. Tasks 002-004 pending.
 
 ## Required Fixes
 
-- Tasks 002-004 remain pending.
+- Tasks 003-004 remain pending.
 
 ## Optional Improvements
 
@@ -40,13 +40,14 @@ Status: Task 001 implemented on 2026-05-08. Tasks 002-004 pending.
 
 ## Architectural Drift
 
-- No drift in Task 001. Schema and helpers stayed in `src/db.rs`;
-  no UI, ingest, read-model, or audio tag behavior changed.
+- No drift in Tasks 001-002. Schema and helpers stayed in `src/db.rs`.
+  Ingest writes remain in `src/identity_ingest.rs`; no UI, read-model,
+  Library hydration, or audio tag behavior changed.
 
 ## Missing Tests
 
-- Full ADR 0045 still needs ingest, hydration, guard, and full-suite
-  readiness tests.
+- Full ADR 0045 still needs hydration, guard, and final full-suite readiness
+  tests.
 
 ## Merge Recommendation
 

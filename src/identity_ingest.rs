@@ -4,10 +4,12 @@ use anyhow::Result;
 use rusqlite::Connection;
 use serde::Serialize;
 
-use crate::api::{Artist, Contributor, Feed, SourceEntityId, SourceEntityLink, Track};
+use crate::api::{
+    Artist, ArtistCredit, Contributor, Feed, SourceEntityId, SourceEntityLink, Track,
+};
 use crate::db::{
     self, ArtistSourceFactInput, LocalContributorInput, LocalEntityOwner, LocalIdentityIdInput,
-    LocalIdentityLinkInput, LocalIdentityOwner,
+    LocalIdentityLinkInput, LocalIdentityOwner, TrackArtistSourceBindingInput,
 };
 
 const MUSICINDEX_SOURCE: &str = "musicindex";
@@ -77,7 +79,8 @@ pub(crate) fn persist_musicindex_track(
         conn,
         LocalEntityOwner::Track(track_id),
         track.source_contributors.as_deref(),
-    )
+    )?;
+    persist_track_artist_bindings(conn, track_id, track)
 }
 
 pub(crate) fn persist_musicindex_artist(conn: &mut Connection, artist: &Artist) -> Result<()> {
@@ -110,6 +113,75 @@ pub(crate) fn persist_musicindex_artist(conn: &mut Connection, artist: &Artist) 
             source_ids: Vec::new(),
         },
     )
+}
+
+fn persist_track_artist_bindings(
+    conn: &mut Connection,
+    track_id: i64,
+    track: &Track,
+) -> Result<()> {
+    let Some(artist_credit) = track.artist_credit.as_ref() else {
+        db::replace_track_artist_source_bindings_for_source(
+            conn,
+            track_id,
+            MUSICINDEX_SOURCE,
+            &[],
+        )?;
+        return Ok(());
+    };
+    let Some(source_artist_id) = explicit_artist_credit_id(artist_credit) else {
+        db::replace_track_artist_source_bindings_for_source(
+            conn,
+            track_id,
+            MUSICINDEX_SOURCE,
+            &[],
+        )?;
+        return Ok(());
+    };
+
+    ensure_musicindex_artist_source_fact(conn, source_artist_id, artist_credit)?;
+    db::replace_track_artist_source_bindings_for_source(
+        conn,
+        track_id,
+        MUSICINDEX_SOURCE,
+        &[TrackArtistSourceBindingInput {
+            role: "artist".to_owned(),
+            source: MUSICINDEX_SOURCE.to_owned(),
+            source_artist_id: source_artist_id.to_owned(),
+            confidence: Some(1.0),
+            provenance: Some("musicindex.track.artist_credit.artist_id".to_owned()),
+            observed_at: track.updated_at,
+        }],
+    )
+}
+
+fn ensure_musicindex_artist_source_fact(
+    conn: &mut Connection,
+    source_artist_id: &str,
+    artist_credit: &ArtistCredit,
+) -> Result<()> {
+    if db::artist_source_fact(conn, MUSICINDEX_SOURCE, source_artist_id)?.is_some() {
+        return Ok(());
+    }
+
+    db::replace_artist_source_fact(
+        conn,
+        MUSICINDEX_SOURCE,
+        source_artist_id,
+        &ArtistSourceFactInput {
+            name: artist_credit.display_name.clone(),
+            raw_json: raw_json(artist_credit),
+            ..ArtistSourceFactInput::default()
+        },
+    )
+}
+
+fn explicit_artist_credit_id(artist_credit: &ArtistCredit) -> Option<&str> {
+    artist_credit
+        .artist_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
 }
 
 fn persist_source_links(
@@ -367,6 +439,102 @@ mod tests {
         let contributors = db::local_contributors(&conn, LocalEntityOwner::Track(track_id))?;
         assert_eq!(contributors.len(), 1);
         assert_eq!(contributors[0].name.as_deref(), Some("Bob"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_track_artist_binding_persists_explicit_artist_credit_id() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        db::replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-123",
+            &ArtistSourceFactInput {
+                name: Some("Richer Artist".into()),
+                image_url: Some("https://example.test/richer.jpg".into()),
+                ..ArtistSourceFactInput::default()
+            },
+        )?;
+        let track = Track {
+            artist_credit: Some(ArtistCredit {
+                artist_id: Some("artist-123".into()),
+                display_name: Some("Track Artist".into()),
+            }),
+            updated_at: Some(1_714_000_000),
+            ..Track::default()
+        };
+
+        persist_musicindex_track(&mut conn, track_id, &track)?;
+
+        let bindings = db::track_artist_source_bindings_for_track(&conn, track_id)?;
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].role, "artist");
+        assert_eq!(bindings[0].source, "musicindex");
+        assert_eq!(bindings[0].source_artist_id, "artist-123");
+        assert_eq!(bindings[0].confidence, Some(1.0));
+        assert_eq!(
+            bindings[0].provenance.as_deref(),
+            Some("musicindex.track.artist_credit.artist_id")
+        );
+        assert_eq!(bindings[0].observed_at, Some(1_714_000_000));
+
+        let artist = db::artist_source_fact(&conn, "musicindex", "artist-123")?
+            .context("artist source fact should still exist")?;
+        assert_eq!(artist.name.as_deref(), Some("Richer Artist"));
+        assert_eq!(
+            artist.image_url.as_deref(),
+            Some("https://example.test/richer.jpg")
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_track_artist_binding_skips_name_only_artist_credit() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        db::replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-123",
+            &ArtistSourceFactInput {
+                name: Some("Existing".into()),
+                ..ArtistSourceFactInput::default()
+            },
+        )?;
+        db::replace_track_artist_source_bindings(
+            &mut conn,
+            track_id,
+            &[TrackArtistSourceBindingInput {
+                role: "artist".to_owned(),
+                source: "musicindex".to_owned(),
+                source_artist_id: "artist-123".to_owned(),
+                confidence: Some(1.0),
+                provenance: Some("test".to_owned()),
+                observed_at: Some(1),
+            }],
+        )?;
+        let track = Track {
+            artist_credit: Some(ArtistCredit {
+                artist_id: None,
+                display_name: Some("Name Only".into()),
+            }),
+            ..Track::default()
+        };
+
+        persist_musicindex_track(&mut conn, track_id, &track)?;
+
+        assert!(
+            db::track_artist_source_bindings_for_track(&conn, track_id)?.is_empty(),
+            "name-only artist credits should clear MusicIndex bindings instead of creating one"
+        );
+        assert_eq!(
+            db::artist_source_fact(&conn, "musicindex", "Name Only")?,
+            None,
+            "name-only artist credits must not create artist source facts"
+        );
 
         Ok(())
     }
