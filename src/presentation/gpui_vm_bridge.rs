@@ -32,7 +32,6 @@
 //!
 //! [`Actor`]: crate::runtime::Actor
 
-#![cfg(feature = "async-runtime")]
 #![warn(clippy::pedantic)]
 
 use gpui::Context;

@@ -18,7 +18,6 @@
 //! Bring-up status: skeleton only. Phase D adds the GPUI bridge,
 //! `AsyncCommandRunner`, and the first migrated VM.
 
-#![cfg(feature = "async-runtime")]
 #![warn(clippy::pedantic)]
 
 pub mod actor;

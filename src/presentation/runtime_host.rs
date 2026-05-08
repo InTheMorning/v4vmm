@@ -20,7 +20,6 @@
 //! `runtime` actors. Screens (`src/library.rs`, `src/search.rs`) hold an
 //! `Arc<RuntimeHost>` but never touch [`tokio::runtime::Runtime`] directly.
 
-#![cfg(feature = "async-runtime")]
 #![warn(clippy::pedantic)]
 
 use std::sync::Arc;

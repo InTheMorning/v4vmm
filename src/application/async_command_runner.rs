@@ -19,7 +19,6 @@
 //!
 //! Gated behind the `async-runtime` Cargo feature.
 
-#![cfg(feature = "async-runtime")]
 #![warn(clippy::pedantic)]
 
 use std::sync::Arc;
