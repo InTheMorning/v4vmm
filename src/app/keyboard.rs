@@ -7,6 +7,9 @@ use crate::search::SearchApp;
 
 use super::{AppTab, TopApp};
 
+pub(super) const ACTIVE_PANE_KEY_CONTEXT: &str = "ActivePane";
+const ACTIVE_PANE_KEY_BINDING_CONTEXT: &str = "ActivePane && !Input";
+
 actions!(
     v4vmm,
     [
@@ -157,38 +160,51 @@ fn app_key_bindings() -> Vec<KeyBinding> {
 
 impl AppKeyBindingSpec {
     fn key_binding(&self) -> KeyBinding {
+        let context = self.binding_context();
+
         match self.command {
-            AppKeyCommand::TogglePlayback => KeyBinding::new(self.keystroke, TogglePlayback, None),
+            AppKeyCommand::TogglePlayback => {
+                KeyBinding::new(self.keystroke, TogglePlayback, context)
+            }
             AppKeyCommand::SkipPlaybackNext => {
-                KeyBinding::new(self.keystroke, SkipPlaybackNext, None)
+                KeyBinding::new(self.keystroke, SkipPlaybackNext, context)
             }
             AppKeyCommand::SkipPlaybackPrevious => {
-                KeyBinding::new(self.keystroke, SkipPlaybackPrevious, None)
+                KeyBinding::new(self.keystroke, SkipPlaybackPrevious, context)
             }
-            AppKeyCommand::FocusSearch => KeyBinding::new(self.keystroke, FocusSearch, None),
-            AppKeyCommand::NewPlaylist => KeyBinding::new(self.keystroke, NewPlaylist, None),
+            AppKeyCommand::FocusSearch => KeyBinding::new(self.keystroke, FocusSearch, context),
+            AppKeyCommand::NewPlaylist => KeyBinding::new(self.keystroke, NewPlaylist, context),
             AppKeyCommand::SelectLibraryTab => {
-                KeyBinding::new(self.keystroke, SelectLibraryTab, None)
+                KeyBinding::new(self.keystroke, SelectLibraryTab, context)
             }
             AppKeyCommand::SelectDiscoverTab => {
-                KeyBinding::new(self.keystroke, SelectDiscoverTab, None)
+                KeyBinding::new(self.keystroke, SelectDiscoverTab, context)
             }
             AppKeyCommand::SelectSettingsTab => {
-                KeyBinding::new(self.keystroke, SelectSettingsTab, None)
+                KeyBinding::new(self.keystroke, SelectSettingsTab, context)
             }
-            AppKeyCommand::RefreshLibrary => KeyBinding::new(self.keystroke, RefreshLibrary, None),
+            AppKeyCommand::RefreshLibrary => {
+                KeyBinding::new(self.keystroke, RefreshLibrary, context)
+            }
             AppKeyCommand::CancelActivePane => {
-                KeyBinding::new(self.keystroke, CancelActivePane, None)
+                KeyBinding::new(self.keystroke, CancelActivePane, context)
             }
             AppKeyCommand::MoveSelectionUp => {
-                KeyBinding::new(self.keystroke, MoveSelectionUp, None)
+                KeyBinding::new(self.keystroke, MoveSelectionUp, context)
             }
             AppKeyCommand::MoveSelectionDown => {
-                KeyBinding::new(self.keystroke, MoveSelectionDown, None)
+                KeyBinding::new(self.keystroke, MoveSelectionDown, context)
             }
             AppKeyCommand::ConfirmSelection => {
-                KeyBinding::new(self.keystroke, ConfirmSelection, None)
+                KeyBinding::new(self.keystroke, ConfirmSelection, context)
             }
+        }
+    }
+
+    fn binding_context(&self) -> Option<&'static str> {
+        match self.scope {
+            AppKeyScope::Global => None,
+            AppKeyScope::ActivePane => Some(ACTIVE_PANE_KEY_BINDING_CONTEXT),
         }
     }
 }
@@ -359,6 +375,8 @@ impl TopApp {
 mod tests {
     use std::collections::BTreeSet;
 
+    use gpui::{KeyContext, Keymap, Keystroke};
+
     use super::*;
 
     #[test]
@@ -417,5 +435,51 @@ mod tests {
     #[test]
     fn app_key_bindings_build_gpui_bindings() {
         assert_eq!(app_key_bindings().len(), APP_KEY_BINDING_SPECS.len());
+    }
+
+    #[test]
+    fn active_pane_key_bindings_are_context_scoped() {
+        for spec in APP_KEY_BINDING_SPECS {
+            let expected_context = match spec.scope {
+                AppKeyScope::Global => None,
+                AppKeyScope::ActivePane => Some(ACTIVE_PANE_KEY_BINDING_CONTEXT),
+            };
+
+            assert_eq!(
+                spec.binding_context(),
+                expected_context,
+                "unexpected context for {command:?}",
+                command = spec.command
+            );
+        }
+    }
+
+    #[test]
+    fn active_pane_enter_does_not_shadow_text_input_context() {
+        let mut keymap = Keymap::default();
+        let enter = [Keystroke::parse("enter").expect("enter keystroke parses")];
+        let active_pane_context =
+            [KeyContext::parse(ACTIVE_PANE_KEY_CONTEXT).expect("active pane context parses")];
+        let input_context = [
+            KeyContext::parse(ACTIVE_PANE_KEY_CONTEXT).expect("active pane context parses"),
+            KeyContext::parse("Input").expect("input context parses"),
+        ];
+
+        keymap.add_bindings(app_key_bindings());
+
+        assert!(
+            !keymap
+                .bindings_for_input(&enter, &active_pane_context)
+                .0
+                .is_empty(),
+            "enter should remain available to active panes"
+        );
+        assert!(
+            keymap
+                .bindings_for_input(&enter, &input_context)
+                .0
+                .is_empty(),
+            "enter should be reserved for the focused input"
+        );
     }
 }

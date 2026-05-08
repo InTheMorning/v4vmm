@@ -476,6 +476,7 @@ impl Render for TopApp {
             // Active tab content
             .child(
                 div()
+                    .key_context(keyboard::ACTIVE_PANE_KEY_CONTEXT)
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
