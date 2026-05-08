@@ -63,10 +63,17 @@ For each composite marked **inline**, the migration commit must:
 
 ## Outcome
 
-Three single-use composites are scheduled for inlining in the next
-phase-C commits, one composite per commit (per todo
-`inline-single-use-composites`). Renaming pass (`composite-naming-pass`)
-runs after all inlines land.
+Completed on 2026-05-08.
+
+- `recent_feed_tile` is no longer in `src/ui/composites/`; its
+  remaining UI lives in `src/ui/shells/discover/recent.rs`.
+- `track_inspector_pane` is no longer in `src/ui/composites/`; its
+  remaining UI lives in
+  `src/ui/shells/discover/track_inspector.rs`.
+- `now_playing_bar` is no longer in `src/ui/composites/`; its remaining
+  UI lives in `src/app/playback_bar.rs`.
+- The naming pass kept `track_row` and `list_row` as separate layers for
+  the reasons below.
 
 ## Naming pass result (2026-05-06)
 

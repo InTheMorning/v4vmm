@@ -2,7 +2,7 @@
 
 ## Status
 
-Active index - 2026-05-01.
+Active index - 2026-05-08.
 
 ## Purpose
 
@@ -66,6 +66,10 @@ prioritized, and routed to the right governance artifact.
   default-on async-runtime flip has landed; remaining legacy scheduling
   cleanup is now explicit deferred follow-up work instead of an ambiguous
   phase blocker.
+- ADR 0042 layer-consolidation status was reconciled on 2026-05-08.
+  The confirmed single-use composites were inlined, the retained
+  composites have real multi-site use, and the remaining index items
+  below still require their named future ADR routes.
 
 ## Execution Rule
 

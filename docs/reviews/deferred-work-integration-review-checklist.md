@@ -38,8 +38,9 @@ this integration pass is committed separately.**
 
 ## Optional Improvements
 
-- Reconcile ADR 0042 status after deciding whether its proposed layer
-  consolidation work has actually shipped or should remain queued.
+- ADR 0042 status was reconciled on 2026-05-08. Its confirmed
+  single-use composite inlines have shipped, and the composite audit now
+  records the completed outcome.
 - After ADR 0043/0044 sequencing is chosen, add their implementation
   commits one ADR at a time.
 

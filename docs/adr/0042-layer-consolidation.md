@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — 2026-05-06.
+Implemented — 2026-05-08.
 
 Refines ADR 0023 (Design System), ADR 0033 (HIG UI Architecture
 Governance), and ADR 0038 (Presentation Contract Enforcement) by
@@ -128,19 +128,22 @@ Negative:
   the same PR that introduces the second call site. Premature
   extraction is the failure mode this ADR prevents.
 
-## Implementation notes
+## Implementation result
 
-- Audit script (proposed): `scripts/audit-composites.sh` greps for
-  `use crate::ui::composites::<name>` and `composites::<name>::` and
-  reports a count per composite. Output committed at
-  `docs/handoff/composite-audit.md` and updated each ADR cycle.
-- Initial collapse candidates (subject to audit confirmation):
-  `release_detail_surface`, `track_inspector_pane`,
-  `track_detail_surface`, `recent_feed_tile`, `now_playing_bar`,
-  `musicbrainz_panel`. Each likely belongs in `library/` or
-  `discover/` shells.
-- The `track_row` → `list_row` rename ships as part of this ADR's
-  implementation.
-- ADR 0033 (HIG governance) and ADR 0038 (Presentation contract
-  enforcement) are amended (ADR 0040 plan, "ADR amendments") to
-  reference this ADR for the composite-vs-shell rule.
+- Composite call-site evidence is recorded in
+  `docs/handoff/composite-audit.md`.
+- The confirmed single-use composites were inlined:
+  `recent_feed_tile` moved into `src/ui/shells/discover/recent.rs`,
+  `track_inspector_pane` moved into
+  `src/ui/shells/discover/track_inspector.rs`, and `now_playing_bar`
+  moved into `src/app/playback_bar.rs`.
+- The audit retained multi-use composites such as
+  `release_detail_surface`, `track_detail_surface`, and
+  `musicbrainz_panel` because they still have multiple real call sites.
+- The `track_row` and `list_row` names remain intentionally separate:
+  `track_row` is a domain composite backed by track-row view models,
+  while `list_row` is the generic row primitive/composite shape it
+  builds on.
+- ADR 0033 and ADR 0038 reference this ADR for the composite-vs-shell
+  rule, and `docs/architecture/architecture-current-snapshot.md`
+  describes the post-ADR-0042 layer shape.
