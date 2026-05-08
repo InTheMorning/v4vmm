@@ -444,6 +444,30 @@ pub fn set_track_in_library(conn: &Connection, track_id: i64, in_library: bool) 
     Ok(())
 }
 
+pub fn playlist_reference_count_for_track(conn: &Connection, track_id: i64) -> Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM playlist_tracks WHERE track_id = ?1",
+        [track_id],
+        |row| row.get(0),
+    )
+    .context("playlist_reference_count_for_track")
+}
+
+pub fn playlist_referenced_library_track_count_for_feed(
+    conn: &Connection,
+    feed_id: i64,
+) -> Result<i64> {
+    conn.query_row(
+        "SELECT COUNT(DISTINCT t.id)
+         FROM tracks t
+         JOIN playlist_tracks pt ON pt.track_id = t.id
+         WHERE t.feed_id = ?1 AND t.is_in_library = 1",
+        [feed_id],
+        |row| row.get(0),
+    )
+    .context("playlist_referenced_library_track_count_for_feed")
+}
+
 pub fn set_track_in_library_by_match(
     conn: &Connection,
     feed_url: Option<&str>,
@@ -3088,6 +3112,31 @@ mod tests {
 
         let playlists = playlists_list(&conn)?;
         assert_eq!(playlists[0].track_count, 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn playlist_reference_counts_detect_tracks_that_will_be_stranded() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let in_library = insert_track_full(&conn, feed_id, "In", Some(1), true)?;
+        let cached = insert_track_full(&conn, feed_id, "Cached", Some(2), false)?;
+        let playlist_id = playlist_create(&conn, "Refs")?;
+        playlist_append(&conn, playlist_id, in_library)?;
+        playlist_append(&conn, playlist_id, cached)?;
+
+        assert_eq!(playlist_reference_count_for_track(&conn, in_library)?, 1);
+        assert_eq!(
+            playlist_referenced_library_track_count_for_feed(&conn, feed_id)?,
+            1
+        );
+
+        set_track_in_library(&conn, in_library, false)?;
+        assert_eq!(
+            playlist_referenced_library_track_count_for_feed(&conn, feed_id)?,
+            0
+        );
 
         Ok(())
     }

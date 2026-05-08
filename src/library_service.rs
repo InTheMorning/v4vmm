@@ -48,6 +48,17 @@ pub fn set_track_in_library(conn: &Connection, track_id: i64, in_library: bool) 
     db::set_track_in_library(conn, track_id, in_library)
 }
 
+pub fn playlist_reference_count_for_track(conn: &Connection, track_id: i64) -> Result<i64> {
+    db::playlist_reference_count_for_track(conn, track_id)
+}
+
+pub fn playlist_referenced_library_track_count_for_feed(
+    conn: &Connection,
+    feed_id: i64,
+) -> Result<i64> {
+    db::playlist_referenced_library_track_count_for_feed(conn, feed_id)
+}
+
 pub fn set_track_in_library_by_match(
     conn: &Connection,
     feed_url: Option<&str>,

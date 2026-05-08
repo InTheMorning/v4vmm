@@ -64,6 +64,12 @@ pub fn select_track_at(
 ) -> Result<PlaylistTrackSelection> {
     let (track_id, position) = track_at(conn, playlist_id, position)?
         .with_context(|| format!("playlist {playlist_id} has no track at position {position}"))?;
+    let track = db::track_row_by_id(conn, track_id)?
+        .with_context(|| format!("playlist track {track_id} no longer exists"))?;
+    anyhow::ensure!(
+        track.is_in_library,
+        "playlist track {track_id} is no longer in the library"
+    );
     let identity = track_identity::local_track_identity(conn, track_id)?;
     Ok(PlaylistTrackSelection {
         playlist_id,
@@ -128,6 +134,28 @@ mod tests {
         assert_eq!(selection.position, 1);
         assert_eq!(selection.track_id, second_track_id);
         assert_eq!(selection.identity.item_guid, "second-guid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn select_track_at_rejects_tracks_removed_from_library() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        let track_id = create_track(&conn, feed_id, "removed-guid", "/tmp/removed.mp3")?;
+        let playlist_id = create(&conn, "Service")?;
+        append_track(&conn, playlist_id, track_id)?;
+        db::set_track_in_library(&conn, track_id, false)?;
+
+        let result = select_track_at(&conn, playlist_id, 0);
+
+        assert!(
+            result
+                .expect_err("out-of-library playlist tracks should not play")
+                .to_string()
+                .contains("no longer in the library"),
+            "error should explain unavailable library membership"
+        );
 
         Ok(())
     }

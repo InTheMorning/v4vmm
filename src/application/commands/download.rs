@@ -359,11 +359,25 @@ impl ApplicationCommand for RemoveTrackFromLibrary {
 
     fn execute(self, _context: &CommandContext) -> CommandResult<Self::Output> {
         let conn = self.conn.lock().map_err(|_| download_lock_error())?;
+        let feed_url = match library_service::track_row_by_id(&conn, self.track_id)
+            .map_err(|error| download_command_error(&error))?
+        {
+            Some(track) => crate::db::feed_url_by_id(&conn, track.feed_id)
+                .map_err(|error| download_command_error(&error))?,
+            None => None,
+        };
         library_service::set_track_in_library(&conn, self.track_id, false)
             .map_err(|error| download_command_error(&error))?;
+        let feed_changed = if let Some(feed_url) = feed_url.as_deref() {
+            crate::db::reconcile_feed_subscription_by_url(&conn, feed_url)
+                .map_err(|error| download_command_error(&error))?;
+            true
+        } else {
+            false
+        };
         Ok(CommandOutcome::new(
             RemoveTrackFromLibraryResult::new("Removed track"),
-            track_removed_events(false),
+            track_removed_events(feed_changed),
         ))
     }
 }
@@ -613,10 +627,14 @@ mod tests {
         )?;
 
         assert_eq!(outcome.value().message(), "Removed track");
-        assert_eq!(outcome.events(), track_removed_events(false));
+        assert_eq!(outcome.events(), track_removed_events(true));
         let db = conn.lock().expect("lock test db");
         let track = db::track_row_by_id(&db, track_id)?.expect("track exists");
         assert!(!track.is_in_library);
+        assert!(!db::feed_is_subscribed_by_url(
+            &db,
+            "https://example.test/feed.xml"
+        )?);
 
         Ok(())
     }
