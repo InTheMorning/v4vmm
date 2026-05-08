@@ -12,9 +12,10 @@ prioritized, and routed to the right governance artifact.
 ## Priority Order
 
 1. Track-to-artist binding for name-derived Library artist views.
-   - Status: deferred from ADR 0029.
-   - Route: future ADR before adding `tracks` artist-subject bindings,
-     source-priority rules, or conflict surfacing.
+   - Status: ADR 0045 proposed on 2026-05-08.
+   - Route: `docs/adr/0045-track-artist-binding.md`,
+     `docs/plans/adr-0045-track-artist-binding-phase-plan.md`, and
+     Tasks 001-004 under `docs/tasks/adr-0045-*`.
 2. Person/global identity persistence.
    - Status: deferred from ADR 0029.
    - Route: future ADR only after durable person ids and merge policy exist.
@@ -70,6 +71,9 @@ prioritized, and routed to the right governance artifact.
   The confirmed single-use composites were inlined, the retained
   composites have real multi-site use, and the remaining index items
   below still require their named future ADR routes.
+- ADR 0045 planning artifacts were created on 2026-05-08 for the top
+  deferred item: track-to-artist binding for name-derived Library artist
+  views. Runtime work must proceed task-by-task.
 
 ## Execution Rule
 
