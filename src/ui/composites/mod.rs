@@ -19,6 +19,7 @@
 
 pub mod action_button;
 pub mod action_row;
+pub mod confirmation_dialog;
 pub mod detail_grid;
 pub mod detail_header;
 pub mod disclosure_group;
@@ -43,6 +44,9 @@ pub mod track_row;
 pub use action_button::{action_button, ActionButtonDisplay};
 pub use action_row::{
     ActionRow, ActionRowDisplay, ActionRowMessage, ActionRowMessageDisplay, ActionRowMessageTone,
+};
+pub use confirmation_dialog::{
+    confirmation_dialog, ConfirmationDialogDisplay, ConfirmationDialogHandlers,
 };
 pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
 pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};

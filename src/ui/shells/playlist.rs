@@ -235,6 +235,7 @@ fn render_playlist_track_row(
         .px(spacing::SM)
         .py(spacing::XS)
         .rounded(radius::SM)
+        .when(!display.is_available, |el| el.opacity(0.55))
         .hover(|el| el.bg(color::bg_surface_hi()))
         .child(render_playlist_track_body(display, thumbnail, on_select))
         .child(render_playlist_track_controls(
@@ -326,14 +327,21 @@ fn render_playlist_track_body(
     on_select: Option<PlaylistClickHandler>,
 ) -> AnyElement {
     let PlaylistTrackRowDisplay {
+        is_available,
         position: _,
         position_label,
         title,
         artist,
+        availability_label,
         duration_label,
         thumb_url: _,
         controls,
     } = display;
+    let title_color = if is_available {
+        color::text_primary()
+    } else {
+        color::text_muted()
+    };
     let mut row_body = div()
         .id(SharedString::from(controls.row_body_id))
         .flex()
@@ -361,7 +369,7 @@ fn render_playlist_track_body(
                 .child(
                     div()
                         .text_xs()
-                        .text_color(color::text_primary())
+                        .text_color(title_color)
                         .child(SharedString::from(title)),
                 )
                 .child(
@@ -369,7 +377,10 @@ fn render_playlist_track_body(
                         .text_xs()
                         .text_color(color::text_muted())
                         .child(SharedString::from(artist)),
-                ),
+                )
+                .when_some(availability_label, |el, label| {
+                    el.child(div().text_xs().text_color(color::text_muted()).child(label))
+                }),
         )
         .child(
             div()

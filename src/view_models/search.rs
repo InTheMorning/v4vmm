@@ -11,12 +11,16 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 use crate::api::{self, Artist, EntityDetail, Feed, PaymentRoute, Publisher, Track};
+use crate::application::library_removal::{LibraryRemovalPlan, LibraryRemovalTarget};
 use crate::db;
 use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseActionState,
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
 };
 use crate::view_models::format::plural;
+use crate::view_models::library_removal::{
+    LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
+};
 use crate::view_models::track::TrackVm;
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{FeedRef, TrackRef};
@@ -1103,6 +1107,8 @@ pub(crate) struct SearchViewModel {
     pub(crate) cursor: Option<String>,
     pub(crate) has_more: bool,
     in_flight_tracks: HashSet<String>,
+    library_removal: LibraryRemovalConfirmationState,
+    pending_library_removal_origin: Option<SearchRemovalOrigin>,
     // Recents pane state.
     pub(crate) recent_loading: bool,
     pub(crate) recent_status: String,
@@ -1137,6 +1143,18 @@ pub(crate) struct SearchLoadIntent {
     type_filter: usize,
     cursor: Option<String>,
     fuzzy: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SearchRemovalOrigin {
+    Row {
+        key: String,
+    },
+    Inspector {
+        entity_type: String,
+        entity_id: String,
+        command: SearchSubscriptionCommand,
+    },
 }
 
 impl SearchLoadIntent {
@@ -1479,6 +1497,8 @@ impl SearchViewModel {
             cursor: None,
             has_more: false,
             in_flight_tracks: HashSet::new(),
+            library_removal: LibraryRemovalConfirmationState::new(),
+            pending_library_removal_origin: None,
             recent_loading: false,
             recent_status: String::new(),
             recent_loaded_once: false,
@@ -1696,6 +1716,8 @@ impl SearchViewModel {
         self.has_more = false;
         self.clear_selection();
         self.clear_inspector_origin();
+        self.library_removal.cancel();
+        self.pending_library_removal_origin = None;
         self.recent_feeds.clear();
         self.recent_cursor = None;
         self.recent_has_more = false;
@@ -1927,6 +1949,41 @@ impl SearchViewModel {
 
     pub(crate) fn fail_playlist_append(&mut self, error: impl std::fmt::Display) {
         self.status = format!("Error adding to playlist: {error:#}");
+    }
+
+    #[must_use]
+    pub(crate) fn confirm_library_removal_from(
+        &mut self,
+        plan: LibraryRemovalPlan,
+        origin: SearchRemovalOrigin,
+    ) -> bool {
+        if self.library_removal.confirm_or_defer(plan) {
+            self.pending_library_removal_origin = None;
+            true
+        } else {
+            self.pending_library_removal_origin = Some(origin);
+            false
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn pending_library_removal_confirmation(
+        &self,
+    ) -> Option<LibraryRemovalConfirmationDisplay> {
+        self.library_removal.pending_display()
+    }
+
+    pub(crate) fn cancel_pending_library_removal(&mut self) {
+        self.library_removal.cancel();
+        self.pending_library_removal_origin = None;
+    }
+
+    pub(crate) fn take_pending_library_removal(
+        &mut self,
+    ) -> Option<(LibraryRemovalTarget, SearchRemovalOrigin)> {
+        let target = self.library_removal.take_pending_target()?;
+        let origin = self.pending_library_removal_origin.take()?;
+        Some((target, origin))
     }
 
     #[must_use]

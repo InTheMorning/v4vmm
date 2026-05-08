@@ -111,6 +111,55 @@ const SCREEN_SUBSCRIPTION_FORBIDDEN_PATTERNS: &[&str] = &[
     "subscribe_service::subscribe_track(",
 ];
 
+const SCREEN_LIBRARY_REMOVAL_LEGACY_PATTERNS: &[&str] = &[
+    "RemoveTrackFromLibrary::new",
+    "RemoveTrackFromLibraryByMatch::new",
+    "UnsubscribeFeedById::new",
+    "UnsubscribeFeedByUrl::new",
+];
+
+const LIBRARY_REMOVAL_PRESENTATION_FILES: &[&str] = &[
+    "src/library.rs",
+    "src/library/app_impl.rs",
+    "src/search.rs",
+    "src/search/app_impl.rs",
+];
+
+const SCREEN_LIBRARY_REMOVAL_PRESENTATION_FORBIDDEN_PATTERNS: &[(&str, &str)] = &[
+    (
+        "pending_library_removal_origin",
+        "pending library-removal origin belongs in a GPUI-free view model",
+    ),
+    (
+        "ConfirmationDialogDisplay",
+        "screen modules must use the shared library-removal confirmation adapter",
+    ),
+    (
+        "ConfirmationDialogHandlers",
+        "screen modules must not own confirmation-dialog handler plumbing",
+    ),
+    (
+        "window.open_dialog",
+        "screen modules must use the shell-level library-removal confirmation presenter",
+    ),
+    (
+        "library_removal_confirmation_dialog(dialog",
+        "legacy library-removal dialog adapters belong in shells, not screens",
+    ),
+    (
+        "fn open_pending_library_removal_dialog",
+        "screen-local pending removal dialog presenters duplicate shared shell presentation",
+    ),
+    (
+        "fn removal_confirmation_dialog",
+        "screen-local removal confirmation adapters duplicate shared dialog chrome",
+    ),
+    (
+        "fn search_removal_confirmation_dialog",
+        "screen-local removal confirmation adapters duplicate shared dialog chrome",
+    ),
+];
+
 const SCREEN_METADATA_FEED_FORBIDDEN_PATTERNS: &[&str] = &[
     "db::subscribed_feeds_for_stale_check(",
     "feed_service::apply_feed_updates(",
@@ -1198,6 +1247,87 @@ fn screens_do_not_call_migrated_subscription_remove_paths() {
 }
 
 #[test]
+fn screen_library_removal_entry_points_use_canonical_plan() {
+    let mut violations = Vec::new();
+    for file in LIBRARY_REMOVAL_PRESENTATION_FILES {
+        let path = manifest_path(file);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in SCREEN_LIBRARY_REMOVAL_LEGACY_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: library-removal UI entry points must resolve through `LibraryRemovalIntent` / `library_removal_plan`, not legacy matched/url command `{pattern}`: `{line}`"
+                    ));
+                }
+            }
+            for (pattern, note) in SCREEN_LIBRARY_REMOVAL_PRESENTATION_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: {note}; found `{pattern}`: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Library removal entry-point violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn app_shell_hosts_gpui_component_root_layers() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    assert!(
+        app_source.contains("render_window_layers(window, cx)"),
+        "app shell must render shared GPUI Root layers so open_dialog/open_sheet/notifications become visible"
+    );
+
+    let layer_source = read_source(&manifest_path("src/ui/shells/window_layers.rs"));
+    for pattern in [
+        "Root::render_dialog_layer",
+        "Root::render_sheet_layer",
+        "Root::render_notification_layer",
+    ] {
+        assert!(
+            layer_source.contains(pattern),
+            "window layer shell must host `{pattern}`"
+        );
+    }
+}
+
+#[test]
+fn library_removal_confirmation_presentation_has_shell_owner() {
+    let composite_source = read_source(&manifest_path("src/ui/composites/confirmation_dialog.rs"));
+    for forbidden in [
+        "LibraryRemovalConfirmationDisplay",
+        "view_models::library_removal",
+        "library_removal_confirmation_dialog",
+    ] {
+        assert!(
+            !composite_source.contains(forbidden),
+            "generic confirmation dialog composite must stay domain-agnostic; found `{forbidden}`"
+        );
+    }
+
+    let shell_source = read_source(&manifest_path(
+        "src/ui/shells/library_removal_confirmation.rs",
+    ));
+    for required in [
+        "LibraryRemovalConfirmationDisplay",
+        "confirmation_dialog(",
+        "window.open_dialog",
+    ] {
+        assert!(
+            shell_source.contains(required),
+            "library-removal confirmation shell must own `{required}`"
+        );
+    }
+}
+
+#[test]
 fn screens_do_not_call_migrated_feed_update_paths() {
     let mut violations = Vec::new();
     for file_name in screen_enforcement_files() {
@@ -1478,6 +1608,16 @@ fn interactive_composites_carry_accessibility_labels() {
             "ActionButtonDisplay",
             "src/ui/composites/action_button.rs",
             "a11y_label",
+        ),
+        (
+            "ConfirmationDialogDisplay",
+            "src/ui/composites/confirmation_dialog.rs",
+            "confirm_a11y_label",
+        ),
+        (
+            "LibraryRemovalConfirmationDisplay",
+            "src/view_models/library_removal.rs",
+            "remove_a11y_label",
         ),
         (
             "IdentityActionButtonDisplay",

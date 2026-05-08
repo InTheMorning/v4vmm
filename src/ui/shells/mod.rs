@@ -27,5 +27,7 @@ pub mod discover;
 pub mod entity;
 pub mod feed;
 pub mod library;
+pub mod library_removal_confirmation;
 pub mod playlist;
 pub mod track;
+pub mod window_layers;

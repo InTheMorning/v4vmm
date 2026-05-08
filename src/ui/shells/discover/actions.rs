@@ -86,8 +86,8 @@ pub(crate) fn discover_inspector_action_row(
             cx,
         )
         .disabled(subscription_disabled)
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.toggle_local_subscription(cx);
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.toggle_local_subscription(window, cx);
         }))
         .into_any_element(),
         AddToPlaylistPopover::new(AddToPlaylistDisplay {
@@ -340,9 +340,9 @@ pub(crate) fn render_track_download_button(
     UiButton::styled(SharedString::from(display.button_id), style)
         .label(label)
         .disabled(!enabled)
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
             if kind == EntityActionKind::Remove {
-                this.remove_track_row(track_for_click.clone(), feed_for_click.clone(), cx);
+                this.remove_track_row(track_for_click.clone(), feed_for_click.clone(), window, cx);
             } else {
                 this.download_track_row(track_for_click.clone(), feed_for_click.clone(), cx);
             }

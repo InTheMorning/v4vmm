@@ -68,6 +68,14 @@ fn render_eager_playlist_detail(
                 .cloned()
                 .flatten();
             let display = row.display(playlist_id);
+            let on_play = display.controls.play_enabled.then(|| {
+                click_slot(cx.listener(move |_this, _, _, cx| {
+                    cx.emit(LibraryAppEvent::PlayPlaylistAt {
+                        playlist_id,
+                        playlist_position: position,
+                    });
+                }))
+            });
 
             let slot = PlaylistTrackRowSlot {
                 thumbnail: Some(render_album_thumb(thumbnail, 24.0)),
@@ -75,12 +83,7 @@ fn render_eager_playlist_detail(
                     this.select_track(&track_for_select, cx);
                     cx.notify();
                 }))),
-                on_play: Some(click_slot(cx.listener(move |_this, _, _, cx| {
-                    cx.emit(LibraryAppEvent::PlayPlaylistAt {
-                        playlist_id,
-                        playlist_position: position,
-                    });
-                }))),
+                on_play,
                 on_move_up: Some(click_slot(cx.listener(move |this, _, _, cx| {
                     this.move_playlist_track(playlist_id, position, position - 1, cx);
                 }))),
@@ -177,18 +180,21 @@ fn try_render_paged(
                     last_position,
                 )
                 .display(playlist_id);
+                let on_play = display.controls.play_enabled.then(|| {
+                    click_slot(cx.listener(move |_this, _, _, cx| {
+                        cx.emit(LibraryAppEvent::PlayPlaylistAt {
+                            playlist_id,
+                            playlist_position: position_i64,
+                        });
+                    }))
+                });
                 let slot = PlaylistTrackRowSlot {
                     thumbnail: Some(render_album_thumb(thumbnail, 24.0)),
                     on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
                         this.select_track(&track_for_select, cx);
                         cx.notify();
                     }))),
-                    on_play: Some(click_slot(cx.listener(move |_this, _, _, cx| {
-                        cx.emit(LibraryAppEvent::PlayPlaylistAt {
-                            playlist_id,
-                            playlist_position: position_i64,
-                        });
-                    }))),
+                    on_play,
                     on_move_up: Some(click_slot(cx.listener(move |this, _, _, cx| {
                         this.move_playlist_track(playlist_id, position_i64, prev_position_i64, cx);
                     }))),

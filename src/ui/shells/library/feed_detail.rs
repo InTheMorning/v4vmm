@@ -106,8 +106,8 @@ pub(crate) fn render_library_feed_detail(
                 },
                 cx,
             )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.unsubscribe_feed(fid, cx);
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.unsubscribe_feed(fid, window, cx);
                 cx.notify();
             })),
         );
@@ -275,9 +275,9 @@ fn render_library_track_row(
     let toggle_button = UiButton::styled(SharedString::from(toggle_button_id), primary_style)
         .label(label)
         .disabled(!enabled)
-        .on_click(cx.listener(move |this, _, _, cx| {
+        .on_click(cx.listener(move |this, _, window, cx| {
             if in_library {
-                this.remove_track(track_id, cx);
+                this.remove_track(track_id, window, cx);
             } else {
                 this.subscribe_track(track_for_click.clone(), cx);
             }

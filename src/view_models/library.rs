@@ -20,6 +20,9 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
 
+#[cfg(test)]
+use crate::application::library_removal::LibraryRemovalImpact;
+use crate::application::library_removal::{LibraryRemovalPlan, LibraryRemovalTarget};
 use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
@@ -29,6 +32,9 @@ use crate::view_models::entity_detail::{
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
 };
 use crate::view_models::format::{fmt_total_runtime_clock, plural};
+use crate::view_models::library_removal::{
+    LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
+};
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{FeedRef, FeedView, LocalIdentityFacts, TrackRef};
@@ -563,6 +569,7 @@ pub(crate) struct LibraryViewModel {
     hovered_thumb_url: Option<String>,
     // Operation state.
     busy_track: Option<i64>,
+    library_removal: LibraryRemovalConfirmationState,
     status: String,
     library_loading: bool,
     // Layout / drag state.
@@ -589,6 +596,7 @@ impl LibraryViewModel {
             selected_playlist_id: None,
             hovered_thumb_url: None,
             busy_track: None,
+            library_removal: LibraryRemovalConfirmationState::new(),
             status: String::new(),
             library_loading: false,
             split_pane: SplitPaneState::new(DEFAULT_SPLIT_PANE_WIDTH),
@@ -639,6 +647,7 @@ impl LibraryViewModel {
     /// existing chrome reflects the in-progress state.
     pub(crate) fn begin_library_reload(&mut self) {
         self.library_loading = true;
+        self.library_removal.cancel();
         self.status = "Loading library\u{2026}".to_string();
     }
 
@@ -831,6 +840,26 @@ impl LibraryViewModel {
         self.status = format!("Error reordering: {error:#}");
     }
 
+    #[must_use]
+    pub(crate) fn confirm_library_removal(&mut self, plan: LibraryRemovalPlan) -> bool {
+        self.library_removal.confirm_or_defer(plan)
+    }
+
+    #[must_use]
+    pub(crate) fn pending_library_removal_confirmation(
+        &self,
+    ) -> Option<LibraryRemovalConfirmationDisplay> {
+        self.library_removal.pending_display()
+    }
+
+    pub(crate) fn cancel_pending_library_removal(&mut self) {
+        self.library_removal.cancel();
+    }
+
+    pub(crate) fn take_pending_library_removal(&mut self) -> Option<LibraryRemovalTarget> {
+        self.library_removal.take_pending_target()
+    }
+
     pub(crate) fn fail_album_tracks_load(&mut self, error: impl std::fmt::Display) {
         self.status = format!("Error loading album tracks: {error:#}");
     }
@@ -932,6 +961,7 @@ impl LibraryViewModel {
 
     pub(crate) fn begin_busy_track(&mut self, track_id: i64, status: impl Into<String>) {
         self.busy_track = Some(track_id);
+        self.library_removal.cancel();
         self.status = status.into();
     }
 
@@ -987,6 +1017,7 @@ impl LibraryViewModel {
 
     pub(crate) fn set_error_status(&mut self, error: impl std::fmt::Display) {
         self.library_loading = false;
+        self.library_removal.cancel();
         self.status = format!("Error: {error:#}");
     }
 
@@ -1871,10 +1902,12 @@ pub(crate) struct PlaylistTrackControlsDisplay {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PlaylistTrackRowDisplay {
+    pub(crate) is_available: bool,
     pub(crate) position: i64,
     pub(crate) position_label: String,
     pub(crate) title: String,
     pub(crate) artist: String,
+    pub(crate) availability_label: Option<&'static str>,
     pub(crate) duration_label: String,
     pub(crate) thumb_url: Option<String>,
     pub(crate) controls: PlaylistTrackControlsDisplay,
@@ -1974,7 +2007,17 @@ impl<'a> PlaylistTrackRowVm<'a> {
     /// `true` when the track has a local file and can be played.
     #[must_use]
     pub(crate) fn can_play(&self) -> bool {
-        self.track.local_path.is_some()
+        self.track.is_in_library && self.track.local_path.is_some()
+    }
+
+    #[must_use]
+    pub(crate) const fn is_available(&self) -> bool {
+        self.track.is_in_library
+    }
+
+    #[must_use]
+    pub(crate) fn availability_label(&self) -> Option<&'static str> {
+        (!self.is_available()).then_some("Unavailable")
     }
 
     #[must_use]
@@ -2012,10 +2055,12 @@ impl<'a> PlaylistTrackRowVm<'a> {
     pub(crate) fn display(&self, playlist_id: i64) -> PlaylistTrackRowDisplay {
         let position = i64::try_from(self.position).unwrap_or(i64::MAX);
         PlaylistTrackRowDisplay {
+            is_available: self.is_available(),
             position,
             position_label: self.position_label(),
             title: self.title(),
             artist: self.artist(),
+            availability_label: self.availability_label(),
             duration_label: self.duration_label(),
             thumb_url: self.thumb_url().map(str::to_string),
             controls: self.controls_display(playlist_id),
@@ -2631,6 +2676,7 @@ mod tests {
     fn playlist_track_row_vm_can_play_follows_local_path() {
         let pl = playlist("Mix");
         let mut t = row();
+        t.is_in_library = true;
         t.local_path = Some("/x".into());
         let tracks = [t, row()];
         let vm = PlaylistDetailVm::new(&pl, &tracks);
@@ -2658,6 +2704,7 @@ mod tests {
         let pl = playlist("Mix");
         let mut t1 = row();
         t1.id = 42;
+        t1.is_in_library = true;
         t1.local_path = Some("/x".into());
         let mut t2 = row();
         t2.id = 43;
@@ -2696,6 +2743,7 @@ mod tests {
         pl.id = 7;
         let mut t = row();
         t.id = 42;
+        t.is_in_library = true;
         t.track_title = Some("Song".into());
         t.artist_name = Some("Artist".into());
         t.duration_seconds = Some(125);
@@ -2708,10 +2756,12 @@ mod tests {
         assert_eq!(
             display,
             PlaylistTrackRowDisplay {
+                is_available: true,
                 position: 0,
                 position_label: "1.".into(),
                 title: "Song".into(),
                 artist: "Artist".into(),
+                availability_label: None,
                 duration_label: "2:05".into(),
                 thumb_url: Some("track".into()),
                 controls: PlaylistTrackControlsDisplay {
@@ -2731,6 +2781,25 @@ mod tests {
                 },
             }
         );
+    }
+
+    #[test]
+    fn playlist_track_row_vm_marks_out_of_library_rows_unavailable() {
+        let pl = playlist("Mix");
+        let mut t = row();
+        t.id = 42;
+        t.local_path = Some("/x".into());
+        let tracks = [t];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let row = &vm.track_rows()[0];
+        let display = row.display(pl.id);
+
+        assert!(!row.is_available());
+        assert!(!row.can_play());
+        assert_eq!(row.availability_label(), Some("Unavailable"));
+        assert!(!display.is_available);
+        assert_eq!(display.availability_label, Some("Unavailable"));
+        assert!(!display.controls.play_enabled);
     }
 
     #[test]
@@ -3212,6 +3281,30 @@ mod tests {
     }
 
     #[test]
+    fn library_view_model_projects_hig_removal_confirmation_display() {
+        let mut vm = LibraryViewModel::new();
+        let plan = LibraryRemovalPlan::new(
+            LibraryRemovalTarget::Track(7),
+            LibraryRemovalImpact::Track {
+                playlist_reference_count: 1,
+            },
+        );
+
+        assert!(!vm.confirm_library_removal(plan));
+        let display = vm
+            .pending_library_removal_confirmation()
+            .expect("playlist-referenced removal should require confirmation");
+
+        assert_eq!(display.title, "Remove Track from Library?");
+        assert_eq!(
+            display.message,
+            "This track is in 1 playlist. Removing it from the library will make it unavailable for playlist playback."
+        );
+        assert_eq!(display.cancel_label, "Cancel");
+        assert_eq!(display.remove_label, "Remove");
+    }
+
+    #[test]
     fn feed_update_display_projects_toolbar_action_labels() {
         let mut vm = LibraryViewModel::new();
         let display = vm.feed_update_display();
@@ -3325,6 +3418,45 @@ mod tests {
         assert_eq!(vm.status(), "Error removing track: locked");
         vm.fail_playlist_track_reorder("position");
         assert_eq!(vm.status(), "Error reordering: position");
+    }
+
+    #[test]
+    fn library_view_model_requires_explicit_confirmation_for_playlist_referenced_removals() {
+        let mut vm = LibraryViewModel::new();
+
+        assert!(vm.confirm_library_removal(LibraryRemovalPlan::new(
+            LibraryRemovalTarget::Track(1),
+            LibraryRemovalImpact::Track {
+                playlist_reference_count: 0,
+            },
+        )));
+        assert!(!vm.confirm_library_removal(LibraryRemovalPlan::new(
+            LibraryRemovalTarget::Track(1),
+            LibraryRemovalImpact::Track {
+                playlist_reference_count: 2,
+            },
+        )));
+        assert_eq!(
+            vm.take_pending_library_removal(),
+            Some(LibraryRemovalTarget::Track(1))
+        );
+
+        assert!(!vm.confirm_library_removal(LibraryRemovalPlan::new(
+            LibraryRemovalTarget::Feed(5),
+            LibraryRemovalImpact::Feed {
+                playlist_track_count: 1,
+            },
+        )));
+        let display = vm
+            .pending_library_removal_confirmation()
+            .expect("feed removal should require confirmation");
+        assert_eq!(display.title, "Remove Feed from Library?");
+        assert_eq!(
+            display.message,
+            "1 track from this feed is in playlists. Removing it from the library will make it unavailable for playlist playback."
+        );
+        vm.cancel_pending_library_removal();
+        assert!(vm.pending_library_removal_confirmation().is_none());
     }
 
     #[test]

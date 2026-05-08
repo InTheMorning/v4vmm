@@ -11,11 +11,11 @@ use gpui_component::input::{InputEvent, InputState};
 use rusqlite::Connection;
 
 use crate::api::*;
-use crate::application::commands::download::{
-    RemoveTrackFromLibraryByMatch, SubscribeThenAppendToPlaylist, SubscribeTrack,
-};
-use crate::application::commands::feed::{SubscribeFeed, UnsubscribeFeedByUrl};
+use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
+use crate::application::commands::feed::SubscribeFeed;
+use crate::application::commands::library_removal::RemoveFromLibrary;
 use crate::application::commands::playlist::CreatePlaylist;
+use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
 use crate::application::{ApplicationServices, CommandContext};
 use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
 use crate::db;
@@ -43,13 +43,14 @@ use crate::ui::shells::discover::search_input::{
     render_discover_search_input, DiscoverSearchInputParams,
 };
 use crate::ui::shells::discover::track_inspector_metadata::track_metadata_rows_for_frame;
+use crate::ui::shells::library_removal_confirmation::open_library_removal_confirmation_dialog;
 use crate::ui::style::{color, typography};
 use crate::ui::tokens::FontSize;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
     DeferredPanelKind, LazyPanel, PlaylistAppendIntent, PlaylistAppendOutcome, ResultRow,
-    SearchBatch, SearchSubscriptionCommand, SearchViewModel, TrackRowActionVm,
+    SearchBatch, SearchRemovalOrigin, SearchSubscriptionCommand, SearchViewModel, TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::ContributorView;
@@ -900,14 +901,18 @@ impl SearchApp {
         cx.notify();
     }
 
-    pub(crate) fn toggle_local_subscription(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_local_subscription(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let is_subscribed = self
             .inspector_stack
             .last()
             .and_then(|frame| frame.local_subscription)
             .unwrap_or(false);
         if is_subscribed {
-            self.unsubscribe_current(cx);
+            self.unsubscribe_current(window, cx);
         } else {
             self.subscribe_current(cx);
         }
@@ -987,35 +992,22 @@ impl SearchApp {
         &mut self,
         track: Track,
         feed: Option<Feed>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let key = TrackRowActionVm::new(&track, false, false).key();
-        if !self.vm.begin_track_operation(key.clone()) {
-            return;
-        }
-        let command = RemoveTrackFromLibraryByMatch::new(
-            Arc::clone(&self.conn),
-            track
-                .feed_url
-                .clone()
-                .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone())),
-            track.track_guid.clone(),
-            track.enclosure_url.clone(),
-        );
-        cx.notify();
-
-        let success_key = key.clone();
-        let error_key = key;
-        self.command_runner.run(
-            command,
-            CommandContext::next(),
-            cx,
-            move |this, result, cx| {
-                this.vm.finish_track_remove(&success_key, result.message());
-                this.refresh_inspector_subscription_state(cx);
-                cx.emit(SearchAppEvent::LibraryMutated);
+        self.request_library_removal(
+            LibraryRemovalIntent::TrackMatch {
+                feed_url: track
+                    .feed_url
+                    .clone()
+                    .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone())),
+                item_guid: track.track_guid.clone(),
+                enclosure_url: track.enclosure_url.clone(),
             },
-            move |this, error, _cx| this.vm.fail_track_remove(&error_key, error),
+            SearchRemovalOrigin::Row { key },
+            window,
+            cx,
         );
     }
 
@@ -1188,7 +1180,7 @@ impl SearchApp {
         }
     }
 
-    fn unsubscribe_current(&mut self, cx: &mut Context<Self>) {
+    fn unsubscribe_current(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
@@ -1198,11 +1190,18 @@ impl SearchApp {
 
         let entity_type = frame.entity_type.clone();
         let entity_id = frame.entity_id.clone();
-        let request = match &frame.detail {
-            InspectorDetail::Feed(feed) => SearchUnsubscribeRequest::Feed {
-                feed_url: feed.feed_url.clone(),
-            },
-            InspectorDetail::Track(track_context) => SearchUnsubscribeRequest::Track {
+        let intent = match &frame.detail {
+            InspectorDetail::Feed(feed) => {
+                let Some(feed_url) = feed.feed_url.clone() else {
+                    frame.subscription_message = Some(
+                        SearchSubscriptionCommand::Remove.error_message("feed has no RSS URL"),
+                    );
+                    cx.notify();
+                    return;
+                };
+                LibraryRemovalIntent::FeedUrl(feed_url)
+            }
+            InspectorDetail::Track(track_context) => LibraryRemovalIntent::TrackMatch {
                 feed_url: track_context.track.feed_url.clone().or_else(|| {
                     track_context
                         .feed
@@ -1218,100 +1217,188 @@ impl SearchApp {
             | InspectorDetail::Publisher(_) => return,
         };
 
-        let subscription_command = SearchSubscriptionCommand::Remove;
-        frame.subscription_busy = true;
-        frame.subscription_message = Some(subscription_command.begin_message().into());
-        cx.notify();
+        self.request_library_removal(
+            intent,
+            SearchRemovalOrigin::Inspector {
+                entity_type,
+                entity_id,
+                command: SearchSubscriptionCommand::Remove,
+            },
+            window,
+            cx,
+        );
+    }
 
-        match request {
-            SearchUnsubscribeRequest::Feed { feed_url } => {
-                let command = UnsubscribeFeedByUrl::new(Arc::clone(&self.conn), feed_url);
-                let success_entity_type = entity_type.clone();
-                let success_entity_id = entity_id.clone();
-                let error_entity_type = entity_type.clone();
-                let error_entity_id = entity_id.clone();
-                self.command_runner.run(
-                    command,
-                    CommandContext::next(),
-                    cx,
-                    move |this, result, cx| {
-                        let mut library_mutated = false;
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == success_entity_type
-                                && frame.entity_id == success_entity_id
-                            {
-                                frame.subscription_busy = false;
-                                frame.local_subscription = Some(false);
-                                frame.subscription_message = Some(result.message().into());
-                                library_mutated = true;
-                            }
-                        }
-                        if library_mutated {
-                            this.refresh_inspector_subscription_state(cx);
-                            cx.emit(SearchAppEvent::LibraryMutated);
-                        }
-                    },
-                    move |this, error, _cx| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == error_entity_type
-                                && frame.entity_id == error_entity_id
-                            {
-                                frame.subscription_busy = false;
-                                frame.subscription_message =
-                                    Some(subscription_command.error_message(error));
-                            }
-                        }
-                    },
-                );
+    fn request_library_removal(
+        &mut self,
+        intent: LibraryRemovalIntent,
+        origin: SearchRemovalOrigin,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let plan_result = {
+            let conn = self.conn.lock().expect("lock db");
+            self.application_services
+                .query_service()
+                .library_removal_plan(&conn, &intent)
+        };
+        let plan = match plan_result {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.fail_library_removal_origin(&origin, error);
+                cx.notify();
+                return;
             }
-            SearchUnsubscribeRequest::Track {
-                feed_url,
-                item_guid,
-                enclosure_url,
+        };
+        if !self.vm.confirm_library_removal_from(plan, origin.clone()) {
+            let Some(display) = self.vm.pending_library_removal_confirmation() else {
+                cx.notify();
+                return;
+            };
+            open_library_removal_confirmation_dialog(
+                window,
+                cx,
+                display,
+                |this, cx| {
+                    this.vm.cancel_pending_library_removal();
+                    cx.notify();
+                },
+                |this, cx| {
+                    this.execute_pending_library_removal(cx);
+                },
+            );
+            cx.notify();
+            return;
+        }
+
+        self.execute_library_removal_target(plan.target(), origin, cx);
+    }
+
+    fn execute_pending_library_removal(&mut self, cx: &mut Context<Self>) {
+        let Some((target, origin)) = self.vm.take_pending_library_removal() else {
+            cx.notify();
+            return;
+        };
+        self.execute_library_removal_target(target, origin, cx);
+    }
+
+    fn execute_library_removal_target(
+        &mut self,
+        target: LibraryRemovalTarget,
+        origin: SearchRemovalOrigin,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.begin_library_removal_origin(&origin, cx) {
+            return;
+        }
+        self.execute_library_removal_command(target, origin, cx);
+    }
+
+    fn begin_library_removal_origin(
+        &mut self,
+        origin: &SearchRemovalOrigin,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        match origin {
+            SearchRemovalOrigin::Row { key } => {
+                let started = self.vm.begin_track_operation(key.clone());
+                if started {
+                    cx.notify();
+                }
+                started
+            }
+            SearchRemovalOrigin::Inspector {
+                entity_type,
+                entity_id,
+                command,
             } => {
-                let command = RemoveTrackFromLibraryByMatch::new(
-                    Arc::clone(&self.conn),
-                    feed_url,
-                    item_guid,
-                    enclosure_url,
-                );
-                let success_entity_type = entity_type.clone();
-                let success_entity_id = entity_id.clone();
-                let error_entity_type = entity_type;
-                let error_entity_id = entity_id;
-                self.command_runner.run(
-                    command,
-                    CommandContext::next(),
-                    cx,
-                    move |this, result, cx| {
-                        let mut library_mutated = false;
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == success_entity_type
-                                && frame.entity_id == success_entity_id
-                            {
-                                frame.subscription_busy = false;
-                                frame.local_subscription = Some(false);
-                                frame.subscription_message = Some(result.message().into());
-                                library_mutated = true;
-                            }
-                        }
-                        if library_mutated {
-                            this.refresh_inspector_subscription_state(cx);
-                            cx.emit(SearchAppEvent::LibraryMutated);
-                        }
-                    },
-                    move |this, error, _cx| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == error_entity_type
-                                && frame.entity_id == error_entity_id
-                            {
-                                frame.subscription_busy = false;
-                                frame.subscription_message =
-                                    Some(subscription_command.error_message(error));
-                            }
-                        }
-                    },
-                );
+                let Some(frame) = self.inspector_stack.last_mut() else {
+                    return false;
+                };
+                if frame.subscription_busy
+                    || frame.entity_type != *entity_type
+                    || frame.entity_id != *entity_id
+                {
+                    return false;
+                }
+                frame.subscription_busy = true;
+                frame.subscription_message = Some(command.begin_message().into());
+                cx.notify();
+                true
+            }
+        }
+    }
+
+    fn execute_library_removal_command(
+        &mut self,
+        target: LibraryRemovalTarget,
+        origin: SearchRemovalOrigin,
+        cx: &mut Context<Self>,
+    ) {
+        let command = RemoveFromLibrary::new(Arc::clone(&self.conn), target);
+        let success_origin = origin.clone();
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                this.finish_library_removal_origin(&success_origin, result.message(), cx);
+            },
+            move |this, error, _cx| this.fail_library_removal_origin(&origin, error),
+        );
+    }
+
+    fn finish_library_removal_origin(
+        &mut self,
+        origin: &SearchRemovalOrigin,
+        message: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let mut library_mutated = false;
+        match origin {
+            SearchRemovalOrigin::Row { key } => {
+                self.vm.finish_track_remove(key, message);
+                library_mutated = true;
+            }
+            SearchRemovalOrigin::Inspector {
+                entity_type,
+                entity_id,
+                ..
+            } => {
+                if let Some(frame) = self.inspector_stack.last_mut() {
+                    if frame.entity_type == *entity_type && frame.entity_id == *entity_id {
+                        frame.subscription_busy = false;
+                        frame.local_subscription = Some(false);
+                        frame.subscription_message = Some(message.into());
+                        library_mutated = true;
+                    }
+                }
+            }
+        }
+        if library_mutated {
+            self.refresh_inspector_subscription_state(cx);
+            cx.emit(SearchAppEvent::LibraryMutated);
+        }
+    }
+
+    fn fail_library_removal_origin(
+        &mut self,
+        origin: &SearchRemovalOrigin,
+        error: impl std::fmt::Display,
+    ) {
+        match origin {
+            SearchRemovalOrigin::Row { key } => self.vm.fail_track_remove(key, error),
+            SearchRemovalOrigin::Inspector {
+                entity_type,
+                entity_id,
+                command,
+            } => {
+                if let Some(frame) = self.inspector_stack.last_mut() {
+                    if frame.entity_type == *entity_type && frame.entity_id == *entity_id {
+                        frame.subscription_busy = false;
+                        frame.subscription_message = Some(command.error_message(error));
+                    }
+                }
             }
         }
     }
@@ -2184,17 +2271,6 @@ fn download_and_compare_track(
 enum SearchSubscribeRequest {
     Feed(Box<Feed>, String),
     Track(Box<TrackContext>, Vec<Id3v24Edit>, String, bool),
-}
-
-enum SearchUnsubscribeRequest {
-    Feed {
-        feed_url: Option<String>,
-    },
-    Track {
-        feed_url: Option<String>,
-        item_guid: Option<String>,
-        enclosure_url: Option<String>,
-    },
 }
 
 fn local_subscription_for_detail(

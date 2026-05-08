@@ -66,6 +66,7 @@ pub mod entity_detail;
 pub mod feed;
 pub mod format;
 pub mod library;
+pub mod library_removal;
 pub mod metadata;
 pub mod musicbrainz_panel;
 pub mod paged_feed_detail;

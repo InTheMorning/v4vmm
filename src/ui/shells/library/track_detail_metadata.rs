@@ -144,8 +144,8 @@ pub(crate) fn render_library_track_detail_actions(
             cx,
         )
         .disabled(frame.subscription_busy)
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.toggle_local_subscription(cx);
+        .on_click(cx.listener(|this, _, window, cx| {
+            this.toggle_local_subscription(window, cx);
         })),
     )
     .control(

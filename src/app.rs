@@ -22,6 +22,7 @@ use crate::theme_profile::ThemeProfile;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::Button as UiButton;
+use crate::ui::shells::window_layers::render_window_layers;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
@@ -488,6 +489,7 @@ impl Render for TopApp {
                         el.child(render_settings(self, cx))
                     }),
             )
+            .children(render_window_layers(window, cx))
     }
 }
 

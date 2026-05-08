@@ -19,12 +19,12 @@ use super::{
 };
 use crate::api::Client as MusicIndexClient;
 use crate::application::commands::download::{
-    RemoveTrackFromLibrary, SetTrackLibraryMembership, SubscribeThenAppendToPlaylist,
-    SubscribeTrack,
+    SetTrackLibraryMembership, SubscribeThenAppendToPlaylist, SubscribeTrack,
 };
 use crate::application::commands::feed::{
-    ApplyFeedUpdates, CheckFeedStaleness, CheckSubscribedFeeds, UnsubscribeFeedById,
+    ApplyFeedUpdates, CheckFeedStaleness, CheckSubscribedFeeds,
 };
+use crate::application::commands::library_removal::RemoveFromLibrary;
 use crate::application::commands::metadata::{
     LookupMusicBrainzAlbumReleases, LookupMusicBrainzTrack, StageMusicBrainzCandidate,
     StageMusicBrainzTrack,
@@ -32,6 +32,7 @@ use crate::application::commands::metadata::{
 use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
 };
+use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
 use crate::application::{ApplicationServices, CommandContext};
 use crate::audio_tags::write_id3v24_edits;
 use crate::db::{self, TrackRow};
@@ -56,6 +57,7 @@ use crate::ui::primitives::{Button as UiButton, Label};
 use crate::ui::shells::library::detail::render_library_detail;
 use crate::ui::shells::library::sidebar::render_library_sidebar;
 use crate::ui::shells::library::track_detail_metadata::track_metadata_rows_for_frame;
+use crate::ui::shells::library_removal_confirmation::open_library_removal_confirmation_dialog;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::color;
 use crate::ui::style::spacing;
@@ -924,8 +926,74 @@ impl LibraryApp {
         self.vm.toggle_album(artist, album);
     }
 
-    pub(crate) fn unsubscribe_feed(&mut self, feed_id: i64, cx: &mut Context<Self>) {
-        let command = UnsubscribeFeedById::new(Arc::clone(&self.conn), feed_id);
+    pub(crate) fn unsubscribe_feed(
+        &mut self,
+        feed_id: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_library_removal(LibraryRemovalIntent::FeedId(feed_id), window, cx);
+    }
+
+    pub(crate) fn remove_track(
+        &mut self,
+        track_id: i64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_library_removal(LibraryRemovalIntent::TrackId(track_id), window, cx);
+    }
+
+    fn request_library_removal(
+        &mut self,
+        intent: LibraryRemovalIntent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let plan_result = {
+            let conn = self.conn.lock().expect("lock db");
+            self.application_services
+                .query_service()
+                .library_removal_plan(&conn, &intent)
+        };
+        let plan = match plan_result {
+            Ok(plan) => plan,
+            Err(err) => {
+                self.vm.set_error_status(err);
+                cx.notify();
+                return;
+            }
+        };
+        if !self.vm.confirm_library_removal(plan) {
+            let Some(display) = self.vm.pending_library_removal_confirmation() else {
+                cx.notify();
+                return;
+            };
+            open_library_removal_confirmation_dialog(
+                window,
+                cx,
+                display,
+                |this, cx| {
+                    this.vm.cancel_pending_library_removal();
+                    cx.notify();
+                },
+                |this, cx| {
+                    this.execute_pending_library_removal(cx);
+                },
+            );
+            cx.notify();
+            return;
+        }
+
+        self.execute_library_removal_target(plan.target(), cx);
+    }
+
+    fn execute_library_removal_target(
+        &mut self,
+        target: LibraryRemovalTarget,
+        cx: &mut Context<Self>,
+    ) {
+        let command = RemoveFromLibrary::new(Arc::clone(&self.conn), target);
         self.command_runner.run(
             command,
             CommandContext::next(),
@@ -935,15 +1003,12 @@ impl LibraryApp {
         );
     }
 
-    pub(crate) fn remove_track(&mut self, track_id: i64, cx: &mut Context<Self>) {
-        let command = RemoveTrackFromLibrary::new(Arc::clone(&self.conn), track_id);
-        self.command_runner.run(
-            command,
-            CommandContext::next(),
-            cx,
-            |this, _result, cx| this.start_async_reload(cx),
-            |this, err, _cx| this.vm.set_error_status(err),
-        );
+    fn execute_pending_library_removal(&mut self, cx: &mut Context<Self>) {
+        let Some(target) = self.vm.take_pending_library_removal() else {
+            cx.notify();
+            return;
+        };
+        self.execute_library_removal_target(target, cx);
     }
 
     pub(crate) fn subscribe_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
@@ -1118,15 +1183,14 @@ impl LibraryApp {
         cx.notify();
     }
 
-    pub(crate) fn toggle_local_subscription(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_local_subscription(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some((track_id, subscribe)) = (match self.selected_track_frame_mut() {
             Some(frame) if frame.subscription_busy => return,
-            Some(frame) if frame.local_subscription => {
-                frame.subscription_busy = true;
-                frame.subscription_message =
-                    Some(LibraryTrackActionVm::subscription_busy_message(false).into());
-                Some((frame.entity_id, false))
-            }
+            Some(frame) if frame.local_subscription => Some((frame.entity_id, false)),
             Some(frame) => {
                 frame.subscription_busy = true;
                 frame.subscription_message =
@@ -1137,6 +1201,10 @@ impl LibraryApp {
         }) else {
             return;
         };
+        if !subscribe {
+            self.request_library_removal(LibraryRemovalIntent::TrackId(track_id), window, cx);
+            return;
+        }
         cx.notify();
 
         let command = SetTrackLibraryMembership::new(Arc::clone(&self.conn), track_id, subscribe);
