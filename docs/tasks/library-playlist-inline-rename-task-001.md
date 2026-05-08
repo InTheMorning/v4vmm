@@ -1,5 +1,31 @@
 # Library Playlist Inline Rename Task 001
 
+## Status
+
+Completed on 2026-05-08.
+
+Implementation summary:
+
+- Added playlist rename edit state to `LibraryViewModel`.
+- Added rename editor ids, labels, placeholders, and action labels to
+  `PlaylistDetailVm::actions_display`.
+- Wired eager and async-runtime paged playlist detail paths through the
+  same inline rename affordance.
+- Kept `RenamePlaylist` as the only persistence path.
+- Preserved playlist delete, reorder, and track removal behavior.
+
+Visual proof:
+
+- Operator confirmed the rename affordance is clear on 2026-05-08 after
+  reviewing the running UI.
+
+Verification:
+
+- `cargo fmt -- --check` green.
+- `cargo check` green.
+- `cargo test` green.
+- `cargo clippy -- -D warnings` green.
+
 ## Goal
 
 Make the playlist detail Rename action functional without weakening the

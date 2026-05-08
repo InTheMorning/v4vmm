@@ -5,7 +5,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, AnyElement, Context, Image, SharedString};
+use gpui::{div, prelude::*, AnyElement, Context, Entity, Image, SharedString};
+use gpui_component::input::InputState;
 
 use crate::db;
 #[cfg(feature = "async-runtime")]
@@ -33,6 +34,8 @@ pub(crate) fn render_library_detail(
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
     chrome: &LibraryChromeDisplay,
+    rename_playlist_input: Entity<InputState>,
+    renaming_playlist_id: Option<i64>,
     #[cfg(feature = "async-runtime")] playlist_actor: Option<&PlaylistActorState>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -62,6 +65,8 @@ pub(crate) fn render_library_detail(
             detail,
             album_thumbs,
             chrome,
+            rename_playlist_input,
+            renaming_playlist_id,
             #[cfg(feature = "async-runtime")]
             playlist_actor,
             cx,

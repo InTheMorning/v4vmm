@@ -8,15 +8,18 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ClickEvent, InteractiveElement, ParentElement, SharedString,
-    Styled, Window,
+    div, prelude::*, AnyElement, App, ClickEvent, Entity, InteractiveElement, ParentElement,
+    SharedString, Styled, Window,
 };
+use gpui_component::input::{Input, InputState};
+use gpui_component::Size;
 
 use crate::ui::composites::{
     DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
+use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::{color, radius, spacing};
 use crate::ui::{layouts as layout, tokens::Radius};
 use crate::view_models::library::{PlaylistTrackControlsDisplay, PlaylistTrackRowDisplay};
@@ -27,6 +30,10 @@ type PlaylistClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'sta
 #[derive(Default)]
 pub(crate) struct PlaylistDetailBehaviorSlots {
     pub(crate) on_rename: Option<PlaylistClickHandler>,
+    pub(crate) rename_input: Option<Entity<InputState>>,
+    pub(crate) renaming: bool,
+    pub(crate) on_submit_rename: Option<PlaylistClickHandler>,
+    pub(crate) on_cancel_rename: Option<PlaylistClickHandler>,
     pub(crate) on_delete: Option<PlaylistClickHandler>,
     pub(crate) track_rows: Vec<PlaylistShellRow>,
 }
@@ -67,6 +74,15 @@ pub(crate) struct PlaylistTrackRowSlot {
     pub(crate) on_remove: Option<PlaylistClickHandler>,
 }
 
+struct PlaylistActionSlots {
+    on_rename: Option<PlaylistClickHandler>,
+    rename_input: Option<Entity<InputState>>,
+    renaming: bool,
+    on_submit_rename: Option<PlaylistClickHandler>,
+    on_cancel_rename: Option<PlaylistClickHandler>,
+    on_delete: Option<PlaylistClickHandler>,
+}
+
 #[must_use]
 pub(crate) fn click_slot<F>(handler: F) -> PlaylistClickHandler
 where
@@ -79,14 +95,22 @@ where
 pub(crate) fn render_playlist_detail_shell(
     page: &PlaylistDetailPageVm<'_>,
     slots: PlaylistDetailBehaviorSlots,
+    cx: &App,
 ) -> AnyElement {
     let header_display = page.header_display();
-    let track_rows = if slots.track_rows.is_empty() {
+    let PlaylistDetailBehaviorSlots {
+        on_rename,
+        rename_input,
+        renaming,
+        on_submit_rename,
+        on_cancel_rename,
+        on_delete,
+        track_rows: rows,
+    } = slots;
+    let track_rows = if rows.is_empty() {
         vec![render_empty_message(page.empty_message())]
     } else {
-        slots
-            .track_rows
-            .into_iter()
+        rows.into_iter()
             .map(|row| render_playlist_shell_row(page.playlist_id(), row))
             .collect()
     };
@@ -121,8 +145,15 @@ pub(crate) fn render_playlist_detail_shell(
         ))
         .child(render_playlist_actions(
             page,
-            slots.on_rename,
-            slots.on_delete,
+            PlaylistActionSlots {
+                on_rename,
+                rename_input,
+                renaming,
+                on_submit_rename,
+                on_cancel_rename,
+                on_delete,
+            },
+            cx,
         ))
         .child(
             div()
@@ -145,10 +176,20 @@ fn render_empty_message(message: &'static str) -> AnyElement {
 
 fn render_playlist_actions(
     page: &PlaylistDetailPageVm<'_>,
-    on_rename: Option<PlaylistClickHandler>,
-    on_delete: Option<PlaylistClickHandler>,
+    slots: PlaylistActionSlots,
+    cx: &App,
 ) -> AnyElement {
     let actions = page.actions_display();
+    if slots.renaming {
+        return render_playlist_rename_editor(
+            actions,
+            slots.rename_input,
+            slots.on_submit_rename,
+            slots.on_cancel_rename,
+            cx,
+        );
+    }
+
     div()
         .flex()
         .flex_row()
@@ -159,16 +200,68 @@ fn render_playlist_actions(
                 SharedString::from(actions.rename_button_id),
                 ControlStyle::Ghost,
             )
-            .label(actions.rename_label),
-            on_rename,
+            .label(actions.rename_label)
+            .a11y_label(actions.rename_a11y_label),
+            slots.on_rename,
         ))
         .child(apply_click_handler(
             UiButton::styled(
                 SharedString::from(actions.delete_button_id),
                 ControlStyle::Destructive,
             )
-            .label(actions.delete_label),
-            on_delete,
+            .label(actions.delete_label)
+            .a11y_label(actions.delete_a11y_label),
+            slots.on_delete,
+        ))
+        .into_any_element()
+}
+
+fn render_playlist_rename_editor(
+    actions: crate::view_models::library::PlaylistDetailActionsDisplay,
+    rename_input: Option<Entity<InputState>>,
+    on_submit_rename: Option<PlaylistClickHandler>,
+    on_cancel_rename: Option<PlaylistClickHandler>,
+    cx: &App,
+) -> AnyElement {
+    let input = rename_input.map_or_else(
+        || div().into_any_element(),
+        |rename_input| {
+            div()
+                .id(SharedString::from(actions.rename_input_id))
+                .flex_1()
+                .min_w_0()
+                .child(
+                    Input::new(&rename_input)
+                        .cleanable(false)
+                        .scaled(Size::Small, cx),
+                )
+                .into_any_element()
+        },
+    );
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(spacing::SM)
+        .child(input)
+        .child(apply_click_handler(
+            UiButton::styled(
+                SharedString::from(actions.rename_save_button_id),
+                ControlStyle::Primary,
+            )
+            .label(actions.rename_save_label)
+            .a11y_label(actions.rename_save_a11y_label),
+            on_submit_rename,
+        ))
+        .child(apply_click_handler(
+            UiButton::styled(
+                SharedString::from(actions.rename_cancel_button_id),
+                ControlStyle::Ghost,
+            )
+            .label(actions.rename_cancel_label)
+            .a11y_label(actions.rename_cancel_a11y_label),
+            on_cancel_rename,
         ))
         .into_any_element()
 }

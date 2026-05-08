@@ -67,8 +67,8 @@ use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
     AlbumNode, ArtistNode, FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay,
     FeedUpdatePhase, LibraryTrackActionVm, LibraryTrackRowVm, LibraryTree, LibraryViewModel,
-    MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistSidebarRowVm,
-    PlaylistSidebarVm, TrackSubscribeOutcome,
+    MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay,
+    PlaylistSidebarRowVm, PlaylistSidebarVm, TrackSubscribeOutcome,
 };
 use crate::view_models::playlist_option_displays;
 use crate::view_models::search::pending_skeleton_count;
@@ -123,6 +123,12 @@ impl LibraryApp {
         let new_playlist_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder(chrome.new_playlist_placeholder)
         });
+        let rename_playlist_input = cx.new(|cx: &mut Context<InputState>| {
+            InputState::new(window, cx)
+                .placeholder(PlaylistDetailActionsDisplay::RENAME_INPUT_PLACEHOLDER)
+        });
+        let rename_playlist_sub =
+            cx.subscribe(&rename_playlist_input, Self::on_rename_playlist_event);
         let command_runner = GpuiCommandRunner::new(
             application_services.command_bus(),
             application_services.event_bus(),
@@ -139,6 +145,8 @@ impl LibraryApp {
             search_input,
             _search_sub: search_sub,
             new_playlist_input,
+            rename_playlist_input,
+            _rename_playlist_sub: rename_playlist_sub,
             #[cfg(feature = "async-runtime")]
             runtime_host,
             #[cfg(feature = "async-runtime")]
@@ -156,6 +164,17 @@ impl LibraryApp {
     ) {
         if let InputEvent::PressEnter { .. } = event {
             self.apply_search(cx);
+        }
+    }
+
+    fn on_rename_playlist_event(
+        &mut self,
+        _entity: Entity<InputState>,
+        event: &InputEvent,
+        cx: &mut Context<Self>,
+    ) {
+        if let InputEvent::PressEnter { .. } = event {
+            self.submit_playlist_rename(cx);
         }
     }
 
@@ -180,6 +199,7 @@ impl LibraryApp {
         if !self.vm.playlist_sidebar().creating_playlist {
             self.vm.toggle_creating_playlist();
         }
+        self.vm.cancel_playlist_rename();
         self.new_playlist_input.update(cx, |input, cx| {
             input.focus(window, cx);
         });
@@ -424,7 +444,6 @@ impl LibraryApp {
         );
     }
 
-    #[allow(dead_code)]
     fn rename_playlist(&mut self, id: i64, new_name: String, cx: &mut Context<Self>) {
         let trimmed = new_name.trim();
         if trimmed.is_empty() {
@@ -443,6 +462,41 @@ impl LibraryApp {
             },
             |this, err, _cx| this.vm.fail_playlist_rename(err),
         );
+    }
+
+    pub(crate) fn begin_playlist_rename(
+        &mut self,
+        playlist_id: i64,
+        current_name: String,
+        placeholder: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.vm.begin_playlist_rename(playlist_id);
+        self.rename_playlist_input.update(cx, |input, cx| {
+            input.set_placeholder(placeholder, window, cx);
+            input.set_value(current_name, window, cx);
+            input.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_playlist_rename(&mut self, cx: &mut Context<Self>) {
+        self.vm.cancel_playlist_rename();
+        cx.notify();
+    }
+
+    pub(crate) fn submit_playlist_rename(&mut self, cx: &mut Context<Self>) {
+        let Some(playlist_id) = self.vm.renaming_playlist_id() else {
+            return;
+        };
+        let name = self.rename_playlist_input.read(cx).value().to_string();
+        if name.trim().is_empty() {
+            return;
+        }
+        self.vm.cancel_playlist_rename();
+        self.rename_playlist(playlist_id, name, cx);
+        cx.notify();
     }
 
     pub(crate) fn delete_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
@@ -2053,6 +2107,8 @@ impl Render for LibraryApp {
             &album_thumbs,
             self.vm.playlists(),
             &chrome,
+            self.rename_playlist_input.clone(),
+            self.vm.renaming_playlist_id(),
             #[cfg(feature = "async-runtime")]
             self.playlist_actor.as_ref(),
             cx,

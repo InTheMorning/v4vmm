@@ -577,6 +577,7 @@ pub(crate) struct LibraryViewModel {
     // Search + playlist creation.
     search_query: String,
     creating_playlist: bool,
+    renaming_playlist_id: Option<i64>,
 }
 
 impl LibraryViewModel {
@@ -602,6 +603,7 @@ impl LibraryViewModel {
             split_pane: SplitPaneState::new(DEFAULT_SPLIT_PANE_WIDTH),
             search_query: String::new(),
             creating_playlist: false,
+            renaming_playlist_id: None,
         }
     }
 
@@ -1052,6 +1054,7 @@ impl LibraryViewModel {
     pub(crate) fn select_library_item(&mut self, id: i64) {
         self.selected_id = Some(id);
         self.selected_playlist_id = None;
+        self.renaming_playlist_id = None;
     }
 
     pub(crate) fn clear_library_selection(&mut self) {
@@ -1061,11 +1064,15 @@ impl LibraryViewModel {
     pub(crate) fn select_playlist(&mut self, playlist_id: i64) {
         self.selected_id = None;
         self.selected_playlist_id = Some(playlist_id);
+        if self.renaming_playlist_id != Some(playlist_id) {
+            self.renaming_playlist_id = None;
+        }
     }
 
     pub(crate) fn clear_playlist_selection_if(&mut self, playlist_id: i64) -> bool {
         if self.selected_playlist_id == Some(playlist_id) {
             self.selected_playlist_id = None;
+            self.renaming_playlist_id = None;
             return true;
         }
         false
@@ -1318,6 +1325,32 @@ impl LibraryViewModel {
 
     pub(crate) fn close_creating_playlist(&mut self) {
         self.creating_playlist = false;
+    }
+
+    pub(crate) fn begin_playlist_rename(&mut self, playlist_id: i64) {
+        self.renaming_playlist_id = Some(playlist_id);
+        self.creating_playlist = false;
+    }
+
+    pub(crate) fn cancel_playlist_rename(&mut self) {
+        self.renaming_playlist_id = None;
+    }
+
+    #[must_use]
+    pub(crate) fn renaming_playlist_id(&self) -> Option<i64> {
+        self.renaming_playlist_id
+    }
+
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept as a focused state accessor for playlist rename tests and future shell guards"
+        )
+    )]
+    pub(crate) fn is_renaming_playlist(&self, playlist_id: i64) -> bool {
+        self.renaming_playlist_id == Some(playlist_id)
     }
 
     /// Toggle the expansion state of an artist node by name.
@@ -1917,8 +1950,22 @@ pub(crate) struct PlaylistTrackRowDisplay {
 pub(crate) struct PlaylistDetailActionsDisplay {
     pub(crate) rename_button_id: String,
     pub(crate) rename_label: &'static str,
+    pub(crate) rename_a11y_label: &'static str,
+    pub(crate) rename_input_id: String,
+    pub(crate) rename_input_placeholder: &'static str,
+    pub(crate) rename_save_button_id: String,
+    pub(crate) rename_save_label: &'static str,
+    pub(crate) rename_save_a11y_label: &'static str,
+    pub(crate) rename_cancel_button_id: String,
+    pub(crate) rename_cancel_label: &'static str,
+    pub(crate) rename_cancel_a11y_label: &'static str,
     pub(crate) delete_button_id: String,
     pub(crate) delete_label: &'static str,
+    pub(crate) delete_a11y_label: &'static str,
+}
+
+impl PlaylistDetailActionsDisplay {
+    pub(crate) const RENAME_INPUT_PLACEHOLDER: &'static str = "Playlist name";
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2152,8 +2199,18 @@ impl<'a> PlaylistDetailVm<'a> {
         PlaylistDetailActionsDisplay {
             rename_button_id: format!("playlist-rename-{playlist_id}"),
             rename_label: "Rename",
+            rename_a11y_label: "Rename playlist",
+            rename_input_id: format!("playlist-rename-input-{playlist_id}"),
+            rename_input_placeholder: PlaylistDetailActionsDisplay::RENAME_INPUT_PLACEHOLDER,
+            rename_save_button_id: format!("playlist-rename-save-{playlist_id}"),
+            rename_save_label: "Save",
+            rename_save_a11y_label: "Save playlist name",
+            rename_cancel_button_id: format!("playlist-rename-cancel-{playlist_id}"),
+            rename_cancel_label: "Cancel",
+            rename_cancel_a11y_label: "Cancel playlist rename",
             delete_button_id: format!("playlist-delete-{playlist_id}"),
             delete_label: "Delete",
+            delete_a11y_label: "Delete playlist",
         }
     }
 
@@ -2608,8 +2665,18 @@ mod tests {
             PlaylistDetailActionsDisplay {
                 rename_button_id: "playlist-rename-42".into(),
                 rename_label: "Rename",
+                rename_a11y_label: "Rename playlist",
+                rename_input_id: "playlist-rename-input-42".into(),
+                rename_input_placeholder: "Playlist name",
+                rename_save_button_id: "playlist-rename-save-42".into(),
+                rename_save_label: "Save",
+                rename_save_a11y_label: "Save playlist name",
+                rename_cancel_button_id: "playlist-rename-cancel-42".into(),
+                rename_cancel_label: "Cancel",
+                rename_cancel_a11y_label: "Cancel playlist rename",
                 delete_button_id: "playlist-delete-42".into(),
                 delete_label: "Delete",
+                delete_a11y_label: "Delete playlist",
             }
         );
     }
@@ -3350,6 +3417,29 @@ mod tests {
         assert!(vm.playlist_sidebar().creating_playlist);
         vm.toggle_creating_playlist();
         assert!(!vm.playlist_sidebar().creating_playlist);
+    }
+
+    #[test]
+    fn library_view_model_tracks_playlist_rename_state() {
+        let mut vm = LibraryViewModel::new();
+        vm.toggle_creating_playlist();
+
+        vm.begin_playlist_rename(7);
+
+        assert_eq!(vm.renaming_playlist_id(), Some(7));
+        assert!(vm.is_renaming_playlist(7));
+        assert!(!vm.is_renaming_playlist(8));
+        assert!(!vm.playlist_sidebar().creating_playlist);
+
+        vm.select_playlist(7);
+        assert_eq!(vm.renaming_playlist_id(), Some(7));
+
+        vm.select_playlist(8);
+        assert_eq!(vm.renaming_playlist_id(), None);
+
+        vm.begin_playlist_rename(9);
+        vm.cancel_playlist_rename();
+        assert_eq!(vm.renaming_playlist_id(), None);
     }
 
     #[test]

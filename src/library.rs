@@ -127,6 +127,8 @@ pub struct LibraryApp {
     search_input: Entity<InputState>,
     _search_sub: gpui::Subscription,
     new_playlist_input: Entity<InputState>,
+    rename_playlist_input: Entity<InputState>,
+    _rename_playlist_sub: gpui::Subscription,
     /// Optional async-runtime host (ADR 0040). When present, screens
     /// can spawn paged-track-list actors that publish snapshots back
     /// via `presentation::bridge_watch`.
