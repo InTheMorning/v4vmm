@@ -5,6 +5,8 @@
 Add additive SQLite schema and DB helpers for explicit track-to-artist source
 bindings.
 
+Status: Implemented - 2026-05-08.
+
 ## Files to Inspect
 
 - `docs/adr/0045-track-artist-binding.md`
@@ -34,18 +36,21 @@ bindings.
 
 ## Implementation Steps
 
-1. Add a migration in `src/db.rs` for `track_artist_source_bindings`.
-2. Include indexes for `track_id`, `(source, source_artist_id)`, and role.
-3. Add input/row structs for binding replacement and query helpers.
-4. Add helper tests for insert, replacement, required keys, and track-delete
+1. Done: add a migration in `src/db.rs` for
+   `track_artist_source_bindings`.
+2. Done: include indexes for `track_id`, `(source, source_artist_id)`,
+   and role.
+3. Done: add input/row structs for binding replacement and query
+   helpers.
+4. Done: add helper tests for insert, replacement, required keys, and track-delete
    cascade behavior.
 
 ## Acceptance Criteria
 
-- Fresh and migrated databases include the binding table.
-- Bindings cannot be inserted with blank source or source artist id.
-- Removing a track removes its bindings but not artist source facts.
-- No UI or ingest behavior changes.
+- [x] Fresh and migrated databases include the binding table.
+- [x] Bindings cannot be inserted with blank source or source artist id.
+- [x] Removing a track removes its bindings but not artist source facts.
+- [x] No UI or ingest behavior changes.
 
 ## Test Commands
 

@@ -230,6 +230,27 @@ pub struct ArtistSourceFactRow {
     pub source_ids: Vec<LocalIdentityIdRow>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrackArtistSourceBindingInput {
+    pub role: String,
+    pub source: String,
+    pub source_artist_id: String,
+    pub confidence: Option<f64>,
+    pub provenance: Option<String>,
+    pub observed_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrackArtistSourceBindingRow {
+    pub track_id: i64,
+    pub role: String,
+    pub source: String,
+    pub source_artist_id: String,
+    pub confidence: Option<f64>,
+    pub provenance: Option<String>,
+    pub observed_at: Option<i64>,
+}
+
 pub fn subscribed_feeds_for_stale_check(conn: &Connection) -> Result<Vec<FeedStaleCheckRow>> {
     let mut stmt = conn
         .prepare(
@@ -938,6 +959,12 @@ fn explicit_source_artist_id(source_artist_id: &str) -> Result<&str> {
     Ok(source_artist_id)
 }
 
+fn explicit_artist_role(role: &str) -> Result<&str> {
+    let role = role.trim();
+    anyhow::ensure!(!role.is_empty(), "artist binding role cannot be empty");
+    Ok(role)
+}
+
 pub fn replace_local_identity_links(
     conn: &mut Connection,
     owner: LocalIdentityOwner,
@@ -1346,6 +1373,69 @@ pub fn artist_source_fact(
     }))
 }
 
+pub fn replace_track_artist_source_bindings(
+    conn: &mut Connection,
+    track_id: i64,
+    bindings: &[TrackArtistSourceBindingInput],
+) -> Result<()> {
+    let tx = conn.transaction().context("start transaction")?;
+
+    tx.execute(
+        "DELETE FROM track_artist_source_bindings WHERE track_id = ?1",
+        [track_id],
+    )
+    .context("delete track artist source bindings")?;
+
+    for binding in bindings {
+        let role = explicit_artist_role(&binding.role)?;
+        let source = explicit_source_token(&binding.source)?;
+        let source_artist_id = explicit_source_artist_id(&binding.source_artist_id)?;
+
+        tx.execute(
+            "INSERT INTO track_artist_source_bindings (
+                 track_id, role, source, source_artist_id,
+                 confidence, provenance, observed_at
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                track_id,
+                role,
+                source,
+                source_artist_id,
+                binding.confidence,
+                binding.provenance.as_deref(),
+                binding.observed_at,
+            ],
+        )
+        .context("insert track artist source binding")?;
+    }
+
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+pub fn track_artist_source_bindings_for_track(
+    conn: &Connection,
+    track_id: i64,
+) -> Result<Vec<TrackArtistSourceBindingRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT track_id, role, source, source_artist_id,
+                    confidence, provenance, observed_at
+             FROM track_artist_source_bindings
+             WHERE track_id = ?1
+             ORDER BY role COLLATE NOCASE, source COLLATE NOCASE, source_artist_id COLLATE NOCASE",
+        )
+        .context("prepare track_artist_source_bindings_for_track")?;
+
+    let rows = stmt
+        .query_map([track_id], track_artist_source_binding_row_from_sql)
+        .context("query track_artist_source_bindings_for_track")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect track_artist_source_bindings_for_track")?;
+    Ok(rows)
+}
+
 fn local_identity_link_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<LocalIdentityLinkRow> {
     Ok(LocalIdentityLinkRow {
         entity_type: row.get(0)?,
@@ -1425,6 +1515,20 @@ fn artist_source_fact_sql_row_from_sql(
         end_year: row.get(11)?,
         observed_at: row.get(12)?,
         raw_json: row.get(13)?,
+    })
+}
+
+fn track_artist_source_binding_row_from_sql(
+    row: &rusqlite::Row,
+) -> rusqlite::Result<TrackArtistSourceBindingRow> {
+    Ok(TrackArtistSourceBindingRow {
+        track_id: row.get(0)?,
+        role: row.get(1)?,
+        source: row.get(2)?,
+        source_artist_id: row.get(3)?,
+        confidence: row.get(4)?,
+        provenance: row.get(5)?,
+        observed_at: row.get(6)?,
     })
 }
 
@@ -1934,6 +2038,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "artist_source_facts",
         apply: migration_artist_source_facts,
     },
+    Migration {
+        version: 5,
+        name: "track_artist_source_bindings",
+        apply: migration_track_artist_source_bindings,
+    },
 ];
 
 pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
@@ -1996,6 +2105,10 @@ fn migration_identity_source_facts(conn: &Connection) -> Result<()> {
 
 fn migration_artist_source_facts(conn: &Connection) -> Result<()> {
     create_artist_source_fact_tables(conn)
+}
+
+fn migration_track_artist_source_bindings(conn: &Connection) -> Result<()> {
+    create_track_artist_source_binding_tables(conn)
 }
 
 fn add_column_if_missing(
@@ -2130,6 +2243,7 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<()> {
 
     create_identity_source_fact_tables(conn)?;
     create_artist_source_fact_tables(conn)?;
+    create_track_artist_source_binding_tables(conn)?;
 
     Ok(())
 }
@@ -2328,6 +2442,37 @@ fn create_artist_source_fact_tables(conn: &Connection) -> Result<()> {
         "#,
     )
     .context("create artist source fact tables")?;
+    Ok(())
+}
+
+fn create_track_artist_source_binding_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS track_artist_source_bindings (
+            id INTEGER PRIMARY KEY,
+            track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            role TEXT NOT NULL CHECK (role != ''),
+            source TEXT NOT NULL CHECK (source != ''),
+            source_artist_id TEXT NOT NULL CHECK (source_artist_id != ''),
+            confidence REAL NULL,
+            provenance TEXT NULL,
+            observed_at INTEGER NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(track_id, role, source, source_artist_id),
+            FOREIGN KEY (source, source_artist_id)
+                REFERENCES artist_source_facts(source, source_artist_id)
+                ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_track_artist_bindings_track
+            ON track_artist_source_bindings(track_id);
+        CREATE INDEX IF NOT EXISTS idx_track_artist_bindings_source_artist
+            ON track_artist_source_bindings(source, source_artist_id);
+        CREATE INDEX IF NOT EXISTS idx_track_artist_bindings_role
+            ON track_artist_source_bindings(role);
+        "#,
+    )
+    .context("create track artist source binding tables")?;
     Ok(())
 }
 
@@ -2578,7 +2723,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4],
+            vec![1, 2, 3, 4, 5],
             "fresh schema should record all registry migrations"
         );
 
@@ -2622,7 +2767,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4],
+            vec![1, 2, 3, 4, 5],
             "migration registry should be idempotent"
         );
 
@@ -2833,6 +2978,198 @@ mod tests {
         assert!(
             invalid.is_err(),
             "schema should reject empty source artist ids"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_track_artist_source_binding_schema_creates_tables() -> Result<()> {
+        let conn = setup_test_db()?;
+
+        assert!(
+            table_exists(&conn, "track_artist_source_bindings")?,
+            "schema should include track_artist_source_bindings"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_track_artist_source_bindings_round_trip_and_replace() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+        replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-123",
+            &ArtistSourceFactInput {
+                name: Some("Alice".to_owned()),
+                ..ArtistSourceFactInput::default()
+            },
+        )?;
+        replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-456",
+            &ArtistSourceFactInput {
+                name: Some("Bob".to_owned()),
+                ..ArtistSourceFactInput::default()
+            },
+        )?;
+
+        replace_track_artist_source_bindings(
+            &mut conn,
+            track_id,
+            &[TrackArtistSourceBindingInput {
+                role: "artist".to_owned(),
+                source: "musicindex".to_owned(),
+                source_artist_id: "artist-123".to_owned(),
+                confidence: Some(1.0),
+                provenance: Some("musicindex.track.artist_id".to_owned()),
+                observed_at: Some(1_714_000_000),
+            }],
+        )?;
+
+        let bindings = track_artist_source_bindings_for_track(&conn, track_id)?;
+        assert_eq!(bindings.len(), 1);
+        assert_eq!(bindings[0].track_id, track_id);
+        assert_eq!(bindings[0].role, "artist");
+        assert_eq!(bindings[0].source, "musicindex");
+        assert_eq!(bindings[0].source_artist_id, "artist-123");
+        assert_eq!(bindings[0].confidence, Some(1.0));
+        assert_eq!(
+            bindings[0].provenance.as_deref(),
+            Some("musicindex.track.artist_id")
+        );
+        assert_eq!(bindings[0].observed_at, Some(1_714_000_000));
+
+        replace_track_artist_source_bindings(
+            &mut conn,
+            track_id,
+            &[TrackArtistSourceBindingInput {
+                role: "album_artist".to_owned(),
+                source: "musicindex".to_owned(),
+                source_artist_id: "artist-456".to_owned(),
+                confidence: Some(0.9),
+                provenance: Some("musicindex.track.album_artist_id".to_owned()),
+                observed_at: Some(1_714_000_001),
+            }],
+        )?;
+
+        let bindings = track_artist_source_bindings_for_track(&conn, track_id)?;
+        assert_eq!(
+            bindings,
+            vec![TrackArtistSourceBindingRow {
+                track_id,
+                role: "album_artist".to_owned(),
+                source: "musicindex".to_owned(),
+                source_artist_id: "artist-456".to_owned(),
+                confidence: Some(0.9),
+                provenance: Some("musicindex.track.album_artist_id".to_owned()),
+                observed_at: Some(1_714_000_001),
+            }]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_track_artist_source_bindings_require_explicit_keys() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+        replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-123",
+            &ArtistSourceFactInput::default(),
+        )?;
+
+        for binding in [
+            TrackArtistSourceBindingInput {
+                role: "".to_owned(),
+                source: "musicindex".to_owned(),
+                source_artist_id: "artist-123".to_owned(),
+                confidence: None,
+                provenance: None,
+                observed_at: None,
+            },
+            TrackArtistSourceBindingInput {
+                role: "artist".to_owned(),
+                source: "".to_owned(),
+                source_artist_id: "artist-123".to_owned(),
+                confidence: None,
+                provenance: None,
+                observed_at: None,
+            },
+            TrackArtistSourceBindingInput {
+                role: "artist".to_owned(),
+                source: "musicindex".to_owned(),
+                source_artist_id: "".to_owned(),
+                confidence: None,
+                provenance: None,
+                observed_at: None,
+            },
+        ] {
+            assert!(
+                replace_track_artist_source_bindings(&mut conn, track_id, &[binding]).is_err(),
+                "track artist bindings require explicit role, source, and source artist id"
+            );
+        }
+
+        let invalid = conn.execute(
+            "INSERT INTO track_artist_source_bindings (
+                 track_id, role, source, source_artist_id
+             )
+             VALUES (?1, 'artist', 'musicindex', '')",
+            [track_id],
+        );
+        assert!(
+            invalid.is_err(),
+            "schema should reject empty source artist ids"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_track_artist_source_bindings_track_delete_cascades_only_bindings() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+        replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-123",
+            &ArtistSourceFactInput {
+                name: Some("Alice".to_owned()),
+                ..ArtistSourceFactInput::default()
+            },
+        )?;
+        replace_track_artist_source_bindings(
+            &mut conn,
+            track_id,
+            &[TrackArtistSourceBindingInput {
+                role: "artist".to_owned(),
+                source: "musicindex".to_owned(),
+                source_artist_id: "artist-123".to_owned(),
+                confidence: Some(1.0),
+                provenance: Some("musicindex.track.artist_id".to_owned()),
+                observed_at: Some(1_714_000_000),
+            }],
+        )?;
+
+        conn.execute("DELETE FROM tracks WHERE id = ?1", [track_id])?;
+
+        assert!(
+            track_artist_source_bindings_for_track(&conn, track_id)?.is_empty(),
+            "deleting a track should delete only its local artist bindings"
+        );
+        assert!(
+            artist_source_fact(&conn, "musicindex", "artist-123")?.is_some(),
+            "deleting a track must not delete artist source facts"
         );
 
         Ok(())
