@@ -2,12 +2,15 @@
 
 ## Status
 
-Accepted — 2026-05-06. Phase E in flight: `PagedListVm` shipped with
-`PagedTrackListActor`, `Skeleton` primitive, runtime `VmBus`
-subscription. The screen swap (`library-track-list-paged-vm`) is the
-remaining work; the parallel-additive
-`view_models::paged_playlist_detail::PagedPlaylistDetailVm` is in
-place to make it a small slice.
+Accepted — 2026-05-06. Phase E has shipped for the first playlist
+detail slice: `PagedListVm`, `PagedTrackListActor`, `Skeleton`
+primitive, runtime `VmBus` subscription, and
+`view_models::paged_playlist_detail::PagedPlaylistDetailVm` are in
+place, and the async-runtime feature is default-on.
+
+Further list migrations remain follow-up work. New large list surfaces
+must use this ADR's windowed contract instead of rebuilding eager
+`Vec<Row>` view-models.
 
 Depends on ADR 0040 (Async VM Runtime) for the actor + snapshot layer
 that owns the cache.

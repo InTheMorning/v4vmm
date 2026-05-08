@@ -2,14 +2,18 @@
 
 ## Status
 
-Accepted — 2026-05-06. Phase A–D shipped. Phase E in flight (see
-ADR 0041): `PagedTrackListActor` lives behind the `async-runtime`
-feature, `AsyncCommandRunner` publishes `VmEvent` invalidations onto
-the runtime `VmBus`, and the `Actor` trait subscribes every spawned
-actor to that bus via `tokio::select! { biased; ... }` so command
-latency stays predictable under bus traffic. Phase F (default-on,
-`GpuiCommandRunner` retirement) is gated on the remaining screen
-swaps.
+Accepted — 2026-05-06. Runtime foundation phases A-F have shipped
+through the default-on `async-runtime` feature flip. `PagedTrackListActor`
+is available behind the feature, `AsyncCommandRunner` publishes
+`VmEvent` invalidations onto the runtime `VmBus`, and the `Actor` trait
+subscribes every spawned actor to that bus via
+`tokio::select! { biased; ... }` so command latency stays predictable
+under bus traffic.
+
+Remaining legacy synchronous scheduling call sites, including
+`GpuiCommandRunner` retirement and eventual `--no-default-features`
+cleanup, are tracked as ADR 0040 follow-up work in the deferred
+architecture index. They are not a blocker for ADR 0043 or ADR 0044.
 
 Supersedes the synchronous-`CommandBus` + `GpuiCommandRunner` scheduling
 model adopted in ADR 0024 for any new work. Existing call sites continue

@@ -6,16 +6,20 @@
 - `docs/plans/adr-0038-presentation-contract-enforcement-phase-plan.md`
 - `docs/tasks/adr-0038-task-001-layer-relocation.md`
 - `docs/tasks/adr-0038-task-002-composite-display-contract-audit.md`
-- `docs/tasks/adr-0038-task-003-library-search-vm-consolidation.md` (stub)
-- `docs/tasks/adr-0038-task-004-dark-mode-parity-audit.md` (stub)
-- `docs/tasks/adr-0038-task-005-accessibility-label-contract.md` (stub)
-- `docs/tasks/adr-0038-task-006-page-vm-generalization.md` (stub)
-- `docs/tasks/adr-0038-task-007-screen-decomposition.md` (in progress)
-- `docs/tasks/adr-0038-task-008-final-sweep-and-readiness-gate.md` (stub)
+- `docs/tasks/adr-0038-task-003-library-search-vm-consolidation.md`
+- `docs/tasks/adr-0038-task-004-dark-mode-parity-audit.md`
+- `docs/tasks/adr-0038-task-005-accessibility-label-contract.md`
+- `docs/tasks/adr-0038-task-006-page-vm-generalization.md`
+- `docs/tasks/adr-0038-task-007-screen-decomposition.md`
+- `docs/tasks/adr-0038-task-008-final-sweep-and-readiness-gate.md`
 
 ## Gate Status
 
-Status: Task 006 (PageVm Generalization) is implemented. Task 004
+Status: Completed on 2026-05-04. Readiness decision: **Proceed**.
+Earlier stub/in-progress labels in this checklist were reconciled on
+2026-05-08 against the completed Task 008 readiness gate.
+
+Task 006 (PageVm Generalization) is implemented. Task 004
 (HIG Dark-Mode Parity Audit) is implemented with operator-navigated,
 transient visual verification and no screenshot artifacts retained.
 Task 002 migrated `TrackRow`, `DetailHeader`, `DetailGrid`,

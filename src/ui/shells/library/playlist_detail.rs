@@ -102,7 +102,7 @@ fn render_eager_playlist_detail(
         &page,
         PlaylistDetailBehaviorSlots {
             on_rename: Some(click_slot(cx.listener(move |_this, _, _, cx| {
-                // TODO Stage 3: implement inline rename modal/input
+                // Tracked by docs/tasks/library-playlist-inline-rename-task-001.md.
                 cx.notify();
             }))),
             on_delete: Some(click_slot(cx.listener(move |this, _, _, cx| {
@@ -217,6 +217,7 @@ fn try_render_paged(
         &page,
         PlaylistDetailBehaviorSlots {
             on_rename: Some(click_slot(cx.listener(move |_this, _, _, cx| {
+                // Tracked by docs/tasks/library-playlist-inline-rename-task-001.md.
                 cx.notify();
             }))),
             on_delete: Some(click_slot(cx.listener(move |this, _, _, cx| {

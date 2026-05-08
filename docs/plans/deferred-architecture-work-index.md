@@ -27,17 +27,24 @@ prioritized, and routed to the right governance artifact.
    inspector lazy panels.
    - Status: deferred from ADR 0024 final review.
    - Route: new ADR 0024 follow-up plan and bounded vertical slices.
-5. Staged metadata durability.
+5. ADR 0040 legacy synchronous scheduling retirement.
+   - Status: Phase F default-on `async-runtime` flip has shipped, but
+     `GpuiCommandRunner` and `--no-default-features` compatibility paths
+     still exist.
+   - Route: ADR 0040 follow-up after the remaining screen/runtime swaps
+     are complete; do not remove legacy paths as part of unrelated UI
+     feature work.
+6. Staged metadata durability.
    - Status: product/storage decision required.
    - Route: future ADR before schema or command behavior changes.
-6. Non-URL artwork rendering.
+7. Non-URL artwork rendering.
    - Status: audit completed; no producer/resolver contract yet.
    - Route: future ADR only when cache, storage, or public artwork contracts
      change.
-7. Playback volume and playback-driver supervision.
+8. Playback volume and playback-driver supervision.
    - Status: isolated playback-boundary follow-up.
    - Route: ADR 0021/0024 follow-up after the driver contract is clear.
-8. Visual-system polish and lower-priority product improvements.
+9. Visual-system polish and lower-priority product improvements.
    - Status: use bounded ADR 0025 tasks only when the change affects tokens,
      primitives, composites, or theme contracts.
 
@@ -55,6 +62,10 @@ prioritized, and routed to the right governance artifact.
   completed by `docs/tasks/post-adr-0028-task-001-library-contributor-panel.md`.
 - ADR 0027 action-state parity is implemented and should not be reopened for
   unrelated data or service-boundary work.
+- ADR 0040 and ADR 0041 status text was reconciled on 2026-05-08. The
+  default-on async-runtime flip has landed; remaining legacy scheduling
+  cleanup is now explicit deferred follow-up work instead of an ambiguous
+  phase blocker.
 
 ## Execution Rule
 
