@@ -50,6 +50,9 @@ Readiness decision: Pending.
 ## Required Fixes
 
 - Task 004 visual readiness remains pending.
+- Visual proof is blocked in this session: `DISPLAY=:0 wmctrl -l` fails with
+  `Authorization required, but no authorization protocol specified` and
+  `Cannot open display`, including after an escalated retry.
 
 ## Optional Improvements
 

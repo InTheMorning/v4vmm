@@ -1,5 +1,7 @@
 # ADR 0043 Task 004: Guards, Visual Proof, and Readiness Review
 
+Status: Blocked - display access unavailable on 2026-05-11
+
 ## Goal
 
 Add final architecture guards, run full verification, capture visual
@@ -119,3 +121,14 @@ At the end, report:
   controls at normal or narrow widths.
 - Any guard would require broad baselines instead of enforcing the new
   invariant directly.
+
+## Blocker Notes
+
+- `cargo fmt -- --check`, `cargo check`, `cargo test`, and
+  `cargo clippy -- -D warnings` were green after Tasks 001-003.
+- Visual proof could not be captured because `DISPLAY=:0 wmctrl -l`
+  failed with `Authorization required, but no authorization protocol specified`
+  and `Cannot open display`, including when retried with escalated
+  permissions.
+- Readiness remains pending until light/dark normal/narrow screenshots can be
+  captured and reviewed.
