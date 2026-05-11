@@ -47,7 +47,7 @@ use tab_bar::render_tab_bar;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AppTab {
     Library,
-    Discover,
+    Search,
     Settings,
 }
 
@@ -69,7 +69,7 @@ pub struct TopApp {
     cfg_path: PathBuf,
     settings_status: String,
     library_tab_focus: gpui::FocusHandle,
-    discover_tab_focus: gpui::FocusHandle,
+    search_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
     _global_search_sub: gpui::Subscription,
     _search_sub: gpui::Subscription,
@@ -232,7 +232,7 @@ impl TopApp {
             cfg_path,
             settings_status: String::new(),
             library_tab_focus: cx.focus_handle(),
-            discover_tab_focus: cx.focus_handle(),
+            search_tab_focus: cx.focus_handle(),
             settings_tab_focus: cx.focus_handle(),
             _global_search_sub: global_search_sub,
             _search_sub: search_sub,
@@ -305,7 +305,7 @@ impl TopApp {
 
     pub(super) fn submit_global_search(&mut self, cx: &mut Context<Self>) {
         let query = self.global_search_input.read(cx).value().to_string();
-        self.tab = AppTab::Discover;
+        self.tab = AppTab::Search;
         let scope = self.global_search_scope;
         self.search
             .update(cx, |search, cx| search.run_global_search(query, scope, cx));
@@ -530,7 +530,7 @@ impl Render for TopApp {
                     .when(self.tab == AppTab::Library, |el| {
                         el.child(self.library.clone())
                     })
-                    .when(self.tab == AppTab::Discover, |el| {
+                    .when(self.tab == AppTab::Search, |el| {
                         el.child(self.search.clone())
                     })
                     .when(self.tab == AppTab::Settings, |el| {

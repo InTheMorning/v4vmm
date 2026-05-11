@@ -1348,12 +1348,26 @@ pub(crate) struct SearchRenderSnapshot {
     pub(crate) sections: Vec<SearchResultSection>,
     pub(crate) selected_key: Option<String>,
     pub(crate) type_filter: usize,
+    pub(crate) index_controls: IndexControlsVisibility,
     pub(crate) show_recents_root: bool,
     pub(crate) show_recents_command: bool,
     pub(crate) loading: bool,
     pub(crate) empty: bool,
     pub(crate) has_more: bool,
     pub(crate) fuzzy_search: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IndexControlsVisibility {
+    Visible,
+    Hidden,
+}
+
+impl IndexControlsVisibility {
+    #[must_use]
+    pub(crate) const fn is_visible(self) -> bool {
+        matches!(self, Self::Visible)
+    }
 }
 
 /// Static labels for the recent-feeds root panel.
@@ -1733,6 +1747,11 @@ impl SearchViewModel {
             sections,
             selected_key: self.selected_key.clone(),
             type_filter: self.type_filter,
+            index_controls: if self.active_scope == GlobalSearchScope::Library {
+                IndexControlsVisibility::Hidden
+            } else {
+                IndexControlsVisibility::Visible
+            },
             show_recents_root,
             show_recents_command: false,
             loading: self.loading,
@@ -3541,6 +3560,7 @@ mod tests {
         assert_eq!(snapshot.sections[0].rows.len(), 1);
         assert_eq!(snapshot.selected_key.as_deref(), Some("index:feed:feed-1"));
         assert_eq!(snapshot.type_filter, 2);
+        assert_eq!(snapshot.index_controls, IndexControlsVisibility::Visible);
         assert!(!snapshot.show_recents_root);
         assert!(!snapshot.show_recents_command);
         assert!(snapshot.loading);
@@ -3552,6 +3572,10 @@ mod tests {
         assert!(empty_snapshot.show_recents_root);
         assert!(!empty_snapshot.show_recents_command);
         assert!(empty_snapshot.empty);
+        assert_eq!(
+            empty_snapshot.index_controls,
+            IndexControlsVisibility::Visible
+        );
         assert!(empty_snapshot.status.is_empty());
         assert_eq!(empty_snapshot.status.display_text, "");
         assert_eq!(empty_snapshot.pane_display.split_pane_id, "pane-container");
@@ -3590,6 +3614,18 @@ mod tests {
         assert_eq!(snapshot.sections[1].display.heading, "Index");
         assert_eq!(snapshot.sections[1].rows[0].key(), "index:feed:index-feed");
         assert!(!snapshot.empty);
+    }
+
+    #[test]
+    fn search_render_snapshot_hides_index_controls_for_library_scope() {
+        let mut vm = SearchViewModel::new();
+        vm.active_scope = GlobalSearchScope::Library;
+
+        let snapshot = vm.render_snapshot(true, false);
+
+        assert_eq!(snapshot.index_controls, IndexControlsVisibility::Hidden);
+        assert_eq!(snapshot.sections.len(), 1);
+        assert_eq!(snapshot.sections[0].display.heading, "Library");
     }
 
     #[test]

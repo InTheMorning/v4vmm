@@ -40,6 +40,11 @@ Readiness decision: Pending.
   boundary.
 - [x] Architecture tests cover duplicate-search
   prevention.
+- [x] Toolbar search field renders with a search icon and a clear affordance.
+- [x] Toolbar search button label comes from the toolbar view-model contract.
+- [x] Index-only Search workspace filters are hidden for Library scope.
+- [x] App-shell tab naming uses Search instead of Discover for the global
+  search workspace.
 - [ ] Light-theme visual proof reviewed at normal and narrow widths.
 - [ ] Dark-theme visual proof reviewed at normal and narrow widths.
 - [x] `cargo fmt -- --check` green.
@@ -63,7 +68,9 @@ Readiness decision: Pending.
   MusicIndex API behavior. Grouped Search results are source-aware in
   `src/view_models/search.rs`, and local Library rows open local track detail
   instead of reusing MusicIndex ids. Recent feeds remain the empty-query Search
-  root so the toolbar query stays the single source of search state.
+  root so the toolbar query stays the single source of search state. The
+  app-shell tab/key/focus naming now uses Search; legacy `discover` shell
+  module names remain as existing surface structure.
 
 ## Architectural Drift
 

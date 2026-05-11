@@ -974,6 +974,7 @@ fn global_search_contract_has_toolbar_vm_and_local_query_boundary() {
         "pub(crate) struct GlobalSearchDisplay",
         "input_id",
         "search_button_id",
+        "search_button_label",
         "search_button_a11y_label",
         "GlobalSearchScope::All",
         "GlobalSearchScope::Library",
@@ -1067,8 +1068,10 @@ fn global_search_replaces_screen_local_search_chrome() {
 
     for required in [
         "Input::new(&app.global_search_input)",
+        ".prefix(IconName::Search)",
         "SegmentedControl::new(app.global_search_scope)",
         "display.search_button_id",
+        ".label(display.search_button_label)",
     ] {
         if !toolbar_source.contains(required) {
             violations.push(format!(
@@ -1133,6 +1136,7 @@ fn global_search_replaces_screen_local_search_chrome() {
         "pub(crate) struct SearchResultSection",
         "library_results: Vec<ResultRow>",
         "active_scope: GlobalSearchScope",
+        "index_controls: IndexControlsVisibility",
         "GlobalSearchScope::All",
     ] {
         if !search_vm_source.contains(required) {

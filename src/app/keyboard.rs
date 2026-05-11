@@ -272,7 +272,7 @@ impl TopApp {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_tab(AppTab::Discover, cx);
+        self.select_tab(AppTab::Search, cx);
     }
 
     pub(super) fn handle_select_settings_tab(
@@ -305,7 +305,7 @@ impl TopApp {
             AppTab::Library => {
                 self.library.update(cx, LibraryApp::pop_inspector);
             }
-            AppTab::Discover => {
+            AppTab::Search => {
                 self.search.update(cx, SearchApp::pop_inspector);
             }
             AppTab::Settings => {}
@@ -320,7 +320,7 @@ impl TopApp {
     ) {
         match self.tab {
             AppTab::Library => self.library.update(cx, LibraryApp::move_up),
-            AppTab::Discover => self.search.update(cx, SearchApp::move_up),
+            AppTab::Search => self.search.update(cx, SearchApp::move_up),
             AppTab::Settings => {}
         }
     }
@@ -333,7 +333,7 @@ impl TopApp {
     ) {
         match self.tab {
             AppTab::Library => self.library.update(cx, LibraryApp::move_down),
-            AppTab::Discover => self.search.update(cx, SearchApp::move_down),
+            AppTab::Search => self.search.update(cx, SearchApp::move_down),
             AppTab::Settings => {}
         }
     }
@@ -346,7 +346,7 @@ impl TopApp {
     ) {
         match self.tab {
             AppTab::Library => self.library.update(cx, LibraryApp::confirm),
-            AppTab::Discover => self.search.update(cx, SearchApp::confirm),
+            AppTab::Search => self.search.update(cx, SearchApp::confirm),
             AppTab::Settings => {}
         }
     }

@@ -7,7 +7,7 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum AppToolbarTabKey {
     Library,
-    Discover,
+    Search,
     Settings,
 }
 
@@ -39,6 +39,7 @@ pub(crate) struct GlobalSearchDisplay {
     pub(crate) input_id: &'static str,
     pub(crate) placeholder: &'static str,
     pub(crate) search_button_id: &'static str,
+    pub(crate) search_button_label: &'static str,
     pub(crate) search_button_a11y_label: &'static str,
     pub(crate) scopes: [GlobalSearchScopeDisplay; 3],
 }
@@ -87,7 +88,7 @@ impl AppToolbarVm {
                     a11y_label: "Show Library",
                 },
                 AppToolbarTabDisplay {
-                    key: AppToolbarTabKey::Discover,
+                    key: AppToolbarTabKey::Search,
                     id: "app-tab-discover",
                     label: "Search",
                     a11y_label: "Show Search",
@@ -103,6 +104,7 @@ impl AppToolbarVm {
                 input_id: "app-toolbar-global-search-input",
                 placeholder: "Search Library and Index",
                 search_button_id: "app-toolbar-global-search-submit",
+                search_button_label: "Search",
                 search_button_a11y_label: "Search Library and Index",
                 scopes: [
                     GlobalSearchScopeDisplay {
@@ -169,6 +171,7 @@ mod tests {
 
         assert_eq!(display.input_id, "app-toolbar-global-search-input");
         assert_eq!(display.placeholder, "Search Library and Index");
+        assert_eq!(display.search_button_label, "Search");
         assert_eq!(labels, ["All", "Library", "Index"]);
         assert_eq!(
             a11y,
@@ -186,6 +189,7 @@ mod tests {
         let strings = [
             display.mark_a11y_label,
             display.global_search.placeholder,
+            display.global_search.search_button_label,
             display.global_search.search_button_a11y_label,
             display.now_playing.a11y_label,
             display.tabs[0].label,

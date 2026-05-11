@@ -12,12 +12,13 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::{color, spacing, typography};
-use crate::view_models::search::{SearchPaneDisplay, SearchViewModel};
+use crate::view_models::search::{IndexControlsVisibility, SearchPaneDisplay, SearchViewModel};
 
 pub(crate) struct DiscoverSearchControlsParams {
     pub(crate) type_filter: usize,
     pub(crate) is_loading: bool,
     pub(crate) fuzzy_search: bool,
+    pub(crate) index_controls: IndexControlsVisibility,
     pub(crate) show_recents_command: bool,
     pub(crate) pane_display: SearchPaneDisplay,
     pub(crate) status_color: Rgba,
@@ -48,7 +49,9 @@ pub(crate) fn render_discover_search_controls(
                 .flex_row()
                 .flex_wrap()
                 .gap(spacing::SM)
-                .child(render_type_filter_control(params.type_filter, cx)),
+                .when(params.index_controls.is_visible(), |el| {
+                    el.child(render_type_filter_control(params.type_filter, cx))
+                }),
         )
         .child(
             div()
@@ -68,20 +71,22 @@ pub(crate) fn render_discover_search_controls(
                             this.do_search(false, cx);
                         })),
                 )
-                .child(
-                    UiButton::styled(
-                        params.pane_display.fuzzy_toggle_id,
-                        if params.fuzzy_search {
-                            ControlStyle::Pill
-                        } else {
-                            ControlStyle::Ghost
-                        },
+                .when(params.index_controls.is_visible(), |el| {
+                    el.child(
+                        UiButton::styled(
+                            params.pane_display.fuzzy_toggle_id,
+                            if params.fuzzy_search {
+                                ControlStyle::Pill
+                            } else {
+                                ControlStyle::Ghost
+                            },
+                        )
+                        .label(params.pane_display.fuzzy_toggle_label)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.toggle_fuzzy_search(cx);
+                        })),
                     )
-                    .label(params.pane_display.fuzzy_toggle_label)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.toggle_fuzzy_search(cx);
-                    })),
-                )
+                })
                 .when(params.show_recents_command, |el| {
                     el.child(
                         UiButton::styled(

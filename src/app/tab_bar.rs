@@ -7,7 +7,7 @@ use gpui::{
     Styled, Window,
 };
 use gpui_component::input::Input;
-use gpui_component::Size;
+use gpui_component::{IconName, Size};
 
 use crate::library::LibraryApp;
 use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
@@ -104,6 +104,7 @@ pub(super) fn render_tab_bar(
                 .min_w(TokenSize::ColumnShort.scaled(cx))
                 .max_w(TokenSize::ColumnTall.scaled(cx))
                 .h(TokenSize::RowMd.scaled(cx))
+                .flex_shrink_0()
                 .border_1()
                 .border_color(border_subtle)
                 .rounded(frame_radius)
@@ -146,14 +147,16 @@ fn render_global_search(
         .items_center()
         .justify_center()
         .gap(Spacing::XS.scaled(cx))
+        .overflow_hidden()
         .child(
             div()
                 .id(display.input_id)
-                .w(TokenSize::ColumnTall.scaled(cx))
+                .flex_1()
+                .min_w_0()
                 .max_w(TokenSize::ColumnTall.scaled(cx))
-                .min_w(TokenSize::ColumnShort.scaled(cx))
                 .child(
                     Input::new(&app.global_search_input)
+                        .prefix(IconName::Search)
                         .cleanable(true)
                         .scaled(Size::Small, cx),
                 ),
@@ -171,7 +174,7 @@ fn render_global_search(
         )
         .child(
             UiButton::styled(display.search_button_id, ControlStyle::Primary)
-                .label("Search")
+                .label(display.search_button_label)
                 .a11y_label(display.search_button_a11y_label)
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.submit_global_search(cx);
@@ -214,6 +217,7 @@ fn render_app_tab(
         }))
         .px(spacing_md)
         .min_h(hit_target_min)
+        .flex_shrink_0()
         .flex()
         .items_center()
         .rounded(radius_lg)
@@ -238,7 +242,7 @@ fn render_app_tab(
 const fn app_tab_for_key(key: AppToolbarTabKey) -> AppTab {
     match key {
         AppToolbarTabKey::Library => AppTab::Library,
-        AppToolbarTabKey::Discover => AppTab::Discover,
+        AppToolbarTabKey::Search => AppTab::Search,
         AppToolbarTabKey::Settings => AppTab::Settings,
     }
 }
@@ -246,7 +250,7 @@ const fn app_tab_for_key(key: AppToolbarTabKey) -> AppTab {
 fn focus_handle_for_key(key: AppToolbarTabKey, app: &TopApp) -> &gpui::FocusHandle {
     match key {
         AppToolbarTabKey::Library => &app.library_tab_focus,
-        AppToolbarTabKey::Discover => &app.discover_tab_focus,
+        AppToolbarTabKey::Search => &app.search_tab_focus,
         AppToolbarTabKey::Settings => &app.settings_tab_focus,
     }
 }

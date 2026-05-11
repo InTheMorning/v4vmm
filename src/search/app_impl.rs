@@ -1959,6 +1959,7 @@ impl Render for SearchApp {
         let is_empty = snapshot.empty;
         let has_more = snapshot.has_more;
         let fuzzy_search = snapshot.fuzzy_search;
+        let index_controls = snapshot.index_controls;
         let show_recents_command = snapshot.show_recents_command;
         let pane_display = snapshot.pane_display.clone();
 
@@ -1973,6 +1974,7 @@ impl Render for SearchApp {
                     type_filter: snapshot.type_filter,
                     is_loading,
                     fuzzy_search,
+                    index_controls,
                     show_recents_command,
                     pane_display: pane_display.clone(),
                     status_color,

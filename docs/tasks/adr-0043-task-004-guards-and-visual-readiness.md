@@ -126,6 +126,10 @@ At the end, report:
 
 - `cargo fmt -- --check`, `cargo check`, `cargo test`, and
   `cargo clippy -- -D warnings` were green after Tasks 001-003.
+- Follow-up design review fixes added the toolbar search icon, moved the
+  toolbar Search button label into `AppToolbarVm`, hid Index-only filters for
+  Library scope, improved toolbar flex/shrink behavior, and renamed the
+  app-shell tab/key/focus contract to Search.
 - Visual proof could not be captured because `DISPLAY=:0 wmctrl -l`
   failed with `Authorization required, but no authorization protocol specified`
   and `Cannot open display`, including when retried with escalated
