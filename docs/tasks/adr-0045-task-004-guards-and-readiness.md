@@ -5,6 +5,8 @@
 Add final architecture guards, run the full verification gate, and update the
 ADR 0045 review checklist.
 
+Status: Implemented - 2026-05-11.
+
 ## Files to Inspect
 
 - `docs/adr/0045-track-artist-binding.md`
@@ -34,17 +36,27 @@ ADR 0045 review checklist.
 
 ## Implementation Steps
 
-1. Add guards blocking screen-side name matching or binding inference.
-2. Add guards ensuring track-to-artist bindings route through DB/read-model
+1. Done: add guards blocking screen-side binding storage access.
+2. Done: add guards ensuring track-to-artist bindings route through DB/read-model
    helpers.
-3. Run the full required gate.
-4. Update the review checklist with evidence and merge recommendation.
+3. Done: run the full required gate.
+4. Done: update the review checklist with evidence and merge recommendation.
 
 ## Acceptance Criteria
 
-- Architecture tests prevent renderer/screen binding inference.
-- Full checks are green.
-- Review checklist records a clear pass/fail decision.
+- [x] Architecture tests prevent renderer/screen binding inference.
+- [x] Full checks are green.
+- [x] Review checklist records a clear pass/fail decision.
+
+## Implementation Notes
+
+- Added guards that block screen/UI access to binding storage and direct artist
+  source-fact lookups.
+- Added ownership guards that keep raw binding table SQL in `src/db.rs`,
+  binding writes in DB/ingest helpers, and binding reads in DB/source
+  read-model helpers.
+- The guard scan intentionally allows focused inline tests in
+  `src/identity_ingest.rs` and `src/sources.rs`.
 
 ## Test Commands
 

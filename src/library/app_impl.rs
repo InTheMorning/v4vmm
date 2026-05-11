@@ -45,6 +45,7 @@ use crate::metadata::{
 };
 use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
+use crate::sources;
 use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{
     DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
@@ -818,11 +819,18 @@ impl LibraryApp {
                 break;
             }
         }
+        let view = self
+            .conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database lock poisoned"))
+            .and_then(|conn| sources::local_artist_view_from_tracks(&conn, name, &tracks))
+            .unwrap_or_else(|_| crate::views::ArtistView::from_local_rows(name, &tracks));
         self.vm.clear_library_selection();
-        self.detail = LibraryDetail::Artist(LibraryArtistDetail {
+        self.detail = LibraryDetail::Artist(Box::new(LibraryArtistDetail {
             name: name.to_string(),
+            view,
             tracks,
-        });
+        }));
     }
 
     fn check_feed_on_view(&mut self, feed_id: i64, cx: &mut Context<Self>) {
@@ -1894,7 +1902,7 @@ impl Render for LibraryApp {
         let status_text = status.text;
 
         // Collect image URLs from tree, then fetch thumbnails (avoids borrow conflict).
-        let urls: Vec<String> = {
+        let mut urls: Vec<String> = {
             self.vm
                 .tree()
                 .artists
@@ -1921,6 +1929,11 @@ impl Render for LibraryApp {
                 })
                 .collect()
         };
+        if let LibraryDetail::Artist(artist) = &self.detail {
+            if let Some(url) = artist.view.image_url.clone() {
+                urls.push(url);
+            }
+        }
         let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
         let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
         for url in &urls {

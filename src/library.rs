@@ -30,6 +30,7 @@ use crate::presentation::RuntimeHost;
 #[cfg(feature = "async-runtime")]
 use crate::runtime::actor::ActorHandle;
 use crate::view_models::library::{AlbumNode, LibraryViewModel};
+use crate::views::ArtistView;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,7 +39,7 @@ use crate::view_models::library::{AlbumNode, LibraryViewModel};
 #[derive(Clone, Debug)]
 pub(crate) enum LibraryDetail {
     None,
-    Artist(LibraryArtistDetail),
+    Artist(Box<LibraryArtistDetail>),
     Album(AlbumNode),
     Track(Box<InspectorFrame>),
     Playlist(PlaylistDetail),
@@ -47,6 +48,7 @@ pub(crate) enum LibraryDetail {
 #[derive(Clone, Debug)]
 pub(crate) struct LibraryArtistDetail {
     pub(crate) name: String,
+    pub(crate) view: ArtistView,
     pub(crate) tracks: Vec<TrackRow>,
 }
 

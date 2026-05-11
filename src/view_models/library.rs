@@ -37,7 +37,7 @@ use crate::view_models::library_removal::{
 };
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
-use crate::views::{FeedRef, FeedView, LocalIdentityFacts, TrackRef};
+use crate::views::{ArtistView, FeedRef, FeedView, LocalIdentityFacts, TrackRef};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 
@@ -1692,13 +1692,34 @@ impl ArtistFeedSummaryVm {
 /// "Untitled Feed" / "Unknown" fallbacks the legacy renderer used.
 pub(crate) struct LibraryArtistDetailVm<'a> {
     name: &'a str,
+    view: Option<&'a ArtistView>,
     tracks: &'a [TrackRow],
 }
 
 impl<'a> LibraryArtistDetailVm<'a> {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "kept for legacy artist-detail VM tests and no-enrichment callers"
+        )
+    )]
     #[must_use]
     pub(crate) fn new(name: &'a str, tracks: &'a [TrackRow]) -> Self {
-        Self { name, tracks }
+        Self {
+            name,
+            view: None,
+            tracks,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn with_view(name: &'a str, view: &'a ArtistView, tracks: &'a [TrackRow]) -> Self {
+        Self {
+            name,
+            view: Some(view),
+            tracks,
+        }
     }
 
     /// Artist name with the legacy `"Unknown"` fallback applied when
@@ -1753,7 +1774,30 @@ impl<'a> LibraryArtistDetailVm<'a> {
         if downloaded > 0 {
             rows.push(("Downloaded".to_string(), downloaded.to_string()));
         }
+        self.push_artist_source_rows(&mut rows);
         rows
+    }
+
+    fn push_artist_source_rows(&self, rows: &mut Vec<(String, String)>) {
+        let Some(view) = self.view else {
+            return;
+        };
+        if view.source_subjects.len() > 1 {
+            rows.push((
+                "Source Subjects".to_string(),
+                format!("{} explicit subjects", view.source_subjects.len()),
+            ));
+            return;
+        }
+        push_string_row(rows, "Sort Name", view.sort_name.as_deref());
+        push_string_row(rows, "Area", view.area.as_deref());
+        if let Some(active) = artist_active_years(view.begin_year, view.end_year) {
+            rows.push(("Active".to_string(), active));
+        }
+        push_string_row(rows, "Website", view.url.as_deref());
+        if !view.aliases.is_empty() {
+            rows.push(("Aliases".to_string(), view.aliases.join(", ")));
+        }
     }
 
     #[must_use]
@@ -1799,6 +1843,22 @@ impl<'a> LibraryArtistDetailVm<'a> {
                 }
             })
             .collect()
+    }
+}
+
+fn push_string_row(rows: &mut Vec<(String, String)>, key: &str, value: Option<&str>) {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+    rows.push((key.to_string(), value.to_string()));
+}
+
+fn artist_active_years(begin_year: Option<i32>, end_year: Option<i32>) -> Option<String> {
+    match (begin_year, end_year) {
+        (Some(begin), Some(end)) => Some(format!("{begin}-{end}")),
+        (Some(begin), None) => Some(format!("{begin}-")),
+        (None, Some(end)) => Some(format!("until {end}")),
+        (None, None) => None,
     }
 }
 
@@ -2556,6 +2616,61 @@ mod tests {
         let rows = vm.detail_rows();
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[2], ("Downloaded".into(), "1".into()));
+    }
+
+    #[test]
+    fn artist_detail_vm_projects_single_bound_artist_source_facts() {
+        let tracks = [track_for_feed(1, Some("A"))];
+        let view = ArtistView {
+            sort_name: Some("Artist, The".into()),
+            area: Some("Montreal".into()),
+            begin_year: Some(2020),
+            url: Some("https://example.test/artist".into()),
+            aliases: vec!["A. Example".into()],
+            source_subjects: vec![crate::views::ArtistSourceSubjectView {
+                source: "musicindex".into(),
+                source_artist_id: "artist-123".into(),
+                name: Some("Remote Artist".into()),
+            }],
+            ..ArtistView::default()
+        };
+        let vm = LibraryArtistDetailVm::with_view("Artist", &view, &tracks);
+        let rows = vm.detail_rows();
+
+        assert!(rows.contains(&("Sort Name".into(), "Artist, The".into())));
+        assert!(rows.contains(&("Area".into(), "Montreal".into())));
+        assert!(rows.contains(&("Active".into(), "2020-".into())));
+        assert!(rows.contains(&("Website".into(), "https://example.test/artist".into())));
+        assert!(rows.contains(&("Aliases".into(), "A. Example".into())));
+    }
+
+    #[test]
+    fn artist_detail_vm_surfaces_multi_subject_state_without_merging() {
+        let tracks = [track_for_feed(1, Some("A"))];
+        let view = ArtistView {
+            sort_name: Some("Should Not Render".into()),
+            source_subjects: vec![
+                crate::views::ArtistSourceSubjectView {
+                    source: "musicindex".into(),
+                    source_artist_id: "artist-123".into(),
+                    name: Some("Remote One".into()),
+                },
+                crate::views::ArtistSourceSubjectView {
+                    source: "musicindex".into(),
+                    source_artist_id: "artist-456".into(),
+                    name: Some("Remote Two".into()),
+                },
+            ],
+            ..ArtistView::default()
+        };
+        let vm = LibraryArtistDetailVm::with_view("Artist", &view, &tracks);
+        let rows = vm.detail_rows();
+
+        assert!(rows.contains(&("Source Subjects".into(), "2 explicit subjects".into())));
+        assert!(
+            !rows.iter().any(|(key, _)| key == "Sort Name"),
+            "multi-subject views should not project one subject's scalar facts"
+        );
     }
 
     #[test]

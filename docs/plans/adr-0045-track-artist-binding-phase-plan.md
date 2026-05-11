@@ -1,5 +1,9 @@
 # ADR 0045 Track-to-Artist Binding Phase Plan
 
+## Status
+
+Implemented - 2026-05-11. Tasks 001-004 complete.
+
 ## Goal
 
 Complete the top deferred architecture item by adding explicit, provenance-first

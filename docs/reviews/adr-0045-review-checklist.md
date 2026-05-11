@@ -11,7 +11,9 @@
 
 ## Gate Status
 
-Status: Tasks 001-002 implemented on 2026-05-08. Tasks 003-004 pending.
+Status: Completed on 2026-05-11.
+
+Readiness decision: **Proceed**.
 
 ## Required Checks
 
@@ -20,10 +22,10 @@ Status: Tasks 001-002 implemented on 2026-05-08. Tasks 003-004 pending.
 - [x] Track removal deletes bindings but not artist source facts.
 - [x] MusicIndex ingest writes bindings only from explicit artist ids.
 - [x] Name-only artists do not create bindings.
-- [ ] Library artist hydration uses read-model helpers, not renderer inference.
-- [ ] Multiple bound subjects under one local display name are not silently
+- [x] Library artist hydration uses read-model helpers, not renderer inference.
+- [x] Multiple bound subjects under one local display name are not silently
       merged.
-- [ ] Architecture tests block screen-side binding inference.
+- [x] Architecture tests block screen-side binding inference.
 - [x] `cargo fmt -- --check` green.
 - [x] `cargo check` green.
 - [x] `cargo test` green.
@@ -31,7 +33,7 @@ Status: Tasks 001-002 implemented on 2026-05-08. Tasks 003-004 pending.
 
 ## Required Fixes
 
-- Tasks 003-004 remain pending.
+- None.
 
 ## Optional Improvements
 
@@ -40,15 +42,15 @@ Status: Tasks 001-002 implemented on 2026-05-08. Tasks 003-004 pending.
 
 ## Architectural Drift
 
-- No drift in Tasks 001-002. Schema and helpers stayed in `src/db.rs`.
-  Ingest writes remain in `src/identity_ingest.rs`; no UI, read-model,
-  Library hydration, or audio tag behavior changed.
+- No drift. Schema and helpers stayed in `src/db.rs`; ingest writes remain in
+  `src/identity_ingest.rs`; Library enrichment routes through
+  `src/sources.rs`, `src/views.rs`, and GPUI-free view-model contracts. UI
+  shells consume prepared view data and do not infer bindings.
 
 ## Missing Tests
 
-- Full ADR 0045 still needs hydration, guard, and final full-suite readiness
-  tests.
+- None currently known.
 
 ## Merge Recommendation
 
-Do not merge runtime changes until Tasks 001-004 pass this checklist.
+Proceed.

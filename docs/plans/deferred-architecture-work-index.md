@@ -11,41 +11,36 @@ prioritized, and routed to the right governance artifact.
 
 ## Priority Order
 
-1. Track-to-artist binding for name-derived Library artist views.
-   - Status: ADR 0045 proposed on 2026-05-08.
-   - Route: `docs/adr/0045-track-artist-binding.md`,
-     `docs/plans/adr-0045-track-artist-binding-phase-plan.md`, and
-     Tasks 001-004 under `docs/tasks/adr-0045-*`.
-2. Person/global identity persistence.
+1. Person/global identity persistence.
    - Status: deferred from ADR 0029.
    - Route: future ADR only after durable person ids and merge policy exist.
-3. Library/Discover data parity for release date, language, explicit state,
+2. Library/Discover data parity for release date, language, explicit state,
    description, and related local detail fields.
    - Status: needs triage after ADR 0028 contributor visibility.
    - Route: ADR 0024 query/read-model work if the fix is loading shape;
      source-fact ADR work if the fix is persistence.
-4. ADR 0024 query/service thinning for remote-only Discover reads and remote
+3. ADR 0024 query/service thinning for remote-only Discover reads and remote
    inspector lazy panels.
    - Status: deferred from ADR 0024 final review.
    - Route: new ADR 0024 follow-up plan and bounded vertical slices.
-5. ADR 0040 legacy synchronous scheduling retirement.
+4. ADR 0040 legacy synchronous scheduling retirement.
    - Status: Phase F default-on `async-runtime` flip has shipped, but
      `GpuiCommandRunner` and `--no-default-features` compatibility paths
      still exist.
    - Route: ADR 0040 follow-up after the remaining screen/runtime swaps
      are complete; do not remove legacy paths as part of unrelated UI
      feature work.
-6. Staged metadata durability.
+5. Staged metadata durability.
    - Status: product/storage decision required.
    - Route: future ADR before schema or command behavior changes.
-7. Non-URL artwork rendering.
+6. Non-URL artwork rendering.
    - Status: audit completed; no producer/resolver contract yet.
    - Route: future ADR only when cache, storage, or public artwork contracts
      change.
-8. Playback volume and playback-driver supervision.
+7. Playback volume and playback-driver supervision.
    - Status: isolated playback-boundary follow-up.
    - Route: ADR 0021/0024 follow-up after the driver contract is clear.
-9. Visual-system polish and lower-priority product improvements.
+8. Visual-system polish and lower-priority product improvements.
    - Status: use bounded ADR 0025 tasks only when the change affects tokens,
      primitives, composites, or theme contracts.
 
@@ -73,8 +68,8 @@ prioritized, and routed to the right governance artifact.
   below still require their named future ADR routes.
 - ADR 0045 planning artifacts were created on 2026-05-08 for the top
   deferred item: track-to-artist binding for name-derived Library artist
-  views. Tasks 001-002 have shipped; Tasks 003-004 remain and runtime
-  work must continue task-by-task.
+  views. Tasks 001-004 completed on 2026-05-11; name-derived Library artist
+  views now enrich from explicit bindings without name-only merging.
 
 ## Execution Rule
 

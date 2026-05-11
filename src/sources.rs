@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use rusqlite::Connection;
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 use crate::api;
@@ -126,6 +127,19 @@ fn local_feed_view(
     ))
 }
 
+pub(crate) fn local_artist_view_from_tracks(
+    conn: &Connection,
+    name: &str,
+    tracks: &[db::TrackRow],
+) -> Result<ArtistView> {
+    let source_facts = artist_source_facts_for_tracks(conn, tracks)?;
+    Ok(ArtistView::from_local_rows_with_artist_source_facts(
+        name,
+        tracks,
+        source_facts,
+    ))
+}
+
 impl MetadataSource for LocalSource {
     fn fetch_artist(&self, r: &ArtistRef) -> Result<ArtistView> {
         let conn = self.conn.lock().map_err(|e| anyhow!("conn lock: {e}"))?;
@@ -144,7 +158,7 @@ impl MetadataSource for LocalSource {
                             || t.artist_name.as_deref() == Some(name.as_str())
                     })
                     .collect();
-                Ok(ArtistView::from_local_rows(name, &filtered))
+                local_artist_view_from_tracks(&conn, name, &filtered)
             }
         }
     }
@@ -226,6 +240,30 @@ impl MetadataSource for LocalSource {
         }
         Ok(out)
     }
+}
+
+fn artist_source_facts_for_tracks(
+    conn: &Connection,
+    tracks: &[db::TrackRow],
+) -> Result<Vec<db::ArtistSourceFactRow>> {
+    let mut seen = BTreeSet::new();
+    let mut source_facts = Vec::new();
+    for track in tracks {
+        for binding in db::track_artist_source_bindings_for_track(conn, track.id)? {
+            let key = (binding.source.clone(), binding.source_artist_id.clone());
+            if !seen.insert(key) {
+                continue;
+            }
+            if let Some(row) = db::artist_source_fact(
+                conn,
+                binding.source.as_str(),
+                binding.source_artist_id.as_str(),
+            )? {
+                source_facts.push(row);
+            }
+        }
+    }
+    Ok(source_facts)
 }
 
 #[cfg(test)]
@@ -498,6 +536,129 @@ mod tests {
         );
         assert_eq!(view.url, None);
         assert_eq!(view.identity.website_url, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn local_source_fetch_local_artist_name_enriches_single_bound_subject() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        db::replace_artist_source_fact(
+            &mut conn,
+            "musicindex",
+            "artist-123",
+            &db::ArtistSourceFactInput {
+                name: Some("Remote Alice".into()),
+                sort_name: Some("Alice, Remote".into()),
+                image_url: Some("https://example.test/source-artist.jpg".into()),
+                website_url: Some("https://example.test/alice".into()),
+                aliases: vec!["A. Example".into()],
+                area: Some("Montreal".into()),
+                begin_year: Some(2020),
+                source_links: vec![db::LocalIdentityLinkInput {
+                    link_type: Some("website".into()),
+                    url: Some("https://example.test/source-link".into()),
+                    ..db::LocalIdentityLinkInput::default()
+                }],
+                ..db::ArtistSourceFactInput::default()
+            },
+        )?;
+        db::replace_track_artist_source_bindings(
+            &mut conn,
+            track_id,
+            &[db::TrackArtistSourceBindingInput {
+                role: "artist".into(),
+                source: "musicindex".into(),
+                source_artist_id: "artist-123".into(),
+                confidence: Some(1.0),
+                provenance: Some("test".into()),
+                observed_at: Some(1),
+            }],
+        )?;
+        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
+
+        let view = source.fetch_artist(&ArtistRef::LocalArtistName("Alice".into()))?;
+
+        assert!(matches!(
+            view.id,
+            Some(ArtistRef::LocalArtistName(ref name)) if name == "Alice"
+        ));
+        assert_eq!(view.name.as_deref(), Some("Alice"));
+        assert_eq!(view.feed_count, Some(1));
+        assert_eq!(view.track_count, Some(1));
+        assert_eq!(
+            view.image_url.as_deref(),
+            Some("https://example.test/source-artist.jpg")
+        );
+        assert_eq!(view.sort_name.as_deref(), Some("Alice, Remote"));
+        assert_eq!(view.url.as_deref(), Some("https://example.test/alice"));
+        assert_eq!(
+            view.identity.website_url.as_deref(),
+            Some("https://example.test/source-link")
+        );
+        assert_eq!(view.aliases, vec!["A. Example"]);
+        assert_eq!(view.area.as_deref(), Some("Montreal"));
+        assert_eq!(view.begin_year, Some(2020));
+        assert_eq!(view.source_subjects.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn local_source_fetch_local_artist_name_keeps_multi_subjects_conservative() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        for (source_artist_id, image_url) in [
+            ("artist-123", "https://example.test/one.jpg"),
+            ("artist-456", "https://example.test/two.jpg"),
+        ] {
+            db::replace_artist_source_fact(
+                &mut conn,
+                "musicindex",
+                source_artist_id,
+                &db::ArtistSourceFactInput {
+                    name: Some(format!("Remote {source_artist_id}")),
+                    image_url: Some(image_url.into()),
+                    website_url: Some(format!("https://example.test/{source_artist_id}")),
+                    ..db::ArtistSourceFactInput::default()
+                },
+            )?;
+        }
+        db::replace_track_artist_source_bindings(
+            &mut conn,
+            track_id,
+            &[
+                db::TrackArtistSourceBindingInput {
+                    role: "artist".into(),
+                    source: "musicindex".into(),
+                    source_artist_id: "artist-123".into(),
+                    confidence: Some(1.0),
+                    provenance: Some("test.one".into()),
+                    observed_at: Some(1),
+                },
+                db::TrackArtistSourceBindingInput {
+                    role: "artist".into(),
+                    source: "musicindex".into(),
+                    source_artist_id: "artist-456".into(),
+                    confidence: Some(1.0),
+                    provenance: Some("test.two".into()),
+                    observed_at: Some(1),
+                },
+            ],
+        )?;
+        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
+
+        let view = source.fetch_artist(&ArtistRef::LocalArtistName("Alice".into()))?;
+
+        assert_eq!(
+            view.image_url.as_deref(),
+            Some("https://example.test/feed.jpg"),
+            "multi-subject local artist view should keep local artwork"
+        );
+        assert_eq!(view.url, None);
+        assert_eq!(view.identity.website_url, None);
+        assert_eq!(view.source_subjects.len(), 2);
 
         Ok(())
     }

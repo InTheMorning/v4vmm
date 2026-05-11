@@ -5,6 +5,8 @@
 Use explicit track-to-artist bindings to enrich Library artist views without
 merging artists by display name.
 
+Status: Implemented - 2026-05-11.
+
 ## Files to Inspect
 
 - `docs/adr/0045-track-artist-binding.md`
@@ -40,18 +42,32 @@ merging artists by display name.
 
 ## Implementation Steps
 
-1. Add query/helper usage to collect bindings for tracks in a local artist view.
-2. Project enriched scalar facts only from bound source facts.
-3. Preserve local name-derived grouping for tracks without bindings.
-4. Add tests for no-binding, single-binding, and multi-subject cases.
+1. Done: add query/helper usage to collect bindings for tracks in a local
+   artist view.
+2. Done: project enriched scalar facts only from bound source facts.
+3. Done: preserve local name-derived grouping for tracks without bindings.
+4. Done: add tests for no-binding, single-binding, and multi-subject cases.
 
 ## Acceptance Criteria
 
-- A name-derived Library artist with bound tracks can show stored image,
+- [x] A name-derived Library artist with bound tracks can show stored image,
   website, aliases, area, and active years.
-- A name-derived Library artist without bindings is unchanged.
-- Multiple bound subjects are not silently merged.
-- Renderer code remains binding-policy-free.
+- [x] A name-derived Library artist without bindings is unchanged.
+- [x] Multiple bound subjects are not silently merged.
+- [x] Renderer code remains binding-policy-free.
+
+## Implementation Notes
+
+- `LocalSource` now enriches `ArtistRef::LocalArtistName` from explicit
+  bindings for the already-selected local tracks only.
+- `ArtistView::from_local_rows_with_artist_source_facts()` preserves local
+  name/count identity and overlays scalar source facts only when exactly one
+  explicit subject is present.
+- Multiple bound subjects are carried as conservative source-subject facts
+  without projecting one subject's scalar fields as canonical.
+- Library artist detail consumes the enriched `ArtistView` through the existing
+  artist detail shell and VM contracts; no renderer performs binding lookup or
+  name matching.
 
 ## Test Commands
 

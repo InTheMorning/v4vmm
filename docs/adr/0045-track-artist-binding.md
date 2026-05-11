@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-08.
+Implemented - 2026-05-11. Tasks 001-004 complete.
 
 Follows ADR 0029, which persisted explicit artist source facts but
 intentionally deferred binding name-derived Library artists to stored artist

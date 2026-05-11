@@ -29,8 +29,15 @@ pub(crate) fn render_library_feed_list(
     chrome: &LibraryChromeDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let vm = LibraryArtistDetailVm::new(&detail.name, &detail.tracks);
+    let vm = LibraryArtistDetailVm::with_view(&detail.name, &detail.view, &detail.tracks);
     let page = vm.page();
+    let artist_image = detail
+        .view
+        .image_url
+        .as_ref()
+        .and_then(|url| album_thumbs.get(url.as_str()))
+        .cloned()
+        .flatten();
 
     let feed_rows: Vec<AnyElement> = vm
         .feed_summaries()
@@ -98,7 +105,7 @@ pub(crate) fn render_library_feed_list(
         .child(render_artist_detail_shell(
             &page,
             ArtistDetailBehaviorSlots {
-                image: None,
+                image: artist_image,
                 feed_section: Some(
                     div()
                         .flex()
