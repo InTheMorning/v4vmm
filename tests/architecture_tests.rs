@@ -842,10 +842,10 @@ fn macos_app_menu_bootstrap_exposes_standard_app_commands() {
     for required in [
         "MenuItem::action(\"Preferences...\", OpenPreferences)",
         "MenuItem::os_submenu(\"Services\", SystemMenuType::Services)",
-        "MenuItem::action(\"Hide v4vmm\", HideApp)",
+        "MenuItem::action(\"Hide Application\", HideApp)",
         "MenuItem::action(\"Hide Others\", HideOtherApps)",
         "MenuItem::action(\"Show All\", ShowAllApps)",
-        "MenuItem::action(\"Quit v4vmm\", QuitApp)",
+        "MenuItem::action(\"Quit Application\", QuitApp)",
         "keystroke: \"cmd-,\"",
         "keystroke: \"cmd-h\"",
         "keystroke: \"cmd-alt-h\"",
@@ -873,6 +873,29 @@ fn macos_app_menu_bootstrap_exposes_standard_app_commands() {
     assert!(
         violations.is_empty(),
         "macOS app-menu bootstrap violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn app_shell_avoids_premature_product_naming() {
+    let mut violations = Vec::new();
+    for file in ["src/app/tab_bar.rs", "src/app/menu.rs"] {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in ["V4V Music Manager", "MusicIndex"] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{file}:{line_number}: top-level shell must avoid premature product branding; keep `{forbidden}` attribution for About/settings surfaces: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "premature product naming violations:\n{}",
         violations.join("\n")
     );
 }

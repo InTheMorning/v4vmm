@@ -9,7 +9,7 @@ use gpui::{actions, App, Context, KeyBinding, Menu, MenuItem, SystemMenuType, Wi
 
 use super::{AppTab, TopApp};
 
-const APP_NAME: &str = "v4vmm";
+const APP_NAME: &str = "Application";
 
 actions!(
     v4vmm,
@@ -46,7 +46,7 @@ pub(super) const APP_MENU_BINDING_SPECS: &[AppMenuBindingSpec] = &[
     AppMenuBindingSpec {
         command: AppMenuCommand::HideApp,
         keystroke: "cmd-h",
-        label: "Hide v4vmm",
+        label: "Hide Application",
     },
     AppMenuBindingSpec {
         command: AppMenuCommand::HideOtherApps,
@@ -56,7 +56,7 @@ pub(super) const APP_MENU_BINDING_SPECS: &[AppMenuBindingSpec] = &[
     AppMenuBindingSpec {
         command: AppMenuCommand::QuitApp,
         keystroke: "cmd-q",
-        label: "Quit v4vmm",
+        label: "Quit Application",
     },
 ];
 
@@ -84,11 +84,11 @@ fn app_menus() -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),
-            MenuItem::action("Hide v4vmm", HideApp),
+            MenuItem::action("Hide Application", HideApp),
             MenuItem::action("Hide Others", HideOtherApps),
             MenuItem::action("Show All", ShowAllApps),
             MenuItem::separator(),
-            MenuItem::action("Quit v4vmm", QuitApp),
+            MenuItem::action("Quit Application", QuitApp),
         ],
     }]
 }

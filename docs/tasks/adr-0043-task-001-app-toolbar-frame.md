@@ -49,8 +49,8 @@ change search behavior yet.
    toolbar ids, Now Playing frame labels, and accessibility labels.
 2. Reframe `render_tab_bar` as an app toolbar. Rename the module only if
    the diff remains focused and mechanical.
-3. Keep leading app identity and Library/Search/Settings navigation in
-   the leading toolbar zone.
+3. Keep a subtle leading app mark and Library/Search/Settings navigation in
+   the leading toolbar zone. Do not add visible product naming.
 4. Render the Now Playing element inside a subtle trailing frame with a
    stable width range, tokenized padding, and truncating track text.
 5. Ensure the transport icon buttons keep stable hit targets and disabled
@@ -61,6 +61,8 @@ change search behavior yet.
 ## Acceptance Criteria
 
 - Top bar reads as one toolbar with a distinct Now Playing frame.
+- Top-level chrome avoids premature product naming; MusicIndex attribution is
+  reserved for a future About/settings surface.
 - Existing playback controls still dispatch through current handlers.
 - No search behavior changes.
 - No raw color or numeric layout literals are added outside allowed

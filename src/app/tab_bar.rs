@@ -28,7 +28,6 @@ pub(super) fn render_tab_bar(
 ) -> gpui::AnyElement {
     let bg_surface = color(cx, SemanticColor::SecondarySystemBackground);
     let border_subtle = color(cx, SemanticColor::Separator);
-    let accent_color = color(cx, SemanticColor::Accent);
     let spacing_xs = Spacing::XS.scaled(cx);
     let spacing_sm = Spacing::SM.scaled(cx);
     let spacing_md = Spacing::MD.scaled(cx);
@@ -59,19 +58,13 @@ pub(super) fn render_tab_bar(
                         .rounded(spacing_xs)
                         .overflow_hidden()
                         .flex_shrink_0()
+                        .opacity(0.82)
                         .child(
                             img(app_logo())
                                 .w(layout::APP_ICON_SIZE)
                                 .h(layout::APP_ICON_SIZE)
                                 .object_fit(ObjectFit::Cover),
                         ),
-                )
-                .child(
-                    div()
-                        .text_size(FontSize::Headline.scaled(cx))
-                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                        .text_color(accent_color)
-                        .child("V4V Music Manager"),
                 ),
         )
         .child(render_app_tab(

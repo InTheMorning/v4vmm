@@ -34,7 +34,7 @@ search rows.
 Replace the current tab-bar-shaped top strip with an app toolbar that
 has three stable zones:
 
-- Leading: app identity and navigation tabs.
+- Leading: a subtle app mark and navigation tabs.
 - Center: one global search field with scope control.
 - Trailing: a framed Now Playing region containing track state and
   existing transport controls.
@@ -93,6 +93,9 @@ Negative:
 
 - Toolbar display strings, scope labels, placeholders, ids, and
   accessibility labels live in a GPUI-free view model.
+- The toolbar and app menu do not expose a product name before naming is
+  decided. MusicIndex attribution belongs in a future About/settings surface,
+  not persistent top-level chrome.
 - Library and Search screens do not create their own visible search
   fields after this ADR lands.
 - Local Library search returns only tracks currently in the library.
