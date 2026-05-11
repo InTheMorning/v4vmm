@@ -6,6 +6,8 @@ Convert the current top tab-bar strip into an app toolbar with stable
 zones and give Now Playing its own framed trailing control space. Do not
 change search behavior yet.
 
+Status: Implemented - 2026-05-11.
+
 ## Files to Inspect
 
 - `docs/adr/0043-top-toolbar-global-search.md`
@@ -45,29 +47,40 @@ change search behavior yet.
 
 ## Implementation Steps
 
-1. Add `view_models::app_toolbar` with display data for app navigation,
+1. Done: add `view_models::app_toolbar` with display data for app navigation,
    toolbar ids, Now Playing frame labels, and accessibility labels.
-2. Reframe `render_tab_bar` as an app toolbar. Rename the module only if
-   the diff remains focused and mechanical.
-3. Keep a subtle leading app mark and Library/Search/Settings navigation in
+2. Done: reframe `render_tab_bar` as an app toolbar. The module name was
+   preserved to keep the diff focused.
+3. Done: keep a subtle leading app mark and Library/Discover/Settings navigation in
    the leading toolbar zone. Do not add visible product naming.
-4. Render the Now Playing element inside a subtle trailing frame with a
+4. Done: render the Now Playing element inside a subtle trailing frame with a
    stable width range, tokenized padding, and truncating track text.
-5. Ensure the transport icon buttons keep stable hit targets and disabled
+5. Done: ensure the transport icon buttons keep stable hit targets and disabled
    visual state.
-6. Add or update architecture tests that assert Now Playing remains
+6. Done: add or update architecture tests that assert Now Playing remains
    app-shell-owned and toolbar labels come from a view model.
 
 ## Acceptance Criteria
 
-- Top bar reads as one toolbar with a distinct Now Playing frame.
-- Top-level chrome avoids premature product naming; MusicIndex attribution is
+- [x] Top bar is structured as one toolbar with a distinct Now Playing frame.
+- [x] Top-level chrome avoids premature product naming; MusicIndex attribution is
   reserved for a future About/settings surface.
-- Existing playback controls still dispatch through current handlers.
-- No search behavior changes.
-- No raw color or numeric layout literals are added outside allowed
+- [x] Existing playback controls still dispatch through current handlers.
+- [x] No search behavior changes.
+- [x] No raw color or numeric layout literals are added outside allowed
   token layers.
-- Now Playing is not extracted into `ui/composites`.
+- [x] Now Playing is not extracted into `ui/composites`.
+
+## Implementation Notes
+
+- Added `src/view_models/app_toolbar.rs` for stable toolbar ids, tab labels,
+  mark text, and Now Playing frame accessibility text.
+- `src/app/tab_bar.rs` now renders a leading mark/navigation group, center
+  spacer, and framed trailing Now Playing region.
+- `src/app/playback_bar.rs` keeps Now Playing app-shell-owned and routes
+  transport controls through the shared toolbar button primitive.
+- Visual smoke could not be captured in this environment because no display
+  server is available; ADR 0043 Task 004 still owns final light/dark proof.
 
 ## Test Commands
 

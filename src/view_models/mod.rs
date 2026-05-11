@@ -60,6 +60,7 @@
 
 #![warn(clippy::pedantic)]
 
+pub(crate) mod app_toolbar;
 pub mod artist;
 pub mod artist_detail;
 pub mod entity_detail;

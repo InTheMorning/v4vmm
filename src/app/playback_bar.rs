@@ -16,9 +16,10 @@ use crate::application::commands::playback::{
 use crate::application::{ApplicationCommand, CommandContext};
 use crate::playback;
 use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
-use crate::ui::icons::{Icon, IconName, IconSize};
-use crate::ui::primitives::Label;
-use crate::ui::tokens::{color, FontSize, SemanticColor, Size, Spacing};
+use crate::ui::control_styles::ControlStyle;
+use crate::ui::icons::IconName;
+use crate::ui::primitives::{Button, Label};
+use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 
 use super::TopApp;
 
@@ -190,7 +191,6 @@ impl RenderOnce for NowPlayingBar {
                         self.data.previous_a11y_label,
                         self.on_prev,
                         is_active,
-                        cx,
                     ))
                     .child(transport_btn(
                         "np-playpause",
@@ -198,7 +198,6 @@ impl RenderOnce for NowPlayingBar {
                         self.data.play_pause_a11y_label,
                         self.on_play_pause,
                         is_active,
-                        cx,
                     ))
                     .child(transport_btn(
                         "np-next",
@@ -206,7 +205,6 @@ impl RenderOnce for NowPlayingBar {
                         self.data.next_a11y_label,
                         self.on_next,
                         is_active,
-                        cx,
                     ))
                     .child(transport_btn(
                         "np-stop",
@@ -214,7 +212,6 @@ impl RenderOnce for NowPlayingBar {
                         self.data.stop_a11y_label,
                         self.on_stop,
                         is_active,
-                        cx,
                     )),
             )
     }
@@ -223,38 +220,22 @@ impl RenderOnce for NowPlayingBar {
 fn transport_btn(
     id: &'static str,
     icon: IconName,
-    _a11y_label: &'static str,
+    a11y_label: &'static str,
     handler: Option<ClickCallback>,
     enabled: bool,
-    cx: &App,
 ) -> impl IntoElement {
-    let color_token = if enabled {
-        color(cx, SemanticColor::Label)
-    } else {
-        color(cx, SemanticColor::QuaternaryLabel)
-    };
-
-    let size = Size::ButtonSm.scaled(cx);
-    let mut btn = div()
-        .id(id)
-        .w(size)
-        .h(size)
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_color(color_token)
-        .text_size(FontSize::Body.scaled(cx))
-        .child(Icon::new(icon).size(IconSize::Transport).color(color_token));
+    let mut button = Button::styled(id, ControlStyle::ToolbarIcon)
+        .leading_icon(icon)
+        .a11y_label(a11y_label)
+        .disabled(!enabled);
 
     if enabled {
         if let Some(h) = handler {
-            btn = btn
-                .cursor_pointer()
-                .on_click(move |event, window, cx| h(event, window, cx));
+            button = button.on_click(move |event, window, cx| h(event, window, cx));
         }
     }
 
-    btn
+    button
 }
 
 impl TopApp {

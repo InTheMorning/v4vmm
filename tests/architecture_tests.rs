@@ -901,6 +901,66 @@ fn app_shell_avoids_premature_product_naming() {
 }
 
 #[test]
+fn app_toolbar_frames_now_playing_through_app_view_model() {
+    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let playback_source = read_source(&manifest_path("src/app/playback_bar.rs"));
+    let vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "AppToolbarVm::new().display()",
+        "display.leading_id",
+        "display.center_id",
+        "display.now_playing.id",
+        ".border_1()",
+        ".max_w(TokenSize::ColumnTall.scaled(cx))",
+    ] {
+        if !toolbar_source.contains(required) {
+            violations.push(format!(
+                "src/app/tab_bar.rs: ADR 0043 toolbar frame missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) struct AppToolbarDisplay",
+        "pub(crate) struct AppToolbarTabDisplay",
+        "pub(crate) struct NowPlayingFrameDisplay",
+        "mark_a11y_label",
+        "a11y_label",
+    ] {
+        if !vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/app_toolbar.rs: ADR 0043 toolbar VM missing `{required}`"
+            ));
+        }
+    }
+
+    if !playback_source.contains("Button::styled(id, ControlStyle::ToolbarIcon)") {
+        violations.push(
+            "src/app/playback_bar.rs: Now Playing transport controls must use the shared toolbar button primitive"
+                .to_string(),
+        );
+    }
+
+    for path in rust_files_under("src/ui/composites") {
+        let source = read_source(&path);
+        if source.contains("NowPlayingBar") || source.contains("NowPlayingData") {
+            violations.push(format!(
+                "{}: ADR 0043 keeps single-use Now Playing app-shell-owned, not in ui/composites",
+                rel_path(&path)
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0043 toolbar/Now Playing frame violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn interactive_surfaces_route_through_minimum_hit_target_token() {
     let token_source = read_source(&manifest_path("src/ui/tokens.rs"));
     let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));

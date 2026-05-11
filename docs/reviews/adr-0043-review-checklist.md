@@ -11,7 +11,7 @@
 
 ## Gate Status
 
-Status: Not started.
+Status: Task 001 implemented on 2026-05-11. Tasks 002-004 pending.
 
 Readiness decision: Pending.
 
@@ -19,8 +19,8 @@ Readiness decision: Pending.
 
 - [ ] Toolbar has stable leading navigation, center global search, and
   trailing Now Playing frame.
-- [ ] Now Playing remains app-shell-owned under `src/app/`.
-- [ ] Now Playing is not extracted into a single-use composite.
+- [x] Now Playing remains app-shell-owned under `src/app/`.
+- [x] Now Playing is not extracted into a single-use composite.
 - [ ] One visible search field exists in the app toolbar.
 - [ ] Library and Search screens do not render duplicate visible search
   input chrome.
@@ -35,7 +35,8 @@ Readiness decision: Pending.
 - [ ] Recent feeds/discovery root remains visible when Search has no
   query.
 - [ ] Local Library query returns only in-library tracks.
-- [ ] Architecture tests cover toolbar ownership and duplicate-search
+- [x] Architecture tests cover toolbar ownership.
+- [ ] Architecture tests cover duplicate-search
   prevention.
 - [ ] Light-theme visual proof reviewed at normal and narrow widths.
 - [ ] Dark-theme visual proof reviewed at normal and narrow widths.
@@ -46,15 +47,18 @@ Readiness decision: Pending.
 
 ## Required Fixes
 
-- None recorded yet.
+- Tasks 002-004 remain pending.
 
 ## Optional Improvements
 
-- None recorded yet.
+- No drift in Task 001. Toolbar display strings and ids route through
+  `src/view_models/app_toolbar.rs`; Now Playing remains app-shell-owned in
+  `src/app/playback_bar.rs`.
 
 ## Architectural Drift
 
-- None recorded yet.
+- Visual proof is still pending because the current execution environment has
+  no display server. Final light/dark evidence remains assigned to Task 004.
 
 ## Missing Tests
 
