@@ -961,6 +961,87 @@ fn app_toolbar_frames_now_playing_through_app_view_model() {
 }
 
 #[test]
+fn global_search_contract_has_toolbar_vm_and_local_query_boundary() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let query_source = read_source(&manifest_path("src/application/queries/search.rs"));
+    let db_source = read_source(&manifest_path("src/db.rs"));
+    let service_source = read_source(&manifest_path("src/library_service.rs"));
+    let vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) enum GlobalSearchScope",
+        "pub(crate) struct GlobalSearchDisplay",
+        "input_id",
+        "search_button_id",
+        "search_button_a11y_label",
+        "GlobalSearchScope::All",
+        "GlobalSearchScope::Library",
+        "GlobalSearchScope::Index",
+    ] {
+        if !vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/app_toolbar.rs: ADR 0043 global search VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "global_search_input: Entity<InputState>",
+        "AppToolbarVm::new().display().global_search",
+        "InputState::new(window, cx).placeholder(global_search_display.placeholder)",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0043 TopApp global search ownership missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT: usize = 50",
+        "pub fn search_local_library_tracks(",
+        "normalized_global_search_query",
+        "library_service::search_library_tracks(",
+    ] {
+        if !query_source.contains(required) {
+            violations.push(format!(
+                "src/application/queries/search.rs: ADR 0043 local search query boundary missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub fn search_library_tracks(",
+        "conn: &Connection",
+        "query: &str",
+        "limit: usize",
+        "WHERE t.is_in_library = 1",
+        "LIKE ?1 ESCAPE '\\\\'",
+        "LIMIT ?2",
+    ] {
+        if !db_source.contains(required) {
+            violations.push(format!(
+                "src/db.rs: ADR 0043 in-library search storage query missing `{required}`"
+            ));
+        }
+    }
+
+    if !service_source.contains("db::search_library_tracks(conn, query, limit)") {
+        violations.push(
+            "src/library_service.rs: ADR 0043 local search must route through library_service"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0043 global search contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn interactive_surfaces_route_through_minimum_hit_target_token() {
     let token_source = read_source(&manifest_path("src/ui/tokens.rs"));
     let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));

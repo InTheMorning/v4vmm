@@ -25,6 +25,7 @@ use crate::ui::primitives::Button as UiButton;
 use crate::ui::shells::window_layers::render_window_layers;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
+use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 
 mod bootstrap;
@@ -58,6 +59,11 @@ pub struct TopApp {
     tab: AppTab,
     search: Entity<SearchApp>,
     library: Entity<LibraryApp>,
+    #[expect(
+        dead_code,
+        reason = "ADR 0043 Task 002 establishes toolbar search ownership before Task 003 renders it"
+    )]
+    global_search_input: Entity<InputState>,
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
@@ -146,6 +152,10 @@ impl TopApp {
                 cx,
             )
         });
+        let global_search_display = AppToolbarVm::new().display().global_search;
+        let global_search_input = cx.new(|cx: &mut Context<InputState>| {
+            InputState::new(window, cx).placeholder(global_search_display.placeholder)
+        });
         let library = cx.new(|cx| {
             LibraryApp::new(
                 conn.clone(),
@@ -213,6 +223,7 @@ impl TopApp {
             tab: AppTab::Library,
             search,
             library,
+            global_search_input,
             endpoint_input,
             music_dir_input,
             flac_path_input,

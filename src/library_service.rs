@@ -31,6 +31,14 @@ pub fn cached_tracks(conn: &Connection) -> Result<Vec<db::TrackRow>> {
     db::cached_tracks(conn)
 }
 
+pub fn search_library_tracks(
+    conn: &Connection,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<db::TrackRow>> {
+    db::search_library_tracks(conn, query, limit)
+}
+
 pub fn track_row_by_id(conn: &Connection, track_id: i64) -> Result<Option<db::TrackRow>> {
     db::track_row_by_id(conn, track_id)
 }

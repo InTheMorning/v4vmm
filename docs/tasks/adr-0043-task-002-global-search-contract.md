@@ -1,5 +1,7 @@
 # ADR 0043 Task 002: Global Search Contract and Local Query
 
+Status: Implemented - 2026-05-11
+
 ## Goal
 
 Add the non-visual global search contract and local in-library search
@@ -45,26 +47,43 @@ query. Do not remove existing Library or Discover search fields yet.
 
 ## Implementation Steps
 
-1. Add `GlobalSearchScope::{All, Library, Index}` to the toolbar view
+1. [x] Add `GlobalSearchScope::{All, Library, Index}` to the toolbar view
    model contract.
-2. Add top-level search input ownership to `TopApp`, including focus
-   handling for `cmd-f`.
-3. Add a local library search query under `ApplicationQueryService` in
+2. [x] Add top-level search input ownership to `TopApp` without changing
+   the visible screen-local search fields yet.
+3. [x] Add a local library search query under `ApplicationQueryService` in
    the search query family.
-4. Add DB/library-service helpers for local in-library search with a
+4. [x] Add DB/library-service helpers for local in-library search with a
    limit parameter.
-5. Add unit tests for scope labels, placeholder, normalization
+5. [x] Add unit tests for scope labels, placeholder, normalization
    handoff, and local query behavior.
+
+Note: `cmd-f` remains routed to the active visible screen search until Task
+003 renders the global toolbar search. This preserves current user-visible
+behavior while Task 002 establishes the ownership and query contracts.
 
 ## Acceptance Criteria
 
-- `TopApp` can own a global search input without changing visible search
+- [x] `TopApp` can own a global search input without changing visible search
   behavior yet.
-- Local query returns expected in-library tracks and excludes tracks not
+- [x] Local query returns expected in-library tracks and excludes tracks not
   in the library.
-- Query tests cover title, artist, album, album artist, and feed title
+- [x] Query tests cover title, artist, album, album artist, and feed title
   matches.
-- No network behavior changes.
+- [x] No network behavior changes.
+
+## Implementation Notes
+
+- Toolbar search labels, ids, placeholder, and accessibility copy live in
+  `src/view_models/app_toolbar.rs`.
+- `TopApp` owns the global search input entity so Task 003 can render it
+  through the app toolbar instead of screen-local chrome.
+- Local search is exposed through
+  `ApplicationQueryService::search_local_library_tracks`, routes through
+  `library_service`, and uses the shared `db::TrackRow` projection.
+- The DB query searches only `is_in_library = 1` tracks, escapes SQL LIKE
+  wildcards, searches supported title/artist/album/feed fields, and defaults
+  to 50 results at the application-query boundary.
 
 ## Test Commands
 

@@ -423,6 +423,48 @@ pub fn library_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
     Ok(rows)
 }
 
+pub fn search_library_tracks(
+    conn: &Connection,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<TrackRow>> {
+    let query = query.trim();
+    if query.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let pattern = like_contains_pattern(query);
+    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
+                    t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
+                    t.enclosure_url, t.enclosure_type, t.track_image_href,
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+             FROM tracks t
+             JOIN feeds f ON f.id = t.feed_id
+             LEFT JOIN local_files lf ON lf.track_id = t.id
+             WHERE t.is_in_library = 1
+               AND (
+                    COALESCE(t.track_title, '') LIKE ?1 ESCAPE '\\'
+                 OR COALESCE(t.artist_name, '') LIKE ?1 ESCAPE '\\'
+                 OR COALESCE(t.album_title, '') LIKE ?1 ESCAPE '\\'
+                 OR COALESCE(t.album_artist_name, '') LIKE ?1 ESCAPE '\\'
+                 OR COALESCE(f.title, '') LIKE ?1 ESCAPE '\\'
+               )
+             ORDER BY f.title COLLATE NOCASE, t.track_number, t.track_title COLLATE NOCASE
+             LIMIT ?2",
+        )
+        .context("prepare search_library_tracks")?;
+
+    let rows = stmt
+        .query_map(rusqlite::params![pattern, limit], track_row_from_sql)
+        .context("query search_library_tracks")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect search_library_tracks")?;
+
+    Ok(rows)
+}
+
 pub fn set_feed_subscribed(conn: &Connection, feed_id: i64, subscribed: bool) -> Result<()> {
     conn.execute(
         "UPDATE feeds SET is_subscribed = ?1 WHERE id = ?2",
@@ -895,6 +937,22 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
             row.get::<_, Option<String>>(18)?.as_deref(),
         ),
     })
+}
+
+fn like_contains_pattern(value: &str) -> String {
+    let mut pattern = String::with_capacity(value.len() + 2);
+    pattern.push('%');
+    for ch in value.chars() {
+        match ch {
+            '%' | '_' | '\\' => {
+                pattern.push('\\');
+                pattern.push(ch);
+            }
+            _ => pattern.push(ch),
+        }
+    }
+    pattern.push('%');
+    pattern
 }
 
 pub fn transcript_url_from_extra_json(extra_json: Option<&str>) -> Option<String> {
@@ -2608,6 +2666,167 @@ mod tests {
             rusqlite::params![feed_id, guid, title, track_no, i64::from(in_library)],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    struct SearchTrack<'a> {
+        title: &'a str,
+        artist: &'a str,
+        album: &'a str,
+        album_artist: &'a str,
+        in_library: bool,
+    }
+
+    fn insert_search_track(conn: &Connection, feed_id: i64, track: SearchTrack<'_>) -> Result<i64> {
+        static COUNTER: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(20_000);
+        let guid = format!(
+            "guid-search-{}",
+            COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
+        conn.execute(
+            "INSERT INTO tracks (
+                feed_id, item_guid, track_title, artist_name, album_title,
+                album_artist_name, is_in_library
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                feed_id,
+                guid,
+                track.title,
+                track.artist,
+                track.album,
+                track.album_artist,
+                i64::from(track.in_library),
+            ],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    fn create_search_feed(conn: &Connection, title: &str) -> Result<i64> {
+        conn.execute(
+            "INSERT INTO feeds (feed_url, title) VALUES (?1, ?2)",
+            rusqlite::params![format!("http://{title}.feed"), title],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    #[test]
+    fn search_library_tracks_matches_supported_fields() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_search_feed(&conn, "Needle Feed")?;
+        let fields = [
+            (
+                "track title",
+                "Needle Title",
+                "Artist",
+                "Album",
+                "Album Artist",
+            ),
+            ("artist", "Title", "Needle Artist", "Album", "Album Artist"),
+            ("album", "Title", "Artist", "Needle Album", "Album Artist"),
+            (
+                "album artist",
+                "Title",
+                "Artist",
+                "Album",
+                "Needle Album Artist",
+            ),
+        ];
+
+        for (case, title, artist, album, album_artist) in fields {
+            let track_id = insert_search_track(
+                &conn,
+                feed_id,
+                SearchTrack {
+                    title,
+                    artist,
+                    album,
+                    album_artist,
+                    in_library: true,
+                },
+            )?;
+            let rows = search_library_tracks(&conn, "needle", 50)?;
+            assert!(
+                rows.iter().any(|row| row.id == track_id),
+                "expected search to match {case}"
+            );
+        }
+
+        let feed_rows = search_library_tracks(&conn, "Needle Feed", 50)?;
+        assert!(!feed_rows.is_empty(), "expected search to match feed title");
+
+        Ok(())
+    }
+
+    #[test]
+    fn search_library_tracks_excludes_cached_tracks_and_honors_limit() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_search_feed(&conn, "Search Feed")?;
+        for index in 0..3 {
+            insert_search_track(
+                &conn,
+                feed_id,
+                SearchTrack {
+                    title: &format!("Needle {index}"),
+                    artist: "Artist",
+                    album: "Album",
+                    album_artist: "Album Artist",
+                    in_library: true,
+                },
+            )?;
+        }
+        let cached_id = insert_search_track(
+            &conn,
+            feed_id,
+            SearchTrack {
+                title: "Needle cached",
+                artist: "Artist",
+                album: "Album",
+                album_artist: "Album Artist",
+                in_library: false,
+            },
+        )?;
+
+        let rows = search_library_tracks(&conn, "needle", 2)?;
+
+        assert_eq!(rows.len(), 2);
+        assert!(!rows.iter().any(|row| row.id == cached_id));
+
+        Ok(())
+    }
+
+    #[test]
+    fn search_library_tracks_escapes_like_wildcards() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_search_feed(&conn, "Search Feed")?;
+        let literal = insert_search_track(
+            &conn,
+            feed_id,
+            SearchTrack {
+                title: "100% Real",
+                artist: "Artist",
+                album: "Album",
+                album_artist: "Album Artist",
+                in_library: true,
+            },
+        )?;
+        let wildcard_only = insert_search_track(
+            &conn,
+            feed_id,
+            SearchTrack {
+                title: "1000 Real",
+                artist: "Artist",
+                album: "Album",
+                album_artist: "Album Artist",
+                in_library: true,
+            },
+        )?;
+
+        let rows = search_library_tracks(&conn, "100%", 50)?;
+
+        assert!(rows.iter().any(|row| row.id == literal));
+        assert!(!rows.iter().any(|row| row.id == wildcard_only));
+
+        Ok(())
     }
 
     #[test]

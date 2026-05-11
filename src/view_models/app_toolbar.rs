@@ -20,6 +20,30 @@ pub(crate) struct AppToolbarTabDisplay {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GlobalSearchScopeDisplay {
+    pub(crate) scope: GlobalSearchScope,
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
+    pub(crate) a11y_label: &'static str,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GlobalSearchScope {
+    All,
+    Library,
+    Index,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GlobalSearchDisplay {
+    pub(crate) input_id: &'static str,
+    pub(crate) placeholder: &'static str,
+    pub(crate) search_button_id: &'static str,
+    pub(crate) search_button_a11y_label: &'static str,
+    pub(crate) scopes: [GlobalSearchScopeDisplay; 3],
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct NowPlayingFrameDisplay {
     pub(crate) id: &'static str,
     pub(crate) a11y_label: &'static str,
@@ -33,6 +57,7 @@ pub(crate) struct AppToolbarDisplay {
     pub(crate) mark_id: &'static str,
     pub(crate) mark_a11y_label: &'static str,
     pub(crate) tabs: [AppToolbarTabDisplay; 3],
+    pub(crate) global_search: GlobalSearchDisplay,
     pub(crate) now_playing: NowPlayingFrameDisplay,
 }
 
@@ -74,6 +99,32 @@ impl AppToolbarVm {
                     a11y_label: "Show Settings",
                 },
             ],
+            global_search: GlobalSearchDisplay {
+                input_id: "app-toolbar-global-search-input",
+                placeholder: "Search Library and Index",
+                search_button_id: "app-toolbar-global-search-submit",
+                search_button_a11y_label: "Search Library and Index",
+                scopes: [
+                    GlobalSearchScopeDisplay {
+                        scope: GlobalSearchScope::All,
+                        id: "app-toolbar-search-scope-all",
+                        label: "All",
+                        a11y_label: "Search Library and Index",
+                    },
+                    GlobalSearchScopeDisplay {
+                        scope: GlobalSearchScope::Library,
+                        id: "app-toolbar-search-scope-library",
+                        label: "Library",
+                        a11y_label: "Search Library only",
+                    },
+                    GlobalSearchScopeDisplay {
+                        scope: GlobalSearchScope::Index,
+                        id: "app-toolbar-search-scope-index",
+                        label: "Index",
+                        a11y_label: "Search Index only",
+                    },
+                ],
+            },
             now_playing: NowPlayingFrameDisplay {
                 id: "app-toolbar-now-playing",
                 a11y_label: "Now Playing controls",
@@ -107,10 +158,35 @@ mod tests {
     }
 
     #[test]
+    fn global_search_display_projects_scope_contract() {
+        let display = AppToolbarVm::new().display().global_search;
+        let labels: Vec<_> = display.scopes.iter().map(|scope| scope.label).collect();
+        let a11y: Vec<_> = display
+            .scopes
+            .iter()
+            .map(|scope| scope.a11y_label)
+            .collect();
+
+        assert_eq!(display.input_id, "app-toolbar-global-search-input");
+        assert_eq!(display.placeholder, "Search Library and Index");
+        assert_eq!(labels, ["All", "Library", "Index"]);
+        assert_eq!(
+            a11y,
+            [
+                "Search Library and Index",
+                "Search Library only",
+                "Search Index only"
+            ]
+        );
+    }
+
+    #[test]
     fn toolbar_display_avoids_product_naming() {
         let display = AppToolbarVm::new().display();
         let strings = [
             display.mark_a11y_label,
+            display.global_search.placeholder,
+            display.global_search.search_button_a11y_label,
             display.now_playing.a11y_label,
             display.tabs[0].label,
             display.tabs[1].label,
