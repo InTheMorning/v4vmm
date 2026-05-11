@@ -1,5 +1,7 @@
 # ADR 0043 Task 003: Search Workspace Routing and Grouped Results
 
+Status: Implemented - 2026-05-11
+
 ## Goal
 
 Route the global toolbar search into the Search workspace, render
@@ -51,27 +53,46 @@ Library/Discover search fields.
 
 ## Implementation Steps
 
-1. Add `SearchApp::run_global_search(query, scope, cx)` or equivalent
+1. [x] Add `SearchApp::run_global_search(query, scope, cx)` or equivalent
    command-style entry point.
-2. Route toolbar Enter/Search to select the Search tab and call that
+2. [x] Route toolbar Enter/Search to select the Search tab and call that
    entry point.
-3. Extend `SearchViewModel` snapshots to represent grouped Library and
+3. [x] Extend `SearchViewModel` snapshots to represent grouped Library and
    MusicIndex sections with clear headings and empty states.
-4. Render local Library results before MusicIndex results for `All`.
-5. Retire the visible Library search input row and Discover search
+4. [x] Render local Library results before MusicIndex results for `All`.
+5. [x] Retire the visible Library search input row and Discover search
    input row.
-6. Preserve Search workspace recents when no global query is active.
-7. Add tests for grouped snapshots, scope behavior, and no-query recent
+6. [x] Preserve Search workspace recents when no global query is active.
+7. [x] Add tests for grouped snapshots, scope behavior, and no-query recent
    state.
 
 ## Acceptance Criteria
 
-- One visible search field exists in the app toolbar.
-- `All` shows Library results first and MusicIndex results second.
-- `Library` does not call MusicIndex.
-- `Index` does not query or render local Library results.
-- `cmd-f` focuses the global toolbar search.
-- Recent feeds still appear when the Search workspace has no query.
+- [x] One visible search field exists in the app toolbar.
+- [x] `All` shows Library results first and MusicIndex results second.
+- [x] `Library` does not call MusicIndex.
+- [x] `Index` does not query or render local Library results.
+- [x] `cmd-f` focuses the global toolbar search.
+- [x] Recent feeds still appear when the Search workspace has no query.
+
+## Implementation Notes
+
+- The toolbar renders the single visible search field, scope segmented
+  control, and submit button from `AppToolbarVm` display contracts.
+- `TopApp` owns query input, selected scope, Enter handling, search-button
+  routing, and `cmd-f` focus.
+- `SearchViewModel` now carries source-aware rows and grouped result sections
+  so local Library rows do not masquerade as MusicIndex ids.
+- `SearchApp` routes `All`, `Library`, and `Index` through one command-style
+  entry point. `All` combines local query rows with MusicIndex rows, while
+  pagination and type filters remain MusicIndex-only.
+- Local Library result clicks load a local track inspector from SQLite instead
+  of calling MusicIndex with a local database id.
+- Library and Search screen-local input rows were removed from rendering and
+  guarded by architecture tests.
+- Recent feeds remain the Search workspace empty-query root instead of a
+  separate screen-local command, keeping the toolbar query as the single source
+  of search state.
 
 ## Test Commands
 

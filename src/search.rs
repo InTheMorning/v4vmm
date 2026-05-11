@@ -9,9 +9,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use gpui::{
-    prelude::*, size, Application, Bounds, Entity, Image, ScrollHandle, WindowBounds, WindowOptions,
+    prelude::*, size, Application, Bounds, Image, ScrollHandle, WindowBounds, WindowOptions,
 };
-use gpui_component::input::InputState;
 use gpui_component::Root;
 use rusqlite::Connection;
 
@@ -129,17 +128,15 @@ pub struct SearchApp {
     command_runner: GpuiCommandRunner,
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
-    pub(crate) input: Entity<InputState>,
     /// Stateful screen view-model. Owns all pure UI scalars,
     /// pane-state flags, and loaded snapshots (results, recent feeds,
     /// playlists). Fields kept on `SearchApp` itself are GPUI-bound
-    /// (`Entity`, `Subscription`, `FocusHandle`), service
+    /// (`FocusHandle`), service
     /// handles, screen-only inspector state, or maps that still hold
     /// `Arc<gpui::Image>`. See ADR 0023.
     pub(crate) vm: SearchViewModel,
     inspector_stack: Vec<InspectorFrame>,
     thumbnails: BTreeMap<String, ThumbnailState>,
-    _input_sub: gpui::Subscription,
     list_focus: gpui::FocusHandle,
     /// Scroll handle for the search-results list. Used to detect
     /// near-bottom scroll position so we can auto-trigger pagination

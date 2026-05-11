@@ -13,6 +13,7 @@ use std::fmt::Write as _;
 use crate::api::{self, Artist, EntityDetail, Feed, PaymentRoute, Publisher, Track};
 use crate::application::library_removal::{LibraryRemovalPlan, LibraryRemovalTarget};
 use crate::db;
+use crate::view_models::app_toolbar::GlobalSearchScope;
 use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseActionState,
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
@@ -30,9 +31,17 @@ const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 /// Search result row data owned by the Discover screen.
 #[derive(Clone, Debug)]
 pub(crate) struct ResultRow {
+    pub(crate) source: SearchResultSource,
     pub(crate) entity_type: String,
     pub(crate) entity_id: String,
     pub(crate) detail: Option<EntityDetail>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum SearchResultSource {
+    #[default]
+    MusicIndex,
+    Library,
 }
 
 impl ResultRow {
@@ -43,6 +52,7 @@ impl ResultRow {
         detail: Option<EntityDetail>,
     ) -> Self {
         Self {
+            source: SearchResultSource::MusicIndex,
             entity_type: entity_type.into(),
             entity_id: entity_id.into(),
             detail,
@@ -50,14 +60,31 @@ impl ResultRow {
     }
 
     #[must_use]
+    pub(crate) fn local_library_track(track_id: i64, detail: EntityDetail) -> Self {
+        Self {
+            source: SearchResultSource::Library,
+            entity_type: "track".into(),
+            entity_id: track_id.to_string(),
+            detail: Some(detail),
+        }
+    }
+
+    #[must_use]
     pub(crate) fn key(&self) -> String {
-        entity_key(&self.entity_type, &self.entity_id)
+        source_entity_key(self.source, &self.entity_type, &self.entity_id)
     }
 
     #[must_use]
     pub(crate) fn display(&self) -> ResultRowDisplay {
         let mut display = ResultRowVm::new(&self.entity_id, self.detail.as_ref()).display();
-        display.element_id = format!("result-item:{}:{}", self.entity_type, self.entity_id);
+        let source = match self.source {
+            SearchResultSource::MusicIndex => "index",
+            SearchResultSource::Library => "library",
+        };
+        display.element_id = format!(
+            "result-item:{source}:{}:{}",
+            self.entity_type, self.entity_id
+        );
         display.kind_label.clone_from(&self.entity_type);
         display
     }
@@ -83,7 +110,15 @@ impl ResultRow {
 }
 
 fn entity_key(entity_type: &str, entity_id: &str) -> String {
-    format!("{entity_type}:{entity_id}")
+    source_entity_key(SearchResultSource::MusicIndex, entity_type, entity_id)
+}
+
+fn source_entity_key(source: SearchResultSource, entity_type: &str, entity_id: &str) -> String {
+    let source = match source {
+        SearchResultSource::MusicIndex => "index",
+        SearchResultSource::Library => "library",
+    };
+    format!("{source}:{entity_type}:{entity_id}")
 }
 
 /// Display-ready text and media fields for one Discover result row.
@@ -1104,6 +1139,8 @@ pub(crate) struct SearchViewModel {
     // Search-results pane state.
     pub(crate) loading: bool,
     pub(crate) status: String,
+    pub(crate) active_query: Option<String>,
+    pub(crate) active_scope: GlobalSearchScope,
     pub(crate) cursor: Option<String>,
     pub(crate) has_more: bool,
     in_flight_tracks: HashSet<String>,
@@ -1120,6 +1157,7 @@ pub(crate) struct SearchViewModel {
     // Loaded snapshots — owned here so the screen can become a thin
     // Render impl. None of these carry GPUI types.
     pub(crate) results: Vec<ResultRow>,
+    pub(crate) library_results: Vec<ResultRow>,
     pub(crate) recent_feeds: Vec<Feed>,
     pub(crate) playlists: Vec<db::Playlist>,
 }
@@ -1185,6 +1223,7 @@ pub(crate) struct SearchBatch {
 /// Result-row identity needed by the screen to open the inspector.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ResultNavigationTarget {
+    source: SearchResultSource,
     entity_type: String,
     entity_id: String,
     title: String,
@@ -1194,6 +1233,7 @@ impl ResultNavigationTarget {
     #[must_use]
     fn from_row(row: &ResultRow) -> Self {
         Self {
+            source: row.source,
             entity_type: row.entity_type.clone(),
             entity_id: row.entity_id.clone(),
             title: row.inspector_title(),
@@ -1201,8 +1241,8 @@ impl ResultNavigationTarget {
     }
 
     #[must_use]
-    pub(crate) fn into_parts(self) -> (String, String, String) {
-        (self.entity_type, self.entity_id, self.title)
+    pub(crate) fn into_parts(self) -> (SearchResultSource, String, String, String) {
+        (self.source, self.entity_type, self.entity_id, self.title)
     }
 }
 
@@ -1247,6 +1287,7 @@ pub(crate) struct SearchPaneDisplay {
     pub(crate) load_more_button_id: &'static str,
     pub(crate) heading: &'static str,
     pub(crate) search_button_label: &'static str,
+    pub(crate) refresh_button_label: &'static str,
     pub(crate) fuzzy_toggle_label: &'static str,
     pub(crate) recents_button_label: &'static str,
     pub(crate) empty_icon: &'static str,
@@ -1254,9 +1295,18 @@ pub(crate) struct SearchPaneDisplay {
     pub(crate) load_more_label: &'static str,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct SearchInputDisplay {
-    pub(crate) placeholder: &'static str,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchResultSectionDisplay {
+    pub(crate) id: &'static str,
+    pub(crate) heading: &'static str,
+    pub(crate) empty_label: &'static str,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SearchResultSection {
+    pub(crate) display: SearchResultSectionDisplay,
+    pub(crate) rows: Vec<ResultRow>,
+    pub(crate) show_empty: bool,
 }
 
 impl SearchPaneDisplay {
@@ -1270,8 +1320,9 @@ impl SearchPaneDisplay {
             recents_button_id: "show-recents",
             results_scroll_id: "results-scroll",
             load_more_button_id: "load-more",
-            heading: "Search Index",
+            heading: "Results",
             search_button_label: "Search Index",
+            refresh_button_label: "Refresh",
             fuzzy_toggle_label: if fuzzy_search {
                 "Fuzzy: On"
             } else {
@@ -1294,7 +1345,7 @@ impl SearchPaneDisplay {
 pub(crate) struct SearchRenderSnapshot {
     pub(crate) status: SearchStatusSnapshot,
     pub(crate) pane_display: SearchPaneDisplay,
-    pub(crate) rows: Vec<ResultRow>,
+    pub(crate) sections: Vec<SearchResultSection>,
     pub(crate) selected_key: Option<String>,
     pub(crate) type_filter: usize,
     pub(crate) show_recents_root: bool,
@@ -1475,13 +1526,6 @@ const TYPE_FILTER_OPTIONS: [SearchTypeFilterOptionDisplay; 4] = [
 const TYPE_FILTER_LEN: usize = TYPE_FILTER_OPTIONS.len();
 
 impl SearchViewModel {
-    #[must_use]
-    pub(crate) const fn search_input_display() -> SearchInputDisplay {
-        SearchInputDisplay {
-            placeholder: "Discover artists, feeds, and tracks...",
-        }
-    }
-
     /// Construct a view-model with `SearchApp::new` defaults: `All`
     /// filter, fuzzy search on, no selection, no inspector frame, no
     /// active operation, both panes idle.
@@ -1494,6 +1538,8 @@ impl SearchViewModel {
             inspector_origin: None,
             loading: false,
             status: String::new(),
+            active_query: None,
+            active_scope: GlobalSearchScope::Index,
             cursor: None,
             has_more: false,
             in_flight_tracks: HashSet::new(),
@@ -1506,6 +1552,7 @@ impl SearchViewModel {
             recent_has_more: false,
             split_pane: SplitPaneState::new(DEFAULT_SPLIT_PANE_WIDTH),
             results: Vec::new(),
+            library_results: Vec::new(),
             recent_feeds: Vec::new(),
             playlists: Vec::new(),
         }
@@ -1553,6 +1600,17 @@ impl SearchViewModel {
         self.selected_key = Some(key.into());
     }
 
+    pub(crate) fn select_result_from_source(
+        &mut self,
+        source: SearchResultSource,
+        entity_type: &str,
+        entity_id: &str,
+    ) {
+        self.select(source_entity_key(source, entity_type, entity_id));
+        self.mark_inspector_from_search();
+    }
+
+    #[cfg(test)]
     pub(crate) fn select_result(&mut self, entity_type: &str, entity_id: &str) {
         self.select(entity_key(entity_type, entity_id));
         self.mark_inspector_from_search();
@@ -1570,36 +1628,93 @@ impl SearchViewModel {
 
     #[must_use]
     pub(crate) fn previous_result_target(&self) -> Option<ResultNavigationTarget> {
-        if self.results.is_empty() {
+        let rows = self.navigation_rows();
+        if rows.is_empty() {
             return None;
         }
         let next_idx = match self.selected_result_index() {
             Some(idx) if idx > 0 => idx - 1,
             _ => 0,
         };
-        self.results
-            .get(next_idx)
-            .map(ResultNavigationTarget::from_row)
+        rows.get(next_idx).map(ResultNavigationTarget::from_row)
     }
 
     #[must_use]
     pub(crate) fn next_result_target(&self) -> Option<ResultNavigationTarget> {
-        if self.results.is_empty() {
+        let rows = self.navigation_rows();
+        if rows.is_empty() {
             return None;
         }
         let next_idx = match self.selected_result_index() {
-            Some(idx) if idx + 1 < self.results.len() => idx + 1,
+            Some(idx) if idx + 1 < rows.len() => idx + 1,
             Some(idx) => idx,
             None => 0,
         };
-        self.results
-            .get(next_idx)
-            .map(ResultNavigationTarget::from_row)
+        rows.get(next_idx).map(ResultNavigationTarget::from_row)
     }
 
     fn selected_result_index(&self) -> Option<usize> {
         let current_key = self.selected_key.as_deref()?;
-        self.results.iter().position(|row| row.key() == current_key)
+        self.navigation_rows()
+            .iter()
+            .position(|row| row.key() == current_key)
+    }
+
+    fn navigation_rows(&self) -> Vec<ResultRow> {
+        self.result_sections()
+            .into_iter()
+            .flat_map(|section| section.rows)
+            .collect()
+    }
+
+    #[must_use]
+    pub(crate) fn result_sections(&self) -> Vec<SearchResultSection> {
+        let mut sections = Vec::new();
+        match self.active_scope {
+            GlobalSearchScope::All => {
+                sections.push(SearchResultSection {
+                    display: SearchResultSectionDisplay {
+                        id: "search-section-library",
+                        heading: "Library",
+                        empty_label: "No Library results",
+                    },
+                    rows: self.library_results.clone(),
+                    show_empty: true,
+                });
+                sections.push(SearchResultSection {
+                    display: SearchResultSectionDisplay {
+                        id: "search-section-index",
+                        heading: "Index",
+                        empty_label: "No Index results",
+                    },
+                    rows: self.results.clone(),
+                    show_empty: true,
+                });
+            }
+            GlobalSearchScope::Library => {
+                sections.push(SearchResultSection {
+                    display: SearchResultSectionDisplay {
+                        id: "search-section-library",
+                        heading: "Library",
+                        empty_label: "No Library results",
+                    },
+                    rows: self.library_results.clone(),
+                    show_empty: false,
+                });
+            }
+            GlobalSearchScope::Index => {
+                sections.push(SearchResultSection {
+                    display: SearchResultSectionDisplay {
+                        id: "search-section-index",
+                        heading: "Index",
+                        empty_label: "No Index results",
+                    },
+                    rows: self.results.clone(),
+                    show_empty: false,
+                });
+            }
+        }
+        sections
     }
 
     #[must_use]
@@ -1608,17 +1723,18 @@ impl SearchViewModel {
         inspector_stack_empty: bool,
         input_is_empty: bool,
     ) -> SearchRenderSnapshot {
-        let empty = self.results.is_empty();
+        let sections = self.result_sections();
+        let empty = sections.iter().all(|section| section.rows.is_empty());
         let show_recents_root =
             inspector_stack_empty && self.inspector_origin.is_none() && empty && input_is_empty;
         SearchRenderSnapshot {
             status: SearchStatusSnapshot::from_text(&self.status),
             pane_display: SearchPaneDisplay::new(self.fuzzy_search),
-            rows: self.results.clone(),
+            sections,
             selected_key: self.selected_key.clone(),
             type_filter: self.type_filter,
             show_recents_root,
-            show_recents_command: inspector_stack_empty && !self.loading && !show_recents_root,
+            show_recents_command: false,
             loading: self.loading,
             empty,
             has_more: self.has_more,
@@ -1710,8 +1826,11 @@ impl SearchViewModel {
     /// Reset pure search state after the `MusicIndex` endpoint changes.
     pub(crate) fn reset_for_endpoint_change(&mut self) {
         self.results.clear();
+        self.library_results.clear();
         self.loading = false;
         self.status = "MusicIndex endpoint updated".into();
+        self.active_query = None;
+        self.active_scope = GlobalSearchScope::Index;
         self.cursor = None;
         self.has_more = false;
         self.clear_selection();
@@ -1733,9 +1852,12 @@ impl SearchViewModel {
     pub(crate) fn return_to_recent_feeds(&mut self) -> bool {
         self.loading = false;
         self.status.clear();
+        self.active_query = None;
+        self.active_scope = GlobalSearchScope::Index;
         self.cursor = None;
         self.has_more = false;
         self.results.clear();
+        self.library_results.clear();
         self.clear_selection();
         self.clear_inspector_origin();
         !self.recent_loaded_once && !self.recent_loading
@@ -1781,20 +1903,36 @@ impl SearchViewModel {
         self.recent_status = format!("Error: {error}");
     }
 
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn begin_search_load(&mut self, append: bool) -> Option<SearchLoadIntent> {
+        let query = self.active_query.clone().unwrap_or_default();
+        self.begin_global_search_load(query, GlobalSearchScope::Index, append)
+    }
+
+    pub(crate) fn begin_global_search_load(
+        &mut self,
+        query: impl Into<String>,
+        scope: GlobalSearchScope,
+        append: bool,
+    ) -> Option<SearchLoadIntent> {
         if self.loading {
             return None;
         }
         self.loading = true;
         self.status = if append {
             "Loading more...".into()
+        } else if scope == GlobalSearchScope::Library {
+            "Searching Library...".into()
         } else {
-            "Discovering...".into()
+            "Searching...".into()
         };
+        self.active_scope = scope;
 
         if !append {
+            self.active_query = Some(query.into());
             self.results.clear();
+            self.library_results.clear();
             self.cursor = None;
             self.has_more = false;
             self.clear_selection();
@@ -1808,13 +1946,39 @@ impl SearchViewModel {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn finish_search_load(&mut self, batch: SearchBatch, append: bool) {
+        self.finish_global_search_load(Vec::new(), Some(batch), GlobalSearchScope::Index, append);
+    }
+
+    pub(crate) fn finish_global_search_load(
+        &mut self,
+        library_rows: Vec<ResultRow>,
+        index_batch: Option<SearchBatch>,
+        scope: GlobalSearchScope,
+        append: bool,
+    ) {
+        if !append {
+            self.library_results =
+                if matches!(scope, GlobalSearchScope::All | GlobalSearchScope::Library) {
+                    library_rows
+                } else {
+                    Vec::new()
+                };
+        }
+
+        let batch = index_batch.unwrap_or(SearchBatch {
+            rows: Vec::new(),
+            has_more: false,
+            cursor: None,
+        });
+
         if !append && batch.rows.is_empty() {
-            self.status.clear();
             self.results.clear();
             self.loading = false;
             self.has_more = false;
             self.cursor = None;
+            self.update_search_status();
             return;
         }
 
@@ -1837,12 +2001,20 @@ impl SearchViewModel {
         self.has_more = batch.has_more;
         self.loading = false;
 
-        let total = self.results.len();
-        self.status = format!(
-            "{total} result{}{}",
-            if total == 1 { "" } else { "s" },
-            if self.has_more { "+" } else { "" }
-        );
+        self.update_search_status();
+    }
+
+    fn update_search_status(&mut self) {
+        let total = self.results.len() + self.library_results.len();
+        if total == 0 {
+            self.status.clear();
+        } else {
+            self.status = format!(
+                "{total} result{}{}",
+                if total == 1 { "" } else { "s" },
+                if self.has_more { "+" } else { "" }
+            );
+        }
     }
 
     pub(crate) fn fail_search_load(&mut self, error: impl std::fmt::Display) {
@@ -3341,14 +3513,6 @@ mod tests {
     }
 
     #[test]
-    fn search_input_display_projects_placeholder() {
-        assert_eq!(
-            SearchViewModel::search_input_display().placeholder,
-            "Discover artists, feeds, and tracks..."
-        );
-    }
-
-    #[test]
     fn search_render_snapshot_projects_result_pane_display_labels() {
         let mut vm = SearchViewModel::new();
         vm.status = "Error: offline".into();
@@ -3365,14 +3529,17 @@ mod tests {
         assert_eq!(snapshot.status.display_text, "\u{2717} Error: offline");
         assert!(snapshot.status.is_error);
         assert!(!snapshot.status.is_empty());
-        assert_eq!(snapshot.pane_display.heading, "Search Index");
+        assert_eq!(snapshot.pane_display.heading, "Results");
         assert_eq!(snapshot.pane_display.search_button_label, "Search Index");
+        assert_eq!(snapshot.pane_display.refresh_button_label, "Refresh");
         assert_eq!(snapshot.pane_display.fuzzy_toggle_label, "Fuzzy: Off");
         assert_eq!(snapshot.pane_display.empty_icon, "\u{1F50D}");
         assert_eq!(snapshot.pane_display.empty_label, "No results");
         assert_eq!(snapshot.pane_display.load_more_label, "Load more");
-        assert_eq!(snapshot.rows.len(), 1);
-        assert_eq!(snapshot.selected_key.as_deref(), Some("feed:feed-1"));
+        assert_eq!(snapshot.sections.len(), 1);
+        assert_eq!(snapshot.sections[0].display.heading, "Index");
+        assert_eq!(snapshot.sections[0].rows.len(), 1);
+        assert_eq!(snapshot.selected_key.as_deref(), Some("index:feed:feed-1"));
         assert_eq!(snapshot.type_filter, 2);
         assert!(!snapshot.show_recents_root);
         assert!(!snapshot.show_recents_command);
@@ -3403,15 +3570,36 @@ mod tests {
     }
 
     #[test]
-    fn search_render_snapshot_exposes_recent_feeds_command_after_search() {
+    fn search_render_snapshot_groups_library_before_index_for_all_scope() {
+        let mut vm = SearchViewModel::new();
+        vm.active_scope = GlobalSearchScope::All;
+        vm.library_results = vec![ResultRow::local_library_track(
+            42,
+            EntityDetail::Track(Track {
+                title: Some("Local Track".into()),
+                ..Track::default()
+            }),
+        )];
+        vm.results = vec![ResultRow::new("feed", "index-feed", None)];
+
+        let snapshot = vm.render_snapshot(true, false);
+
+        assert_eq!(snapshot.sections.len(), 2);
+        assert_eq!(snapshot.sections[0].display.heading, "Library");
+        assert_eq!(snapshot.sections[0].rows[0].key(), "library:track:42");
+        assert_eq!(snapshot.sections[1].display.heading, "Index");
+        assert_eq!(snapshot.sections[1].rows[0].key(), "index:feed:index-feed");
+        assert!(!snapshot.empty);
+    }
+
+    #[test]
+    fn search_render_snapshot_keeps_recents_as_empty_query_root_only() {
         let mut vm = SearchViewModel::new();
         vm.results.push(ResultRow::new("feed", "feed-1", None));
         let snapshot = vm.render_snapshot(true, false);
 
         assert!(!snapshot.show_recents_root);
-        assert!(snapshot.show_recents_command);
-        assert_eq!(snapshot.pane_display.recents_button_id, "show-recents");
-        assert_eq!(snapshot.pane_display.recents_button_label, "Recent Feeds");
+        assert!(!snapshot.show_recents_command);
     }
 
     #[test]
@@ -3522,20 +3710,25 @@ mod tests {
     #[test]
     fn result_row_key_display_and_inspector_title_are_pure() {
         let row = ResultRow::new("feed", "feed-1", None);
-        assert_eq!(row.key(), "feed:feed-1");
+        assert_eq!(row.key(), "index:feed:feed-1");
         let display = row.display();
-        assert_eq!(display.element_id, "result-item:feed:feed-1");
+        assert_eq!(display.element_id, "result-item:index:feed:feed-1");
         assert_eq!(display.kind_label, "feed");
         assert_eq!(display.line1, "feed-1");
         assert_eq!(row.inspector_title(), "feed-1");
 
         let item = row.render_item();
-        assert_eq!(item.selection_key, "feed:feed-1");
-        assert_eq!(item.display.element_id, "result-item:feed:feed-1");
-        let (entity_type, entity_id, title) = item.navigation_target.into_parts();
+        assert_eq!(item.selection_key, "index:feed:feed-1");
+        assert_eq!(item.display.element_id, "result-item:index:feed:feed-1");
+        let (source, entity_type, entity_id, title) = item.navigation_target.into_parts();
         assert_eq!(
-            (entity_type.as_str(), entity_id.as_str(), title.as_str()),
-            ("feed", "feed-1", "feed-1")
+            (
+                source,
+                entity_type.as_str(),
+                entity_id.as_str(),
+                title.as_str()
+            ),
+            (SearchResultSource::MusicIndex, "feed", "feed-1", "feed-1")
         );
     }
 
@@ -3544,11 +3737,11 @@ mod tests {
         let mut vm = SearchViewModel::new();
 
         vm.select_result("track", "track-1");
-        assert_eq!(vm.selected_key.as_deref(), Some("track:track-1"));
+        assert_eq!(vm.selected_key.as_deref(), Some("index:track:track-1"));
         assert_eq!(vm.inspector_origin, Some(InspectorOrigin::Search));
 
         vm.select_recent_feed("feed-1");
-        assert_eq!(vm.selected_key.as_deref(), Some("feed:feed-1"));
+        assert_eq!(vm.selected_key.as_deref(), Some("index:feed:feed-1"));
         assert_eq!(vm.inspector_origin, Some(InspectorOrigin::Recents));
     }
 
@@ -3574,32 +3767,62 @@ mod tests {
             ),
         ];
 
-        let (entity_type, entity_id, title) = vm
+        let (source, entity_type, entity_id, title) = vm
             .next_result_target()
             .expect("first result should be selected when no row is selected")
             .into_parts();
         assert_eq!(
-            (entity_type.as_str(), entity_id.as_str(), title.as_str()),
-            ("feed", "feed-1", "First Feed")
+            (
+                source,
+                entity_type.as_str(),
+                entity_id.as_str(),
+                title.as_str()
+            ),
+            (
+                SearchResultSource::MusicIndex,
+                "feed",
+                "feed-1",
+                "First Feed"
+            )
         );
 
         vm.select_result("track", "track-1");
-        let (entity_type, entity_id, title) = vm
+        let (source, entity_type, entity_id, title) = vm
             .previous_result_target()
             .expect("previous result should move to first row")
             .into_parts();
         assert_eq!(
-            (entity_type.as_str(), entity_id.as_str(), title.as_str()),
-            ("feed", "feed-1", "First Feed")
+            (
+                source,
+                entity_type.as_str(),
+                entity_id.as_str(),
+                title.as_str()
+            ),
+            (
+                SearchResultSource::MusicIndex,
+                "feed",
+                "feed-1",
+                "First Feed"
+            )
         );
 
-        let (entity_type, entity_id, title) = vm
+        let (source, entity_type, entity_id, title) = vm
             .next_result_target()
             .expect("next result should clamp at the final row")
             .into_parts();
         assert_eq!(
-            (entity_type.as_str(), entity_id.as_str(), title.as_str()),
-            ("track", "track-1", "Second Track")
+            (
+                source,
+                entity_type.as_str(),
+                entity_id.as_str(),
+                title.as_str()
+            ),
+            (
+                SearchResultSource::MusicIndex,
+                "track",
+                "track-1",
+                "Second Track"
+            )
         );
     }
 
@@ -3754,7 +3977,7 @@ mod tests {
         assert_eq!(intent.cursor(), None);
         assert!(!intent.fuzzy());
         assert!(vm.loading);
-        assert_eq!(vm.status, "Discovering...");
+        assert_eq!(vm.status, "Searching...");
         assert!(vm.results.is_empty());
         assert_eq!(vm.cursor, None);
         assert_eq!(vm.selected_key, None);

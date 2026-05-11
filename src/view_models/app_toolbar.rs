@@ -89,8 +89,8 @@ impl AppToolbarVm {
                 AppToolbarTabDisplay {
                     key: AppToolbarTabKey::Discover,
                     id: "app-tab-discover",
-                    label: "Discover",
-                    a11y_label: "Show Discover",
+                    label: "Search",
+                    a11y_label: "Show Search",
                 },
                 AppToolbarTabDisplay {
                     key: AppToolbarTabKey::Settings,
@@ -153,8 +153,8 @@ mod tests {
         let labels: Vec<_> = display.tabs.iter().map(|tab| tab.label).collect();
         let a11y: Vec<_> = display.tabs.iter().map(|tab| tab.a11y_label).collect();
 
-        assert_eq!(labels, ["Library", "Discover", "Settings"]);
-        assert_eq!(a11y, ["Show Library", "Show Discover", "Show Settings"]);
+        assert_eq!(labels, ["Library", "Search", "Settings"]);
+        assert_eq!(a11y, ["Show Library", "Show Search", "Show Settings"]);
     }
 
     #[test]

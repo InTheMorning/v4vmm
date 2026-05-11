@@ -1042,6 +1042,114 @@ fn global_search_contract_has_toolbar_vm_and_local_query_boundary() {
 }
 
 #[test]
+fn global_search_replaces_screen_local_search_chrome() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
+    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let search_app_source = read_source(&manifest_path("src/search/app_impl.rs"));
+    let search_shell_source = read_source(&manifest_path("src/ui/shells/discover/search_input.rs"));
+    let search_vm_source = read_source(&manifest_path("src/view_models/search.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "global_search_scope: GlobalSearchScope",
+        "fn on_global_search_event(",
+        "fn submit_global_search(",
+        "search.run_global_search(query, scope, cx)",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0043 toolbar search routing missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "Input::new(&app.global_search_input)",
+        "SegmentedControl::new(app.global_search_scope)",
+        "display.search_button_id",
+    ] {
+        if !toolbar_source.contains(required) {
+            violations.push(format!(
+                "src/app/tab_bar.rs: ADR 0043 toolbar search render missing `{required}`"
+            ));
+        }
+    }
+
+    if !keyboard_source.contains("self.focus_global_search(window, cx)") {
+        violations.push(
+            "src/app/keyboard.rs: FocusSearch must focus the toolbar search field".to_string(),
+        );
+    }
+    if keyboard_source.contains("focus_active_search") {
+        violations.push(
+            "src/app/keyboard.rs: FocusSearch must not route to screen-local search fields"
+                .to_string(),
+        );
+    }
+
+    for forbidden in [
+        "search_input: Entity<InputState>",
+        "Input::new(&self.search_input)",
+        "fn apply_search(",
+        "fn focus_search(",
+        "on_search_event",
+    ] {
+        if library_source.contains(forbidden) {
+            violations.push(format!(
+                "src/library/app_impl.rs: Library must not retain visible/local search chrome `{forbidden}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "Input::new(&params.input)",
+        "DiscoverSearchInputParams",
+        "render_discover_search_input",
+    ] {
+        if search_shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/discover/search_input.rs: Search workspace controls must not render duplicate search input `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn run_global_search(",
+        "fetch_local_library_search_rows(",
+        "SearchResultSource::Library",
+        "load_local_track_inspector(",
+    ] {
+        if !search_app_source.contains(required) {
+            violations.push(format!(
+                "src/search/app_impl.rs: Search workspace global routing missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) enum SearchResultSource",
+        "pub(crate) struct SearchResultSection",
+        "library_results: Vec<ResultRow>",
+        "active_scope: GlobalSearchScope",
+        "GlobalSearchScope::All",
+    ] {
+        if !search_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search.rs: grouped search VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0043 duplicate-search replacement violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn interactive_surfaces_route_through_minimum_hit_target_token() {
     let token_source = read_source(&manifest_path("src/ui/tokens.rs"));
     let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));

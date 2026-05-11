@@ -126,8 +126,6 @@ pub struct LibraryApp {
     vm: LibraryViewModel,
     detail: LibraryDetail,
     thumbnails: BTreeMap<(String, bool), ThumbnailState>,
-    search_input: Entity<InputState>,
-    _search_sub: gpui::Subscription,
     new_playlist_input: Entity<InputState>,
     rename_playlist_input: Entity<InputState>,
     _rename_playlist_sub: gpui::Subscription,

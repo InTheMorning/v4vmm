@@ -178,6 +178,7 @@ fn feed_and_track_action_urls_skip_empty_values() {
 fn artist_rows_are_derived_from_feed_and_track_details() {
     let rows = vec![
         ResultRow {
+            source: crate::view_models::search::SearchResultSource::MusicIndex,
             entity_type: "track".into(),
             entity_id: "track-1".into(),
             detail: Some(EntityDetail::Track(Track {
@@ -188,6 +189,7 @@ fn artist_rows_are_derived_from_feed_and_track_details() {
             })),
         },
         ResultRow {
+            source: crate::view_models::search::SearchResultSource::MusicIndex,
             entity_type: "feed".into(),
             entity_id: "feed-1".into(),
             detail: Some(EntityDetail::Feed(Feed {
@@ -197,6 +199,7 @@ fn artist_rows_are_derived_from_feed_and_track_details() {
             })),
         },
         ResultRow {
+            source: crate::view_models::search::SearchResultSource::MusicIndex,
             entity_type: "artist".into(),
             entity_id: "other".into(),
             detail: Some(EntityDetail::Artist(Artist {

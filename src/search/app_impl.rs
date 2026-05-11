@@ -4,10 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use gpui::{
-    div, prelude::*, px, Context, Entity, Image, IntoElement, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Render, ScrollHandle, Styled, Window,
+    div, prelude::*, px, Context, Image, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    Render, ScrollHandle, Styled, Window,
 };
-use gpui_component::input::{InputEvent, InputState};
 use rusqlite::Connection;
 
 use crate::api::*;
@@ -37,20 +36,22 @@ use crate::ui::primitives::MultilineText;
 use crate::ui::shells::discover::feed_inspector::render_inspector;
 use crate::ui::shells::discover::result_list::{
     render_discover_result_list, DiscoverResultEmptyState, DiscoverResultListParams,
-    DiscoverResultPagination, DiscoverResultRow,
+    DiscoverResultPagination, DiscoverResultRow, DiscoverResultSection,
 };
 use crate::ui::shells::discover::search_input::{
-    render_discover_search_input, DiscoverSearchInputParams,
+    render_discover_search_controls, DiscoverSearchControlsParams,
 };
 use crate::ui::shells::discover::track_inspector_metadata::track_metadata_rows_for_frame;
 use crate::ui::shells::library_removal_confirmation::open_library_removal_confirmation_dialog;
 use crate::ui::style::{color, typography};
 use crate::ui::tokens::FontSize;
+use crate::view_models::app_toolbar::GlobalSearchScope;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
     DeferredPanelKind, LazyPanel, PlaylistAppendIntent, PlaylistAppendOutcome, ResultRow,
-    SearchBatch, SearchRemovalOrigin, SearchSubscriptionCommand, SearchViewModel, TrackRowActionVm,
+    SearchBatch, SearchRemovalOrigin, SearchResultSource, SearchSubscriptionCommand,
+    SearchViewModel, TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::ContributorView;
@@ -71,11 +72,7 @@ impl SearchApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input_display = SearchViewModel::search_input_display();
-        let input = cx.new(|cx: &mut Context<InputState>| {
-            InputState::new(window, cx).placeholder(input_display.placeholder)
-        });
-        let input_sub = cx.subscribe(&input, Self::on_input_event);
+        let _ = window;
         let command_runner = GpuiCommandRunner::new(
             application_services.command_bus(),
             application_services.event_bus(),
@@ -87,11 +84,9 @@ impl SearchApp {
             command_runner,
             cache,
             musicindex_endpoint,
-            input,
             vm: SearchViewModel::new(),
             inspector_stack: Vec::new(),
             thumbnails: BTreeMap::new(),
-            _input_sub: input_sub,
             list_focus: cx.focus_handle(),
             results_scroll: ScrollHandle::new(),
             recents_scroll: ScrollHandle::new(),
@@ -163,12 +158,6 @@ impl SearchApp {
         Arc::new(Client::new_with_base_url(self.musicindex_endpoint.clone()))
     }
 
-    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.input.update(cx, |input, cx| {
-            input.focus(window, cx);
-        });
-    }
-
     pub fn pop_inspector(&mut self, cx: &mut Context<Self>) {
         if !self.inspector_stack.is_empty() {
             self.inspector_stack.pop();
@@ -178,15 +167,15 @@ impl SearchApp {
 
     pub fn move_up(&mut self, cx: &mut Context<Self>) {
         if let Some(target) = self.vm.previous_result_target() {
-            let (entity_type, entity_id, title) = target.into_parts();
-            self.select_result(entity_type, entity_id, title, cx);
+            let (source, entity_type, entity_id, title) = target.into_parts();
+            self.select_result(source, entity_type, entity_id, title, cx);
         }
     }
 
     pub fn move_down(&mut self, cx: &mut Context<Self>) {
         if let Some(target) = self.vm.next_result_target() {
-            let (entity_type, entity_id, title) = target.into_parts();
-            self.select_result(entity_type, entity_id, title, cx);
+            let (source, entity_type, entity_id, title) = target.into_parts();
+            self.select_result(source, entity_type, entity_id, title, cx);
         }
     }
 
@@ -195,23 +184,43 @@ impl SearchApp {
         // If we want to focus the inspector, we could do that.
     }
 
-    fn on_input_event(
-        &mut self,
-        _entity: Entity<InputState>,
-        event: &InputEvent,
-        cx: &mut Context<Self>,
-    ) {
-        if let InputEvent::PressEnter { .. } = event {
-            self.do_search(false, cx);
-        }
-    }
-
     pub(crate) fn do_search(&mut self, append: bool, cx: &mut Context<Self>) {
-        let Some(query) = normalized_search_query(&self.input.read(cx).value()) else {
+        let Some(query) = self.vm.active_query.clone() else {
             return;
         };
+        self.run_global_search_page(query, self.vm.active_scope, append, cx);
+    }
 
-        let Some(intent) = self.vm.begin_search_load(append) else {
+    pub(crate) fn run_global_search(
+        &mut self,
+        query: impl Into<String>,
+        scope: GlobalSearchScope,
+        cx: &mut Context<Self>,
+    ) {
+        let query = query.into();
+        if normalized_search_query(&query).is_none() {
+            let should_load = self.vm.return_to_recent_feeds();
+            self.inspector_stack.clear();
+            cx.notify();
+            if should_load {
+                self.load_recent_feeds(false, cx);
+            }
+            return;
+        }
+        self.run_global_search_page(query, scope, false, cx);
+    }
+
+    fn run_global_search_page(
+        &mut self,
+        query: String,
+        scope: GlobalSearchScope,
+        append: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(intent) = self
+            .vm
+            .begin_global_search_load(query.clone(), scope, append)
+        else {
             return;
         };
         if !append {
@@ -219,36 +228,65 @@ impl SearchApp {
         }
         cx.notify();
 
-        let entity_type =
-            SearchViewModel::type_filter_value(intent.type_filter()).map(str::to_string);
+        let entity_type = if scope == GlobalSearchScope::Library {
+            None
+        } else {
+            SearchViewModel::type_filter_value(intent.type_filter()).map(str::to_string)
+        };
         let cursor = intent.cursor().map(str::to_string);
         let fuzzy = intent.fuzzy();
         let client = self.api_client();
+        let conn = Arc::clone(&self.conn);
+        let query_service = self.application_services.query_service();
 
         cx.spawn(
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let batch = cx
+                let search_result = cx
                     .background_executor()
                     .spawn(async move {
-                        fetch_search_batch(
-                            &client,
-                            &query,
-                            entity_type.as_deref(),
-                            cursor.as_deref(),
-                            fuzzy,
-                        )
+                        let library_rows = if !append
+                            && matches!(scope, GlobalSearchScope::All | GlobalSearchScope::Library)
+                        {
+                            fetch_local_library_search_rows(&conn, &query_service, &query)?
+                        } else {
+                            Vec::new()
+                        };
+                        let index_batch =
+                            if matches!(scope, GlobalSearchScope::All | GlobalSearchScope::Index) {
+                                Some(fetch_search_batch(
+                                    &client,
+                                    &query,
+                                    entity_type.as_deref(),
+                                    cursor.as_deref(),
+                                    fuzzy,
+                                )?)
+                            } else {
+                                None
+                            };
+                        Ok::<_, anyhow::Error>((library_rows, index_batch))
                     })
                     .await;
 
                 this.update(
                     cx,
                     move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        match batch {
-                            Ok(batch) => {
-                                match persist_musicindex_artist_facts(&this.conn, &batch) {
-                                    Ok(()) => this.vm.finish_search_load(batch, append),
-                                    Err(error) => this.vm.fail_search_load(error),
+                        match search_result {
+                            Ok((library_rows, index_batch)) => {
+                                if let Some(batch) = index_batch.as_ref() {
+                                    if let Err(error) =
+                                        persist_musicindex_artist_facts(&this.conn, batch)
+                                    {
+                                        this.vm.fail_search_load(error);
+                                        cx.notify();
+                                        return;
+                                    }
                                 }
+                                this.vm.finish_global_search_load(
+                                    library_rows,
+                                    index_batch,
+                                    scope,
+                                    append,
+                                );
                             }
                             Err(error) => this.vm.fail_search_load(error),
                         }
@@ -263,17 +301,15 @@ impl SearchApp {
 
     pub(crate) fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
         self.vm.toggle_fuzzy_search();
-        let has_query = normalized_search_query(&self.input.read(cx).value()).is_some();
+        let query = self.vm.active_query.clone();
         cx.notify();
-        if has_query {
-            self.do_search(false, cx);
+        if let Some(query) = query {
+            self.run_global_search_page(query, self.vm.active_scope, false, cx);
         }
     }
 
     pub(crate) fn show_recent_feeds(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.input.update(cx, |input, cx| {
-            input.set_value("", window, cx);
-        });
+        let _ = window;
         self.inspector_stack.clear();
         let should_load = self.vm.return_to_recent_feeds();
         cx.notify();
@@ -333,13 +369,19 @@ impl SearchApp {
 
     pub(crate) fn select_result(
         &mut self,
+        source: SearchResultSource,
         entity_type: String,
         entity_id: String,
         title: String,
         cx: &mut Context<Self>,
     ) {
-        self.vm.select_result(&entity_type, &entity_id);
-        self.load_inspector(entity_type, entity_id, title, false, cx);
+        self.vm
+            .select_result_from_source(source, &entity_type, &entity_id);
+        if source == SearchResultSource::Library && entity_type == "track" {
+            self.load_local_track_inspector(entity_id, title, false, cx);
+        } else {
+            self.load_inspector(entity_type, entity_id, title, false, cx);
+        }
     }
 
     pub(crate) fn open_recent_feed(
@@ -448,6 +490,87 @@ impl SearchApp {
                         // they just open instantly when the user clicks.
                         this.prefetch_contributors(entity_type.clone(), entity_id.clone(), cx);
                         this.prefetch_value_routes(entity_type, entity_id, cx);
+                    },
+                )
+                .ok();
+            },
+        )
+        .detach();
+    }
+
+    fn load_local_track_inspector(
+        &mut self,
+        entity_id: String,
+        title: String,
+        push: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let track_id = match entity_id.parse::<i64>() {
+            Ok(track_id) => track_id,
+            Err(error) => {
+                self.vm
+                    .fail_search_load(format!("Error loading local track: {error}"));
+                cx.notify();
+                return;
+            }
+        };
+        let frame_entity_id = format!("local:{track_id}");
+        let frame = InspectorFrame::loading("track".into(), frame_entity_id.clone(), title);
+        if push {
+            self.inspector_stack.push(frame);
+        } else {
+            self.inspector_stack.clear();
+            self.inspector_stack.push(frame);
+        }
+        cx.notify();
+
+        let conn = Arc::clone(&self.conn);
+        cx.spawn(
+            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
+                let detail = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+                        let Some(track) = library_service::track_row_by_id(&db, track_id)? else {
+                            return Err(anyhow!("local track not found: {track_id}"));
+                        };
+                        let context = feed_service::track_row_to_track_context_with_local_identity(
+                            &db, &track,
+                        )?;
+                        let image_url = context
+                            .track
+                            .image_url
+                            .as_deref()
+                            .and_then(|url| nonempty_url(Some(url)))
+                            .map(str::to_string);
+                        Ok::<_, anyhow::Error>((context, image_url))
+                    })
+                    .await;
+
+                this.update(
+                    cx,
+                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
+                        let mut image_url_to_fetch = None;
+                        if let Some(frame) = this.inspector_stack.last_mut() {
+                            if frame.entity_type == "track" && frame.entity_id == frame_entity_id {
+                                match detail {
+                                    Ok((context, image_url)) => {
+                                        frame.detail = InspectorDetail::Track(Box::new(context));
+                                        frame.image = None;
+                                        frame.local_subscription = Some(true);
+                                        frame.subscription_message = None;
+                                        image_url_to_fetch = image_url;
+                                    }
+                                    Err(error) => {
+                                        frame.detail = InspectorDetail::Error(error.to_string());
+                                    }
+                                }
+                            }
+                        }
+                        cx.notify();
+                        if let Some(url) = image_url_to_fetch {
+                            this.load_inspector_image("track".into(), frame_entity_id, url, cx);
+                        }
                     },
                 )
                 .ok();
@@ -1791,10 +1914,9 @@ impl SearchApp {
 impl Render for SearchApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let stack = self.inspector_stack.clone();
-        let input_has_search_term = normalized_search_query(&self.input.read(cx).value()).is_some();
         let snapshot = self
             .vm
-            .render_snapshot(stack.is_empty(), !input_has_search_term);
+            .render_snapshot(stack.is_empty(), self.vm.active_query.is_none());
         let status_color = if snapshot.status.is_error {
             StatusRole::Danger.color(cx)
         } else {
@@ -1804,13 +1926,25 @@ impl Render for SearchApp {
         let status_text = snapshot.status.display_text;
 
         let list_focused = self.list_focus.is_focused(window);
-        let results: Vec<DiscoverResultRow> = snapshot
-            .rows
+        let sections: Vec<DiscoverResultSection> = snapshot
+            .sections
             .iter()
-            .map(|row| {
-                let item = row.render_item();
-                let thumbnail = self.thumbnail_for_url(item.display.image_url.as_deref(), cx);
-                DiscoverResultRow::new(item, thumbnail)
+            .map(|section| {
+                let rows = section
+                    .rows
+                    .iter()
+                    .map(|row| {
+                        let item = row.render_item();
+                        let thumbnail =
+                            self.thumbnail_for_url(item.display.image_url.as_deref(), cx);
+                        DiscoverResultRow::new(item, thumbnail)
+                    })
+                    .collect();
+                DiscoverResultSection {
+                    display: section.display.clone(),
+                    rows,
+                    show_empty: section.show_empty,
+                }
             })
             .collect();
         let show_back = should_show_inspector_back(stack.len());
@@ -1834,9 +1968,8 @@ impl Render for SearchApp {
             .flex_1()
             .min_h_0()
             .overflow_hidden()
-            .child(render_discover_search_input(
-                DiscoverSearchInputParams {
-                    input: self.input.clone(),
+            .child(render_discover_search_controls(
+                DiscoverSearchControlsParams {
                     type_filter: snapshot.type_filter,
                     is_loading,
                     fuzzy_search,
@@ -1849,7 +1982,7 @@ impl Render for SearchApp {
             ))
             .child(render_discover_result_list(
                 DiscoverResultListParams {
-                    rows: results,
+                    sections,
                     selected_key: snapshot.selected_key.clone(),
                     list_focused,
                     empty_state: DiscoverResultEmptyState {
@@ -1950,6 +2083,29 @@ fn fetch_search_batch(
         has_more: response.pagination.has_more,
         cursor: response.pagination.cursor,
     })
+}
+
+fn fetch_local_library_search_rows(
+    conn: &Arc<Mutex<Connection>>,
+    query_service: &crate::application::ApplicationQueryService,
+    query: &str,
+) -> Result<Vec<ResultRow>> {
+    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+    let tracks = query_service
+        .search_local_library_tracks(&db, query, None)
+        .map_err(|error| anyhow!("{error}"))?;
+    tracks
+        .into_iter()
+        .map(|track| {
+            let track_id = track.id;
+            let context =
+                feed_service::track_row_to_track_context_with_local_identity(&db, &track)?;
+            Ok(ResultRow::local_library_track(
+                track_id,
+                EntityDetail::Track(context.track),
+            ))
+        })
+        .collect()
 }
 
 fn fetch_artist_search_batch(

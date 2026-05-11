@@ -18,12 +18,12 @@ use crate::ui::composites::{
     ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::{Button as UiButton, Label};
+use crate::ui::primitives::{Button as UiButton, Label, SectionHeader};
 use crate::ui::style::{color, spacing};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::search::{
     pending_skeleton_count, should_auto_load_more, ResultRowRenderItem, SearchPaneDisplay,
-    AUTO_PAGINATE_THRESHOLD_PX,
+    SearchResultSectionDisplay, AUTO_PAGINATE_THRESHOLD_PX,
 };
 
 pub(crate) struct DiscoverResultRow {
@@ -39,7 +39,7 @@ impl DiscoverResultRow {
 }
 
 pub(crate) struct DiscoverResultListParams<'a> {
-    pub(crate) rows: Vec<DiscoverResultRow>,
+    pub(crate) sections: Vec<DiscoverResultSection>,
     pub(crate) selected_key: Option<String>,
     pub(crate) list_focused: bool,
     pub(crate) empty_state: DiscoverResultEmptyState,
@@ -47,6 +47,12 @@ pub(crate) struct DiscoverResultListParams<'a> {
     pub(crate) pane_display: SearchPaneDisplay,
     pub(crate) list_focus: &'a FocusHandle,
     pub(crate) scroll_handle: &'a ScrollHandle,
+}
+
+pub(crate) struct DiscoverResultSection {
+    pub(crate) display: SearchResultSectionDisplay,
+    pub(crate) rows: Vec<DiscoverResultRow>,
+    pub(crate) show_empty: bool,
 }
 
 pub(crate) struct DiscoverResultEmptyState {
@@ -70,14 +76,13 @@ pub(crate) fn render_discover_result_list(
     params: DiscoverResultListParams<'_>,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let rows = params
-        .rows
+    let sections = params
+        .sections
         .into_iter()
-        .map(|row| {
-            render_result_item(
-                row.item,
+        .map(|section| {
+            render_result_section(
+                section,
                 params.selected_key.as_deref(),
-                row.thumbnail,
                 params.list_focused,
                 cx,
             )
@@ -119,8 +124,8 @@ pub(crate) fn render_discover_result_list(
             div()
                 .flex()
                 .flex_col()
-                .gap(spacing::XXS)
-                .children(rows)
+                .gap(spacing::SM)
+                .children(sections)
                 .when(
                     params.empty_state.is_loading && params.empty_state.is_empty,
                     |el| {
@@ -185,6 +190,38 @@ fn render_empty_message(pane_display: &SearchPaneDisplay) -> AnyElement {
         .into_any_element()
 }
 
+fn render_result_section(
+    section: DiscoverResultSection,
+    selected_key: Option<&str>,
+    list_focused: bool,
+    cx: &mut Context<SearchApp>,
+) -> AnyElement {
+    let rows = section
+        .rows
+        .into_iter()
+        .map(|row| render_result_item(row.item, selected_key, row.thumbnail, list_focused, cx))
+        .collect::<Vec<_>>();
+    let is_empty = rows.is_empty();
+
+    div()
+        .id(section.display.id)
+        .flex()
+        .flex_col()
+        .gap(spacing::XXS)
+        .child(SectionHeader::new(section.display.heading))
+        .children(rows)
+        .when(is_empty && section.show_empty, |el| {
+            el.child(
+                div()
+                    .px(spacing::SM)
+                    .py(spacing::XS)
+                    .text_color(color::text_muted())
+                    .child(section.display.empty_label),
+            )
+        })
+        .into_any_element()
+}
+
 fn render_result_item(
     item: ResultRowRenderItem,
     selected_key: Option<&str>,
@@ -214,8 +251,8 @@ fn render_result_item(
         .selected(is_selected)
         .focused(is_selected && list_focused)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            let (entity_type, entity_id, title) = navigation_target.clone().into_parts();
-            this.select_result(entity_type, entity_id, title, cx);
+            let (source, entity_type, entity_id, title) = navigation_target.clone().into_parts();
+            this.select_result(source, entity_type, entity_id, title, cx);
         }))
         .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
         .child(

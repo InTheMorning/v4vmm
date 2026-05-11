@@ -106,7 +106,7 @@ pub(super) const APP_KEY_BINDING_SPECS: &[AppKeyBindingSpec] = &[
     AppKeyBindingSpec {
         command: AppKeyCommand::SelectDiscoverTab,
         keystroke: "cmd-2",
-        label: "Discover",
+        label: "Search",
         scope: AppKeyScope::Global,
     },
     AppKeyBindingSpec {
@@ -243,7 +243,7 @@ impl TopApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.focus_active_search(window, cx);
+        self.focus_global_search(window, cx);
     }
 
     pub(super) fn handle_new_playlist(
@@ -354,20 +354,6 @@ impl TopApp {
     fn select_tab(&mut self, tab: AppTab, cx: &mut Context<Self>) {
         self.tab = tab;
         cx.notify();
-    }
-
-    fn focus_active_search(&self, window: &mut Window, cx: &mut Context<Self>) {
-        match self.tab {
-            AppTab::Library => {
-                self.library
-                    .update(cx, |library, cx| library.focus_search(window, cx));
-            }
-            AppTab::Discover => {
-                self.search
-                    .update(cx, |search, cx| search.focus_search(window, cx));
-            }
-            AppTab::Settings => {}
-        }
     }
 }
 

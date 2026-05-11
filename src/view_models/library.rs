@@ -1314,6 +1314,7 @@ impl LibraryViewModel {
         self.finish_apply_feed_updates(format!("Feed update error: {error:#}"));
     }
 
+    #[cfg(test)]
     pub(crate) fn apply_search_query(&mut self, query: impl Into<String>) {
         self.search_query = query.into().trim().to_string();
         self.selected_id = None;

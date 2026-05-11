@@ -62,7 +62,6 @@ use crate::ui::shells::library_removal_confirmation::open_library_removal_confir
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::color;
 use crate::ui::style::spacing;
-use crate::ui::style::typography;
 use crate::ui::tokens::SemanticColor;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
@@ -117,10 +116,6 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) -> Self {
         let chrome = LibraryViewModel::chrome_display();
-        let search_input = cx.new(|cx: &mut Context<InputState>| {
-            InputState::new(window, cx).placeholder(chrome.search_placeholder)
-        });
-        let search_sub = cx.subscribe(&search_input, Self::on_search_event);
         let new_playlist_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder(chrome.new_playlist_placeholder)
         });
@@ -143,8 +138,6 @@ impl LibraryApp {
             vm: LibraryViewModel::new(),
             detail: LibraryDetail::None,
             thumbnails: BTreeMap::new(),
-            search_input,
-            _search_sub: search_sub,
             new_playlist_input,
             rename_playlist_input,
             _rename_playlist_sub: rename_playlist_sub,
@@ -155,17 +148,6 @@ impl LibraryApp {
         };
         app.start_async_reload(cx);
         app
-    }
-
-    fn on_search_event(
-        &mut self,
-        _entity: Entity<InputState>,
-        event: &InputEvent,
-        cx: &mut Context<Self>,
-    ) {
-        if let InputEvent::PressEnter { .. } = event {
-            self.apply_search(cx);
-        }
     }
 
     fn on_rename_playlist_event(
@@ -179,21 +161,8 @@ impl LibraryApp {
         }
     }
 
-    fn apply_search(&mut self, cx: &mut Context<Self>) {
-        self.vm
-            .apply_search_query(self.search_input.read(cx).value().to_string());
-        self.detail = LibraryDetail::None;
-        cx.notify();
-    }
-
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         self.start_async_reload(cx);
-    }
-
-    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.search_input.update(cx, |input, cx| {
-            input.focus(window, cx);
-        });
     }
 
     pub fn begin_new_playlist(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2133,33 +2102,6 @@ impl Render for LibraryApp {
             .flex_1()
             .min_h_0()
             .overflow_hidden()
-            .child(
-                div()
-                    .p(spacing::MD)
-                    .border_b_1()
-                    .border_color(color::border_subtle())
-                    .flex()
-                    .flex_col()
-                    .gap(spacing::SM)
-                    .child(
-                        typography::type_micro(div())
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(color::text_muted())
-                            .child(chrome.search_heading),
-                    )
-                    .child(
-                        Input::new(&self.search_input)
-                            .cleanable(true)
-                            .scaled(Size::Small, cx),
-                    )
-                    .child(
-                        UiButton::styled(chrome.search_button_id, ControlStyle::Primary)
-                            .label(chrome.search_button_label)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.apply_search(cx);
-                            })),
-                    ),
-            )
             .child({
                 let FeedUpdateDisplay {
                     status_message: feed_status,

@@ -11,34 +11,34 @@
 
 ## Gate Status
 
-Status: Tasks 001-002 implemented on 2026-05-11. Tasks 003-004 pending.
+Status: Tasks 001-003 implemented on 2026-05-11. Task 004 pending.
 
 Readiness decision: Pending.
 
 ## Required Checks
 
-- [ ] Toolbar has stable leading navigation, center global search, and
+- [x] Toolbar has stable leading navigation, center global search, and
   trailing Now Playing frame.
 - [x] Now Playing remains app-shell-owned under `src/app/`.
 - [x] Now Playing is not extracted into a single-use composite.
-- [ ] One visible search field exists in the app toolbar.
-- [ ] Library and Search screens do not render duplicate visible search
+- [x] One visible search field exists in the app toolbar.
+- [x] Library and Search screens do not render duplicate visible search
   input chrome.
-- [ ] `cmd-f` focuses the global toolbar search.
+- [x] `cmd-f` focuses the global toolbar search.
 - [x] Search scope labels, placeholder, ids, and accessibility labels
   come from view-model display contracts.
-- [ ] `All` scope renders grouped Library results before MusicIndex
+- [x] `All` scope renders grouped Library results before MusicIndex
   results.
-- [ ] `Library` scope does not call MusicIndex.
-- [ ] `Index` scope does not render local Library results.
-- [ ] MusicIndex type filters apply only to MusicIndex results.
-- [ ] Recent feeds/discovery root remains visible when Search has no
+- [x] `Library` scope does not call MusicIndex.
+- [x] `Index` scope does not render local Library results.
+- [x] MusicIndex type filters apply only to MusicIndex results.
+- [x] Recent feeds/discovery root remains visible when Search has no
   query.
 - [x] Local Library query returns only in-library tracks.
 - [x] Architecture tests cover toolbar ownership.
 - [x] Architecture tests cover global-search contract and local-query
   boundary.
-- [ ] Architecture tests cover duplicate-search
+- [x] Architecture tests cover duplicate-search
   prevention.
 - [ ] Light-theme visual proof reviewed at normal and narrow widths.
 - [ ] Dark-theme visual proof reviewed at normal and narrow widths.
@@ -49,15 +49,18 @@ Readiness decision: Pending.
 
 ## Required Fixes
 
-- Tasks 003-004 remain pending.
+- Task 004 visual readiness remains pending.
 
 ## Optional Improvements
 
-- No drift in Tasks 001-002. Toolbar display strings and ids route through
+- No drift in Tasks 001-003. Toolbar display strings and ids route through
   `src/view_models/app_toolbar.rs`; Now Playing remains app-shell-owned in
   `src/app/playback_bar.rs`. The local Library search query routes through
   `ApplicationQueryService`, `library_service`, and `db` without changing
-  MusicIndex API behavior.
+  MusicIndex API behavior. Grouped Search results are source-aware in
+  `src/view_models/search.rs`, and local Library rows open local track detail
+  instead of reusing MusicIndex ids. Recent feeds remain the empty-query Search
+  root so the toolbar query stays the single source of search state.
 
 ## Architectural Drift
 
@@ -66,8 +69,8 @@ Readiness decision: Pending.
 
 ## Missing Tests
 
-- Task 003 still needs visible global-search rendering, duplicate screen-search
-  removal, grouped result behavior, and `cmd-f` focus on the toolbar input.
+- Task 004 still needs final light/dark visual proof at normal and narrow
+  widths.
 
 ## Merge Recommendation
 

@@ -1,10 +1,9 @@
-//! Discover search input bar: text field, fuzzy toggle, and filter buttons.
+//! Discover search controls: scope-adjacent filters, status, and recents.
 
 #![warn(clippy::pedantic)]
 
-use gpui::{div, prelude::*, AnyElement, Context, Entity, FontWeight, Rgba, SharedString, Styled};
+use gpui::{div, prelude::*, AnyElement, Context, FontWeight, Rgba, SharedString, Styled};
 use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
 
 use crate::search::SearchApp;
@@ -13,10 +12,9 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::{color, spacing, typography};
-use crate::view_models::search::{normalized_search_query, SearchPaneDisplay, SearchViewModel};
+use crate::view_models::search::{SearchPaneDisplay, SearchViewModel};
 
-pub(crate) struct DiscoverSearchInputParams {
-    pub(crate) input: Entity<InputState>,
+pub(crate) struct DiscoverSearchControlsParams {
     pub(crate) type_filter: usize,
     pub(crate) is_loading: bool,
     pub(crate) fuzzy_search: bool,
@@ -26,12 +24,10 @@ pub(crate) struct DiscoverSearchInputParams {
     pub(crate) status_text: String,
 }
 
-pub(crate) fn render_discover_search_input(
-    params: DiscoverSearchInputParams,
+pub(crate) fn render_discover_search_controls(
+    params: DiscoverSearchControlsParams,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
-    let search_label = params.pane_display.search_button_label;
-
     div()
         .p(spacing::MD)
         .border_b_1()
@@ -45,11 +41,6 @@ pub(crate) fn render_discover_search_input(
                 .font_weight(FontWeight::BOLD)
                 .text_color(color::text_muted())
                 .child(params.pane_display.heading),
-        )
-        .child(
-            Input::new(&params.input)
-                .cleanable(true)
-                .scaled(Size::Small, cx),
         )
         .child(
             div()
@@ -68,7 +59,7 @@ pub(crate) fn render_discover_search_input(
                 .child(
                     // CONTROL-COMPAT(reason): native Button does not yet expose loading state.
                     Button::new(params.pane_display.search_button_id)
-                        .label(search_label)
+                        .label(params.pane_display.refresh_button_label)
                         .primary()
                         .scaled(Size::Small, cx)
                         .text_color(color::text_on_accent())
@@ -137,10 +128,10 @@ fn render_type_filter_control(
             let idx = *idx;
             entity.update(cx, |this, cx| {
                 if this.vm.set_type_filter_if_changed(idx) {
-                    let has_query = normalized_search_query(&this.input.read(cx).value()).is_some();
+                    let query = this.vm.active_query.clone();
                     cx.notify();
-                    if has_query {
-                        this.do_search(false, cx);
+                    if let Some(query) = query {
+                        this.run_global_search(query, this.vm.active_scope, cx);
                     }
                 }
             });

@@ -6,12 +6,19 @@ use gpui::{
     div, img, prelude::*, Context, Image, ImageFormat, IntoElement, ObjectFit, SharedString,
     Styled, Window,
 };
+use gpui_component::input::Input;
+use gpui_component::Size;
 
 use crate::library::LibraryApp;
+use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
+use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
-use crate::ui::primitives::Tooltip;
+use crate::ui::primitives::{Button as UiButton, Tooltip};
+use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size as TokenSize, Spacing};
-use crate::view_models::app_toolbar::{AppToolbarTabDisplay, AppToolbarTabKey, AppToolbarVm};
+use crate::view_models::app_toolbar::{
+    AppToolbarTabDisplay, AppToolbarTabKey, AppToolbarVm, GlobalSearchDisplay, GlobalSearchScope,
+};
 
 use super::{AppTab, TopApp};
 
@@ -84,7 +91,12 @@ pub(super) fn render_tab_bar(
     }
 
     toolbar
-        .child(div().id(display.center_id).flex_1().min_w_0())
+        .child(render_global_search(
+            display.center_id,
+            display.global_search,
+            app,
+            cx,
+        ))
         .child(
             div()
                 .id(display.now_playing.id)
@@ -102,6 +114,68 @@ pub(super) fn render_tab_bar(
                 .overflow_hidden()
                 .tooltip(move |window, cx| now_playing_tooltip.build(window, cx))
                 .child(playback_bar),
+        )
+        .into_any_element()
+}
+
+fn render_global_search(
+    center_id: &'static str,
+    display: GlobalSearchDisplay,
+    app: &TopApp,
+    cx: &mut Context<TopApp>,
+) -> gpui::AnyElement {
+    let segments = display
+        .scopes
+        .into_iter()
+        .map(|scope| {
+            Segment::new(SegmentDisplay {
+                id: scope.id.into(),
+                key: scope.scope,
+                label: scope.label.into(),
+                a11y_label: scope.a11y_label.into(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let entity = cx.entity();
+
+    div()
+        .id(center_id)
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(Spacing::XS.scaled(cx))
+        .child(
+            div()
+                .id(display.input_id)
+                .w(TokenSize::ColumnTall.scaled(cx))
+                .max_w(TokenSize::ColumnTall.scaled(cx))
+                .min_w(TokenSize::ColumnShort.scaled(cx))
+                .child(
+                    Input::new(&app.global_search_input)
+                        .cleanable(true)
+                        .scaled(Size::Small, cx),
+                ),
+        )
+        .child(
+            SegmentedControl::new(app.global_search_scope)
+                .filter_style()
+                .segments(segments)
+                .on_select(move |scope: &GlobalSearchScope, _window, cx| {
+                    let scope = *scope;
+                    entity.update(cx, |this, cx| {
+                        this.set_global_search_scope(scope, cx);
+                    });
+                }),
+        )
+        .child(
+            UiButton::styled(display.search_button_id, ControlStyle::Primary)
+                .label("Search")
+                .a11y_label(display.search_button_a11y_label)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.submit_global_search(cx);
+                })),
         )
         .into_any_element()
 }

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{div, prelude::*, Context, Entity, Render, SharedString, Styled, Window};
-use gpui_component::input::{Input, InputState};
+use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
 use rusqlite::Connection;
 
@@ -25,7 +25,7 @@ use crate::ui::primitives::Button as UiButton;
 use crate::ui::shells::window_layers::render_window_layers;
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
-use crate::view_models::app_toolbar::AppToolbarVm;
+use crate::view_models::app_toolbar::{AppToolbarVm, GlobalSearchScope};
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 
 mod bootstrap;
@@ -59,11 +59,8 @@ pub struct TopApp {
     tab: AppTab,
     search: Entity<SearchApp>,
     library: Entity<LibraryApp>,
-    #[expect(
-        dead_code,
-        reason = "ADR 0043 Task 002 establishes toolbar search ownership before Task 003 renders it"
-    )]
     global_search_input: Entity<InputState>,
+    global_search_scope: GlobalSearchScope,
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
@@ -74,6 +71,7 @@ pub struct TopApp {
     library_tab_focus: gpui::FocusHandle,
     discover_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
+    _global_search_sub: gpui::Subscription,
     _search_sub: gpui::Subscription,
     _library_sub: gpui::Subscription,
     _appearance_sub: gpui::Subscription,
@@ -156,6 +154,7 @@ impl TopApp {
         let global_search_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder(global_search_display.placeholder)
         });
+        let global_search_sub = cx.subscribe(&global_search_input, Self::on_global_search_event);
         let library = cx.new(|cx| {
             LibraryApp::new(
                 conn.clone(),
@@ -224,6 +223,7 @@ impl TopApp {
             search,
             library,
             global_search_input,
+            global_search_scope: GlobalSearchScope::All,
             endpoint_input,
             music_dir_input,
             flac_path_input,
@@ -234,6 +234,7 @@ impl TopApp {
             library_tab_focus: cx.focus_handle(),
             discover_tab_focus: cx.focus_handle(),
             settings_tab_focus: cx.focus_handle(),
+            _global_search_sub: global_search_sub,
             _search_sub: search_sub,
             _library_sub: library_sub,
             _appearance_sub: appearance_sub,
@@ -280,6 +281,41 @@ impl TopApp {
             },
         )
         .detach();
+    }
+
+    fn on_global_search_event(
+        &mut self,
+        _entity: Entity<InputState>,
+        event: &InputEvent,
+        cx: &mut Context<Self>,
+    ) {
+        if let InputEvent::PressEnter { .. } = event {
+            self.submit_global_search(cx);
+        }
+    }
+
+    pub(super) fn set_global_search_scope(
+        &mut self,
+        scope: GlobalSearchScope,
+        cx: &mut Context<Self>,
+    ) {
+        self.global_search_scope = scope;
+        cx.notify();
+    }
+
+    pub(super) fn submit_global_search(&mut self, cx: &mut Context<Self>) {
+        let query = self.global_search_input.read(cx).value().to_string();
+        self.tab = AppTab::Discover;
+        let scope = self.global_search_scope;
+        self.search
+            .update(cx, |search, cx| search.run_global_search(query, scope, cx));
+        cx.notify();
+    }
+
+    pub(super) fn focus_global_search(&self, window: &mut Window, cx: &mut Context<Self>) {
+        self.global_search_input.update(cx, |input, cx| {
+            input.focus(window, cx);
+        });
     }
 
     fn poll_playback_owner(&mut self) {
