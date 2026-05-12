@@ -10,39 +10,41 @@
 
 ## Gate Status
 
-Status: Not started.
+Status: Blocked - visual proof unavailable on 2026-05-11.
 
-Readiness decision: Pending.
+Readiness decision: Blocked on visual verification.
 
 ## Required Checks
 
-- [ ] Playlist rows no longer show visible up/down reorder buttons.
-- [ ] Drag starts from the handle only.
-- [ ] Drag handle id and accessibility label come from
+- [x] Playlist rows no longer show visible up/down reorder buttons.
+- [x] Drag starts from the handle only.
+- [x] Drag handle id and accessibility label come from
   `PlaylistTrackRowVm`.
-- [ ] Move Up and Move Down fallback menu items come from
+- [x] Move Up and Move Down fallback menu items come from
   `PlaylistTrackRowVm`.
-- [ ] Move Up is disabled for the first row.
-- [ ] Move Down is disabled for the last row.
-- [ ] Drop feedback is an insertion line.
-- [ ] Same-playlist drops commit through `ReorderPlaylistTrack`.
-- [ ] Original-slot and adjacent no-op drops do not dispatch.
-- [ ] Pending paged rows are not draggable.
-- [ ] No database schema changes were introduced.
-- [ ] Architecture tests cover no-arrow controls and handle/menu
+- [x] Move Up is disabled for the first row.
+- [x] Move Down is disabled for the last row.
+- [x] Drop feedback is an insertion line.
+- [x] Same-playlist drops commit through `ReorderPlaylistTrack`.
+- [x] Original-slot and adjacent no-op drops do not dispatch.
+- [x] Pending paged rows are not draggable.
+- [x] No database schema changes were introduced.
+- [x] Architecture tests cover no-arrow controls and handle/menu
   ownership.
 - [ ] Light-theme visual proof reviewed for handle, menu, unavailable
   row, and insertion line.
 - [ ] Dark-theme visual proof reviewed for handle, menu, unavailable
   row, and insertion line.
-- [ ] `cargo fmt -- --check` green.
-- [ ] `cargo check` green.
-- [ ] `cargo test` green.
-- [ ] `cargo clippy -- -D warnings` green.
+- [x] `cargo fmt -- --check` green.
+- [x] `cargo check` green.
+- [x] `cargo test` green.
+- [x] `cargo clippy -- -D warnings` green.
 
 ## Required Fixes
 
-- None recorded yet.
+- Visual proof cannot be completed because `DISPLAY=:0 wmctrl -l` fails
+  with `Authorization required, but no authorization protocol specified`
+  and `Cannot open display.`
 
 ## Optional Improvements
 
@@ -54,8 +56,11 @@ Readiness decision: Pending.
 
 ## Missing Tests
 
-- None recorded yet.
+- None recorded for automated coverage. Visual coverage is blocked by
+  display access.
 
 ## Merge Recommendation
 
-Pending implementation and review.
+Blocked. Do not mark ADR 0044 ready or commit as complete until light and
+dark visual proof covers the handle, Actions menu, unavailable row, and
+insertion-line feedback.

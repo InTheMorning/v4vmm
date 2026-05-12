@@ -1,5 +1,7 @@
 # ADR 0044 Task 002: Playlist Shell Drag Handle and Drop Targets
 
+Status: Implemented - 2026-05-11.
+
 ## Goal
 
 Render playlist drag handles, insertion-line drop targets, and row
@@ -42,31 +44,46 @@ Actions menu fallback commands in the playlist shell.
 
 ## Implementation Steps
 
-1. Add a semantic drag-handle icon to the icon catalog if one does not
+1. Done: add a semantic drag-handle icon to the icon catalog if one does not
    already exist.
-2. Add a playlist drag payload type owned by the playlist shell or
+2. Done: add a playlist drag payload type owned by the playlist shell or
    playlist row surface.
-3. Render the handle using VM-projected id/a11y label and attach
+3. Done: render the handle using VM-projected id/a11y label and attach
    `on_drag` only to the handle.
-4. Render insertion drop zones before each row and after the last row.
-5. Accept drops only when the payload playlist id matches the rendered
+4. Done: render insertion drop zones before each row and after the last row.
+5. Done: accept drops only when the payload playlist id matches the rendered
    playlist id.
-6. Convert insertion index to target position:
+6. Done: convert insertion index to target position:
    `target = if drop_index > from { drop_index - 1 } else { drop_index }`.
-7. Do not dispatch if `target == from`.
-8. Add row Actions menu items for Move Up and Move Down using the VM
-   menu display contract.
-9. Wire eager and paged ready rows to existing `move_playlist_track`.
+7. Done: do not dispatch if `target == from`.
+8. Done: add row Actions menu items for Move Up, Move Down, and Remove
+   using the VM menu display contract.
+9. Done: wire eager and paged ready rows to existing
+   `move_playlist_track`.
 
 ## Acceptance Criteria
 
-- Visible up/down buttons are gone from playlist rows.
-- Drag handle is visible and tokenized.
-- Row drag does not start from title/artwork/body area.
-- Insertion line appears only for same-playlist drag payloads.
-- Move Up/Move Down fallback actions are available in the row Actions
+- [x] Visible up/down buttons are gone from playlist rows.
+- [x] Drag handle is visible and tokenized.
+- [x] Row drag does not start from title/artwork/body area.
+- [x] Insertion line appears only for same-playlist drag payloads.
+- [x] Move Up/Move Down fallback actions are available in the row Actions
   menu and disabled at boundaries.
-- Paged pending rows do not start drag operations.
+- [x] Paged pending rows do not start drag operations.
+
+## Implementation Notes
+
+- `src/ui/shells/playlist.rs` owns `PlaylistTrackDragPayload`, the drag
+  preview, insertion drop zones, and source/target conversion.
+- The shell uses GPUI `drag_over` styling instead of ordinary hover so
+  the insertion line is shown only during a valid same-playlist drag.
+- The row body remains the selection target; only the handle has
+  `on_drag`.
+- Eager and paged ready rows wire Move Up, Move Down, Remove, and drop
+  reorder callbacks back to the existing Library playlist commands.
+- `cargo test architecture_tests` is a zero-test filter in this repo, so
+  `cargo test --test architecture_tests` was also run as the effective
+  architecture suite.
 
 ## Test Commands
 

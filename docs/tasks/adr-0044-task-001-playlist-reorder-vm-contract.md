@@ -1,5 +1,7 @@
 # ADR 0044 Task 001: Playlist Reorder View-Model Contract
 
+Status: Implemented - 2026-05-11.
+
 ## Goal
 
 Replace playlist row arrow-specific display fields with drag-handle and
@@ -38,30 +40,42 @@ this task unless required to keep compilation green.
 
 ## Implementation Steps
 
-1. Replace `move_up_button_id`, `move_up_label`,
+1. Done: replace `move_up_button_id`, `move_up_label`,
    `move_up_enabled`, `move_down_button_id`, `move_down_label`, and
    `move_down_enabled` with display fields for:
    - `drag_handle_id`
    - `drag_handle_a11y_label`
    - Move Up menu item id/label/a11y/disabled
    - Move Down menu item id/label/a11y/disabled
-2. Keep `can_move_up()` and `can_move_down()` or replace them with
-   equivalent VM-owned boundary helpers.
-3. Add a small display struct if the menu item shape should not depend
-   directly on `ContextMenuItemDisplay`.
-4. Update VM tests to assert handle/menu projections and boundary
+2. Done: keep `can_move_up()` and `can_move_down()` as VM-owned
+   boundary helpers.
+3. Done: add `PlaylistTrackMenuItemDisplay` so the contract does not
+   depend on `ContextMenuItemDisplay`.
+4. Done: update VM tests to assert handle/menu projections and boundary
    disabled states.
-5. Update architecture-test expectations that currently name arrow ids
+5. Done: update architecture-test expectations that currently name arrow ids
    and glyphs so they describe the new VM-owned handle/menu contract.
 
 ## Acceptance Criteria
 
-- Playlist row display no longer exposes arrow labels or arrow button
+- [x] Playlist row display no longer exposes arrow labels or arrow button
   ids.
-- VM tests cover first, middle, and last row reorder availability.
-- The new display contract includes accessibility labels for handle and
+- [x] VM tests cover first, middle, and last row reorder availability.
+- [x] The new display contract includes accessibility labels for handle and
   menu items.
-- No persistence or command behavior changes.
+- [x] No persistence or command behavior changes.
+
+## Implementation Notes
+
+- `PlaylistTrackControlsDisplay` now projects a drag-handle id and
+  accessibility label plus Move Up/Move Down/Remove fallback menu item
+  display records.
+- The playlist shell no longer consumes the removed arrow-button display
+  fields. Drag rendering and the fallback actions menu remain scoped to
+  ADR 0044 Task 002.
+- `cargo test architecture_tests` is retained as the documented command,
+  but the real integration suite command is `cargo test --test
+  architecture_tests`; both were run.
 
 ## Test Commands
 

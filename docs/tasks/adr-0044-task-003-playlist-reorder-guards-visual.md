@@ -1,5 +1,7 @@
 # ADR 0044 Task 003: Playlist Reorder Guards and Visual Readiness
 
+Status: Blocked - display access unavailable on 2026-05-11.
+
 ## Goal
 
 Add final guards, run verification, and record visual proof for playlist
@@ -37,24 +39,45 @@ drag-handle reordering.
 
 ## Implementation Steps
 
-1. Add architecture guards that playlist rows do not render up/down
+1. Done: add architecture guards that playlist rows do not render up/down
    arrow labels or arrow-specific ids.
-2. Add guards that drag handle and menu fallback display come from
+2. Done: add guards that drag handle and menu fallback display come from
    `PlaylistTrackRowVm`.
-3. Add guards that playlist shell uses the semantic icon catalog for the
+3. Done: add guards that playlist shell uses the semantic icon catalog for the
    handle rather than raw glyph strings.
-4. Run the required checks.
-5. Capture or review light/dark visual evidence.
-6. Update the ADR 0044 review checklist with pass/fail, evidence, and
+4. Done: run the required checks.
+5. Blocked: capture or review light/dark visual evidence.
+6. Done: update the ADR 0044 review checklist with pass/fail, evidence, and
    merge recommendation.
 
 ## Acceptance Criteria
 
-- Architecture guards enforce the new handle/menu ownership contract.
-- Required checks are green.
-- Visual proof confirms handle, menu fallback, unavailable row, and
+- [x] Architecture guards enforce the new handle/menu ownership contract.
+- [x] Required checks are green.
+- [ ] Visual proof confirms handle, menu fallback, unavailable row, and
   insertion line are legible in light and dark themes.
-- Review checklist records `Proceed` only if all gates pass.
+- [x] Review checklist records `Proceed` only if all gates pass.
+
+## Verification
+
+- Green: `cargo fmt -- --check`
+- Green: `cargo check`
+- Green: `cargo test`
+- Green: `cargo clippy -- -D warnings`
+
+## Visual Evidence Attempt
+
+Visual proof is blocked because the local display cannot be opened:
+
+```text
+DISPLAY=:0 wmctrl -l
+Authorization required, but no authorization protocol specified
+Cannot open display.
+```
+
+The ADR 0044 review remains blocked until light and dark screenshots can
+verify the handle, Actions menu, unavailable row, and insertion-line
+feedback.
 
 ## Test Commands
 
