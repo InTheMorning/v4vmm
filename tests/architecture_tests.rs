@@ -4793,13 +4793,18 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
-            "format!(\"playlist-up-{pl_id}-{position}\")",
-            "Library playlist move-up control id belongs in PlaylistTrackRowVm::controls_display",
+            "format!(\"playlist-move-up-{pl_id}-{position}\")",
+            "Library playlist move-up fallback id belongs in PlaylistTrackRowVm::controls_display",
         ),
         (
             "src/library.rs",
-            "format!(\"playlist-down-{pl_id}-{position}\")",
-            "Library playlist move-down control id belongs in PlaylistTrackRowVm::controls_display",
+            "format!(\"playlist-move-down-{pl_id}-{position}\")",
+            "Library playlist move-down fallback id belongs in PlaylistTrackRowVm::controls_display",
+        ),
+        (
+            "src/library.rs",
+            "format!(\"playlist-drag-handle-{pl_id}-{position}\")",
+            "Library playlist drag handle id belongs in PlaylistTrackRowVm::controls_display",
         ),
         (
             "src/library.rs",
@@ -4823,18 +4828,18 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
-            ".label(\"▲\")",
-            "Library playlist move-up glyph belongs in PlaylistTrackRowVm::controls_display",
+            ".label(\"Move Up\")",
+            "Library playlist move-up fallback label belongs in PlaylistTrackRowVm::controls_display",
         ),
         (
             "src/library.rs",
-            ".label(\"▼\")",
-            "Library playlist move-down glyph belongs in PlaylistTrackRowVm::controls_display",
+            ".label(\"Move Down\")",
+            "Library playlist move-down fallback label belongs in PlaylistTrackRowVm::controls_display",
         ),
         (
             "src/library.rs",
-            ".label(\"✕\")",
-            "Library playlist remove glyph belongs in PlaylistTrackRowVm::controls_display",
+            ".label(\"Remove\")",
+            "Library playlist remove fallback label belongs in PlaylistTrackRowVm::controls_display",
         ),
         (
             "src/library.rs",
@@ -4853,18 +4858,18 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         ),
         (
             "src/library.rs",
-            "SharedString::from(controls_display.move_up_button_id.clone())",
-            "Library playlist move-up id should be consumed from PlaylistTrackControlsDisplay",
+            "SharedString::from(controls_display.move_up_menu_item.id.clone())",
+            "Library playlist move-up fallback id should be consumed from PlaylistTrackControlsDisplay",
         ),
         (
             "src/library.rs",
-            "SharedString::from(controls_display.move_down_button_id.clone())",
-            "Library playlist move-down id should be consumed from PlaylistTrackControlsDisplay",
+            "SharedString::from(controls_display.move_down_menu_item.id.clone())",
+            "Library playlist move-down fallback id should be consumed from PlaylistTrackControlsDisplay",
         ),
         (
             "src/library.rs",
-            "SharedString::from(controls_display.remove_button_id.clone())",
-            "Library playlist remove id should be consumed from PlaylistTrackControlsDisplay",
+            "SharedString::from(controls_display.remove_menu_item.id.clone())",
+            "Library playlist remove fallback id should be consumed from PlaylistTrackControlsDisplay",
         ),
         (
             "src/library.rs",
@@ -5148,6 +5153,113 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
         "ADR 0038 Library/Search VM fallback ownership violations:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
+    let view_model_source = read_source(&manifest_path("src/view_models/library.rs"));
+    for required in [
+        "pub(crate) struct PlaylistTrackMenuItemDisplay",
+        "pub(crate) drag_handle_id: String",
+        "pub(crate) drag_handle_a11y_label: &'static str",
+        "pub(crate) actions_menu_id: String",
+        "pub(crate) actions_menu_a11y_label: &'static str",
+        "pub(crate) move_up_menu_item: PlaylistTrackMenuItemDisplay",
+        "pub(crate) move_down_menu_item: PlaylistTrackMenuItemDisplay",
+        "pub(crate) remove_menu_item: PlaylistTrackMenuItemDisplay",
+        "drag_handle_id: format!(\"playlist-drag-handle-{playlist_id}-{position}\")",
+        "drag_handle_a11y_label: \"Drag to reorder playlist track\"",
+        "actions_menu_id: format!(\"playlist-actions-{playlist_id}-{position}\")",
+        "actions_menu_a11y_label: \"Playlist track actions\"",
+        "id: format!(\"playlist-move-up-{playlist_id}-{position}\")",
+        "label: \"Move Up\"",
+        "a11y_label: \"Move track up\"",
+        "disabled: !self.can_move_up()",
+        "id: format!(\"playlist-move-down-{playlist_id}-{position}\")",
+        "label: \"Move Down\"",
+        "a11y_label: \"Move track down\"",
+        "disabled: !self.can_move_down()",
+        "id: format!(\"playlist-remove-{playlist_id}-{position}\")",
+        "label: \"Remove\"",
+        "a11y_label: \"Remove track from playlist\"",
+        "destructive: true",
+    ] {
+        assert!(
+            view_model_source.contains(required),
+            "Playlist reorder display contract must include `{required}`"
+        );
+    }
+
+    for forbidden in [
+        "move_up_button_id",
+        "move_up_label",
+        "move_up_enabled",
+        "move_down_button_id",
+        "move_down_label",
+        "move_down_enabled",
+        "playlist-up-{",
+        "playlist-down-{",
+        "\"▲\"",
+        "\"▼\"",
+    ] {
+        assert!(
+            !view_model_source.contains(forbidden),
+            "Playlist row display contract must not expose arrow-button reorder field `{forbidden}`"
+        );
+    }
+
+    let playlist_shell_source = read_source(&manifest_path("src/ui/shells/playlist.rs"));
+    for required in [
+        "Icon::new(IconName::DragHandle)",
+        "ContextMenu::new(",
+        "ContextMenuScope::PlaylistTrack",
+        ".can_drop(",
+        ".drag_over(",
+        ".on_drop(",
+        "playlist_reorder_target(payload.from_position, drop_index)",
+        "if target == from",
+        "render_playlist_drop_zone(",
+    ] {
+        assert!(
+            playlist_shell_source.contains(required),
+            "Playlist shell drag/menu contract must include `{required}`"
+        );
+    }
+
+    assert_eq!(
+        playlist_shell_source.matches(".on_drag(").count(),
+        1,
+        "Playlist shell must attach drag only once, to the handle"
+    );
+
+    for forbidden in [
+        "move_up_button_id",
+        "move_up_label",
+        "move_up_enabled",
+        "move_down_button_id",
+        "move_down_label",
+        "move_down_enabled",
+        ".label(\"Move Up\")",
+        ".label(\"Move Down\")",
+        ".label(\"Remove\")",
+        "\"▲\"",
+        "\"▼\"",
+        "\"✕\"",
+        "\"☰\"",
+    ] {
+        assert!(
+            !playlist_shell_source.contains(forbidden),
+            "Playlist shell must not own playlist reorder display fallback `{forbidden}`"
+        );
+    }
+
+    let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
+    for required in ["DragHandle", "Self::DragHandle => Some(\"\\u{2630}\")"] {
+        assert!(
+            icon_source.contains(required),
+            "Playlist drag handle must use semantic icon catalog contract `{required}`"
+        );
+    }
 }
 
 #[test]

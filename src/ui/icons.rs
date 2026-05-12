@@ -31,6 +31,7 @@ pub enum IconName {
     Previous,
     Next,
     More,
+    DragHandle,
 }
 
 impl IconName {
@@ -46,7 +47,8 @@ impl IconName {
             | Self::Stop
             | Self::Previous
             | Self::Next
-            | Self::More => None,
+            | Self::More
+            | Self::DragHandle => None,
         }
     }
 
@@ -61,6 +63,7 @@ impl IconName {
             Self::Previous => Some("\u{23EE}"),
             Self::Next => Some("\u{23ED}"),
             Self::More => Some("\u{22EF}"),
+            Self::DragHandle => Some("\u{2630}"),
             Self::Rss | Self::Nostr => None,
         }
     }
@@ -78,7 +81,8 @@ impl IconName {
             | Self::Stop
             | Self::Previous
             | Self::Next
-            | Self::More => None,
+            | Self::More
+            | Self::DragHandle => None,
         }
     }
 }

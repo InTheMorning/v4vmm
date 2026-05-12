@@ -1968,9 +1968,9 @@ impl AlbumNode {
 }
 
 /// Display-ready projection of a single row inside a playlist detail
-/// listing. The screen owns the click handlers and button rendering;
-/// the VM owns text fallbacks, duration formatting, and the
-/// move-up/move-down enable rules.
+/// listing. The screen owns the click handlers and control rendering;
+/// the VM owns text fallbacks, duration formatting, and the reorder
+/// availability contract.
 pub(crate) struct PlaylistTrackRowVm<'a> {
     track: &'a TrackRow,
     position: usize,
@@ -1978,20 +1978,28 @@ pub(crate) struct PlaylistTrackRowVm<'a> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistTrackMenuItemDisplay {
+    pub(crate) id: String,
+    pub(crate) label: &'static str,
+    pub(crate) a11y_label: &'static str,
+    pub(crate) destructive: bool,
+    pub(crate) disabled: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PlaylistTrackControlsDisplay {
     pub(crate) row_id: String,
     pub(crate) row_body_id: String,
+    pub(crate) drag_handle_id: String,
+    pub(crate) drag_handle_a11y_label: &'static str,
+    pub(crate) actions_menu_id: String,
+    pub(crate) actions_menu_a11y_label: &'static str,
     pub(crate) play_button_id: String,
     pub(crate) play_label: &'static str,
     pub(crate) play_enabled: bool,
-    pub(crate) move_up_button_id: String,
-    pub(crate) move_up_label: &'static str,
-    pub(crate) move_up_enabled: bool,
-    pub(crate) move_down_button_id: String,
-    pub(crate) move_down_label: &'static str,
-    pub(crate) move_down_enabled: bool,
-    pub(crate) remove_button_id: String,
-    pub(crate) remove_label: &'static str,
+    pub(crate) move_up_menu_item: PlaylistTrackMenuItemDisplay,
+    pub(crate) move_down_menu_item: PlaylistTrackMenuItemDisplay,
+    pub(crate) remove_menu_item: PlaylistTrackMenuItemDisplay,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2145,17 +2153,34 @@ impl<'a> PlaylistTrackRowVm<'a> {
         PlaylistTrackControlsDisplay {
             row_id: format!("playlist-track-{track_id}-{position}"),
             row_body_id: format!("playlist-row-body-{playlist_id}-{position}"),
+            drag_handle_id: format!("playlist-drag-handle-{playlist_id}-{position}"),
+            drag_handle_a11y_label: "Drag to reorder playlist track",
+            actions_menu_id: format!("playlist-actions-{playlist_id}-{position}"),
+            actions_menu_a11y_label: "Playlist track actions",
             play_button_id: format!("playlist-play-{playlist_id}-{position}"),
             play_label: "▶",
             play_enabled: self.can_play(),
-            move_up_button_id: format!("playlist-up-{playlist_id}-{position}"),
-            move_up_label: "▲",
-            move_up_enabled: self.can_move_up(),
-            move_down_button_id: format!("playlist-down-{playlist_id}-{position}"),
-            move_down_label: "▼",
-            move_down_enabled: self.can_move_down(),
-            remove_button_id: format!("playlist-remove-{playlist_id}-{position}"),
-            remove_label: "✕",
+            move_up_menu_item: PlaylistTrackMenuItemDisplay {
+                id: format!("playlist-move-up-{playlist_id}-{position}"),
+                label: "Move Up",
+                a11y_label: "Move track up",
+                destructive: false,
+                disabled: !self.can_move_up(),
+            },
+            move_down_menu_item: PlaylistTrackMenuItemDisplay {
+                id: format!("playlist-move-down-{playlist_id}-{position}"),
+                label: "Move Down",
+                a11y_label: "Move track down",
+                destructive: false,
+                disabled: !self.can_move_down(),
+            },
+            remove_menu_item: PlaylistTrackMenuItemDisplay {
+                id: format!("playlist-remove-{playlist_id}-{position}"),
+                label: "Remove",
+                a11y_label: "Remove track from playlist",
+                destructive: true,
+                disabled: false,
+            },
         }
     }
 
@@ -2883,6 +2908,26 @@ mod tests {
     }
 
     #[test]
+    fn playlist_track_row_vm_reorder_menu_availability_tracks_boundaries() {
+        let pl = playlist("Mix");
+        let tracks = [row(), row(), row()];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let rows = vm.track_rows();
+
+        let first = rows[0].controls_display(pl.id);
+        assert!(first.move_up_menu_item.disabled);
+        assert!(!first.move_down_menu_item.disabled);
+
+        let middle = rows[1].controls_display(pl.id);
+        assert!(!middle.move_up_menu_item.disabled);
+        assert!(!middle.move_down_menu_item.disabled);
+
+        let last = rows[2].controls_display(pl.id);
+        assert!(!last.move_up_menu_item.disabled);
+        assert!(last.move_down_menu_item.disabled);
+    }
+
+    #[test]
     fn playlist_track_row_vm_controls_display_projects_ids_labels_and_availability() {
         let pl = playlist("Mix");
         let mut t1 = row();
@@ -2900,24 +2945,41 @@ mod tests {
             PlaylistTrackControlsDisplay {
                 row_id: "playlist-track-42-0".into(),
                 row_body_id: "playlist-row-body-7-0".into(),
+                drag_handle_id: "playlist-drag-handle-7-0".into(),
+                drag_handle_a11y_label: "Drag to reorder playlist track",
+                actions_menu_id: "playlist-actions-7-0".into(),
+                actions_menu_a11y_label: "Playlist track actions",
                 play_button_id: "playlist-play-7-0".into(),
                 play_label: "▶",
                 play_enabled: true,
-                move_up_button_id: "playlist-up-7-0".into(),
-                move_up_label: "▲",
-                move_up_enabled: false,
-                move_down_button_id: "playlist-down-7-0".into(),
-                move_down_label: "▼",
-                move_down_enabled: true,
-                remove_button_id: "playlist-remove-7-0".into(),
-                remove_label: "✕",
+                move_up_menu_item: PlaylistTrackMenuItemDisplay {
+                    id: "playlist-move-up-7-0".into(),
+                    label: "Move Up",
+                    a11y_label: "Move track up",
+                    destructive: false,
+                    disabled: true,
+                },
+                move_down_menu_item: PlaylistTrackMenuItemDisplay {
+                    id: "playlist-move-down-7-0".into(),
+                    label: "Move Down",
+                    a11y_label: "Move track down",
+                    destructive: false,
+                    disabled: false,
+                },
+                remove_menu_item: PlaylistTrackMenuItemDisplay {
+                    id: "playlist-remove-7-0".into(),
+                    label: "Remove",
+                    a11y_label: "Remove track from playlist",
+                    destructive: true,
+                    disabled: false,
+                },
             }
         );
 
         let second = rows[1].controls_display(7);
         assert!(!second.play_enabled);
-        assert!(second.move_up_enabled);
-        assert!(!second.move_down_enabled);
+        assert!(!second.move_up_menu_item.disabled);
+        assert!(second.move_down_menu_item.disabled);
     }
 
     #[test]
@@ -2950,17 +3012,34 @@ mod tests {
                 controls: PlaylistTrackControlsDisplay {
                     row_id: "playlist-track-42-0".into(),
                     row_body_id: "playlist-row-body-7-0".into(),
+                    drag_handle_id: "playlist-drag-handle-7-0".into(),
+                    drag_handle_a11y_label: "Drag to reorder playlist track",
+                    actions_menu_id: "playlist-actions-7-0".into(),
+                    actions_menu_a11y_label: "Playlist track actions",
                     play_button_id: "playlist-play-7-0".into(),
                     play_label: "▶",
                     play_enabled: true,
-                    move_up_button_id: "playlist-up-7-0".into(),
-                    move_up_label: "▲",
-                    move_up_enabled: false,
-                    move_down_button_id: "playlist-down-7-0".into(),
-                    move_down_label: "▼",
-                    move_down_enabled: true,
-                    remove_button_id: "playlist-remove-7-0".into(),
-                    remove_label: "✕",
+                    move_up_menu_item: PlaylistTrackMenuItemDisplay {
+                        id: "playlist-move-up-7-0".into(),
+                        label: "Move Up",
+                        a11y_label: "Move track up",
+                        destructive: false,
+                        disabled: true,
+                    },
+                    move_down_menu_item: PlaylistTrackMenuItemDisplay {
+                        id: "playlist-move-down-7-0".into(),
+                        label: "Move Down",
+                        a11y_label: "Move track down",
+                        destructive: false,
+                        disabled: false,
+                    },
+                    remove_menu_item: PlaylistTrackMenuItemDisplay {
+                        id: "playlist-remove-7-0".into(),
+                        label: "Remove",
+                        a11y_label: "Remove track from playlist",
+                        destructive: true,
+                        disabled: false,
+                    },
                 },
             }
         );

@@ -26,8 +26,8 @@ use crate::library::PlaylistActorState;
 use crate::library::{LibraryApp, LibraryAppEvent, PlaylistDetail};
 use crate::ui::shells::library::thumbnail::render_album_thumb;
 use crate::ui::shells::playlist::{
-    click_slot, render_playlist_detail_shell, PlaylistDetailBehaviorSlots, PlaylistShellReadyRow,
-    PlaylistShellRow, PlaylistTrackRowSlot,
+    click_slot, command_slot, render_playlist_detail_shell, reorder_slot,
+    PlaylistDetailBehaviorSlots, PlaylistShellReadyRow, PlaylistShellRow, PlaylistTrackRowSlot,
 };
 use crate::view_models::library::{LibraryChromeDisplay, PlaylistDetailVm};
 
@@ -106,13 +106,13 @@ fn render_eager_playlist_detail(
                     cx.notify();
                 }))),
                 on_play,
-                on_move_up: Some(click_slot(cx.listener(move |this, _, _, cx| {
+                on_move_up: Some(command_slot(cx.listener(move |this, (), _, cx| {
                     this.move_playlist_track(playlist_id, position, position - 1, cx);
                 }))),
-                on_move_down: Some(click_slot(cx.listener(move |this, _, _, cx| {
+                on_move_down: Some(command_slot(cx.listener(move |this, (), _, cx| {
                     this.move_playlist_track(playlist_id, position, position + 1, cx);
                 }))),
-                on_remove: Some(click_slot(cx.listener(move |this, _, _, cx| {
+                on_remove: Some(command_slot(cx.listener(move |this, (), _, cx| {
                     this.remove_playlist_track_at(playlist_id, position, cx);
                 }))),
             };
@@ -143,6 +143,12 @@ fn render_eager_playlist_detail(
             on_delete: Some(click_slot(cx.listener(move |this, _, _, cx| {
                 this.delete_playlist(playlist_id, cx);
             }))),
+            on_reorder: Some(reorder_slot(cx.listener(
+                move |this, positions: &(i64, i64), _, cx| {
+                    let (from, to) = *positions;
+                    this.move_playlist_track(playlist_id, from, to, cx);
+                },
+            ))),
             track_rows,
         },
         cx,
@@ -236,6 +242,12 @@ fn try_render_paged(
             on_delete: Some(click_slot(cx.listener(move |this, _, _, cx| {
                 this.delete_playlist(playlist_id, cx);
             }))),
+            on_reorder: Some(reorder_slot(cx.listener(
+                move |this, positions: &(i64, i64), _, cx| {
+                    let (from, to) = *positions;
+                    this.move_playlist_track(playlist_id, from, to, cx);
+                },
+            ))),
             track_rows,
         },
         cx,
@@ -283,13 +295,13 @@ fn render_ready_paged_playlist_row(
             cx.notify();
         }))),
         on_play,
-        on_move_up: Some(click_slot(cx.listener(move |this, _, _, cx| {
+        on_move_up: Some(command_slot(cx.listener(move |this, (), _, cx| {
             this.move_playlist_track(playlist_id, position_i64, prev_position_i64, cx);
         }))),
-        on_move_down: Some(click_slot(cx.listener(move |this, _, _, cx| {
+        on_move_down: Some(command_slot(cx.listener(move |this, (), _, cx| {
             this.move_playlist_track(playlist_id, position_i64, next_position_i64, cx);
         }))),
-        on_remove: Some(click_slot(cx.listener(move |this, _, _, cx| {
+        on_remove: Some(command_slot(cx.listener(move |this, (), _, cx| {
             this.remove_playlist_track_at(playlist_id, position_i64, cx);
         }))),
     };
