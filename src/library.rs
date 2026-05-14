@@ -30,6 +30,7 @@ use crate::presentation::RuntimeHost;
 #[cfg(feature = "async-runtime")]
 use crate::runtime::actor::ActorHandle;
 use crate::view_models::library::{AlbumNode, LibraryViewModel};
+use crate::view_models::workspace::{FrameNavigationState, WorkspaceFrameId};
 use crate::views::ArtistView;
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,10 @@ pub(crate) enum LazyPanel<T> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum InspectorOrigin {
+    #[expect(
+        dead_code,
+        reason = "ADR 0046 Task 002 keeps the legacy inspector-origin type until Task 003 removes it"
+    )]
     Playlist(i64),
     #[expect(
         dead_code,
@@ -97,6 +102,10 @@ pub(crate) struct InspectorFrame {
     pub(crate) entity_id: i64,
     pub(crate) title: String,
     pub(crate) track: TrackRow,
+    #[expect(
+        dead_code,
+        reason = "ADR 0046 Task 002 leaves the legacy inspector-origin field for Task 003 removal"
+    )]
     pub(crate) origin: Option<InspectorOrigin>,
     pub(crate) source_context: Option<TrackContext>,
     pub(crate) image: Option<Arc<Image>>,
@@ -140,6 +149,7 @@ pub struct LibraryApp {
     /// service handles, screen-only inspector state, or maps that
     /// still hold `Arc<gpui::Image>`. See ADR 0023.
     vm: LibraryViewModel,
+    frame_navigation: BTreeMap<WorkspaceFrameId, FrameNavigationState>,
     detail: LibraryDetail,
     thumbnails: BTreeMap<(String, bool), ThumbnailState>,
     new_playlist_input: Entity<InputState>,

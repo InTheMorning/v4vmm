@@ -44,6 +44,8 @@ navigation/chrome work is complete and visually checked.
 - [x] Phase 3 includes a screen-mount boundary before workspace rendering.
 - [x] Review checklist exists before Phase 2 implementation.
 - [x] Task 001 workspace model types implemented and focused gates are green.
+- [x] Task 002 frame history view model implemented and focused gates are
+      green.
 - [ ] Phase 2 implementation complete.
 - [ ] Phase 3 implementation complete.
 - [ ] Phase 4 implementation complete.

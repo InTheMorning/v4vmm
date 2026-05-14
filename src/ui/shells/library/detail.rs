@@ -18,6 +18,7 @@ use crate::ui::shells::library::playlist_detail::render_library_playlist_detail;
 use crate::ui::shells::library::track_detail::render_library_track_detail;
 use crate::ui::style::color;
 use crate::view_models::library::{LibraryChromeDisplay, MbTrackStatus};
+use crate::view_models::workspace::FrameNavigationEntry;
 
 #[cfg_attr(
     feature = "async-runtime",
@@ -36,6 +37,7 @@ pub(crate) fn render_library_detail(
     chrome: &LibraryChromeDisplay,
     rename_playlist_input: Entity<InputState>,
     renaming_playlist_id: Option<i64>,
+    frame_back_destination: Option<&FrameNavigationEntry>,
     #[cfg(feature = "async-runtime")] playlist_actor: Option<&PlaylistActorState>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -59,7 +61,9 @@ pub(crate) fn render_library_detail(
             render_library_feed_detail(album, busy_track, mb_status, album_thumbs, playlists, cx)
         }
 
-        LibraryDetail::Track(frame) => render_library_track_detail(frame, playlists, chrome, cx),
+        LibraryDetail::Track(frame) => {
+            render_library_track_detail(frame, playlists, chrome, frame_back_destination, cx)
+        }
 
         LibraryDetail::Playlist(detail) => render_library_playlist_detail(
             detail,

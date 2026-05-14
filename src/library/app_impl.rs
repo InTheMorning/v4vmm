@@ -14,8 +14,8 @@ use rusqlite::Connection;
 #[cfg(feature = "async-runtime")]
 use super::PlaylistActorState;
 use super::{
-    InspectorFrame, InspectorOrigin, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail,
-    LibraryTrackCompare, PlaylistDetail, ThumbnailState,
+    InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, LibraryTrackCompare,
+    PlaylistDetail, ThumbnailState,
 };
 use crate::api::Client as MusicIndexClient;
 use crate::application::commands::download::{
@@ -72,6 +72,10 @@ use crate::view_models::library::{
 };
 use crate::view_models::playlist_option_displays;
 use crate::view_models::search::pending_skeleton_count;
+use crate::view_models::workspace::{
+    FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId, WorkspaceLayout,
+    WorkspaceModelError,
+};
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 
 impl InspectorFrame {
@@ -106,11 +110,66 @@ enum LibraryReloadMode {
     PreserveDetail,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FrameHistoryMode {
+    Record,
+    Restore,
+}
+
 // ---------------------------------------------------------------------------
 // LibraryApp
 // ---------------------------------------------------------------------------
 
 impl LibraryApp {
+    fn default_frame_navigation() -> BTreeMap<WorkspaceFrameId, FrameNavigationState> {
+        let mut frame_navigation = BTreeMap::new();
+        frame_navigation.insert(
+            Self::content_frame_id(),
+            FrameNavigationState::new(FrameNavigationEntry::SourceList),
+        );
+        frame_navigation
+    }
+
+    const fn content_frame_id() -> WorkspaceFrameId {
+        WorkspaceLayout::default_content_frame_id()
+    }
+
+    fn current_frame_navigation_mut(
+        &mut self,
+    ) -> Result<&mut FrameNavigationState, WorkspaceModelError> {
+        let frame_id = Self::content_frame_id();
+        self.frame_navigation
+            .get_mut(&frame_id)
+            .ok_or(WorkspaceModelError::FrameNotFound(frame_id))
+    }
+
+    fn reset_frame_navigation(
+        &mut self,
+        entry: FrameNavigationEntry,
+    ) -> Result<(), WorkspaceModelError> {
+        self.current_frame_navigation_mut()?.reset(entry);
+        Ok(())
+    }
+
+    fn push_frame_navigation(
+        &mut self,
+        entry: FrameNavigationEntry,
+    ) -> Result<(), WorkspaceModelError> {
+        self.current_frame_navigation_mut()?.push(entry);
+        Ok(())
+    }
+
+    fn restore_frame_navigation(&mut self) -> Result<FrameNavigationEntry, WorkspaceModelError> {
+        self.current_frame_navigation_mut()?.go_back().cloned()
+    }
+
+    pub(crate) fn frame_back_destination(&self) -> Option<FrameNavigationEntry> {
+        self.frame_navigation
+            .get(&Self::content_frame_id())
+            .and_then(FrameNavigationState::back_destination)
+            .cloned()
+    }
+
     pub fn new(
         conn: Arc<Mutex<Connection>>,
         cache: Arc<ImageCache>,
@@ -143,6 +202,7 @@ impl LibraryApp {
             cache,
             musicindex_endpoint,
             vm: LibraryViewModel::new(),
+            frame_navigation: Self::default_frame_navigation(),
             detail: LibraryDetail::None,
             thumbnails: BTreeMap::new(),
             new_playlist_input,
@@ -327,7 +387,7 @@ impl LibraryApp {
             | LibraryDetail::Track(_) => None,
         };
         if let Some(playlist_id) = playlist_id {
-            self.select_playlist(playlist_id, cx);
+            self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
             return;
         }
 
@@ -365,6 +425,22 @@ impl LibraryApp {
     }
 
     pub(crate) fn select_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
+        self.select_playlist_with_history(id, FrameHistoryMode::Record, cx);
+    }
+
+    fn select_playlist_with_history(
+        &mut self,
+        id: i64,
+        history_mode: FrameHistoryMode,
+        cx: &mut Context<Self>,
+    ) {
+        if history_mode == FrameHistoryMode::Record {
+            if let Err(err) = self.push_frame_navigation(FrameNavigationEntry::PlaylistDetail(id)) {
+                self.vm.set_error_status(err);
+                cx.notify();
+                return;
+            }
+        }
         self.vm.select_playlist(id);
         let conn = self.conn.lock().expect("lock db");
         let playlist = self.vm.playlist_by_id(id);
@@ -494,7 +570,7 @@ impl LibraryApp {
             move |this, (), cx| {
                 this.reload_playlists();
                 if this.vm.is_playlist_selected(id) {
-                    this.select_playlist(id, cx);
+                    this.select_playlist_with_history(id, FrameHistoryMode::Restore, cx);
                 }
             },
             |this, err, _cx| this.vm.fail_playlist_rename(err),
@@ -566,7 +642,7 @@ impl LibraryApp {
             move |this, (), cx| {
                 this.reload_playlists();
                 if this.vm.is_playlist_selected(playlist_id) {
-                    this.select_playlist(playlist_id, cx);
+                    this.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
                 }
             },
             |this, err, _cx| this.vm.fail_playlist_track_remove(err),
@@ -590,7 +666,7 @@ impl LibraryApp {
             cx,
             move |this, (), cx| {
                 if this.vm.is_playlist_selected(playlist_id) {
-                    this.select_playlist(playlist_id, cx);
+                    this.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
                 }
             },
             |this, err, _cx| this.vm.fail_playlist_track_reorder(err),
@@ -972,7 +1048,12 @@ impl LibraryApp {
     }
 
     pub(crate) fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
-        self.select_track_with_origin(track, None, cx);
+        if let Err(err) = self.reset_frame_navigation(FrameNavigationEntry::TrackDetail(track.id)) {
+            self.vm.set_error_status(err);
+            cx.notify();
+            return;
+        }
+        self.select_track_detail(track, cx);
     }
 
     pub(crate) fn select_playlist_track(
@@ -981,15 +1062,29 @@ impl LibraryApp {
         track: &TrackRow,
         cx: &mut Context<Self>,
     ) {
-        self.select_track_with_origin(track, Some(InspectorOrigin::Playlist(playlist_id)), cx);
+        if !matches!(
+            self.current_frame_navigation_mut()
+                .map(|navigation| navigation.current()),
+            Ok(FrameNavigationEntry::PlaylistDetail(current_playlist_id))
+                if *current_playlist_id == playlist_id
+        ) {
+            if let Err(err) =
+                self.reset_frame_navigation(FrameNavigationEntry::PlaylistDetail(playlist_id))
+            {
+                self.vm.set_error_status(err);
+                cx.notify();
+                return;
+            }
+        }
+        if let Err(err) = self.push_frame_navigation(FrameNavigationEntry::TrackDetail(track.id)) {
+            self.vm.set_error_status(err);
+            cx.notify();
+            return;
+        }
+        self.select_track_detail(track, cx);
     }
 
-    fn select_track_with_origin(
-        &mut self,
-        track: &TrackRow,
-        origin: Option<InspectorOrigin>,
-        cx: &mut Context<Self>,
-    ) {
+    fn select_track_detail(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
         self.vm.select_library_item(track.id);
         let image = track
             .track_image_href
@@ -997,7 +1092,6 @@ impl LibraryApp {
             .or(track.album_image_href.as_deref())
             .and_then(|url| self.thumbnail_for_url(Some(url), true, cx));
         let mut frame = InspectorFrame::for_track(track.clone(), image);
-        frame.origin = origin;
         if let Some(lookup) = self.vm.staged_musicbrainz(track.id).cloned() {
             frame.musicbrainz_lookup = LazyPanel::Loaded(lookup);
             frame.musicbrainz_selected = 0;
@@ -1035,8 +1129,21 @@ impl LibraryApp {
         .detach();
     }
 
-    pub(crate) fn navigate_back_to_playlist(&mut self, playlist_id: i64, cx: &mut Context<Self>) {
-        self.select_playlist(playlist_id, cx);
+    pub(crate) fn navigate_back_to_playlist(&mut self, _playlist_id: i64, cx: &mut Context<Self>) {
+        self.navigate_back_to_frame_history(cx);
+    }
+
+    fn navigate_back_to_frame_history(&mut self, cx: &mut Context<Self>) {
+        match self.restore_frame_navigation() {
+            Ok(FrameNavigationEntry::PlaylistDetail(playlist_id)) => {
+                self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
+            }
+            Ok(_) | Err(WorkspaceModelError::CannotNavigateBack) => cx.notify(),
+            Err(err) => {
+                self.vm.set_error_status(err);
+                cx.notify();
+            }
+        }
     }
 
     pub(crate) fn toggle_artist(&mut self, name: &str) {
@@ -1120,11 +1227,11 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             |this, _result, cx| {
-                if let Some(InspectorOrigin::Playlist(playlist_id)) = this
-                    .selected_track_frame_mut()
-                    .and_then(|frame| frame.origin.clone())
-                {
-                    this.select_playlist(playlist_id, cx);
+                if matches!(
+                    this.frame_back_destination(),
+                    Some(FrameNavigationEntry::PlaylistDetail(_))
+                ) {
+                    this.navigate_back_to_frame_history(cx);
                 }
                 this.start_async_reload_preserving_detail(cx);
             },
@@ -2180,6 +2287,7 @@ impl Render for LibraryApp {
             left_items.extend(tree_items);
         }
 
+        let frame_back_destination = self.frame_back_destination();
         let detail_pane = render_library_detail(
             &self.detail,
             self.vm.busy_track(),
@@ -2189,6 +2297,7 @@ impl Render for LibraryApp {
             &chrome,
             self.rename_playlist_input.clone(),
             self.vm.renaming_playlist_id(),
+            frame_back_destination.as_ref(),
             #[cfg(feature = "async-runtime")]
             self.playlist_actor.as_ref(),
             cx,

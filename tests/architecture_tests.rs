@@ -5343,12 +5343,20 @@ fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
 }
 
 #[test]
-fn playlist_refresh_and_origin_navigation_preserve_context() {
+fn playlist_refresh_and_frame_navigation_preserve_context() {
     let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
     for required in [
         "enum LibraryReloadMode",
         "ResetDetail",
         "PreserveDetail",
+        "enum FrameHistoryMode",
+        "Record",
+        "Restore",
+        "frame_navigation: Self::default_frame_navigation(),",
+        "fn default_frame_navigation() -> BTreeMap<WorkspaceFrameId, FrameNavigationState>",
+        "FrameNavigationState::new(FrameNavigationEntry::SourceList)",
+        "pub(crate) fn frame_back_destination(&self) -> Option<FrameNavigationEntry>",
+        ".and_then(FrameNavigationState::back_destination)",
         "pub fn refresh(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_preserving_detail(cx);",
         "pub(crate) fn start_async_reload(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_with_mode(LibraryReloadMode::ResetDetail, cx);",
         "if mode == LibraryReloadMode::ResetDetail",
@@ -5360,17 +5368,21 @@ fn playlist_refresh_and_origin_navigation_preserve_context() {
         "self.spawn_playlist_actor(id, &tracks, cx);",
         "actor.prime_initial_rows(initial_rows.iter().cloned());",
         "pub(crate) fn select_playlist_track(",
-        "Some(InspectorOrigin::Playlist(playlist_id))",
-        "frame.origin = origin;",
+        "FrameNavigationEntry::PlaylistDetail(playlist_id)",
+        "FrameNavigationEntry::TrackDetail(track.id)",
         "pub(crate) fn navigate_back_to_playlist(",
-        ".and_then(|frame| frame.origin.clone())",
-        "this.select_playlist(playlist_id, cx);",
+        "self.restore_frame_navigation()",
+        "self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);",
     ] {
         assert!(
             library_source.contains(required),
-            "Library playlist refresh/origin navigation contract must include `{required}`"
+            "Library playlist refresh/frame navigation contract must include `{required}`"
         );
     }
+    assert!(
+        !library_source.contains("frame.origin ="),
+        "Playlist track selection must not write inspector origin; frame history owns return navigation"
+    );
 
     assert!(
         !library_source.contains(
@@ -5392,7 +5404,7 @@ fn playlist_refresh_and_origin_navigation_preserve_context() {
             && library_struct_source.contains("Album(i64)")
             && library_struct_source.contains("Artist(String)")
             && library_struct_source.contains("pub(crate) origin: Option<InspectorOrigin>"),
-        "Track inspectors opened from playlists must retain typed origin state"
+        "Inspector origin remains temporarily available until ADR 0046 Task 003 removes it"
     );
 
     let playlist_detail_source =
@@ -5407,6 +5419,8 @@ fn playlist_refresh_and_origin_navigation_preserve_context() {
         "src/ui/shells/library/track_detail_metadata.rs",
     ));
     for required in [
+        "frame_back_destination: Option<&FrameNavigationEntry>",
+        "FrameNavigationEntry::PlaylistDetail(playlist_id)",
         "LibraryTrackActionVm::playlist_return_display(playlist_id)",
         "return_display.button_id",
         ".leading_icon(crate::ui::icons::IconName::Back)",

@@ -13,7 +13,7 @@ use gpui::{div, prelude::*, AnyElement, Context, SharedString, Styled};
 use super::track_detail_metadata_grid::library_track_metadata_grid;
 pub(crate) use super::track_detail_metadata_grid::track_metadata_rows_for_frame;
 use crate::db;
-use crate::library::{playlist_options, InspectorFrame, InspectorOrigin, LazyPanel, LibraryApp};
+use crate::library::{playlist_options, InspectorFrame, LazyPanel, LibraryApp};
 use crate::media::image_from_bytes;
 use crate::metadata::{
     auto_populated_pending_id3_edits, pending_id3_conflict_descriptions, PendingId3Edit,
@@ -33,6 +33,7 @@ use crate::view_models::library::LibraryTrackActionVm;
 use crate::view_models::metadata::FileHeaderVm;
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
+use crate::view_models::workspace::FrameNavigationEntry;
 use crate::views::TrackRef;
 
 pub(crate) fn render_library_track_detail_metadata(
@@ -118,6 +119,7 @@ pub(crate) fn render_library_track_detail_actions(
     frame: &InspectorFrame,
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     playlists: &[db::Playlist],
+    frame_back_destination: Option<&FrameNavigationEntry>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
@@ -137,7 +139,7 @@ pub(crate) fn render_library_track_detail_actions(
         a11y_label: SharedString::from(action_vm.action_row_a11y_label()),
     });
 
-    if let Some(InspectorOrigin::Playlist(playlist_id)) = frame.origin.as_ref() {
+    if let Some(FrameNavigationEntry::PlaylistDetail(playlist_id)) = frame_back_destination {
         let playlist_id = *playlist_id;
         let return_display = LibraryTrackActionVm::playlist_return_display(playlist_id);
         row = row.control(

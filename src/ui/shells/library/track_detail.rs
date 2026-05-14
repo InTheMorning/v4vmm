@@ -24,12 +24,14 @@ use crate::ui::shells::track;
 use crate::ui::style::spacing;
 use crate::view_models::library::LibraryChromeDisplay;
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
+use crate::view_models::workspace::FrameNavigationEntry;
 use crate::views::TrackView;
 
 pub(crate) fn render_library_track_detail(
     frame: &InspectorFrame,
     playlists: &[db::Playlist],
     chrome: &LibraryChromeDisplay,
+    frame_back_destination: Option<&FrameNavigationEntry>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let context = track_row_to_track_context(&frame.track);
@@ -46,7 +48,12 @@ pub(crate) fn render_library_track_detail(
         .overflow_y_scroll()
         .p(spacing::LG)
         .child(render_library_track_window(
-            frame, context, result, playlists, cx,
+            frame,
+            context,
+            result,
+            playlists,
+            frame_back_destination,
+            cx,
         ))
         .into_any_element()
 }
@@ -56,6 +63,7 @@ fn render_library_track_window(
     track_context: &TrackContext,
     result: Option<&TagCompareResult>,
     playlists: &[db::Playlist],
+    frame_back_destination: Option<&FrameNavigationEntry>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let pending_id3_edits = pending_id3_edits_for_track_detail(frame, track_context, result);
@@ -63,7 +71,13 @@ fn render_library_track_window(
         &track_context.track,
         &frame.title,
         frame.image.clone(),
-        render_library_track_detail_actions(frame, &pending_id3_edits, playlists, cx),
+        render_library_track_detail_actions(
+            frame,
+            &pending_id3_edits,
+            playlists,
+            frame_back_destination,
+            cx,
+        ),
     );
 
     render_library_track_detail_metadata(

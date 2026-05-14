@@ -218,6 +218,12 @@ impl WorkspaceLayout {
     const DETAIL_ID: WorkspaceFrameId = WorkspaceFrameId::new(3);
     const QUEUE_NOW_PLAYING_ID: WorkspaceFrameId = WorkspaceFrameId::new(4);
 
+    /// Returns the default primary content frame identifier.
+    #[must_use]
+    pub(crate) const fn default_content_frame_id() -> WorkspaceFrameId {
+        Self::CONTENT_LIST_ID
+    }
+
     /// Creates the ADR 0046 default workspace layout.
     #[must_use]
     pub(crate) fn default_layout() -> Self {
@@ -440,6 +446,12 @@ impl FrameNavigationState {
         &self.current
     }
 
+    /// Returns the destination that a back action would select.
+    #[must_use]
+    pub(crate) fn back_destination(&self) -> Option<&FrameNavigationEntry> {
+        self.back_stack.last()
+    }
+
     /// Returns whether a back-history entry is available.
     #[must_use]
     pub(crate) fn can_go_back(&self) -> bool {
@@ -454,8 +466,18 @@ impl FrameNavigationState {
 
     /// Pushes a new current entry and clears forward history.
     pub(crate) fn push(&mut self, entry: FrameNavigationEntry) {
+        if self.current == entry {
+            return;
+        }
         let previous = std::mem::replace(&mut self.current, entry);
         self.back_stack.push(previous);
+        self.forward_stack.clear();
+    }
+
+    /// Replaces current navigation and clears history.
+    pub(crate) fn reset(&mut self, entry: FrameNavigationEntry) {
+        self.back_stack.clear();
+        self.current = entry;
         self.forward_stack.clear();
     }
 
@@ -766,5 +788,68 @@ mod tests {
             !nav.can_go_forward(),
             "round-trip should consume forward history"
         );
+    }
+
+    #[test]
+    fn navigation_push_current_entry_is_noop() {
+        let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(7));
+
+        nav.push(FrameNavigationEntry::PlaylistDetail(7));
+
+        assert_eq!(
+            nav.current(),
+            &FrameNavigationEntry::PlaylistDetail(7),
+            "same-entry push should preserve the current destination"
+        );
+        assert!(
+            !nav.can_go_back(),
+            "same-entry push should not create synthetic back history"
+        );
+        assert!(
+            !nav.can_go_forward(),
+            "same-entry push should not create synthetic forward history"
+        );
+    }
+
+    #[test]
+    fn navigation_back_destination_peeks_without_mutating() {
+        let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(7));
+
+        assert_eq!(
+            nav.back_destination(),
+            None,
+            "initial navigation should not have a back destination"
+        );
+
+        nav.push(FrameNavigationEntry::TrackDetail(42));
+
+        assert_eq!(
+            nav.back_destination(),
+            Some(&FrameNavigationEntry::PlaylistDetail(7)),
+            "back destination should expose the previous entry"
+        );
+        assert_eq!(
+            nav.current(),
+            &FrameNavigationEntry::TrackDetail(42),
+            "peeking should not change current navigation"
+        );
+    }
+
+    #[test]
+    fn navigation_reset_clears_back_and_forward_history() {
+        let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(7));
+        nav.push(FrameNavigationEntry::TrackDetail(42));
+        nav.go_back()
+            .expect("pushed navigation should allow going back");
+
+        nav.reset(FrameNavigationEntry::TrackDetail(99));
+
+        assert_eq!(
+            nav.current(),
+            &FrameNavigationEntry::TrackDetail(99),
+            "reset should replace the current entry"
+        );
+        assert!(!nav.can_go_back(), "reset should clear back history");
+        assert!(!nav.can_go_forward(), "reset should clear forward history");
     }
 }

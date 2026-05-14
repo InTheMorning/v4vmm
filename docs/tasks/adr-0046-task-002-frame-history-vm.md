@@ -1,6 +1,6 @@
 # ADR 0046 Task 002: Frame History View Model
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -67,15 +67,30 @@ the button itself.
 
 ## Acceptance Criteria
 
-- [ ] Playlist track selection pushes back-stack entries onto the
+- [x] Playlist track selection pushes back-stack entries onto the
   frame nav state.
-- [ ] `return_to_playlist` reads destination from the frame nav
+- [x] `return_to_playlist` reads destination from the frame nav
   state.
-- [ ] `InspectorFrame.origin` is not assigned by new code
+- [x] `InspectorFrame.origin` is not assigned by new code
   paths.
-- [ ] Existing user-visible behavior (open playlist, open track, click
+- [x] Existing user-visible behavior (open playlist, open track, click
   back) is preserved.
-- [ ] Unit tests cover the back/forward boundary cases.
+- [x] Unit tests cover the back/forward boundary cases.
+
+## Implementation Notes
+
+- `LibraryApp` now owns a content-frame `FrameNavigationState`.
+- User playlist selection records `PlaylistDetail`; internal playlist
+  refreshes use restore mode so reloads and reorder/remove refreshes do
+  not fill the back stack.
+- Playlist track selection pushes `TrackDetail` while leaving
+  `InspectorFrame.origin` unset.
+- The temporary inspector Back control still renders during Task 002,
+  but its destination is passed from `LibraryApp::frame_back_destination`
+  instead of `InspectorFrame.origin`.
+- `InspectorFrame.origin` and `InspectorOrigin` intentionally remain as
+  dead legacy fields until Task 003 removes the inspector-local Back
+  control and deletes the old navigation state.
 
 ## Test Commands
 
