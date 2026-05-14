@@ -78,35 +78,11 @@ pub(crate) enum LazyPanel<T> {
     Loaded(T),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum InspectorOrigin {
-    #[expect(
-        dead_code,
-        reason = "ADR 0046 Task 002 keeps the legacy inspector-origin type until Task 003 removes it"
-    )]
-    Playlist(i64),
-    #[expect(
-        dead_code,
-        reason = "reserved by the inspector-origin contract for album drill-back navigation"
-    )]
-    Album(i64),
-    #[expect(
-        dead_code,
-        reason = "reserved by the inspector-origin contract for artist drill-back navigation"
-    )]
-    Artist(String),
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct InspectorFrame {
     pub(crate) entity_id: i64,
     pub(crate) title: String,
     pub(crate) track: TrackRow,
-    #[expect(
-        dead_code,
-        reason = "ADR 0046 Task 002 leaves the legacy inspector-origin field for Task 003 removal"
-    )]
-    pub(crate) origin: Option<InspectorOrigin>,
     pub(crate) source_context: Option<TrackContext>,
     pub(crate) image: Option<Arc<Image>>,
     pub(crate) expanded_id3_frame_groups: BTreeSet<String>,

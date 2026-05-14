@@ -23,8 +23,7 @@ use crate::ui::composites::{
     action_button, ActionButtonDisplay, ActionRow, ActionRowDisplay, ActionRowMessage,
     AddToPlaylistDisplay, AddToPlaylistPopover, FileHeader, MusicBrainzPanel,
 };
-use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::{Button as UiButton, LoadingMessage};
+use crate::ui::primitives::LoadingMessage;
 use crate::ui::style::spacing;
 use crate::view_models::entity_detail::{
     EntityActionTarget, EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
@@ -33,7 +32,6 @@ use crate::view_models::library::LibraryTrackActionVm;
 use crate::view_models::metadata::FileHeaderVm;
 use crate::view_models::musicbrainz_panel::MusicBrainzPanelVm;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
-use crate::view_models::workspace::FrameNavigationEntry;
 use crate::views::TrackRef;
 
 pub(crate) fn render_library_track_detail_metadata(
@@ -119,7 +117,6 @@ pub(crate) fn render_library_track_detail_actions(
     frame: &InspectorFrame,
     pending_id3_edits: &BTreeMap<String, PendingId3Edit>,
     playlists: &[db::Playlist],
-    frame_back_destination: Option<&FrameNavigationEntry>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
@@ -138,23 +135,6 @@ pub(crate) fn render_library_track_detail_actions(
     let mut row = ActionRow::new(ActionRowDisplay {
         a11y_label: SharedString::from(action_vm.action_row_a11y_label()),
     });
-
-    if let Some(FrameNavigationEntry::PlaylistDetail(playlist_id)) = frame_back_destination {
-        let playlist_id = *playlist_id;
-        let return_display = LibraryTrackActionVm::playlist_return_display(playlist_id);
-        row = row.control(
-            UiButton::styled(
-                SharedString::from(return_display.button_id),
-                ControlStyle::MetadataAction,
-            )
-            .leading_icon(crate::ui::icons::IconName::Back)
-            .label(return_display.label)
-            .a11y_label(return_display.a11y_label)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.navigate_back_to_playlist(playlist_id, cx);
-            })),
-        );
-    }
 
     row = row
         .control(

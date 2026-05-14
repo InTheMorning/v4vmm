@@ -373,13 +373,6 @@ pub(crate) struct LibraryTrackPlaylistDisplay {
     pub(crate) trigger_label: &'static str,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LibraryTrackPlaylistReturnDisplay {
-    pub(crate) button_id: String,
-    pub(crate) label: &'static str,
-    pub(crate) a11y_label: &'static str,
-}
-
 /// Display contract for a track row inside an album detail list.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryTrackRowDisplay {
@@ -453,15 +446,6 @@ impl<'a> LibraryTrackActionVm<'a> {
         LibraryTrackPlaylistDisplay {
             popover_id: format!("track-inspector-add:{track_id}"),
             trigger_label: Self::add_to_playlist_label(),
-        }
-    }
-
-    #[must_use]
-    pub(crate) fn playlist_return_display(playlist_id: i64) -> LibraryTrackPlaylistReturnDisplay {
-        LibraryTrackPlaylistReturnDisplay {
-            button_id: format!("track-detail-return-playlist:{playlist_id}"),
-            label: "Back to Playlist",
-            a11y_label: "Back to playlist",
         }
     }
 
@@ -3973,14 +3957,6 @@ mod tests {
             LibraryTrackPlaylistDisplay {
                 popover_id: "track-inspector-add:7".into(),
                 trigger_label: "Add to playlist",
-            }
-        );
-        assert_eq!(
-            LibraryTrackActionVm::playlist_return_display(7),
-            LibraryTrackPlaylistReturnDisplay {
-                button_id: "track-detail-return-playlist:7".into(),
-                label: "Back to Playlist",
-                a11y_label: "Back to playlist",
             }
         );
         assert_eq!(

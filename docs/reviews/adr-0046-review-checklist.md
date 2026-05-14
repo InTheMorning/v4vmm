@@ -46,6 +46,7 @@ navigation/chrome work is complete and visually checked.
 - [x] Task 001 workspace model types implemented and focused gates are green.
 - [x] Task 002 frame history view model implemented and focused gates are
       green.
+- [x] Task 003 inspector-local Back control and origin state retired.
 - [ ] Phase 2 implementation complete.
 - [ ] Phase 3 implementation complete.
 - [ ] Phase 4 implementation complete.

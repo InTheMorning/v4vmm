@@ -5355,8 +5355,6 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         "frame_navigation: Self::default_frame_navigation(),",
         "fn default_frame_navigation() -> BTreeMap<WorkspaceFrameId, FrameNavigationState>",
         "FrameNavigationState::new(FrameNavigationEntry::SourceList)",
-        "pub(crate) fn frame_back_destination(&self) -> Option<FrameNavigationEntry>",
-        ".and_then(FrameNavigationState::back_destination)",
         "pub fn refresh(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_preserving_detail(cx);",
         "pub(crate) fn start_async_reload(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_with_mode(LibraryReloadMode::ResetDetail, cx);",
         "if mode == LibraryReloadMode::ResetDetail",
@@ -5370,7 +5368,6 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         "pub(crate) fn select_playlist_track(",
         "FrameNavigationEntry::PlaylistDetail(playlist_id)",
         "FrameNavigationEntry::TrackDetail(track.id)",
-        "pub(crate) fn navigate_back_to_playlist(",
         "self.restore_frame_navigation()",
         "self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);",
     ] {
@@ -5383,6 +5380,16 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         !library_source.contains("frame.origin ="),
         "Playlist track selection must not write inspector origin; frame history owns return navigation"
     );
+    for forbidden in [
+        "pub(crate) fn navigate_back_to_playlist(",
+        "InspectorOrigin",
+        "origin: Option<InspectorOrigin>",
+    ] {
+        assert!(
+            !library_source.contains(forbidden),
+            "Library frame navigation must not retain inspector-origin return contract `{forbidden}`"
+        );
+    }
 
     assert!(
         !library_source.contains(
@@ -5398,14 +5405,18 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
     );
 
     let library_struct_source = read_source(&manifest_path("src/library.rs"));
-    assert!(
-        library_struct_source.contains("pub(crate) enum InspectorOrigin")
-            && library_struct_source.contains("Playlist(i64)")
-            && library_struct_source.contains("Album(i64)")
-            && library_struct_source.contains("Artist(String)")
-            && library_struct_source.contains("pub(crate) origin: Option<InspectorOrigin>"),
-        "Inspector origin remains temporarily available until ADR 0046 Task 003 removes it"
-    );
+    for forbidden in [
+        "pub(crate) enum InspectorOrigin",
+        "Playlist(i64)",
+        "Album(i64)",
+        "Artist(String)",
+        "pub(crate) origin: Option<InspectorOrigin>",
+    ] {
+        assert!(
+            !library_struct_source.contains(forbidden),
+            "ADR 0046 Task 003 retires inspector-origin navigation state `{forbidden}`"
+        );
+    }
 
     let playlist_detail_source =
         read_source(&manifest_path("src/ui/shells/library/playlist_detail.rs"));
@@ -5418,19 +5429,30 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
     let track_detail_source = read_source(&manifest_path(
         "src/ui/shells/library/track_detail_metadata.rs",
     ));
-    for required in [
+    for forbidden in [
         "frame_back_destination: Option<&FrameNavigationEntry>",
         "FrameNavigationEntry::PlaylistDetail(playlist_id)",
-        "LibraryTrackActionVm::playlist_return_display(playlist_id)",
-        "return_display.button_id",
+        "LibraryTrackActionVm::playlist_return_display",
+        "track-detail-return-playlist",
         ".leading_icon(crate::ui::icons::IconName::Back)",
-        "return_display.label",
-        "return_display.a11y_label",
-        "this.navigate_back_to_playlist(playlist_id, cx);",
+        "this.navigate_back_to_playlist",
     ] {
         assert!(
-            track_detail_source.contains(required),
-            "Track detail playlist-return control must use VM-owned display contract `{required}`"
+            !track_detail_source.contains(forbidden),
+            "Track detail must not render inspector-local playlist return control `{forbidden}`"
+        );
+    }
+
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    for forbidden in [
+        "LibraryTrackPlaylistReturnDisplay",
+        "playlist_return_display",
+        "Back to Playlist",
+        "track-detail-return-playlist",
+    ] {
+        assert!(
+            !library_vm_source.contains(forbidden),
+            "Library VM must not retain inspector-local playlist return display `{forbidden}`"
         );
     }
 }

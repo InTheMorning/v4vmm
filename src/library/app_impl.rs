@@ -86,7 +86,6 @@ impl InspectorFrame {
             title,
             local_subscription: track.is_in_library,
             track,
-            origin: None,
             source_context: None,
             image,
             expanded_id3_frame_groups: BTreeSet::new(),
@@ -163,7 +162,7 @@ impl LibraryApp {
         self.current_frame_navigation_mut()?.go_back().cloned()
     }
 
-    pub(crate) fn frame_back_destination(&self) -> Option<FrameNavigationEntry> {
+    fn frame_back_destination(&self) -> Option<FrameNavigationEntry> {
         self.frame_navigation
             .get(&Self::content_frame_id())
             .and_then(FrameNavigationState::back_destination)
@@ -1127,10 +1126,6 @@ impl LibraryApp {
             },
         )
         .detach();
-    }
-
-    pub(crate) fn navigate_back_to_playlist(&mut self, _playlist_id: i64, cx: &mut Context<Self>) {
-        self.navigate_back_to_frame_history(cx);
     }
 
     fn navigate_back_to_frame_history(&mut self, cx: &mut Context<Self>) {
@@ -2287,7 +2282,6 @@ impl Render for LibraryApp {
             left_items.extend(tree_items);
         }
 
-        let frame_back_destination = self.frame_back_destination();
         let detail_pane = render_library_detail(
             &self.detail,
             self.vm.busy_track(),
@@ -2297,7 +2291,6 @@ impl Render for LibraryApp {
             &chrome,
             self.rename_playlist_input.clone(),
             self.vm.renaming_playlist_id(),
-            frame_back_destination.as_ref(),
             #[cfg(feature = "async-runtime")]
             self.playlist_actor.as_ref(),
             cx,

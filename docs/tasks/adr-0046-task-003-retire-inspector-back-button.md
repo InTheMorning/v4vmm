@@ -1,6 +1,6 @@
 # ADR 0046 Task 003: Retire Inspector Back-to-Playlist Button
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -69,11 +69,25 @@ the source list.
 
 ## Acceptance Criteria
 
-- [ ] Track inspector no longer renders a back-to-playlist control.
-- [ ] `InspectorFrame.origin` is gone or no longer carries navigation state.
-- [ ] `LibraryTrackPlaylistReturnDisplay` is gone.
-- [ ] Architecture guards assert the back button is absent.
-- [ ] Frame nav state still records playlist origin entries.
+- [x] Track inspector no longer renders a back-to-playlist control.
+- [x] `InspectorFrame.origin` is gone or no longer carries navigation state.
+- [x] `LibraryTrackPlaylistReturnDisplay` is gone.
+- [x] Architecture guards assert the back button is absent.
+- [x] Frame nav state still records playlist origin entries.
+
+## Implementation Notes
+
+- Removed `InspectorOrigin` and `InspectorFrame.origin` from the
+  Library inspector model.
+- Removed `LibraryTrackPlaylistReturnDisplay`,
+  `LibraryTrackActionVm::playlist_return_display`, and the related unit
+  assertion.
+- Removed the inspector action-row Back-to-Playlist control and the
+  `navigate_back_to_playlist` wrapper.
+- Kept Task 002 frame navigation state and the private frame-history
+  restore helper used after library-removal success.
+- Updated architecture guards so the old inspector-local return
+  contract is forbidden rather than required.
 
 ## Test Commands
 
