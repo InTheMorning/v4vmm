@@ -50,8 +50,8 @@ use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
     DeferredPanelKind, LazyPanel, PlaylistAppendIntent, PlaylistAppendOutcome, ResultRow,
-    SearchBatch, SearchRemovalOrigin, SearchResultSource, SearchSubscriptionCommand,
-    SearchViewModel, TrackRowActionVm,
+    SearchBatch, SearchLibraryMembership, SearchLibraryMembershipDisplay, SearchRemovalOrigin,
+    SearchResultSource, SearchSubscriptionCommand, SearchViewModel, TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
 use crate::views::ContributorView;
@@ -559,6 +559,20 @@ impl SearchApp {
                                         frame.image = None;
                                         frame.local_subscription = Some(true);
                                         frame.subscription_message = None;
+                                        frame.contributors = LazyPanel::Empty(
+                                            SearchViewModel::deferred_panel_display(
+                                                DeferredPanelKind::Contributors,
+                                            )
+                                            .empty_label
+                                            .into(),
+                                        );
+                                        frame.value_routes = LazyPanel::Empty(
+                                            SearchViewModel::deferred_panel_display(
+                                                DeferredPanelKind::ValueRoutes,
+                                            )
+                                            .empty_label
+                                            .into(),
+                                        );
                                         image_url_to_fetch = image_url;
                                     }
                                     Err(error) => {
@@ -765,6 +779,13 @@ impl SearchApp {
         let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
+        if frame.is_local_library_track() && matches!(frame.contributors, LazyPanel::Hidden) {
+            frame.contributors = LazyPanel::Empty(
+                SearchViewModel::deferred_panel_display(DeferredPanelKind::Contributors)
+                    .empty_label
+                    .into(),
+            );
+        }
 
         let action = frame.contributors.begin_collapsible_toggle(
             &mut frame.contributors_collapsed,
@@ -818,6 +839,13 @@ impl SearchApp {
         let Some(frame) = self.inspector_stack.last_mut() else {
             return;
         };
+        if frame.is_local_library_track() && matches!(frame.value_routes, LazyPanel::Hidden) {
+            frame.value_routes = LazyPanel::Empty(
+                SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes)
+                    .empty_label
+                    .into(),
+            );
+        }
 
         let action = frame.value_routes.begin_collapsible_toggle(
             &mut frame.value_routes_collapsed,
@@ -1909,6 +1937,46 @@ impl SearchApp {
             }
         }
     }
+
+    fn library_membership_display_for_row(
+        &self,
+        row: &ResultRow,
+    ) -> Option<SearchLibraryMembershipDisplay> {
+        match row.source {
+            SearchResultSource::Library => Some(SearchLibraryMembership::InLibrary.display()),
+            SearchResultSource::MusicIndex => {
+                self.musicindex_row_is_in_library(row).map(|is_in_library| {
+                    if is_in_library {
+                        SearchLibraryMembership::InLibrary
+                    } else {
+                        SearchLibraryMembership::NotInLibrary
+                    }
+                    .display()
+                })
+            }
+        }
+    }
+
+    fn musicindex_row_is_in_library(&self, row: &ResultRow) -> Option<bool> {
+        let db = self.conn.lock().ok()?;
+        match row.detail.as_ref()? {
+            EntityDetail::Feed(feed) => feed
+                .feed_url
+                .as_deref()
+                .map(|feed_url| db::feed_is_subscribed_by_url(&db, feed_url).unwrap_or(false)),
+            EntityDetail::Track(track) => library_service::track_is_in_library_by_match(
+                &db,
+                track.feed_url.as_deref(),
+                track.track_guid.as_deref(),
+                track.enclosure_url.as_deref(),
+            )
+            .ok(),
+            EntityDetail::Artist(_)
+            | EntityDetail::Release(_)
+            | EntityDetail::Recording(_)
+            | EntityDetail::Publisher(_) => None,
+        }
+    }
 }
 
 impl Render for SearchApp {
@@ -1937,7 +2005,11 @@ impl Render for SearchApp {
                         let item = row.render_item();
                         let thumbnail =
                             self.thumbnail_for_url(item.display.image_url.as_deref(), cx);
-                        DiscoverResultRow::new(item, thumbnail)
+                        DiscoverResultRow::new(
+                            item,
+                            thumbnail,
+                            self.library_membership_display_for_row(row),
+                        )
                     })
                     .collect();
                 DiscoverResultSection {

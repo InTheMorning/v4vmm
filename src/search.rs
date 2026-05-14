@@ -114,6 +114,10 @@ impl InspectorFrame {
             scroll_handle: ScrollHandle::new(),
         }
     }
+
+    pub(crate) fn is_local_library_track(&self) -> bool {
+        self.entity_type == "track" && self.entity_id.starts_with("local:")
+    }
 }
 
 #[derive(Clone)]

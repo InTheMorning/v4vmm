@@ -31,3 +31,4 @@ pub mod library_removal_confirmation;
 pub mod playlist;
 pub mod track;
 pub mod window_layers;
+pub mod workspace;

@@ -22,19 +22,29 @@ use crate::ui::primitives::{Button as UiButton, Label, SectionHeader};
 use crate::ui::style::{color, spacing};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::search::{
-    pending_skeleton_count, should_auto_load_more, ResultRowRenderItem, SearchPaneDisplay,
-    SearchResultSectionDisplay, AUTO_PAGINATE_THRESHOLD_PX,
+    pending_skeleton_count, should_auto_load_more, ResultRowRenderItem,
+    SearchLibraryMembershipDisplay, SearchPaneDisplay, SearchResultSectionDisplay,
+    AUTO_PAGINATE_THRESHOLD_PX,
 };
 
 pub(crate) struct DiscoverResultRow {
     item: ResultRowRenderItem,
     thumbnail: Option<Arc<Image>>,
+    library_membership: Option<SearchLibraryMembershipDisplay>,
 }
 
 impl DiscoverResultRow {
     #[must_use]
-    pub(crate) const fn new(item: ResultRowRenderItem, thumbnail: Option<Arc<Image>>) -> Self {
-        Self { item, thumbnail }
+    pub(crate) const fn new(
+        item: ResultRowRenderItem,
+        thumbnail: Option<Arc<Image>>,
+        library_membership: Option<SearchLibraryMembershipDisplay>,
+    ) -> Self {
+        Self {
+            item,
+            thumbnail,
+            library_membership,
+        }
     }
 }
 
@@ -199,7 +209,16 @@ fn render_result_section(
     let rows = section
         .rows
         .into_iter()
-        .map(|row| render_result_item(row.item, selected_key, row.thumbnail, list_focused, cx))
+        .map(|row| {
+            render_result_item(
+                row.item,
+                selected_key,
+                row.thumbnail,
+                row.library_membership,
+                list_focused,
+                cx,
+            )
+        })
         .collect::<Vec<_>>();
     let is_empty = rows.is_empty();
 
@@ -226,6 +245,7 @@ fn render_result_item(
     item: ResultRowRenderItem,
     selected_key: Option<&str>,
     thumbnail: Option<Arc<Image>>,
+    library_membership: Option<SearchLibraryMembershipDisplay>,
     list_focused: bool,
     cx: &mut Context<SearchApp>,
 ) -> AnyElement {
@@ -239,7 +259,14 @@ fn render_result_item(
     let line2 = display.line2;
     let line3 = display.line3;
     let kind_label = display.kind_label;
-    let row_a11y_label = format!("{kind_label}: {line1}");
+    let membership_label = library_membership
+        .as_ref()
+        .map(|membership| membership.label);
+    let row_a11y_label = if let Some(label) = membership_label {
+        format!("{kind_label}: {line1}, {label}")
+    } else {
+        format!("{kind_label}: {line1}")
+    };
     let is_selected = selected_key == Some(selection_key.as_str());
 
     let kind = EntityKind::from_legacy_str(&kind_label);
@@ -281,6 +308,19 @@ fn render_result_item(
                                 .color(SemanticColor::TertiaryLabel)
                                 .truncated(),
                         ),
+                    )
+                })
+                .when_some(library_membership, |el, membership| {
+                    let color_role = if membership.is_in_library {
+                        SemanticColor::Success
+                    } else {
+                        SemanticColor::SecondaryLabel
+                    };
+                    el.child(
+                        Label::new(membership.label)
+                            .size(FontSize::Micro)
+                            .color(color_role)
+                            .truncated(),
                     )
                 }),
         )

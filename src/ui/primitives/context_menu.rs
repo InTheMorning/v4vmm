@@ -29,6 +29,7 @@ pub enum ContextMenuScope {
     TrackList,
     PlaylistTrack,
     GlobalSearchScope,
+    WorkspaceFrame,
 }
 
 /// Display-ready fields for one context-menu item.
@@ -212,9 +213,10 @@ mod tests {
                 ContextMenuScope::TrackList,
                 ContextMenuScope::PlaylistTrack,
                 ContextMenuScope::GlobalSearchScope,
+                ContextMenuScope::WorkspaceFrame,
             ]
             .len(),
-            4
+            5
         );
     }
 

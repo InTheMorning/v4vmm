@@ -63,11 +63,16 @@ pub(crate) fn render_inspector(
                 .gap(spacing::SM)
                 .when(show_back, |el| {
                     el.child(
-                        UiButton::styled(chrome.back_button_id, ControlStyle::Ghost)
-                            .label(chrome.back_label)
+                        UiButton::styled(chrome.breadcrumb_root_button_id, ControlStyle::Ghost)
+                            .label(chrome.breadcrumb_root_label)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.inspector_back(cx);
                             })),
+                    )
+                    .child(
+                        Label::new("/")
+                            .size(FontSize::Micro)
+                            .color(SemanticColor::TertiaryLabel),
                     )
                 })
                 .child(

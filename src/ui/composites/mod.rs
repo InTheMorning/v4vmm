@@ -24,6 +24,7 @@ pub mod detail_grid;
 pub mod detail_header;
 pub mod disclosure_group;
 pub mod file_header;
+pub mod frame_shell;
 pub mod identity_action;
 pub mod list_row;
 pub mod musicbrainz_panel;
@@ -55,6 +56,11 @@ pub use disclosure_group::{
     DisclosureSupplementDisplay, DisclosureSupplementLabel,
 };
 pub use file_header::FileHeader;
+#[expect(
+    unused_imports,
+    reason = "ADR 0046 Task 006 exports the frame shell before Task 007 wires it"
+)]
+pub(crate) use frame_shell::{frame_shell, FrameShell, FrameShellSlots};
 pub use identity_action::{
     identity_action_button, IdentityActionButtonDisplay, IdentityActionKind,
 };

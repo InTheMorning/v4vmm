@@ -1,6 +1,6 @@
 # ADR 0046 Task 005: Frame Shell Display View Model
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -67,11 +67,23 @@ content-slot identifier.
 
 ## Acceptance Criteria
 
-- [ ] `FrameShellDisplay` and supporting display types compile and are
+- [x] `FrameShellDisplay` and supporting display types compile and are
   documented.
-- [ ] Unit tests cover boundary disabled states and field passthrough.
-- [ ] No `gpui` imports in `src/view_models/workspace.rs`.
-- [ ] Architecture guard records the contract name and module.
+- [x] Unit tests cover boundary disabled states and field passthrough.
+- [x] No `gpui` imports in `src/view_models/workspace.rs`.
+- [x] Architecture guard records the contract name and module.
+
+## Implementation Notes
+
+- Added GPUI-free frame chrome display contracts for buttons, menu items, and
+  the shared frame shell.
+- Added `FrameShellDisplay::from_frame` to project frame state plus
+  navigation history into title, subtitle, status, back/forward disabled
+  states, optional close command, action menu items, and a stable content slot.
+- Added unit coverage for disabled back/forward boundaries, close visibility,
+  and title/subtitle/status passthrough.
+- Added an architecture guard proving the display contract remains in
+  `src/view_models/workspace.rs`.
 
 ## Test Commands
 

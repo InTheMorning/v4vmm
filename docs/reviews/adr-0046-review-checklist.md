@@ -50,6 +50,11 @@ navigation/chrome work is complete and visually checked.
 - [x] Task 004 Phase 2 architecture guards implemented and focused gates are
       green.
 - [x] Phase 2 implementation complete.
+- [x] Task 005 frame shell display view model implemented and focused gates are
+      green.
+- [x] Task 006 frame shell composite implemented and focused gates are green.
+- [x] Task 006a screen mount boundary implemented and focused gates are green.
+- [x] Task 007 workspace layout render implemented and focused gates are green.
 - [ ] Phase 3 implementation complete.
 - [ ] Phase 4 implementation complete.
 - [ ] Full final gate green.
@@ -75,6 +80,20 @@ navigation/chrome work is complete and visually checked.
 
 ## Visual Readiness Checklist
 
+- Task 007 local visual smoke was attempted on 2026-05-14 but GPUI could not
+  initialize the X11/GPU context in this environment. Manual visual review is
+  still required before Phase 3 is closed.
+- User screenshot on 2026-05-14 showed the first Task 007 pass rendered false
+  SourceList/Detail placeholders and squeezed Library into the Content frame.
+  Follow-up patch makes the transitional workspace two-frame: active whole
+  screen plus Queue placeholder. Manual confirmation is still required.
+- Follow-up screenshots on 2026-05-14 showed disabled frame Back/Forward chrome,
+  unfiltered Library rows under Search type chips, raw local-track deferred
+  panel 404s, and no search-row library membership status. Follow-up patch
+  hides inert frame navigation, uses a Search breadcrumb root in the inspector,
+  filters Library and Index sections through the selected result type, resolves
+  local deferred panels to empty states, and adds row membership status. Manual
+  confirmation is still required.
 - [ ] Light and dark default workspace show the expected frame hierarchy
       without overlap.
 - [ ] Narrow width collapses optional frames before hiding global search or

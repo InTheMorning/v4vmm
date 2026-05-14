@@ -1,6 +1,6 @@
 # ADR 0046 Task 006: Frame Shell Composite
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -69,12 +69,25 @@ this chrome.
 
 ## Acceptance Criteria
 
-- [ ] `frame_shell` composite exists and consumes `FrameShellDisplay`.
-- [ ] Back/forward/close render through the icon catalog, not raw
+- [x] `frame_shell` composite exists and consumes `FrameShellDisplay`.
+- [x] Back/forward/close render through the icon catalog, not raw
   glyph strings.
-- [ ] No raw color/spacing literals in the composite.
-- [ ] No screen module changed.
-- [ ] Composite slots accept a content child supplied by the caller.
+- [x] No raw color/spacing literals in the composite.
+- [x] No screen module changed.
+- [x] Composite slots accept a content child supplied by the caller.
+
+## Implementation Notes
+
+- Added `src/ui/composites/frame_shell.rs` with `FrameShell`,
+  `FrameShellSlots`, and `frame_shell(...)`.
+- The composite consumes `FrameShellDisplay`, renders title/subtitle/status,
+  history buttons, optional close, optional action menu, and a caller-owned
+  content child.
+- Added semantic icon catalog entries for `ChevronLeft`, `ChevronRight`, and
+  `Close`.
+- Added a `WorkspaceFrame` context-menu scope so frame action menus do not
+  reuse row/search semantics.
+- Added an architecture guard for the shared frame-shell composite contract.
 
 ## Test Commands
 

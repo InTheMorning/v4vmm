@@ -1,6 +1,6 @@
 # ADR 0046 Task 006a: Screen Mount Boundaries
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -59,12 +59,22 @@ their current split panes in this slice.
 
 ## Acceptance Criteria
 
-- [ ] Later workspace render can mount the existing Library/Search/Settings
+- [x] Later workspace render can mount the existing Library/Search/Settings
   screens without internal screen refactors.
-- [ ] No Library/Search split-pane rendering is copied into app/workspace shell
+- [x] No Library/Search split-pane rendering is copied into app/workspace shell
   code.
-- [ ] Task 007 can render the workspace scaffold without pretending separate
+- [x] Task 007 can render the workspace scaffold without pretending separate
   SourceList/ContentList/Detail slots already exist.
+
+## Implementation Notes
+
+- Added `WorkspaceScreenMount` in `src/app.rs` as the transitional Phase 3
+  boundary for whole Library/Search/Settings screen mounts.
+- Replaced inline active-tab child branching with
+  `render_workspace_screen_mount(...)`, preserving visible behavior while
+  giving Task 007 a single mount point for frame-shell wrapping.
+- Added an architecture guard that records the whole-screen rule and blocks
+  premature SourceList/ContentList/Detail splitting in the app mount boundary.
 
 ## Test Commands
 
@@ -125,4 +135,3 @@ At the end, report:
 - Mounting whole screens requires extracting Library/Search internals now.
 - The workspace shell needs direct access to Library/Search private split-pane
   functions.
-

@@ -609,6 +609,10 @@ fn workspace_view_model_contract_is_gpui_free() {
         "struct FrameNavigationState",
         "enum FrameNavigationEntry",
         "enum WorkspaceModelError",
+        "struct FrameChromeButtonDisplay",
+        "struct FrameChromeMenuItemDisplay",
+        "struct FrameShellDisplay",
+        "pub(crate) fn from_frame",
         "SourceList",
         "ContentList",
         "Detail",
@@ -622,6 +626,236 @@ fn workspace_view_model_contract_is_gpui_free() {
             "ADR 0046 workspace model contract missing `{required}`"
         );
     }
+}
+
+#[test]
+fn workspace_frame_shell_display_contract_lives_in_workspace_vm() {
+    let source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) struct FrameChromeButtonDisplay",
+        "pub(crate) struct FrameChromeMenuItemDisplay",
+        "pub(crate) struct FrameShellDisplay",
+        "pub(crate) frame_id: WorkspaceFrameId",
+        "pub(crate) title: String",
+        "pub(crate) subtitle: Option<String>",
+        "pub(crate) status: Option<String>",
+        "pub(crate) back: FrameChromeButtonDisplay",
+        "pub(crate) forward: FrameChromeButtonDisplay",
+        "pub(crate) close: Option<FrameChromeButtonDisplay>",
+        "pub(crate) action_menu_items: Vec<FrameChromeMenuItemDisplay>",
+        "pub(crate) content_slot_id: String",
+        "pub(crate) fn from_frame(",
+        "nav.can_go_back()",
+        "nav.can_go_forward()",
+        "allow_close.then",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0046 Task 005 frame-shell display contract missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Task 005 frame-shell display contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn workspace_frame_shell_composite_owns_shared_frame_chrome() {
+    let source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
+    let mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
+    let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) struct FrameShellSlots",
+        "pub(crate) struct FrameShell",
+        "pub(crate) fn frame_shell(",
+        "FrameShellDisplay",
+        "FrameChromeButtonDisplay",
+        "FrameChromeMenuItemDisplay",
+        "ContextMenuScope::WorkspaceFrame",
+        "IconName::ChevronLeft",
+        "IconName::ChevronRight",
+        "IconName::Close",
+        "content.into_any_element()",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: ADR 0046 Task 006 frame-shell composite missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "gpui::rgb(",
+        "gpui::px(",
+        ".absolute()",
+        ".fixed()",
+        ".z_index(",
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: ADR 0046 Task 006 frame shell must not use `{forbidden}`"
+            ));
+        }
+    }
+
+    for forbidden_screen in ["crate::library", "crate::search", "crate::app", "crate::db"] {
+        if source.contains(forbidden_screen) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: ADR 0046 Task 006 frame shell must not import `{forbidden_screen}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub mod frame_shell;",
+        "pub(crate) use frame_shell::{frame_shell, FrameShell, FrameShellSlots};",
+    ] {
+        if !mod_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/mod.rs: ADR 0046 Task 006 composite export missing `{required}`"
+            ));
+        }
+    }
+
+    for required in ["ChevronLeft", "ChevronRight", "Close"] {
+        if !icon_source.contains(required) {
+            violations.push(format!(
+                "src/ui/icons.rs: ADR 0046 Task 006 icon catalog missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Task 006 frame-shell composite violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "enum WorkspaceScreenMount",
+        "fn active_workspace_screen_mount(&self) -> WorkspaceScreenMount",
+        "fn render_workspace_screen_mount(",
+        "WorkspaceScreenMount::Library => self.library.clone().into_any_element()",
+        "WorkspaceScreenMount::Search => self.search.clone().into_any_element()",
+        "WorkspaceScreenMount::Settings => render_settings(self, cx)",
+        "workspace render wraps the active whole-screen",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0046 Task 006a mount boundary missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "render_library_sidebar",
+        "render_search_results",
+        "WorkspaceScreenMount::SourceList",
+        "WorkspaceScreenMount::ContentList",
+        "WorkspaceScreenMount::Detail",
+    ] {
+        if app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0046 Task 006a must wrap whole screens and not split panes; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Task 006a screen-mount boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
+    let source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) struct WorkspaceSlots",
+        "pub(crate) fn render_workspace(",
+        "WorkspaceLayout",
+        "WorkspaceFrameKind",
+        "frame_shell(",
+        "FrameShellSlots::new().content(content)",
+        "QueueNowPlaying",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0046 Task 007 workspace shell missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "crate::library",
+        "crate::search",
+        "crate::app",
+        "crate::db",
+        "PlaybackOwner",
+        "render_library_sidebar",
+        "render_search_results",
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0046 Task 007 shell must not import or duplicate `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "const WORKSPACE_RENDER_ENABLED: bool = true",
+        "fn render_legacy_tab_content(",
+        "fn render_workspace_content(",
+        "fn transitional_workspace_layout(",
+        "WorkspaceSlots::new().content_list(active_screen)",
+        "WorkspaceFrameKind::QueueNowPlaying",
+        "WorkspaceFrameState::with_default_title",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0046 Task 007 app render fallback/workspace wiring missing `{required}`"
+            ));
+        }
+    }
+
+    if app_source.contains("WorkspaceLayout::default_layout()") {
+        violations.push(
+            "src/app.rs: ADR 0046 Task 007 must not render the full default layout before SourceList/Detail are extracted"
+                .to_string(),
+        );
+    }
+
+    if !mod_source.contains("pub mod workspace;") {
+        violations.push(
+            "src/ui/shells/mod.rs: ADR 0046 Task 007 workspace shell module is not exported"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Task 007 workspace layout render violations:\n{}",
+        violations.join("\n")
+    );
 }
 
 #[test]

@@ -23,6 +23,9 @@ use crate::ui::tokens::{FontSize, ScaleFactor};
 pub enum IconName {
     Add,
     Back,
+    ChevronLeft,
+    ChevronRight,
+    Close,
     Rss,
     Nostr,
     Play,
@@ -43,6 +46,9 @@ impl IconName {
             Self::Nostr => Some(nostr_icon_image()),
             Self::Add
             | Self::Back
+            | Self::ChevronLeft
+            | Self::ChevronRight
+            | Self::Close
             | Self::Play
             | Self::Pause
             | Self::Stop
@@ -59,6 +65,9 @@ impl IconName {
         match self {
             Self::Add => Some("\u{002B}"),
             Self::Back => Some("\u{2190}"),
+            Self::ChevronLeft => Some("\u{2039}"),
+            Self::ChevronRight => Some("\u{203A}"),
+            Self::Close => Some("\u{00D7}"),
             Self::Play => Some("\u{25B6}"),
             Self::Pause => Some("\u{23F8}"),
             Self::Stop => Some("\u{23F9}"),
@@ -79,6 +88,9 @@ impl IconName {
             Self::Nostr => Some(gpui::rgb(0x8e_30eb)),
             Self::Add
             | Self::Back
+            | Self::ChevronLeft
+            | Self::ChevronRight
+            | Self::Close
             | Self::Play
             | Self::Pause
             | Self::Stop
@@ -252,6 +264,9 @@ mod tests {
     fn transport_icons_are_glyphs_not_svg_assets() {
         assert_eq!(IconName::Add.glyph(), Some("\u{002B}"));
         assert_eq!(IconName::Back.glyph(), Some("\u{2190}"));
+        assert_eq!(IconName::ChevronLeft.glyph(), Some("\u{2039}"));
+        assert_eq!(IconName::ChevronRight.glyph(), Some("\u{203A}"));
+        assert_eq!(IconName::Close.glyph(), Some("\u{00D7}"));
         assert_eq!(IconName::Play.glyph(), Some("\u{25B6}"));
         assert_eq!(IconName::Pause.glyph(), Some("\u{23F8}"));
         assert!(IconName::Play.image().is_none());

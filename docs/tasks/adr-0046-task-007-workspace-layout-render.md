@@ -1,6 +1,6 @@
 # ADR 0046 Task 007: Workspace Layout Render
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -52,8 +52,8 @@ reachable for fallback in this task; later tasks remove it.
 1. Add `src/ui/shells/workspace.rs` exporting `render_workspace`.
 2. `render_workspace` consumes a `WorkspaceLayout` projection and a
    slot map keyed by frame kind, returning a row of frames.
-3. Wire `TopApp::render` to build a transitional default `WorkspaceLayout` and
-   call `render_workspace`. The active Library/Search/Settings entity remains a
+3. Wire `TopApp::render` to build a transitional `WorkspaceLayout` and call
+   `render_workspace`. The active Library/Search/Settings entity remains a
    whole mounted content child. Queue renders a placeholder frame.
 4. Add a feature flag or build-time toggle to fall back to the prior
    tab rendering if the workspace render misbehaves.
@@ -62,13 +62,28 @@ reachable for fallback in this task; later tasks remove it.
 
 ## Acceptance Criteria
 
-- [ ] `src/ui/shells/workspace.rs` renders the default layout via
+- [x] `src/ui/shells/workspace.rs` renders a workspace layout via
   `frame_shell` composites.
-- [ ] Library, Search, and Settings screens render inside workspace frames
+- [x] Library, Search, and Settings screens render inside workspace frames
   without behavior change.
-- [ ] Workspace shell does not duplicate Library/Search split-pane internals.
-- [ ] No inspector grows a back button.
-- [ ] Prior tab rendering still reachable for fallback.
+- [x] Workspace shell does not duplicate Library/Search split-pane internals.
+- [x] No inspector grows a back button.
+- [x] Prior tab rendering still reachable for fallback.
+
+## Implementation Notes
+
+- Added `src/ui/shells/workspace.rs` with `WorkspaceSlots` and
+  `render_workspace(...)`.
+- `TopApp` now sends the active whole Library/Search/Settings mount into an
+  explicit transitional content frame and reserves a fixed-width
+  QueueNowPlaying placeholder.
+- SourceList and Detail are not rendered as false placeholder frames in this
+  transitional task; later ADR 0046 tasks introduce them when ownership and
+  content routing are real.
+- The legacy active-tab render path remains reachable through
+  `render_legacy_tab_content(...)` and the `WORKSPACE_RENDER_ENABLED` toggle.
+- Added an architecture guard proving the workspace shell uses shared
+  `frame_shell` chrome and does not import screen/backend internals.
 
 ## Test Commands
 
@@ -96,7 +111,7 @@ Read:
 - `src/ui/composites/frame_shell.rs`
 
 Goal:
-- Render `TopApp` body as a default `WorkspaceLayout` using
+- Render `TopApp` body as a transitional `WorkspaceLayout` using
   `frame_shell` for every frame.
 
 Constraints:

@@ -140,6 +140,39 @@ pub(crate) struct ResultRowRenderItem {
     pub(crate) display: ResultRowDisplay,
 }
 
+/// Library-membership state displayed next to search result rows.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SearchLibraryMembership {
+    InLibrary,
+    NotInLibrary,
+}
+
+/// Display contract for search row library-membership status.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchLibraryMembershipDisplay {
+    pub(crate) label: &'static str,
+    pub(crate) a11y_label: &'static str,
+    pub(crate) is_in_library: bool,
+}
+
+impl SearchLibraryMembership {
+    #[must_use]
+    pub(crate) const fn display(self) -> SearchLibraryMembershipDisplay {
+        match self {
+            Self::InLibrary => SearchLibraryMembershipDisplay {
+                label: "In Library",
+                a11y_label: "Item is in the local library",
+                is_in_library: true,
+            },
+            Self::NotInLibrary => SearchLibraryMembershipDisplay {
+                label: "Not in Library",
+                a11y_label: "Item is not in the local library",
+                is_in_library: false,
+            },
+        }
+    }
+}
+
 /// Borrow-only projection for one recent-feed tile.
 pub(crate) struct RecentFeedTileVm<'a> {
     feed: &'a Feed,
@@ -1402,18 +1435,18 @@ pub(crate) struct RecentFeedsSnapshot {
 /// Static labels for the Discover inspector shell.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct InspectorChromeDisplay {
-    pub(crate) back_button_id: &'static str,
+    pub(crate) breadcrumb_root_button_id: &'static str,
     pub(crate) scroll_id: &'static str,
-    pub(crate) back_label: &'static str,
+    pub(crate) breadcrumb_root_label: &'static str,
     pub(crate) empty_icon: &'static str,
     pub(crate) empty_label: &'static str,
 }
 
 impl InspectorChromeDisplay {
     const VALUE: Self = Self {
-        back_button_id: "inspector-back",
+        breadcrumb_root_button_id: "inspector-breadcrumb-root",
         scroll_id: "inspector-scroll",
-        back_label: "\u{2190} Back",
+        breadcrumb_root_label: "Results",
         empty_icon: "\u{1F50D}",
         empty_label: "Select a result to inspect",
     };
@@ -1692,7 +1725,7 @@ impl SearchViewModel {
                         heading: "Library",
                         empty_label: "No Library results",
                     },
-                    rows: self.library_results.clone(),
+                    rows: self.filtered_result_rows(&self.library_results),
                     show_empty: true,
                 });
                 sections.push(SearchResultSection {
@@ -1701,7 +1734,7 @@ impl SearchViewModel {
                         heading: "Index",
                         empty_label: "No Index results",
                     },
-                    rows: self.results.clone(),
+                    rows: self.filtered_result_rows(&self.results),
                     show_empty: true,
                 });
             }
@@ -1712,7 +1745,7 @@ impl SearchViewModel {
                         heading: "Library",
                         empty_label: "No Library results",
                     },
-                    rows: self.library_results.clone(),
+                    rows: self.filtered_result_rows(&self.library_results),
                     show_empty: false,
                 });
             }
@@ -1723,12 +1756,20 @@ impl SearchViewModel {
                         heading: "Index",
                         empty_label: "No Index results",
                     },
-                    rows: self.results.clone(),
+                    rows: self.filtered_result_rows(&self.results),
                     show_empty: false,
                 });
             }
         }
         sections
+    }
+
+    fn filtered_result_rows(&self, rows: &[ResultRow]) -> Vec<ResultRow> {
+        let type_filter = Self::type_filter_value(self.type_filter);
+        rows.iter()
+            .filter(|row| type_filter.is_none_or(|kind| row.entity_type == kind))
+            .cloned()
+            .collect()
     }
 
     #[must_use]
@@ -2024,7 +2065,8 @@ impl SearchViewModel {
     }
 
     fn update_search_status(&mut self) {
-        let total = self.results.len() + self.library_results.len();
+        let total = self.filtered_result_rows(&self.results).len()
+            + self.filtered_result_rows(&self.library_results).len();
         if total == 0 {
             self.status.clear();
         } else {
@@ -3617,6 +3659,54 @@ mod tests {
     }
 
     #[test]
+    fn search_render_snapshot_applies_type_filter_to_library_and_index_sections() {
+        let mut vm = SearchViewModel::new();
+        vm.active_scope = GlobalSearchScope::All;
+        vm.set_type_filter(2);
+        vm.library_results = vec![ResultRow::local_library_track(
+            42,
+            EntityDetail::Track(Track {
+                title: Some("Local Track".into()),
+                ..Track::default()
+            }),
+        )];
+        vm.results = vec![
+            ResultRow::new("track", "index-track", None),
+            ResultRow::new("feed", "index-feed", None),
+        ];
+
+        let snapshot = vm.render_snapshot(true, false);
+
+        assert_eq!(snapshot.sections.len(), 2);
+        assert!(
+            snapshot.sections[0].rows.is_empty(),
+            "Feed filter should hide local track rows"
+        );
+        assert_eq!(snapshot.sections[1].rows.len(), 1);
+        assert_eq!(snapshot.sections[1].rows[0].key(), "index:feed:index-feed");
+    }
+
+    #[test]
+    fn search_library_membership_display_projects_labels() {
+        assert_eq!(
+            SearchLibraryMembership::InLibrary.display(),
+            SearchLibraryMembershipDisplay {
+                label: "In Library",
+                a11y_label: "Item is in the local library",
+                is_in_library: true,
+            }
+        );
+        assert_eq!(
+            SearchLibraryMembership::NotInLibrary.display(),
+            SearchLibraryMembershipDisplay {
+                label: "Not in Library",
+                a11y_label: "Item is not in the local library",
+                is_in_library: false,
+            }
+        );
+    }
+
+    #[test]
     fn search_render_snapshot_hides_index_controls_for_library_scope() {
         let mut vm = SearchViewModel::new();
         vm.active_scope = GlobalSearchScope::Library;
@@ -3663,11 +3753,14 @@ mod tests {
     }
 
     #[test]
-    fn inspector_chrome_display_projects_back_and_empty_state() {
+    fn inspector_chrome_display_projects_breadcrumb_and_empty_state() {
         let display = SearchViewModel::inspector_chrome_display();
-        assert_eq!(display.back_button_id, "inspector-back");
+        assert_eq!(
+            display.breadcrumb_root_button_id,
+            "inspector-breadcrumb-root"
+        );
         assert_eq!(display.scroll_id, "inspector-scroll");
-        assert_eq!(display.back_label, "\u{2190} Back");
+        assert_eq!(display.breadcrumb_root_label, "Results");
         assert_eq!(display.empty_icon, "\u{1F50D}");
         assert_eq!(display.empty_label, "Select a result to inspect");
     }

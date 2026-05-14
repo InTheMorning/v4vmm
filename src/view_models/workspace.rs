@@ -195,6 +195,117 @@ impl fmt::Display for WorkspaceModelError {
 
 impl Error for WorkspaceModelError {}
 
+/// Display contract for one frame-chrome button.
+///
+/// The shell renderer owns visual treatment and icon selection. This contract
+/// only supplies a stable command id, accessibility label, and availability
+/// state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FrameChromeButtonDisplay {
+    /// Stable element or command identifier for the button.
+    pub(crate) id: String,
+    /// Accessibility label for assistive technologies and tooltips.
+    pub(crate) a11y_label: &'static str,
+    /// Whether the command should render unavailable.
+    pub(crate) disabled: bool,
+}
+
+impl FrameChromeButtonDisplay {
+    /// Creates a display contract for a frame-chrome button.
+    #[must_use]
+    pub(crate) fn new(id: impl Into<String>, a11y_label: &'static str, disabled: bool) -> Self {
+        Self {
+            id: id.into(),
+            a11y_label,
+            disabled,
+        }
+    }
+}
+
+/// Display contract for one frame-chrome menu item.
+///
+/// Menu items use semantic ids and static labels. The shared frame shell owns
+/// rendering details, including any icon catalog mapping.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FrameChromeMenuItemDisplay {
+    /// Stable element or command identifier for the menu item.
+    pub(crate) id: String,
+    /// Visible menu label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for the menu item.
+    pub(crate) a11y_label: &'static str,
+    /// Whether the command should render unavailable.
+    pub(crate) disabled: bool,
+}
+
+/// Display contract consumed by the shared workspace frame shell.
+///
+/// This projection keeps frame chrome data in a GPUI-free view model. Screens
+/// render content into the named slot while the shared shell renders title,
+/// navigation, close, and action-menu affordances consistently.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FrameShellDisplay {
+    /// Frame identifier represented by this shell.
+    pub(crate) frame_id: WorkspaceFrameId,
+    /// Primary frame title.
+    pub(crate) title: String,
+    /// Optional secondary frame context.
+    pub(crate) subtitle: Option<String>,
+    /// Optional trailing status text.
+    pub(crate) status: Option<String>,
+    /// Back navigation command display.
+    pub(crate) back: FrameChromeButtonDisplay,
+    /// Forward navigation command display.
+    pub(crate) forward: FrameChromeButtonDisplay,
+    /// Optional close command display.
+    pub(crate) close: Option<FrameChromeButtonDisplay>,
+    /// Additional frame action menu items.
+    pub(crate) action_menu_items: Vec<FrameChromeMenuItemDisplay>,
+    /// Stable content slot identifier for mounting frame body content.
+    pub(crate) content_slot_id: String,
+}
+
+impl FrameShellDisplay {
+    const BACK_A11Y_LABEL: &'static str = "Navigate back in frame";
+    const FORWARD_A11Y_LABEL: &'static str = "Navigate forward in frame";
+    const CLOSE_A11Y_LABEL: &'static str = "Close frame";
+
+    /// Projects frame state and navigation into shell chrome display data.
+    #[must_use]
+    pub(crate) fn from_frame(
+        frame: &WorkspaceFrameState,
+        nav: &FrameNavigationState,
+        allow_close: bool,
+    ) -> Self {
+        let frame_id = frame.id();
+        Self {
+            frame_id,
+            title: frame.title().to_string(),
+            subtitle: frame.subtitle().map(ToOwned::to_owned),
+            status: frame.status().map(ToOwned::to_owned),
+            back: FrameChromeButtonDisplay::new(
+                format!("workspace-frame-{}-back", frame_id.value()),
+                Self::BACK_A11Y_LABEL,
+                !nav.can_go_back(),
+            ),
+            forward: FrameChromeButtonDisplay::new(
+                format!("workspace-frame-{}-forward", frame_id.value()),
+                Self::FORWARD_A11Y_LABEL,
+                !nav.can_go_forward(),
+            ),
+            close: allow_close.then(|| {
+                FrameChromeButtonDisplay::new(
+                    format!("workspace-frame-{}-close", frame_id.value()),
+                    Self::CLOSE_A11Y_LABEL,
+                    false,
+                )
+            }),
+            action_menu_items: Vec::new(),
+            content_slot_id: format!("workspace-frame-{}-content", frame_id.value()),
+        }
+    }
+}
+
 /// Ordered workspace layout and focus state.
 ///
 /// The layout owns frame ordering and focus invariants. Empty layouts are valid
@@ -517,12 +628,122 @@ impl FrameNavigationState {
 #[cfg(test)]
 mod tests {
     use super::{
-        FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId, WorkspaceFrameKind,
-        WorkspaceFrameState, WorkspaceLayout, WorkspaceModelError,
+        FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, WorkspaceFrameId,
+        WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceModelError,
     };
 
     fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
         WorkspaceFrameState::with_default_title(WorkspaceFrameId::new(id), kind)
+    }
+
+    #[test]
+    fn frame_shell_display_disables_empty_history_navigation() {
+        let frame = frame(7, WorkspaceFrameKind::Detail);
+        let nav = FrameNavigationState::new(FrameNavigationEntry::TrackDetail(42));
+
+        let display = FrameShellDisplay::from_frame(&frame, &nav, true);
+
+        assert!(
+            display.back.disabled,
+            "empty back history should disable frame Back"
+        );
+        assert!(
+            display.forward.disabled,
+            "empty forward history should disable frame Forward"
+        );
+        assert_eq!(
+            display.back.id, "workspace-frame-7-back",
+            "back id should be stable and frame-scoped"
+        );
+        assert_eq!(
+            display.forward.id, "workspace-frame-7-forward",
+            "forward id should be stable and frame-scoped"
+        );
+    }
+
+    #[test]
+    fn frame_shell_display_uses_history_for_navigation_availability() {
+        let frame = frame(7, WorkspaceFrameKind::Detail);
+        let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
+
+        nav.push(FrameNavigationEntry::TrackDetail(42));
+        let with_back = FrameShellDisplay::from_frame(&frame, &nav, true);
+
+        assert!(
+            !with_back.back.disabled,
+            "back history should enable frame Back"
+        );
+        assert!(
+            with_back.forward.disabled,
+            "pushing a new entry should leave frame Forward disabled"
+        );
+
+        nav.go_back()
+            .expect("pushed navigation should allow going back");
+        let with_forward = FrameShellDisplay::from_frame(&frame, &nav, true);
+
+        assert!(
+            with_forward.back.disabled,
+            "after returning to the first entry, frame Back should be disabled"
+        );
+        assert!(
+            !with_forward.forward.disabled,
+            "back navigation should enable frame Forward"
+        );
+    }
+
+    #[test]
+    fn frame_shell_display_hides_close_when_not_allowed() {
+        let frame = frame(7, WorkspaceFrameKind::Detail);
+        let nav = FrameNavigationState::new(FrameNavigationEntry::TrackDetail(42));
+
+        let fixed_frame = FrameShellDisplay::from_frame(&frame, &nav, false);
+        let closable_frame = FrameShellDisplay::from_frame(&frame, &nav, true);
+
+        assert_eq!(
+            fixed_frame.close, None,
+            "non-closable frames should not expose a close command"
+        );
+        assert_eq!(
+            closable_frame.close.map(|close| close.id),
+            Some("workspace-frame-7-close".to_string()),
+            "closable frames should expose a frame-scoped close command"
+        );
+    }
+
+    #[test]
+    fn frame_shell_display_passes_through_header_text_and_slot_id() {
+        let frame = WorkspaceFrameState::new(
+            WorkspaceFrameId::new(7),
+            WorkspaceFrameKind::ContentList,
+            "Playlist",
+        )
+        .with_subtitle("Seven tracks")
+        .with_status("Ready");
+        let nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
+
+        let display = FrameShellDisplay::from_frame(&frame, &nav, true);
+
+        assert_eq!(display.frame_id, WorkspaceFrameId::new(7));
+        assert_eq!(display.title, "Playlist");
+        assert_eq!(
+            display.subtitle,
+            Some("Seven tracks".to_string()),
+            "subtitle should pass through from frame state"
+        );
+        assert_eq!(
+            display.status,
+            Some("Ready".to_string()),
+            "status should pass through from frame state"
+        );
+        assert_eq!(
+            display.content_slot_id, "workspace-frame-7-content",
+            "content slot id should be stable and frame-scoped"
+        );
+        assert!(
+            display.action_menu_items.is_empty(),
+            "Task 005 defines the menu item contract without adding default actions"
+        );
     }
 
     #[test]

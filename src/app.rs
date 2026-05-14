@@ -23,10 +23,14 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::shells::window_layers::render_window_layers;
+use crate::ui::shells::workspace::{render_workspace, WorkspaceSlots};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::app_toolbar::{AppToolbarVm, GlobalSearchScope};
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
+use crate::view_models::workspace::{
+    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+};
 
 mod bootstrap;
 mod events;
@@ -40,6 +44,10 @@ pub use bootstrap::run_app;
 use playback_bar::build_playback_bar;
 use tab_bar::render_tab_bar;
 
+const WORKSPACE_RENDER_ENABLED: bool = true;
+const WORKSPACE_CONTENT_FRAME_ID: WorkspaceFrameId = WorkspaceFrameId::new(2);
+const WORKSPACE_QUEUE_FRAME_ID: WorkspaceFrameId = WorkspaceFrameId::new(4);
+
 // ---------------------------------------------------------------------------
 // AppTab
 // ---------------------------------------------------------------------------
@@ -49,6 +57,37 @@ enum AppTab {
     Library,
     Search,
     Settings,
+}
+
+/// ADR 0046 Phase 3 transitional mount boundary.
+///
+/// The workspace shell wraps existing screens whole until a later task extracts
+/// Library/Search internals into independent source/content/detail frame slots.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorkspaceScreenMount {
+    Library,
+    Search,
+    Settings,
+}
+
+impl WorkspaceScreenMount {
+    const fn frame_title(self) -> &'static str {
+        match self {
+            Self::Library => "Library",
+            Self::Search => "Search",
+            Self::Settings => "Settings",
+        }
+    }
+}
+
+impl From<AppTab> for WorkspaceScreenMount {
+    fn from(tab: AppTab) -> Self {
+        match tab {
+            AppTab::Library => Self::Library,
+            AppTab::Search => Self::Search,
+            AppTab::Settings => Self::Settings,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -487,6 +526,62 @@ impl TopApp {
             },
         );
     }
+
+    fn active_workspace_screen_mount(&self) -> WorkspaceScreenMount {
+        self.tab.into()
+    }
+
+    fn render_workspace_screen_mount(
+        &mut self,
+        mount: WorkspaceScreenMount,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        match mount {
+            WorkspaceScreenMount::Library => self.library.clone().into_any_element(),
+            WorkspaceScreenMount::Search => self.search.clone().into_any_element(),
+            WorkspaceScreenMount::Settings => render_settings(self, cx),
+        }
+    }
+
+    fn render_legacy_tab_content(
+        &mut self,
+        mount: WorkspaceScreenMount,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        self.render_workspace_screen_mount(mount, cx)
+    }
+
+    fn render_workspace_content(
+        &mut self,
+        mount: WorkspaceScreenMount,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let active_screen = self.render_workspace_screen_mount(mount, cx);
+        render_workspace(
+            &Self::transitional_workspace_layout(mount),
+            WorkspaceSlots::new().content_list(active_screen),
+            cx,
+        )
+        .into_any_element()
+    }
+
+    fn transitional_workspace_layout(mount: WorkspaceScreenMount) -> WorkspaceLayout {
+        WorkspaceLayout::new(
+            vec![
+                WorkspaceFrameState::new(
+                    WORKSPACE_CONTENT_FRAME_ID,
+                    WorkspaceFrameKind::ContentList,
+                    mount.frame_title(),
+                ),
+                WorkspaceFrameState::with_default_title(
+                    WORKSPACE_QUEUE_FRAME_ID,
+                    WorkspaceFrameKind::QueueNowPlaying,
+                ),
+            ],
+            Some(WORKSPACE_CONTENT_FRAME_ID),
+        )
+        .expect("transitional workspace layout has stable unique frame ids")
+    }
 }
 
 impl Render for TopApp {
@@ -518,21 +613,21 @@ impl Render for TopApp {
             .on_action(cx.listener(TopApp::handle_move_selection_down))
             .on_action(cx.listener(TopApp::handle_confirm_selection))
             .child(render_tab_bar(self, playback_bar, window, cx))
-            // Active tab content
+            // ADR 0046 Task 007: workspace render wraps the active whole-screen
+            // mount; the legacy branch remains reachable for fallback.
             .child(
                 div()
                     .key_context(keyboard::ACTIVE_PANE_KEY_CONTEXT)
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
-                    .when(self.tab == AppTab::Library, |el| {
-                        el.child(self.library.clone())
-                    })
-                    .when(self.tab == AppTab::Search, |el| {
-                        el.child(self.search.clone())
-                    })
-                    .when(self.tab == AppTab::Settings, |el| {
-                        el.child(render_settings(self, cx))
+                    .child({
+                        let mount = self.active_workspace_screen_mount();
+                        if WORKSPACE_RENDER_ENABLED {
+                            self.render_workspace_content(mount, cx)
+                        } else {
+                            self.render_legacy_tab_content(mount, cx)
+                        }
                     }),
             )
             .children(render_window_layers(window, cx))
