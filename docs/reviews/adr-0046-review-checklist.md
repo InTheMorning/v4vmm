@@ -98,8 +98,10 @@ navigation/chrome work is complete and visually checked.
   without visible scrolling, plus Recent Feeds becoming inaccessible after
   search. Follow-up patch makes the workspace mount/frame-shell scroll chain
   explicitly bounded, restores the Recent Feeds command outside the empty root,
-  and adds AGENTS/architecture/test guards for the regression ratchet. Manual
-  confirmation is still required.
+  and adds architecture/test guards for the regression ratchet. User confirmed
+  on 2026-05-14 that scrolling works across the affected panes, Recent Feeds is
+  reachable after search, search filters apply to visible result sections, and
+  raw 404 panel errors are gone from normal inspector display.
 - [ ] Light and dark default workspace show the expected frame hierarchy
       without overlap.
 - [ ] Narrow width collapses optional frames before hiding global search or
