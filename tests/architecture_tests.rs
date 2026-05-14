@@ -575,6 +575,56 @@ fn view_models_do_not_import_gpui_or_screen_layers() {
 }
 
 #[test]
+fn workspace_view_model_contract_is_gpui_free() {
+    let path = manifest_path("src/view_models/workspace.rs");
+    let source = read_source(&path);
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        for pattern in [
+            "use gpui",
+            "gpui::",
+            "use gpui_component",
+            "gpui_component::",
+        ] {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/view_models/workspace.rs:{line_number}: workspace model must stay GPUI-free; found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 workspace model boundary violations:\n{}",
+        violations.join("\n")
+    );
+
+    for required in [
+        "struct WorkspaceFrameId",
+        "enum WorkspaceFrameKind",
+        "struct WorkspaceFrameState",
+        "struct WorkspaceLayout",
+        "struct FrameNavigationState",
+        "enum FrameNavigationEntry",
+        "enum WorkspaceModelError",
+        "SourceList",
+        "ContentList",
+        "Detail",
+        "QueueNowPlaying",
+        "pub(crate) fn focus_frame",
+        "pub(crate) fn go_back",
+        "pub(crate) fn go_forward",
+    ] {
+        assert!(
+            source.contains(required),
+            "ADR 0046 workspace model contract missing `{required}`"
+        );
+    }
+}
+
+#[test]
 fn entity_detail_projection_does_not_import_api_ui_or_services() {
     let path = manifest_path("src/view_models/entity_detail.rs");
     let source = read_source(&path);

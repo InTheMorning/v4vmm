@@ -1,6 +1,6 @@
 # ADR 0046 Task 001: Workspace Model Types
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -64,14 +64,24 @@ navigation work has a typed contract to render. No visible UI change.
 
 ## Acceptance Criteria
 
-- [ ] `src/view_models/workspace.rs` exists and compiles.
-- [ ] All public types document summary, behavior, errors, panics where
+- [x] `src/view_models/workspace.rs` exists and compiles.
+- [x] All public types document summary, behavior, errors, panics where
   applicable.
-- [ ] Unit tests cover empty layout, single-frame layout, multi-frame
+- [x] Unit tests cover empty layout, single-frame layout, multi-frame
   layout, back/forward boundary states, and focus invariants.
-- [ ] Architecture guard confirms no `gpui` imports in
+- [x] Architecture guard confirms no `gpui` imports in
   `src/view_models/workspace.rs`.
-- [ ] No `src/ui/*` or screen module changed.
+- [x] No `src/ui/*` or screen module changed.
+
+## Implementation Notes
+
+- Added the GPUI-free `workspace` view-model module with typed frame ids,
+  frame kinds, frame state, layout/focus operations, frame navigation history,
+  and a small fallible operation error enum.
+- Added unit tests for default/empty/single/multi-frame layouts,
+  focus-preservation behavior, invalid mutations, and back/forward navigation.
+- Added an architecture guard proving the workspace model remains GPUI-free
+  and exposes the ADR 0046 frame contract.
 
 ## Test Commands
 

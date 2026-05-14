@@ -77,6 +77,7 @@ pub mod search;
 pub mod track;
 pub mod track_detail;
 pub mod track_metadata_grid;
+pub(crate) mod workspace;
 
 use crate::db;
 
