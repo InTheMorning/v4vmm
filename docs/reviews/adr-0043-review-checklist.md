@@ -11,9 +11,9 @@
 
 ## Gate Status
 
-Status: Tasks 001-003 implemented on 2026-05-11. Task 004 pending.
+Status: Awaiting operator visual recheck after follow-up fixes on 2026-05-14.
 
-Readiness decision: Pending.
+Readiness decision: Pending visual verification.
 
 ## Required Checks
 
@@ -54,10 +54,32 @@ Readiness decision: Pending.
 
 ## Required Fixes
 
-- Task 004 visual readiness remains pending.
-- Visual proof is blocked in this session: `DISPLAY=:0 wmctrl -l` fails with
-  `Authorization required, but no authorization protocol specified` and
-  `Cannot open display`, including after an escalated retry.
+- User visual screenshots on 2026-05-13 showed narrow-toolbar clipping risk:
+  scope labels could be partially visible between Settings and the Now
+  Playing frame.
+- Initial mitigation on 2026-05-13 made app-toolbar scope controls and the
+  submit button progressively hide at named layout-token breakpoints. This was
+  superseded by the 2026-05-14 HIG fix below so the primary Search action
+  remains visible.
+- Follow-up visual review on 2026-05-14 still showed clipping at a narrow dark
+  toolbar width: scope controls and the Search submit control could remain
+  visible while the global search field was no longer legible.
+- Fixed on 2026-05-14: the named toolbar breakpoints were raised so optional
+  scope and submit controls collapse earlier, preserving the global search
+  field and Now Playing frame as the narrow-width toolbar priorities.
+- Second follow-up visual review on 2026-05-14 still showed the global search
+  field clipped because the Now Playing frame kept its full-width size in a
+  compact toolbar.
+- Fixed on 2026-05-14: Now Playing now uses a named compact-width rule below
+  the toolbar breakpoint, preserving its frame while yielding enough center
+  toolbar space for the search field.
+- HIG drift review on 2026-05-14 found that narrow-width hiding removed the
+  trailing primary Search action and made scope switching unavailable. Fixed
+  on 2026-05-14: Search submit is always rendered, scope switching collapses
+  to the shared menu primitive below the scope breakpoint, and toolbar width is
+  computed once in `render_tab_bar` before being passed into search rendering.
+- Visual proof still needs operator recheck because this execution session
+  cannot inspect the running display directly.
 
 ## Optional Improvements
 
@@ -74,14 +96,16 @@ Readiness decision: Pending.
 
 ## Architectural Drift
 
-- Visual proof is still pending because the current execution environment has
-  no display server. Final light/dark evidence remains assigned to Task 004.
+- Visual proof is still pending after the 2026-05-14 narrow-toolbar fix.
+  Final light/dark evidence remains assigned to Task 004.
 
 ## Missing Tests
 
 - Task 004 still needs final light/dark visual proof at normal and narrow
-  widths.
+  widths after the 2026-05-14 fix.
 
 ## Merge Recommendation
 
-Pending implementation and review.
+Pending. Do not mark ADR 0043 ready until light and dark visual proof
+confirms the toolbar, global search field, Search workspace, and Now Playing
+frame remain legible at normal and narrow widths.

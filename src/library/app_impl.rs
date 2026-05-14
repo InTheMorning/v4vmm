@@ -14,8 +14,8 @@ use rusqlite::Connection;
 #[cfg(feature = "async-runtime")]
 use super::PlaylistActorState;
 use super::{
-    InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, LibraryTrackCompare,
-    PlaylistDetail, ThumbnailState,
+    InspectorFrame, InspectorOrigin, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail,
+    LibraryTrackCompare, PlaylistDetail, ThumbnailState,
 };
 use crate::api::Client as MusicIndexClient;
 use crate::application::commands::download::{
@@ -82,6 +82,7 @@ impl InspectorFrame {
             title,
             local_subscription: track.is_in_library,
             track,
+            origin: None,
             source_context: None,
             image,
             expanded_id3_frame_groups: BTreeSet::new(),
@@ -97,6 +98,12 @@ impl InspectorFrame {
             musicbrainz_selected: 0,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LibraryReloadMode {
+    ResetDetail,
+    PreserveDetail,
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +169,7 @@ impl LibraryApp {
     }
 
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        self.start_async_reload(cx);
+        self.start_async_reload_preserving_detail(cx);
     }
 
     pub fn begin_new_playlist(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -250,16 +257,29 @@ impl LibraryApp {
     /// flagged so the sidebar paints skeleton placeholders instead of
     /// blocking the cold-open paint.
     pub(crate) fn start_async_reload(&mut self, cx: &mut Context<Self>) {
+        self.start_async_reload_with_mode(LibraryReloadMode::ResetDetail, cx);
+    }
+
+    fn start_async_reload_preserving_detail(&mut self, cx: &mut Context<Self>) {
+        self.start_async_reload_with_mode(LibraryReloadMode::PreserveDetail, cx);
+    }
+
+    fn start_async_reload_with_mode(&mut self, mode: LibraryReloadMode, cx: &mut Context<Self>) {
         self.vm.begin_library_reload();
-        self.vm.clear_library_selection();
         self.vm.clear_mb_status();
-        self.detail = LibraryDetail::None;
+        if mode == LibraryReloadMode::ResetDetail {
+            self.vm.clear_library_selection();
+            self.detail = LibraryDetail::None;
+        }
         cx.notify();
 
         // Playlists are a small single-table query: keep them on the
         // foreground for now so the playlist sidebar stays responsive
         // and we don't grow a second async path until proven needed.
         self.reload_playlists();
+        if mode == LibraryReloadMode::PreserveDetail {
+            self.refresh_selected_detail(cx);
+        }
 
         let conn = Arc::clone(&self.conn);
         cx.spawn(
@@ -298,13 +318,53 @@ impl LibraryApp {
         }
     }
 
+    fn refresh_selected_detail(&mut self, cx: &mut Context<Self>) {
+        let playlist_id = match &self.detail {
+            LibraryDetail::Playlist(detail) => Some(detail.playlist.id),
+            LibraryDetail::None
+            | LibraryDetail::Artist(_)
+            | LibraryDetail::Album(_)
+            | LibraryDetail::Track(_) => None,
+        };
+        if let Some(playlist_id) = playlist_id {
+            self.select_playlist(playlist_id, cx);
+            return;
+        }
+
+        if let LibraryDetail::Track(frame) = &self.detail {
+            self.refresh_selected_track(frame.entity_id);
+        }
+    }
+
+    fn refresh_selected_track(&mut self, track_id: i64) {
+        // Preserve-detail reloads use one synchronous PK lookup, matching
+        // the sidebar playlist refresh path until a shared async detail actor
+        // is introduced.
+        let track = {
+            let conn = self.conn.lock().expect("lock db");
+            db::track_row_by_id(&conn, track_id).unwrap_or_default()
+        };
+        let Some(track) = track else {
+            return;
+        };
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        if frame.entity_id != track_id {
+            return;
+        }
+        frame.title = LibraryTrackRowVm::new(&track, None).display_title();
+        frame.local_subscription = track.is_in_library;
+        frame.track = track;
+    }
+
     fn cycle_playlist_sort(&mut self, cx: &mut Context<Self>) {
         self.vm.cycle_playlist_sort();
         self.vm.sort_loaded_playlists();
         cx.notify();
     }
 
-    fn select_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
+    pub(crate) fn select_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
         self.vm.select_playlist(id);
         let conn = self.conn.lock().expect("lock db");
         let playlist = self.vm.playlist_by_id(id);
@@ -319,9 +379,9 @@ impl LibraryApp {
                 playlist,
                 tracks: tracks.clone(),
             });
-            self.vm.replace_playlist_tracks(tracks);
             #[cfg(feature = "async-runtime")]
-            self.spawn_playlist_actor(id, cx);
+            self.spawn_playlist_actor(id, &tracks, cx);
+            self.vm.replace_playlist_tracks(tracks);
         }
         cx.notify();
     }
@@ -333,21 +393,26 @@ impl LibraryApp {
     /// [`crate::presentation::bridge_watch`] so snapshot publishes
     /// trigger a re-render automatically.
     #[cfg(feature = "async-runtime")]
-    fn spawn_playlist_actor(&mut self, playlist_id: i64, cx: &mut Context<Self>) {
-        use crate::application::paged_track_list::PagedTrackListActor;
+    fn spawn_playlist_actor(
+        &mut self,
+        playlist_id: i64,
+        initial_rows: &[TrackRow],
+        cx: &mut Context<Self>,
+    ) {
+        use crate::application::paged_track_list::{PagedTrackListActor, PagedTrackListMsg};
         use crate::db::{open_db, TrackListing};
         use crate::presentation::bridge_watch;
 
         let Some(host) = self.runtime_host.clone() else {
             return;
         };
-        // Idempotent: if the actor for this playlist is already running,
-        // keep it (and its warm cache) rather than churning a new one.
         if let Some(state) = &self.playlist_actor {
             if state.playlist_id == playlist_id {
+                let _ = state.handle.try_send(PagedTrackListMsg::Refresh);
                 return;
             }
         }
+        self.playlist_actor = None;
         // Open a dedicated connection for the actor: rusqlite Connections
         // are not Sync, and the actor consumes its connection by value.
         let cfg = match crate::config::config_path()
@@ -364,13 +429,15 @@ impl LibraryApp {
                 return;
             }
         };
-        let actor = match PagedTrackListActor::new(conn, TrackListing::Playlist { playlist_id }) {
+        let mut actor = match PagedTrackListActor::new(conn, TrackListing::Playlist { playlist_id })
+        {
             Ok(actor) => actor,
             Err(err) => {
                 eprintln!("v4vmm::library: PagedTrackListActor::new failed: {err}");
                 return;
             }
         };
+        actor.prime_initial_rows(initial_rows.iter().cloned());
         let bus = host.bus().clone();
         let _enter = host.handle().enter();
         let handle = actor.spawn(bus);
@@ -905,6 +972,24 @@ impl LibraryApp {
     }
 
     pub(crate) fn select_track(&mut self, track: &TrackRow, cx: &mut Context<Self>) {
+        self.select_track_with_origin(track, None, cx);
+    }
+
+    pub(crate) fn select_playlist_track(
+        &mut self,
+        playlist_id: i64,
+        track: &TrackRow,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_track_with_origin(track, Some(InspectorOrigin::Playlist(playlist_id)), cx);
+    }
+
+    fn select_track_with_origin(
+        &mut self,
+        track: &TrackRow,
+        origin: Option<InspectorOrigin>,
+        cx: &mut Context<Self>,
+    ) {
         self.vm.select_library_item(track.id);
         let image = track
             .track_image_href
@@ -912,6 +997,7 @@ impl LibraryApp {
             .or(track.album_image_href.as_deref())
             .and_then(|url| self.thumbnail_for_url(Some(url), true, cx));
         let mut frame = InspectorFrame::for_track(track.clone(), image);
+        frame.origin = origin;
         if let Some(lookup) = self.vm.staged_musicbrainz(track.id).cloned() {
             frame.musicbrainz_lookup = LazyPanel::Loaded(lookup);
             frame.musicbrainz_selected = 0;
@@ -947,6 +1033,10 @@ impl LibraryApp {
             },
         )
         .detach();
+    }
+
+    pub(crate) fn navigate_back_to_playlist(&mut self, playlist_id: i64, cx: &mut Context<Self>) {
+        self.select_playlist(playlist_id, cx);
     }
 
     pub(crate) fn toggle_artist(&mut self, name: &str) {
@@ -1029,7 +1119,15 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, _result, cx| this.start_async_reload(cx),
+            |this, _result, cx| {
+                if let Some(InspectorOrigin::Playlist(playlist_id)) = this
+                    .selected_track_frame_mut()
+                    .and_then(|frame| frame.origin.clone())
+                {
+                    this.select_playlist(playlist_id, cx);
+                }
+                this.start_async_reload_preserving_detail(cx);
+            },
             |this, err, _cx| this.vm.set_error_status(err),
         );
     }
@@ -1070,7 +1168,7 @@ impl LibraryApp {
                     outcome.path().to_string(),
                     outcome.format_warning().map(str::to_string),
                 ));
-                this.start_async_reload(cx);
+                this.start_async_reload_preserving_detail(cx);
             },
             |this, error, _cx| this.vm.fail_track_subscribe(error),
         );
@@ -1792,7 +1890,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
             let albums = album_map
                 .into_iter()
                 .map(|(album_name, mut tracks)| {
-                    tracks.sort_by(|a, b| a.track_number.cmp(&b.track_number));
+                    tracks.sort_by_key(|track| track.track_number);
                     let feed_id = tracks.first().map(|t| t.feed_id);
                     let feed_guid = tracks.first().and_then(|t| t.feed_guid.clone());
                     let feed_url = feed_id.and_then(|fid| {
@@ -1943,26 +2041,26 @@ impl Render for LibraryApp {
 
         left_items.push(
             div()
-                .id(playlist_header_id)
                 .px(spacing::SM)
                 .py(spacing::XS)
                 .rounded(spacing::XS)
-                .cursor_pointer()
-                .hover(|el| el.bg(color::bg_surface_hi()))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.vm.toggle_playlists_expanded();
-                    cx.notify();
-                }))
                 .flex()
                 .flex_row()
                 .justify_between()
                 .items_center()
                 .child(
                     div()
+                        .id(playlist_header_id)
                         .flex()
                         .flex_row()
                         .gap(spacing::XS)
                         .items_baseline()
+                        .cursor_pointer()
+                        .hover(|el| el.bg(color::bg_surface_hi()))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.vm.toggle_playlists_expanded();
+                            cx.notify();
+                        }))
                         .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
                             glyph: playlist_disclosure_glyph.into(),
                         }))

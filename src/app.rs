@@ -266,9 +266,7 @@ impl TopApp {
         }
         cx.spawn(
             async move |this: gpui::WeakEntity<TopApp>, cx: &mut gpui::AsyncApp| loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(1_000))
-                    .await;
+                cx.background_executor().timer(Duration::from_secs(1)).await;
                 if this
                     .update(cx, |this, cx| {
                         this.poll_playback_owner();

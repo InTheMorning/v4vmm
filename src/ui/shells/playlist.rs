@@ -135,7 +135,7 @@ pub(crate) fn render_playlist_detail_shell(
     let track_rows = if rows.is_empty() {
         vec![render_empty_message(page.empty_message())]
     } else {
-        render_playlist_rows_with_drop_zones(page.playlist_id(), rows, on_reorder)
+        render_playlist_rows_with_reorder_targets(page.playlist_id(), rows, on_reorder.as_ref())
     };
 
     div()
@@ -188,39 +188,22 @@ pub(crate) fn render_playlist_detail_shell(
         .into_any_element()
 }
 
-fn render_playlist_rows_with_drop_zones(
+fn render_playlist_rows_with_reorder_targets(
     playlist_id: i64,
     rows: Vec<PlaylistShellRow>,
-    on_reorder: Option<PlaylistReorderHandler>,
+    on_reorder: Option<&PlaylistReorderHandler>,
 ) -> Vec<AnyElement> {
-    let mut rendered = Vec::with_capacity(rows.len().saturating_mul(2).saturating_add(1));
+    let mut rendered = Vec::with_capacity(rows.len());
 
     for row in rows {
-        let drop_index = row.position();
-        rendered.push(render_playlist_drop_zone(
+        rendered.push(render_playlist_shell_row(
             playlist_id,
-            drop_index,
-            on_reorder.clone(),
+            row,
+            on_reorder.cloned(),
         ));
-        rendered.push(render_playlist_shell_row(playlist_id, row));
     }
 
-    let final_drop_index = i64::try_from(rendered.len() / 2).unwrap_or(i64::MAX);
-    rendered.push(render_playlist_drop_zone(
-        playlist_id,
-        final_drop_index,
-        on_reorder,
-    ));
     rendered
-}
-
-impl PlaylistShellRow {
-    fn position(&self) -> i64 {
-        match self {
-            Self::Pending { position, .. } => i64::try_from(*position).unwrap_or(i64::MAX),
-            Self::Ready(row) => row.display.position,
-        }
-    }
 }
 
 fn render_empty_message(message: &'static str) -> AnyElement {
@@ -324,14 +307,18 @@ fn render_playlist_rename_editor(
         .into_any_element()
 }
 
-fn render_playlist_shell_row(playlist_id: i64, row: PlaylistShellRow) -> AnyElement {
+fn render_playlist_shell_row(
+    playlist_id: i64,
+    row: PlaylistShellRow,
+    on_reorder: Option<PlaylistReorderHandler>,
+) -> AnyElement {
     match row {
         PlaylistShellRow::Pending {
             position,
             last_position,
         } => render_pending_playlist_row(playlist_id, position, last_position),
         PlaylistShellRow::Ready(ready) => {
-            render_playlist_track_row(playlist_id, ready.display, ready.slot)
+            render_playlist_track_row(playlist_id, ready.display, ready.slot, on_reorder)
         }
     }
 }
@@ -388,49 +375,6 @@ impl Render for PlaylistTrackDragPreview {
     }
 }
 
-fn render_playlist_drop_zone(
-    playlist_id: i64,
-    drop_index: i64,
-    on_reorder: Option<PlaylistReorderHandler>,
-) -> AnyElement {
-    let mut zone = div()
-        .id(SharedString::from(format!(
-            "playlist-drop-{playlist_id}-{drop_index}"
-        )))
-        .h(spacing::XS)
-        .rounded(radius::SM);
-
-    if let Some(on_reorder) = on_reorder {
-        zone = zone
-            .can_drop(move |drag, _window, _cx| {
-                drag.downcast_ref::<PlaylistTrackDragPayload>()
-                    .is_some_and(|payload| payload.playlist_id == playlist_id)
-            })
-            .drag_over(
-                move |el, payload: &PlaylistTrackDragPayload, _window, _cx| {
-                    if payload.playlist_id == playlist_id {
-                        el.bg(color::accent())
-                    } else {
-                        el
-                    }
-                },
-            )
-            .on_drop(
-                move |payload: &PlaylistTrackDragPayload, window: &mut Window, cx: &mut App| {
-                    if payload.playlist_id != playlist_id {
-                        return;
-                    }
-                    if let Some(target) = playlist_reorder_target(payload.from_position, drop_index)
-                    {
-                        on_reorder(&(payload.from_position, target), window, cx);
-                    }
-                },
-            );
-    }
-
-    zone.into_any_element()
-}
-
 #[must_use]
 const fn playlist_reorder_target(from: i64, drop_index: i64) -> Option<i64> {
     let target = if drop_index > from {
@@ -445,12 +389,42 @@ const fn playlist_reorder_target(from: i64, drop_index: i64) -> Option<i64> {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PlaylistInsertionEdge {
+    Before,
+    After,
+}
+
+#[must_use]
+const fn playlist_row_drop_index(from: i64, row_position: i64) -> i64 {
+    match playlist_row_insertion_edge(from, row_position) {
+        Some(PlaylistInsertionEdge::After) => row_position + 1,
+        Some(PlaylistInsertionEdge::Before) | None => row_position,
+    }
+}
+
+#[must_use]
+const fn playlist_row_insertion_edge(
+    from: i64,
+    row_position: i64,
+) -> Option<PlaylistInsertionEdge> {
+    if row_position > from {
+        Some(PlaylistInsertionEdge::After)
+    } else if row_position < from {
+        Some(PlaylistInsertionEdge::Before)
+    } else {
+        None
+    }
+}
+
 fn render_playlist_track_row(
     playlist_id: i64,
     display: PlaylistTrackRowDisplay,
     slot: PlaylistTrackRowSlot,
+    on_reorder: Option<PlaylistReorderHandler>,
 ) -> AnyElement {
     let controls = display.controls.clone();
+    let row_drop_index = display.position;
     let drag_payload = PlaylistTrackDragPayload {
         playlist_id,
         from_position: display.position,
@@ -465,7 +439,7 @@ fn render_playlist_track_row(
         on_remove,
     } = slot;
 
-    div()
+    let mut row = div()
         .id(SharedString::from(controls.row_id.clone()))
         .flex()
         .flex_row()
@@ -486,8 +460,53 @@ fn render_playlist_track_row(
                 move_down: on_move_down,
                 remove: on_remove,
             },
-        ))
-        .into_any_element()
+        ));
+
+    if let Some(on_reorder) = on_reorder {
+        row = row
+            .can_drop(move |drag, _window, _cx| {
+                drag.downcast_ref::<PlaylistTrackDragPayload>().is_some()
+            })
+            .drag_over(
+                move |el, payload: &PlaylistTrackDragPayload, _window, _cx| {
+                    if payload.playlist_id != playlist_id {
+                        return el
+                            .opacity(0.55)
+                            .border_1()
+                            .border_color(color::text_muted())
+                            .line_through()
+                            .cursor_no_drop();
+                    }
+                    let drop_index = playlist_row_drop_index(payload.from_position, row_drop_index);
+                    if playlist_reorder_target(payload.from_position, drop_index).is_none() {
+                        return el;
+                    }
+                    match playlist_row_insertion_edge(payload.from_position, row_drop_index) {
+                        Some(PlaylistInsertionEdge::Before) => {
+                            el.border_t(spacing::XS).border_color(color::accent())
+                        }
+                        Some(PlaylistInsertionEdge::After) => {
+                            el.border_b(spacing::XS).border_color(color::accent())
+                        }
+                        None => el,
+                    }
+                },
+            )
+            .on_drop(
+                move |payload: &PlaylistTrackDragPayload, window: &mut Window, cx: &mut App| {
+                    if payload.playlist_id != playlist_id {
+                        return;
+                    }
+                    let drop_index = playlist_row_drop_index(payload.from_position, row_drop_index);
+                    if let Some(target) = playlist_reorder_target(payload.from_position, drop_index)
+                    {
+                        on_reorder(&(payload.from_position, target), window, cx);
+                    }
+                },
+            );
+    }
+
+    row.into_any_element()
 }
 
 struct PlaylistTrackControlSlots {
@@ -714,7 +733,10 @@ fn apply_click_handler(button: UiButton, handler: Option<PlaylistClickHandler>) 
 
 #[cfg(test)]
 mod tests {
-    use super::playlist_reorder_target;
+    use super::{
+        playlist_reorder_target, playlist_row_drop_index, playlist_row_insertion_edge,
+        PlaylistInsertionEdge,
+    };
 
     #[test]
     fn playlist_reorder_target_ignores_original_and_adjacent_slots() {
@@ -726,5 +748,32 @@ mod tests {
     fn playlist_reorder_target_adjusts_after_source_slot() {
         assert_eq!(playlist_reorder_target(1, 0), Some(0));
         assert_eq!(playlist_reorder_target(1, 3), Some(2));
+    }
+
+    #[test]
+    fn playlist_row_drop_index_quantizes_by_drag_direction() {
+        assert_eq!(playlist_row_drop_index(1, 3), 4);
+        assert_eq!(
+            playlist_row_insertion_edge(1, 3),
+            Some(PlaylistInsertionEdge::After)
+        );
+        assert_eq!(
+            playlist_reorder_target(1, playlist_row_drop_index(1, 3)),
+            Some(3)
+        );
+        assert_eq!(playlist_row_drop_index(3, 1), 1);
+        assert_eq!(
+            playlist_row_insertion_edge(3, 1),
+            Some(PlaylistInsertionEdge::Before)
+        );
+        assert_eq!(
+            playlist_reorder_target(3, playlist_row_drop_index(3, 1)),
+            Some(1)
+        );
+        assert_eq!(playlist_row_insertion_edge(2, 2), None);
+        assert_eq!(
+            playlist_reorder_target(2, playlist_row_drop_index(2, 2)),
+            None
+        );
     }
 }

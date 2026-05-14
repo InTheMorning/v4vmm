@@ -27,6 +27,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::db::{self, TrackListing, TrackRow};
 use crate::runtime::actor::{self, Actor, ActorHandle};
+use crate::runtime::paged_list_vm::DEFAULT_PAGE_SIZE;
 use crate::runtime::{PagedListVm, VmBus, VmEvent};
 use rusqlite::Connection;
 
@@ -72,6 +73,24 @@ impl PagedTrackListActor {
         let ids: Vec<i64> = index.into_iter().map(|(id, _)| id).collect();
         let vm = Arc::new(Mutex::new(PagedListVm::new(ids)));
         Ok(Self { conn, listing, vm })
+    }
+
+    /// Prime the first rendered page from rows the screen already loaded.
+    ///
+    /// This keeps post-mutation playlist renders concrete while preserving
+    /// actor ownership of paging, refreshes, and later cache misses.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the paged-list mutex has been poisoned by a previous thread
+    /// crash.
+    pub fn prime_initial_rows(&mut self, rows: impl IntoIterator<Item = TrackRow>) {
+        let rows = rows
+            .into_iter()
+            .take(DEFAULT_PAGE_SIZE)
+            .map(|row| (row.id, row));
+        let mut vm = self.vm.lock().expect("paged track vm mutex poisoned");
+        vm.fulfill_page(0, rows);
     }
 
     /// Spawn the actor on the runtime; returns the inbox handle.
@@ -302,6 +321,24 @@ mod tests {
         match actor.vm.lock().unwrap().row(5) {
             RowSlot::Ready(_) => {}
             RowSlot::Pending(_) => panic!("after drain the page must be ready"),
+        };
+    }
+
+    #[test]
+    fn prime_initial_rows_keeps_first_render_concrete() {
+        let conn = open_db();
+        let mut actor = PagedTrackListActor::new(conn, TrackListing::Library).unwrap();
+        actor.prime_initial_rows(vec![TrackRow {
+            id: 1,
+            track_title: Some("Primed".into()),
+            ..Default::default()
+        }]);
+
+        match actor.vm.lock().unwrap().peek_row(0) {
+            RowSlot::Ready(row) => {
+                assert_eq!(row.track_title.as_deref(), Some("Primed"));
+            }
+            RowSlot::Pending(_) => panic!("primed first row must render without placeholder"),
         };
     }
 

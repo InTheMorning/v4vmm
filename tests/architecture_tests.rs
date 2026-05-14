@@ -1069,7 +1069,15 @@ fn global_search_replaces_screen_local_search_chrome() {
     for required in [
         "Input::new(&app.global_search_input)",
         ".prefix(IconName::Search)",
+        "let now_playing_width = if toolbar_width >= layout::APP_TOOLBAR_NOW_PLAYING_COMPACT_BREAKPOINT",
+        ".w(now_playing_width)",
+        ".min_w(now_playing_width)",
+        "toolbar_width,",
+        "let show_scope_controls = toolbar_width >= layout::APP_TOOLBAR_SCOPE_BREAKPOINT;",
+        ".when(show_scope_controls, |el|",
         "SegmentedControl::new(app.global_search_scope)",
+        ".when(!show_scope_controls, |el|",
+        "ContextMenuScope::GlobalSearchScope",
         "display.search_button_id",
         ".label(display.search_button_label)",
     ] {
@@ -5217,8 +5225,20 @@ fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
         ".drag_over(",
         ".on_drop(",
         "playlist_reorder_target(payload.from_position, drop_index)",
+        "playlist_row_drop_index(payload.from_position, row_drop_index)",
+        "playlist_reorder_target(payload.from_position, drop_index).is_none()",
+        "let drop_index = playlist_row_drop_index(payload.from_position, row_drop_index);",
+        "match playlist_row_insertion_edge(payload.from_position, row_drop_index)",
+        "Some(PlaylistInsertionEdge::Before) =>",
+        "Some(PlaylistInsertionEdge::After) =>",
+        "render_playlist_rows_with_reorder_targets(page.playlist_id(), rows, on_reorder.as_ref())",
+        "on_reorder.cloned()",
+        ".border_t(spacing::XS)",
+        ".border_b(spacing::XS)",
         "if target == from",
-        "render_playlist_drop_zone(",
+        ".cursor_no_drop()",
+        "render_playlist_rows_with_reorder_targets(",
+        "fn playlist_row_drop_index_quantizes_by_drag_direction()",
     ] {
         assert!(
             playlist_shell_source.contains(required),
@@ -5254,10 +5274,94 @@ fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
     }
 
     let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
-    for required in ["DragHandle", "Self::DragHandle => Some(\"\\u{2630}\")"] {
+    for required in [
+        "DragHandle",
+        "Self::DragHandle => Some(\"\\u{2630}\")",
+        "NotAllowed",
+        "Self::NotAllowed => Some(\"\\u{2298}\")",
+    ] {
         assert!(
             icon_source.contains(required),
             "Playlist drag handle must use semantic icon catalog contract `{required}`"
+        );
+    }
+}
+
+#[test]
+fn playlist_refresh_and_origin_navigation_preserve_context() {
+    let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    for required in [
+        "enum LibraryReloadMode",
+        "ResetDetail",
+        "PreserveDetail",
+        "pub fn refresh(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_preserving_detail(cx);",
+        "pub(crate) fn start_async_reload(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_with_mode(LibraryReloadMode::ResetDetail, cx);",
+        "if mode == LibraryReloadMode::ResetDetail",
+        "if mode == LibraryReloadMode::PreserveDetail",
+        "self.refresh_selected_detail(cx);",
+        "if state.playlist_id == playlist_id",
+        "state.handle.try_send(PagedTrackListMsg::Refresh)",
+        "self.playlist_actor = None;\n        // Open a dedicated connection for the actor",
+        "self.spawn_playlist_actor(id, &tracks, cx);",
+        "actor.prime_initial_rows(initial_rows.iter().cloned());",
+        "pub(crate) fn select_playlist_track(",
+        "Some(InspectorOrigin::Playlist(playlist_id))",
+        "frame.origin = origin;",
+        "pub(crate) fn navigate_back_to_playlist(",
+        ".and_then(|frame| frame.origin.clone())",
+        "this.select_playlist(playlist_id, cx);",
+    ] {
+        assert!(
+            library_source.contains(required),
+            "Library playlist refresh/origin navigation contract must include `{required}`"
+        );
+    }
+
+    assert!(
+        !library_source.contains(
+            ".id(playlist_header_id)\n                .px(spacing::SM)\n                .py(spacing::XS)\n                .rounded(spacing::XS)\n                .cursor_pointer()"
+        ),
+        "Playlist sidebar header must not make the entire header a disclosure click target"
+    );
+    assert!(
+        library_source.contains(
+            ".items_baseline()\n                        .cursor_pointer()\n                        .hover(|el| el.bg(color::bg_surface_hi()))\n                        .on_click(cx.listener(|this, _, _, cx| {"
+        ),
+        "Playlist sidebar disclosure click target must stay on the heading cluster"
+    );
+
+    let library_struct_source = read_source(&manifest_path("src/library.rs"));
+    assert!(
+        library_struct_source.contains("pub(crate) enum InspectorOrigin")
+            && library_struct_source.contains("Playlist(i64)")
+            && library_struct_source.contains("Album(i64)")
+            && library_struct_source.contains("Artist(String)")
+            && library_struct_source.contains("pub(crate) origin: Option<InspectorOrigin>"),
+        "Track inspectors opened from playlists must retain typed origin state"
+    );
+
+    let playlist_detail_source =
+        read_source(&manifest_path("src/ui/shells/library/playlist_detail.rs"));
+    assert!(
+        playlist_detail_source
+            .contains("this.select_playlist_track(playlist_id, &track_for_select, cx);"),
+        "Playlist row selection must open track detail with playlist origin"
+    );
+
+    let track_detail_source = read_source(&manifest_path(
+        "src/ui/shells/library/track_detail_metadata.rs",
+    ));
+    for required in [
+        "LibraryTrackActionVm::playlist_return_display(playlist_id)",
+        "return_display.button_id",
+        ".leading_icon(crate::ui::icons::IconName::Back)",
+        "return_display.label",
+        "return_display.a11y_label",
+        "this.navigate_back_to_playlist(playlist_id, cx);",
+    ] {
+        assert!(
+            track_detail_source.contains(required),
+            "Track detail playlist-return control must use VM-owned display contract `{required}`"
         );
     }
 }

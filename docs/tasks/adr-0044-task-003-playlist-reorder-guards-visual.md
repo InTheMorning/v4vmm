@@ -1,6 +1,6 @@
 # ADR 0044 Task 003: Playlist Reorder Guards and Visual Readiness
 
-Status: Blocked - display access unavailable on 2026-05-11.
+Status: Awaiting operator visual recheck after follow-up fixes on 2026-05-14.
 
 ## Goal
 
@@ -46,7 +46,8 @@ drag-handle reordering.
 3. Done: add guards that playlist shell uses the semantic icon catalog for the
    handle rather than raw glyph strings.
 4. Done: run the required checks.
-5. Blocked: capture or review light/dark visual evidence.
+5. Pending: capture or review light/dark visual evidence after the
+   2026-05-14 follow-up fixes.
 6. Done: update the ADR 0044 review checklist with pass/fail, evidence, and
    merge recommendation.
 
@@ -67,7 +68,7 @@ drag-handle reordering.
 
 ## Visual Evidence Attempt
 
-Visual proof is blocked because the local display cannot be opened:
+Initial visual proof was blocked because the local display could not be opened:
 
 ```text
 DISPLAY=:0 wmctrl -l
@@ -75,9 +76,55 @@ Authorization required, but no authorization protocol specified
 Cannot open display.
 ```
 
-The ADR 0044 review remains blocked until light and dark screenshots can
-verify the handle, Actions menu, unavailable row, and insertion-line
+User screenshots and review on 2026-05-13 exposed readiness blockers:
+playlist drops could leave playlist view without committing, playlist-origin
+track removal did not return to the playlist or refresh unavailable rows in
+place, and the Playlists `+` control shared the disclosure click target.
+
+The fixes landed on 2026-05-13. The ADR 0044 review remains pending until
+light and dark screenshots can verify the handle, Actions menu, unavailable
+row, playlist-origin return path, successful in-place reorder drops, and
+insertion-line feedback.
+
+Follow-up user review on 2026-05-14 confirmed Back to Playlist and the
+Playlists `+` target, but found that playlist reorder still needed a view
+switch to refresh, the drop target still required an exact separator pixel,
+and playlist-origin removal still did not refresh availability in place. The
+follow-up fix refreshed the same-playlist paged listing and made ready rows
+themselves drop targets with a stable top insertion border. Visual proof is
+still required before marking this task or ADR 0044 complete.
+
+A second 2026-05-14 user review confirmed reorder and removal commit, but
+showed a placeholder/loading flash until mouse activity and ambiguous row
+drop feedback. Fresh playlist actors now prime their first page from the
+already loaded playlist rows before publishing, and row-level drag-over
+feedback now keeps the cue to the insertion border rather than tinting the
+whole destination row.
+
+A third 2026-05-14 review confirmed the placeholder flash is gone and the
+toolbar behavior is acceptable, but found a thin inactive insertion cue could
+still appear where dropping does nothing. Drag-over feedback is now shown
+only when `playlist_reorder_target` would produce a real move.
+
+Operator follow-up clarified that row hover should quantize to the nearest
+insertion point, always use the thick insertion cue, and only no-op for the
+same place or outside the playlist. Row drop targets now quantize by drag
+direction and use a tokenized thick insertion edge for active
 feedback.
+
+Follow-up correction: row hover now draws the cue on the actual insertion
+edge. Downward drags draw the thick cue below the hovered row; upward drags
+draw it above the hovered row.
+
+HIG/architecture drift review on 2026-05-14 found the remaining separator
+drop zones still overlapped the row-edge insertion mechanism, cross-playlist
+drags lacked invalid-destination feedback, same-playlist reselects thrashed
+the warm paged actor cache, and playlist return state was too narrow. The
+separator drop zones were removed so row quantization is the only insertion
+mechanism; invalid drags now use muted outlined row feedback with the system
+no-drop cursor; same-playlist reselect sends `PagedTrackListMsg::Refresh` to
+the existing actor; and track inspector return state now uses
+`InspectorOrigin`.
 
 ## Test Commands
 

@@ -199,7 +199,7 @@ pub fn lookup_recordings(
         .iter()
         .flat_map(|recording| candidates_from_recording(recording, metadata))
         .collect::<Vec<_>>();
-    candidates.sort_by(|a, b| b.similarity_score.cmp(&a.similarity_score));
+    candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.similarity_score));
     candidates.truncate(requested_limit);
     enrich_candidates_with_release_details(client, &mut candidates);
 

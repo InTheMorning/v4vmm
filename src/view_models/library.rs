@@ -373,6 +373,13 @@ pub(crate) struct LibraryTrackPlaylistDisplay {
     pub(crate) trigger_label: &'static str,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryTrackPlaylistReturnDisplay {
+    pub(crate) button_id: String,
+    pub(crate) label: &'static str,
+    pub(crate) a11y_label: &'static str,
+}
+
 /// Display contract for a track row inside an album detail list.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryTrackRowDisplay {
@@ -446,6 +453,15 @@ impl<'a> LibraryTrackActionVm<'a> {
         LibraryTrackPlaylistDisplay {
             popover_id: format!("track-inspector-add:{track_id}"),
             trigger_label: Self::add_to_playlist_label(),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn playlist_return_display(playlist_id: i64) -> LibraryTrackPlaylistReturnDisplay {
+        LibraryTrackPlaylistReturnDisplay {
+            button_id: format!("track-detail-return-playlist:{playlist_id}"),
+            label: "Back to Playlist",
+            a11y_label: "Back to playlist",
         }
     }
 
@@ -1387,10 +1403,10 @@ impl LibraryViewModel {
                 playlists.sort_by_key(|playlist| playlist.name.to_lowercase());
             }
             PlaylistSort::RecentlyUpdated => {
-                playlists.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                playlists.sort_by_key(|playlist| std::cmp::Reverse(playlist.updated_at));
             }
             PlaylistSort::TrackCount => {
-                playlists.sort_by(|a, b| b.track_count.cmp(&a.track_count));
+                playlists.sort_by_key(|playlist| std::cmp::Reverse(playlist.track_count));
             }
         }
     }
@@ -3957,6 +3973,14 @@ mod tests {
             LibraryTrackPlaylistDisplay {
                 popover_id: "track-inspector-add:7".into(),
                 trigger_label: "Add to playlist",
+            }
+        );
+        assert_eq!(
+            LibraryTrackActionVm::playlist_return_display(7),
+            LibraryTrackPlaylistReturnDisplay {
+                button_id: "track-detail-return-playlist:7".into(),
+                label: "Back to Playlist",
+                a11y_label: "Back to playlist",
             }
         );
         assert_eq!(

@@ -13,7 +13,7 @@ use gpui::{div, prelude::*, AnyElement, Context, SharedString, Styled};
 use super::track_detail_metadata_grid::library_track_metadata_grid;
 pub(crate) use super::track_detail_metadata_grid::track_metadata_rows_for_frame;
 use crate::db;
-use crate::library::{playlist_options, InspectorFrame, LazyPanel, LibraryApp};
+use crate::library::{playlist_options, InspectorFrame, InspectorOrigin, LazyPanel, LibraryApp};
 use crate::media::image_from_bytes;
 use crate::metadata::{
     auto_populated_pending_id3_edits, pending_id3_conflict_descriptions, PendingId3Edit,
@@ -23,7 +23,8 @@ use crate::ui::composites::{
     action_button, ActionButtonDisplay, ActionRow, ActionRowDisplay, ActionRowMessage,
     AddToPlaylistDisplay, AddToPlaylistPopover, FileHeader, MusicBrainzPanel,
 };
-use crate::ui::primitives::LoadingMessage;
+use crate::ui::control_styles::ControlStyle;
+use crate::ui::primitives::{Button as UiButton, LoadingMessage};
 use crate::ui::style::spacing;
 use crate::view_models::entity_detail::{
     EntityActionTarget, EntitySurfaceContext, MetadataPanelState, TrackMetadataActionState,
@@ -134,37 +135,56 @@ pub(crate) fn render_library_track_detail_actions(
 
     let mut row = ActionRow::new(ActionRowDisplay {
         a11y_label: SharedString::from(action_vm.action_row_a11y_label()),
-    })
-    .control(
-        action_button(
-            ActionButtonDisplay {
-                label: SharedString::from(action_vm.subscription_button_label()),
-                a11y_label: SharedString::from(action_vm.subscription_button_label()),
-            },
-            cx,
+    });
+
+    if let Some(InspectorOrigin::Playlist(playlist_id)) = frame.origin.as_ref() {
+        let playlist_id = *playlist_id;
+        let return_display = LibraryTrackActionVm::playlist_return_display(playlist_id);
+        row = row.control(
+            UiButton::styled(
+                SharedString::from(return_display.button_id),
+                ControlStyle::MetadataAction,
+            )
+            .leading_icon(crate::ui::icons::IconName::Back)
+            .label(return_display.label)
+            .a11y_label(return_display.a11y_label)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.navigate_back_to_playlist(playlist_id, cx);
+            })),
+        );
+    }
+
+    row = row
+        .control(
+            action_button(
+                ActionButtonDisplay {
+                    label: SharedString::from(action_vm.subscription_button_label()),
+                    a11y_label: SharedString::from(action_vm.subscription_button_label()),
+                },
+                cx,
+            )
+            .disabled(frame.subscription_busy)
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.toggle_local_subscription(window, cx);
+            })),
         )
-        .disabled(frame.subscription_busy)
-        .on_click(cx.listener(|this, _, window, cx| {
-            this.toggle_local_subscription(window, cx);
-        })),
-    )
-    .control(
-        AddToPlaylistPopover::new(AddToPlaylistDisplay {
-            id: SharedString::from(playlist_display.popover_id),
-            playlists: playlist_options(playlists),
-            trigger_label: SharedString::from(playlist_display.trigger_label),
-            trigger_a11y_label: SharedString::from("Add track to playlist"),
-            new_playlist_a11y_label: SharedString::from("Create a new playlist"),
-            back_a11y_label: SharedString::from("Back to playlist choices"),
-            create_a11y_label: SharedString::from("Create playlist and add track"),
-        })
-        .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
-            this.add_track_to_playlist(track_id, *playlist_id, cx);
-        }))
-        .on_create(cx.listener(move |this, name: &String, _window, cx| {
-            this.create_playlist_and_add_track(name, track_id, cx);
-        })),
-    );
+        .control(
+            AddToPlaylistPopover::new(AddToPlaylistDisplay {
+                id: SharedString::from(playlist_display.popover_id),
+                playlists: playlist_options(playlists),
+                trigger_label: SharedString::from(playlist_display.trigger_label),
+                trigger_a11y_label: SharedString::from("Add track to playlist"),
+                new_playlist_a11y_label: SharedString::from("Create a new playlist"),
+                back_a11y_label: SharedString::from("Back to playlist choices"),
+                create_a11y_label: SharedString::from("Create playlist and add track"),
+            })
+            .on_select(cx.listener(move |this, playlist_id: &i64, _window, cx| {
+                this.add_track_to_playlist(track_id, *playlist_id, cx);
+            }))
+            .on_create(cx.listener(move |this, name: &String, _window, cx| {
+                this.create_playlist_and_add_track(name, track_id, cx);
+            })),
+        );
 
     if let Some(message) = action_vm.subscription_message_display() {
         row = row.message(ActionRowMessage::from_status_display(message));

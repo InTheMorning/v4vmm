@@ -38,6 +38,8 @@ pub(crate) enum GlobalSearchScope {
 pub(crate) struct GlobalSearchDisplay {
     pub(crate) input_id: &'static str,
     pub(crate) placeholder: &'static str,
+    pub(crate) scope_menu_id: &'static str,
+    pub(crate) scope_menu_a11y_label: &'static str,
     pub(crate) search_button_id: &'static str,
     pub(crate) search_button_label: &'static str,
     pub(crate) search_button_a11y_label: &'static str,
@@ -103,6 +105,8 @@ impl AppToolbarVm {
             global_search: GlobalSearchDisplay {
                 input_id: "app-toolbar-global-search-input",
                 placeholder: "Search Library and Index",
+                scope_menu_id: "app-toolbar-search-scope-menu",
+                scope_menu_a11y_label: "Choose search scope",
                 search_button_id: "app-toolbar-global-search-submit",
                 search_button_label: "Search",
                 search_button_a11y_label: "Search Library and Index",

@@ -13,7 +13,10 @@ use crate::library::LibraryApp;
 use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
-use crate::ui::primitives::{Button as UiButton, Tooltip};
+use crate::ui::primitives::{
+    Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
+    Tooltip,
+};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size as TokenSize, Spacing};
 use crate::view_models::app_toolbar::{
@@ -44,6 +47,12 @@ pub(super) fn render_tab_bar(
     let spacing_md = Spacing::MD.scaled(cx);
     let tab_bar_height = TokenSize::RowLg.px();
     let frame_radius = Radius::LG.scaled(cx);
+    let toolbar_width = window.bounds().size.width;
+    let now_playing_width = if toolbar_width >= layout::APP_TOOLBAR_NOW_PLAYING_COMPACT_BREAKPOINT {
+        TokenSize::ColumnTall.scaled(cx)
+    } else {
+        TokenSize::ColumnRegular.scaled(cx)
+    };
     let mark_tooltip = Tooltip::new(display.mark_a11y_label);
     let now_playing_tooltip = Tooltip::new(display.now_playing.a11y_label);
 
@@ -95,14 +104,15 @@ pub(super) fn render_tab_bar(
             display.center_id,
             display.global_search,
             app,
+            toolbar_width,
             cx,
         ))
         .child(
             div()
                 .id(display.now_playing.id)
-                .w(TokenSize::ColumnTall.scaled(cx))
-                .min_w(TokenSize::ColumnShort.scaled(cx))
-                .max_w(TokenSize::ColumnTall.scaled(cx))
+                .w(now_playing_width)
+                .min_w(now_playing_width)
+                .max_w(now_playing_width)
                 .h(TokenSize::RowMd.scaled(cx))
                 .flex_shrink_0()
                 .border_1()
@@ -123,11 +133,13 @@ fn render_global_search(
     center_id: &'static str,
     display: GlobalSearchDisplay,
     app: &TopApp,
+    toolbar_width: gpui::Pixels,
     cx: &mut Context<TopApp>,
 ) -> gpui::AnyElement {
+    let show_scope_controls = toolbar_width >= layout::APP_TOOLBAR_SCOPE_BREAKPOINT;
     let segments = display
         .scopes
-        .into_iter()
+        .iter()
         .map(|scope| {
             Segment::new(SegmentDisplay {
                 id: scope.id.into(),
@@ -137,7 +149,14 @@ fn render_global_search(
             })
         })
         .collect::<Vec<_>>();
+    let active_scope_label = display
+        .scopes
+        .iter()
+        .find(|scope| scope.scope == app.global_search_scope)
+        .map_or("All", |scope| scope.label);
     let entity = cx.entity();
+    let segmented_entity = entity.clone();
+    let menu_entity = entity.clone();
 
     div()
         .id(center_id)
@@ -161,17 +180,29 @@ fn render_global_search(
                         .scaled(Size::Small, cx),
                 ),
         )
-        .child(
-            SegmentedControl::new(app.global_search_scope)
-                .filter_style()
-                .segments(segments)
-                .on_select(move |scope: &GlobalSearchScope, _window, cx| {
-                    let scope = *scope;
-                    entity.update(cx, |this, cx| {
-                        this.set_global_search_scope(scope, cx);
-                    });
-                }),
-        )
+        .when(show_scope_controls, |el| {
+            el.child(
+                SegmentedControl::new(app.global_search_scope)
+                    .filter_style()
+                    .segments(segments)
+                    .on_select(move |scope: &GlobalSearchScope, _window, cx| {
+                        let scope = *scope;
+                        segmented_entity.update(cx, |this, cx| {
+                            this.set_global_search_scope(scope, cx);
+                        });
+                    }),
+            )
+        })
+        .when(!show_scope_controls, |el| {
+            el.child(render_global_search_scope_menu(
+                display.scope_menu_id,
+                display.scope_menu_a11y_label,
+                active_scope_label,
+                display.scopes,
+                app.global_search_scope,
+                &menu_entity,
+            ))
+        })
         .child(
             UiButton::styled(display.search_button_id, ControlStyle::Primary)
                 .label(display.search_button_label)
@@ -181,6 +212,44 @@ fn render_global_search(
                 })),
         )
         .into_any_element()
+}
+
+fn render_global_search_scope_menu(
+    id: &'static str,
+    a11y_label: &'static str,
+    active_label: &'static str,
+    scopes: [crate::view_models::app_toolbar::GlobalSearchScopeDisplay; 3],
+    active_scope: GlobalSearchScope,
+    entity: &gpui::Entity<TopApp>,
+) -> gpui::AnyElement {
+    let items = scopes.into_iter().map(|scope| {
+        let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
+            id: SharedString::from(scope.id),
+            label: SharedString::from(scope.label),
+            a11y_label: SharedString::from(scope.a11y_label),
+            destructive: false,
+            disabled: scope.scope == active_scope,
+        });
+        if scope.scope != active_scope {
+            let selected_scope = scope.scope;
+            let entity = entity.clone();
+            item = item.on_select(move |_window, cx| {
+                entity.update(cx, |this, cx| {
+                    this.set_global_search_scope(selected_scope, cx);
+                });
+            });
+        }
+        item
+    });
+
+    ContextMenu::new(
+        SharedString::from(id),
+        ContextMenuScope::GlobalSearchScope,
+        SharedString::from(a11y_label),
+    )
+    .trigger_label(SharedString::from(active_label))
+    .items(items)
+    .into_any_element()
 }
 
 fn render_app_tab(
