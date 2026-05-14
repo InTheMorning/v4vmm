@@ -1,6 +1,6 @@
 # ADR 0047 Task 001: ContentFilter VM + FilterChipStripDisplay
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 

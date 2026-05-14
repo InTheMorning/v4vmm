@@ -17,7 +17,7 @@
 
 #![warn(clippy::pedantic)]
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 #[cfg(test)]
@@ -40,6 +40,203 @@ use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{ArtistView, FeedRef, FeedView, LocalIdentityFacts, TrackRef};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
+
+/// Rendered-line threshold before descriptions start collapsed.
+pub(crate) const DESCRIPTION_AUTO_COLLAPSE_LINES: usize = 5;
+
+/// Explicit disclosure state for long feed and track descriptions.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum DescriptionState {
+    /// Description exceeds [`DESCRIPTION_AUTO_COLLAPSE_LINES`] before user input.
+    AutoCollapsed,
+    /// Description fits within [`DESCRIPTION_AUTO_COLLAPSE_LINES`] before user input.
+    #[default]
+    AutoExpanded,
+    /// User explicitly collapsed the description.
+    UserCollapsed,
+    /// User explicitly expanded the description.
+    UserExpanded,
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0047 Phase B defines description helpers before Phase C consumes them"
+    )
+)]
+impl DescriptionState {
+    /// Project automatic disclosure from an estimated rendered line count.
+    #[must_use]
+    pub(crate) const fn project(line_count: usize) -> Self {
+        if line_count > DESCRIPTION_AUTO_COLLAPSE_LINES {
+            Self::AutoCollapsed
+        } else {
+            Self::AutoExpanded
+        }
+    }
+
+    /// Re-project automatic states while preserving explicit user choices.
+    #[must_use]
+    pub(crate) const fn project_sticky(self, line_count: usize) -> Self {
+        match self {
+            Self::AutoCollapsed | Self::AutoExpanded => Self::project(line_count),
+            Self::UserCollapsed | Self::UserExpanded => self,
+        }
+    }
+
+    /// Toggle disclosure, converting automatic state to sticky user state.
+    #[must_use]
+    pub(crate) const fn toggle(self) -> Self {
+        match self {
+            Self::AutoCollapsed | Self::UserCollapsed => Self::UserExpanded,
+            Self::AutoExpanded | Self::UserExpanded => Self::UserCollapsed,
+        }
+    }
+
+    /// Whether the full description body should be visible.
+    #[must_use]
+    pub(crate) const fn is_visible(self) -> bool {
+        matches!(self, Self::AutoExpanded | Self::UserExpanded)
+    }
+}
+
+/// Library track inspector panels that require explicit disclosure.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0047 Phase B defines inspector panel kinds before Phase C consumes them"
+    )
+)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum InspectorPanelKind {
+    /// Embedded-tag comparison panel.
+    CompareId3,
+    /// `MusicBrainz` lookup result panel.
+    MusicBrainz,
+}
+
+/// Whether Compare ID3 controls are available for the track.
+#[must_use]
+pub(crate) const fn compare_id3_enabled(is_downloaded: bool) -> bool {
+    is_downloaded
+}
+
+/// Whether `MusicBrainz` controls are available for the track.
+#[must_use]
+pub(crate) const fn musicbrainz_enabled(is_downloaded: bool) -> bool {
+    is_downloaded
+}
+
+/// Stateful, GPUI-free track-inspector disclosure contract.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryTrackInspectorState {
+    pub(crate) inspector_expanded_panels: BTreeSet<InspectorPanelKind>,
+    pub(crate) description_state: DescriptionState,
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "ADR 0047 Phase B defines inspector helpers before Phase C consumes them"
+    )
+)]
+impl LibraryTrackInspectorState {
+    /// Construct inspector state from an estimated description line count.
+    #[must_use]
+    pub(crate) fn new(description_line_count: usize) -> Self {
+        Self {
+            inspector_expanded_panels: BTreeSet::new(),
+            description_state: DescriptionState::project(description_line_count),
+        }
+    }
+
+    /// Mark an advanced panel as expanded.
+    pub(crate) fn expand_panel(&mut self, kind: InspectorPanelKind) {
+        self.inspector_expanded_panels.insert(kind);
+    }
+
+    /// Mark an advanced panel as collapsed.
+    pub(crate) fn collapse_panel(&mut self, kind: InspectorPanelKind) {
+        self.inspector_expanded_panels.remove(&kind);
+    }
+
+    /// Toggle an advanced panel.
+    pub(crate) fn toggle_panel(&mut self, kind: InspectorPanelKind) {
+        if self.is_panel_expanded(kind) {
+            self.collapse_panel(kind);
+        } else {
+            self.expand_panel(kind);
+        }
+    }
+
+    /// Return whether an advanced panel is expanded.
+    #[must_use]
+    pub(crate) fn is_panel_expanded(&self, kind: InspectorPanelKind) -> bool {
+        self.inspector_expanded_panels.contains(&kind)
+    }
+
+    /// Toggle the track description disclosure state.
+    pub(crate) fn toggle_description(&mut self) {
+        self.description_state = self.description_state.toggle();
+    }
+
+    /// Re-project auto description state while preserving user choices.
+    pub(crate) fn project_description(&mut self, line_count: usize) {
+        self.description_state = self.description_state.project_sticky(line_count);
+    }
+
+    /// Display projection consumed by later inspector rendering tasks.
+    #[must_use]
+    pub(crate) fn display(&self, is_downloaded: bool) -> LibraryTrackInspectorDisplay {
+        LibraryTrackInspectorDisplay {
+            inspector_expanded_panels: self.inspector_expanded_panels.clone(),
+            description_state: self.description_state,
+            compare_id3_enabled: compare_id3_enabled(is_downloaded),
+            musicbrainz_enabled: musicbrainz_enabled(is_downloaded),
+        }
+    }
+}
+
+impl Default for LibraryTrackInspectorState {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
+/// Display contract for track-inspector disclosure and panel availability.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryTrackInspectorDisplay {
+    pub(crate) inspector_expanded_panels: BTreeSet<InspectorPanelKind>,
+    pub(crate) description_state: DescriptionState,
+    pub(crate) compare_id3_enabled: bool,
+    pub(crate) musicbrainz_enabled: bool,
+}
+
+/// Source-list entry for an in-memory saved search.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SavedSearchEntry {
+    pub(crate) id: i64,
+    pub(crate) query: String,
+    pub(crate) label: String,
+    pub(crate) a11y_label: String,
+}
+
+/// Optional display section for saved searches beneath playlists.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SavedSearchesSectionDisplay {
+    pub(crate) heading: &'static str,
+    pub(crate) rows: Vec<SavedSearchEntry>,
+}
+
+fn description_line_count(description: Option<&str>) -> usize {
+    let Some(description) = description.map(str::trim).filter(|value| !value.is_empty()) else {
+        return 0;
+    };
+    description.lines().count().max(1)
+}
 
 /// Per-track `MusicBrainz` lookup state owned by the library screen and
 /// projected into display by [`LibraryTrackRowVm`].
@@ -563,6 +760,7 @@ pub(crate) struct LibraryViewModel {
     expanded_albums: HashSet<(String, String)>,
     playlists_expanded: bool,
     playlist_sort: PlaylistSort,
+    saved_searches: Vec<SavedSearchEntry>,
     // Selection / focus.
     selected_id: Option<i64>,
     selected_playlist_id: Option<i64>,
@@ -593,6 +791,7 @@ impl LibraryViewModel {
             expanded_albums: HashSet::new(),
             playlists_expanded: true,
             playlist_sort: PlaylistSort::default(),
+            saved_searches: Vec::new(),
             selected_id: None,
             selected_playlist_id: None,
             hovered_thumb_url: None,
@@ -752,6 +951,44 @@ impl LibraryViewModel {
                 })
                 .collect(),
         }
+    }
+
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0047 Phase B exposes saved searches before source-list rendering consumes them"
+        )
+    )]
+    pub(crate) fn saved_searches(&self) -> &[SavedSearchEntry] {
+        &self.saved_searches
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0047 Phase B adds the in-memory contract before the loader is wired"
+        )
+    )]
+    pub(crate) fn set_saved_searches(&mut self, saved_searches: Vec<SavedSearchEntry>) {
+        self.saved_searches = saved_searches;
+    }
+
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0047 Phase B exposes saved-search section data before rendering consumes it"
+        )
+    )]
+    pub(crate) fn saved_searches_section(&self) -> Option<SavedSearchesSectionDisplay> {
+        (!self.saved_searches.is_empty()).then(|| SavedSearchesSectionDisplay {
+            heading: "Saved Searches",
+            rows: self.saved_searches.clone(),
+        })
     }
 
     #[must_use]
@@ -1871,6 +2108,7 @@ fn artist_active_years(begin_year: Option<i32>, end_year: Option<i32>) -> Option
 /// action-state projections the Library screen needs to bind handlers.
 pub(crate) struct LibraryAlbumDetailVm<'a> {
     mb_status: &'a BTreeMap<i64, MbTrackStatus>,
+    description_state: DescriptionState,
 }
 
 /// Display contract for the Library album `MusicBrainz` action.
@@ -1891,11 +2129,28 @@ pub(crate) struct LibraryAlbumPlaylistDisplay {
 impl<'a> LibraryAlbumDetailVm<'a> {
     #[must_use]
     pub(crate) fn new(
-        _feed_view: &'a FeedView,
+        feed_view: &'a FeedView,
         _tracks: &'a [TrackRow],
         mb_status: &'a BTreeMap<i64, MbTrackStatus>,
     ) -> Self {
-        Self { mb_status }
+        Self {
+            mb_status,
+            description_state: DescriptionState::project(description_line_count(
+                feed_view.description.as_deref(),
+            )),
+        }
+    }
+
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0047 Phase B projects description state before Phase C renders it"
+        )
+    )]
+    pub(crate) const fn description_state(&self) -> DescriptionState {
+        self.description_state
     }
 
     /// `true` when any track has an in-flight `MusicBrainz` lookup —
@@ -2392,6 +2647,106 @@ mod tests {
     #[test]
     fn duration_suffix_is_empty_when_absent() {
         assert_eq!(LibraryTrackRowVm::new(&row(), None).duration_suffix(), "");
+    }
+
+    #[test]
+    fn description_state_projects_auto_threshold_boundary() {
+        assert_eq!(
+            DescriptionState::project(DESCRIPTION_AUTO_COLLAPSE_LINES),
+            DescriptionState::AutoExpanded
+        );
+        assert!(DescriptionState::project(DESCRIPTION_AUTO_COLLAPSE_LINES).is_visible());
+        assert_eq!(
+            DescriptionState::project(DESCRIPTION_AUTO_COLLAPSE_LINES + 1),
+            DescriptionState::AutoCollapsed
+        );
+        assert!(!DescriptionState::project(DESCRIPTION_AUTO_COLLAPSE_LINES + 1).is_visible());
+    }
+
+    #[test]
+    fn description_state_toggle_moves_to_user_variants() {
+        assert_eq!(
+            DescriptionState::AutoCollapsed.toggle(),
+            DescriptionState::UserExpanded
+        );
+        assert_eq!(
+            DescriptionState::AutoExpanded.toggle(),
+            DescriptionState::UserCollapsed
+        );
+        assert_eq!(
+            DescriptionState::UserCollapsed.toggle(),
+            DescriptionState::UserExpanded
+        );
+        assert_eq!(
+            DescriptionState::UserExpanded.toggle(),
+            DescriptionState::UserCollapsed
+        );
+    }
+
+    #[test]
+    fn description_state_user_variants_are_sticky_on_reproject() {
+        assert_eq!(
+            DescriptionState::UserCollapsed.project_sticky(1),
+            DescriptionState::UserCollapsed
+        );
+        assert_eq!(
+            DescriptionState::UserExpanded.project_sticky(20),
+            DescriptionState::UserExpanded
+        );
+        assert_eq!(
+            DescriptionState::AutoExpanded.project_sticky(6),
+            DescriptionState::AutoCollapsed
+        );
+    }
+
+    #[test]
+    fn track_inspector_state_starts_with_no_expanded_panels() {
+        let state = LibraryTrackInspectorState::default();
+
+        assert!(state.inspector_expanded_panels.is_empty());
+        assert_eq!(state.description_state, DescriptionState::AutoExpanded);
+        assert!(!state.is_panel_expanded(InspectorPanelKind::CompareId3));
+        assert!(!state.is_panel_expanded(InspectorPanelKind::MusicBrainz));
+    }
+
+    #[test]
+    fn track_inspector_state_expands_collapses_and_toggles_panels() {
+        let mut state = LibraryTrackInspectorState::new(6);
+
+        assert_eq!(state.description_state, DescriptionState::AutoCollapsed);
+        state.expand_panel(InspectorPanelKind::CompareId3);
+        assert!(state.is_panel_expanded(InspectorPanelKind::CompareId3));
+        state.collapse_panel(InspectorPanelKind::CompareId3);
+        assert!(!state.is_panel_expanded(InspectorPanelKind::CompareId3));
+
+        state.toggle_panel(InspectorPanelKind::MusicBrainz);
+        assert!(state.is_panel_expanded(InspectorPanelKind::MusicBrainz));
+        state.toggle_panel(InspectorPanelKind::MusicBrainz);
+        assert!(!state.is_panel_expanded(InspectorPanelKind::MusicBrainz));
+
+        state.project_description(1);
+        assert_eq!(state.description_state, DescriptionState::AutoExpanded);
+    }
+
+    #[test]
+    fn track_inspector_predicates_follow_download_state() {
+        assert!(!compare_id3_enabled(false));
+        assert!(!musicbrainz_enabled(false));
+        assert!(compare_id3_enabled(true));
+        assert!(musicbrainz_enabled(true));
+
+        let mut state = LibraryTrackInspectorState::default();
+        state.expand_panel(InspectorPanelKind::CompareId3);
+        state.toggle_description();
+        let display = state.display(false);
+
+        assert_eq!(
+            display.inspector_expanded_panels,
+            [InspectorPanelKind::CompareId3].into()
+        );
+        assert_eq!(display.description_state, DescriptionState::UserCollapsed);
+        assert!(!display.compare_id3_enabled);
+        assert!(!display.musicbrainz_enabled);
     }
 
     #[test]
@@ -3178,6 +3533,21 @@ mod tests {
     }
 
     #[test]
+    fn album_detail_vm_projects_description_state_from_feed_description() {
+        let mut view = feed_view_with(None, None);
+        view.description = Some("one\ntwo\nthree\nfour\nfive".into());
+        let mb = BTreeMap::new();
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+
+        assert_eq!(vm.description_state(), DescriptionState::AutoExpanded);
+
+        view.description = Some("one\ntwo\nthree\nfour\nfive\nsix".into());
+        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+
+        assert_eq!(vm.description_state(), DescriptionState::AutoCollapsed);
+    }
+
+    #[test]
     fn library_view_model_updates_album_identity_facts_by_feed_id() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
@@ -3489,6 +3859,43 @@ mod tests {
         assert_eq!(sidebar.rows[0].track_count_label, "(3)");
         assert!(!sidebar.rows[0].selected);
         assert!(sidebar.rows[1].selected);
+    }
+
+    #[test]
+    fn library_view_model_saved_searches_start_empty_without_section() {
+        let vm = LibraryViewModel::new();
+
+        assert!(vm.saved_searches().is_empty());
+        assert!(vm.saved_searches_section().is_none());
+    }
+
+    #[test]
+    fn library_view_model_saved_searches_preserve_seeded_order() {
+        let mut vm = LibraryViewModel::new();
+        let first = SavedSearchEntry {
+            id: 10,
+            query: "artist:aphex".into(),
+            label: "Aphex".into(),
+            a11y_label: "Open saved search Aphex".into(),
+        };
+        let second = SavedSearchEntry {
+            id: 20,
+            query: "tag:ambient".into(),
+            label: "Ambient".into(),
+            a11y_label: "Open saved search Ambient".into(),
+        };
+
+        vm.set_saved_searches(vec![first.clone(), second.clone()]);
+
+        assert_eq!(vm.saved_searches(), &[first.clone(), second.clone()]);
+        assert_eq!(
+            vm.saved_searches_section(),
+            Some(SavedSearchesSectionDisplay {
+                heading: "Saved Searches",
+                rows: vec![first.clone(), second.clone()],
+            })
+        );
+        assert_eq!(vm.saved_searches(), &[first, second]);
     }
 
     #[test]

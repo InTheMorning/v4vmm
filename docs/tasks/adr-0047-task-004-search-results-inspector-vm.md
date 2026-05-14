@@ -1,6 +1,6 @@
 # ADR 0047 Task 004: Search Results Inspector VM
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 

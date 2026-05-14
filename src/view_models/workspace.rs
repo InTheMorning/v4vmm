@@ -195,6 +195,133 @@ impl fmt::Display for WorkspaceModelError {
 
 impl Error for WorkspaceModelError {}
 
+/// Content source filter for a frame-local content surface.
+///
+/// Invalid filter states are unrepresentable. Renderers map these variants to
+/// frame-local controls, while workspace view-models pass the selected value
+/// through without importing UI framework types.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum ContentFilter {
+    /// Show content from every available source.
+    #[default]
+    All,
+    /// Show content already present in the local library.
+    Library,
+    /// Show content available from the remote index.
+    Index,
+}
+
+impl ContentFilter {
+    /// Returns the visible label for this filter.
+    #[must_use]
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Library => "Library",
+            Self::Index => "Index",
+        }
+    }
+}
+
+/// Display contract for one frame-local filter chip option.
+///
+/// The value carries the typed filter command. Labels stay static so callers
+/// can reuse the standard All / Library / Index set without allocating or
+/// hand-rolling duplicate option lists.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FilterChipOption {
+    /// Filter selected when this option is activated.
+    pub(crate) value: ContentFilter,
+    /// Visible chip label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for assistive technologies and tooltips.
+    pub(crate) a11y_label: &'static str,
+    /// Whether this option should render unavailable.
+    pub(crate) disabled: bool,
+}
+
+/// Display contract for a frame-local filter chip strip.
+///
+/// The display carries all data needed by frame chrome to render either an
+/// expanded chip strip or a narrow pull-down. It contains no GPUI values and
+/// leaves command dispatch to the renderer that consumes the selected
+/// [`ContentFilter`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FilterChipStripDisplay {
+    /// Stable element identifier for the filter strip.
+    pub(crate) id: String,
+    /// Ordered filter options.
+    pub(crate) options: Vec<FilterChipOption>,
+    /// Currently selected filter.
+    pub(crate) selected: ContentFilter,
+    /// Whether narrow frame chrome should collapse chips into a pull-down.
+    pub(crate) narrow_collapse_to_pulldown: bool,
+}
+
+impl FilterChipStripDisplay {
+    /// Creates the default content-list filter strip display.
+    #[must_use]
+    pub(crate) fn default_for_content_list(
+        selected: ContentFilter,
+        narrow_collapse_to_pulldown: bool,
+    ) -> Self {
+        Self::with_standard_options(
+            "workspace-content-list-filter",
+            selected,
+            narrow_collapse_to_pulldown,
+        )
+    }
+
+    /// Creates the default search-inspector filter strip display.
+    #[must_use]
+    pub(crate) fn default_for_search_inspector(
+        selected: ContentFilter,
+        narrow_collapse_to_pulldown: bool,
+    ) -> Self {
+        Self::with_standard_options(
+            "workspace-search-inspector-filter",
+            selected,
+            narrow_collapse_to_pulldown,
+        )
+    }
+
+    fn with_standard_options(
+        id: impl Into<String>,
+        selected: ContentFilter,
+        narrow_collapse_to_pulldown: bool,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            options: Self::standard_options(),
+            selected,
+            narrow_collapse_to_pulldown,
+        }
+    }
+
+    fn standard_options() -> Vec<FilterChipOption> {
+        vec![
+            FilterChipOption {
+                value: ContentFilter::All,
+                label: "All",
+                a11y_label: "Show library and index content",
+                disabled: false,
+            },
+            FilterChipOption {
+                value: ContentFilter::Library,
+                label: "Library",
+                a11y_label: "Show library content only",
+                disabled: false,
+            },
+            FilterChipOption {
+                value: ContentFilter::Index,
+                label: "Index",
+                a11y_label: "Show index content only",
+                disabled: false,
+            },
+        ]
+    }
+}
+
 /// Display contract for one frame-chrome button.
 ///
 /// The shell renderer owns visual treatment and icon selection. This contract
@@ -628,12 +755,86 @@ impl FrameNavigationState {
 #[cfg(test)]
 mod tests {
     use super::{
-        FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, WorkspaceFrameId,
-        WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceModelError,
+        ContentFilter, FilterChipStripDisplay, FrameNavigationEntry, FrameNavigationState,
+        FrameShellDisplay, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
+        WorkspaceLayout, WorkspaceModelError,
     };
 
     fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
         WorkspaceFrameState::with_default_title(WorkspaceFrameId::new(id), kind)
+    }
+
+    #[test]
+    fn filter_chip_strip_defaults_use_standard_option_order() {
+        let content_list =
+            FilterChipStripDisplay::default_for_content_list(ContentFilter::All, true);
+        let search_inspector =
+            FilterChipStripDisplay::default_for_search_inspector(ContentFilter::All, true);
+
+        let content_values: Vec<_> = content_list
+            .options
+            .iter()
+            .map(|option| option.value)
+            .collect();
+        let search_values: Vec<_> = search_inspector
+            .options
+            .iter()
+            .map(|option| option.value)
+            .collect();
+
+        assert_eq!(
+            content_values,
+            [
+                ContentFilter::All,
+                ContentFilter::Library,
+                ContentFilter::Index
+            ],
+            "content-list filters should keep the ADR 0047 option order"
+        );
+        assert_eq!(
+            search_values,
+            [
+                ContentFilter::All,
+                ContentFilter::Library,
+                ContentFilter::Index
+            ],
+            "search-inspector filters should keep the ADR 0047 option order"
+        );
+    }
+
+    #[test]
+    fn filter_chip_strip_defaults_round_trip_selected_filter() {
+        let content_list =
+            FilterChipStripDisplay::default_for_content_list(ContentFilter::Library, true);
+        let search_inspector =
+            FilterChipStripDisplay::default_for_search_inspector(ContentFilter::Index, true);
+
+        assert_eq!(
+            content_list.selected,
+            ContentFilter::Library,
+            "content-list filter display should preserve the selected filter"
+        );
+        assert_eq!(
+            search_inspector.selected,
+            ContentFilter::Index,
+            "search-inspector filter display should preserve the selected filter"
+        );
+    }
+
+    #[test]
+    fn filter_chip_strip_defaults_pass_through_narrow_collapse() {
+        let expanded = FilterChipStripDisplay::default_for_content_list(ContentFilter::All, false);
+        let collapsed =
+            FilterChipStripDisplay::default_for_search_inspector(ContentFilter::All, true);
+
+        assert!(
+            !expanded.narrow_collapse_to_pulldown,
+            "content-list filter display should preserve expanded narrow-mode preference"
+        );
+        assert!(
+            collapsed.narrow_collapse_to_pulldown,
+            "search-inspector filter display should preserve collapsed narrow-mode preference"
+        );
     }
 
     #[test]

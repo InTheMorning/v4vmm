@@ -48,6 +48,8 @@ Risks: none until implementation begins.
 Goal: introduce GPUI-free VM contracts that downstream phases consume.
 No visible UI change.
 
+Status: Implemented - 2026-05-14.
+
 Tasks:
 
 - `adr-0047-task-001-content-filter-vm`

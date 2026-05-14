@@ -74,6 +74,7 @@ pub mod paged_feed_detail;
 pub mod paged_playlist_detail;
 pub mod playlist_detail;
 pub mod search;
+pub mod search_results;
 pub mod track;
 pub mod track_detail;
 pub mod track_metadata_grid;

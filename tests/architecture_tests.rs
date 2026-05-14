@@ -695,6 +695,110 @@ fn workspace_frame_shell_display_contract_lives_in_workspace_vm() {
 }
 
 #[test]
+fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
+    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let library_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let search_results_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
+    let mut violations = Vec::new();
+
+    for (path, source) in [
+        ("src/view_models/workspace.rs", workspace_source.as_str()),
+        ("src/view_models/library.rs", library_source.as_str()),
+        (
+            "src/view_models/search_results.rs",
+            search_results_source.as_str(),
+        ),
+    ] {
+        for (line_number, line) in code_lines(source) {
+            for pattern in [
+                "use gpui",
+                "gpui::",
+                "use gpui_component",
+                "gpui_component::",
+            ] {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{path}:{line_number}: ADR 0047 Phase B VM contract must stay GPUI-free; found `{pattern}` in `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    for required in [
+        "pub(crate) enum ContentFilter",
+        "pub(crate) struct FilterChipOption",
+        "pub(crate) struct FilterChipStripDisplay",
+        "pub(crate) fn default_for_content_list",
+        "pub(crate) fn default_for_search_inspector",
+    ] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0047 Phase B content-filter contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) enum InspectorPanelKind",
+        "pub(crate) struct LibraryTrackInspectorState",
+        "inspector_expanded_panels: BTreeSet<InspectorPanelKind>",
+        "pub(crate) const fn compare_id3_enabled",
+        "pub(crate) const fn musicbrainz_enabled",
+        "pub(crate) enum DescriptionState",
+        "pub(crate) const DESCRIPTION_AUTO_COLLAPSE_LINES: usize = 5",
+        "pub(crate) struct SavedSearchEntry",
+        "pub(crate) fn set_saved_searches",
+    ] {
+        if !library_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: ADR 0047 Phase B library VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "use crate::view_models::workspace::ContentFilter;",
+        "pub(crate) enum SearchResultsTab",
+        "pub(crate) struct ArtistResultDisplay",
+        "pub(crate) struct FeedResultDisplay",
+        "pub(crate) struct TrackResultDisplay",
+        "pub(crate) struct EmptyStateDisplay",
+        "pub(crate) struct SearchResultsInspectorPageVm",
+        "pub(crate) fn set_tab",
+        "pub(crate) fn set_filter",
+        "pub(crate) fn is_empty",
+    ] {
+        if !search_results_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results.rs: ADR 0047 Phase B search-results contract missing `{required}`"
+            ));
+        }
+    }
+
+    if search_results_source.contains("enum ContentFilter") {
+        violations.push(
+            "src/view_models/search_results.rs: ADR 0047 Phase B must reuse workspace ContentFilter, not define a second enum"
+                .to_string(),
+        );
+    }
+
+    if !mod_source.contains("pub mod search_results;") {
+        violations.push(
+            "src/view_models/mod.rs: ADR 0047 Phase B search_results module is not exported"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Phase B view-model contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn workspace_frame_shell_composite_owns_shared_frame_chrome() {
     let source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
     let mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
