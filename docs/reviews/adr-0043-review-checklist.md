@@ -75,9 +75,14 @@ Readiness decision: Pending visual verification.
   toolbar space for the search field.
 - HIG drift review on 2026-05-14 found that narrow-width hiding removed the
   trailing primary Search action and made scope switching unavailable. Fixed
-  on 2026-05-14: Search submit is always rendered, scope switching collapses
-  to the shared menu primitive below the scope breakpoint, and toolbar width is
-  computed once in `render_tab_bar` before being passed into search rendering.
+  on 2026-05-14: Search submit stays inline above the compact breakpoint,
+  Search/scope commands collapse to the shared menu primitive below it, and
+  toolbar width is computed once in `render_tab_bar` before being passed into
+  search rendering.
+- Operator screenshot review on 2026-05-14 showed the toolbar still clipping
+  at compact width. Fixed on 2026-05-14: compact Now Playing now uses the
+  `MenuRegular` width and compact global search renders as input plus overflow
+  menu, avoiding the partial scope label and submit-button overlap.
 - Visual proof still needs operator recheck because this execution session
   cannot inspect the running display directly.
 

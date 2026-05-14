@@ -145,9 +145,13 @@ At the end, report:
   preserving usable space for the center search field.
 - Follow-up HIG review on 2026-05-14 found that hiding scope controls and the
   submit button removed primary toolbar actions at narrow widths. The Search
-  submit button now remains visible at all toolbar widths, and the scope
-  controls collapse into the shared context-menu primitive with VM-owned ids,
-  labels, and accessibility text.
+  submit button remains inline above the compact breakpoint; below it, the
+  search field stays visible and Search/scope commands move into the shared
+  context-menu primitive with VM-owned ids, labels, and accessibility text.
+- Operator screenshot review on 2026-05-14 showed the medium-width correction
+  still clipped between Settings and Now Playing. The toolbar now has a second
+  compact step: Now Playing shrinks to `MenuRegular`, and global search renders
+  only the input plus overflow menu below the compact breakpoint.
 - Visual proof could not be captured because `DISPLAY=:0 wmctrl -l`
   failed with `Authorization required, but no authorization protocol specified`
   and `Cannot open display`, including when retried with escalated

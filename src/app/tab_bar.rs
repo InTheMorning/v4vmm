@@ -50,8 +50,10 @@ pub(super) fn render_tab_bar(
     let toolbar_width = window.bounds().size.width;
     let now_playing_width = if toolbar_width >= layout::APP_TOOLBAR_NOW_PLAYING_COMPACT_BREAKPOINT {
         TokenSize::ColumnTall.scaled(cx)
-    } else {
+    } else if toolbar_width >= layout::APP_TOOLBAR_GLOBAL_SEARCH_COMPACT_BREAKPOINT {
         TokenSize::ColumnRegular.scaled(cx)
+    } else {
+        TokenSize::MenuRegular.scaled(cx)
     };
     let mark_tooltip = Tooltip::new(display.mark_a11y_label);
     let now_playing_tooltip = Tooltip::new(display.now_playing.a11y_label);
@@ -137,6 +139,7 @@ fn render_global_search(
     cx: &mut Context<TopApp>,
 ) -> gpui::AnyElement {
     let show_scope_controls = toolbar_width >= layout::APP_TOOLBAR_SCOPE_BREAKPOINT;
+    let use_compact_search = toolbar_width < layout::APP_TOOLBAR_GLOBAL_SEARCH_COMPACT_BREAKPOINT;
     let segments = display
         .scopes
         .iter()
@@ -158,7 +161,19 @@ fn render_global_search(
     let segmented_entity = entity.clone();
     let menu_entity = entity.clone();
 
-    div()
+    let search_input = div()
+        .id(display.input_id)
+        .flex_1()
+        .min_w_0()
+        .max_w(TokenSize::ColumnTall.scaled(cx))
+        .child(
+            Input::new(&app.global_search_input)
+                .prefix(IconName::Search)
+                .cleanable(true)
+                .scaled(Size::Small, cx),
+        );
+
+    let mut toolbar_search = div()
         .id(center_id)
         .flex_1()
         .min_w_0()
@@ -167,62 +182,97 @@ fn render_global_search(
         .justify_center()
         .gap(Spacing::XS.scaled(cx))
         .overflow_hidden()
-        .child(
-            div()
-                .id(display.input_id)
-                .flex_1()
-                .min_w_0()
-                .max_w(TokenSize::ColumnTall.scaled(cx))
-                .child(
-                    Input::new(&app.global_search_input)
-                        .prefix(IconName::Search)
-                        .cleanable(true)
-                        .scaled(Size::Small, cx),
-                ),
-        )
-        .when(show_scope_controls, |el| {
-            el.child(
-                SegmentedControl::new(app.global_search_scope)
-                    .filter_style()
-                    .segments(segments)
-                    .on_select(move |scope: &GlobalSearchScope, _window, cx| {
-                        let scope = *scope;
-                        segmented_entity.update(cx, |this, cx| {
-                            this.set_global_search_scope(scope, cx);
-                        });
-                    }),
-            )
-        })
-        .when(!show_scope_controls, |el| {
-            el.child(render_global_search_scope_menu(
-                display.scope_menu_id,
-                display.scope_menu_a11y_label,
-                active_scope_label,
-                display.scopes,
-                app.global_search_scope,
-                &menu_entity,
-            ))
-        })
-        .child(
-            UiButton::styled(display.search_button_id, ControlStyle::Primary)
-                .label(display.search_button_label)
-                .a11y_label(display.search_button_a11y_label)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.submit_global_search(cx);
-                })),
-        )
-        .into_any_element()
+        .child(search_input);
+
+    if use_compact_search {
+        toolbar_search = toolbar_search.child(render_global_search_scope_menu(
+            display.scope_menu_id,
+            display.scope_menu_a11y_label,
+            "",
+            display.search_button_label,
+            display.search_button_a11y_label,
+            true,
+            display.scopes,
+            app.global_search_scope,
+            &menu_entity,
+        ));
+    } else {
+        toolbar_search = toolbar_search
+            .when(show_scope_controls, |el| {
+                el.child(
+                    SegmentedControl::new(app.global_search_scope)
+                        .filter_style()
+                        .segments(segments)
+                        .on_select(move |scope: &GlobalSearchScope, _window, cx| {
+                            let scope = *scope;
+                            segmented_entity.update(cx, |this, cx| {
+                                this.set_global_search_scope(scope, cx);
+                            });
+                        }),
+                )
+            })
+            .when(!show_scope_controls, |el| {
+                el.child(render_global_search_scope_menu(
+                    display.scope_menu_id,
+                    display.scope_menu_a11y_label,
+                    active_scope_label,
+                    display.search_button_label,
+                    display.search_button_a11y_label,
+                    false,
+                    display.scopes,
+                    app.global_search_scope,
+                    &menu_entity,
+                ))
+            })
+            .child(
+                UiButton::styled(display.search_button_id, ControlStyle::Primary)
+                    .label(display.search_button_label)
+                    .a11y_label(display.search_button_a11y_label)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.submit_global_search(cx);
+                    })),
+            );
+    }
+
+    toolbar_search.into_any_element()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "toolbar overflow keeps VM-owned display strings at the call site"
+)]
 fn render_global_search_scope_menu(
     id: &'static str,
     a11y_label: &'static str,
-    active_label: &'static str,
+    trigger_label: &'static str,
+    search_label: &'static str,
+    search_a11y_label: &'static str,
+    include_search_action: bool,
     scopes: [crate::view_models::app_toolbar::GlobalSearchScopeDisplay; 3],
     active_scope: GlobalSearchScope,
     entity: &gpui::Entity<TopApp>,
 ) -> gpui::AnyElement {
-    let items = scopes.into_iter().map(|scope| {
+    let mut items = Vec::new();
+
+    if include_search_action {
+        let entity = entity.clone();
+        items.push(
+            ContextMenuItem::new(ContextMenuItemDisplay {
+                id: SharedString::from(format!("{id}:submit")),
+                label: SharedString::from(search_label),
+                a11y_label: SharedString::from(search_a11y_label),
+                destructive: false,
+                disabled: false,
+            })
+            .on_select(move |_window, cx| {
+                entity.update(cx, |this, cx| {
+                    this.submit_global_search(cx);
+                });
+            }),
+        );
+    }
+
+    items.extend(scopes.into_iter().map(|scope| {
         let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
             id: SharedString::from(scope.id),
             label: SharedString::from(scope.label),
@@ -240,14 +290,14 @@ fn render_global_search_scope_menu(
             });
         }
         item
-    });
+    }));
 
     ContextMenu::new(
         SharedString::from(id),
         ContextMenuScope::GlobalSearchScope,
         SharedString::from(a11y_label),
     )
-    .trigger_label(SharedString::from(active_label))
+    .trigger_label(SharedString::from(trigger_label))
     .items(items)
     .into_any_element()
 }
