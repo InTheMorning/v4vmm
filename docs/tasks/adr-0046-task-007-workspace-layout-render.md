@@ -4,17 +4,18 @@ Status: Proposed - 2026-05-14.
 
 ## Goal
 
-Render `TopApp` body as a `WorkspaceLayout` using the frame shell
-composite. Default layout: `SourceList` (leading), `ContentList` +
-`Detail` (center), `QueueNowPlaying` placeholder (trailing). Existing
-Library, Search, and Settings content move inside frames without
-behavior change. Old tab rendering remains reachable for fallback in
-this task; later tasks remove it.
+Render `TopApp` body as a transitional `WorkspaceLayout` using the frame shell
+composite. Existing Library, Search, and Settings screens are mounted whole
+inside workspace frames; this task does **not** split their current internal
+split panes into separate `SourceList`, `ContentList`, and `Detail` slots.
+`QueueNowPlaying` renders as a placeholder. Old tab rendering remains
+reachable for fallback in this task; later tasks remove it.
 
 ## Files to Inspect
 
 - `docs/adr/0046-workspace-frame-architecture.md`
 - `docs/tasks/adr-0046-task-006-frame-shell-composite.md`
+- `docs/tasks/adr-0046-task-006a-screen-mount-boundaries.md`
 - `src/app.rs`
 - `src/app/tab_bar.rs`
 - `src/library.rs`
@@ -26,7 +27,7 @@ this task; later tasks remove it.
 
 - `src/app.rs`
 - `src/ui/shells/workspace.rs` (new)
-- `src/library.rs` or `src/search.rs` (mount-point only)
+- `src/library.rs` or `src/search.rs` (mount-point only, if needed)
 
 ## Do Not Touch
 
@@ -39,22 +40,21 @@ this task; later tasks remove it.
 
 - Additive: prior tab rendering remains reachable behind a feature
   flag or sibling code path until the workspace render is verified.
-- Page VMs and shell helpers render unchanged inside frames.
+- Page VMs and shell helpers render unchanged inside the whole mounted screens.
 - No inspector grows a back button.
 - QueueNowPlaying frame renders as a placeholder until task 010 lands.
 - Reuse `frame_shell` composite for every frame.
-- Source-list frame, content frame, and detail frame each pass their
-  own `FrameShellDisplay` plus a content child.
+- Do not copy Library/Search split-pane internals into
+  `src/ui/shells/workspace.rs`; this phase wraps existing screens.
 
 ## Implementation Steps
 
 1. Add `src/ui/shells/workspace.rs` exporting `render_workspace`.
 2. `render_workspace` consumes a `WorkspaceLayout` projection and a
    slot map keyed by frame kind, returning a row of frames.
-3. Wire `TopApp::render` to build a default `WorkspaceLayout` and
-   call `render_workspace`. Source-list slot wraps existing playlist
-   sidebar; content-list slot wraps Library/Search body; detail slot
-   wraps inspector; queue slot renders a placeholder frame.
+3. Wire `TopApp::render` to build a transitional default `WorkspaceLayout` and
+   call `render_workspace`. The active Library/Search/Settings entity remains a
+   whole mounted content child. Queue renders a placeholder frame.
 4. Add a feature flag or build-time toggle to fall back to the prior
    tab rendering if the workspace render misbehaves.
 5. Architecture guard: assert `frame_shell` is the only composite
@@ -64,8 +64,9 @@ this task; later tasks remove it.
 
 - [ ] `src/ui/shells/workspace.rs` renders the default layout via
   `frame_shell` composites.
-- [ ] Library, Search, and Settings content renders inside frames
+- [ ] Library, Search, and Settings screens render inside workspace frames
   without behavior change.
+- [ ] Workspace shell does not duplicate Library/Search split-pane internals.
 - [ ] No inspector grows a back button.
 - [ ] Prior tab rendering still reachable for fallback.
 
@@ -88,6 +89,7 @@ Implement only this task. Do not redesign the architecture.
 Read:
 - `docs/adr/0046-workspace-frame-architecture.md`
 - `docs/tasks/adr-0046-task-006-frame-shell-composite.md`
+- `docs/tasks/adr-0046-task-006a-screen-mount-boundaries.md`
 - `src/app.rs`
 - `src/app/tab_bar.rs`
 - `src/library.rs`, `src/search.rs`
@@ -99,7 +101,7 @@ Goal:
 
 Constraints:
 - Additive; prior tab rendering reachable for fallback.
-- Page VMs and shell helpers render unchanged inside frames.
+- Page VMs and shell helpers render unchanged inside whole mounted screens.
 - Reuse `frame_shell` everywhere.
 - QueueNowPlaying renders a placeholder pending task 010.
 
@@ -109,7 +111,8 @@ Do not touch:
 
 Acceptance criteria:
 - `src/ui/shells/workspace.rs` exists and renders the default layout.
-- Library/Search/Settings render inside frames.
+- Library/Search/Settings render inside workspace frames without splitting
+  their internals.
 - No inspector back button is introduced.
 
 Test commands:

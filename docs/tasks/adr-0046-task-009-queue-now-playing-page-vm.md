@@ -15,13 +15,13 @@ device picker, volume slider.
 - `docs/tasks/adr-0046-task-001-workspace-model-types.md`
 - `src/view_models/library.rs` (display-contract precedent)
 - `src/playback*` for playback session shape
-- `src/view_models.rs`
+- `src/view_models/mod.rs`
 - `tests/architecture_tests.rs`
 
 ## Files Likely to Change
 
 - `src/view_models/queue_now_playing.rs` (new)
-- `src/view_models.rs` (module declaration)
+- `src/view_models/mod.rs` (module declaration)
 - `tests/architecture_tests.rs`
 
 ## Do Not Touch
@@ -46,7 +46,7 @@ device picker, volume slider.
 ## Implementation Steps
 
 1. Add `src/view_models/queue_now_playing.rs` and declare in
-   `src/view_models.rs`.
+   `src/view_models/mod.rs`.
 2. Define `QueueRowDisplay { id, title, artist, duration_label,
    now_playing, a11y_label }`.
 3. Define `TransportDisplay { play_pause_id, play_pause_label,

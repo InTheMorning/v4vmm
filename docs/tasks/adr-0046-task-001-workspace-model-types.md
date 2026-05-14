@@ -11,14 +11,14 @@ navigation work has a typed contract to render. No visible UI change.
 
 - `docs/adr/0046-workspace-frame-architecture.md`
 - `docs/plans/adr-0046-workspace-frame-architecture-phase-plan.md`
-- `src/view_models.rs`
+- `src/view_models/mod.rs`
 - `src/view_models/library.rs` (for VM doc/style precedent)
 - `tests/architecture_tests.rs`
 
 ## Files Likely to Change
 
 - `src/view_models/workspace.rs` (new)
-- `src/view_models.rs` (module declaration)
+- `src/view_models/mod.rs` (module declaration)
 - `tests/architecture_tests.rs`
 
 ## Do Not Touch
@@ -39,7 +39,7 @@ navigation work has a typed contract to render. No visible UI change.
 ## Implementation Steps
 
 1. Add `src/view_models/workspace.rs` and declare it in
-   `src/view_models.rs`.
+   `src/view_models/mod.rs`.
 2. Define `WorkspaceFrameId(u64)` newtype with constructor + accessor.
 3. Define `WorkspaceFrameKind` enum: `SourceList`, `ContentList`,
    `Detail`, `QueueNowPlaying`.
@@ -91,7 +91,7 @@ Implement only this task. Do not redesign the architecture.
 Read:
 - `docs/adr/0046-workspace-frame-architecture.md`
 - `docs/plans/adr-0046-workspace-frame-architecture-phase-plan.md`
-- `src/view_models.rs`
+- `src/view_models/mod.rs`
 - `src/view_models/library.rs` (style precedent)
 - `tests/architecture_tests.rs`
 
@@ -136,5 +136,5 @@ At the end, report:
 
 - Workspace types require GPUI imports to compile (signals a
   layering error to escalate before adding `use gpui`).
-- Existing `src/view_models.rs` cannot host a new module without a
+- Existing `src/view_models/mod.rs` cannot host a new module without a
   broader refactor.

@@ -7,7 +7,8 @@ Status: Proposed - 2026-05-14.
 Lock in Phase 2 invariants as architecture-test guards: frame nav
 state lives in `src/view_models/workspace.rs`, it remains GPUI-free,
 inspectors no longer own cross-frame navigation, and
-`InspectorFrame.playlist_origin_id` has been retired.
+`InspectorFrame.origin` / `InspectorOrigin` no longer carries playlist-return
+navigation.
 
 ## Files to Inspect
 
@@ -42,7 +43,9 @@ inspectors no longer own cross-frame navigation, and
 1. Add a test that asserts `src/view_models/workspace.rs` contains
    no `use gpui` or `gpui::` strings.
 2. Add a test that asserts `src/library.rs` does not contain
-   `playlist_origin_id` (the field is retired).
+   `pub(crate) origin: Option<InspectorOrigin>` after the field is
+   retired, or otherwise asserts the field is not read by track-detail
+   renderers if a non-navigation origin survives.
 3. Add a test that asserts
    `src/ui/shells/library/track_detail_metadata.rs` does not contain
    `playlist_return_display`, `LibraryTrackPlaylistReturnDisplay`,
@@ -95,7 +98,7 @@ Do not touch:
 
 Acceptance criteria:
 - Guards confirm GPUI-free workspace module, absent
-  `playlist_origin_id`, absent inspector back button, present
+  absent inspector-owned origin navigation, absent inspector back button, present
   workspace types, present frame nav wiring.
 - Required checks are green.
 

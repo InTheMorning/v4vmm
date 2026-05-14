@@ -43,7 +43,8 @@ Deliverables:
 
 - `src/view_models/workspace.rs` with workspace types and unit tests
 - Frame history wired under the existing UI
-- Inspector "Back to Playlist" removed; `playlist_origin_id` retired
+- Inspector "Back to Playlist" removed; `InspectorFrame.origin` /
+  `InspectorOrigin` retired from playlist-return navigation
 - Architecture guards for GPUI-free frame state and no inspector-owned
   back controls
 
@@ -70,6 +71,7 @@ Tasks:
 
 - `adr-0046-task-005-frame-shell-display-vm`
 - `adr-0046-task-006-frame-shell-composite`
+- `adr-0046-task-006a-screen-mount-boundaries`
 - `adr-0046-task-007-workspace-layout-render`
 - `adr-0046-task-008-narrow-width-collapse-and-visual`
 
@@ -77,6 +79,7 @@ Deliverables:
 
 - `FrameShellDisplay` VM with back/forward/close/menu display fields
 - `src/ui/composites/frame_shell.rs` rendering the display contract
+- A bounded screen-mount decision for existing Library/Search split panes
 - `src/ui/shells/workspace.rs` rendering `WorkspaceLayout`
 - Narrow-width collapse rules + breakpoints
 - Visual proof for default and narrow layouts (light + dark)
@@ -195,5 +198,6 @@ Every phase runs:
 - `cargo clippy -- -D warnings`
 
 Architecture-test guards land alongside the structural change they
-protect. Visual proof captured in `docs/reviews/adr-0046-review-checklist.md`
-(created during Phase 3 task 008).
+protect. Visual proof and phase readiness are captured in
+`docs/reviews/adr-0046-review-checklist.md`, created before Phase 2
+implementation begins and updated through each phase.

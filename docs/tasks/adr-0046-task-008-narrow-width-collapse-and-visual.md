@@ -24,7 +24,7 @@ toolbar menu or keybinding.
 - `src/ui/layouts.rs`
 - `src/ui/shells/workspace.rs`
 - `tests/architecture_tests.rs`
-- `docs/reviews/adr-0046-review-checklist.md` (new)
+- `docs/reviews/adr-0046-review-checklist.md`
 
 ## Do Not Touch
 
@@ -64,8 +64,8 @@ toolbar menu or keybinding.
    - Frame chrome (frame_shell) renders Back/Forward, not the
      toolbar.
    - Toolbar still renders global search (per ADR 0043 guards).
-5. Create `docs/reviews/adr-0046-review-checklist.md` with sections
-   for Phase 3 readiness, visual proof, and merge recommendation.
+5. Update `docs/reviews/adr-0046-review-checklist.md` with Phase 3
+   readiness, visual proof, and merge recommendation.
 6. Capture visual proof per the checklist after manual review.
 
 ## Acceptance Criteria

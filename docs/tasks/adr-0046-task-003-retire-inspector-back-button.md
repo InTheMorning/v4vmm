@@ -5,7 +5,7 @@ Status: Proposed - 2026-05-14.
 ## Goal
 
 Remove the inspector-owned "Back to Playlist" control and the
-`InspectorFrame.playlist_origin_id` field. Frame nav state (task 002)
+`InspectorFrame.origin` / `InspectorOrigin` navigation state. Frame nav state (task 002)
 already records the origin; the frame shell composite (task 006) will
 later surface Back. In the interim, users return to the playlist via
 the source list.
@@ -40,7 +40,8 @@ the source list.
 - Remove the visible inspector back control.
 - Remove `LibraryTrackPlaylistReturnDisplay` and the
   `playlist_return_display` VM helper.
-- Remove `InspectorFrame.playlist_origin_id`.
+- Remove `InspectorFrame.origin` and the `InspectorOrigin` enum if no
+  non-navigation caller remains.
 - Keep `LibraryReloadMode::PreserveDetail` and `refresh_selected_detail`.
 - Keep `return_to_playlist` only if frame nav state still calls it;
   otherwise delete.
@@ -53,9 +54,9 @@ the source list.
    `src/view_models/library.rs`.
 2. Remove the back-button render path in
    `src/ui/shells/library/track_detail_metadata.rs`.
-3. Remove `InspectorFrame.playlist_origin_id` field from
-   `src/library.rs`. Drop the assignment in
-   `select_track_with_playlist_origin`.
+3. Remove `InspectorFrame.origin` from `src/library.rs`. Drop
+   `InspectorOrigin` and origin assignment from playlist-track
+   selection if no non-navigation caller remains.
 4. Decide whether `select_playlist_track` survives. If yes, simplify
    to record only frame nav state; if no, replace call sites with
    `select_track`.
@@ -69,7 +70,7 @@ the source list.
 ## Acceptance Criteria
 
 - [ ] Track inspector no longer renders a back-to-playlist control.
-- [ ] `InspectorFrame.playlist_origin_id` is gone.
+- [ ] `InspectorFrame.origin` is gone or no longer carries navigation state.
 - [ ] `LibraryTrackPlaylistReturnDisplay` is gone.
 - [ ] Architecture guards assert the back button is absent.
 - [ ] Frame nav state still records playlist origin entries.
@@ -101,7 +102,7 @@ Read:
 
 Goal:
 - Remove inspector "Back to Playlist" control and
-  `InspectorFrame.playlist_origin_id`. Keep frame nav state intact.
+  `InspectorFrame.origin` navigation use. Keep frame nav state intact.
 
 Constraints:
 - Do not remove frame nav state added in task 002.
@@ -115,7 +116,7 @@ Do not touch:
 
 Acceptance criteria:
 - Inspector back-to-playlist is gone in code and tests.
-- `playlist_origin_id` is gone.
+- `InspectorFrame.origin` navigation use is gone.
 - Guards assert absence of the back button.
 
 Test commands:
@@ -134,7 +135,7 @@ At the end, report:
 
 ## Escalation Triggers
 
-- Removing `playlist_origin_id` triggers unrelated refactors in
+- Removing `InspectorFrame.origin` triggers unrelated refactors in
   `LibraryApp` reload paths.
 - Frame nav state is insufficient to express the playlist origin
   (signals task 002 was incomplete).

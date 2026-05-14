@@ -5,7 +5,7 @@ Status: Proposed - 2026-05-14.
 ## Goal
 
 Wire frame history into `LibraryApp` so playlist-origin navigation is
-represented in `FrameNavigationState`, not in `InspectorFrame`. Keep
+represented in `FrameNavigationState`, not in `InspectorFrame.origin`. Keep
 the visible inspector "Back to Playlist" control functional in this
 task by reading the destination from frame nav state. Task 003 removes
 the button itself.
@@ -39,8 +39,9 @@ the button itself.
   the inspector; "Back to Playlist" still returns to the playlist.
 - Inspector continues to render the back button in this task.
 - The back button destination is sourced from `FrameNavigationState`,
-  not from `InspectorFrame.playlist_origin_id`.
-- Leave `playlist_origin_id` in place but stop writing to it
+  not from `InspectorFrame.origin`.
+- Leave `InspectorFrame.origin` and `InspectorOrigin` in place for this
+  task, but stop using them as the playlist-return source of truth
   (deletion happens in task 003).
 - All new fallible operations on the nav state return `Result`.
 
@@ -51,7 +52,7 @@ the button itself.
 2. When a playlist is selected, push a `PlaylistDetail(playlist_id)`
    entry onto the current frame's back stack.
 3. When a playlist track is selected, push a `TrackDetail(track_id)`
-   entry. Stop populating `InspectorFrame.playlist_origin_id`.
+   entry. Stop populating `InspectorFrame.origin`.
 4. Add `LibraryApp::frame_back_destination(&self) -> Option<
    FrameNavigationEntry>` reading the current frame's back-stack top.
 5. Update `return_to_playlist` (called from the inspector button) to
@@ -62,9 +63,7 @@ the button itself.
    back when stack empty is a no-op.
 7. Architecture guard: assert
    `src/library/app_impl.rs` no longer writes to
-   `InspectorFrame.playlist_origin_id` (writes should be the
-   pre-existing field assignment only, not new ones from track
-   selection paths).
+   `frame.origin =` in playlist track-selection paths.
 
 ## Acceptance Criteria
 
@@ -72,7 +71,7 @@ the button itself.
   frame nav state.
 - [ ] `return_to_playlist` reads destination from the frame nav
   state.
-- [ ] `InspectorFrame.playlist_origin_id` is not assigned by new code
+- [ ] `InspectorFrame.origin` is not assigned by new code
   paths.
 - [ ] Existing user-visible behavior (open playlist, open track, click
   back) is preserved.
@@ -108,7 +107,7 @@ Goal:
 Constraints:
 - Inspector "Back to Playlist" button remains visible in this task.
 - The button destination is sourced from frame nav state.
-- No new writes to `InspectorFrame.playlist_origin_id`.
+- No new writes to `InspectorFrame.origin`.
 - Observable behavior unchanged.
 
 Do not touch:

@@ -11,9 +11,9 @@ historical pre-ADR artifact.
 ADR 0038 established shared shell/page-VM ownership for presentation
 contracts. ADR 0043 added the top-toolbar global search. Recent playlist
 work (ADR 0044) exposed a structural weakness: detail/inspector surfaces
-were carrying cross-frame navigation state (`InspectorFrame.playlist_origin_id`
-plus a "Back to Playlist" inspector control) because the app shell had no
-first-class frame model that could own history.
+were carrying cross-frame navigation state (`InspectorFrame.origin` /
+`InspectorOrigin::Playlist` plus a "Back to Playlist" inspector control)
+because the app shell had no first-class frame model that could own history.
 
 The product also wants to evolve beyond fixed Library/Search/Settings
 tabs toward a Pro Workspace: stable source navigation, global search,
@@ -147,8 +147,8 @@ Negative / risks:
 - Six-phase rollout is large. Mitigation: each phase is additive; the
   old tab rendering coexists until the workspace path is validated.
 - Frame history may overlap with existing inspector origin state.
-  Mitigation: ADR 0046 retires `playlist_origin_id` outright in
-  Phase 2.
+  Mitigation: ADR 0046 retires inspector-owned origin navigation
+  (`InspectorFrame.origin` / `InspectorOrigin`) in Phase 2.
 - Detach/dock metadata can overpromise. Mitigation: commands return a
   deferred-error variant; no UI exposes detach in v1.
 - QueueNowPlaying frame can crowd the workspace at narrow widths.
