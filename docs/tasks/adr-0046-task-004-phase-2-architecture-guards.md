@@ -1,6 +1,6 @@
 # ADR 0046 Task 004: Phase 2 Architecture Guards
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -59,9 +59,19 @@ navigation.
 
 ## Acceptance Criteria
 
-- [ ] All four guards are present in `tests/architecture_tests.rs`.
-- [ ] All required checks are green.
-- [ ] No production code path was modified by this task.
+- [x] All four guards are present in `tests/architecture_tests.rs`.
+- [x] All required checks are green.
+- [x] No production code path was modified by this task.
+
+## Implementation Notes
+
+- Added Task 004-specific architecture tests with the
+  `workspace_frame_phase_2_guards` name prefix so the packet can be run
+  directly.
+- Guards assert the workspace VM remains GPUI-free, workspace frame types stay
+  present, frame navigation remains wired through `src/library/app_impl.rs`,
+  inspector-origin navigation stays absent, and the inspector-local playlist
+  Back display/control remains absent.
 
 ## Test Commands
 

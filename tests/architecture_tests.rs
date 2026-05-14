@@ -625,6 +625,129 @@ fn workspace_view_model_contract_is_gpui_free() {
 }
 
 #[test]
+fn workspace_frame_phase_2_guards_workspace_vm_contract_is_gpui_free_and_typed() {
+    let source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        for pattern in [
+            "use gpui",
+            "gpui::",
+            "use gpui_component",
+            "gpui_component::",
+        ] {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/view_models/workspace.rs:{line_number}: ADR 0046 Phase 2 workspace model must stay GPUI-free; found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    for required in [
+        "struct WorkspaceFrameId",
+        "enum WorkspaceFrameKind",
+        "struct WorkspaceFrameState",
+        "struct WorkspaceLayout",
+        "struct FrameNavigationState",
+        "enum FrameNavigationEntry",
+        "SourceList",
+        "ContentList",
+        "Detail",
+        "QueueNowPlaying",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0046 Phase 2 workspace VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Task 004 workspace-frame Phase 2 VM guard violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn workspace_frame_phase_2_guards_frame_navigation_is_wired_in_library_app_impl() {
+    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+
+    for required in [
+        "FrameNavigationState",
+        "FrameNavigationEntry",
+        "fn default_frame_navigation()",
+        "FrameNavigationState::new(FrameNavigationEntry::SourceList)",
+        "fn push_frame_navigation(",
+        "fn restore_frame_navigation(",
+        "fn frame_back_destination(&self)",
+        "FrameNavigationEntry::PlaylistDetail(playlist_id)",
+        "FrameNavigationEntry::TrackDetail(track.id)",
+        "self.restore_frame_navigation()",
+    ] {
+        assert!(
+            source.contains(required),
+            "src/library/app_impl.rs: ADR 0046 Phase 2 frame-navigation wiring missing `{required}`"
+        );
+    }
+
+    for forbidden in [
+        "frame.origin =",
+        "InspectorOrigin",
+        "origin: Option<InspectorOrigin>",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "src/library/app_impl.rs: ADR 0046 Phase 2 navigation must not use inspector origin `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn workspace_frame_phase_2_guards_inspector_origin_navigation_is_absent() {
+    let source = read_source(&manifest_path("src/library.rs"));
+
+    for forbidden in [
+        "pub(crate) enum InspectorOrigin",
+        "InspectorOrigin",
+        "pub(crate) origin: Option<InspectorOrigin>",
+        "origin: Option<InspectorOrigin>",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "src/library.rs: ADR 0046 Phase 2 must not retain inspector-origin navigation `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn workspace_frame_phase_2_guards_inspector_local_playlist_back_control_is_absent() {
+    let track_detail_source = read_source(&manifest_path(
+        "src/ui/shells/library/track_detail_metadata.rs",
+    ));
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+
+    for forbidden in [
+        "playlist_return_display",
+        "LibraryTrackPlaylistReturnDisplay",
+        "return_to_playlist",
+        "navigate_back_to_playlist",
+        "Back to Playlist",
+        "track-detail-return-playlist",
+    ] {
+        assert!(
+            !track_detail_source.contains(forbidden),
+            "src/ui/shells/library/track_detail_metadata.rs: ADR 0046 Phase 2 track inspector must not retain local playlist Back control `{forbidden}`"
+        );
+        assert!(
+            !library_vm_source.contains(forbidden),
+            "src/view_models/library.rs: ADR 0046 Phase 2 library VM must not retain local playlist Back display `{forbidden}`"
+        );
+    }
+}
+
+#[test]
 fn entity_detail_projection_does_not_import_api_ui_or_services() {
     let path = manifest_path("src/view_models/entity_detail.rs");
     let source = read_source(&path);
