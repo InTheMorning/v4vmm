@@ -551,6 +551,35 @@ struct RenderHelperDuplicationBaseline {
 }
 
 #[test]
+fn agent_guidelines_lock_user_confirmed_regression_ratchet() {
+    let source = read_source(&manifest_path("docs/architecture/ui-regression-ratchet.md"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "UI Regression Ratchet",
+        "Every user-confirmed bug fix gets a guard",
+        "Completed ADR behavior is locked",
+        "No shell/layout change may land without scroll-chain verification",
+        "Recent Feeds reachability is invariant",
+        "Search type filters apply to every visible result section",
+        "Inspectors must not show raw transport errors",
+        "Subagents get bounded write scopes",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "docs/architecture/ui-regression-ratchet.md: regression-ratchet policy missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Agent regression-ratchet guideline violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn view_models_do_not_import_gpui_or_screen_layers() {
     let mut violations = Vec::new();
     for path in rust_files_under("src/view_models") {
@@ -786,6 +815,7 @@ fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
 fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
     let source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
     let app_source = read_source(&manifest_path("src/app.rs"));
+    let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
     let mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
     let mut violations = Vec::new();
 
@@ -842,6 +872,43 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
             "src/app.rs: ADR 0046 Task 007 must not render the full default layout before SourceList/Detail are extracted"
                 .to_string(),
         );
+    }
+
+    for required in [
+        ".key_context(keyboard::ACTIVE_PANE_KEY_CONTEXT)",
+        ".flex()\n                    .flex_col()\n                    .flex_1()",
+        ".min_w_0()\n                    .overflow_hidden()",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0046 workspace mount must preserve bounded flex scroll chain; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        ".size_full()",
+        ".flex_row()",
+        ".min_h_0()",
+        ".overflow_hidden()",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0046 workspace shell must preserve scrollable child bounds; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        ".size_full()",
+        ".flex()\n                    .flex_col()\n                    .flex_1()",
+        ".min_w_0()\n                    .overflow_hidden()",
+    ] {
+        if !frame_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: FrameShell must preserve bounded scrollable content slot; missing `{required}`"
+            ));
+        }
     }
 
     if !mod_source.contains("pub mod workspace;") {
@@ -1558,10 +1625,25 @@ fn global_search_replaces_screen_local_search_chrome() {
         "active_scope: GlobalSearchScope",
         "index_controls: IndexControlsVisibility",
         "GlobalSearchScope::All",
+        "show_recents_command = !show_recents_root",
+        "pub(crate) fn return_to_recent_feeds(",
     ] {
         if !search_vm_source.contains(required) {
             violations.push(format!(
                 "src/view_models/search.rs: grouped search VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "params.show_recents_command",
+        "params.pane_display.recents_button_id",
+        "params.pane_display.recents_button_label",
+        "this.show_recent_feeds(window, cx)",
+    ] {
+        if !search_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/discover/search_input.rs: Recent Feeds return affordance missing `{required}`"
             ));
         }
     }

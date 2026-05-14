@@ -127,6 +127,7 @@ impl RenderOnce for FrameShell {
 
         div()
             .id(shell_id)
+            .size_full()
             .flex()
             .flex_col()
             .flex_1()

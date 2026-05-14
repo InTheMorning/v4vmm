@@ -82,6 +82,7 @@ pub(crate) fn render_workspace(
     cx: &mut App,
 ) -> impl IntoElement {
     let mut row = div()
+        .size_full()
         .flex()
         .flex_row()
         .flex_1()

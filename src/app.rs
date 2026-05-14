@@ -618,8 +618,11 @@ impl Render for TopApp {
             .child(
                 div()
                     .key_context(keyboard::ACTIVE_PANE_KEY_CONTEXT)
+                    .flex()
+                    .flex_col()
                     .flex_1()
                     .min_h_0()
+                    .min_w_0()
                     .overflow_hidden()
                     .child({
                         let mount = self.active_workspace_screen_mount();

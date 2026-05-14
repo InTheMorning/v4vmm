@@ -1782,6 +1782,7 @@ impl SearchViewModel {
         let empty = sections.iter().all(|section| section.rows.is_empty());
         let show_recents_root =
             inspector_stack_empty && self.inspector_origin.is_none() && empty && input_is_empty;
+        let show_recents_command = !show_recents_root;
         SearchRenderSnapshot {
             status: SearchStatusSnapshot::from_text(&self.status),
             pane_display: SearchPaneDisplay::new(self.fuzzy_search),
@@ -1794,7 +1795,7 @@ impl SearchViewModel {
                 IndexControlsVisibility::Visible
             },
             show_recents_root,
-            show_recents_command: false,
+            show_recents_command,
             loading: self.loading,
             empty,
             has_more: self.has_more,
@@ -3604,7 +3605,7 @@ mod tests {
         assert_eq!(snapshot.type_filter, 2);
         assert_eq!(snapshot.index_controls, IndexControlsVisibility::Visible);
         assert!(!snapshot.show_recents_root);
-        assert!(!snapshot.show_recents_command);
+        assert!(snapshot.show_recents_command);
         assert!(snapshot.loading);
         assert!(!snapshot.empty);
         assert!(snapshot.has_more);
@@ -3719,13 +3720,13 @@ mod tests {
     }
 
     #[test]
-    fn search_render_snapshot_keeps_recents_as_empty_query_root_only() {
+    fn search_render_snapshot_keeps_recent_feeds_reachable_after_search() {
         let mut vm = SearchViewModel::new();
         vm.results.push(ResultRow::new("feed", "feed-1", None));
         let snapshot = vm.render_snapshot(true, false);
 
         assert!(!snapshot.show_recents_root);
-        assert!(!snapshot.show_recents_command);
+        assert!(snapshot.show_recents_command);
     }
 
     #[test]

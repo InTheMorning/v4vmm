@@ -94,6 +94,12 @@ navigation/chrome work is complete and visually checked.
   filters Library and Index sections through the selected result type, resolves
   local deferred panels to empty states, and adds row membership status. Manual
   confirmation is still required.
+- Follow-up report on 2026-05-14 showed scroll panes receiving wheel events
+  without visible scrolling, plus Recent Feeds becoming inaccessible after
+  search. Follow-up patch makes the workspace mount/frame-shell scroll chain
+  explicitly bounded, restores the Recent Feeds command outside the empty root,
+  and adds AGENTS/architecture/test guards for the regression ratchet. Manual
+  confirmation is still required.
 - [ ] Light and dark default workspace show the expected frame hierarchy
       without overlap.
 - [ ] Narrow width collapses optional frames before hiding global search or
