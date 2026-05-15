@@ -100,7 +100,7 @@ fn render_eager_playlist_detail(
             });
 
             let slot = PlaylistTrackRowSlot {
-                thumbnail: Some(render_album_thumb(thumbnail, 24.0)),
+                thumbnail: Some(render_album_thumb(thumbnail, 24.0, cx)),
                 on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
                     this.select_playlist_track(playlist_id, &track_for_select, cx);
                     cx.notify();
@@ -289,7 +289,7 @@ fn render_ready_paged_playlist_row(
         }))
     });
     let slot = PlaylistTrackRowSlot {
-        thumbnail: Some(render_album_thumb(thumbnail, 24.0)),
+        thumbnail: Some(render_album_thumb(thumbnail, 24.0, cx)),
         on_select: Some(click_slot(cx.listener(move |this, _, _, cx| {
             this.select_playlist_track(playlist_id, &track_for_select, cx);
             cx.notify();

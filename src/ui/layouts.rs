@@ -6,7 +6,9 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{px, Pixels};
+use gpui::{px, App, Pixels};
+
+use crate::ui::tokens::ScaleFactor;
 
 pub const WINDOW_WIDTH: Pixels = px(1120.0);
 pub const WINDOW_HEIGHT: Pixels = px(760.0);
@@ -14,6 +16,8 @@ pub const TAB_BAR_HEIGHT: Pixels = px(44.0);
 pub const APP_TOOLBAR_NOW_PLAYING_COMPACT_BREAKPOINT: Pixels = px(1280.0);
 pub const APP_TOOLBAR_GLOBAL_SEARCH_COMPACT_BREAKPOINT: Pixels = px(1120.0);
 pub const APP_TOOLBAR_SCOPE_BREAKPOINT: Pixels = px(1280.0);
+pub const WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT: Pixels = px(1024.0);
+pub const WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT: Pixels = px(840.0);
 pub const ROW_HEIGHT: Pixels = px(36.0);
 pub const MIN_HIT_TARGET: Pixels = px(44.0);
 pub const HIT_TARGET_MIN: Pixels = MIN_HIT_TARGET;
@@ -40,3 +44,13 @@ pub const SETTINGS_COLUMN_WIDTH: Pixels = px(720.0);
 pub const MENU_MIN_WIDTH: Pixels = px(320.0);
 pub const MENU_MAX_WIDTH: Pixels = px(520.0);
 pub const TRACK_NUMBER_WIDTH: Pixels = px(24.0);
+
+#[must_use]
+pub fn scaled_dimension(base: Pixels, cx: &App) -> Pixels {
+    scaled_f32(f32::from(base), cx)
+}
+
+#[must_use]
+pub fn scaled_f32(base: f32, cx: &App) -> Pixels {
+    px(base * ScaleFactor::current(cx).multiplier())
+}

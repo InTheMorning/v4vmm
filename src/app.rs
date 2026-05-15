@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use gpui::{div, prelude::*, Context, Entity, Render, SharedString, Styled, Window};
+use gpui::{div, prelude::*, relative, Context, Entity, Render, SharedString, Styled, Window};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
 use rusqlite::Connection;
@@ -717,6 +717,25 @@ fn render_theme_profile_picker(
         .into_any_element()
 }
 
+fn render_settings_text_input(
+    input: &Entity<InputState>,
+    cx: &mut Context<TopApp>,
+) -> gpui::AnyElement {
+    div()
+        .w_full()
+        .min_w_0()
+        .flex()
+        .flex_row()
+        .child(
+            Input::new(input)
+                .cleanable(true)
+                .scaled(Size::Small, cx)
+                .flex_1()
+                .min_w_0(),
+        )
+        .into_any_element()
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "settings screen remains a single legacy render function during ADR 0023 migration"
@@ -733,6 +752,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
     } else {
         color(cx, SemanticColor::TertiaryLabel)
     };
+    let settings_column_width = layout::scaled_dimension(layout::SETTINGS_COLUMN_WIDTH, cx);
 
     let cached_count = app
         .cached_tree
@@ -753,7 +773,8 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
         .overflow_y_scroll()
         .child(
             div()
-                .max_w(layout::SETTINGS_COLUMN_WIDTH)
+                .w(settings_column_width)
+                .max_w(relative(1.0))
                 .flex()
                 .flex_col()
                 .gap(Spacing::LG.scaled(cx))
@@ -770,11 +791,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child("MusicIndex endpoint"),
                 )
-                .child(
-                    Input::new(&endpoint_input)
-                        .cleanable(true)
-                        .scaled(Size::Small, cx),
-                )
+                .child(render_settings_text_input(&endpoint_input, cx))
                 .child(
                     div()
                         .text_size(FontSize::Caption.scaled(cx))
@@ -788,11 +805,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child("Music directory"),
                 )
-                .child(
-                    Input::new(&music_dir_input)
-                        .cleanable(true)
-                        .scaled(Size::Small, cx),
-                )
+                .child(render_settings_text_input(&music_dir_input, cx))
                 .child(
                     div()
                         .text_size(FontSize::Caption.scaled(cx))
@@ -806,11 +819,7 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         .text_color(color(cx, SemanticColor::TertiaryLabel))
                         .child("flac binary (optional)"),
                 )
-                .child(
-                    Input::new(&flac_path_input)
-                        .cleanable(true)
-                        .scaled(Size::Small, cx),
-                )
+                .child(render_settings_text_input(&flac_path_input, cx))
                 .child(
                     div()
                         .text_size(FontSize::Caption.scaled(cx))

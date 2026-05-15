@@ -12,6 +12,7 @@ use gpui::{
     ParentElement, Pixels, RenderOnce, Rgba, SharedString, StatefulInteractiveElement, Styled,
     Window,
 };
+use gpui_component::{Icon as ComponentIcon, IconName as ComponentIconName};
 
 use crate::ui::layouts as layout;
 use crate::ui::primitives::Tooltip;
@@ -26,6 +27,7 @@ pub enum IconName {
     ChevronLeft,
     ChevronRight,
     Close,
+    Search,
     Rss,
     Nostr,
     Play,
@@ -49,6 +51,7 @@ impl IconName {
             | Self::ChevronLeft
             | Self::ChevronRight
             | Self::Close
+            | Self::Search
             | Self::Play
             | Self::Pause
             | Self::Stop
@@ -76,7 +79,29 @@ impl IconName {
             Self::More => Some("\u{22EF}"),
             Self::DragHandle => Some("\u{2630}"),
             Self::NotAllowed => Some("\u{2298}"),
-            Self::Rss | Self::Nostr => None,
+            Self::Rss | Self::Nostr | Self::Search => None,
+        }
+    }
+
+    #[must_use]
+    fn component_icon(self) -> Option<ComponentIconName> {
+        match self {
+            Self::Search => Some(ComponentIconName::Search),
+            Self::Add
+            | Self::Back
+            | Self::ChevronLeft
+            | Self::ChevronRight
+            | Self::Close
+            | Self::Rss
+            | Self::Nostr
+            | Self::Play
+            | Self::Pause
+            | Self::Stop
+            | Self::Previous
+            | Self::Next
+            | Self::More
+            | Self::DragHandle
+            | Self::NotAllowed => None,
         }
     }
 
@@ -91,6 +116,7 @@ impl IconName {
             | Self::ChevronLeft
             | Self::ChevronRight
             | Self::Close
+            | Self::Search
             | Self::Play
             | Self::Pause
             | Self::Stop
@@ -159,6 +185,14 @@ impl Icon {
 impl RenderOnce for Icon {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let size = self.size.scaled(cx);
+        if let Some(component_icon) = self.name.component_icon() {
+            let mut icon = ComponentIcon::new(component_icon).size(size);
+            if let Some(color) = self.color {
+                icon = icon.text_color(color);
+            }
+            return icon.into_any_element();
+        }
+
         if let Some(image) = self.name.image() {
             return img(image)
                 .w(size)
@@ -270,5 +304,14 @@ mod tests {
         assert_eq!(IconName::Play.glyph(), Some("\u{25B6}"));
         assert_eq!(IconName::Pause.glyph(), Some("\u{23F8}"));
         assert!(IconName::Play.image().is_none());
+    }
+
+    #[test]
+    fn search_icon_uses_component_vector_asset() {
+        assert!(matches!(
+            IconName::Search.component_icon(),
+            Some(ComponentIconName::Search)
+        ));
+        assert!(IconName::Search.glyph().is_none());
     }
 }

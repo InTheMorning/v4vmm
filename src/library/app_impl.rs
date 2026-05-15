@@ -60,7 +60,7 @@ use crate::ui::shells::library_removal_confirmation::open_library_removal_confir
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::color;
 use crate::ui::style::spacing;
-use crate::ui::tokens::SemanticColor;
+use crate::ui::tokens::{SemanticColor, Spacing};
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
     description_line_count, AlbumNode, ArtistNode, FeedUpdateActionDisplay, FeedUpdateActionKind,
@@ -2410,9 +2410,9 @@ impl Render for LibraryApp {
 
         left_items.push(
             div()
-                .px(spacing::SM)
-                .py(spacing::XS)
-                .rounded(spacing::XS)
+                .px(Spacing::SM.scaled(cx))
+                .py(Spacing::XS.scaled(cx))
+                .rounded(Spacing::XS.scaled(cx))
                 .flex()
                 .flex_row()
                 .justify_between()
@@ -2422,7 +2422,7 @@ impl Render for LibraryApp {
                         .id(playlist_header_id)
                         .flex()
                         .flex_row()
-                        .gap(spacing::XS)
+                        .gap(Spacing::XS.scaled(cx))
                         .items_baseline()
                         .cursor_pointer()
                         .hover(|el| el.bg(color::bg_surface_hi()))
@@ -2433,18 +2433,13 @@ impl Render for LibraryApp {
                         .child(DisclosureIndicator::new(DisclosureIndicatorDisplay {
                             glyph: playlist_disclosure_glyph.into(),
                         }))
-                        .child(
-                            div()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(color::text_primary())
-                                .child(playlist_heading),
-                        ),
+                        .child(Label::new(playlist_heading).weight(FontWeight::SEMIBOLD)),
                 )
                 .child(
                     div()
                         .flex()
                         .flex_row()
-                        .gap(spacing::XS)
+                        .gap(Spacing::XS.scaled(cx))
                         .items_center()
                         .child(
                             UiButton::styled(playlist_sort_button_id, ControlStyle::ToolbarIcon)
@@ -2488,7 +2483,7 @@ impl Render for LibraryApp {
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .pl(spacing::MD)
+                                .pl(Spacing::MD.scaled(cx))
                                 .child(
                                     Label::new(name)
                                         .color(if selected {

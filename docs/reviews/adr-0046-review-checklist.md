@@ -63,6 +63,10 @@ frame-navigation/chrome work was complete and user-confirmed.
 - [x] Task 011 Phase 4 guards implemented and automated gates are green.
 - [x] Phase 4 implementation complete.
 - [x] Full automated gate green.
+- [x] Task 008 narrow-width collapse implementation added named workspace
+      breakpoints and runtime optional-frame collapse.
+- [x] Task 008 architecture guards integrated by parent task owner.
+- [ ] Task 008 visual proof complete.
 - [ ] Phase 4 manual visual proof complete.
 
 ## Required Fixes
@@ -108,14 +112,30 @@ frame-navigation/chrome work was complete and user-confirmed.
   on 2026-05-14 that scrolling works across the affected panes, Recent Feeds is
   reachable after search, search filters apply to visible result sections, and
   raw 404 panel errors are gone from normal inspector display.
+- User visual pass on 2026-05-15 confirmed the normal-width frame hierarchy and
+  light/dark rendering. The same pass found compact search submit was no longer
+  directly visible and playlist rows did not fully track UI scale. Follow-up
+  patch restores a direct compact search icon submit, routes playlist row and
+  thumbnail geometry through scale-aware layout tokens, and adds architecture
+  guards. User confirmed the compact search affordance on 2026-05-15.
+- Follow-up visual pass on 2026-05-15 showed the compact search submit icon was
+  visible but optically too small, and Settings text fields collapsed instead
+  of filling the frame at XL scale. Follow-up patch routes the search affordance
+  through the bundled vector search icon and gives Settings form inputs a
+  full-width, scale-aware column contract. User confirmed both fixes on
+  2026-05-15.
 - [ ] Light and dark default workspace show the expected frame hierarchy
       without overlap.
 - [ ] Narrow width collapses optional frames before hiding global search or
-      primary navigation.
+      primary navigation. Implementation now omits QueueNowPlaying below
+      `WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT` and Detail below
+      `WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT`; visual proof remains
+      required.
 - [ ] Frame chrome Back/Forward uses symbols, not text-only buttons.
 - [ ] Track inspector contains only track actions, no playlist-return button.
 - [ ] Queue frame can collapse and restore while toolbar Now Playing remains
-      readable.
+      readable. Collapse implementation is present; restore/accessibility proof
+      remains pending visual/manual review.
 - [ ] Queue frame shows multi-track queue rows, current-track emphasis,
       previous/play-next transport controls, liveValue output menu, and volume
       slider.
@@ -124,6 +144,8 @@ frame-navigation/chrome work was complete and user-confirmed.
 - [ ] liveValue output picker communicates unavailable routing without offering
       an active no-op command.
 - [ ] Search remains dispatchable and scope remains reachable at compact width.
+      Implementation now keeps a direct search icon button beside the compact
+      scope menu; user confirmed compact visibility on 2026-05-15.
 - [ ] SourceList selection remains visibly persistent.
 - [ ] UI remains dense, quiet, and utilitarian; no hero panels, decorative
       cards, or branding-forward chrome.
@@ -144,5 +166,5 @@ but phase readiness requires the full gate above.
 
 ## Merge Recommendation
 
-Proceed with Task 001. Re-review after each task before handing the next task
-to a lower-context implementation model.
+Task 008 implementation and architecture guards are ready for automated review.
+Do not close Task 008 until narrow-width visual proof is complete.

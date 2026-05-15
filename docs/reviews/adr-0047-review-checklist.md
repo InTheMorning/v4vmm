@@ -15,6 +15,8 @@
 - `src/library.rs`
 - `src/library/app_impl.rs`
 - `src/ui/composites/disclosure_group.rs`
+- `src/ui/composites/filter_chip_strip.rs`
+- `src/ui/composites/frame_shell.rs`
 - `src/ui/shells/library/feed_detail.rs`
 - `src/ui/shells/library/track_detail.rs`
 - `src/ui/shells/library/track_detail_metadata.rs`
@@ -25,15 +27,16 @@
 
 ## Gate Status
 
-Status: Phase C implemented - 2026-05-14; awaiting operator visual
-confirmation.
+Status: Phase D Task 009 implementation in progress - 2026-05-15; Phase C
+visual confirmation remains pending.
 
-Readiness decision: **Stop before Phase D until visual confirmation is
-complete**.
+Readiness decision: **Do not close Phase D until Task 009 guards and visual
+proof are complete. Do not start Task 010 until this review is green.**
 
-Phase B was view-model-only. Phase C touches inspector rendering, so it
-requires operator visual confirmation before filter-chip relocation
-begins.
+Phase B was view-model-only. Phase C touched inspector rendering, so it still
+requires operator visual confirmation. The operator resumed ADR 0047 completion
+on 2026-05-15; Task 009 is limited to shared frame-chrome filter chip structure
+and does not wire real filtering or remove `GlobalSearchScope`.
 
 ## Required Checks
 
@@ -64,6 +67,12 @@ begins.
 - [x] Architecture guard locks Phase C inspector-state ownership,
       disabled metadata actions, and shared disclosure rendering.
 - [x] No backend, DB schema, or playback files changed.
+- [x] Task 009: shared `filter_chip_strip` composite exists and reuses
+      existing segmented-control/context-menu primitives.
+- [x] Task 009: `FrameShellDisplay` carries optional frame-local filter
+      display and `frame_shell` renders it only when present.
+- [x] Task 009 architecture guard green.
+- [ ] Task 009 visual proof complete.
 
 ## Required Fixes
 
@@ -124,11 +133,19 @@ cargo clippy -- -D warnings
 ## Visual Readiness Checklist
 
 - [x] Phase B has no visual confirmation point; no UI rendering changed.
+- User visual pass on 2026-05-15 found the current narrow Search inspector
+  layout still has crowded text actions. That is not Task 009 filter-chip proof;
+  keep Phase D visual confirmation open until Task 010 wires the strip into a
+  visible frame and the action controls have an explicit icon-button task or
+  ADR.
 - [ ] Phase C compact track inspector visual confirmation.
 - [ ] Phase C disabled Compare ID3 / MusicBrainz visual confirmation.
 - [ ] Phase C description collapsed and expanded visual confirmation.
 - [ ] Phase C feed description disclosure visual confirmation.
+- [ ] Phase D filter chip strip visual confirmation.
+- [ ] Phase D filter chip narrow menu visual confirmation.
 
 ## Merge Recommendation
 
-Do not proceed to Phase D until Phase C visual confirmation passes.
+Task 009 may proceed through automated review. Do not start Task 010 until
+Task 009 architecture guards, checks, and visual proof are complete.

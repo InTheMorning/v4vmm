@@ -388,6 +388,8 @@ pub(crate) struct FrameShellDisplay {
     pub(crate) close: Option<FrameChromeButtonDisplay>,
     /// Additional frame action menu items.
     pub(crate) action_menu_items: Vec<FrameChromeMenuItemDisplay>,
+    /// Optional frame-local content filter strip.
+    pub(crate) filter_chip_strip: Option<FilterChipStripDisplay>,
     /// Stable content slot identifier for mounting frame body content.
     pub(crate) content_slot_id: String,
 }
@@ -428,8 +430,16 @@ impl FrameShellDisplay {
                 )
             }),
             action_menu_items: Vec::new(),
+            filter_chip_strip: None,
             content_slot_id: format!("workspace-frame-{}-content", frame_id.value()),
         }
+    }
+
+    /// Returns this shell display with frame-local filter chips attached.
+    #[must_use]
+    pub(crate) fn with_filter_chip_strip(mut self, display: FilterChipStripDisplay) -> Self {
+        self.filter_chip_strip = Some(display);
+        self
     }
 }
 
@@ -1054,6 +1064,27 @@ mod tests {
         assert!(
             display.action_menu_items.is_empty(),
             "Task 005 defines the menu item contract without adding default actions"
+        );
+        assert_eq!(
+            display.filter_chip_strip, None,
+            "filter chips are opt-in frame chrome"
+        );
+    }
+
+    #[test]
+    fn frame_shell_display_accepts_optional_filter_chip_strip() {
+        let frame = frame(7, WorkspaceFrameKind::ContentList);
+        let nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
+        let filters =
+            FilterChipStripDisplay::default_for_content_list(ContentFilter::Library, true);
+
+        let display = FrameShellDisplay::from_frame(&frame, &nav, true)
+            .with_filter_chip_strip(filters.clone());
+
+        assert_eq!(
+            display.filter_chip_strip,
+            Some(filters),
+            "frame shell should carry optional frame-local filters without applying them"
         );
     }
 

@@ -1211,6 +1211,7 @@ fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
 #[test]
 fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
     let source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));
     let app_source = read_source(&manifest_path("src/app.rs"));
     let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
     let mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
@@ -1289,10 +1290,27 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
         ".flex_row()",
         ".min_h_0()",
         ".overflow_hidden()",
+        "WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT",
+        "WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT",
+        "fn should_collapse_frame(",
+        "WorkspaceFrameKind::QueueNowPlaying =>",
+        "WorkspaceFrameKind::Detail =>",
+        "WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => false",
     ] {
         if !source.contains(required) {
             violations.push(format!(
                 "src/ui/shells/workspace.rs: ADR 0046 workspace shell must preserve scrollable child bounds; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub const WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT",
+        "pub const WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT",
+    ] {
+        if !layout_source.contains(required) {
+            violations.push(format!(
+                "src/ui/layouts.rs: ADR 0046 Task 008 workspace collapse contract missing `{required}`"
             ));
         }
     }
@@ -1319,6 +1337,87 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
     assert!(
         violations.is_empty(),
         "ADR 0046 Task 007 workspace layout render violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell() {
+    let filter_source = read_source(&manifest_path("src/ui/composites/filter_chip_strip.rs"));
+    let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
+    let composites_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
+    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) struct FilterChipStrip",
+        "pub(crate) struct FilterChipStripSlots",
+        "filter_chip_strip(",
+        "SegmentedControl::new(selected).filter_style()",
+        "ContextMenu::new(",
+        "ContextMenuScope::WorkspaceFrame",
+        "narrow_collapse_to_pulldown",
+    ] {
+        if !filter_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/filter_chip_strip.rs: ADR 0047 Task 009 filter chip composite missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "rgb(",
+        ".absolute()",
+        ".fixed()",
+        ".z_index(",
+        "gpui_component::popover",
+    ] {
+        if filter_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/composites/filter_chip_strip.rs: ADR 0047 Task 009 must reuse primitives/tokens and avoid `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub mod filter_chip_strip;",
+        "pub(crate) use filter_chip_strip::{filter_chip_strip, FilterChipStrip, FilterChipStripSlots}",
+    ] {
+        if !composites_mod_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/mod.rs: ADR 0047 Task 009 composite export missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "filter_chip_strip: Option<FilterChipStripDisplay>",
+        "pub(crate) fn with_filter_chip_strip",
+    ] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0047 Task 009 frame-shell display contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "use crate::ui::composites::{filter_chip_strip, FilterChipStripSlots};",
+        "type FrameFilterSelectHandler",
+        "on_filter_select",
+        "display.filter_chip_strip.clone()",
+        "filter_chip_strip(filter_display, filter_slots)",
+    ] {
+        if !frame_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: ADR 0047 Task 009 frame-shell integration missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 009 filter chip strip violations:\n{}",
         violations.join("\n")
     );
 }
@@ -2149,6 +2248,7 @@ fn global_search_replaces_screen_local_search_chrome() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
     let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
     let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let search_app_source = read_source(&manifest_path("src/search/app_impl.rs"));
     let search_shell_source = read_source(&manifest_path("src/ui/shells/discover/search_input.rs"));
@@ -2170,7 +2270,7 @@ fn global_search_replaces_screen_local_search_chrome() {
 
     for required in [
         "Input::new(&app.global_search_input)",
-        ".prefix(IconName::Search)",
+        ".prefix(InputIconName::Search)",
         "let now_playing_width = if toolbar_width >= layout::APP_TOOLBAR_NOW_PLAYING_COMPACT_BREAKPOINT",
         "layout::APP_TOOLBAR_GLOBAL_SEARCH_COMPACT_BREAKPOINT",
         "TokenSize::MenuRegular.scaled(cx)",
@@ -2187,10 +2287,27 @@ fn global_search_replaces_screen_local_search_chrome() {
         "ContextMenuScope::GlobalSearchScope",
         "display.search_button_id",
         ".label(display.search_button_label)",
+        "UiButton::styled(display.search_button_id, ControlStyle::ToolbarIcon)",
+        ".leading_icon(IconName::Search)",
+        ".tooltip(display.search_button_a11y_label)",
     ] {
         if !toolbar_source.contains(required) {
             violations.push(format!(
                 "src/app/tab_bar.rs: ADR 0043 toolbar search render missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "use gpui_component::{Icon as ComponentIcon, IconName as ComponentIconName};",
+        "fn component_icon(self) -> Option<ComponentIconName>",
+        "Self::Search => Some(ComponentIconName::Search)",
+        "ComponentIcon::new(component_icon).size(size)",
+        "Self::Rss | Self::Nostr | Self::Search => None",
+    ] {
+        if !icon_source.contains(required) {
+            violations.push(format!(
+                "src/ui/icons.rs: compact search submit must use the shared vector icon contract `{required}`"
             ));
         }
     }
@@ -2284,6 +2401,43 @@ fn global_search_replaces_screen_local_search_chrome() {
 }
 
 #[test]
+fn settings_form_inputs_fill_scaled_frame_width() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "let settings_column_width = layout::scaled_dimension(layout::SETTINGS_COLUMN_WIDTH, cx);",
+        ".w(settings_column_width)\n                .max_w(relative(1.0))",
+        "fn render_settings_text_input(",
+        "div()\n        .w_full()\n        .min_w_0()\n        .flex()\n        .flex_row()",
+        "Input::new(input)",
+        ".scaled(Size::Small, cx)\n                .flex_1()\n                .min_w_0()",
+        "render_settings_text_input(&endpoint_input, cx)",
+        "render_settings_text_input(&music_dir_input, cx)",
+        "render_settings_text_input(&flac_path_input, cx)",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: settings form width/scale contract missing `{required}`"
+            ));
+        }
+    }
+
+    if app_source.contains(".max_w(layout::SETTINGS_COLUMN_WIDTH)") {
+        violations.push(
+            "src/app.rs: settings form must not use unscaled SETTINGS_COLUMN_WIDTH directly"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "settings form width/scale violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn interactive_surfaces_route_through_minimum_hit_target_token() {
     let token_source = read_source(&manifest_path("src/ui/tokens.rs"));
     let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));
@@ -2328,6 +2482,79 @@ fn interactive_surfaces_route_through_minimum_hit_target_token() {
     assert!(
         violations.is_empty(),
         "minimum hit-target contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn playlist_rows_scale_through_design_tokens() {
+    let playlist_shell = read_source(&manifest_path("src/ui/shells/playlist.rs"));
+    let thumbnail_shell = read_source(&manifest_path("src/ui/shells/library/thumbnail.rs"));
+    let library_shell = read_source(&manifest_path("src/library/app_impl.rs"));
+    let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub fn scaled_dimension(base: Pixels, cx: &App) -> Pixels",
+        "pub fn scaled_f32(base: f32, cx: &App) -> Pixels",
+        "ScaleFactor::current(cx).multiplier()",
+    ] {
+        if !layout_source.contains(required) {
+            violations.push(format!(
+                "src/ui/layouts.rs: scaled legacy layout bridge missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "layout::scaled_dimension(layout::PLAYLIST_THUMB_SLOT, cx)",
+        "layout::scaled_dimension(layout::PLAYLIST_TITLE_OFFSET, cx)",
+        "TokenSize::MinHitTarget.scaled(cx)",
+        "FontSize::Caption.scaled(cx)",
+        "render_playlist_thumb_placeholder(cx)",
+    ] {
+        if !playlist_shell.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/playlist.rs: playlist row UI-scale contract missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        ".text_xs()",
+        "Radius::SM.px()",
+        ".text_size(layout::ACTION_ICON_INNER_SIZE)",
+    ] {
+        if playlist_shell.contains(forbidden) || thumbnail_shell.contains(forbidden) {
+            violations.push(format!(
+                "playlist row/thumbnail render paths must not use unscaled `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "render_album_thumb(image: Option<Arc<Image>>, size: f32, cx: &App)",
+        "let size = layout::scaled_f32(size, cx);",
+        "Radius::SM.scaled(cx)",
+        "FontSize::Headline.scaled(cx)",
+    ] {
+        if !thumbnail_shell.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/library/thumbnail.rs: album thumbnail UI-scale contract missing `{required}`"
+            ));
+        }
+    }
+
+    if !library_shell.contains("Label::new(playlist_heading).weight(FontWeight::SEMIBOLD)") {
+        violations.push(
+            "src/library/app_impl.rs: playlist sidebar heading must render through the scaled Label primitive"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "playlist UI-scale violations:\n{}",
         violations.join("\n")
     );
 }
@@ -6396,10 +6623,10 @@ fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
         "match playlist_row_insertion_edge(payload.from_position, row_drop_index)",
         "Some(PlaylistInsertionEdge::Before) =>",
         "Some(PlaylistInsertionEdge::After) =>",
-        "render_playlist_rows_with_reorder_targets(page.playlist_id(), rows, on_reorder.as_ref())",
+        "render_playlist_rows_with_reorder_targets(page.playlist_id(), rows, on_reorder.as_ref(), cx)",
         "on_reorder.cloned()",
-        ".border_t(spacing::XS)",
-        ".border_b(spacing::XS)",
+        ".border_t(drop_indicator)",
+        ".border_b(drop_indicator)",
         "if target == from",
         ".cursor_no_drop()",
         "render_playlist_rows_with_reorder_targets(",

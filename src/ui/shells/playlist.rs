@@ -23,8 +23,11 @@ use crate::ui::primitives::{
     Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
 };
 use crate::ui::sizable_bridge::SizableScaled;
-use crate::ui::style::{color, radius, spacing, typography};
-use crate::ui::{layouts as layout, tokens::Radius};
+use crate::ui::style::{color, spacing};
+use crate::ui::{
+    layouts as layout,
+    tokens::{FontSize, Radius, Size as TokenSize, Spacing},
+};
 use crate::view_models::library::{
     PlaylistTrackControlsDisplay, PlaylistTrackMenuItemDisplay, PlaylistTrackRowDisplay,
 };
@@ -135,7 +138,7 @@ pub(crate) fn render_playlist_detail_shell(
     let track_rows = if rows.is_empty() {
         vec![render_empty_message(page.empty_message())]
     } else {
-        render_playlist_rows_with_reorder_targets(page.playlist_id(), rows, on_reorder.as_ref())
+        render_playlist_rows_with_reorder_targets(page.playlist_id(), rows, on_reorder.as_ref(), cx)
     };
 
     div()
@@ -192,6 +195,7 @@ fn render_playlist_rows_with_reorder_targets(
     playlist_id: i64,
     rows: Vec<PlaylistShellRow>,
     on_reorder: Option<&PlaylistReorderHandler>,
+    cx: &App,
 ) -> Vec<AnyElement> {
     let mut rendered = Vec::with_capacity(rows.len());
 
@@ -200,6 +204,7 @@ fn render_playlist_rows_with_reorder_targets(
             playlist_id,
             row,
             on_reorder.cloned(),
+            cx,
         ));
     }
 
@@ -311,14 +316,15 @@ fn render_playlist_shell_row(
     playlist_id: i64,
     row: PlaylistShellRow,
     on_reorder: Option<PlaylistReorderHandler>,
+    cx: &App,
 ) -> AnyElement {
     match row {
         PlaylistShellRow::Pending {
             position,
             last_position,
-        } => render_pending_playlist_row(playlist_id, position, last_position),
+        } => render_pending_playlist_row(playlist_id, position, last_position, cx),
         PlaylistShellRow::Ready(ready) => {
-            render_playlist_track_row(playlist_id, ready.display, ready.slot, on_reorder)
+            render_playlist_track_row(playlist_id, ready.display, ready.slot, on_reorder, cx)
         }
     }
 }
@@ -327,6 +333,7 @@ fn render_pending_playlist_row(
     playlist_id: i64,
     position: usize,
     last_position: usize,
+    cx: &App,
 ) -> AnyElement {
     let row_id = SharedString::from(format!(
         "playlist-{playlist_id}-row-{position}-of-{last_position}-pending"
@@ -336,10 +343,10 @@ fn render_pending_playlist_row(
         .flex()
         .flex_row()
         .items_center()
-        .gap(spacing::SM)
-        .px(spacing::SM)
-        .py(spacing::XS)
-        .rounded(radius::SM)
+        .gap(Spacing::SM.scaled(cx))
+        .px(Spacing::SM.scaled(cx))
+        .py(Spacing::XS.scaled(cx))
+        .rounded(Radius::SM.scaled(cx))
         .child(
             crate::ui::composites::SkeletonTrackRow::new(("playlist-skeleton-row", position))
                 .show_thumbnail(true)
@@ -360,15 +367,15 @@ struct PlaylistTrackDragPreview {
 }
 
 impl Render for PlaylistTrackDragPreview {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .rounded(radius::MD)
+            .rounded(Radius::MD.scaled(cx))
             .border_1()
             .border_color(color::accent())
             .bg(color::bg_surface())
-            .px(spacing::MD)
-            .py(spacing::SM)
-            .text_size(typography::SIZE_MICRO)
+            .px(Spacing::MD.scaled(cx))
+            .py(Spacing::SM.scaled(cx))
+            .text_size(FontSize::Micro.scaled(cx))
             .font_weight(FontWeight::BOLD)
             .text_color(color::text_primary())
             .child(self.title.clone())
@@ -422,9 +429,15 @@ fn render_playlist_track_row(
     display: PlaylistTrackRowDisplay,
     slot: PlaylistTrackRowSlot,
     on_reorder: Option<PlaylistReorderHandler>,
+    cx: &App,
 ) -> AnyElement {
     let controls = display.controls.clone();
     let row_drop_index = display.position;
+    let row_gap = Spacing::SM.scaled(cx);
+    let row_pad_x = Spacing::SM.scaled(cx);
+    let row_pad_y = Spacing::XS.scaled(cx);
+    let row_radius = Radius::SM.scaled(cx);
+    let drop_indicator = Spacing::XS.scaled(cx);
     let drag_payload = PlaylistTrackDragPayload {
         playlist_id,
         from_position: display.position,
@@ -444,18 +457,20 @@ fn render_playlist_track_row(
         .flex()
         .flex_row()
         .items_center()
-        .gap(spacing::SM)
-        .px(spacing::SM)
-        .py(spacing::XS)
-        .rounded(radius::SM)
+        .gap(row_gap)
+        .px(row_pad_x)
+        .py(row_pad_y)
+        .rounded(row_radius)
         .when(!display.is_available, |el| {
             el.bg(color::bg_surface_hi())
                 .border_1()
                 .border_color(color::border_strong())
         })
         .hover(|el| el.bg(color::bg_surface_hi()))
-        .child(render_playlist_drag_handle(&controls, drag_payload))
-        .child(render_playlist_track_body(display, thumbnail, on_select))
+        .child(render_playlist_drag_handle(&controls, drag_payload, cx))
+        .child(render_playlist_track_body(
+            display, thumbnail, on_select, cx,
+        ))
         .child(render_playlist_track_controls(
             controls,
             PlaylistTrackControlSlots {
@@ -464,6 +479,7 @@ fn render_playlist_track_row(
                 move_down: on_move_down,
                 remove: on_remove,
             },
+            cx,
         ));
 
     if let Some(on_reorder) = on_reorder {
@@ -487,10 +503,10 @@ fn render_playlist_track_row(
                     }
                     match playlist_row_insertion_edge(payload.from_position, row_drop_index) {
                         Some(PlaylistInsertionEdge::Before) => {
-                            el.border_t(spacing::XS).border_color(color::accent())
+                            el.border_t(drop_indicator).border_color(color::accent())
                         }
                         Some(PlaylistInsertionEdge::After) => {
-                            el.border_b(spacing::XS).border_color(color::accent())
+                            el.border_b(drop_indicator).border_color(color::accent())
                         }
                         None => el,
                     }
@@ -523,15 +539,16 @@ struct PlaylistTrackControlSlots {
 fn render_playlist_drag_handle(
     controls: &PlaylistTrackControlsDisplay,
     payload: PlaylistTrackDragPayload,
+    cx: &App,
 ) -> AnyElement {
     div()
         .id(SharedString::from(controls.drag_handle_id.clone()))
-        .min_w(layout::MIN_HIT_TARGET)
-        .min_h(layout::MIN_HIT_TARGET)
+        .min_w(TokenSize::MinHitTarget.scaled(cx))
+        .min_h(TokenSize::MinHitTarget.scaled(cx))
         .flex()
         .items_center()
         .justify_center()
-        .rounded(radius::SM)
+        .rounded(Radius::SM.scaled(cx))
         .text_color(color::text_muted())
         .cursor_move()
         .hover(|el| el.bg(color::bg_surface_hi()))
@@ -561,6 +578,7 @@ fn render_playlist_drag_handle(
 fn render_playlist_track_controls(
     controls: PlaylistTrackControlsDisplay,
     slots: PlaylistTrackControlSlots,
+    cx: &App,
 ) -> AnyElement {
     let PlaylistTrackControlsDisplay {
         actions_menu_id,
@@ -600,7 +618,7 @@ fn render_playlist_track_controls(
         .flex()
         .flex_row()
         .items_center()
-        .gap(spacing::XS)
+        .gap(Spacing::XS.scaled(cx))
         .child(play_btn)
         .child(actions_menu)
         .into_any_element()
@@ -645,6 +663,7 @@ fn render_playlist_track_body(
     display: PlaylistTrackRowDisplay,
     thumbnail: Option<AnyElement>,
     on_select: Option<PlaylistClickHandler>,
+    cx: &App,
 ) -> AnyElement {
     let PlaylistTrackRowDisplay {
         is_available,
@@ -662,13 +681,18 @@ fn render_playlist_track_body(
     } else {
         color::text_muted()
     };
+    let gap = Spacing::SM.scaled(cx);
+    let thumb_slot = layout::scaled_dimension(layout::PLAYLIST_THUMB_SLOT, cx);
+    let duration_width = layout::scaled_dimension(layout::PLAYLIST_TITLE_OFFSET, cx);
+    let row_text = FontSize::Caption.scaled(cx);
     let mut row_body = div()
         .id(SharedString::from(controls.row_body_id))
         .flex()
         .flex_row()
         .items_center()
-        .gap(spacing::SM)
+        .gap(gap)
         .flex_1()
+        .min_w_0()
         .cursor_pointer();
     if let Some(on_select) = on_select {
         row_body = row_body.on_click(move |event, window, cx| on_select(event, window, cx));
@@ -677,42 +701,48 @@ fn render_playlist_track_body(
     row_body
         .child(
             div()
-                .w(layout::PLAYLIST_THUMB_SLOT)
-                .text_xs()
+                .w(thumb_slot)
+                .flex_shrink_0()
+                .text_size(row_text)
                 .text_color(color::text_muted())
                 .child(SharedString::from(position_label)),
         )
         .child(
             div()
                 .when(!is_available, |el| el.opacity(0.35))
-                .child(thumbnail.unwrap_or_else(render_playlist_thumb_placeholder)),
+                .child(thumbnail.unwrap_or_else(|| render_playlist_thumb_placeholder(cx))),
         )
         .child(
             div()
                 .flex_1()
+                .min_w_0()
                 .child(
                     div()
-                        .text_xs()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(row_text)
                         .text_color(title_color)
                         .when(!is_available, Styled::line_through)
                         .child(SharedString::from(title)),
                 )
                 .child(
                     div()
-                        .text_xs()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(row_text)
                         .text_color(color::text_muted())
                         .child(SharedString::from(artist)),
                 )
                 .when_some(availability_label, |el, label| {
                     el.child(
                         div()
-                            .mt(spacing::XXS)
-                            .rounded(radius::SM)
+                            .mt(Spacing::XXS.scaled(cx))
+                            .rounded(Radius::SM.scaled(cx))
                             .border_1()
                             .border_color(color::border_strong())
-                            .px(spacing::XS)
-                            .py(spacing::XXS)
-                            .text_xs()
+                            .px(Spacing::XS.scaled(cx))
+                            .py(Spacing::XXS.scaled(cx))
+                            .text_size(row_text)
                             .text_color(color::text_muted())
                             .child(label),
                     )
@@ -720,24 +750,26 @@ fn render_playlist_track_body(
         )
         .child(
             div()
-                .text_xs()
+                .text_size(row_text)
                 .text_color(color::text_muted())
-                .w(layout::PLAYLIST_TITLE_OFFSET)
+                .w(duration_width)
+                .flex_shrink_0()
                 .child(SharedString::from(duration_label)),
         )
         .into_any_element()
 }
 
-fn render_playlist_thumb_placeholder() -> AnyElement {
+fn render_playlist_thumb_placeholder(cx: &App) -> AnyElement {
+    let thumb_slot = layout::scaled_dimension(layout::PLAYLIST_THUMB_SLOT, cx);
     div()
-        .w(layout::PLAYLIST_THUMB_SLOT)
-        .h(layout::PLAYLIST_THUMB_SLOT)
-        .rounded(Radius::SM.px())
+        .w(thumb_slot)
+        .h(thumb_slot)
+        .rounded(Radius::SM.scaled(cx))
         .bg(color::border_subtle())
         .flex()
         .items_center()
         .justify_center()
-        .text_size(layout::ACTION_ICON_INNER_SIZE)
+        .text_size(FontSize::Headline.scaled(cx))
         .flex_shrink_0()
         .child("\u{1F3B5}")
         .into_any_element()

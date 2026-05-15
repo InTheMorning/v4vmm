@@ -18,6 +18,7 @@ use gpui::{
     SharedString, Styled, Window,
 };
 
+use crate::ui::composites::{filter_chip_strip, FilterChipStripSlots};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
 use crate::ui::primitives::{
@@ -25,11 +26,12 @@ use crate::ui::primitives::{
 };
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
-    FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameShellDisplay,
+    ContentFilter, FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameShellDisplay,
 };
 
 type FrameButtonHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type FrameMenuSelectHandler = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
+type FrameFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
 
 /// Callback and content slots supplied by a frame-shell caller.
 #[derive(Default)]
@@ -40,6 +42,7 @@ pub(crate) struct FrameShellSlots {
     on_forward: Option<FrameButtonHandler>,
     on_close: Option<FrameButtonHandler>,
     on_menu_select: Option<FrameMenuSelectHandler>,
+    on_filter_select: Option<FrameFilterSelectHandler>,
     appearance: Option<Appearance>,
 }
 
@@ -79,6 +82,15 @@ impl FrameShellSlots {
         handler: impl Fn(SharedString, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_menu_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the frame-local content-filter selection callback.
+    pub(crate) fn on_filter_select(
+        mut self,
+        handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_filter_select = Some(Rc::new(handler));
         self
     }
 
@@ -164,6 +176,7 @@ fn render_chrome(
     cx: &App,
 ) -> impl IntoElement {
     let content_slot_id = display.content_slot_id.clone();
+    let filter_chip_strip_display = display.filter_chip_strip.clone();
     let mut nav = div()
         .flex()
         .flex_row()
@@ -233,7 +246,7 @@ fn render_chrome(
         ));
     }
 
-    div()
+    let header = div()
         .flex()
         .flex_row()
         .items_center()
@@ -244,7 +257,31 @@ fn render_chrome(
         .border_color(secondary_color)
         .child(nav)
         .child(title_stack)
-        .child(trailing)
+        .child(trailing);
+
+    let mut chrome = div()
+        .flex()
+        .flex_col()
+        .border_b_1()
+        .border_color(secondary_color);
+    chrome = chrome.child(header);
+
+    if let Some(filter_display) = filter_chip_strip_display {
+        let mut filter_slots = FilterChipStripSlots::new();
+        if let Some(handler) = slots.on_filter_select {
+            filter_slots = filter_slots.on_select(move |filter, window, cx| {
+                handler(filter, window, cx);
+            });
+        }
+        chrome = chrome.child(
+            div()
+                .px(Spacing::MD.scaled(cx))
+                .pb(Spacing::XS.scaled(cx))
+                .child(filter_chip_strip(filter_display, filter_slots)),
+        );
+    }
+
+    chrome
 }
 
 fn chrome_button(
@@ -332,5 +369,13 @@ mod tests {
         assert!(slots.on_forward.is_some());
         assert!(slots.on_close.is_some());
         assert!(slots.on_menu_select.is_some());
+        assert!(slots.on_filter_select.is_none());
+    }
+
+    #[test]
+    fn slots_accept_filter_selection_callback() {
+        let slots = FrameShellSlots::new().on_filter_select(|_, _, _| {});
+
+        assert!(slots.on_filter_select.is_some());
     }
 }

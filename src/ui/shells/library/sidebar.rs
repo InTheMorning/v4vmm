@@ -180,7 +180,7 @@ pub(crate) fn render_library_sidebar(
                                     .flex_row()
                                     .items_center()
                                     .gap(spacing::XS)
-                                    .child(render_album_thumb(track_thumb_image.clone(), 24.0))
+                                    .child(render_album_thumb(track_thumb_image.clone(), 24.0, cx))
                                     .child(
                                         div()
                                             .flex_1()
@@ -209,7 +209,7 @@ fn hoverable_thumb(
     size: f32,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let inner = render_album_thumb(image, size);
+    let inner = render_album_thumb(image, size, cx);
     let Some(url) = url else {
         return inner;
     };

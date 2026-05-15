@@ -7,11 +7,12 @@ use gpui::{
     Styled, Window,
 };
 use gpui_component::input::Input;
-use gpui_component::{IconName, Size};
+use gpui_component::{IconName as InputIconName, Size};
 
 use crate::library::LibraryApp;
 use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
 use crate::ui::control_styles::ControlStyle;
+use crate::ui::icons::IconName;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::{
     Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
@@ -104,7 +105,7 @@ pub(super) fn render_tab_bar(
     toolbar
         .child(render_global_search(
             display.center_id,
-            display.global_search,
+            &display.global_search,
             app,
             toolbar_width,
             cx,
@@ -133,7 +134,7 @@ pub(super) fn render_tab_bar(
 
 fn render_global_search(
     center_id: &'static str,
-    display: GlobalSearchDisplay,
+    display: &GlobalSearchDisplay,
     app: &TopApp,
     toolbar_width: gpui::Pixels,
     cx: &mut Context<TopApp>,
@@ -168,7 +169,7 @@ fn render_global_search(
         .max_w(TokenSize::ColumnTall.scaled(cx))
         .child(
             Input::new(&app.global_search_input)
-                .prefix(IconName::Search)
+                .prefix(InputIconName::Search)
                 .cleanable(true)
                 .scaled(Size::Small, cx),
         );
@@ -185,17 +186,19 @@ fn render_global_search(
         .child(search_input);
 
     if use_compact_search {
-        toolbar_search = toolbar_search.child(render_global_search_scope_menu(
-            display.scope_menu_id,
-            display.scope_menu_a11y_label,
-            "",
-            display.search_button_label,
-            display.search_button_a11y_label,
-            true,
-            display.scopes,
-            app.global_search_scope,
-            &menu_entity,
-        ));
+        toolbar_search = toolbar_search
+            .child(render_global_search_scope_menu(
+                display.scope_menu_id,
+                display.scope_menu_a11y_label,
+                "",
+                display.search_button_label,
+                display.search_button_a11y_label,
+                false,
+                display.scopes.clone(),
+                app.global_search_scope,
+                &menu_entity,
+            ))
+            .child(render_global_search_submit_button(display, true, cx));
     } else {
         toolbar_search = toolbar_search
             .when(show_scope_controls, |el| {
@@ -219,22 +222,36 @@ fn render_global_search(
                     display.search_button_label,
                     display.search_button_a11y_label,
                     false,
-                    display.scopes,
+                    display.scopes.clone(),
                     app.global_search_scope,
                     &menu_entity,
                 ))
             })
-            .child(
-                UiButton::styled(display.search_button_id, ControlStyle::Primary)
-                    .label(display.search_button_label)
-                    .a11y_label(display.search_button_a11y_label)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.submit_global_search(cx);
-                    })),
-            );
+            .child(render_global_search_submit_button(display, false, cx));
     }
 
     toolbar_search.into_any_element()
+}
+
+fn render_global_search_submit_button(
+    display: &GlobalSearchDisplay,
+    compact: bool,
+    cx: &mut Context<TopApp>,
+) -> UiButton {
+    let mut button = if compact {
+        UiButton::styled(display.search_button_id, ControlStyle::ToolbarIcon)
+            .leading_icon(IconName::Search)
+            .tooltip(display.search_button_a11y_label)
+    } else {
+        UiButton::styled(display.search_button_id, ControlStyle::Primary)
+            .label(display.search_button_label)
+    }
+    .a11y_label(display.search_button_a11y_label);
+
+    button = button.on_click(cx.listener(|this, _, _, cx| {
+        this.submit_global_search(cx);
+    }));
+    button
 }
 
 #[expect(
