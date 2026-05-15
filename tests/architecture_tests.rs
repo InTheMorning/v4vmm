@@ -6542,12 +6542,43 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         ".fetch_feed_track(feed_guid, &track.item_guid, include)",
         "crate::subscribe_service::enrich_track_context_from_rss(&mut track, Some(&mut feed));",
         "library_track_context_rejects_placeholder_source_text_at_boundary",
+        // Local-row read boundary: polluted DB rows must not become display
+        // facts. Identity columns pass through, but display text is
+        // collapsed to `None` via the local `drop_placeholder` helper.
+        "local_track_row_strips_placeholder_text_at_projection_boundary",
+        "fn drop_placeholder(value: Option<String>) -> Option<String>",
+        "drop_placeholder(track.feed_title.clone())",
+        // DB-write boundary: MusicIndex feed descriptions must not write
+        // placeholder text into `feeds.description`.
+        "if !source_text_missing(feed.description.as_deref())",
     ] {
         assert!(
             feed_service_source.contains(required),
             "Metadata placeholder mitigation must stay at the source boundary: `{required}`"
         );
     }
+
+    let subscribe_service_source = read_source(&manifest_path("src/subscribe_service.rs"));
+    for required in [
+        "fn drop_placeholder(value: Option<String>) -> Option<String>",
+        "drop_placeholder(row.track_title.clone())",
+        "drop_placeholder(row.artist_name.clone())",
+        "drop_placeholder(row.album_artist_name.clone())",
+        "drop_placeholder(row.feed_title.clone())",
+        "!source_text_missing(Some(url.as_str()))",
+    ] {
+        assert!(
+            subscribe_service_source.contains(required),
+            "Local TrackRow projection must strip placeholder text before display: `{required}`"
+        );
+    }
+
+    let rss_subscribe_source = read_source(&manifest_path("src/rss/subscribe.rs"));
+    assert!(
+        rss_subscribe_source
+            .contains("if !crate::metadata::source_text_missing(api_feed.description.as_deref())"),
+        "RSS subscribe must not persist placeholder MusicIndex feed descriptions"
+    );
     for required in [
         "pub(crate) fn source_text_is_placeholder(value: &str) -> bool",
         "source_placeholder_char",

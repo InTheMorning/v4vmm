@@ -11,7 +11,9 @@ use crate::config;
 use crate::db::{self, TrackRow};
 use crate::identity_ingest;
 use crate::library_service;
-use crate::metadata::{MusicBrainzLookupResult, TagCompareResult, TrackContext};
+use crate::metadata::{
+    source_text_missing, MusicBrainzLookupResult, TagCompareResult, TrackContext,
+};
 use crate::metadata_service::{id3_edits_for_track_context, musicbrainz_lookup_metadata};
 use crate::musicbrainz::lookup_recordings;
 use crate::rss;
@@ -371,30 +373,48 @@ fn apply_id3_edits_nonfatal(path: &Path, edits: &[Id3v24Edit]) -> usize {
 
 pub fn track_row_to_api_track(row: &TrackRow) -> Track {
     Track {
+        // Identity columns pass through verbatim; the merge boundary owns
+        // their placeholder semantics.
         track_guid: Some(row.item_guid.clone()),
         feed_guid: row.feed_guid.clone(),
-        title: row.track_title.clone(),
-        track_artist: row.artist_name.clone(),
-        release_artist: row.album_artist_name.clone(),
-        feed_title: row.feed_title.clone(),
+        // Display facts are sanitized so a polluted DB row cannot become a
+        // display string at the metadata grid boundary.
+        title: drop_placeholder(row.track_title.clone()),
+        track_artist: drop_placeholder(row.artist_name.clone()),
+        release_artist: drop_placeholder(row.album_artist_name.clone()),
+        feed_title: drop_placeholder(row.feed_title.clone()),
         track_number: row.track_number.and_then(|n| n.try_into().ok()),
         duration_secs: row.duration_seconds.and_then(|s| s.try_into().ok()),
-        enclosure_url: row.enclosure_url.clone(),
-        enclosure_type: row.enclosure_type.clone(),
-        image_url: row.track_image_href.clone(),
+        enclosure_url: drop_placeholder(row.enclosure_url.clone()),
+        enclosure_type: drop_placeholder(row.enclosure_type.clone()),
+        image_url: drop_placeholder(row.track_image_href.clone()),
         publisher_text: None,
         description: None,
-        source_links: row.transcript_url.as_ref().map(|url| {
-            vec![SourceEntityLink {
-                entity_type: Some("track".into()),
-                entity_id: Some(row.item_guid.clone()),
-                link_type: Some("transcript".into()),
-                url: Some(url.clone()),
-                ..Default::default()
-            }]
-        }),
+        source_links: row
+            .transcript_url
+            .as_ref()
+            .filter(|url| !source_text_missing(Some(url.as_str())))
+            .map(|url| {
+                vec![SourceEntityLink {
+                    entity_type: Some("track".into()),
+                    entity_id: Some(row.item_guid.clone()),
+                    link_type: Some("transcript".into()),
+                    url: Some(url.clone()),
+                    ..Default::default()
+                }]
+            }),
         ..Track::default()
     }
+}
+
+/// Strip placeholder transport values (`...`, `\u{2026}`, whitespace-only)
+/// so they cannot become display facts in shared metadata renderers.
+///
+/// Mirrors [`crate::metadata::source_text_missing`] semantics: anything the
+/// detector flags as missing is collapsed to `None` even if a previous
+/// boundary persisted it into the local DB.
+fn drop_placeholder(value: Option<String>) -> Option<String> {
+    value.filter(|value| !source_text_missing(Some(value.as_str())))
 }
 
 pub fn enrich_track_context_from_rss(track: &mut Track, feed: Option<&mut Feed>) {

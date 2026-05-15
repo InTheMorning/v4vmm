@@ -33,11 +33,38 @@ RSS, ID3, and MusicBrainz facts.
 - Keep display code simple: render the source-fact state it receives.
 - Add a unit or architecture test that proves placeholder-looking transport
   values cannot override real local/RSS facts.
+- **Sanitize at every read boundary too, not only at the merge step.** Local
+  DB rows can carry placeholder text persisted by an earlier ingest path. A
+  reader that projects `TrackRow`/`Feed` into the display `Track`/`Feed`
+  contract must collapse placeholder text to `None` so the metadata grid
+  cannot render historical pollution as a current source fact.
 
-## Current Guard
+## Symptom shape
+
+The most visible failure mode is an inspector where the compact summary card
+shows clean text (it consumes `frame.title` and similar pre-cleaned strings)
+while the wide metadata grid below renders literal `...` across most or all
+RSS-column rows. The contradiction is the tell: both surfaces draw from the
+same `TrackContext.track`, so a one-sided regression points to a missing
+sanitization boundary on the noisier surface.
+
+## Current Guards
 
 `src/feed_service.rs` rejects placeholder-only MusicIndex text while merging
 library track detail, then enriches the merged context from RSS before handing
 it to Library detail renderers. The regression test
-`library_track_context_rejects_placeholder_source_text_at_boundary` locks this
-behavior.
+`library_track_context_rejects_placeholder_source_text_at_boundary` locks the
+merge boundary.
+
+`src/subscribe_service.rs::track_row_to_api_track` and
+`src/feed_service.rs::track_row_to_feed` strip placeholder text from local
+DB rows before they reach the display contract. Identity columns
+(`track_guid`, `feed_guid`, `item_guid`) pass through verbatim; only display
+facts are sanitized. The regression test
+`local_track_row_strips_placeholder_text_at_projection_boundary` locks the
+read boundary.
+
+`src/feed_service.rs::apply_feed_updates` and `src/rss/subscribe.rs` skip
+`db::set_feed_description` when the MusicIndex feed description matches
+placeholder detection, so the DB never persists `...` as a feed description
+in the first place.

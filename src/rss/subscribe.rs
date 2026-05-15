@@ -154,7 +154,7 @@ pub fn subscribe_feed(
                         eprintln!("set baseline musicindex_updated_at: {err:#}");
                     }
                 }
-                if api_feed.description.is_some() {
+                if !crate::metadata::source_text_missing(api_feed.description.as_deref()) {
                     db::set_feed_description(conn, feed_id, api_feed.description.as_deref())?;
                 }
             }

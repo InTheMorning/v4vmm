@@ -103,11 +103,20 @@ fn merge_track_context_from_detail(
 
 pub fn track_row_to_feed(track: &TrackRow) -> Feed {
     Feed {
+        // Identity column passes through verbatim.
         feed_guid: track.feed_guid.clone(),
-        title: track.feed_title.clone(),
-        image_url: track.album_image_href.clone(),
+        // Display facts are sanitized so polluted local rows cannot surface
+        // as display strings.
+        title: drop_placeholder(track.feed_title.clone()),
+        image_url: drop_placeholder(track.album_image_href.clone()),
         ..Feed::default()
     }
+}
+
+/// Strip placeholder transport values (`...`, `\u{2026}`, whitespace-only)
+/// so polluted local rows do not surface as display facts.
+fn drop_placeholder(value: Option<String>) -> Option<String> {
+    value.filter(|value| !source_text_missing(Some(value.as_str())))
 }
 
 fn track_defaults(mut track: Track, defaults: &Track) -> Track {
@@ -263,7 +272,7 @@ pub fn apply_feed_updates(
     let feed_update = client.fetch_feed(&stale.feed_guid, include).ok();
     if let Some(feed) = feed_update.as_ref() {
         let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-        if feed.description.is_some() {
+        if !source_text_missing(feed.description.as_deref()) {
             db::set_feed_description(&db, stale.feed_id, feed.description.as_deref())?;
         }
         identity_ingest::persist_musicindex_feed(&mut db, stale.feed_id, feed)?;
@@ -807,6 +816,57 @@ mod tests {
             context.feed.as_ref().and_then(|feed| feed.title.as_deref()),
             Some("Orient Express")
         );
+    }
+
+    #[test]
+    fn local_track_row_strips_placeholder_text_at_projection_boundary() {
+        let polluted_row = TrackRow {
+            id: 1,
+            feed_id: 2,
+            feed_guid: Some("feed-guid".into()),
+            item_guid: "track-guid".into(),
+            track_title: Some("...".into()),
+            artist_name: Some("\u{2026}".into()),
+            album_title: Some("...".into()),
+            album_artist_name: Some("... \u{2026}".into()),
+            track_number: Some(4),
+            disc_number: None,
+            duration_seconds: Some(149),
+            enclosure_url: Some("...".into()),
+            enclosure_type: Some("\u{2026}".into()),
+            track_image_href: Some("...".into()),
+            is_in_library: true,
+            feed_title: Some("...".into()),
+            album_image_href: Some("...".into()),
+            local_path: None,
+            transcript_url: Some("...".into()),
+        };
+
+        let api_track = crate::subscribe_service::track_row_to_api_track(&polluted_row);
+        // Identity columns pass through; merge boundary owns their semantics.
+        assert_eq!(api_track.track_guid.as_deref(), Some("track-guid"));
+        assert_eq!(api_track.feed_guid.as_deref(), Some("feed-guid"));
+        // Display facts collapse to None so the metadata grid never renders
+        // placeholder transport values as if they were real source facts.
+        assert_eq!(api_track.title, None);
+        assert_eq!(api_track.track_artist, None);
+        assert_eq!(api_track.release_artist, None);
+        assert_eq!(api_track.feed_title, None);
+        assert_eq!(api_track.enclosure_url, None);
+        assert_eq!(api_track.enclosure_type, None);
+        assert_eq!(api_track.image_url, None);
+        assert!(
+            api_track
+                .source_links
+                .as_ref()
+                .is_none_or(|links| links.is_empty()),
+            "placeholder transcript URL must not become a source link"
+        );
+
+        let local_feed = super::track_row_to_feed(&polluted_row);
+        assert_eq!(local_feed.feed_guid.as_deref(), Some("feed-guid"));
+        assert_eq!(local_feed.title, None);
+        assert_eq!(local_feed.image_url, None);
     }
 
     #[test]
