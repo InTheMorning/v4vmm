@@ -1534,6 +1534,77 @@ fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frame
 }
 
 #[test]
+fn workspace_frame_phase_6_detach_dock_model_only_contract() {
+    let workspace_vm_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) enum FrameDetachEligibility",
+        "Detachable,",
+        "NotDetachable,",
+        "pub(crate) enum FrameDockTarget",
+        "Leading,",
+        "Center,",
+        "Trailing,",
+        "pub(crate) const fn detach_eligibility",
+        "pub(crate) fn request_detach",
+        "pub(crate) fn request_dock",
+        "DetachDeferred",
+        "DockDeferred",
+        "NotDetachable",
+    ] {
+        if !workspace_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0046 Task 014 detach/dock model contract missing `{required}`"
+            ));
+        }
+    }
+
+    for path in rust_files_under("src/ui") {
+        let source = read_source(&path);
+        for forbidden in [
+            "FrameDetachEligibility",
+            "FrameDockTarget",
+            "request_detach",
+            "request_dock",
+            "DetachDeferred",
+            "DockDeferred",
+            "NotDetachable",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{}: ADR 0046 Task 014 detach/dock surface must remain model-only; found `{forbidden}`",
+                    rel_path(&path)
+                ));
+            }
+        }
+    }
+
+    for forbidden in [
+        "request_detach",
+        "request_dock",
+        "FrameDetachEligibility",
+        "FrameDockTarget",
+        "DetachDeferred",
+        "DockDeferred",
+        "NotDetachable",
+    ] {
+        if app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0046 Task 014 must not wire detach/dock window commands yet; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Task 014 detach/dock model-only violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell() {
     let filter_source = read_source(&manifest_path("src/ui/composites/filter_chip_strip.rs"));
     let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));

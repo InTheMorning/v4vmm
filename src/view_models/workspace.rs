@@ -56,6 +56,36 @@ pub(crate) enum WorkspaceFrameKind {
     QueueNowPlaying,
 }
 
+/// Detach availability for a workspace frame kind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FrameDetachEligibility {
+    /// The frame can request detach once window support exists.
+    Detachable,
+    /// The frame is anchored in the workspace and cannot detach.
+    NotDetachable,
+}
+
+/// Dock lane for a workspace frame.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FrameDockTarget {
+    /// Dock the frame into the leading workspace lane.
+    Leading,
+    /// Dock the frame into the center workspace lane.
+    Center,
+    /// Dock the frame into the trailing workspace lane.
+    Trailing,
+}
+
+impl FrameDockTarget {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Leading => "leading",
+            Self::Center => "center",
+            Self::Trailing => "trailing",
+        }
+    }
+}
+
 impl WorkspaceFrameKind {
     /// Returns the default title for this frame kind.
     #[must_use]
@@ -65,6 +95,17 @@ impl WorkspaceFrameKind {
             Self::ContentList => "Content",
             Self::Detail => "Detail",
             Self::QueueNowPlaying => "Queue",
+        }
+    }
+
+    /// Returns whether frames of this kind can request detach.
+    #[must_use]
+    pub(crate) const fn detach_eligibility(self) -> FrameDetachEligibility {
+        match self {
+            Self::SourceList => FrameDetachEligibility::NotDetachable,
+            Self::ContentList | Self::Detail | Self::QueueNowPlaying => {
+                FrameDetachEligibility::Detachable
+            }
         }
     }
 }
@@ -182,6 +223,17 @@ pub(crate) enum WorkspaceModelError {
     CannotNavigateBack,
     /// The frame has no forward-history entry to select.
     CannotNavigateForward,
+    /// The detach request is valid but windowing support is deferred.
+    DetachDeferred(WorkspaceFrameId),
+    /// The dock request is valid but windowing support is deferred.
+    DockDeferred {
+        /// Frame that requested docking.
+        frame_id: WorkspaceFrameId,
+        /// Requested dock lane.
+        target: FrameDockTarget,
+    },
+    /// The frame is anchored and cannot detach or dock.
+    NotDetachable(WorkspaceFrameId),
 }
 
 impl fmt::Display for WorkspaceModelError {
@@ -195,6 +247,20 @@ impl fmt::Display for WorkspaceModelError {
             Self::EmptyLayout => f.write_str("workspace layout contains no frames"),
             Self::CannotNavigateBack => f.write_str("workspace frame has no back history"),
             Self::CannotNavigateForward => f.write_str("workspace frame has no forward history"),
+            Self::DetachDeferred(id) => write!(
+                f,
+                "workspace frame {} detach is deferred until windowing support exists",
+                id.value()
+            ),
+            Self::DockDeferred { frame_id, target } => write!(
+                f,
+                "workspace frame {} dock to {} is deferred until windowing support exists",
+                frame_id.value(),
+                target.label()
+            ),
+            Self::NotDetachable(id) => {
+                write!(f, "workspace frame {} is not detachable", id.value())
+            }
         }
     }
 }
@@ -782,6 +848,43 @@ impl WorkspaceLayout {
         Ok(())
     }
 
+    /// Requests that an eligible frame detach into a separate surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
+    /// exist. Returns [`WorkspaceModelError::NotDetachable`] when the frame is
+    /// anchored. Returns [`WorkspaceModelError::DetachDeferred`] for eligible
+    /// frames until a future windowing ADR implements actual detach behavior.
+    pub(crate) fn request_detach(&self, id: WorkspaceFrameId) -> Result<(), WorkspaceModelError> {
+        match self.frame_detach_eligibility(id)? {
+            FrameDetachEligibility::Detachable => Err(WorkspaceModelError::DetachDeferred(id)),
+            FrameDetachEligibility::NotDetachable => Err(WorkspaceModelError::NotDetachable(id)),
+        }
+    }
+
+    /// Requests that an eligible frame dock into a workspace lane.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
+    /// exist. Returns [`WorkspaceModelError::NotDetachable`] when the frame is
+    /// anchored. Returns [`WorkspaceModelError::DockDeferred`] for eligible
+    /// frames until a future windowing ADR implements actual dock behavior.
+    pub(crate) fn request_dock(
+        &self,
+        id: WorkspaceFrameId,
+        target: FrameDockTarget,
+    ) -> Result<(), WorkspaceModelError> {
+        match self.frame_detach_eligibility(id)? {
+            FrameDetachEligibility::Detachable => Err(WorkspaceModelError::DockDeferred {
+                frame_id: id,
+                target,
+            }),
+            FrameDetachEligibility::NotDetachable => Err(WorkspaceModelError::NotDetachable(id)),
+        }
+    }
+
     /// Converts this layout to a serializable configuration DTO.
     #[must_use]
     pub(crate) fn to_config(&self) -> WorkspaceLayoutConfig {
@@ -832,6 +935,17 @@ impl WorkspaceLayout {
             seen.push(frame.id);
         }
         Ok(())
+    }
+
+    fn frame_detach_eligibility(
+        &self,
+        id: WorkspaceFrameId,
+    ) -> Result<FrameDetachEligibility, WorkspaceModelError> {
+        self.frames
+            .iter()
+            .find(|frame| frame.id == id)
+            .map(|frame| frame.kind().detach_eligibility())
+            .ok_or(WorkspaceModelError::FrameNotFound(id))
     }
 
     fn next_frame_id(&self) -> WorkspaceFrameId {
@@ -975,9 +1089,9 @@ impl FrameNavigationState {
 mod tests {
     use super::{
         BreadcrumbDisplay, BreadcrumbTruncation, ContentFilter, FilterChipStripDisplay,
-        FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, WorkspaceFrameConfig,
-        WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
-        WorkspaceLayoutConfig, WorkspaceModelError,
+        FrameDetachEligibility, FrameDockTarget, FrameNavigationEntry, FrameNavigationState,
+        FrameShellDisplay, WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind,
+        WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
     };
 
     fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -1513,6 +1627,91 @@ mod tests {
             layout.focused_frame_id(),
             Some(WorkspaceFrameId::new(1)),
             "failed removal should preserve focus"
+        );
+    }
+
+    #[test]
+    fn workspace_frame_kind_projects_detach_eligibility() {
+        assert_eq!(
+            WorkspaceFrameKind::SourceList.detach_eligibility(),
+            FrameDetachEligibility::NotDetachable,
+            "source list frames should stay anchored to the workspace"
+        );
+        for kind in [
+            WorkspaceFrameKind::ContentList,
+            WorkspaceFrameKind::Detail,
+            WorkspaceFrameKind::QueueNowPlaying,
+        ] {
+            assert_eq!(
+                kind.detach_eligibility(),
+                FrameDetachEligibility::Detachable,
+                "{kind:?} frames should be detach-eligible"
+            );
+        }
+    }
+
+    #[test]
+    fn detach_and_dock_requests_defer_for_detachable_frames() {
+        let layout = WorkspaceLayout::default_layout();
+
+        assert_eq!(
+            layout.request_detach(WorkspaceFrameId::new(2)),
+            Err(WorkspaceModelError::DetachDeferred(WorkspaceFrameId::new(
+                2
+            ))),
+            "content-list detach should be recognized but deferred"
+        );
+        assert_eq!(
+            layout.request_dock(WorkspaceFrameId::new(3), FrameDockTarget::Center),
+            Err(WorkspaceModelError::DockDeferred {
+                frame_id: WorkspaceFrameId::new(3),
+                target: FrameDockTarget::Center,
+            }),
+            "detail dock should be recognized but deferred"
+        );
+        assert_eq!(
+            layout.request_dock(WorkspaceFrameId::new(4), FrameDockTarget::Trailing),
+            Err(WorkspaceModelError::DockDeferred {
+                frame_id: WorkspaceFrameId::new(4),
+                target: FrameDockTarget::Trailing,
+            }),
+            "queue dock should be recognized but deferred"
+        );
+    }
+
+    #[test]
+    fn detach_and_dock_requests_reject_anchored_source_list() {
+        let layout = WorkspaceLayout::default_layout();
+
+        assert_eq!(
+            layout.request_detach(WorkspaceFrameId::new(1)),
+            Err(WorkspaceModelError::NotDetachable(WorkspaceFrameId::new(1))),
+            "source list detach should be rejected"
+        );
+        assert_eq!(
+            layout.request_dock(WorkspaceFrameId::new(1), FrameDockTarget::Leading),
+            Err(WorkspaceModelError::NotDetachable(WorkspaceFrameId::new(1))),
+            "source list dock should be rejected"
+        );
+    }
+
+    #[test]
+    fn detach_and_dock_requests_validate_frame_id() {
+        let layout = WorkspaceLayout::default_layout();
+
+        assert_eq!(
+            layout.request_detach(WorkspaceFrameId::new(99)),
+            Err(WorkspaceModelError::FrameNotFound(WorkspaceFrameId::new(
+                99
+            ))),
+            "detaching a missing frame should return FrameNotFound"
+        );
+        assert_eq!(
+            layout.request_dock(WorkspaceFrameId::new(99), FrameDockTarget::Center),
+            Err(WorkspaceModelError::FrameNotFound(WorkspaceFrameId::new(
+                99
+            ))),
+            "docking a missing frame should return FrameNotFound"
         );
     }
 

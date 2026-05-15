@@ -1,6 +1,6 @@
 # ADR 0046 Task 009: QueueNowPlaying Page View Model
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -68,12 +68,19 @@ device picker, volume slider.
 
 ## Acceptance Criteria
 
-- [ ] Module compiles and documents public types.
-- [ ] Display contract avoids `Duration`, `TrackRow`, playback engine
+- [x] Module compiles and documents public types.
+- [x] Display contract avoids `Duration`, `TrackRow`, playback engine
   types in public surface.
-- [ ] Transport state modeled as enum.
-- [ ] Unit tests cover empty/playing/paused/device passthrough.
-- [ ] No `gpui` imports.
+- [x] Transport state modeled as enum.
+- [x] Unit tests cover empty/playing/paused/device passthrough.
+- [x] No `gpui` imports.
+
+## Implementation Notes
+
+- `src/view_models/queue_now_playing.rs` owns the GPUI-free
+  `QueueNowPlayingPageVm` contract and supporting display types.
+- Phase 4 architecture guards and final visual evidence are recorded in
+  `docs/reviews/adr-0046-review-checklist.md`.
 
 ## Test Commands
 

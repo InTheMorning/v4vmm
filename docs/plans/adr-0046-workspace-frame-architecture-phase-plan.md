@@ -163,6 +163,8 @@ multi-frame layout.
 
 ## Phase 6 - Detach/Dock Readiness
 
+Status: Implemented model-only - 2026-05-15.
+
 Goal: add detach/dock metadata and commands to the workspace model
 without shipping separate OS windows.
 

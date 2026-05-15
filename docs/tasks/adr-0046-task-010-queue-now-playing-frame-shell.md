@@ -1,6 +1,6 @@
 # ADR 0046 Task 010: QueueNowPlaying Frame Shell
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -68,13 +68,21 @@ controls live in the frame.
 
 ## Acceptance Criteria
 
-- [ ] QueueNowPlaying frame renders queue list, transport, liveValue
+- [x] QueueNowPlaying frame renders queue list, transport, liveValue
   picker, and volume.
-- [ ] Toolbar Now Playing card is reduced to compact status +
+- [x] Toolbar Now Playing card is reduced to compact status +
   play/pause + progress.
-- [ ] Frame uses `frame_shell` composite for its chrome.
-- [ ] No playback engine modifications.
-- [ ] No raw glyph/color/spacing literals.
+- [x] Frame uses `frame_shell` composite for its chrome.
+- [x] No playback engine modifications.
+- [x] No raw glyph/color/spacing literals.
+
+## Implementation Notes
+
+- The QueueNowPlaying frame is rendered through shared workspace frame
+  chrome and keeps detailed queue/output controls out of the global
+  toolbar.
+- Phase 4 architecture guards and final visual evidence are recorded in
+  `docs/reviews/adr-0046-review-checklist.md`.
 
 ## Test Commands
 

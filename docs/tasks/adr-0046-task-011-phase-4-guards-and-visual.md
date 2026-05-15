@@ -1,6 +1,6 @@
 # ADR 0046 Task 011: Phase 4 Guards and Visual
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -53,9 +53,16 @@ collapsing the queue frame preserves global playback status.
 
 ## Acceptance Criteria
 
-- [ ] Phase 4 architecture guards present and green.
-- [ ] Review checklist has Phase 4 section, gates, evidence pointers.
-- [ ] No production code modified.
+- [x] Phase 4 architecture guards present and green.
+- [x] Review checklist has Phase 4 section, gates, evidence pointers.
+- [x] No production code modified.
+
+## Implementation Notes
+
+- Phase 4 guards now lock QueueNowPlaying VM and shell ownership,
+  compact toolbar behavior, and scroll-chain boundaries.
+- Final visual evidence and user confirmations are recorded in
+  `docs/reviews/adr-0046-review-checklist.md`.
 
 ## Test Commands
 

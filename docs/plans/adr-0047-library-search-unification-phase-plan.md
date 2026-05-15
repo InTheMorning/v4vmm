@@ -111,6 +111,7 @@ to per-frame chrome chips.
 Tasks:
 
 - `adr-0047-task-009-filter-chip-strip-composite`
+- `adr-0047-task-010a-content-list-page-vm-ownership`
 - `adr-0047-task-010-wire-filter-chips-into-content-list-frame`
 - `adr-0047-task-011-retire-global-search-scope`
 
@@ -119,6 +120,9 @@ Deliverables:
 - Filter chip strip composite reading `FilterChipStripDisplay`, with
   narrow-width pull-down collapse
 - `FrameShellDisplay` extended with optional filter-chip slot
+- A GPUI-free `ContentListPageVm` owns per-frame filter state,
+  source-aware row projection, empty-filter state, and chip-strip
+  display data before UI wiring
 - `SetFrameFilter(frame_id, ContentFilter)` command wired into
   content-showing frame VMs
 - `GlobalSearchScope` and the toolbar segmented control removed

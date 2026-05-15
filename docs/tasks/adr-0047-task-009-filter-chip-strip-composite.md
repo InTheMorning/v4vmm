@@ -1,6 +1,6 @@
 # ADR 0047 Task 009: Filter Chip Strip Composite
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -67,12 +67,23 @@ Composite reuses existing segmented-control and pull-down primitives.
 
 ## Acceptance Criteria
 
-- [ ] Composite compiles and renders the segmented strip on wide
+- [x] Composite compiles and renders the segmented strip on wide
   widths.
-- [ ] Composite collapses to pull-down on narrow widths.
-- [ ] Frame shell renders the optional strip when present.
-- [ ] No raw color/spacing literal.
-- [ ] Architecture guards record the contracts.
+- [x] Composite collapses to pull-down on narrow widths.
+- [x] Frame shell renders the optional strip when present.
+- [x] No raw color/spacing literal.
+- [x] Architecture guards record the contracts.
+
+## Implementation Notes
+
+- `src/ui/composites/filter_chip_strip.rs` renders
+  `FilterChipStripDisplay` through shared segmented-control and
+  context-menu primitives.
+- `FrameShellDisplay` carries the optional strip and `frame_shell`
+  renders it when present.
+- Visible filter behavior remains deferred to Task 010 because the
+  current `ContentList` frame is still a transitional whole-screen
+  mount.
 
 ## Test Commands
 

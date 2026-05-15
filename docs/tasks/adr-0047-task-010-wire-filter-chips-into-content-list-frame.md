@@ -17,6 +17,10 @@ is no real GPUI-free `ContentList` page VM that can own per-frame
 escalation trigger applies; do not implement this task by rendering chips over
 the transitional mount without row filtering.
 
+Task 010a (`adr-0047-task-010a-content-list-page-vm-ownership`) must land first.
+It creates the GPUI-free `ContentListPageVm` ownership contract that this task
+will consume.
+
 ## Files to Inspect
 
 - `docs/plans/library-search-unification-plan.md`

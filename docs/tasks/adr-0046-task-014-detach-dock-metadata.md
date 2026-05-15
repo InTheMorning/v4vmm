@@ -1,6 +1,6 @@
 # ADR 0046 Task 014: Detach/Dock Metadata
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -69,13 +69,26 @@ only. No UI exposes detach. No second OS window is created.
 
 ## Acceptance Criteria
 
-- [ ] Detach/dock metadata and commands exist in workspace VM.
-- [ ] Commands return `DetachDeferred` or `NotDetachable` errors as
+- [x] Detach/dock metadata and commands exist in workspace VM.
+- [x] Commands return `DetachDeferred` or `NotDetachable` errors as
   appropriate; never panic.
-- [ ] Unit tests verify per-frame eligibility and command return
+- [x] Unit tests verify per-frame eligibility and command return
   shapes.
-- [ ] Architecture guard confirms no UI references the detach
+- [x] Architecture guard confirms no UI references the detach
   surface.
+
+## Implementation Notes
+
+- `src/view_models/workspace.rs` defines `FrameDetachEligibility`,
+  `FrameDockTarget`, `WorkspaceFrameKind::detach_eligibility`,
+  `WorkspaceLayout::request_detach`, and
+  `WorkspaceLayout::request_dock`.
+- Detachable frames return deferred model errors only. No UI,
+  app-level command, GPUI window primitive, or second OS window is
+  wired by this task.
+- `tests/architecture_tests.rs` includes the Task 014 model-only guard
+  so later work cannot expose detach/dock controls without a follow-up
+  windowing ADR.
 
 ## Test Commands
 

@@ -23,13 +23,18 @@
 
 ## Gate Status
 
-Status: Phase 5 Task 013 deferred until real per-frame content owners exist;
-automated guard updated - 2026-05-15.
+Status: Phase 5 Task 013 deferral confirmed; visible commands remain deferred
+until real per-frame content owners exist. Phase 6 Task 014 detach/dock metadata
+implemented model-only - 2026-05-15.
 
-Readiness decision: **Do not close Phase 5 on user-visible multi-frame
-commands. Keep add/remove model support from Task 012, but hide open/close
-frame UI until ADR 0047/frame-navigation work creates non-duplicated content
-frames.**
+Readiness decision: **Close Phase 5 as a command-deferral slice, not as
+user-visible multi-frame commands. Keep add/remove model support from Task 012,
+but hide open/close frame UI until ADR 0047/frame-navigation work creates
+non-duplicated content frames.**
+
+Phase 6 model-only detach/dock metadata may proceed while Task 013 visible
+commands remain deferred because it does not expose UI, keybindings, OS-window
+primitives, or duplicate whole-screen content frames.
 
 QueueNowPlaying implementation began after Phase 2 and Phase 3
 frame-navigation/chrome work was complete and user-confirmed.
@@ -87,10 +92,18 @@ frame-navigation/chrome work was complete and user-confirmed.
 - [x] Task 013 keybindings for unavailable workspace-frame actions are absent.
 - [x] Task 013 focus indicator uses `SemanticColor::Focus`.
 - [x] Task 013 deferral architecture guard green.
+- [x] Task 013 duplicate-frame regression visually confirmed absent by the
+      operator on 2026-05-15.
+- [x] Task 014 detach/dock eligibility metadata implemented in
+      `src/view_models/workspace.rs`.
+- [x] Task 014 `request_detach` / `request_dock` return deferred model errors
+      for detachable frames and `NotDetachable` for anchored frames.
+- [x] Task 014 model-only architecture guard confirms no `src/ui/*` or
+      `src/app.rs` wiring references the detach/dock surface.
 
 ## Required Fixes
 
-- None before starting Task 001.
+- None for the ADR 0046 Task 013 deferral or Task 014 model-only slice.
 
 ## Optional Improvements
 
@@ -115,19 +128,20 @@ frame-navigation/chrome work was complete and user-confirmed.
 ## Visual Readiness Checklist
 
 - Task 007 local visual smoke was attempted on 2026-05-14 but GPUI could not
-  initialize the X11/GPU context in this environment. Manual visual review is
-  still required before Phase 3 is closed.
+  initialize the X11/GPU context in this environment. Later operator screenshots
+  and confirmations below resolved the Phase 3 visual gate.
 - User screenshot on 2026-05-14 showed the first Task 007 pass rendered false
   SourceList/Detail placeholders and squeezed Library into the Content frame.
   Follow-up patch makes the transitional workspace two-frame: active whole
-  screen plus Queue placeholder. Manual confirmation is still required.
+  screen plus Queue placeholder. Later operator confirmation below resolved this
+  layout issue.
 - Follow-up screenshots on 2026-05-14 showed disabled frame Back/Forward chrome,
   unfiltered Library rows under Search type chips, raw local-track deferred
   panel 404s, and no search-row library membership status. Follow-up patch
   hides inert frame navigation, uses a Search breadcrumb root in the inspector,
   filters Library and Index sections through the selected result type, resolves
-  local deferred panels to empty states, and adds row membership status. Manual
-  confirmation is still required.
+  local deferred panels to empty states, and adds row membership status. User
+  confirmation on 2026-05-14 resolved the regression set.
 - Follow-up report on 2026-05-14 showed scroll panes receiving wheel events
   without visible scrolling, plus Recent Feeds becoming inaccessible after
   search. Follow-up patch makes the workspace mount/frame-shell scroll chain
@@ -180,8 +194,8 @@ frame-navigation/chrome work was complete and user-confirmed.
   proposed. Task 012 was then implemented: `WorkspaceLayout` exposes
   `add_frame(kind) -> Result<WorkspaceFrameId, ...>`, protects last-frame
   removal, preserves focus invariants, and persists `workspace_layout` through
-  `config.toml` with malformed-config fallback. Task 013 is the next visible
-  Phase 5 slice.
+  `config.toml` with malformed-config fallback. Task 013 visible commands were
+  later deferred; Task 014 is complete as a model-only Phase 6 slice.
 - 2026-05-15 Task 013 first implementation exposed shared frame action menu ids
   and keybindings. User feedback showed the menu first opened an unusable
   placeholder frame, then a misleading duplicate Library frame, while
@@ -192,10 +206,10 @@ frame-navigation/chrome work was complete and user-confirmed.
   non-goals for Task 013 and belong to later ADR 0047/frame-navigation work.
 - 2026-05-15 local visual smoke was attempted with `cargo run` and
   `LIBGL_ALWAYS_SOFTWARE=1 cargo run`; both failed before opening a GPUI window
-  due to X11/GPU initialization errors. Operator visual confirmation remains
-  required.
+  due to X11/GPU initialization errors. Operator visual confirmation supplied
+  the Task 013 duplicate-frame proof afterward.
 - [ ] Task 013 default layout visual confirmation.
-- [ ] Task 013 confirms no duplicate second Library/Search/Settings frame is
+- [x] Task 013 confirms no duplicate second Library/Search/Settings frame is
       reachable from frame chrome or keybindings.
 - [ ] Task 013 focused-frame indicator visual confirmation.
 - [ ] Task 013 light/dark visual confirmation.
@@ -216,6 +230,7 @@ but phase readiness requires the full gate above.
 
 ## Merge Recommendation
 
-Task 013 visible multi-frame commands are deferred. Do not close Phase 5 until
-the duplicate-frame regression is visually confirmed absent, or until a later
-ADR 0047 task provides real per-frame content owners.
+Task 013 may close as a visually confirmed command-deferral slice, and Task 014
+model-only detach/dock metadata may merge after automated gates. User-visible
+multi-frame open/close commands remain deferred until a later ADR 0047 task
+provides real per-frame content owners.

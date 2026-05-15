@@ -73,7 +73,7 @@ transitional whole-screen Library/Search/Settings mount from exposing fake
 - [x] Visible transitional layout projects to a single active content frame plus
   queue.
 - [x] Architecture guards lock the deferral and block duplicate frame routing.
-- [ ] Review checklist records user visual confirmation that duplicate frames
+- [x] Review checklist records user visual confirmation that duplicate frames
   no longer appear.
 
 ## Implementation Notes
@@ -95,8 +95,10 @@ transitional whole-screen Library/Search/Settings mount from exposing fake
   state and independent per-frame Library/Search/Settings routing.
 - Local visual smoke was attempted with `cargo run` and
   `LIBGL_ALWAYS_SOFTWARE=1 cargo run`; GPUI failed to initialize the X11/GPU
-  context before a window opened. Operator visual confirmation is still required
-  before closing Phase 5.
+  context before a window opened.
+- Operator confirmed on 2026-05-15 that no duplicate Library/Search/Settings
+  frame is reachable from frame chrome or keybindings after the command
+  deferral.
 
 ## Test Commands
 

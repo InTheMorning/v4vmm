@@ -12,6 +12,9 @@
 - `docs/tasks/adr-0047-task-006-disable-compare-musicbrainz-on-undownloaded.md`
 - `docs/tasks/adr-0047-task-007-gate-library-extra-fields-behind-expanded-panels.md`
 - `docs/tasks/adr-0047-task-008-description-disclosure.md`
+- `docs/tasks/adr-0047-task-009-filter-chip-strip-composite.md`
+- `docs/tasks/adr-0047-task-010-wire-filter-chips-into-content-list-frame.md`
+- `docs/tasks/adr-0047-task-010a-content-list-page-vm-ownership.md`
 - `src/library.rs`
 - `src/library/app_impl.rs`
 - `src/ui/composites/disclosure_group.rs`
@@ -29,7 +32,8 @@
 
 Status: Phase D Task 009 automated implementation complete - 2026-05-15;
 ADR 46 Task 012 persistence gate cleared; Task 010 escalated because the true
-`ContentList` page VM does not exist yet.
+`ContentList` page VM does not exist yet. Task 010a now defines the bounded
+preparatory VM-only packet.
 
 Readiness decision: **Do not implement Task 010 against the current whole-screen
 transitional mount. The task's escalation trigger applies: a real
@@ -80,10 +84,13 @@ and does not wire real filtering or remove `GlobalSearchScope`.
 - [x] ADR 46 Task 012 persistence gate cleared for Task 010 sequencing.
 - [x] Task 010 escalation recorded: current `ContentList` frame wraps whole
       Library/Search/Settings screens and cannot host per-frame filter state.
+- [x] Task 010a packet added: `ContentListPageVm` must own per-frame filter
+      state and row projection before frame-shell chip wiring resumes.
 
 ## Required Fixes
 
-- None.
+- Implement Task 010a before Task 010. Do not render filter chips over the
+  transitional whole-screen `ContentList` mount.
 
 ## Prohibited Regression
 
@@ -162,6 +169,6 @@ cargo clippy -- -D warnings
 
 ## Merge Recommendation
 
-Task 009 may proceed through automated review. Task 010 should be split or
-reframed before implementation; do not attach filters to the current
-whole-screen transitional mount.
+Task 009 may proceed through automated review. Task 010 is split: implement
+Task 010a first, then resume frame-shell chip wiring after a real
+`ContentListPageVm` owns filter state and row projection.

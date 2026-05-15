@@ -1,6 +1,6 @@
 # ADR 0046 Task 008: Narrow-Width Collapse and Phase 3 Visual
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -70,14 +70,20 @@ toolbar menu or keybinding.
 
 ## Acceptance Criteria
 
-- [ ] Breakpoint constants defined and consumed by the workspace
+- [x] Breakpoint constants defined and consumed by the workspace
   shell.
-- [ ] Optional frames collapse before primary nav/search.
-- [ ] Collapsed frames remain accessible via menu/keybinding.
-- [ ] Architecture guards lock the breakpoint usage and frame-chrome
+- [x] Optional frames collapse before primary nav/search.
+- [x] Collapsed frames remain accessible via menu/keybinding.
+- [x] Architecture guards lock the breakpoint usage and frame-chrome
   ownership of Back/Forward.
-- [ ] Review checklist records pass/fail per gate; visual proof
+- [x] Review checklist records pass/fail per gate; visual proof
   attached or referenced.
+
+## Implementation Notes
+
+- Implemented as part of ADR 0046 Phase 3/4 workspace visual follow-up.
+- Final visual evidence and user confirmations are recorded in
+  `docs/reviews/adr-0046-review-checklist.md`.
 
 ## Test Commands
 
