@@ -179,6 +179,10 @@ Deliverables:
 - `src/search.rs` deleted; shared composites (`ui_artist`, `ui_feed`,
   `ui_track`) host all entity render
 - Library and search-result inspectors call the same composites
+- Feed and track membership controls are a single shared
+  Download/Remove action vocabulary. UI labels must not expose
+  subscribe/unsubscribe wording; feed removal must leave any visible
+  remote feed detail showing the `Download Feed` action state.
 - `WORKSPACE_RENDER_ENABLED` toggle removed; workspace render is the
   only path
 - Architecture guards: search.rs absent; no `crate::search::*` import

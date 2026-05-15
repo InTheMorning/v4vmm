@@ -57,6 +57,8 @@ begins.
 - [x] Phase C follow-up: track description toggles persist per track id,
       and feed updates persist MusicIndex feed descriptions into local
       feed rows instead of relying on renderer placeholder inference.
+- [x] Phase C follow-up: visible membership controls use Download/Remove
+      vocabulary rather than subscribe/unsubscribe wording.
 - [x] Architecture guard locks Phase B placement, GPUI-free boundaries,
       and shared `ContentFilter` ownership.
 - [x] Architecture guard locks Phase C inspector-state ownership,
@@ -78,6 +80,11 @@ begins.
   MusicIndex feed/item descriptions must be preserved and refreshed
   into local rows or source-fact state. Display code may trim empty
   whitespace; it must not infer that non-empty source text is invalid.
+- Visible membership controls must not use subscribe/unsubscribe
+  vocabulary. Feeds and tracks use the app-level action language:
+  `Download Feed`, `Remove Feed`, `Download Track`, and `Remove Track`.
+  When feed removal leaves a remote feed detail visible, the primary
+  action must telegraph the new state as `Download Feed`.
 
 ## Optional Improvements
 
@@ -100,6 +107,8 @@ begins.
 - Do not reintroduce renderer/view-model placeholder inference for
   descriptions. If a description looks wrong, fix hydration or
   persistence.
+- Do not reintroduce subscribe/unsubscribe button labels in Library,
+  Search, shared entity shells, or action-row view models.
 
 ## Test Gates
 

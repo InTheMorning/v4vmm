@@ -2538,6 +2538,49 @@ fn screens_do_not_call_migrated_playback_paths() {
 }
 
 #[test]
+fn adr_0047_membership_buttons_use_download_remove_vocabulary() {
+    let checked_files = [
+        "src/view_models/library.rs",
+        "src/view_models/search.rs",
+        "src/view_models/entity_detail.rs",
+        "src/ui/shells/discover/actions.rs",
+        "src/ui/shells/library/feed_detail.rs",
+        "src/ui/shells/library/track_detail.rs",
+        "src/ui/shells/library/track_detail_metadata.rs",
+    ];
+    let forbidden = [
+        "\"Subscribe Feed\"",
+        "\"Unsubscribe Feed\"",
+        "\"Subscribe Track\"",
+        "\"Unsubscribe Track\"",
+        "\"Subscribing...\"",
+        "\"Unsubscribing...\"",
+        "\"Subscribing track...\"",
+        "\"Unsubscribing track...\"",
+    ];
+    let mut violations = Vec::new();
+
+    for file in checked_files {
+        let path = manifest_path(file);
+        let contents = fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        for pattern in forbidden {
+            if contents.contains(pattern) {
+                violations.push(format!(
+                    "{file}: membership action buttons must use Download/Remove vocabulary; found `{pattern}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 membership action vocabulary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn screens_do_not_add_unapproved_hardcoded_dark_defaults() {
     let mut violations = Vec::new();
     for file_name in screen_enforcement_files() {

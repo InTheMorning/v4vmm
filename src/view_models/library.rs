@@ -625,19 +625,19 @@ impl<'a> LibraryTrackActionVm<'a> {
     #[must_use]
     pub(crate) fn subscription_button_label(&self) -> &'static str {
         match (self.subscription_busy, self.local_subscription) {
-            (true, true) => "Unsubscribing...",
-            (true, false) => "Subscribing...",
-            (false, true) => "Unsubscribe Track",
-            (false, false) => "Subscribe Track",
+            (true, true) => "Removing...",
+            (true, false) => "Downloading...",
+            (false, true) => "Remove Track",
+            (false, false) => "Download Track",
         }
     }
 
     #[must_use]
     pub(crate) const fn subscription_busy_message(subscribe: bool) -> &'static str {
         if subscribe {
-            "Subscribing..."
+            "Downloading..."
         } else {
-            "Unsubscribing..."
+            "Removing..."
         }
     }
 
@@ -646,17 +646,13 @@ impl<'a> LibraryTrackActionVm<'a> {
         subscribe: bool,
         error: impl std::fmt::Display,
     ) -> String {
-        let action = if subscribe {
-            "Subscribe"
-        } else {
-            "Unsubscribe"
-        };
+        let action = if subscribe { "Download" } else { "Remove" };
         format!("{action} error: {error:#}")
     }
 
     #[must_use]
     pub(crate) const fn track_subscribe_begin_status() -> &'static str {
-        "Subscribing track..."
+        "Downloading track..."
     }
 
     #[must_use]
@@ -1291,7 +1287,7 @@ impl LibraryViewModel {
 
     pub(crate) fn finish_track_subscribe(&mut self, outcome: TrackSubscribeOutcome) {
         self.busy_track = None;
-        let mut message = format!("Subscribed track: {}", outcome.path_label);
+        let mut message = format!("Downloaded track: {}", outcome.path_label);
         if let Some(warning) = outcome.format_warning {
             message.push_str(" — ");
             message.push_str(&warning);
@@ -1301,7 +1297,7 @@ impl LibraryViewModel {
 
     pub(crate) fn fail_track_subscribe(&mut self, error: impl std::fmt::Display) {
         self.busy_track = None;
-        self.status = format!("Error subscribing track: {error:#}");
+        self.status = format!("Error downloading track: {error:#}");
     }
 
     #[must_use]
@@ -4421,11 +4417,11 @@ mod tests {
         assert!(!vm.has_busy_track());
         assert_eq!(vm.busy_track(), None);
 
-        vm.begin_busy_track(42, "Subscribing track...");
+        vm.begin_busy_track(42, "Downloading track...");
 
         assert!(vm.has_busy_track());
         assert_eq!(vm.busy_track(), Some(42));
-        assert_eq!(vm.status(), "Subscribing track...");
+        assert_eq!(vm.status(), "Downloading track...");
 
         vm.clear_busy_track();
         assert_eq!(vm.busy_track(), None);
@@ -4459,39 +4455,39 @@ mod tests {
     fn library_track_action_vm_formats_subscription_labels() {
         assert_eq!(
             LibraryTrackActionVm::new(false, false, None).subscription_button_label(),
-            "Subscribe Track"
+            "Download Track"
         );
         assert_eq!(
             LibraryTrackActionVm::new(false, true, None).subscription_button_label(),
-            "Unsubscribe Track"
+            "Remove Track"
         );
         assert_eq!(
             LibraryTrackActionVm::new(true, false, None).subscription_button_label(),
-            "Subscribing..."
+            "Downloading..."
         );
         assert_eq!(
             LibraryTrackActionVm::new(true, true, None).subscription_button_label(),
-            "Unsubscribing..."
+            "Removing..."
         );
         assert_eq!(
             LibraryTrackActionVm::subscription_busy_message(true),
-            "Subscribing..."
+            "Downloading..."
         );
         assert_eq!(
             LibraryTrackActionVm::subscription_busy_message(false),
-            "Unsubscribing..."
+            "Removing..."
         );
         assert_eq!(
             LibraryTrackActionVm::subscription_error_message(true, "offline"),
-            "Subscribe error: offline"
+            "Download error: offline"
         );
         assert_eq!(
             LibraryTrackActionVm::subscription_error_message(false, "offline"),
-            "Unsubscribe error: offline"
+            "Remove error: offline"
         );
         assert_eq!(
             LibraryTrackActionVm::track_subscribe_begin_status(),
-            "Subscribing track..."
+            "Downloading track..."
         );
         assert_eq!(
             LibraryTrackActionVm::track_subscribe_success_message(),
@@ -4535,7 +4531,7 @@ mod tests {
     #[test]
     fn library_view_model_track_subscribe_finish_clears_busy_and_formats_warning() {
         let mut vm = LibraryViewModel::new();
-        vm.begin_busy_track(42, "Subscribing track...");
+        vm.begin_busy_track(42, "Downloading track...");
 
         vm.finish_track_subscribe(TrackSubscribeOutcome::new(
             "/tmp/song.mp3",
@@ -4545,19 +4541,19 @@ mod tests {
         assert_eq!(vm.busy_track(), None);
         assert_eq!(
             vm.status(),
-            "Subscribed track: /tmp/song.mp3 — converted from WAV"
+            "Downloaded track: /tmp/song.mp3 — converted from WAV"
         );
     }
 
     #[test]
     fn library_view_model_track_subscribe_failure_clears_busy_and_sets_error() {
         let mut vm = LibraryViewModel::new();
-        vm.begin_busy_track(42, "Subscribing track...");
+        vm.begin_busy_track(42, "Downloading track...");
 
         vm.fail_track_subscribe("offline");
 
         assert_eq!(vm.busy_track(), None);
-        assert_eq!(vm.status(), "Error subscribing track: offline");
+        assert_eq!(vm.status(), "Error downloading track: offline");
     }
 
     #[test]
