@@ -103,8 +103,12 @@ impl RenderOnce for MultilineText {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let size = self.size.unwrap_or(FontSize::Micro);
         let text_size = size.scaled(cx);
+        let policy = layout_policy(self.wrap_lines);
 
-        let mut container = div().flex().flex_col().min_w_0().text_size(text_size);
+        let mut container = div().flex().flex_col().text_size(text_size);
+        if policy.container_min_w_zero() {
+            container = container.min_w_0();
+        }
         if let Some(color) = self.color {
             container = container.text_color(resolve_color(cx, color, self.appearance));
         } else if let Some(raw) = self.color_raw {
@@ -117,15 +121,50 @@ impl RenderOnce for MultilineText {
         }
 
         for line in lines_for_render(&self.value, self.max_lines) {
-            let mut line_el = div().min_w_0().child(SharedString::from(line));
-            if self.wrap_lines {
+            let mut line_el = div().child(SharedString::from(line));
+            if policy.line_min_w_zero() {
+                line_el = line_el.min_w_0();
+            }
+            if policy.line_wraps() {
                 line_el = line_el.whitespace_normal();
-            } else {
+            } else if policy.line_truncates() {
                 line_el = line_el.truncate();
             }
             container = container.child(line_el);
         }
         container
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MultilineTextLayoutPolicy {
+    Wrap,
+    Truncate,
+}
+
+const fn layout_policy(wrap_lines: bool) -> MultilineTextLayoutPolicy {
+    if wrap_lines {
+        MultilineTextLayoutPolicy::Wrap
+    } else {
+        MultilineTextLayoutPolicy::Truncate
+    }
+}
+
+impl MultilineTextLayoutPolicy {
+    const fn container_min_w_zero(self) -> bool {
+        matches!(self, Self::Wrap)
+    }
+
+    const fn line_min_w_zero(self) -> bool {
+        matches!(self, Self::Wrap)
+    }
+
+    const fn line_wraps(self) -> bool {
+        matches!(self, Self::Wrap)
+    }
+
+    const fn line_truncates(self) -> bool {
+        matches!(self, Self::Truncate)
     }
 }
 
@@ -174,6 +213,28 @@ mod tests {
     fn wrap_lines_opts_out_of_single_line_truncation() {
         let text = MultilineText::from_text("value").wrap_lines();
         assert!(text.wrap_lines);
+    }
+
+    #[test]
+    fn truncate_branch_keeps_intrinsic_line_width_for_metadata_grid() {
+        let policy = layout_policy(false);
+
+        assert_eq!(policy, MultilineTextLayoutPolicy::Truncate);
+        assert!(!policy.container_min_w_zero());
+        assert!(!policy.line_min_w_zero());
+        assert!(!policy.line_wraps());
+        assert!(policy.line_truncates());
+    }
+
+    #[test]
+    fn wrap_branch_allows_flex_shrink_for_description_text() {
+        let policy = layout_policy(true);
+
+        assert_eq!(policy, MultilineTextLayoutPolicy::Wrap);
+        assert!(policy.container_min_w_zero());
+        assert!(policy.line_min_w_zero());
+        assert!(policy.line_wraps());
+        assert!(!policy.line_truncates());
     }
 
     #[test]

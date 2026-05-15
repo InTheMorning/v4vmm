@@ -419,6 +419,7 @@ pub(crate) fn sanitize_track_source_text(track: &mut Track) {
     sanitize_source_links(track.source_links.as_mut());
     sanitize_source_ids(track.source_ids.as_mut());
     sanitize_source_release_claims(track.source_release_claims.as_mut());
+    sanitize_source_contributors(track.source_contributors.as_mut());
 }
 
 pub(crate) fn sanitize_feed_source_text(feed: &mut Feed) {
@@ -436,6 +437,7 @@ pub(crate) fn sanitize_feed_source_text(feed: &mut Feed) {
     sanitize_source_links(feed.source_links.as_mut());
     sanitize_source_ids(feed.source_ids.as_mut());
     sanitize_source_release_claims(feed.source_release_claims.as_mut());
+    sanitize_source_contributors(feed.source_contributors.as_mut());
     if let Some(tracks) = &mut feed.tracks {
         for track in tracks {
             sanitize_track_source_text(track);
@@ -469,6 +471,21 @@ fn sanitize_source_release_claims(claims: Option<&mut Vec<SourceReleaseClaim>>) 
     for claim in claims.iter_mut() {
         claim.claim_value = drop_placeholder_source_text(claim.claim_value.take());
     }
+}
+
+fn sanitize_source_contributors(contributors: Option<&mut Vec<Contributor>>) {
+    let Some(contributors) = contributors else {
+        return;
+    };
+    for contributor in contributors.iter_mut() {
+        contributor.name = drop_placeholder_source_text(contributor.name.take());
+        contributor.role = drop_placeholder_source_text(contributor.role.take());
+        contributor.href = drop_placeholder_source_text(contributor.href.take());
+        contributor.img = drop_placeholder_source_text(contributor.img.take());
+        contributor.npub = drop_placeholder_source_text(contributor.npub.take());
+        contributor.group_name = drop_placeholder_source_text(contributor.group_name.take());
+    }
+    contributors.retain(|contributor| contributor.name.is_some());
 }
 
 pub(crate) fn source_text_is_placeholder(value: &str) -> bool {
@@ -2947,11 +2964,13 @@ pub fn musicindex_contributors_id3_value(contributors: &[Contributor]) -> Option
                 .name
                 .as_deref()
                 .map(str::trim)
-                .filter(|name| !name.is_empty())?;
+                .filter(|name| !name.is_empty())
+                .filter(|name| !source_text_is_placeholder(name))?;
             let role = contributor
                 .role
                 .as_deref()
                 .map(str::trim)
+                .filter(|role| !source_text_is_placeholder(role))
                 .unwrap_or("contributor");
             Some(format!("{role}: {name}"))
         })
@@ -2967,10 +2986,16 @@ pub fn contributor_id3_rows(contributors: &[Contributor]) -> Vec<(String, &'stat
             .as_deref()
             .map(str::trim)
             .filter(|name| !name.is_empty())
+            .filter(|name| !source_text_is_placeholder(name))
         else {
             continue;
         };
-        let role = contributor.role.as_deref().unwrap_or("").trim();
+        let role_raw = contributor.role.as_deref().unwrap_or("").trim();
+        let role = if source_text_is_placeholder(role_raw) {
+            ""
+        } else {
+            role_raw
+        };
         if let Some(instrument) = instrument_role(role) {
             grouped
                 .entry((format!("Performer [{instrument}]"), "TMCL"))
@@ -3439,15 +3464,18 @@ pub fn metadata_drag_value(
 #[cfg(test)]
 mod tests {
     use super::{
-        aligned_compare_rows, compare_track_rows, display_contributor_tree, display_metadata_value,
-        expanded_metadata_display_string, expanded_metadata_display_value, id3_frame_base,
-        pending_id3_target_key, sanitize_track_context_source_text, source_text_is_placeholder,
+        aligned_compare_rows, compare_track_rows, contributor_id3_rows, display_contributor_tree,
+        display_metadata_value, expanded_metadata_display_string, expanded_metadata_display_value,
+        id3_frame_base, musicindex_contributors_id3_value, pending_id3_target_key,
+        sanitize_track_context_source_text, source_text_is_placeholder,
         summarize_contributor_value, track_metadata_rows, MetadataGridRow, TagCompareResult,
         TrackContext,
     };
     use std::collections::BTreeSet;
 
-    use crate::api::{Feed, SourceEntityId, SourceEntityLink, SourceReleaseClaim, Track};
+    use crate::api::{
+        Contributor, Feed, SourceEntityId, SourceEntityLink, SourceReleaseClaim, Track,
+    };
     use crate::audio_tags::AudioTags;
     use crate::track_compare::{ComparisonRow, ComparisonStatus};
 
@@ -3821,5 +3849,112 @@ mod tests {
             MetadataGridRow::Data(row) if row.field == field => Some(row),
             MetadataGridRow::Data(_) | MetadataGridRow::Group(_) => None,
         })
+    }
+
+    #[test]
+    fn sanitize_track_context_strips_placeholder_contributor_names() {
+        let mut context = TrackContext {
+            track: Track {
+                source_contributors: Some(vec![
+                    Contributor {
+                        name: Some("...".into()),
+                        role: Some("composer".into()),
+                        ..Contributor::default()
+                    },
+                    Contributor {
+                        name: Some("Alice".into()),
+                        role: Some("\u{2026}".into()),
+                        ..Contributor::default()
+                    },
+                    Contributor {
+                        name: Some("Bob".into()),
+                        role: Some("guitar".into()),
+                        ..Contributor::default()
+                    },
+                ]),
+                ..Default::default()
+            },
+            feed: Some(Feed {
+                source_contributors: Some(vec![Contributor {
+                    name: Some("&hellip;".into()),
+                    role: Some("producer".into()),
+                    ..Contributor::default()
+                }]),
+                ..Default::default()
+            }),
+        };
+
+        sanitize_track_context_source_text(&mut context);
+
+        let track_contributors = context
+            .track
+            .source_contributors
+            .as_deref()
+            .unwrap_or_default();
+        assert_eq!(track_contributors.len(), 2);
+        assert_eq!(track_contributors[0].name.as_deref(), Some("Alice"));
+        assert_eq!(track_contributors[0].role, None);
+        assert_eq!(track_contributors[1].name.as_deref(), Some("Bob"));
+        assert_eq!(track_contributors[1].role.as_deref(), Some("guitar"));
+
+        let feed_contributors = context
+            .feed
+            .as_ref()
+            .and_then(|feed| feed.source_contributors.as_deref())
+            .unwrap_or_default();
+        assert!(
+            feed_contributors.is_empty(),
+            "placeholder-only feed contributor must be dropped at the merge boundary"
+        );
+    }
+
+    #[test]
+    fn contributor_id3_rows_skip_placeholder_names_and_roles() {
+        let contributors = vec![
+            Contributor {
+                name: Some("...".into()),
+                role: Some("composer".into()),
+                ..Contributor::default()
+            },
+            Contributor {
+                name: Some("Alice".into()),
+                role: Some("<p>...</p>".into()),
+                ..Contributor::default()
+            },
+            Contributor {
+                name: Some("Bob".into()),
+                role: Some("guitar".into()),
+                ..Contributor::default()
+            },
+        ];
+
+        let rows = contributor_id3_rows(&contributors);
+        for (_, _, value) in &rows {
+            assert!(
+                !source_text_is_placeholder(value),
+                "contributor row value must not be a placeholder: {value:?}"
+            );
+            assert!(
+                !value.contains("..."),
+                "contributor row must not surface raw ellipsis text: {value:?}"
+            );
+        }
+        assert!(
+            rows.iter()
+                .any(|(field, _, value)| field == "Performer [guitar]" && value == "Bob"),
+            "real contributor must survive placeholder filtering"
+        );
+
+        let summary = musicindex_contributors_id3_value(&contributors).unwrap_or_default();
+        assert!(
+            !source_text_is_placeholder(&summary),
+            "contributor summary must not be a placeholder: {summary:?}"
+        );
+        assert!(
+            !summary.contains("..."),
+            "contributor summary must not surface raw ellipsis text: {summary:?}"
+        );
+        assert!(summary.contains("Alice"));
+        assert!(summary.contains("Bob"));
     }
 }

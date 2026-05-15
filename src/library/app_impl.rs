@@ -2311,7 +2311,9 @@ fn hydrate_album_identity_facts(
     let mut db = conn
         .lock()
         .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-    db::set_feed_description(&db, feed_id, description.as_deref())?;
+    if description.is_some() {
+        db::set_feed_description(&db, feed_id, description.as_deref())?;
+    }
     crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
     let identity_facts = crate::local_identity::feed_facts(&db, feed_id)?;
     Ok(AlbumHydration {

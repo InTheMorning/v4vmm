@@ -1027,6 +1027,46 @@ fn adr_0047_feed_description_panels_render_wrapped_body_text() {
 }
 
 #[test]
+fn adr_0047_multiline_text_wrap_policy_does_not_collapse_metadata_grid() {
+    let source = read_source(&manifest_path("src/ui/primitives/multiline_text.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "let policy = layout_policy(self.wrap_lines);",
+        "if policy.container_min_w_zero() {",
+        "if policy.line_min_w_zero() {",
+        "MultilineTextLayoutPolicy::Wrap",
+        "MultilineTextLayoutPolicy::Truncate",
+        "truncate_branch_keeps_intrinsic_line_width_for_metadata_grid",
+        "wrap_branch_allows_flex_shrink_for_description_text",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/ui/primitives/multiline_text.rs: ADR 0047 multiline text policy missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "div().flex().flex_col().min_w_0().text_size",
+        "div().min_w_0().child(SharedString::from(line))",
+        "let mut line_el = div().min_w_0()",
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/primitives/multiline_text.rs: ADR 0047 truncate-mode metadata text must not inherit wrap-mode flex shrink from `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 multiline text layout regressions:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn adr_0047_library_album_hydration_updates_feed_description_source_fact() {
     let source = read_source(&manifest_path("src/library/app_impl.rs"));
     let mut violations = Vec::new();
@@ -6612,6 +6652,9 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         "drop_placeholder_source_text(row.source_value.clone())",
         "source_value_for_metadata_field(row.field, track_context)",
         "sanitize_source_release_claims",
+        "sanitize_source_contributors",
+        "sanitize_track_context_strips_placeholder_contributor_names",
+        "contributor_id3_rows_skip_placeholder_names_and_roles",
         "source_placeholder_char",
         "source_placeholder_scan",
         "placeholder_entity_len",
@@ -6676,6 +6719,11 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         "frame.track.local_path = Some(result.path().to_string());",
         "frame.source_context = None;",
         "fn load_track_source_context(&mut self, track: TrackRow",
+        // Album hydration must skip writes when MusicIndex feed description
+        // is placeholder-only; otherwise an already-good RSS description gets
+        // wiped to NULL and the metadata grid renders empty source facts.
+        "if description.is_some() {",
+        "db::set_feed_description(&db, feed_id, description.as_deref())?;",
     ] {
         assert!(
             library_source.contains(required),

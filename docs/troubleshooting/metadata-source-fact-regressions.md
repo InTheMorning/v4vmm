@@ -46,9 +46,26 @@ RSS, ID3, and MusicBrainz facts.
 The most visible failure mode is an inspector where the compact summary card
 shows clean text (it consumes `frame.title` and similar pre-cleaned strings)
 while the wide metadata grid below renders literal `...` across most or all
-RSS-column rows. The contradiction is the tell: both surfaces draw from the
-same `TrackContext.track`, so a one-sided regression points to a missing
-sanitization boundary on the noisier surface.
+RSS-column rows. This contradiction is the tell, but it is not enough to name
+the layer. First prove whether the database/API projection already contains a
+placeholder value. If the stored/source value is real text, do not add more
+source sanitization; inspect the shared text primitive and grid layout for
+ellipsis truncation.
+
+## Layout Ellipsis Collapse
+
+Commit `cfefdcf` exposed a second failure class: real source facts were passed
+to the metadata grid, but `MultilineText` collapsed non-wrapping rows to an
+ellipsis after wrap support added unconditional `min_w_0()` to the container
+and each line. That regression looked identical to source placeholder pollution
+in screenshots, but DB contributor rows still contained real names.
+
+`src/ui/primitives/multiline_text.rs` now keeps the wrap-mode flex-shrink policy
+behind `layout_policy(self.wrap_lines)`. Description panels opt into
+`.wrap_lines()` and still get `min_w_0()` so body text can wrap. Metadata grid
+callers that use the default truncate mode keep the pre-`cfefdcf` intrinsic line
+shape, so values such as `HeyCitizen` cannot collapse to an ellipsis before the
+user can read them.
 
 ## Current Guards
 
@@ -70,6 +87,21 @@ read boundary.
 `db::set_feed_description` when the MusicIndex feed description matches
 placeholder detection, so the DB never persists `...` as a feed description
 in the first place.
+
+`src/library/app_impl.rs::hydrate_album_identity_facts` runs `FeedView::from_api`
+to sanitize the description, then skips `db::set_feed_description` when the
+result is `None`. Without that guard, a placeholder MusicIndex response would
+overwrite a previously-good RSS-imported description with `NULL` and the
+metadata grid would render empty source facts.
+
+`src/metadata.rs::sanitize_source_contributors` drops placeholder contributor
+`name`/`role`/`href`/`img`/`npub`/`group_name` fields and removes entries with
+no remaining name. Without it, `musicindex_contributors_id3_value` and
+`contributor_id3_rows` would emit Composer/Lead performer/Performer rows whose
+RSS column reads literal `...`. `contributor_id3_rows` and
+`musicindex_contributors_id3_value` also defensively skip placeholder names and
+treat placeholder roles as missing so a polluted upstream payload still cannot
+reach the metadata grid.
 
 `src/metadata.rs::sanitize_track_context_source_text` is the shared projection
 guard for `TrackContext` display/source facts. Search inspectors, subscribe
