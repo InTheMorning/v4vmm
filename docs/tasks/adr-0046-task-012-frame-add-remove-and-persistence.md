@@ -1,6 +1,6 @@
 # ADR 0046 Task 012: Frame Add/Remove and Layout Persistence
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -68,12 +68,24 @@ layout.
 
 ## Acceptance Criteria
 
-- [ ] Add/remove operations return `Result` with documented errors.
-- [ ] Focus invariants verified by unit tests.
-- [ ] `config.toml` round-trip works; malformed config falls back to
+- [x] Add/remove operations return `Result` with documented errors.
+- [x] Focus invariants verified by unit tests.
+- [x] `config.toml` round-trip works; malformed config falls back to
   default without crash.
-- [ ] Architecture guard records the persistence wiring.
-- [ ] No schema migration.
+- [x] Architecture guard records the persistence wiring.
+- [x] No schema migration.
+
+## Implementation Notes
+
+- `WorkspaceModelError` is the existing workspace layout error type and now
+  includes `LastFrameRemoval`.
+- `TopApp` loads persisted `workspace_layout` on startup and persists it through
+  the shared `persist_workspace_layout` helper on Save and app shutdown. Task 013
+  owns the user-visible add/remove commands that will call the same model
+  mutation surface.
+- Malformed `workspace_layout` config is ignored with a warning and falls back
+  to the ADR 0046 default layout.
+- Verified with the full ADR gate on 2026-05-15.
 
 ## Test Commands
 

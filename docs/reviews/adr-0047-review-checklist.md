@@ -28,13 +28,15 @@
 ## Gate Status
 
 Status: Phase D Task 009 automated implementation complete - 2026-05-15;
-Phase C visual confirmation remains pending.
+ADR 46 Task 012 persistence gate cleared; Phase C visual confirmation remains
+pending.
 
 Readiness decision: **ADR 46 Phase 4 visual proof is cleared. Task 010 may
-start after ADR 46 Task 012 lands, because later ADR 47 frame/breadcrumb work
-depends on persisted multi-frame layout state. Task 009 has no standalone
-user-visible mount in the current transitional workspace; carry its filter-strip
-visual proof into Task 010, where the strip is wired into a visible frame.**
+start because ADR 46 Task 012 has landed, giving later ADR 47
+frame/breadcrumb work persisted multi-frame layout state. Task 009 has no
+standalone user-visible mount in the current transitional workspace; carry its
+filter-strip visual proof into Task 010, where the strip is wired into a visible
+frame.**
 
 Phase B was view-model-only. Phase C touched inspector rendering, so it still
 requires operator visual confirmation. The operator resumed ADR 0047 completion
@@ -77,7 +79,7 @@ and does not wire real filtering or remove `GlobalSearchScope`.
 - [x] Task 009 architecture guard green.
 - [x] Task 009 visual proof deferred to Task 010 visible-frame wiring.
 - [x] ADR 46 Phase 4 visual gate cleared for Task 010 sequencing.
-- [ ] ADR 46 Task 012 persistence gate cleared for Task 010 sequencing.
+- [x] ADR 46 Task 012 persistence gate cleared for Task 010 sequencing.
 
 ## Required Fixes
 
@@ -156,6 +158,6 @@ cargo clippy -- -D warnings
 
 ## Merge Recommendation
 
-Task 009 may proceed through automated review. Start Task 010 after ADR 46 Task
-012 lands, and capture the filter chip strip and narrow pull-down proof as part
-of Task 010.
+Task 009 may proceed through automated review. ADR 46 Task 012 has cleared, so
+start Task 010 next and capture the filter chip strip and narrow pull-down proof
+as part of Task 010.

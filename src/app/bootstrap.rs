@@ -100,6 +100,7 @@ pub fn run_app() {
                             musicindex_endpoint,
                             cfg.music_dir,
                             cfg.flac_path,
+                            cfg.workspace_layout,
                             cfg.ui_scale,
                             cfg.theme_profile,
                             playback_owner,

@@ -1342,6 +1342,76 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
 }
 
 #[test]
+fn workspace_frame_phase_5_layout_persistence_contract() {
+    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let config_source = read_source(&manifest_path("src/config.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let bootstrap_source = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) struct WorkspaceLayoutConfig",
+        "pub(crate) struct WorkspaceFrameConfig",
+        "#[serde(rename_all = \"snake_case\")]",
+        "LastFrameRemoval",
+        "pub(crate) fn add_frame(",
+        "kind: WorkspaceFrameKind",
+        "Result<WorkspaceFrameId, WorkspaceModelError>",
+        "pub(crate) fn remove_frame(&mut self, id: WorkspaceFrameId) -> Result<(), WorkspaceModelError>",
+        "pub(crate) fn to_config(&self) -> WorkspaceLayoutConfig",
+        "pub(crate) fn from_config(config: Option<&WorkspaceLayoutConfig>) -> Self",
+    ] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0046 Task 012 layout persistence contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "use crate::view_models::workspace::WorkspaceLayoutConfig;",
+        "workspace_layout: Option<WorkspaceLayoutConfig>",
+        "deserialize_workspace_layout_config",
+        "pub(crate) fn save_workspace_layout(",
+        "toml::Value::try_from(workspace_layout)",
+        "ignoring malformed workspace_layout",
+    ] {
+        if !config_source.contains(required) {
+            violations.push(format!(
+                "src/config.rs: ADR 0046 Task 012 config persistence contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "workspace_layout: WorkspaceLayout",
+        "WorkspaceLayout::from_config(workspace_layout_config.as_ref())",
+        "fn persist_workspace_layout(&self)",
+        "&self.workspace_layout.to_config()",
+        "impl Drop for TopApp",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0046 Task 012 app persistence wiring missing `{required}`"
+            ));
+        }
+    }
+
+    if !bootstrap_source.contains("cfg.workspace_layout") {
+        violations.push(
+            "src/app/bootstrap.rs: ADR 0046 Task 012 startup must pass persisted workspace_layout into TopApp"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Task 012 layout persistence violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell() {
     let filter_source = read_source(&manifest_path("src/ui/composites/filter_chip_strip.rs"));
     let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));

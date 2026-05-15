@@ -23,9 +23,10 @@
 
 ## Gate Status
 
-Status: Phase 4 implementation and visual proof green - 2026-05-15.
+Status: Phase 5 Task 012 implementation and full automated gate green -
+2026-05-15.
 
-Readiness decision: **Proceed to ADR 0046 Phase 5 Task 012.**
+Readiness decision: **Proceed to ADR 0046 Phase 5 Task 013.**
 
 QueueNowPlaying implementation began after Phase 2 and Phase 3
 frame-navigation/chrome work was complete and user-confirmed.
@@ -68,6 +69,14 @@ frame-navigation/chrome work was complete and user-confirmed.
 - [x] Task 008 visual proof complete.
 - [x] Phase 4 manual visual proof complete.
 - [x] Task 012 start gate cleared.
+- [x] Task 012 add/remove operations implemented with `Result` errors.
+- [x] Task 012 focus invariants and last-frame removal guard covered by unit
+      tests.
+- [x] Task 012 `workspace_layout` config persistence implemented with malformed
+      config fallback.
+- [x] Task 012 startup/save/shutdown persistence wiring recorded by architecture
+      guard.
+- [x] Task 012 full automated gate green.
 
 ## Required Fixes
 
@@ -153,10 +162,11 @@ frame-navigation/chrome work was complete and user-confirmed.
   disappears. Earlier 2026-05-15 confirmation covered light/dark rendering and
   compact search/icon fixes.
 - 2026-05-15 lower-context review found Task 012, Task 013, and Task 014 still
-  proposed. Task 012 remains the next implementation blocker after visual proof:
-  current `WorkspaceLayout` has earlier generic add/remove helpers, but it does
-  not yet expose `add_frame(kind) -> Result<WorkspaceFrameId, ...>`, protect
-  last-frame removal, or persist `workspace_layout` in `config.toml`.
+  proposed. Task 012 was then implemented: `WorkspaceLayout` exposes
+  `add_frame(kind) -> Result<WorkspaceFrameId, ...>`, protects last-frame
+  removal, preserves focus invariants, and persists `workspace_layout` through
+  `config.toml` with malformed-config fallback. Task 013 is the next visible
+  Phase 5 slice.
 
 ## Test Gates
 
@@ -174,5 +184,5 @@ but phase readiness requires the full gate above.
 
 ## Merge Recommendation
 
-Phase 4 is complete. Proceed with Task 012 as the next bounded implementation
-packet.
+Phase 5 Task 012 is complete with the full automated gate green. Proceed with
+Task 013 as the next bounded implementation packet.

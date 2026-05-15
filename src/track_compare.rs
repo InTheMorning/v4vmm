@@ -620,6 +620,7 @@ mod tests {
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
+            workspace_layout: None,
         };
 
         assert_eq!(
@@ -641,6 +642,7 @@ mod tests {
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
+            workspace_layout: None,
         };
         let mut track = track();
         track.track_artist = Some("CON".into());
@@ -666,6 +668,7 @@ mod tests {
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
+            workspace_layout: None,
         };
         let mut track = track();
         track.track_artist = Some("Artist\tName".into());
@@ -764,6 +767,7 @@ mod tests {
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
+            workspace_layout: None,
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));

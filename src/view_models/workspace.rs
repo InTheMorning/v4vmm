@@ -14,6 +14,8 @@
 use std::error::Error;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// Stable identifier for a workspace frame.
 ///
 /// Frame identifiers are opaque to callers. The workspace model only requires
@@ -41,7 +43,8 @@ impl WorkspaceFrameId {
 /// The enum keeps frame identity typed instead of stringly-typed. Renderers can
 /// map each variant to frame chrome and content without accepting unknown frame
 /// kinds.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum WorkspaceFrameKind {
     /// Library tree, playlists, saved searches, and settings entry points.
     SourceList,
@@ -171,6 +174,8 @@ pub(crate) enum WorkspaceModelError {
     FrameNotFound(WorkspaceFrameId),
     /// A new frame would duplicate an existing identifier.
     DuplicateFrameId(WorkspaceFrameId),
+    /// The requested frame removal would leave the workspace empty.
+    LastFrameRemoval,
     /// The requested operation needs at least one frame.
     EmptyLayout,
     /// The frame has no back-history entry to select.
@@ -186,6 +191,7 @@ impl fmt::Display for WorkspaceModelError {
             Self::DuplicateFrameId(id) => {
                 write!(f, "workspace frame {} already exists", id.value())
             }
+            Self::LastFrameRemoval => f.write_str("cannot remove the last workspace frame"),
             Self::EmptyLayout => f.write_str("workspace layout contains no frames"),
             Self::CannotNavigateBack => f.write_str("workspace frame has no back history"),
             Self::CannotNavigateForward => f.write_str("workspace frame has no forward history"),
@@ -564,6 +570,32 @@ pub(crate) struct WorkspaceLayout {
     focused_frame_id: Option<WorkspaceFrameId>,
 }
 
+/// Serializable workspace layout configuration.
+///
+/// The DTO stays GPUI-free and stores only stable frame ordering plus the
+/// focused frame id. Invalid or empty configs are ignored by
+/// [`WorkspaceLayout::from_config`] in favor of the default ADR 0046 layout.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct WorkspaceLayoutConfig {
+    /// Ordered frame configurations.
+    pub(crate) frames: Vec<WorkspaceFrameConfig>,
+    /// Focused frame id, when a persisted layout has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) focused_frame_id: Option<u64>,
+}
+
+/// Serializable workspace frame configuration.
+///
+/// Frame ids are persisted as numeric values while frame kinds use stable
+/// snake-case strings through [`WorkspaceFrameKind`] serde annotations.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub(crate) struct WorkspaceFrameConfig {
+    /// Stable frame identifier.
+    pub(crate) id: u64,
+    /// Structural role for this frame.
+    pub(crate) kind: WorkspaceFrameKind,
+}
+
 impl Default for WorkspaceLayout {
     fn default() -> Self {
         Self::default_layout()
@@ -682,19 +714,33 @@ impl WorkspaceLayout {
         Ok(())
     }
 
-    /// Adds a frame to the end of the workspace.
+    /// Adds a frame kind to the end of the workspace.
     ///
-    /// The first added frame becomes focused. Later additions preserve the
-    /// existing focus until callers explicitly focus the new frame.
+    /// The new frame receives the next stable frame id and becomes focused.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::DuplicateFrameId`] if the generated frame
+    /// id already exists.
+    pub(crate) fn add_frame(
+        &mut self,
+        kind: WorkspaceFrameKind,
+    ) -> Result<WorkspaceFrameId, WorkspaceModelError> {
+        let id = self.next_frame_id();
+        self.add_frame_state(WorkspaceFrameState::with_default_title(id, kind))?;
+        self.focus_frame(id)?;
+        Ok(id)
+    }
+
+    /// Adds a caller-provided frame state to the end of the workspace.
+    ///
+    /// Construction and tests use this helper when explicit ids are required.
     ///
     /// # Errors
     ///
     /// Returns [`WorkspaceModelError::DuplicateFrameId`] if the frame id already
     /// exists.
-    pub(crate) fn add_frame(
-        &mut self,
-        frame: WorkspaceFrameState,
-    ) -> Result<(), WorkspaceModelError> {
+    fn add_frame_state(&mut self, frame: WorkspaceFrameState) -> Result<(), WorkspaceModelError> {
         let id = frame.id;
         if self.frames.iter().any(|existing| existing.id == id) {
             return Err(WorkspaceModelError::DuplicateFrameId(id));
@@ -709,30 +755,72 @@ impl WorkspaceLayout {
 
     /// Removes a frame from the workspace.
     ///
-    /// If the focused frame is removed, focus moves to the next frame at the
-    /// same index or the final remaining frame.
+    /// If the focused frame is removed, focus moves to the left sibling, or the
+    /// first remaining frame when there is no left sibling.
     ///
     /// # Errors
     ///
     /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
-    /// exist.
-    pub(crate) fn remove_frame(
-        &mut self,
-        id: WorkspaceFrameId,
-    ) -> Result<WorkspaceFrameState, WorkspaceModelError> {
+    /// exist. Returns [`WorkspaceModelError::LastFrameRemoval`] when the
+    /// requested removal would leave the workspace empty.
+    pub(crate) fn remove_frame(&mut self, id: WorkspaceFrameId) -> Result<(), WorkspaceModelError> {
         let Some(position) = self.frames.iter().position(|frame| frame.id == id) else {
             return Err(WorkspaceModelError::FrameNotFound(id));
         };
-        let removed = self.frames.remove(position);
+        if self.frames.len() == 1 {
+            return Err(WorkspaceModelError::LastFrameRemoval);
+        }
+        self.frames.remove(position);
         if self.focused_frame_id == Some(id) {
+            let next_focus_index = position.saturating_sub(1);
             self.focused_frame_id = self
                 .frames
-                .get(position)
-                .or_else(|| self.frames.last())
+                .get(next_focus_index)
                 .map(WorkspaceFrameState::id);
         }
         self.sync_focus_flags();
-        Ok(removed)
+        Ok(())
+    }
+
+    /// Converts this layout to a serializable configuration DTO.
+    #[must_use]
+    pub(crate) fn to_config(&self) -> WorkspaceLayoutConfig {
+        WorkspaceLayoutConfig {
+            frames: self
+                .frames
+                .iter()
+                .map(|frame| WorkspaceFrameConfig {
+                    id: frame.id().value(),
+                    kind: frame.kind(),
+                })
+                .collect(),
+            focused_frame_id: self.focused_frame_id.map(WorkspaceFrameId::value),
+        }
+    }
+
+    /// Creates a workspace layout from an optional configuration DTO.
+    ///
+    /// Missing, empty, duplicate, or otherwise invalid configs fall back to the
+    /// ADR 0046 default layout.
+    #[must_use]
+    pub(crate) fn from_config(config: Option<&WorkspaceLayoutConfig>) -> Self {
+        let Some(config) = config else {
+            return Self::default_layout();
+        };
+        if config.frames.is_empty() {
+            return Self::default_layout();
+        }
+
+        let frames: Vec<_> = config
+            .frames
+            .iter()
+            .map(|frame| {
+                WorkspaceFrameState::with_default_title(WorkspaceFrameId::new(frame.id), frame.kind)
+            })
+            .collect();
+        let focused_frame_id = config.focused_frame_id.map(WorkspaceFrameId::new);
+
+        Self::new(frames, focused_frame_id).unwrap_or_else(|_| Self::default_layout())
     }
 
     fn ensure_unique_frame_ids(&self) -> Result<(), WorkspaceModelError> {
@@ -744,6 +832,17 @@ impl WorkspaceLayout {
             seen.push(frame.id);
         }
         Ok(())
+    }
+
+    fn next_frame_id(&self) -> WorkspaceFrameId {
+        let next = self
+            .frames
+            .iter()
+            .map(|frame| frame.id().value())
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        WorkspaceFrameId::new(next)
     }
 
     fn sync_focus_flags(&mut self) {
@@ -876,8 +975,9 @@ impl FrameNavigationState {
 mod tests {
     use super::{
         BreadcrumbDisplay, BreadcrumbTruncation, ContentFilter, FilterChipStripDisplay,
-        FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, WorkspaceFrameId,
-        WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceModelError,
+        FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, WorkspaceFrameConfig,
+        WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+        WorkspaceLayoutConfig, WorkspaceModelError,
     };
 
     fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -1258,13 +1358,6 @@ mod tests {
             "focusing a missing frame should return an error"
         );
         assert_eq!(
-            layout.add_frame(frame(1, WorkspaceFrameKind::Detail)),
-            Err(WorkspaceModelError::DuplicateFrameId(
-                WorkspaceFrameId::new(1)
-            )),
-            "adding a duplicate frame should return an error"
-        );
-        assert_eq!(
             layout.remove_frame(WorkspaceFrameId::new(99)),
             Err(WorkspaceModelError::FrameNotFound(WorkspaceFrameId::new(
                 99
@@ -1291,7 +1384,65 @@ mod tests {
     }
 
     #[test]
-    fn removing_focused_frame_preserves_focus_when_possible() {
+    fn add_frame_appends_and_focuses_new_frame() {
+        let mut layout = WorkspaceLayout::new(
+            vec![
+                frame(2, WorkspaceFrameKind::SourceList),
+                frame(4, WorkspaceFrameKind::ContentList),
+            ],
+            Some(WorkspaceFrameId::new(2)),
+        )
+        .expect("initial layout should be valid");
+
+        let id = layout
+            .add_frame(WorkspaceFrameKind::Detail)
+            .expect("typed frame addition should succeed");
+
+        assert_eq!(
+            id,
+            WorkspaceFrameId::new(5),
+            "add_frame should allocate the next stable frame id"
+        );
+        assert_eq!(
+            layout.frames().last().map(WorkspaceFrameState::kind),
+            Some(WorkspaceFrameKind::Detail),
+            "add_frame should append the requested kind"
+        );
+        assert_eq!(
+            layout.focused_frame_id(),
+            Some(id),
+            "add_frame should focus the new frame"
+        );
+        assert_eq!(
+            layout
+                .frames()
+                .iter()
+                .filter(|frame| frame.is_focused())
+                .count(),
+            1,
+            "add_frame should preserve exactly one focused frame"
+        );
+    }
+
+    #[test]
+    fn add_frame_state_rejects_duplicate_ids() {
+        let mut layout = WorkspaceLayout::new(
+            vec![frame(1, WorkspaceFrameKind::SourceList)],
+            Some(WorkspaceFrameId::new(1)),
+        )
+        .expect("initial layout should be valid");
+
+        assert_eq!(
+            layout.add_frame_state(frame(1, WorkspaceFrameKind::Detail)),
+            Err(WorkspaceModelError::DuplicateFrameId(
+                WorkspaceFrameId::new(1)
+            )),
+            "adding an explicit duplicate frame should return an error"
+        );
+    }
+
+    #[test]
+    fn removing_focused_frame_moves_focus_left_when_possible() {
         let mut layout = WorkspaceLayout::new(
             vec![
                 frame(1, WorkspaceFrameKind::SourceList),
@@ -1302,19 +1453,14 @@ mod tests {
         )
         .expect("multi-frame layout should be valid");
 
-        let removed = layout
+        layout
             .remove_frame(WorkspaceFrameId::new(2))
             .expect("focused frame should be removable");
 
         assert_eq!(
-            removed.id(),
-            WorkspaceFrameId::new(2),
-            "remove_frame should return the removed frame"
-        );
-        assert_eq!(
             layout.focused_frame_id(),
-            Some(WorkspaceFrameId::new(3)),
-            "focus should move to the next frame after removing the focused frame"
+            Some(WorkspaceFrameId::new(1)),
+            "focus should move to the left sibling after removing the focused frame"
         );
         assert_eq!(
             layout
@@ -1324,6 +1470,119 @@ mod tests {
                 .count(),
             1,
             "layout should still mark exactly one focused frame"
+        );
+    }
+
+    #[test]
+    fn removing_first_focused_frame_moves_focus_to_first_remaining_frame() {
+        let mut layout = WorkspaceLayout::new(
+            vec![
+                frame(1, WorkspaceFrameKind::SourceList),
+                frame(2, WorkspaceFrameKind::ContentList),
+            ],
+            Some(WorkspaceFrameId::new(1)),
+        )
+        .expect("multi-frame layout should be valid");
+
+        layout
+            .remove_frame(WorkspaceFrameId::new(1))
+            .expect("focused frame should be removable");
+
+        assert_eq!(
+            layout.focused_frame_id(),
+            Some(WorkspaceFrameId::new(2)),
+            "first focused frame removal should focus the first remaining frame"
+        );
+    }
+
+    #[test]
+    fn removing_last_frame_returns_error() {
+        let mut layout = WorkspaceLayout::new(
+            vec![frame(1, WorkspaceFrameKind::SourceList)],
+            Some(WorkspaceFrameId::new(1)),
+        )
+        .expect("single-frame layout should be valid");
+
+        assert_eq!(
+            layout.remove_frame(WorkspaceFrameId::new(1)),
+            Err(WorkspaceModelError::LastFrameRemoval),
+            "removing the last frame should be rejected"
+        );
+        assert_eq!(
+            layout.focused_frame_id(),
+            Some(WorkspaceFrameId::new(1)),
+            "failed removal should preserve focus"
+        );
+    }
+
+    #[test]
+    fn workspace_layout_config_round_trips() {
+        let mut layout = WorkspaceLayout::default_layout();
+        let added = layout
+            .add_frame(WorkspaceFrameKind::Detail)
+            .expect("adding a frame should succeed");
+
+        let restored = WorkspaceLayout::from_config(Some(&layout.to_config()));
+
+        assert_eq!(
+            restored.to_config(),
+            layout.to_config(),
+            "config conversion should preserve frame order, kinds, and focus"
+        );
+        assert_eq!(
+            restored.focused_frame_id(),
+            Some(added),
+            "config conversion should preserve focused frame id"
+        );
+    }
+
+    #[test]
+    fn malformed_and_empty_workspace_layout_config_falls_back_to_default() {
+        let empty = WorkspaceLayoutConfig {
+            frames: Vec::new(),
+            focused_frame_id: None,
+        };
+        let duplicate = WorkspaceLayoutConfig {
+            frames: vec![
+                WorkspaceFrameConfig {
+                    id: 1,
+                    kind: WorkspaceFrameKind::SourceList,
+                },
+                WorkspaceFrameConfig {
+                    id: 1,
+                    kind: WorkspaceFrameKind::Detail,
+                },
+            ],
+            focused_frame_id: Some(1),
+        };
+        let missing_focus = WorkspaceLayoutConfig {
+            frames: vec![WorkspaceFrameConfig {
+                id: 8,
+                kind: WorkspaceFrameKind::Detail,
+            }],
+            focused_frame_id: Some(99),
+        };
+        let default = WorkspaceLayout::default_layout().to_config();
+
+        assert_eq!(
+            WorkspaceLayout::from_config(None).to_config(),
+            default,
+            "missing config should fall back to default layout"
+        );
+        assert_eq!(
+            WorkspaceLayout::from_config(Some(&empty)).to_config(),
+            default,
+            "empty config should fall back to default layout"
+        );
+        assert_eq!(
+            WorkspaceLayout::from_config(Some(&duplicate)).to_config(),
+            default,
+            "duplicate frame ids should fall back to default layout"
+        );
+        assert_eq!(
+            WorkspaceLayout::from_config(Some(&missing_focus)).to_config(),
+            default,
+            "missing focused frame should fall back to default layout"
         );
     }
 

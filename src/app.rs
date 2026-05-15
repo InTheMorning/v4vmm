@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use anyhow::Result;
 use gpui::{div, prelude::*, relative, Context, Entity, Render, SharedString, Styled, Window};
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
@@ -30,6 +31,7 @@ use crate::view_models::app_toolbar::{AppToolbarVm, GlobalSearchScope};
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 use crate::view_models::workspace::{
     WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    WorkspaceLayoutConfig,
 };
 
 mod bootstrap;
@@ -105,6 +107,7 @@ pub struct TopApp {
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
+    workspace_layout: WorkspaceLayout,
     ui_scale: crate::config::UiScale,
     theme_profile: ThemeProfile,
     cfg_path: PathBuf,
@@ -144,6 +147,7 @@ impl TopApp {
         musicindex_endpoint: String,
         music_dir: PathBuf,
         flac_path: Option<PathBuf>,
+        workspace_layout_config: Option<WorkspaceLayoutConfig>,
         ui_scale: crate::config::UiScale,
         theme_profile: ThemeProfile,
         playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
@@ -268,6 +272,7 @@ impl TopApp {
             endpoint_input,
             music_dir_input,
             flac_path_input,
+            workspace_layout: WorkspaceLayout::from_config(workspace_layout_config.as_ref()),
             ui_scale,
             theme_profile,
             cfg_path,
@@ -409,6 +414,10 @@ impl TopApp {
         cx.notify();
     }
 
+    fn persist_workspace_layout(&self) -> Result<()> {
+        config::save_workspace_layout(&self.cfg_path, &self.workspace_layout.to_config())
+    }
+
     fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let endpoint = self.endpoint_input.read(cx).value().to_string();
         let music_dir = self.music_dir_input.read(cx).value().to_string();
@@ -430,6 +439,11 @@ impl TopApp {
                 saved_scale,
                 saved_profile,
             )) => {
+                if let Err(error) = self.persist_workspace_layout() {
+                    self.settings_status = format!("Error: {error:#}");
+                    cx.notify();
+                    return;
+                }
                 let cfg = match config::load_config(&self.cfg_path)
                     .and_then(|cfg| config::ensure_dirs(&cfg).map(|()| cfg))
                 {
@@ -586,6 +600,14 @@ impl TopApp {
             Some(WORKSPACE_CONTENT_FRAME_ID),
         )
         .expect("transitional workspace layout has stable unique frame ids")
+    }
+}
+
+impl Drop for TopApp {
+    fn drop(&mut self) {
+        if let Err(error) = self.persist_workspace_layout() {
+            eprintln!("v4vmm::workspace: failed to save workspace layout on shutdown: {error:#}");
+        }
     }
 }
 

@@ -621,6 +621,7 @@ mod tests {
             playback: PlaybackConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
+            workspace_layout: None,
         }
     }
 

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::api::DEFAULT_BASE_URL;
 use crate::theme_profile::ThemeProfile;
+use crate::view_models::workspace::WorkspaceLayoutConfig;
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -39,6 +40,13 @@ pub struct Config {
     /// profile so older config files keep their appearance.
     #[serde(default)]
     pub theme_profile: ThemeProfile,
+
+    /// Additive ADR 0046 workspace layout persistence.
+    ///
+    /// Missing or malformed values fall back to the default workspace layout in
+    /// the workspace VM, so older or manually edited configs keep loading.
+    #[serde(default, deserialize_with = "deserialize_workspace_layout_config")]
+    pub(crate) workspace_layout: Option<WorkspaceLayoutConfig>,
 }
 
 /// Persisted UI scale enum — TOML representation is a lowercase string
@@ -85,6 +93,22 @@ where
             "unknown ui_scale {other:?}; expected one of \
              \"x-small\", \"small\", \"medium\", \"large\", \"x-large\""
         ))),
+    }
+}
+
+fn deserialize_workspace_layout_config<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<WorkspaceLayoutConfig>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = toml::Value::deserialize(deserializer)?;
+    match value.try_into::<WorkspaceLayoutConfig>() {
+        Ok(config) => Ok(Some(config)),
+        Err(error) => {
+            eprintln!("v4vmm::config: ignoring malformed workspace_layout: {error}");
+            Ok(None)
+        }
     }
 }
 
@@ -267,6 +291,29 @@ pub fn save_app_settings(
     Ok((endpoint, music_dir, flac_path, ui_scale, theme_profile))
 }
 
+pub(crate) fn save_workspace_layout(
+    cfg_path: &Path,
+    workspace_layout: &WorkspaceLayoutConfig,
+) -> Result<()> {
+    if !cfg_path.exists() {
+        let _ = load_config(cfg_path)?;
+    }
+
+    let raw = fs::read_to_string(cfg_path)
+        .with_context(|| format!("read config {}", cfg_path.display()))?;
+    let mut table = raw
+        .parse::<toml::Table>()
+        .with_context(|| format!("parse TOML {}", cfg_path.display()))?;
+    let layout_value =
+        toml::Value::try_from(workspace_layout).context("serialize workspace layout config")?;
+    table.insert("workspace_layout".into(), layout_value);
+
+    let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
+    fs::write(cfg_path, updated.as_bytes())
+        .with_context(|| format!("write config {}", cfg_path.display()))?;
+    Ok(())
+}
+
 pub fn normalize_musicindex_endpoint(endpoint: &str) -> Result<String> {
     let trimmed = endpoint.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -378,6 +425,9 @@ theme_profile = "dark"
 # [playback]
 # driver = "mpv"
 # mpv_path = "/usr/bin/mpv"
+
+# Workspace layout is persisted automatically. Missing or malformed values
+# fall back to the default layout.
 "#,
         music_dir.display(),
         db_path.display(),
@@ -409,6 +459,7 @@ pub fn ensure_dirs(cfg: &Config) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view_models::workspace::{WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout};
 
     #[test]
     fn default_music_dir_uses_v4vmusic_in_home() {
@@ -478,6 +529,79 @@ db_path = "/tmp/v4vmm.sqlite"
         let cfg = load_config(&cfg_path).expect("load config");
 
         assert_eq!(cfg.theme_profile, ThemeProfile::Dark);
+    }
+
+    #[test]
+    fn load_config_defaults_missing_workspace_layout_to_none() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(
+            cfg.workspace_layout, None,
+            "missing workspace layout should keep old configs valid"
+        );
+    }
+
+    #[test]
+    fn load_config_parses_workspace_layout() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[workspace_layout]
+focused_frame_id = 8
+frames = [
+  { id = 1, kind = "source_list" },
+  { id = 8, kind = "detail" },
+]
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let layout = WorkspaceLayout::from_config(cfg.workspace_layout.as_ref());
+
+        assert_eq!(
+            layout.focused_frame().map(WorkspaceFrameState::kind),
+            Some(WorkspaceFrameKind::Detail),
+            "workspace layout should load and focus the persisted frame"
+        );
+    }
+
+    #[test]
+    fn load_config_ignores_malformed_workspace_layout() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+workspace_layout = "not a layout"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(
+            cfg.workspace_layout, None,
+            "malformed workspace layout should not make config loading fail"
+        );
     }
 
     #[test]
@@ -644,6 +768,48 @@ extra = "keep"
         assert_eq!(
             table.get("extra").and_then(toml::Value::as_str),
             Some("keep")
+        );
+    }
+
+    #[test]
+    fn save_workspace_layout_persists_without_dropping_existing_values() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/old"
+db_path = "/tmp/v4vmm.sqlite"
+extra = "keep"
+"#,
+        )
+        .expect("write config");
+        let mut layout = WorkspaceLayout::default_layout();
+        let focused_id = layout
+            .add_frame(WorkspaceFrameKind::Detail)
+            .expect("add detail frame");
+
+        save_workspace_layout(&cfg_path, &layout.to_config()).expect("save workspace layout");
+
+        let raw = fs::read_to_string(&cfg_path).expect("read config");
+        let table = raw.parse::<toml::Table>().expect("parse TOML");
+        let cfg = load_config(&cfg_path).expect("load config");
+        let restored = WorkspaceLayout::from_config(cfg.workspace_layout.as_ref());
+
+        assert_eq!(
+            table.get("extra").and_then(toml::Value::as_str),
+            Some("keep"),
+            "workspace layout save should preserve unrelated settings"
+        );
+        assert_eq!(
+            restored.to_config(),
+            layout.to_config(),
+            "workspace layout should round-trip through config.toml"
+        );
+        assert_eq!(
+            restored.focused_frame_id(),
+            Some(focused_id),
+            "workspace layout save should preserve focused frame id"
         );
     }
 }
