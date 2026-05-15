@@ -73,6 +73,7 @@ pub mod musicbrainz_panel;
 pub mod paged_feed_detail;
 pub mod paged_playlist_detail;
 pub mod playlist_detail;
+pub(crate) mod queue_now_playing;
 pub mod search;
 pub mod search_results;
 pub mod track;

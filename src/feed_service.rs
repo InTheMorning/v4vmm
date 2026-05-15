@@ -12,7 +12,7 @@ use crate::audio_tags::{read_audio_tags, write_id3v24_edits, AudioTags, Id3v24Ed
 use crate::db::{self, TrackRow};
 use crate::identity_ingest;
 use crate::library_service;
-use crate::metadata::{MusicBrainzLookupResult, TrackContext};
+use crate::metadata::{source_text_missing, MusicBrainzLookupResult, TrackContext};
 use crate::metadata_service::{id3_edits_for_track_context, musicbrainz_lookup_metadata};
 use crate::musicbrainz::{lookup_recordings, MusicBrainzCandidate, MusicBrainzLookup};
 
@@ -56,7 +56,15 @@ fn fetch_library_track_detail(
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
     let include =
         Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
-    let fetched_track = client.fetch_track(&track.item_guid, include).ok();
+    let fetched_track = track
+        .feed_guid
+        .as_deref()
+        .and_then(|feed_guid| {
+            client
+                .fetch_feed_track(feed_guid, &track.item_guid, include)
+                .ok()
+        })
+        .or_else(|| client.fetch_track(&track.item_guid, include).ok());
     let feed_guid = fetched_track
         .as_ref()
         .and_then(|track| track.feed_guid.as_deref())
@@ -75,17 +83,18 @@ fn merge_track_context_from_detail(
 ) -> TrackContext {
     let local_track = crate::subscribe_service::track_row_to_api_track(track_row);
     let local_feed = track_row_to_feed(track_row);
-    let feed = feed_defaults(
+    let mut feed = feed_defaults(
         fetched_feed.unwrap_or_else(|| local_feed.clone()),
         &local_feed,
     );
-    let track = crate::api::track_with_feed_defaults(
+    let mut track = crate::api::track_with_feed_defaults(
         track_defaults(
             fetched_track.unwrap_or_else(|| local_track.clone()),
             &local_track,
         ),
         Some(&feed),
     );
+    crate::subscribe_service::enrich_track_context_from_rss(&mut track, Some(&mut feed));
     TrackContext {
         track,
         feed: Some(feed),
@@ -102,16 +111,16 @@ pub fn track_row_to_feed(track: &TrackRow) -> Feed {
 }
 
 fn track_defaults(mut track: Track, defaults: &Track) -> Track {
-    if track.track_guid.is_none() {
+    if source_text_missing(track.track_guid.as_deref()) {
         track.track_guid = defaults.track_guid.clone();
     }
-    if track.feed_guid.is_none() {
+    if source_text_missing(track.feed_guid.as_deref()) {
         track.feed_guid = defaults.feed_guid.clone();
     }
-    if track.feed_title.is_none() {
+    if source_text_missing(track.feed_title.as_deref()) {
         track.feed_title = defaults.feed_title.clone();
     }
-    if track.title.is_none() {
+    if source_text_missing(track.title.as_deref()) {
         track.title = defaults.title.clone();
     }
     if track.duration_secs.is_none() {
@@ -120,22 +129,22 @@ fn track_defaults(mut track: Track, defaults: &Track) -> Track {
     if track.track_number.is_none() {
         track.track_number = defaults.track_number;
     }
-    if track.enclosure_url.is_none() {
+    if source_text_missing(track.enclosure_url.as_deref()) {
         track.enclosure_url = defaults.enclosure_url.clone();
     }
-    if track.image_url.is_none() {
+    if source_text_missing(track.image_url.as_deref()) {
         track.image_url = defaults.image_url.clone();
     }
-    if track.track_artist.is_none() {
+    if source_text_missing(track.track_artist.as_deref()) {
         track.track_artist = defaults.track_artist.clone();
     }
-    if track.release_artist.is_none() {
+    if source_text_missing(track.release_artist.as_deref()) {
         track.release_artist = defaults.release_artist.clone();
     }
-    if track.description.is_none() {
+    if source_text_missing(track.description.as_deref()) {
         track.description = defaults.description.clone();
     }
-    if track.publisher_text.is_none() {
+    if source_text_missing(track.publisher_text.as_deref()) {
         track.publisher_text = defaults.publisher_text.clone();
     }
     if track.source_contributors.is_none() {
@@ -157,20 +166,32 @@ fn track_defaults(mut track: Track, defaults: &Track) -> Track {
 }
 
 fn feed_defaults(mut feed: Feed, defaults: &Feed) -> Feed {
-    if feed.feed_guid.is_none() {
+    if source_text_missing(feed.feed_guid.as_deref()) {
         feed.feed_guid = defaults.feed_guid.clone();
     }
-    if feed.title.is_none() {
+    if source_text_missing(feed.title.as_deref()) {
         feed.title = defaults.title.clone();
     }
-    if feed.name.is_none() {
+    if source_text_missing(feed.name.as_deref()) {
         feed.name = defaults.name.clone();
     }
-    if feed.feed_url.is_none() {
+    if source_text_missing(feed.feed_url.as_deref()) {
         feed.feed_url = defaults.feed_url.clone();
     }
-    if feed.image_url.is_none() {
+    if source_text_missing(feed.image_url.as_deref()) {
         feed.image_url = defaults.image_url.clone();
+    }
+    if source_text_missing(feed.release_artist.as_deref()) {
+        feed.release_artist = defaults.release_artist.clone();
+    }
+    if source_text_missing(feed.publisher_text.as_deref()) {
+        feed.publisher_text = defaults.publisher_text.clone();
+    }
+    if source_text_missing(feed.language.as_deref()) {
+        feed.language = defaults.language.clone();
+    }
+    if source_text_missing(feed.description.as_deref()) {
+        feed.description = defaults.description.clone();
     }
     feed
 }
@@ -719,6 +740,72 @@ mod tests {
                 .as_ref()
                 .and_then(|feed| feed.description.as_deref()),
             Some("Feed description")
+        );
+    }
+
+    #[test]
+    fn library_track_context_rejects_placeholder_source_text_at_boundary() {
+        let track_row = TrackRow {
+            id: 1,
+            feed_id: 2,
+            feed_guid: Some("feed-guid".into()),
+            item_guid: "track-guid".into(),
+            track_title: Some("Lantern Tide".into()),
+            artist_name: Some("Max DjK".into()),
+            album_title: None,
+            album_artist_name: Some("Max DjK".into()),
+            track_number: Some(2),
+            disc_number: None,
+            duration_seconds: Some(343),
+            enclosure_url: Some("https://example.test/lantern.mp3".into()),
+            enclosure_type: None,
+            track_image_href: None,
+            is_in_library: true,
+            feed_title: Some("Orient Express".into()),
+            album_image_href: None,
+            local_path: None,
+            transcript_url: None,
+        };
+        let track = Track {
+            track_guid: Some("\u{2026}".into()),
+            feed_guid: Some("...".into()),
+            title: Some("...".into()),
+            track_artist: Some("...".into()),
+            release_artist: Some("...".into()),
+            feed_title: Some("...".into()),
+            description: Some("...\n...\n...".into()),
+            ..Default::default()
+        };
+        let feed = Feed {
+            feed_guid: Some("...".into()),
+            title: Some("...".into()),
+            description: Some("...\n...\n...".into()),
+            ..Default::default()
+        };
+
+        let context = merge_track_context_from_detail(&track_row, Some(track), Some(feed));
+
+        assert_eq!(context.track.track_guid.as_deref(), Some("track-guid"));
+        assert_eq!(context.track.feed_guid.as_deref(), Some("feed-guid"));
+        assert_eq!(context.track.title.as_deref(), Some("Lantern Tide"));
+        assert_eq!(context.track.track_artist.as_deref(), Some("Max DjK"));
+        assert_eq!(context.track.release_artist.as_deref(), Some("Max DjK"));
+        assert_eq!(context.track.feed_title.as_deref(), Some("Orient Express"));
+        assert_ne!(
+            context.track.description.as_deref(),
+            Some("..."),
+            "placeholder source text must not become a display fact"
+        );
+        assert_eq!(
+            context
+                .feed
+                .as_ref()
+                .and_then(|feed| feed.feed_guid.as_deref()),
+            Some("feed-guid")
+        );
+        assert_eq!(
+            context.feed.as_ref().and_then(|feed| feed.title.as_deref()),
+            Some("Orient Express")
         );
     }
 

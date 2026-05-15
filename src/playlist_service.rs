@@ -66,10 +66,7 @@ pub fn select_track_at(
         .with_context(|| format!("playlist {playlist_id} has no track at position {position}"))?;
     let track = db::track_row_by_id(conn, track_id)?
         .with_context(|| format!("playlist track {track_id} no longer exists"))?;
-    anyhow::ensure!(
-        track.is_in_library,
-        "playlist track {track_id} is no longer in the library"
-    );
+    ensure_track_can_play(&track)?;
     let identity = track_identity::local_track_identity(conn, track_id)?;
     Ok(PlaylistTrackSelection {
         playlist_id,
@@ -79,9 +76,63 @@ pub fn select_track_at(
     })
 }
 
+pub fn select_playable_track_after(
+    conn: &Connection,
+    playlist_id: i64,
+    position: i64,
+    delta: i64,
+) -> Result<PlaylistTrackSelection> {
+    anyhow::ensure!(delta != 0, "playlist skip delta cannot be zero");
+    let mut next_position = position
+        .checked_add(delta)
+        .context("playlist position overflow")?;
+
+    loop {
+        if next_position < 0 {
+            anyhow::bail!("already at the beginning of playlist {playlist_id}");
+        }
+        let Some((track_id, actual_position)) = track_at(conn, playlist_id, next_position)? else {
+            let boundary = if delta > 0 { "end" } else { "beginning" };
+            anyhow::bail!("already at the {boundary} of playlist {playlist_id}");
+        };
+        let track = db::track_row_by_id(conn, track_id)?
+            .with_context(|| format!("playlist track {track_id} no longer exists"))?;
+        if track_can_play(&track) {
+            let identity = track_identity::local_track_identity(conn, track_id)?;
+            return Ok(PlaylistTrackSelection {
+                playlist_id,
+                position: actual_position,
+                track_id,
+                identity,
+            });
+        }
+        next_position = actual_position
+            .checked_add(delta)
+            .context("playlist position overflow")?;
+    }
+}
+
 fn ensure_non_negative_position(position: i64) -> Result<()> {
     anyhow::ensure!(position >= 0, "playlist position cannot be negative");
     Ok(())
+}
+
+fn ensure_track_can_play(track: &db::TrackRow) -> Result<()> {
+    anyhow::ensure!(
+        track.is_in_library,
+        "playlist track {} is no longer in the library",
+        track.id
+    );
+    anyhow::ensure!(
+        track.local_path.is_some(),
+        "playlist track {} has no local file available for playback",
+        track.id
+    );
+    Ok(())
+}
+
+fn track_can_play(track: &db::TrackRow) -> bool {
+    track.is_in_library && track.local_path.is_some()
 }
 
 #[cfg(test)]
@@ -155,6 +206,69 @@ mod tests {
                 .to_string()
                 .contains("no longer in the library"),
             "error should explain unavailable library membership"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn select_playable_track_after_skips_removed_library_rows() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
+        let removed_track_id = create_track(&conn, feed_id, "removed-guid", "/tmp/removed.mp3")?;
+        let third_track_id = create_track(&conn, feed_id, "third-guid", "/tmp/third.mp3")?;
+        let playlist_id = create(&conn, "Service")?;
+        append_track(&conn, playlist_id, first_track_id)?;
+        append_track(&conn, playlist_id, removed_track_id)?;
+        append_track(&conn, playlist_id, third_track_id)?;
+        db::set_track_in_library(&conn, removed_track_id, false)?;
+
+        let forward = select_playable_track_after(&conn, playlist_id, 0, 1)?;
+        let backward = select_playable_track_after(&conn, playlist_id, 2, -1)?;
+
+        assert_eq!(forward.position, 2);
+        assert_eq!(forward.track_id, third_track_id);
+        assert_eq!(backward.position, 0);
+        assert_eq!(backward.track_id, first_track_id);
+
+        Ok(())
+    }
+
+    #[test]
+    fn select_playable_track_after_skips_rows_without_local_files() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
+        conn.execute(
+            "INSERT INTO tracks (
+                 feed_id, item_guid, track_title, artist_name, is_in_library
+             )
+             VALUES (?1, ?2, ?3, ?4, 1)",
+            rusqlite::params![feed_id, "missing-guid", "Missing Local File", "Artist"],
+        )?;
+        let missing_file_track_id = conn.last_insert_rowid();
+        let third_track_id = create_track(&conn, feed_id, "third-guid", "/tmp/third.mp3")?;
+        let playlist_id = create(&conn, "Service")?;
+        append_track(&conn, playlist_id, first_track_id)?;
+        append_track(&conn, playlist_id, missing_file_track_id)?;
+        append_track(&conn, playlist_id, third_track_id)?;
+
+        let forward = select_playable_track_after(&conn, playlist_id, 0, 1)?;
+        let backward = select_playable_track_after(&conn, playlist_id, 2, -1)?;
+
+        assert_eq!(forward.position, 2);
+        assert_eq!(forward.track_id, third_track_id);
+        assert_eq!(backward.position, 0);
+        assert_eq!(backward.track_id, first_track_id);
+
+        let result = select_track_at(&conn, playlist_id, 1);
+        assert!(
+            result
+                .expect_err("playlist tracks without local files should not play")
+                .to_string()
+                .contains("no local file"),
+            "error should explain local-file unavailability"
         );
 
         Ok(())

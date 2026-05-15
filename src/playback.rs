@@ -163,14 +163,15 @@ fn skip_by(conn: &Connection, session_id: &str, delta: i64) -> Result<NowPlaying
     let playlist_position = session
         .playlist_position
         .context("current playback session has no playlist position")?;
-    let next_position = playlist_position
-        .checked_add(delta)
-        .context("playlist position overflow")?;
-    anyhow::ensure!(
-        next_position >= 0,
-        "already at the beginning of playlist {playlist_id}"
-    );
-    play_playlist_at(conn, playlist_id, next_position, session_id)
+    let selection =
+        playlist_service::select_playable_track_after(conn, playlist_id, playlist_position, delta)?;
+    set_track_with_source(
+        conn,
+        selection.track_id,
+        Some(selection.playlist_id),
+        Some(selection.position),
+        session_id,
+    )
 }
 
 fn set_track_with_source(
@@ -375,6 +376,30 @@ mod tests {
         assert_eq!(second.sequence, 2);
         assert_eq!(previous.local_track_id, first_track_id);
         assert_eq!(previous.sequence, 3);
+
+        Ok(())
+    }
+
+    #[test]
+    fn skip_next_and_previous_ignore_unavailable_playlist_rows() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn, Some("feed-guid"))?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
+        let removed_track_id = create_track(&conn, feed_id, "removed-guid", "/tmp/removed.mp3")?;
+        let third_track_id = create_track(&conn, feed_id, "third-guid", "/tmp/third.mp3")?;
+        let playlist_id = db::playlist_create(&conn, "Phase 2")?;
+        db::playlist_append(&conn, playlist_id, first_track_id)?;
+        db::playlist_append(&conn, playlist_id, removed_track_id)?;
+        db::playlist_append(&conn, playlist_id, third_track_id)?;
+        db::set_track_in_library(&conn, removed_track_id, false)?;
+
+        let first = play_playlist_at(&conn, playlist_id, 0, DEFAULT_SESSION_ID)?;
+        let third = skip_next(&conn, DEFAULT_SESSION_ID)?;
+        let previous = skip_previous(&conn, DEFAULT_SESSION_ID)?;
+
+        assert_eq!(first.local_track_id, first_track_id);
+        assert_eq!(third.local_track_id, third_track_id);
+        assert_eq!(previous.local_track_id, first_track_id);
 
         Ok(())
     }

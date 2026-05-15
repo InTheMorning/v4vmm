@@ -43,6 +43,8 @@ pub enum PagedTrackListMsg {
     /// Drop a single cached row body; the next read will re-request
     /// the containing page.
     Invalidate(i64),
+    /// Seed freshly loaded row bodies without replacing the actor.
+    PrimeRows(Vec<TrackRow>),
     /// Re-read the identity index from the database.
     Refresh,
 }
@@ -175,6 +177,14 @@ impl Actor for PagedTrackListActor {
                     (v, vm.version())
                 };
                 changed = prev.0 != prev.1;
+            }
+            PagedTrackListMsg::PrimeRows(rows) => {
+                if !rows.is_empty() {
+                    let mut vm = self.vm.lock().expect("vm poisoned");
+                    let v = vm.version();
+                    vm.fulfill_page(0, rows.into_iter().map(|row| (row.id, row)));
+                    changed = vm.version() != v;
+                }
             }
             PagedTrackListMsg::Refresh => {
                 if let Err(err) = self.refresh_index() {
@@ -339,6 +349,37 @@ mod tests {
                 assert_eq!(row.track_title.as_deref(), Some("Primed"));
             }
             RowSlot::Pending(_) => panic!("primed first row must render without placeholder"),
+        };
+    }
+
+    #[test]
+    fn prime_rows_replaces_cached_body_for_same_playlist_refresh() {
+        let conn = open_db();
+        let mut actor = PagedTrackListActor::new(conn, TrackListing::Library).unwrap();
+        let stale = db::track_row_by_id(&actor.conn, 1)
+            .unwrap()
+            .expect("seed track exists");
+        actor.prime_initial_rows(vec![stale]);
+
+        actor
+            .conn
+            .execute("UPDATE tracks SET is_in_library = 0 WHERE id = 1", [])
+            .unwrap();
+        let fresh = db::track_row_by_id(&actor.conn, 1)
+            .unwrap()
+            .expect("updated track exists");
+
+        let bus = VmBus::new();
+        let snapshot = actor.handle(PagedTrackListMsg::PrimeRows(vec![fresh]), &bus);
+        assert!(snapshot.is_some(), "fresh priming must publish a snapshot");
+        match actor.vm.lock().unwrap().peek_row(0) {
+            RowSlot::Ready(row) => {
+                assert!(
+                    !row.is_in_library,
+                    "same-playlist refresh must replace stale row body"
+                );
+            }
+            RowSlot::Pending(_) => panic!("freshly primed row must stay concrete"),
         };
     }
 

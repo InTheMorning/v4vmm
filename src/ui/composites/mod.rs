@@ -19,6 +19,7 @@
 
 pub mod action_button;
 pub mod action_row;
+pub mod breadcrumb_trail;
 pub mod confirmation_dialog;
 pub mod detail_grid;
 pub mod detail_header;
@@ -46,6 +47,7 @@ pub use action_button::{action_button, ActionButtonDisplay};
 pub use action_row::{
     ActionRow, ActionRowDisplay, ActionRowMessage, ActionRowMessageDisplay, ActionRowMessageTone,
 };
+pub(crate) use breadcrumb_trail::BreadcrumbTrail;
 pub use confirmation_dialog::{
     confirmation_dialog, ConfirmationDialogDisplay, ConfirmationDialogHandlers,
 };

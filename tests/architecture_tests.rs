@@ -433,6 +433,7 @@ const DISCOVER_SCREEN_SURFACE_FILES: &[&str] = &[
 const PRESENTATION_GLUE_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/playback_bar.rs",
+    "src/app/queue_now_playing.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
     "src/search.rs",
@@ -1212,7 +1213,8 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
         "fn render_legacy_tab_content(",
         "fn render_workspace_content(",
         "fn transitional_workspace_layout(",
-        "WorkspaceSlots::new().content_list(active_screen)",
+        "WorkspaceSlots::new()",
+        ".content_list(active_screen)",
         "WorkspaceFrameKind::QueueNowPlaying",
         "WorkspaceFrameState::with_default_title",
     ] {
@@ -1277,6 +1279,218 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
     assert!(
         violations.is_empty(),
         "ADR 0046 Task 007 workspace layout render violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn workspace_frame_phase_4_guards_queue_now_playing_vm_contract() {
+    let source = read_source(&manifest_path("src/view_models/queue_now_playing.rs"));
+    let mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&source) {
+        for pattern in [
+            "use gpui",
+            "gpui::",
+            "use gpui_component",
+            "gpui_component::",
+            "PlaybackOwner",
+            "TrackRow",
+        ] {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/view_models/queue_now_playing.rs:{line_number}: ADR 0046 Phase 4 queue VM must stay GPUI-free and avoid backend row handles; found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    for required in [
+        "pub(crate) struct QueueNowPlayingPageVm",
+        "pub(crate) struct QueueRowDisplay",
+        "pub(crate) struct TransportDisplay",
+        "pub(crate) struct LiveValueDeviceDisplay",
+        "pub(crate) struct VolumeDisplay",
+        "pub(crate) enum TransportState",
+        "pub(crate) struct QueueTrackInput",
+        "FrameChromeButtonDisplay",
+        "QueueNowPlayingPageVmBuilder",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/view_models/queue_now_playing.rs: ADR 0046 Phase 4 queue VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    if !mod_source.contains("pub(crate) mod queue_now_playing;") {
+        violations.push(
+            "src/view_models/mod.rs: ADR 0046 Phase 4 queue VM module is not exported".to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Phase 4 queue VM contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
+    let shell_source = read_source(&manifest_path("src/ui/shells/queue_now_playing.rs"));
+    let workspace_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let adapter_source = read_source(&manifest_path("src/app/queue_now_playing.rs"));
+    let mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) fn render_queue_now_playing(",
+        "QueueNowPlayingPageVm",
+        "QueueNowPlayingSlots",
+        "ContextMenuScope::WorkspaceFrame",
+        "Slider::new(&state)",
+        "IconName::Previous",
+        "IconName::Pause",
+        "IconName::Next",
+    ] {
+        if !shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/queue_now_playing.rs: ADR 0046 Phase 4 queue shell missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "crate::library",
+        "crate::search",
+        "crate::app",
+        "PlaybackOwner",
+        "crate::db",
+    ] {
+        if shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/queue_now_playing.rs: ADR 0046 Phase 4 queue shell must not import screen/backend module `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        ".queue_now_playing(queue_frame)",
+        "build_queue_now_playing_frame(self, cx)",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0046 Phase 4 queue frame app wiring missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "QueueNowPlayingPageVm::builder()",
+        "queue_tracks_for_session(",
+        "playlist_queue_projection(",
+        ".skip_availability(",
+        "LiveValueDeviceDisplay::unavailable()",
+        "VolumeDisplay::new(1.0, true)",
+        "QueueNowPlayingSlots::new()",
+        "queue_transport_action(",
+        "entity.update(cx",
+    ] {
+        if !adapter_source.contains(required) {
+            violations.push(format!(
+                "src/app/queue_now_playing.rs: ADR 0046 Phase 4 queue VM adapter missing `{required}`"
+            ));
+        }
+    }
+
+    if !app_source.contains("mod queue_now_playing;") {
+        violations.push(
+            "src/app.rs: ADR 0046 Phase 4 app module must declare queue_now_playing adapter"
+                .to_string(),
+        );
+    }
+
+    for required in ["FrameShellSlots::new().content(content)", "QueueNowPlaying"] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0046 Phase 4 queue frame must remain inside shared frame shell; missing `{required}`"
+            ));
+        }
+    }
+
+    if !mod_source.contains("pub mod queue_now_playing;") {
+        violations.push(
+            "src/ui/shells/mod.rs: ADR 0046 Phase 4 queue shell module is not exported".to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Phase 4 queue frame shell wiring violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn workspace_frame_phase_4_guards_toolbar_now_playing_is_compact() {
+    let playback_source = read_source(&manifest_path("src/app/playback_bar.rs"));
+    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let mut violations = Vec::new();
+
+    for required in ["pub(super) fn build_playback_bar", "\"Nothing playing\""] {
+        if !playback_source.contains(required) {
+            violations.push(format!(
+                "src/app/playback_bar.rs: ADR 0046 Phase 4 compact toolbar playback card missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "on_prev",
+        "on_next",
+        "on_stop",
+        "\"np-prev\"",
+        "\"np-next\"",
+        "\"np-playpause\"",
+        "\"np-stop\"",
+        "play_pause_a11y_label",
+        "on_play_pause",
+        "transport_btn(",
+        "Button::styled",
+        "StopPlayback",
+        "IconName::Previous",
+        "IconName::Next",
+        "IconName::Stop",
+        "VolumeDisplay",
+        "LiveValueDeviceDisplay",
+    ] {
+        if playback_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app/playback_bar.rs: ADR 0046 Phase 4 toolbar card must stay compact; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "QueueNowPlayingPageVm",
+        "VolumeDisplay",
+        "LiveValueDeviceDisplay",
+        "Slider::",
+        "ContextMenuScope::WorkspaceFrame",
+    ] {
+        if toolbar_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app/tab_bar.rs: ADR 0046 Phase 4 toolbar must not own queue/liveValue/volume controls; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Phase 4 compact toolbar guard violations:\n{}",
         violations.join("\n")
     );
 }
@@ -1766,11 +1980,29 @@ fn app_toolbar_frames_now_playing_through_app_view_model() {
         }
     }
 
-    if !playback_source.contains("Button::styled(id, ControlStyle::ToolbarIcon)") {
-        violations.push(
-            "src/app/playback_bar.rs: Now Playing transport controls must use the shared toolbar button primitive"
-                .to_string(),
-        );
+    for required in [
+        "pub struct NowPlayingData",
+        "pub struct NowPlayingBar",
+        "\"Nothing playing\"",
+    ] {
+        if !playback_source.contains(required) {
+            violations.push(format!(
+                "src/app/playback_bar.rs: ADR 0046 toolbar status card missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "Button::styled",
+        "ControlStyle::ToolbarIcon",
+        "on_play_pause",
+        "\"np-playpause\"",
+    ] {
+        if playback_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app/playback_bar.rs: ADR 0046 queue frame owns transport; toolbar status card must not contain `{forbidden}`"
+            ));
+        }
     }
 
     for path in rust_files_under("src/ui/composites") {
@@ -2918,8 +3150,8 @@ fn interactive_composites_carry_accessibility_labels() {
             "a11y_label",
         ),
         (
-            "NowPlayingData",
-            "src/app/playback_bar.rs",
+            "TransportDisplay",
+            "src/view_models/queue_now_playing.rs",
             "play_pause_a11y_label",
         ),
         (
@@ -6208,6 +6440,10 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         "FrameNavigationEntry::TrackDetail(track.id)",
         "self.restore_frame_navigation()",
         "self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);",
+        "fn apply_library_removal_result_to_selected_detail(",
+        "this.apply_library_removal_result_to_selected_detail(result.target());",
+        "frame.local_subscription = false;",
+        "frame.track.is_in_library = false;",
     ] {
         assert!(
             library_source.contains(required),
@@ -6222,6 +6458,7 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         "pub(crate) fn navigate_back_to_playlist(",
         "InspectorOrigin",
         "origin: Option<InspectorOrigin>",
+        "this.navigate_back_to_frame_history(cx);\n                }\n                this.start_async_reload_preserving_detail(cx);",
     ] {
         assert!(
             !library_source.contains(forbidden),
@@ -6293,6 +6530,133 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
             "Library VM must not retain inspector-local playlist return display `{forbidden}`"
         );
     }
+}
+
+#[test]
+fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
+    let feed_service_source = read_source(&manifest_path("src/feed_service.rs"));
+    let metadata_source = read_source(&manifest_path("src/metadata.rs"));
+    let rss_enrich_source = read_source(&manifest_path("src/rss/enrich.rs"));
+    for required in [
+        "source_text_missing",
+        ".fetch_feed_track(feed_guid, &track.item_guid, include)",
+        "crate::subscribe_service::enrich_track_context_from_rss(&mut track, Some(&mut feed));",
+        "library_track_context_rejects_placeholder_source_text_at_boundary",
+    ] {
+        assert!(
+            feed_service_source.contains(required),
+            "Metadata placeholder mitigation must stay at the source boundary: `{required}`"
+        );
+    }
+    for required in [
+        "pub(crate) fn source_text_is_placeholder(value: &str) -> bool",
+        "source_placeholder_char",
+        "ch.is_whitespace() || source_placeholder_char(ch)",
+        "'\\u{2026}'",
+    ] {
+        assert!(
+            metadata_source.contains(required),
+            "Source placeholder classification must stay centralized: `{required}`"
+        );
+    }
+    for required in [
+        "apply_track_enrichment",
+        "rss_enrichment_replaces_placeholder_core_fields",
+        "set_text_if_missing(&mut track.title",
+    ] {
+        assert!(
+            rss_enrich_source.contains(required),
+            "RSS re-read must restore core source facts before rendering: `{required}`"
+        );
+    }
+
+    let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    for required in [
+        "fn track_breadcrumb_display(&self) -> Option<BreadcrumbDisplay>",
+        "pub(crate) fn select_frame_breadcrumb(",
+        "TrackSubscriptionAction::Download(track)",
+        "SubscribeTrackRequest::LibraryTrack",
+        "frame.track.local_path = Some(result.path().to_string());",
+        "frame.source_context = None;",
+        "fn load_track_source_context(&mut self, track: TrackRow",
+    ] {
+        assert!(
+            library_source.contains(required),
+            "Library track detail must preserve breadcrumb/download contracts: `{required}`"
+        );
+    }
+    assert!(
+        !library_source.contains("SetTrackLibraryMembership::new"),
+        "Track detail download must run the real SubscribeTrack path, not a membership-only toggle"
+    );
+
+    let track_detail_source = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
+    assert!(
+        track_detail_source.contains("BreadcrumbTrail::new(breadcrumb)"),
+        "Track detail must expose frame-history breadcrumbs"
+    );
+    let track_detail_metadata_source = read_source(&manifest_path(
+        "src/ui/shells/library/track_detail_metadata.rs",
+    ));
+    assert!(
+        !track_detail_metadata_source.contains("BreadcrumbTrail"),
+        "Breadcrumb navigation must not return as an inspector action-row control"
+    );
+
+    let agent_source = read_source(&manifest_path("AGENTS.md"));
+    assert!(
+        agent_source.contains("Placeholder-looking source text is a source-boundary problem"),
+        "Future agents must see the source-boundary placeholder mitigation rule"
+    );
+    let troubleshooting_source = read_source(&manifest_path(
+        "docs/troubleshooting/metadata-source-fact-regressions.md",
+    ));
+    assert!(
+        troubleshooting_source
+            .contains("Do not patch Library/Search renderers, composites, or display view-models"),
+        "Metadata source-fact regression runbook must record the prohibited fix"
+    );
+}
+
+#[test]
+fn immediate_view_state_regressions_are_guarded() {
+    let app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    for required in [
+        "PagedTrackListMsg::PrimeRows(initial_rows.to_vec())",
+        "fn refresh_origin_playlist_actor(&mut self)",
+        "this.refresh_origin_playlist_actor();",
+    ] {
+        assert!(
+            app_source.contains(required),
+            "Library mutations must refresh the currently mounted playlist rows: `{required}`"
+        );
+    }
+
+    let actor_source = read_source(&manifest_path("src/application/paged_track_list.rs"));
+    for required in [
+        "PrimeRows(Vec<TrackRow>)",
+        "PagedTrackListMsg::PrimeRows(rows)",
+        "prime_rows_replaces_cached_body_for_same_playlist_refresh",
+    ] {
+        assert!(
+            actor_source.contains(required),
+            "Paged playlist actors must support same-view cache replacement: `{required}`"
+        );
+    }
+
+    let agent_source = read_source(&manifest_path("AGENTS.md"));
+    assert!(
+        agent_source.contains("Current-view state must update in place"),
+        "Future agents must see the no-navigation-refresh regression rule"
+    );
+    let troubleshooting_source = read_source(&manifest_path(
+        "docs/troubleshooting/immediate-view-state-regressions.md",
+    ));
+    assert!(
+        troubleshooting_source
+            .contains("Do not rely on navigation, tab changes, playlist switches"),
+        "Immediate view-state regression runbook must record the prohibited fix"
+    );
 }
 
 #[test]

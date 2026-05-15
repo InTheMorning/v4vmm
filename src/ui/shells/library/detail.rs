@@ -18,6 +18,7 @@ use crate::ui::shells::library::playlist_detail::render_library_playlist_detail;
 use crate::ui::shells::library::track_detail::render_library_track_detail;
 use crate::ui::style::color;
 use crate::view_models::library::{LibraryChromeDisplay, LibraryViewModel, MbTrackStatus};
+use crate::view_models::workspace::BreadcrumbDisplay;
 
 #[cfg_attr(
     feature = "async-runtime",
@@ -29,6 +30,7 @@ use crate::view_models::library::{LibraryChromeDisplay, LibraryViewModel, MbTrac
 )]
 pub(crate) fn render_library_detail(
     detail: &LibraryDetail,
+    track_breadcrumb: Option<BreadcrumbDisplay>,
     busy_track: Option<i64>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
     library_vm: &LibraryViewModel,
@@ -66,7 +68,9 @@ pub(crate) fn render_library_detail(
             cx,
         ),
 
-        LibraryDetail::Track(frame) => render_library_track_detail(frame, playlists, chrome, cx),
+        LibraryDetail::Track(frame) => {
+            render_library_track_detail(frame, track_breadcrumb, playlists, chrome, cx)
+        }
 
         LibraryDetail::Playlist(detail) => render_library_playlist_detail(
             detail,

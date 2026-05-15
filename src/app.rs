@@ -37,11 +37,13 @@ mod events;
 mod keyboard;
 mod menu;
 mod playback_bar;
+mod queue_now_playing;
 mod tab_bar;
 
 pub use bootstrap::run_app;
 
 use playback_bar::build_playback_bar;
+use queue_now_playing::build_queue_now_playing_frame;
 use tab_bar::render_tab_bar;
 
 const WORKSPACE_RENDER_ENABLED: bool = true;
@@ -557,9 +559,12 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let active_screen = self.render_workspace_screen_mount(mount, cx);
+        let queue_frame = build_queue_now_playing_frame(self, cx);
         render_workspace(
             &Self::transitional_workspace_layout(mount),
-            WorkspaceSlots::new().content_list(active_screen),
+            WorkspaceSlots::new()
+                .content_list(active_screen)
+                .queue_now_playing(queue_frame),
             cx,
         )
         .into_any_element()
@@ -587,7 +592,7 @@ impl TopApp {
 impl Render for TopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.defer_application_event_drain(window, cx);
-        let playback_bar = build_playback_bar(self, cx);
+        let playback_bar = build_playback_bar(self);
         let bg_canvas = color(cx, SemanticColor::SystemBackground);
         let text_primary = color(cx, SemanticColor::Label);
         div()

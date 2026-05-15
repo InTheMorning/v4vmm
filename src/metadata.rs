@@ -371,6 +371,24 @@ pub fn normalized_compare_value(value: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+pub(crate) fn source_text_missing(value: Option<&str>) -> bool {
+    value.is_none_or(source_text_is_placeholder)
+}
+
+pub(crate) fn source_text_is_placeholder(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.is_empty()
+        || (trimmed.len() >= 3
+            && trimmed
+                .chars()
+                .all(|ch| ch.is_whitespace() || source_placeholder_char(ch)))
+        || trimmed == "\u{2026}"
+}
+
+fn source_placeholder_char(ch: char) -> bool {
+    matches!(ch, '.' | '\u{2026}')
+}
+
 // MusicBrainz helpers
 
 pub fn musicbrainz_release_summary(candidate: &MusicBrainzCandidate) -> String {
@@ -3196,7 +3214,7 @@ mod tests {
     use super::{
         display_contributor_tree, display_metadata_value, expanded_metadata_display_string,
         expanded_metadata_display_value, id3_frame_base, pending_id3_target_key,
-        summarize_contributor_value,
+        source_text_is_placeholder, summarize_contributor_value,
     };
 
     #[test]
@@ -3253,5 +3271,17 @@ mod tests {
             ),
             "line one\nline two"
         );
+    }
+
+    #[test]
+    fn source_placeholder_detection_covers_multiline_ellipsis_payloads() {
+        assert!(source_text_is_placeholder("..."));
+        assert!(source_text_is_placeholder("\u{2026}"));
+        assert!(source_text_is_placeholder("...\n...\n..."));
+        assert!(source_text_is_placeholder(" . . . \n \u{2026} "));
+        assert!(!source_text_is_placeholder(
+            "All music by Emily Whitehurst."
+        ));
+        assert!(!source_text_is_placeholder("... real text"));
     }
 }

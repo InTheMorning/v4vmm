@@ -448,7 +448,11 @@ fn render_playlist_track_row(
         .px(spacing::SM)
         .py(spacing::XS)
         .rounded(radius::SM)
-        .when(!display.is_available, |el| el.opacity(0.55))
+        .when(!display.is_available, |el| {
+            el.bg(color::bg_surface_hi())
+                .border_1()
+                .border_color(color::border_strong())
+        })
         .hover(|el| el.bg(color::bg_surface_hi()))
         .child(render_playlist_drag_handle(&controls, drag_payload))
         .child(render_playlist_track_body(display, thumbnail, on_select))
@@ -678,7 +682,11 @@ fn render_playlist_track_body(
                 .text_color(color::text_muted())
                 .child(SharedString::from(position_label)),
         )
-        .child(thumbnail.unwrap_or_else(render_playlist_thumb_placeholder))
+        .child(
+            div()
+                .when(!is_available, |el| el.opacity(0.35))
+                .child(thumbnail.unwrap_or_else(render_playlist_thumb_placeholder)),
+        )
         .child(
             div()
                 .flex_1()
@@ -686,6 +694,7 @@ fn render_playlist_track_body(
                     div()
                         .text_xs()
                         .text_color(title_color)
+                        .when(!is_available, Styled::line_through)
                         .child(SharedString::from(title)),
                 )
                 .child(
@@ -695,7 +704,18 @@ fn render_playlist_track_body(
                         .child(SharedString::from(artist)),
                 )
                 .when_some(availability_label, |el, label| {
-                    el.child(div().text_xs().text_color(color::text_muted()).child(label))
+                    el.child(
+                        div()
+                            .mt(spacing::XXS)
+                            .rounded(radius::SM)
+                            .border_1()
+                            .border_color(color::border_strong())
+                            .px(spacing::XS)
+                            .py(spacing::XXS)
+                            .text_xs()
+                            .text_color(color::text_muted())
+                            .child(label),
+                    )
                 }),
         )
         .child(

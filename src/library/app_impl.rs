@@ -18,9 +18,7 @@ use super::{
     PlaylistDetail, ThumbnailState,
 };
 use crate::api::Client as MusicIndexClient;
-use crate::application::commands::download::{
-    SetTrackLibraryMembership, SubscribeThenAppendToPlaylist, SubscribeTrack,
-};
+use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::{
     ApplyFeedUpdates, CheckFeedStaleness, CheckSubscribedFeeds,
 };
@@ -74,18 +72,19 @@ use crate::view_models::library::{
 use crate::view_models::playlist_option_displays;
 use crate::view_models::search::pending_skeleton_count;
 use crate::view_models::workspace::{
-    FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId, WorkspaceLayout,
-    WorkspaceModelError,
+    BreadcrumbDisplay, FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId,
+    WorkspaceLayout, WorkspaceModelError,
 };
 use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts};
 
 impl InspectorFrame {
     fn for_track(track: TrackRow, image: Option<Arc<Image>>) -> Self {
         let title = LibraryTrackRowVm::new(&track, None).display_title();
+        let local_subscription = track.is_in_library && track.local_path.is_some();
         Self {
             entity_id: track.id,
             title,
-            local_subscription: track.is_in_library,
+            local_subscription,
             track,
             source_context: None,
             image,
@@ -117,6 +116,12 @@ enum FrameHistoryMode {
     Restore,
 }
 
+#[derive(Clone, Debug)]
+enum TrackSubscriptionAction {
+    Download(Box<TrackRow>),
+    Remove(i64),
+}
+
 // ---------------------------------------------------------------------------
 // LibraryApp
 // ---------------------------------------------------------------------------
@@ -144,6 +149,13 @@ impl LibraryApp {
             .ok_or(WorkspaceModelError::FrameNotFound(frame_id))
     }
 
+    fn current_frame_navigation(&self) -> Result<&FrameNavigationState, WorkspaceModelError> {
+        let frame_id = Self::content_frame_id();
+        self.frame_navigation
+            .get(&frame_id)
+            .ok_or(WorkspaceModelError::FrameNotFound(frame_id))
+    }
+
     fn reset_frame_navigation(
         &mut self,
         entry: FrameNavigationEntry,
@@ -164,6 +176,10 @@ impl LibraryApp {
         self.current_frame_navigation_mut()?.go_back().cloned()
     }
 
+    #[expect(
+        dead_code,
+        reason = "ADR 0046 frame chrome back controls will consume this when navigation buttons are wired"
+    )]
     fn frame_back_destination(&self) -> Option<FrameNavigationEntry> {
         self.frame_navigation
             .get(&Self::content_frame_id())
@@ -393,11 +409,11 @@ impl LibraryApp {
         }
 
         if let LibraryDetail::Track(frame) = &self.detail {
-            self.refresh_selected_track(frame.entity_id);
+            self.refresh_selected_track(frame.entity_id, cx);
         }
     }
 
-    fn refresh_selected_track(&mut self, track_id: i64) {
+    fn refresh_selected_track(&mut self, track_id: i64, cx: &mut Context<Self>) {
         // Preserve-detail reloads use one synchronous PK lookup, matching
         // the sidebar playlist refresh path until a shared async detail actor
         // is introduced.
@@ -415,8 +431,14 @@ impl LibraryApp {
             return;
         }
         frame.title = LibraryTrackRowVm::new(&track, None).display_title();
-        frame.local_subscription = track.is_in_library;
-        frame.track = track;
+        frame.local_subscription = track.is_in_library && track.local_path.is_some();
+        frame.track = track.clone();
+        frame.source_context = None;
+        frame.tag_compare = LazyPanel::Hidden;
+        frame.pending_id3_edits.clear();
+        frame.suppressed_auto_id3_edits.clear();
+        frame.id3_apply_error = None;
+        self.load_track_source_context(track, cx);
     }
 
     fn cycle_playlist_sort(&mut self, cx: &mut Context<Self>) {
@@ -485,6 +507,9 @@ impl LibraryApp {
         };
         if let Some(state) = &self.playlist_actor {
             if state.playlist_id == playlist_id {
+                let _ = state
+                    .handle
+                    .try_send(PagedTrackListMsg::PrimeRows(initial_rows.to_vec()));
                 let _ = state.handle.try_send(PagedTrackListMsg::Refresh);
                 return;
             }
@@ -537,6 +562,39 @@ impl LibraryApp {
             cx,
         );
     }
+
+    #[cfg(feature = "async-runtime")]
+    fn refresh_origin_playlist_actor(&mut self) {
+        use crate::application::paged_track_list::PagedTrackListMsg;
+
+        let Ok(nav) = self.current_frame_navigation() else {
+            return;
+        };
+        if !matches!(nav.current(), FrameNavigationEntry::TrackDetail(_)) {
+            return;
+        }
+        let Some(FrameNavigationEntry::PlaylistDetail(playlist_id)) = nav.back_destination() else {
+            return;
+        };
+        let Some(state) = &self.playlist_actor else {
+            return;
+        };
+        if state.playlist_id != *playlist_id {
+            return;
+        }
+        let tracks = {
+            let conn = self.conn.lock().expect("lock db");
+            self.application_services
+                .query_service()
+                .playlist_tracks(&conn, *playlist_id)
+                .unwrap_or_default()
+        };
+        let _ = state.handle.try_send(PagedTrackListMsg::PrimeRows(tracks));
+        let _ = state.handle.try_send(PagedTrackListMsg::Refresh);
+    }
+
+    #[cfg(not(feature = "async-runtime"))]
+    fn refresh_origin_playlist_actor(&mut self) {}
 
     fn create_playlist(&mut self, cx: &mut Context<Self>) {
         let name = self.new_playlist_input.read(cx).value().to_string();
@@ -1105,10 +1163,13 @@ impl LibraryApp {
             frame.musicbrainz_selected = 0;
         }
         self.detail = LibraryDetail::Track(Box::new(frame));
-        let entity_id = track.id;
-        let track = track.clone();
-        let musicindex_endpoint = self.musicindex_endpoint.clone();
         cx.notify();
+        self.load_track_source_context(track.clone(), cx);
+    }
+
+    fn load_track_source_context(&mut self, track: TrackRow, cx: &mut Context<Self>) {
+        let entity_id = track.id;
+        let musicindex_endpoint = self.musicindex_endpoint.clone();
         cx.spawn(
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
@@ -1137,6 +1198,10 @@ impl LibraryApp {
         .detach();
     }
 
+    #[expect(
+        dead_code,
+        reason = "ADR 0046 frame chrome back controls will consume this when navigation buttons are wired"
+    )]
     fn navigate_back_to_frame_history(&mut self, cx: &mut Context<Self>) {
         match self.restore_frame_navigation() {
             Ok(FrameNavigationEntry::PlaylistDetail(playlist_id)) => {
@@ -1147,6 +1212,56 @@ impl LibraryApp {
                 self.vm.set_error_status(err);
                 cx.notify();
             }
+        }
+    }
+
+    fn track_breadcrumb_display(&self) -> Option<BreadcrumbDisplay> {
+        let nav = self.frame_navigation.get(&Self::content_frame_id())?;
+        if !matches!(nav.current(), FrameNavigationEntry::TrackDetail(_)) {
+            return None;
+        }
+        let display = BreadcrumbDisplay::project("library-track-breadcrumb", nav, |entry| {
+            self.frame_breadcrumb_label(entry)
+        });
+        (display.segments.len() > 1).then_some(display)
+    }
+
+    fn frame_breadcrumb_label(&self, entry: &FrameNavigationEntry) -> String {
+        match entry {
+            FrameNavigationEntry::SourceList => "Library".to_string(),
+            FrameNavigationEntry::PlaylistDetail(playlist_id) => self
+                .vm
+                .playlist_by_id(*playlist_id)
+                .map_or_else(|| "Playlist".to_string(), |playlist| playlist.name),
+            FrameNavigationEntry::TrackDetail(track_id) => match &self.detail {
+                LibraryDetail::Track(frame) if frame.entity_id == *track_id => frame.title.clone(),
+                _ => "Track".to_string(),
+            },
+            FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
+            FrameNavigationEntry::ArtistDetail(name) => name.clone(),
+            FrameNavigationEntry::Search(query) if query.trim().is_empty() => "Search".to_string(),
+            FrameNavigationEntry::Search(query) => query.clone(),
+            FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
+        }
+    }
+
+    pub(crate) fn select_frame_breadcrumb(
+        &mut self,
+        entry: FrameNavigationEntry,
+        cx: &mut Context<Self>,
+    ) {
+        match entry {
+            FrameNavigationEntry::PlaylistDetail(playlist_id) => {
+                if let Err(err) =
+                    self.reset_frame_navigation(FrameNavigationEntry::PlaylistDetail(playlist_id))
+                {
+                    self.vm.set_error_status(err);
+                    cx.notify();
+                    return;
+                }
+                self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
+            }
+            _ => cx.notify(),
         }
     }
 
@@ -1230,17 +1345,46 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, _result, cx| {
-                if matches!(
-                    this.frame_back_destination(),
-                    Some(FrameNavigationEntry::PlaylistDetail(_))
-                ) {
-                    this.navigate_back_to_frame_history(cx);
-                }
+            |this, result, cx| {
+                this.apply_library_removal_result_to_selected_detail(result.target());
+                this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
             },
             |this, err, _cx| this.vm.set_error_status(err),
         );
+    }
+
+    fn apply_library_removal_result_to_selected_detail(&mut self, target: LibraryRemovalTarget) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        match target {
+            LibraryRemovalTarget::Track(track_id) if frame.entity_id == track_id => {
+                frame.subscription_busy = false;
+                frame.local_subscription = false;
+                frame.track.is_in_library = false;
+                frame.track.local_path = None;
+                frame.source_context = None;
+                frame.tag_compare = LazyPanel::Hidden;
+                frame.pending_id3_edits.clear();
+                frame.suppressed_auto_id3_edits.clear();
+                frame.id3_apply_error = None;
+                frame.subscription_message = Some("Removed track".into());
+            }
+            LibraryRemovalTarget::Feed(feed_id) if frame.track.feed_id == feed_id => {
+                frame.subscription_busy = false;
+                frame.local_subscription = false;
+                frame.track.is_in_library = false;
+                frame.track.local_path = None;
+                frame.source_context = None;
+                frame.tag_compare = LazyPanel::Hidden;
+                frame.pending_id3_edits.clear();
+                frame.suppressed_auto_id3_edits.clear();
+                frame.id3_apply_error = None;
+                frame.subscription_message = Some("Removed feed".into());
+            }
+            LibraryRemovalTarget::Track(_) | LibraryRemovalTarget::Feed(_) => {}
+        }
     }
 
     fn execute_pending_library_removal(&mut self, cx: &mut Context<Self>) {
@@ -1279,6 +1423,7 @@ impl LibraryApp {
                     outcome.path().to_string(),
                     outcome.format_warning().map(str::to_string),
                 ));
+                this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
             },
             |this, error, _cx| this.vm.fail_track_subscribe(error),
@@ -1428,47 +1573,79 @@ impl LibraryApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((track_id, subscribe)) = (match self.selected_track_frame_mut() {
+        let Some(action) = (match self.selected_track_frame_mut() {
             Some(frame) if frame.subscription_busy => return,
-            Some(frame) if frame.local_subscription => Some((frame.entity_id, false)),
+            Some(frame) if frame.local_subscription => {
+                Some(TrackSubscriptionAction::Remove(frame.entity_id))
+            }
             Some(frame) => {
                 frame.subscription_busy = true;
                 frame.subscription_message =
                     Some(LibraryTrackActionVm::subscription_busy_message(true).into());
-                Some((frame.entity_id, true))
+                Some(TrackSubscriptionAction::Download(Box::new(
+                    frame.track.clone(),
+                )))
             }
             None => None,
         }) else {
             return;
         };
-        if !subscribe {
-            self.request_library_removal(LibraryRemovalIntent::TrackId(track_id), window, cx);
-            return;
-        }
+        let track = match action {
+            TrackSubscriptionAction::Remove(track_id) => {
+                self.request_library_removal(LibraryRemovalIntent::TrackId(track_id), window, cx);
+                return;
+            }
+            TrackSubscriptionAction::Download(track) => track,
+        };
+
+        let track_id = track.id;
+        self.vm.begin_busy_track(
+            track_id,
+            LibraryTrackActionVm::track_subscribe_begin_status(),
+        );
         cx.notify();
 
-        let command = SetTrackLibraryMembership::new(Arc::clone(&self.conn), track_id, subscribe);
+        let command = SubscribeTrack::new(
+            Arc::clone(&self.conn),
+            self.application_services.download_manager(),
+            SubscribeTrackRequest::LibraryTrack { track },
+            LibraryTrackActionVm::track_subscribe_success_message(),
+        );
         self.command_runner.run(
             command,
             CommandContext::next(),
             cx,
-            move |this, result, _cx| {
+            move |this, result, cx| {
+                this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
+                    result.path().to_string(),
+                    result.format_warning().map(str::to_string),
+                ));
                 if let Some(frame) = this.selected_track_frame_mut() {
                     if frame.entity_id == track_id {
                         frame.subscription_busy = false;
-                        frame.local_subscription = result.in_library();
-                        frame.track.is_in_library = result.in_library();
+                        frame.local_subscription = result.marked_downloaded();
+                        frame.track.is_in_library = result.marked_downloaded();
+                        if result.marked_downloaded() {
+                            frame.track.local_path = Some(result.path().to_string());
+                        }
+                        frame.source_context = None;
+                        frame.tag_compare = LazyPanel::Hidden;
+                        frame.pending_id3_edits.clear();
+                        frame.suppressed_auto_id3_edits.clear();
+                        frame.id3_apply_error = None;
                         frame.subscription_message = Some(result.message().into());
                     }
                 }
+                this.refresh_origin_playlist_actor();
+                this.start_async_reload_preserving_detail(cx);
             },
             move |this, err, _cx| {
+                this.vm.fail_track_subscribe(&err);
                 if let Some(frame) = this.selected_track_frame_mut() {
                     if frame.entity_id == track_id {
                         frame.subscription_busy = false;
-                        frame.subscription_message = Some(
-                            LibraryTrackActionVm::subscription_error_message(subscribe, err),
-                        );
+                        frame.subscription_message =
+                            Some(LibraryTrackActionVm::subscription_error_message(true, err));
                     }
                 }
             },
@@ -2372,6 +2549,7 @@ impl Render for LibraryApp {
 
         let detail_pane = render_library_detail(
             &self.detail,
+            self.track_breadcrumb_display(),
             self.vm.busy_track(),
             self.vm.mb_status(),
             &self.vm,

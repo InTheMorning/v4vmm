@@ -2474,8 +2474,8 @@ impl<'a> PlaylistTrackRowVm<'a> {
     }
 
     #[must_use]
-    pub(crate) const fn is_available(&self) -> bool {
-        self.track.is_in_library
+    pub(crate) fn is_available(&self) -> bool {
+        self.can_play()
     }
 
     #[must_use]
@@ -3524,6 +3524,25 @@ mod tests {
         let mut t = row();
         t.id = 42;
         t.local_path = Some("/x".into());
+        let tracks = [t];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        let row = &vm.track_rows()[0];
+        let display = row.display(pl.id);
+
+        assert!(!row.is_available());
+        assert!(!row.can_play());
+        assert_eq!(row.availability_label(), Some("Unavailable"));
+        assert!(!display.is_available);
+        assert_eq!(display.availability_label, Some("Unavailable"));
+        assert!(!display.controls.play_enabled);
+    }
+
+    #[test]
+    fn playlist_track_row_vm_marks_missing_local_files_unavailable() {
+        let pl = playlist("Mix");
+        let mut t = row();
+        t.id = 42;
+        t.is_in_library = true;
         let tracks = [t];
         let vm = PlaylistDetailVm::new(&pl, &tracks);
         let row = &vm.track_rows()[0];

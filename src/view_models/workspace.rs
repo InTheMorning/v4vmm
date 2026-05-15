@@ -433,6 +433,116 @@ impl FrameShellDisplay {
     }
 }
 
+/// Breadcrumb path truncation policy.
+///
+/// Breadcrumb renderers keep the origin and current segment visible when space
+/// is constrained, collapsing the middle of longer paths.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BreadcrumbTruncation {
+    /// Collapse middle segments when a renderer needs to abbreviate the path.
+    MiddleEllipsis,
+}
+
+/// Display contract for one breadcrumb segment.
+///
+/// Current segments are labels only. Non-current segments carry the typed frame
+/// destination so renderers can dispatch navigation without parsing strings.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct BreadcrumbSegment {
+    /// Stable segment identifier.
+    pub(crate) id: String,
+    /// Visible segment label.
+    pub(crate) label: String,
+    /// Accessibility label for the segment.
+    pub(crate) a11y_label: String,
+    /// Whether this segment represents the current frame destination.
+    pub(crate) is_current: bool,
+    /// Target selected when activating a non-current segment.
+    pub(crate) target: Option<FrameNavigationEntry>,
+}
+
+/// Display contract for a frame breadcrumb path.
+///
+/// The display is GPUI-free and projects from [`FrameNavigationState`]. Shells
+/// or transitional surfaces can consume it without owning navigation policy.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct BreadcrumbDisplay {
+    /// Stable breadcrumb element identifier.
+    pub(crate) id: String,
+    /// Ordered breadcrumb segments from origin through current destination.
+    pub(crate) segments: Vec<BreadcrumbSegment>,
+    /// Renderer truncation guidance.
+    pub(crate) truncation: BreadcrumbTruncation,
+}
+
+impl BreadcrumbDisplay {
+    /// Projects a frame navigation state into display-ready breadcrumbs.
+    #[must_use]
+    pub(crate) fn project(
+        id: impl Into<String>,
+        nav: &FrameNavigationState,
+        mut label_for: impl FnMut(&FrameNavigationEntry) -> String,
+    ) -> Self {
+        let mut entries: Vec<&FrameNavigationEntry> = nav.back_stack.iter().collect();
+        entries.push(&nav.current);
+        let last_index = entries.len().saturating_sub(1);
+        let segments = entries
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let label = label_for(entry);
+                let is_current = index == last_index;
+                BreadcrumbSegment {
+                    id: breadcrumb_entry_id(entry),
+                    a11y_label: if is_current {
+                        format!("Current location: {label}")
+                    } else {
+                        format!("Go to {label}")
+                    },
+                    label,
+                    is_current,
+                    target: (!is_current).then(|| entry.clone()),
+                }
+            })
+            .collect();
+
+        Self {
+            id: id.into(),
+            segments,
+            truncation: BreadcrumbTruncation::MiddleEllipsis,
+        }
+    }
+}
+
+fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
+    match entry {
+        FrameNavigationEntry::SourceList => "source-list".to_string(),
+        FrameNavigationEntry::PlaylistDetail(id) => format!("playlist-{id}"),
+        FrameNavigationEntry::TrackDetail(id) => format!("track-{id}"),
+        FrameNavigationEntry::AlbumDetail(id) => format!("album-{id}"),
+        FrameNavigationEntry::ArtistDetail(name) => format!("artist-{}", slug_id(name)),
+        FrameNavigationEntry::Search(query) => format!("search-{}", slug_id(query)),
+        FrameNavigationEntry::QueueNowPlaying => "queue-now-playing".to_string(),
+    }
+}
+
+fn slug_id(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    if trimmed.is_empty() {
+        "root".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Ordered workspace layout and focus state.
 ///
 /// The layout owns frame ordering and focus invariants. Empty layouts are valid
@@ -755,9 +865,9 @@ impl FrameNavigationState {
 #[cfg(test)]
 mod tests {
     use super::{
-        ContentFilter, FilterChipStripDisplay, FrameNavigationEntry, FrameNavigationState,
-        FrameShellDisplay, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
-        WorkspaceLayout, WorkspaceModelError,
+        BreadcrumbDisplay, BreadcrumbTruncation, ContentFilter, FilterChipStripDisplay,
+        FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, WorkspaceFrameId,
+        WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceModelError,
     };
 
     fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -944,6 +1054,38 @@ mod tests {
         assert!(
             display.action_menu_items.is_empty(),
             "Task 005 defines the menu item contract without adding default actions"
+        );
+    }
+
+    #[test]
+    fn breadcrumb_display_projects_navigation_path() {
+        let mut nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(7));
+        nav.push(FrameNavigationEntry::TrackDetail(42));
+
+        let display =
+            BreadcrumbDisplay::project("library-track-breadcrumb", &nav, |entry| match entry {
+                FrameNavigationEntry::PlaylistDetail(_) => "My Playlist".to_string(),
+                FrameNavigationEntry::TrackDetail(_) => "Lantern Tide".to_string(),
+                _ => "Library".to_string(),
+            });
+
+        assert_eq!(display.id, "library-track-breadcrumb");
+        assert_eq!(display.truncation, BreadcrumbTruncation::MiddleEllipsis);
+        assert_eq!(display.segments.len(), 2);
+        assert_eq!(display.segments[0].label, "My Playlist");
+        assert_eq!(
+            display.segments[0].target,
+            Some(FrameNavigationEntry::PlaylistDetail(7))
+        );
+        assert!(
+            !display.segments[0].is_current,
+            "playlist segment should be a selectable parent"
+        );
+        assert_eq!(display.segments[1].label, "Lantern Tide");
+        assert_eq!(display.segments[1].target, None);
+        assert!(
+            display.segments[1].is_current,
+            "track segment should be the current location"
         );
     }
 

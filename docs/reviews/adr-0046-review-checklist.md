@@ -23,12 +23,13 @@
 
 ## Gate Status
 
-Status: Planning packet complete - 2026-05-14.
+Status: Phase 4 automated implementation gate green - 2026-05-14.
 
-Readiness decision: **Proceed to Task 001 only**.
+Readiness decision: **Await Phase 4 visual confirmation before closing ADR 0046
+Phase 4.**
 
-Do not begin QueueNowPlaying implementation until Phase 2 and Phase 3 frame
-navigation/chrome work is complete and visually checked.
+QueueNowPlaying implementation began after Phase 2 and Phase 3
+frame-navigation/chrome work was complete and user-confirmed.
 
 ## Required Checks
 
@@ -55,9 +56,14 @@ navigation/chrome work is complete and visually checked.
 - [x] Task 006 frame shell composite implemented and focused gates are green.
 - [x] Task 006a screen mount boundary implemented and focused gates are green.
 - [x] Task 007 workspace layout render implemented and focused gates are green.
-- [ ] Phase 3 implementation complete.
-- [ ] Phase 4 implementation complete.
-- [ ] Full final gate green.
+- [x] Phase 3 implementation complete.
+- [x] Task 009 QueueNowPlaying page VM implemented and focused gates are green.
+- [x] Task 010 QueueNowPlaying frame shell implemented and focused gates are
+      green.
+- [x] Task 011 Phase 4 guards implemented and automated gates are green.
+- [x] Phase 4 implementation complete.
+- [x] Full automated gate green.
+- [ ] Phase 4 manual visual proof complete.
 
 ## Required Fixes
 
@@ -110,6 +116,13 @@ navigation/chrome work is complete and visually checked.
 - [ ] Track inspector contains only track actions, no playlist-return button.
 - [ ] Queue frame can collapse and restore while toolbar Now Playing remains
       readable.
+- [ ] Queue frame shows multi-track queue rows, current-track emphasis,
+      previous/play-next transport controls, liveValue output menu, and volume
+      slider.
+- [ ] Global toolbar Now Playing is compact: status/title plus play/pause only,
+      with detailed queue/output controls absent.
+- [ ] liveValue output picker communicates unavailable routing without offering
+      an active no-op command.
 - [ ] Search remains dispatchable and scope remains reachable at compact width.
 - [ ] SourceList selection remains visibly persistent.
 - [ ] UI remains dense, quiet, and utilitarian; no hero panels, decorative

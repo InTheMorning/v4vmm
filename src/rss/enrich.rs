@@ -4,8 +4,11 @@ use anyhow::{Context, Result};
 use rss::extension::{Extension, ExtensionMap};
 use rss::{Channel, Item};
 
-use super::helpers::{find_ext, find_ext_attr};
+use super::helpers::{
+    clean_text, find_ext, find_ext_attr, find_ext_text, first_person_by_role, parse_itunes_duration,
+};
 use crate::api::{Feed, SourceEntityId, SourceEntityLink, Track};
+use crate::metadata::source_text_missing;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PodrollEntry {
@@ -50,6 +53,18 @@ fn podroll_entries(exts: &ExtensionMap) -> Vec<PodrollEntry> {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RssTrackEnrichment {
+    pub feed_title: Option<String>,
+    pub feed_description: Option<String>,
+    pub feed_artist: Option<String>,
+    pub feed_image_url: Option<String>,
+    pub feed_episode_count: Option<i32>,
+    pub track_title: Option<String>,
+    pub track_description: Option<String>,
+    pub track_artist: Option<String>,
+    pub track_image_url: Option<String>,
+    pub track_number: Option<i32>,
+    pub duration_secs: Option<i32>,
+    pub pub_date: Option<i64>,
     pub transcript_url: Option<String>,
     pub transcript_type: Option<String>,
     pub track_nostr: Option<String>,
@@ -58,7 +73,7 @@ pub struct RssTrackEnrichment {
 
 pub fn enrich_track_from_feed_rss(
     track: &mut Track,
-    feed: Option<&mut Feed>,
+    mut feed: Option<&mut Feed>,
     feed_url: &str,
 ) -> Result<bool> {
     let enrichment = fetch_track_enrichment_from_feed(
@@ -71,6 +86,7 @@ pub fn enrich_track_from_feed_rss(
     };
 
     let mut changed = false;
+    changed |= apply_track_enrichment(track, feed.as_deref_mut(), &enrichment);
     if let Some(transcript_url) = enrichment.transcript_url {
         changed |= append_track_source_link(
             track,
@@ -112,6 +128,41 @@ pub fn fetch_track_enrichment_from_feed(
     };
 
     Ok(Some(RssTrackEnrichment {
+        feed_title: clean_text(Some(feed.title())),
+        feed_description: clean_text(Some(feed.description())),
+        feed_artist: feed
+            .itunes_ext()
+            .and_then(|itunes| clean_text(itunes.author())),
+        feed_image_url: feed
+            .itunes_ext()
+            .and_then(|itunes| itunes.image())
+            .and_then(|value| clean_text(Some(value)))
+            .or_else(|| feed.image().and_then(|image| clean_text(Some(image.url())))),
+        feed_episode_count: feed.items().len().try_into().ok(),
+        track_title: item.title().and_then(|value| clean_text(Some(value))),
+        track_description: item.description().and_then(|value| clean_text(Some(value))),
+        track_artist: item
+            .itunes_ext()
+            .and_then(|itunes| clean_text(itunes.author()))
+            .or_else(|| clean_text(item.author()))
+            .or_else(|| {
+                first_person_by_role(
+                    item.extensions(),
+                    &["artist", "creator", "composer", "performer"],
+                )
+            }),
+        track_image_url: item
+            .itunes_ext()
+            .and_then(|itunes| itunes.image())
+            .and_then(|value| clean_text(Some(value))),
+        track_number: find_ext_text(item.extensions(), "podcast", "episode")
+            .and_then(|value| value.trim().parse::<i32>().ok()),
+        duration_secs: item
+            .itunes_ext()
+            .and_then(|itunes| itunes.duration())
+            .and_then(parse_itunes_duration)
+            .and_then(|value| value.try_into().ok()),
+        pub_date: item.pub_date().and_then(parse_rss_pub_date),
         transcript_url: find_ext_attr(item.extensions(), "podcast", "transcript", "url"),
         transcript_type: find_ext_attr(item.extensions(), "podcast", "transcript", "type"),
         track_nostr: nostr_from_extensions(item.extensions()),
@@ -131,6 +182,62 @@ fn rss_item_matches_track(
         .zip(item.enclosure().map(|enclosure| enclosure.url()))
         .is_some_and(|(expected, actual)| expected == actual);
     guid_matches || enclosure_matches
+}
+
+fn apply_track_enrichment(
+    track: &mut Track,
+    feed: Option<&mut Feed>,
+    enrichment: &RssTrackEnrichment,
+) -> bool {
+    let mut changed = false;
+    changed |= set_text_if_missing(&mut track.title, enrichment.track_title.clone());
+    changed |= set_text_if_missing(&mut track.description, enrichment.track_description.clone());
+    changed |= set_text_if_missing(&mut track.track_artist, enrichment.track_artist.clone());
+    changed |= set_text_if_missing(&mut track.image_url, enrichment.track_image_url.clone());
+    changed |= set_text_if_missing(&mut track.feed_title, enrichment.feed_title.clone());
+    changed |= set_text_if_missing(&mut track.release_artist, enrichment.feed_artist.clone());
+    if track.track_number.is_none() {
+        track.track_number = enrichment.track_number;
+        changed |= track.track_number.is_some();
+    }
+    if track.duration_secs.is_none() {
+        track.duration_secs = enrichment.duration_secs;
+        changed |= track.duration_secs.is_some();
+    }
+    if track.pub_date.is_none() {
+        track.pub_date = enrichment.pub_date;
+        changed |= track.pub_date.is_some();
+    }
+
+    if let Some(feed) = feed {
+        changed |= set_text_if_missing(&mut feed.title, enrichment.feed_title.clone());
+        changed |= set_text_if_missing(&mut feed.name, enrichment.feed_title.clone());
+        changed |= set_text_if_missing(&mut feed.description, enrichment.feed_description.clone());
+        changed |= set_text_if_missing(&mut feed.release_artist, enrichment.feed_artist.clone());
+        changed |= set_text_if_missing(&mut feed.image_url, enrichment.feed_image_url.clone());
+        if feed.episode_count.is_none() {
+            feed.episode_count = enrichment.feed_episode_count;
+            changed |= feed.episode_count.is_some();
+        }
+    }
+    changed
+}
+
+fn set_text_if_missing(target: &mut Option<String>, value: Option<String>) -> bool {
+    if !source_text_missing(target.as_deref()) {
+        return false;
+    }
+    let Some(value) = value.filter(|value| !source_text_missing(Some(value.as_str()))) else {
+        return false;
+    };
+    *target = Some(value);
+    true
+}
+
+fn parse_rss_pub_date(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc2822(value)
+        .ok()
+        .map(|date| date.timestamp())
 }
 
 fn append_track_source_link(
@@ -273,4 +380,87 @@ fn extract_nostr_handle(value: &str) -> Option<String> {
         .map(|part| part.trim_matches(|ch: char| matches!(ch, ':' | '/' | ')' | '(')))
         .find(|part| part.starts_with("npub1") || part.starts_with("nprofile1"))
         .map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rss_enrichment_replaces_placeholder_core_fields() {
+        let mut track = Track {
+            title: Some("\u{2026}".into()),
+            feed_title: Some("...".into()),
+            track_artist: Some("...".into()),
+            release_artist: Some("...".into()),
+            description: Some("...\n...\n...".into()),
+            image_url: Some("...".into()),
+            ..Default::default()
+        };
+        let mut feed = Feed {
+            title: Some("...".into()),
+            name: Some("...".into()),
+            description: Some("...\n...\n...".into()),
+            release_artist: Some("...".into()),
+            image_url: Some("...".into()),
+            ..Default::default()
+        };
+        let enrichment = RssTrackEnrichment {
+            feed_title: Some("Way to Go".into()),
+            feed_description: Some("Feed description".into()),
+            feed_artist: Some("Survival Guide".into()),
+            feed_image_url: Some("https://example.test/feed.png".into()),
+            feed_episode_count: Some(10),
+            track_title: Some("Lantern Tide".into()),
+            track_description: Some("Track description".into()),
+            track_artist: Some("Max DjK".into()),
+            track_image_url: Some("https://example.test/track.png".into()),
+            track_number: Some(2),
+            duration_secs: Some(343),
+            pub_date: Some(1_777_777_777),
+            ..Default::default()
+        };
+
+        assert!(apply_track_enrichment(
+            &mut track,
+            Some(&mut feed),
+            &enrichment
+        ));
+
+        assert_eq!(track.title.as_deref(), Some("Lantern Tide"));
+        assert_eq!(track.feed_title.as_deref(), Some("Way to Go"));
+        assert_eq!(track.track_artist.as_deref(), Some("Max DjK"));
+        assert_eq!(track.release_artist.as_deref(), Some("Survival Guide"));
+        assert_eq!(track.description.as_deref(), Some("Track description"));
+        assert_eq!(
+            track.image_url.as_deref(),
+            Some("https://example.test/track.png")
+        );
+        assert_eq!(track.track_number, Some(2));
+        assert_eq!(track.duration_secs, Some(343));
+        assert_eq!(track.pub_date, Some(1_777_777_777));
+        assert_eq!(feed.title.as_deref(), Some("Way to Go"));
+        assert_eq!(feed.description.as_deref(), Some("Feed description"));
+        assert_eq!(feed.release_artist.as_deref(), Some("Survival Guide"));
+        assert_eq!(feed.episode_count, Some(10));
+    }
+
+    #[test]
+    fn rss_enrichment_preserves_existing_source_facts() {
+        let mut track = Track {
+            title: Some("Existing".into()),
+            track_number: Some(4),
+            ..Default::default()
+        };
+        let enrichment = RssTrackEnrichment {
+            track_title: Some("Replacement".into()),
+            track_number: Some(9),
+            ..Default::default()
+        };
+
+        assert!(!apply_track_enrichment(&mut track, None, &enrichment));
+
+        assert_eq!(track.title.as_deref(), Some("Existing"));
+        assert_eq!(track.track_number, Some(4));
+    }
 }
