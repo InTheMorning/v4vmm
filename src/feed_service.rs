@@ -236,6 +236,18 @@ pub fn apply_feed_updates(
     musicindex_endpoint: &str,
     stale: &StaleFeed,
 ) -> Result<FeedApplyOutcome> {
+    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
+    let include =
+        Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
+    let feed_update = client.fetch_feed(&stale.feed_guid, include).ok();
+    if let Some(feed) = feed_update.as_ref() {
+        let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+        if feed.description.is_some() {
+            db::set_feed_description(&db, stale.feed_id, feed.description.as_deref())?;
+        }
+        identity_ingest::persist_musicindex_feed(&mut db, stale.feed_id, feed)?;
+    }
+
     let tracks = {
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
         library_service::tracks_for_feed(&db, stale.feed_id)?

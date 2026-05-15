@@ -1,6 +1,6 @@
 # ADR 0047 Task 006: Disable Compare ID3 + MusicBrainz on Undownloaded
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -56,11 +56,22 @@ task 002 into the inspector render path.
 
 ## Acceptance Criteria
 
-- [ ] Compare ID3 and MusicBrainz controls render disabled when
+- [x] Compare ID3 and MusicBrainz controls render disabled when
   `is_downloaded = false`.
-- [ ] Disabled state uses tokenized dim style and shows a tooltip.
-- [ ] No raw color or spacing literal added.
-- [ ] Architecture guard locks the disabled-from-VM contract.
+- [x] Disabled state uses tokenized dim style and shows a tooltip.
+- [x] No raw color or spacing literal added.
+- [x] Architecture guard locks the disabled-from-VM contract.
+
+## Implementation Notes
+
+- `TrackMetadataActionState` now keeps Compare ID3 and MusicBrainz
+  visible for library tracks without a local file, but projects them as
+  disabled.
+- `LibraryTrackInspectorDisplay` owns the tooltip copy and enabled
+  predicates; the shell consumes that display state and attaches no
+  click handler when disabled.
+- `adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures`
+  guards the disabled-from-VM contract.
 
 ## Test Commands
 

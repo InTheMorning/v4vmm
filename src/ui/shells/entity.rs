@@ -61,6 +61,7 @@ pub struct ReleaseDetailBehaviorSlots {
     pub primary_actions: Vec<ReleaseSurfaceElement>,
     pub identity_actions: Vec<ReleaseSurfaceElement>,
     pub action_overlays: Vec<ReleaseSurfaceElement>,
+    pub description_panel: Option<ReleaseSurfaceElement>,
     pub track_rows: Option<Vec<ReleaseSurfaceElement>>,
     pub after_section: Vec<ReleaseSurfaceElement>,
 }
@@ -93,10 +94,21 @@ pub fn render_release_detail_shell(
         surface = surface.panel(overlay);
     }
 
+    let mut description_panel = slots.description_panel;
     for panel in &page.panels {
-        surface = surface.panel(ReleaseSurfaceElement::from_element(render_release_panel(
-            panel,
-        )));
+        if panel.kind == ReleasePanelKind::Description {
+            if let Some(description_panel) = description_panel.take() {
+                surface = surface.panel(description_panel);
+            } else {
+                surface = surface.panel(ReleaseSurfaceElement::from_element(render_release_panel(
+                    panel,
+                )));
+            }
+        } else {
+            surface = surface.panel(ReleaseSurfaceElement::from_element(render_release_panel(
+                panel,
+            )));
+        }
     }
 
     let rows = slots

@@ -1,6 +1,6 @@
 # ADR 0047 Task 008: Description Disclosure
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -61,13 +61,28 @@ the auto-default for the inspector instance.
 
 ## Acceptance Criteria
 
-- [ ] Description gains a disclosure indicator on feed and track
+- [x] Description gains a disclosure indicator on feed and track
   inspectors.
-- [ ] Default collapsed when body > 5 lines, expanded otherwise.
-- [ ] Toggle transitions to user variants and is sticky for the
+- [x] Default collapsed when body > 5 lines, expanded otherwise.
+- [x] Toggle transitions to user variants and is sticky for the
   inspector instance.
-- [ ] No raw glyph/color/spacing literal added.
-- [ ] Architecture guard locks the contract.
+- [x] No raw glyph/color/spacing literal added.
+- [x] Architecture guard locks the contract.
+
+## Implementation Notes
+
+- Added shared `DisclosureTextPanel` in `src/ui/composites` so feed and
+  track inspectors share disclosure chrome instead of copying local
+  description render logic.
+- Track description state is owned by `LibraryViewModel` per track id
+  and projected into `InspectorFrame`, so user toggles survive
+  navigating away from and back to a track.
+- Feed description state is owned by `LibraryViewModel` per feed id.
+- Library feed rows now hydrate feed descriptions from subscribed-feed
+  rows so the disclosure has source text to render.
+- Feed update now persists MusicIndex feed descriptions into the local
+  feed row before Library renders the disclosure. Placeholder-like text
+  is not inferred away at render time; source refresh must replace it.
 
 ## Test Commands
 

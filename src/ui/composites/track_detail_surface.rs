@@ -31,6 +31,8 @@ pub struct TrackDetailSurface {
     summary_rows: Vec<crate::view_models::track_detail::TrackDetailSummaryRow>,
     description_label: String,
     description: Option<String>,
+    description_panel: Option<TrackSurfaceElement>,
+    hide_description: bool,
     primary_actions: Vec<TrackSurfaceElement>,
     primary_actions_a11y_label: String,
     external_links: Vec<TrackSurfaceElement>,
@@ -49,6 +51,8 @@ impl TrackDetailSurface {
             summary_rows: vm.summary_rows(),
             description_label: vm.labels().description_label().to_string(),
             description: vm.description(),
+            description_panel: None,
+            hide_description: false,
             primary_actions: Vec::new(),
             primary_actions_a11y_label: vm.primary_actions_a11y_label().to_string(),
             external_links: Vec::new(),
@@ -90,6 +94,17 @@ impl TrackDetailSurface {
 
     pub fn advanced_panels(mut self, panels: Vec<TrackSurfaceElement>) -> Self {
         self.advanced_panels = panels;
+        self
+    }
+
+    pub fn description_panel(mut self, panel: TrackSurfaceElement) -> Self {
+        self.description_panel = Some(panel);
+        self.hide_description = true;
+        self
+    }
+
+    pub fn hide_description(mut self) -> Self {
+        self.hide_description = true;
         self
     }
 }
@@ -170,12 +185,16 @@ fn render_loaded_surface(surface: TrackDetailSurface, cx: &mut App) -> AnyElemen
         stack = stack.child(DetailGrid::new(summary_rows));
     }
 
-    if let Some(description) = surface.description {
-        stack = stack.child(render_text_section(
-            surface.description_label,
-            description,
-            cx,
-        ));
+    if let Some(panel) = surface.description_panel {
+        stack = stack.child(panel);
+    } else if !surface.hide_description {
+        if let Some(description) = surface.description {
+            stack = stack.child(render_text_section(
+                surface.description_label,
+                description,
+                cx,
+            ));
+        }
     }
 
     for section in surface.sections {

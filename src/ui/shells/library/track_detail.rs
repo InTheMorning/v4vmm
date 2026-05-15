@@ -15,14 +15,14 @@ use crate::db;
 use crate::feed_service::track_row_to_track_context;
 use crate::library::{InspectorFrame, LazyPanel, LibraryApp};
 use crate::metadata::{TagCompareResult, TrackContext};
-use crate::ui::composites::TrackSurfaceElement;
+use crate::ui::composites::{DisclosureTextPanel, DisclosureTextPanelDisplay, TrackSurfaceElement};
 use crate::ui::shells::library::track_detail_metadata::{
     pending_id3_edits_for_track_detail, render_library_track_detail_actions,
     render_library_track_detail_metadata,
 };
 use crate::ui::shells::track;
 use crate::ui::style::spacing;
-use crate::view_models::library::LibraryChromeDisplay;
+use crate::view_models::library::{DescriptionState, LibraryChromeDisplay, LibraryViewModel};
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::views::TrackView;
 
@@ -59,11 +59,14 @@ fn render_library_track_window(
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let pending_id3_edits = pending_id3_edits_for_track_detail(frame, track_context, result);
+    let inspector_display = frame.inspector_display(track_context.track.description.as_deref());
     let track_core = render_library_track_detail_core(
         &track_context.track,
         &frame.title,
         frame.image.clone(),
+        inspector_display.description_state,
         render_library_track_detail_actions(frame, &pending_id3_edits, playlists, cx),
+        cx,
     );
 
     render_library_track_detail_metadata(
@@ -80,21 +83,41 @@ pub(crate) fn render_library_track_detail_core(
     track: &Track,
     override_title: &str,
     hero_image: Option<Arc<Image>>,
+    description_state: DescriptionState,
     primary_action_row: AnyElement,
+    cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let track_view = TrackView::from_api(track.clone());
     let detail_page = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library)
         .with_override_title(Some(override_title))
         .page();
 
-    track::build_track_detail_surface(
-        &detail_page,
-        track::TrackDetailBehaviorSlots {
-            hero_image,
-            external_links: track::render_track_page_identity_actions(&detail_page),
-            primary_actions: vec![TrackSurfaceElement::from_element(primary_action_row)],
-            ..track::TrackDetailBehaviorSlots::default()
-        },
-    )
-    .into_any_element()
+    let mut slots = track::TrackDetailBehaviorSlots {
+        hero_image,
+        external_links: track::render_track_page_identity_actions(&detail_page),
+        primary_actions: vec![TrackSurfaceElement::from_element(primary_action_row)],
+        ..track::TrackDetailBehaviorSlots::default()
+    };
+
+    let description_text = detail_page.detail().description();
+    if let Some(description) =
+        LibraryViewModel::display_description_text(description_text.as_deref())
+    {
+        let collapsed = !description_state.is_visible();
+        slots.description_panel = Some(TrackSurfaceElement::from_element(
+            DisclosureTextPanel::new(DisclosureTextPanelDisplay {
+                id: "library-track-description".into(),
+                label: SharedString::from(detail_page.detail().labels().description_label()),
+                a11y_label: SharedString::from("Toggle track description"),
+                body: SharedString::from(description.to_string()),
+                collapsed,
+            })
+            .on_toggle(cx.listener(|this, _, _, cx| {
+                this.toggle_track_description(cx);
+            }))
+            .into_any_element(),
+        ));
+    }
+
+    track::build_track_detail_surface(&detail_page, slots).into_any_element()
 }

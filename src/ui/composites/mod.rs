@@ -53,7 +53,8 @@ pub use detail_grid::{DetailElementRow, DetailGrid, DetailRow, DetailTextRow};
 pub use detail_header::{DetailHeader, DetailHeaderDataRow, DetailHeaderDisplay};
 pub use disclosure_group::{
     DisclosureGroup, DisclosureGroupDisplay, DisclosureIndicator, DisclosureIndicatorDisplay,
-    DisclosureSupplementDisplay, DisclosureSupplementLabel,
+    DisclosureSupplementDisplay, DisclosureSupplementLabel, DisclosureTextPanel,
+    DisclosureTextPanelDisplay,
 };
 pub use file_header::FileHeader;
 #[expect(

@@ -329,6 +329,19 @@ pub fn set_feed_musicindex_updated_at(
     Ok(())
 }
 
+pub fn set_feed_description(
+    conn: &Connection,
+    feed_id: i64,
+    description: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE feeds SET description = ?1 WHERE id = ?2",
+        rusqlite::params![description, feed_id],
+    )
+    .context("set_feed_description")?;
+    Ok(())
+}
+
 pub fn library_tracks_for_feed(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
     let mut stmt = conn
         .prepare(
@@ -2646,6 +2659,23 @@ mod tests {
             rusqlite::params![feed_id, guid, "Test Track"],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    #[test]
+    fn set_feed_description_updates_existing_feed() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+
+        set_feed_description(&conn, feed_id, Some("Real source description"))?;
+
+        let description: Option<String> = conn.query_row(
+            "SELECT description FROM feeds WHERE id = ?1",
+            [feed_id],
+            |row| row.get(0),
+        )?;
+        assert_eq!(description.as_deref(), Some("Real source description"));
+
+        Ok(())
     }
 
     fn insert_track_full(

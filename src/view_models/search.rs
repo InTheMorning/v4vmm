@@ -34,6 +34,7 @@ pub(crate) struct ResultRow {
     pub(crate) source: SearchResultSource,
     pub(crate) entity_type: String,
     pub(crate) entity_id: String,
+    pub(crate) feed_guid: Option<String>,
     pub(crate) detail: Option<EntityDetail>,
 }
 
@@ -55,6 +56,22 @@ impl ResultRow {
             source: SearchResultSource::MusicIndex,
             entity_type: entity_type.into(),
             entity_id: entity_id.into(),
+            feed_guid: None,
+            detail,
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn musicindex_track(
+        track_guid: impl Into<String>,
+        feed_guid: Option<String>,
+        detail: Option<EntityDetail>,
+    ) -> Self {
+        Self {
+            source: SearchResultSource::MusicIndex,
+            entity_type: "track".into(),
+            entity_id: track_guid.into(),
+            feed_guid,
             detail,
         }
     }
@@ -65,13 +82,19 @@ impl ResultRow {
             source: SearchResultSource::Library,
             entity_type: "track".into(),
             entity_id: track_id.to_string(),
+            feed_guid: None,
             detail: Some(detail),
         }
     }
 
     #[must_use]
     pub(crate) fn key(&self) -> String {
-        source_entity_key(self.source, &self.entity_type, &self.entity_id)
+        source_entity_key(
+            self.source,
+            &self.entity_type,
+            &self.entity_id,
+            self.feed_guid.as_deref(),
+        )
     }
 
     #[must_use]
@@ -81,10 +104,12 @@ impl ResultRow {
             SearchResultSource::MusicIndex => "index",
             SearchResultSource::Library => "library",
         };
-        display.element_id = format!(
-            "result-item:{source}:{}:{}",
-            self.entity_type, self.entity_id
+        let id = scoped_entity_id(
+            &self.entity_type,
+            &self.entity_id,
+            self.feed_guid.as_deref(),
         );
+        display.element_id = format!("result-item:{source}:{}:{}", self.entity_type, id);
         display.kind_label.clone_from(&self.entity_type);
         display
     }
@@ -110,14 +135,27 @@ impl ResultRow {
 }
 
 fn entity_key(entity_type: &str, entity_id: &str) -> String {
-    source_entity_key(SearchResultSource::MusicIndex, entity_type, entity_id)
+    source_entity_key(SearchResultSource::MusicIndex, entity_type, entity_id, None)
 }
 
-fn source_entity_key(source: SearchResultSource, entity_type: &str, entity_id: &str) -> String {
+fn scoped_entity_id(entity_type: &str, entity_id: &str, feed_guid: Option<&str>) -> String {
+    match (entity_type, feed_guid) {
+        ("track", Some(feed_guid)) if !feed_guid.is_empty() => format!("{feed_guid}:{entity_id}"),
+        _ => entity_id.to_string(),
+    }
+}
+
+fn source_entity_key(
+    source: SearchResultSource,
+    entity_type: &str,
+    entity_id: &str,
+    feed_guid: Option<&str>,
+) -> String {
     let source = match source {
         SearchResultSource::MusicIndex => "index",
         SearchResultSource::Library => "library",
     };
+    let entity_id = scoped_entity_id(entity_type, entity_id, feed_guid);
     format!("{source}:{entity_type}:{entity_id}")
 }
 
@@ -1259,6 +1297,7 @@ pub(crate) struct ResultNavigationTarget {
     source: SearchResultSource,
     entity_type: String,
     entity_id: String,
+    feed_guid: Option<String>,
     title: String,
 }
 
@@ -1269,13 +1308,20 @@ impl ResultNavigationTarget {
             source: row.source,
             entity_type: row.entity_type.clone(),
             entity_id: row.entity_id.clone(),
+            feed_guid: row.feed_guid.clone(),
             title: row.inspector_title(),
         }
     }
 
     #[must_use]
-    pub(crate) fn into_parts(self) -> (SearchResultSource, String, String, String) {
-        (self.source, self.entity_type, self.entity_id, self.title)
+    pub(crate) fn into_parts(self) -> (SearchResultSource, String, String, Option<String>, String) {
+        (
+            self.source,
+            self.entity_type,
+            self.entity_id,
+            self.feed_guid,
+            self.title,
+        )
     }
 }
 
@@ -1652,8 +1698,9 @@ impl SearchViewModel {
         source: SearchResultSource,
         entity_type: &str,
         entity_id: &str,
+        feed_guid: Option<&str>,
     ) {
-        self.select(source_entity_key(source, entity_type, entity_id));
+        self.select(source_entity_key(source, entity_type, entity_id, feed_guid));
         self.mark_inspector_from_search();
     }
 
@@ -3850,16 +3897,43 @@ mod tests {
         let item = row.render_item();
         assert_eq!(item.selection_key, "index:feed:feed-1");
         assert_eq!(item.display.element_id, "result-item:index:feed:feed-1");
-        let (source, entity_type, entity_id, title) = item.navigation_target.into_parts();
+        let (source, entity_type, entity_id, feed_guid, title) =
+            item.navigation_target.into_parts();
         assert_eq!(
             (
                 source,
                 entity_type.as_str(),
                 entity_id.as_str(),
+                feed_guid.as_deref(),
                 title.as_str()
             ),
-            (SearchResultSource::MusicIndex, "feed", "feed-1", "feed-1")
+            (
+                SearchResultSource::MusicIndex,
+                "feed",
+                "feed-1",
+                None,
+                "feed-1"
+            )
         );
+    }
+
+    #[test]
+    fn musicindex_track_result_row_preserves_feed_scope_for_navigation_identity() {
+        let row = ResultRow::musicindex_track("track-1", Some("feed-1".into()), None);
+
+        assert_eq!(row.key(), "index:track:feed-1:track-1");
+        assert_eq!(
+            row.display().element_id,
+            "result-item:index:track:feed-1:track-1"
+        );
+
+        let (source, entity_type, entity_id, feed_guid, title) =
+            row.render_item().navigation_target.into_parts();
+        assert_eq!(source, SearchResultSource::MusicIndex);
+        assert_eq!(entity_type, "track");
+        assert_eq!(entity_id, "track-1");
+        assert_eq!(feed_guid.as_deref(), Some("feed-1"));
+        assert_eq!(title, "track-1");
     }
 
     #[test]
@@ -3897,7 +3971,7 @@ mod tests {
             ),
         ];
 
-        let (source, entity_type, entity_id, title) = vm
+        let (source, entity_type, entity_id, feed_guid, title) = vm
             .next_result_target()
             .expect("first result should be selected when no row is selected")
             .into_parts();
@@ -3906,18 +3980,20 @@ mod tests {
                 source,
                 entity_type.as_str(),
                 entity_id.as_str(),
+                feed_guid.as_deref(),
                 title.as_str()
             ),
             (
                 SearchResultSource::MusicIndex,
                 "feed",
                 "feed-1",
+                None,
                 "First Feed"
             )
         );
 
         vm.select_result("track", "track-1");
-        let (source, entity_type, entity_id, title) = vm
+        let (source, entity_type, entity_id, feed_guid, title) = vm
             .previous_result_target()
             .expect("previous result should move to first row")
             .into_parts();
@@ -3926,17 +4002,19 @@ mod tests {
                 source,
                 entity_type.as_str(),
                 entity_id.as_str(),
+                feed_guid.as_deref(),
                 title.as_str()
             ),
             (
                 SearchResultSource::MusicIndex,
                 "feed",
                 "feed-1",
+                None,
                 "First Feed"
             )
         );
 
-        let (source, entity_type, entity_id, title) = vm
+        let (source, entity_type, entity_id, feed_guid, title) = vm
             .next_result_target()
             .expect("next result should clamp at the final row")
             .into_parts();
@@ -3945,12 +4023,14 @@ mod tests {
                 source,
                 entity_type.as_str(),
                 entity_id.as_str(),
+                feed_guid.as_deref(),
                 title.as_str()
             ),
             (
                 SearchResultSource::MusicIndex,
                 "track",
                 "track-1",
+                None,
                 "Second Track"
             )
         );

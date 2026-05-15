@@ -77,6 +77,9 @@ windowed VM machinery.
 Goal: apply the new inspector VMs to the existing track inspector
 without changing search/library navigation.
 
+Status: Implemented - 2026-05-14. Awaiting operator visual
+confirmation before Phase D.
+
 Tasks:
 
 - `adr-0047-task-006-disable-compare-musicbrainz-on-undownloaded`

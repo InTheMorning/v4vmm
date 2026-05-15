@@ -278,8 +278,9 @@ fn render_result_item(
         .selected(is_selected)
         .focused(is_selected && list_focused)
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            let (source, entity_type, entity_id, title) = navigation_target.clone().into_parts();
-            this.select_result(source, entity_type, entity_id, title, cx);
+            let (source, entity_type, entity_id, feed_guid, title) =
+                navigation_target.clone().into_parts();
+            this.select_result(source, entity_type, entity_id, feed_guid, title, cx);
         }))
         .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
         .child(

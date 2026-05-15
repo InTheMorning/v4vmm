@@ -1,6 +1,6 @@
 # ADR 0047 Task 007: Gate Library-Extra Fields Behind Expanded Panels
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-14.
 
 ## Goal
 
@@ -59,12 +59,22 @@ AND the track is downloaded.
 
 ## Acceptance Criteria
 
-- [ ] Library-extra fields hidden by default.
-- [ ] Clicking enabled Compare ID3 / MusicBrainz toggles panel
+- [x] Library-extra fields hidden by default.
+- [x] Clicking enabled Compare ID3 / MusicBrainz toggles panel
   expansion and reveals the corresponding fields.
-- [ ] Compact view preserved when panel is collapsed.
-- [ ] Non-downloaded items never reveal gated fields.
-- [ ] Architecture guard locks the contract.
+- [x] Compact view preserved when panel is collapsed.
+- [x] Non-downloaded items never reveal gated fields.
+- [x] Architecture guard locks the contract.
+
+## Implementation Notes
+
+- `InspectorFrame` now owns `LibraryTrackInspectorState`; renderer code
+  consumes `frame.inspector_display(...)` rather than deriving panel
+  visibility directly from loaded panel data.
+- Compare ID3 and MusicBrainz toggles preserve loaded panel results
+  while collapsed, so reopening does not discard cache state.
+- `adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures`
+  guards inspector-state ownership and shell consumption.
 
 ## Test Commands
 

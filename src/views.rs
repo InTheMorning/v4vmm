@@ -487,6 +487,8 @@ fn apply_single_artist_source_fact(view: &mut ArtistView, row: &db::ArtistSource
 impl FeedView {
     pub fn from_api(f: api::Feed) -> Self {
         let image_url = f.image_url;
+        let source_description =
+            description_from_release_claims(f.source_release_claims.as_deref());
         let identity =
             EntityIdentityLinks::from_api_facts(image_url.clone(), f.source_links, f.source_ids);
         Self {
@@ -504,7 +506,7 @@ impl FeedView {
             episode_count: f.episode_count,
             release_kind: f.release_kind,
             publisher_text: f.publisher_text,
-            description: f.description,
+            description: source_description.or(f.description),
             payment_routes: f.payment_routes.unwrap_or_default(),
             contributors: f
                 .source_contributors
@@ -560,6 +562,14 @@ impl FeedView {
             tracks,
         }
     }
+}
+
+fn description_from_release_claims(claims: Option<&[api::SourceReleaseClaim]>) -> Option<String> {
+    claims?
+        .iter()
+        .filter(|claim| claim.claim_type.as_deref() == Some("description"))
+        .filter_map(|claim| nonempty_owned(claim.claim_value.clone()))
+        .next()
 }
 
 impl TrackView {
@@ -725,6 +735,25 @@ mod tests {
             Some("feed.link")
         );
         assert_eq!(view.identity.source_ids[0].source.as_deref(), Some("rss"));
+    }
+
+    #[test]
+    fn from_api_feed_prefers_explicit_source_description_claim() {
+        let feed = api::Feed {
+            description: Some("Top-level description".into()),
+            source_release_claims: Some(vec![api::SourceReleaseClaim {
+                claim_type: Some("description".into()),
+                claim_value: Some("Source fact description".into()),
+                source: Some("rss_metadata".into()),
+                extraction_path: Some("feed.description".into()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+
+        let view = FeedView::from_api(feed);
+
+        assert_eq!(view.description.as_deref(), Some("Source fact description"));
     }
 
     #[test]

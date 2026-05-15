@@ -40,6 +40,7 @@ pub(crate) struct TrackDetailBehaviorSlots {
     pub load_state: Option<TrackDetailLoadState>,
     pub primary_actions: Vec<TrackSurfaceElement>,
     pub external_links: Vec<TrackSurfaceElement>,
+    pub description_panel: Option<TrackSurfaceElement>,
     pub sections: Vec<TrackDetailSection>,
     pub section_elements: Vec<TrackSurfaceElement>,
     pub advanced_panels: Vec<TrackSurfaceElement>,
@@ -120,6 +121,10 @@ pub(crate) fn build_track_detail_surface(
 
     if !slots.external_links.is_empty() {
         surface = surface.external_links(slots.external_links);
+    }
+
+    if let Some(description_panel) = slots.description_panel {
+        surface = surface.description_panel(description_panel);
     }
 
     if !slots.sections.is_empty() {

@@ -44,6 +44,9 @@ const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 /// Rendered-line threshold before descriptions start collapsed.
 pub(crate) const DESCRIPTION_AUTO_COLLAPSE_LINES: usize = 5;
 
+/// Tooltip shown when a track must be downloaded before metadata actions.
+pub(crate) const DOWNLOAD_REQUIRED_METADATA_TOOLTIP: &str = "Download track to enable";
+
 /// Explicit disclosure state for long feed and track descriptions.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum DescriptionState {
@@ -58,13 +61,6 @@ pub(crate) enum DescriptionState {
     UserExpanded,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0047 Phase B defines description helpers before Phase C consumes them"
-    )
-)]
 impl DescriptionState {
     /// Project automatic disclosure from an estimated rendered line count.
     #[must_use]
@@ -101,14 +97,22 @@ impl DescriptionState {
     }
 }
 
+/// Estimate rendered description lines before layout measurement exists.
+#[must_use]
+pub(crate) fn description_line_count(description: Option<&str>) -> usize {
+    let Some(description) = display_description_text(description) else {
+        return 0;
+    };
+    description.lines().count().max(1)
+}
+
+/// Return description text that is meaningful enough to display.
+#[must_use]
+pub(crate) fn display_description_text(description: Option<&str>) -> Option<&str> {
+    description.map(str::trim).filter(|value| !value.is_empty())
+}
+
 /// Library track inspector panels that require explicit disclosure.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0047 Phase B defines inspector panel kinds before Phase C consumes them"
-    )
-)]
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum InspectorPanelKind {
     /// Embedded-tag comparison panel.
@@ -136,13 +140,6 @@ pub(crate) struct LibraryTrackInspectorState {
     pub(crate) description_state: DescriptionState,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "ADR 0047 Phase B defines inspector helpers before Phase C consumes them"
-    )
-)]
 impl LibraryTrackInspectorState {
     /// Construct inspector state from an estimated description line count.
     #[must_use]
@@ -215,6 +212,46 @@ pub(crate) struct LibraryTrackInspectorDisplay {
     pub(crate) musicbrainz_enabled: bool,
 }
 
+impl LibraryTrackInspectorDisplay {
+    /// Returns whether the Compare ID3 panel should be visible.
+    #[must_use]
+    pub(crate) fn show_compare_id3_panel(&self) -> bool {
+        self.compare_id3_enabled
+            && self
+                .inspector_expanded_panels
+                .contains(&InspectorPanelKind::CompareId3)
+    }
+
+    /// Returns whether the `MusicBrainz` panel should be visible.
+    #[must_use]
+    pub(crate) fn show_musicbrainz_panel(&self) -> bool {
+        self.musicbrainz_enabled
+            && self
+                .inspector_expanded_panels
+                .contains(&InspectorPanelKind::MusicBrainz)
+    }
+
+    /// Tooltip for disabled Compare ID3 controls.
+    #[must_use]
+    pub(crate) const fn compare_id3_tooltip_text(&self) -> Option<&'static str> {
+        if self.compare_id3_enabled {
+            None
+        } else {
+            Some(DOWNLOAD_REQUIRED_METADATA_TOOLTIP)
+        }
+    }
+
+    /// Tooltip for disabled `MusicBrainz` controls.
+    #[must_use]
+    pub(crate) const fn musicbrainz_tooltip_text(&self) -> Option<&'static str> {
+        if self.musicbrainz_enabled {
+            None
+        } else {
+            Some(DOWNLOAD_REQUIRED_METADATA_TOOLTIP)
+        }
+    }
+}
+
 /// Source-list entry for an in-memory saved search.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SavedSearchEntry {
@@ -229,13 +266,6 @@ pub(crate) struct SavedSearchEntry {
 pub(crate) struct SavedSearchesSectionDisplay {
     pub(crate) heading: &'static str,
     pub(crate) rows: Vec<SavedSearchEntry>,
-}
-
-fn description_line_count(description: Option<&str>) -> usize {
-    let Some(description) = description.map(str::trim).filter(|value| !value.is_empty()) else {
-        return 0;
-    };
-    description.lines().count().max(1)
 }
 
 /// Per-track `MusicBrainz` lookup state owned by the library screen and
@@ -287,6 +317,7 @@ pub(crate) struct AlbumNode {
     pub(crate) feed_id: Option<i64>,
     pub(crate) feed_guid: Option<String>,
     pub(crate) feed_url: Option<String>,
+    pub(crate) description: Option<String>,
     pub(crate) image_href: Option<String>,
     pub(crate) identity_facts: LocalIdentityFacts,
     pub(crate) tracks: Vec<TrackRow>,
@@ -761,6 +792,8 @@ pub(crate) struct LibraryViewModel {
     playlists_expanded: bool,
     playlist_sort: PlaylistSort,
     saved_searches: Vec<SavedSearchEntry>,
+    album_description_states: BTreeMap<i64, DescriptionState>,
+    track_description_states: BTreeMap<i64, DescriptionState>,
     // Selection / focus.
     selected_id: Option<i64>,
     selected_playlist_id: Option<i64>,
@@ -792,6 +825,8 @@ impl LibraryViewModel {
             playlists_expanded: true,
             playlist_sort: PlaylistSort::default(),
             saved_searches: Vec::new(),
+            album_description_states: BTreeMap::new(),
+            track_description_states: BTreeMap::new(),
             selected_id: None,
             selected_playlist_id: None,
             hovered_thumb_url: None,
@@ -989,6 +1024,45 @@ impl LibraryViewModel {
             heading: "Saved Searches",
             rows: self.saved_searches.clone(),
         })
+    }
+
+    #[must_use]
+    pub(crate) fn display_description_text(description: Option<&str>) -> Option<&str> {
+        display_description_text(description)
+    }
+
+    #[must_use]
+    pub(crate) fn album_description_state(
+        &self,
+        feed_id: i64,
+        description: Option<&str>,
+    ) -> DescriptionState {
+        self.album_description_states
+            .get(&feed_id)
+            .copied()
+            .unwrap_or_else(|| DescriptionState::project(description_line_count(description)))
+    }
+
+    #[must_use]
+    pub(crate) fn track_description_state(
+        &self,
+        track_id: i64,
+        description: Option<&str>,
+    ) -> DescriptionState {
+        self.track_description_states
+            .get(&track_id)
+            .copied()
+            .unwrap_or_else(|| DescriptionState::project(description_line_count(description)))
+    }
+
+    pub(crate) fn set_track_description_state(&mut self, track_id: i64, state: DescriptionState) {
+        self.track_description_states.insert(track_id, state);
+    }
+
+    pub(crate) fn toggle_album_description(&mut self, feed_id: i64, description: Option<&str>) {
+        let current = self.album_description_state(feed_id, description);
+        self.album_description_states
+            .insert(feed_id, current.toggle());
     }
 
     #[must_use]
@@ -1704,6 +1778,7 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
                     feed_id: album.feed_id,
                     feed_guid: album.feed_guid.clone(),
                     feed_url: album.feed_url.clone(),
+                    description: album.description.clone(),
                     image_href: album.image_href.clone(),
                     identity_facts: album.identity_facts.clone(),
                     tracks,
@@ -2664,6 +2739,18 @@ mod tests {
     }
 
     #[test]
+    fn display_description_text_trims_empty_without_inference() {
+        assert_eq!(display_description_text(None), None);
+        assert_eq!(display_description_text(Some("   ")), None);
+        assert_eq!(display_description_text(Some("...")), Some("..."));
+        assert_eq!(
+            display_description_text(Some("  real description  ")),
+            Some("real description")
+        );
+        assert_eq!(description_line_count(Some("...")), 1);
+    }
+
+    #[test]
     fn description_state_toggle_moves_to_user_variants() {
         assert_eq!(
             DescriptionState::AutoCollapsed.toggle(),
@@ -2747,6 +2834,20 @@ mod tests {
         assert_eq!(display.description_state, DescriptionState::UserCollapsed);
         assert!(!display.compare_id3_enabled);
         assert!(!display.musicbrainz_enabled);
+        assert!(!display.show_compare_id3_panel());
+        assert!(!display.show_musicbrainz_panel());
+        assert_eq!(
+            display.compare_id3_tooltip_text(),
+            Some(DOWNLOAD_REQUIRED_METADATA_TOOLTIP)
+        );
+        assert_eq!(
+            display.musicbrainz_tooltip_text(),
+            Some(DOWNLOAD_REQUIRED_METADATA_TOOLTIP)
+        );
+
+        let downloaded = state.display(true);
+        assert!(downloaded.show_compare_id3_panel());
+        assert_eq!(downloaded.compare_id3_tooltip_text(), None);
     }
 
     #[test]
@@ -3463,6 +3564,7 @@ mod tests {
                             feed_id: Some(10),
                             feed_guid: Some("saw-guid".into()),
                             feed_url: Some("https://example.test/saw.xml".into()),
+                            description: None,
                             image_href: Some("saw.jpg".into()),
                             identity_facts: LocalIdentityFacts::default(),
                             tracks: vec![rhubarb, cliffs],
@@ -3472,6 +3574,7 @@ mod tests {
                             feed_id: Some(20),
                             feed_guid: None,
                             feed_url: None,
+                            description: None,
                             image_href: None,
                             identity_facts: LocalIdentityFacts::default(),
                             tracks: vec![windowlicker],
@@ -3485,6 +3588,7 @@ mod tests {
                         feed_id: Some(30),
                         feed_guid: None,
                         feed_url: None,
+                        description: None,
                         image_href: None,
                         identity_facts: LocalIdentityFacts::default(),
                         tracks: vec![row()],
@@ -3896,6 +4000,49 @@ mod tests {
             })
         );
         assert_eq!(vm.saved_searches(), &[first, second]);
+    }
+
+    #[test]
+    fn library_view_model_album_description_state_is_sticky_per_feed() {
+        let mut vm = LibraryViewModel::new();
+        let long = Some("one\ntwo\nthree\nfour\nfive\nsix");
+
+        assert_eq!(
+            vm.album_description_state(7, long),
+            DescriptionState::AutoCollapsed
+        );
+
+        vm.toggle_album_description(7, long);
+        assert_eq!(
+            vm.album_description_state(7, Some("short")),
+            DescriptionState::UserExpanded
+        );
+        assert_eq!(
+            vm.album_description_state(8, Some("short")),
+            DescriptionState::AutoExpanded
+        );
+    }
+
+    #[test]
+    fn library_view_model_track_description_state_is_sticky_per_track() {
+        let mut vm = LibraryViewModel::new();
+        let long = Some("one\ntwo\nthree\nfour\nfive\nsix");
+
+        assert_eq!(
+            vm.track_description_state(11, long),
+            DescriptionState::AutoCollapsed
+        );
+
+        vm.set_track_description_state(11, DescriptionState::UserExpanded);
+
+        assert_eq!(
+            vm.track_description_state(11, Some("short")),
+            DescriptionState::UserExpanded
+        );
+        assert_eq!(
+            vm.track_description_state(12, Some("short")),
+            DescriptionState::AutoExpanded
+        );
     }
 
     #[test]

@@ -42,9 +42,9 @@ pub(crate) fn render_library_track_detail_metadata(
     track_core: AnyElement,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let metadata_state = track_metadata_action_state(frame);
-    let show_id3_panel = metadata_state.show_compare_panel();
-    let show_musicbrainz_panel = metadata_state.show_musicbrainz_panel();
+    let inspector_display = frame.inspector_display(track_context.track.description.as_deref());
+    let show_id3_panel = inspector_display.show_compare_id3_panel();
+    let show_musicbrainz_panel = inspector_display.show_musicbrainz_panel();
     let columns = 1 + u16::from(show_id3_panel) + u16::from(show_musicbrainz_panel);
     let rows = track_metadata_rows_for_frame(frame, track_context, result);
 
@@ -121,6 +121,7 @@ pub(crate) fn render_library_track_detail_actions(
 ) -> AnyElement {
     let pending_conflicts = pending_id3_conflict_descriptions(pending_id3_edits);
     let metadata_state = track_metadata_action_state(frame);
+    let inspector_display = frame.inspector_display(None);
     let metadata_target = EntityActionTarget::Track(TrackRef::LocalTrackId(frame.entity_id));
     let compare_action = metadata_state.compare_action(metadata_target.clone());
     let musicbrainz_action = metadata_state.musicbrainz_action(metadata_target);
@@ -174,36 +175,48 @@ pub(crate) fn render_library_track_detail_actions(
 
     if let Some(action) = compare_action {
         let a11y = action.a11y_label();
-        row = row.control(
-            action_button(
-                ActionButtonDisplay {
-                    label: SharedString::from(action.label),
-                    a11y_label: SharedString::from(a11y),
-                },
-                cx,
-            )
-            .disabled(!action.enabled)
-            .on_click(cx.listener(|this, _, _, cx| {
+        let disabled = !action.enabled || !inspector_display.compare_id3_enabled;
+        let mut button = action_button(
+            ActionButtonDisplay {
+                label: SharedString::from(action.label),
+                a11y_label: SharedString::from(a11y),
+            },
+            cx,
+        )
+        .disabled(disabled);
+        if let Some(tooltip) = inspector_display.compare_id3_tooltip_text() {
+            button = button.tooltip(tooltip);
+        }
+        row = if disabled {
+            row.control(button)
+        } else {
+            row.control(button.on_click(cx.listener(|this, _, _, cx| {
                 this.toggle_tag_compare(cx);
-            })),
-        );
+            })))
+        };
     }
 
     if let Some(action) = musicbrainz_action {
         let a11y = action.a11y_label();
-        row = row.control(
-            action_button(
-                ActionButtonDisplay {
-                    label: SharedString::from(action.label),
-                    a11y_label: SharedString::from(a11y),
-                },
-                cx,
-            )
-            .disabled(!action.enabled)
-            .on_click(cx.listener(|this, _, _, cx| {
+        let disabled = !action.enabled || !inspector_display.musicbrainz_enabled;
+        let mut button = action_button(
+            ActionButtonDisplay {
+                label: SharedString::from(action.label),
+                a11y_label: SharedString::from(a11y),
+            },
+            cx,
+        )
+        .disabled(disabled);
+        if let Some(tooltip) = inspector_display.musicbrainz_tooltip_text() {
+            button = button.tooltip(tooltip);
+        }
+        row = if disabled {
+            row.control(button)
+        } else {
+            row.control(button.on_click(cx.listener(|this, _, _, cx| {
                 this.toggle_musicbrainz_lookup(cx);
-            })),
-        );
+            })))
+        };
     }
 
     let conflict_text = (!pending_conflicts.is_empty()).then(|| pending_conflicts.join("; "));
@@ -265,11 +278,22 @@ pub(crate) fn render_library_track_detail_actions(
 }
 
 fn track_metadata_action_state(frame: &InspectorFrame) -> TrackMetadataActionState {
+    let inspector_display = frame.inspector_display(None);
+    let compare = if inspector_display.show_compare_id3_panel() {
+        metadata_panel_state(&frame.tag_compare)
+    } else {
+        MetadataPanelState::Hidden
+    };
+    let musicbrainz = if inspector_display.show_musicbrainz_panel() {
+        metadata_panel_state(&frame.musicbrainz_lookup)
+    } else {
+        MetadataPanelState::Hidden
+    };
     TrackMetadataActionState::new(
         EntitySurfaceContext::Library,
-        metadata_panel_state(&frame.tag_compare),
-        metadata_panel_state(&frame.musicbrainz_lookup),
-        frame.track.local_path.is_some(),
+        compare,
+        musicbrainz,
+        inspector_display.compare_id3_enabled && inspector_display.musicbrainz_enabled,
     )
 }
 

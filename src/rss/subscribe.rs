@@ -154,6 +154,9 @@ pub fn subscribe_feed(
                         eprintln!("set baseline musicindex_updated_at: {err:#}");
                     }
                 }
+                if api_feed.description.is_some() {
+                    db::set_feed_description(conn, feed_id, api_feed.description.as_deref())?;
+                }
             }
             Err(err) => eprintln!("fetch MusicIndex feed for baseline updated_at: {err:#}"),
         }

@@ -29,7 +29,10 @@ use crate::presentation::GpuiCommandRunner;
 use crate::presentation::RuntimeHost;
 #[cfg(feature = "async-runtime")]
 use crate::runtime::actor::ActorHandle;
-use crate::view_models::library::{AlbumNode, LibraryViewModel};
+use crate::view_models::library::{
+    description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
+    LibraryTrackInspectorState, LibraryViewModel,
+};
 use crate::view_models::workspace::{FrameNavigationState, WorkspaceFrameId};
 use crate::views::ArtistView;
 
@@ -97,6 +100,32 @@ pub(crate) struct InspectorFrame {
     pub(crate) tag_compare: LazyPanel<TagCompareResult>,
     pub(crate) musicbrainz_lookup: LazyPanel<MusicBrainzLookupResult>,
     pub(crate) musicbrainz_selected: usize,
+    pub(crate) inspector_state: LibraryTrackInspectorState,
+}
+
+impl InspectorFrame {
+    pub(crate) fn inspector_display(
+        &self,
+        description: Option<&str>,
+    ) -> LibraryTrackInspectorDisplay {
+        let description = LibraryViewModel::display_description_text(description);
+        let mut display = self
+            .inspector_state
+            .display(self.local_subscription && self.track.local_path.is_some());
+        display.description_state = display
+            .description_state
+            .project_sticky(description_line_count(description));
+        display
+    }
+
+    pub(crate) fn toggle_inspector_panel(&mut self, kind: InspectorPanelKind) -> bool {
+        self.inspector_state.toggle_panel(kind);
+        self.inspector_state.is_panel_expanded(kind)
+    }
+
+    pub(crate) fn toggle_description(&mut self) {
+        self.inspector_state.toggle_description();
+    }
 }
 
 #[derive(Clone, Debug)]

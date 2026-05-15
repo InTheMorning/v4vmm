@@ -15,8 +15,9 @@ use crate::db::{self, TrackRow};
 use crate::library::{playlist_options, LibraryApp};
 use crate::ui::composites::{
     action_button, identity_action_button, ActionButtonDisplay, AddToPlaylistDisplay,
-    AddToPlaylistPopover, IdentityActionButtonDisplay, IdentityActionKind, ReleaseSurfaceElement,
-    StatusRole, TrackRow as TrackRowComposite,
+    AddToPlaylistPopover, DisclosureTextPanel, DisclosureTextPanelDisplay,
+    IdentityActionButtonDisplay, IdentityActionKind, ReleaseSurfaceElement, StatusRole,
+    TrackRow as TrackRowComposite,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
@@ -30,8 +31,8 @@ use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTone, EntityActionVm, EntitySurfaceContext, ReleaseDetailVm,
 };
 use crate::view_models::library::{
-    AlbumNode, LibraryAlbumDetailVm, LibraryTrackRowDisplay, LibraryTrackRowVm, MbStatusKind,
-    MbTrackStatus,
+    AlbumNode, LibraryAlbumDetailVm, LibraryTrackRowDisplay, LibraryTrackRowVm, LibraryViewModel,
+    MbStatusKind, MbTrackStatus,
 };
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::views::{FeedView, TrackView};
@@ -44,6 +45,7 @@ pub(crate) fn render_library_feed_detail(
     album: &AlbumNode,
     busy_track: Option<i64>,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
+    library_vm: &LibraryViewModel,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
@@ -53,7 +55,8 @@ pub(crate) fn render_library_feed_detail(
         feed_url: album.feed_url_for_detail(),
         feed_guid: album.feed_guid.clone(),
         title: Some(album.name.clone()),
-        description: None,
+        description: LibraryViewModel::display_description_text(album.description.as_deref())
+            .map(str::to_owned),
         album_image_href: album.image_href.clone(),
         is_subscribed: false,
     };
@@ -164,6 +167,29 @@ pub(crate) fn render_library_feed_detail(
         slots
             .after_section
             .push(ReleaseSurfaceElement::from_element(panel));
+    }
+    if let (Some(feed_id), Some(description)) = (
+        album.feed_id,
+        LibraryViewModel::display_description_text(album.description.as_deref()),
+    ) {
+        let description_state = library_vm.album_description_state(feed_id, Some(description));
+        slots.description_panel = Some(ReleaseSurfaceElement::from_element(
+            DisclosureTextPanel::new(DisclosureTextPanelDisplay {
+                id: (
+                    "library-feed-description",
+                    usize::try_from(feed_id).unwrap_or_default(),
+                )
+                    .into(),
+                label: SharedString::from("Description"),
+                a11y_label: SharedString::from("Toggle feed description"),
+                body: SharedString::from(description.to_string()),
+                collapsed: !description_state.is_visible(),
+            })
+            .on_toggle(cx.listener(move |this, _, _, cx| {
+                this.toggle_album_description(feed_id, cx);
+            }))
+            .into_any_element(),
+        ));
     }
     render_release_detail_shell(&page, slots)
 }

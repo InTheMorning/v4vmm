@@ -19,6 +19,7 @@ pub struct SearchResponse {
 pub struct SearchResult {
     pub entity_type: String,
     pub entity_id: String,
+    pub feed_guid: Option<String>,
     pub quality_score: Option<f64>,
 }
 
@@ -474,6 +475,19 @@ impl Client {
             params.push(("include", include.to_string()));
         }
         self.fetch_wrapped_with_query(&["v1", "tracks", track_guid], &params)
+    }
+
+    pub fn fetch_feed_track(
+        &self,
+        feed_guid: &str,
+        track_guid: &str,
+        include: Option<&str>,
+    ) -> Result<Track> {
+        let mut params = Vec::new();
+        if let Some(include) = include {
+            params.push(("include", include.to_string()));
+        }
+        self.fetch_wrapped_with_query(&["v1", "feeds", feed_guid, "tracks", track_guid], &params)
     }
 
     pub fn fetch_tracks_by_artist(

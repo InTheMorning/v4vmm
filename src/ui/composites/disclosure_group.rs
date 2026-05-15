@@ -42,8 +42,8 @@ use gpui::{
     SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
-use crate::ui::primitives::{Label, SectionHeader};
-use crate::ui::tokens::{FontSize, SemanticColor, Size, Spacing};
+use crate::ui::primitives::{Label, MultilineText, SectionHeader};
+use crate::ui::tokens::{FontSize, Radius, SemanticColor, Size, Spacing};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -71,6 +71,14 @@ pub struct DisclosureSupplementLabel {
     label: SharedString,
 }
 
+/// Bordered text panel with a disclosure header.
+#[derive(IntoElement)]
+#[must_use]
+pub struct DisclosureTextPanel {
+    display: DisclosureTextPanelDisplay,
+    on_toggle: Option<ClickHandler>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DisclosureIndicatorDisplay {
     pub glyph: SharedString,
@@ -86,6 +94,15 @@ pub struct DisclosureGroupDisplay {
     pub id: ElementId,
     pub label: SharedString,
     pub a11y_label: SharedString,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DisclosureTextPanelDisplay {
+    pub id: ElementId,
+    pub label: SharedString,
+    pub a11y_label: SharedString,
+    pub body: SharedString,
+    pub collapsed: bool,
 }
 
 impl DisclosureGroup {
@@ -129,6 +146,23 @@ impl DisclosureSupplementLabel {
     }
 }
 
+impl DisclosureTextPanel {
+    pub fn new(display: DisclosureTextPanelDisplay) -> Self {
+        Self {
+            display,
+            on_toggle: None,
+        }
+    }
+
+    pub fn on_toggle(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_toggle = Some(Rc::new(handler));
+        self
+    }
+}
+
 impl RenderOnce for DisclosureIndicator {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         div().w(Spacing::MD.scaled(cx)).child(
@@ -159,6 +193,38 @@ impl RenderOnce for DisclosureGroup {
             row = row.on_click(move |event, window, cx| handler(event, window, cx));
         }
         row
+    }
+}
+
+impl RenderOnce for DisclosureTextPanel {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let collapsed = self.display.collapsed;
+        let mut header = DisclosureGroup::new(DisclosureGroupDisplay {
+            id: self.display.id,
+            label: self.display.label,
+            a11y_label: self.display.a11y_label,
+        })
+        .collapsed(collapsed);
+        if let Some(handler) = self.on_toggle {
+            header = header.on_toggle(move |event, window, cx| handler(event, window, cx));
+        }
+
+        div()
+            .border_1()
+            .border_color(crate::ui::tokens::color(cx, SemanticColor::Separator))
+            .rounded(Radius::MD.scaled(cx))
+            .p(Spacing::SM.scaled(cx))
+            .child(header)
+            .when(!collapsed, |el| {
+                el.child(
+                    div().mt(Spacing::XS.scaled(cx)).child(
+                        MultilineText::new(self.display.body)
+                            .max_lines(usize::MAX)
+                            .size(FontSize::Micro)
+                            .color(SemanticColor::Label),
+                    ),
+                )
+            })
     }
 }
 
@@ -207,5 +273,35 @@ mod tests {
         });
 
         assert_eq!(label.label, SharedString::from("(2 albums)"));
+    }
+
+    #[test]
+    fn text_panel_owns_display_and_defaults_without_handler() {
+        let panel = DisclosureTextPanel::new(DisclosureTextPanelDisplay {
+            id: "description".into(),
+            label: "Description".into(),
+            a11y_label: "Toggle Description section".into(),
+            body: "Long form text".into(),
+            collapsed: true,
+        });
+
+        assert_eq!(panel.display.label, SharedString::from("Description"));
+        assert_eq!(panel.display.body, SharedString::from("Long form text"));
+        assert!(panel.display.collapsed);
+        assert!(panel.on_toggle.is_none());
+    }
+
+    #[test]
+    fn text_panel_sets_toggle_handler() {
+        let panel = DisclosureTextPanel::new(DisclosureTextPanelDisplay {
+            id: "description".into(),
+            label: "Description".into(),
+            a11y_label: "Toggle Description section".into(),
+            body: "Long form text".into(),
+            collapsed: false,
+        })
+        .on_toggle(|_, _, _| {});
+
+        assert!(panel.on_toggle.is_some());
     }
 }

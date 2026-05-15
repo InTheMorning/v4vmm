@@ -167,15 +167,15 @@ impl SearchApp {
 
     pub fn move_up(&mut self, cx: &mut Context<Self>) {
         if let Some(target) = self.vm.previous_result_target() {
-            let (source, entity_type, entity_id, title) = target.into_parts();
-            self.select_result(source, entity_type, entity_id, title, cx);
+            let (source, entity_type, entity_id, feed_guid, title) = target.into_parts();
+            self.select_result(source, entity_type, entity_id, feed_guid, title, cx);
         }
     }
 
     pub fn move_down(&mut self, cx: &mut Context<Self>) {
         if let Some(target) = self.vm.next_result_target() {
-            let (source, entity_type, entity_id, title) = target.into_parts();
-            self.select_result(source, entity_type, entity_id, title, cx);
+            let (source, entity_type, entity_id, feed_guid, title) = target.into_parts();
+            self.select_result(source, entity_type, entity_id, feed_guid, title, cx);
         }
     }
 
@@ -372,15 +372,16 @@ impl SearchApp {
         source: SearchResultSource,
         entity_type: String,
         entity_id: String,
+        feed_guid: Option<String>,
         title: String,
         cx: &mut Context<Self>,
     ) {
         self.vm
-            .select_result_from_source(source, &entity_type, &entity_id);
+            .select_result_from_source(source, &entity_type, &entity_id, feed_guid.as_deref());
         if source == SearchResultSource::Library && entity_type == "track" {
             self.load_local_track_inspector(entity_id, title, false, cx);
         } else {
-            self.load_inspector(entity_type, entity_id, title, false, cx);
+            self.load_inspector(entity_type, entity_id, feed_guid, title, false, cx);
         }
     }
 
@@ -391,7 +392,7 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) {
         self.vm.select_recent_feed(&feed_guid);
-        self.load_inspector("feed".into(), feed_guid, title, false, cx);
+        self.load_inspector("feed".into(), feed_guid, None, title, false, cx);
     }
 
     pub(crate) fn push_inspector(
@@ -401,13 +402,14 @@ impl SearchApp {
         title: String,
         cx: &mut Context<Self>,
     ) {
-        self.load_inspector(entity_type, entity_id, title, true, cx);
+        self.load_inspector(entity_type, entity_id, None, title, true, cx);
     }
 
     fn load_inspector(
         &mut self,
         entity_type: String,
         entity_id: String,
+        feed_guid: Option<String>,
         title: String,
         push: bool,
         cx: &mut Context<Self>,
@@ -426,11 +428,17 @@ impl SearchApp {
             async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
                 let request_type = entity_type.clone();
                 let request_id = entity_id.clone();
+                let request_feed_guid = feed_guid.clone();
                 let detail = cx
                     .background_executor()
-                    .spawn(
-                        async move { fetch_inspector_detail(&client, &request_type, &request_id) },
-                    )
+                    .spawn(async move {
+                        fetch_inspector_detail(
+                            &client,
+                            &request_type,
+                            &request_id,
+                            request_feed_guid.as_deref(),
+                        )
+                    })
                     .await;
 
                 this.update(
@@ -2131,6 +2139,10 @@ fn fetch_search_batch(
         return fetch_artist_search_batch(client, query, cursor, fuzzy);
     }
 
+    if entity_type.is_none() {
+        return fetch_partitioned_search_batch(client, query, cursor, fuzzy);
+    }
+
     if entity_type.is_some_and(|kind| !search_result_type_is_visible(kind)) {
         return Ok(SearchBatch {
             rows: Vec::new(),
@@ -2157,6 +2169,124 @@ fn fetch_search_batch(
         has_more: response.pagination.has_more,
         cursor: response.pagination.cursor,
     })
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+struct PartitionedSearchCursor {
+    feed: Option<String>,
+    track: Option<String>,
+}
+
+fn fetch_partitioned_search_batch(
+    client: &Client,
+    query: &str,
+    cursor: Option<&str>,
+    fuzzy: bool,
+) -> Result<SearchBatch> {
+    let parsed_cursor = cursor.and_then(decode_partitioned_search_cursor);
+    let feed_cursor = parsed_cursor
+        .as_ref()
+        .and_then(|cursor| cursor.feed.as_deref());
+    let track_cursor = parsed_cursor
+        .as_ref()
+        .and_then(|cursor| cursor.track.as_deref());
+
+    let feed_batch = if cursor.is_some() && feed_cursor.is_none() {
+        Ok(SearchBatch {
+            rows: Vec::new(),
+            has_more: false,
+            cursor: None,
+        })
+    } else {
+        fetch_typed_search_batch(client, query, "feed", feed_cursor, fuzzy)
+    };
+    let track_batch = if cursor.is_some() && track_cursor.is_none() {
+        Ok(SearchBatch {
+            rows: Vec::new(),
+            has_more: false,
+            cursor: None,
+        })
+    } else {
+        fetch_typed_search_batch(client, query, "track", track_cursor, fuzzy)
+    };
+
+    match (feed_batch, track_batch) {
+        (Ok(mut feeds), Ok(tracks)) => {
+            feeds.rows.extend(tracks.rows);
+            let mut rows = artist_rows_from_result_rows(&feeds.rows, Some(query));
+            enrich_artist_rows(client, &mut rows);
+            rows.extend(feeds.rows);
+            Ok(SearchBatch {
+                rows,
+                has_more: feeds.has_more || tracks.has_more,
+                cursor: encode_partitioned_search_cursor(
+                    feeds.cursor.as_deref(),
+                    tracks.cursor.as_deref(),
+                ),
+            })
+        }
+        (Ok(mut feeds), Err(_track_error)) => {
+            let mut rows = artist_rows_from_result_rows(&feeds.rows, Some(query));
+            enrich_artist_rows(client, &mut rows);
+            rows.append(&mut feeds.rows);
+            Ok(SearchBatch {
+                rows,
+                has_more: feeds.has_more,
+                cursor: encode_partitioned_search_cursor(feeds.cursor.as_deref(), None),
+            })
+        }
+        (Err(_feed_error), Ok(mut tracks)) => {
+            let mut rows = artist_rows_from_result_rows(&tracks.rows, Some(query));
+            enrich_artist_rows(client, &mut rows);
+            rows.append(&mut tracks.rows);
+            Ok(SearchBatch {
+                rows,
+                has_more: tracks.has_more,
+                cursor: encode_partitioned_search_cursor(None, tracks.cursor.as_deref()),
+            })
+        }
+        (Err(feed_error), Err(track_error)) => Err(anyhow!(
+            "feed search failed: {feed_error}; track search failed: {track_error}"
+        )),
+    }
+}
+
+fn fetch_typed_search_batch(
+    client: &Client,
+    query: &str,
+    entity_type: &str,
+    cursor: Option<&str>,
+    fuzzy: bool,
+) -> Result<SearchBatch> {
+    let response = client.search(query, Some(entity_type), Some(PAGE_LIMIT), cursor, fuzzy)?;
+    Ok(SearchBatch {
+        rows: response
+            .data
+            .iter()
+            .map(|hit| search_hit_to_result_row(client, hit))
+            .filter(|row| search_result_type_is_visible(&row.entity_type))
+            .collect(),
+        has_more: response.pagination.has_more,
+        cursor: response.pagination.cursor,
+    })
+}
+
+fn encode_partitioned_search_cursor(feed: Option<&str>, track: Option<&str>) -> Option<String> {
+    if feed.is_none() && track.is_none() {
+        return None;
+    }
+    serde_json::to_string(&PartitionedSearchCursor {
+        feed: feed.map(str::to_string),
+        track: track.map(str::to_string),
+    })
+    .ok()
+    .map(|cursor| format!("partitioned:{cursor}"))
+}
+
+fn decode_partitioned_search_cursor(cursor: &str) -> Option<PartitionedSearchCursor> {
+    cursor
+        .strip_prefix("partitioned:")
+        .and_then(|value| serde_json::from_str(value).ok())
 }
 
 fn fetch_local_library_search_rows(
@@ -2188,35 +2318,39 @@ fn fetch_artist_search_batch(
     cursor: Option<&str>,
     fuzzy: bool,
 ) -> Result<SearchBatch> {
-    let response = client.search(query, None, Some(PAGE_LIMIT), cursor, fuzzy)?;
-    let rows: Vec<ResultRow> = response
-        .data
-        .iter()
-        .map(|hit| search_hit_to_result_row(client, hit))
-        .collect();
+    let batch = fetch_partitioned_search_batch(client, query, cursor, fuzzy)?;
 
     Ok(SearchBatch {
         rows: {
-            let mut artist_rows = artist_rows_from_result_rows(&rows, Some(query));
+            let mut artist_rows = artist_rows_from_result_rows(&batch.rows, Some(query));
             enrich_artist_rows(client, &mut artist_rows);
             artist_rows
         },
-        has_more: response.pagination.has_more,
-        cursor: response.pagination.cursor,
+        has_more: batch.has_more,
+        cursor: batch.cursor,
     })
 }
 
 fn search_hit_to_result_row(client: &Client, hit: &SearchResult) -> ResultRow {
-    let detail = client
-        .fetch_detail(&hit.entity_type, &hit.entity_id)
-        .ok()
-        .filter(|detail| {
-            matches!(
-                detail,
-                EntityDetail::Artist(_) | EntityDetail::Feed(_) | EntityDetail::Track(_)
-            )
-        });
-    ResultRow::new(hit.entity_type.clone(), hit.entity_id.clone(), detail)
+    let detail = fetch_scoped_detail(
+        client,
+        &hit.entity_type,
+        &hit.entity_id,
+        hit.feed_guid.as_deref(),
+        None,
+    )
+    .ok()
+    .filter(|detail| {
+        matches!(
+            detail,
+            EntityDetail::Artist(_) | EntityDetail::Feed(_) | EntityDetail::Track(_)
+        )
+    });
+    if hit.entity_type == "track" {
+        ResultRow::musicindex_track(hit.entity_id.clone(), hit.feed_guid.clone(), detail)
+    } else {
+        ResultRow::new(hit.entity_type.clone(), hit.entity_id.clone(), detail)
+    }
 }
 
 fn enrich_artist_rows(client: &Client, rows: &mut [ResultRow]) {
@@ -2276,6 +2410,7 @@ fn fetch_inspector_detail(
     client: &Client,
     entity_type: &str,
     entity_id: &str,
+    feed_guid: Option<&str>,
 ) -> Result<(InspectorDetail, Option<String>)> {
     match entity_type {
         "artist" => {
@@ -2369,8 +2504,10 @@ fn fetch_inspector_detail(
             Ok((InspectorDetail::Feed(Box::new(feed)), image_url))
         }
         "track" => {
-            let mut track = client.fetch_track(
+            let mut track = fetch_scoped_track(
+                client,
                 entity_id,
+                feed_guid,
                 Some(
                     "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
                 ),
@@ -2401,6 +2538,33 @@ fn fetch_inspector_detail(
             None,
         )),
         _ => Err(anyhow!("unknown inspector entity type: {entity_type}")),
+    }
+}
+
+fn fetch_scoped_detail(
+    client: &Client,
+    entity_type: &str,
+    entity_id: &str,
+    feed_guid: Option<&str>,
+    include: Option<&str>,
+) -> Result<EntityDetail> {
+    match entity_type {
+        "track" => Ok(EntityDetail::Track(fetch_scoped_track(
+            client, entity_id, feed_guid, include,
+        )?)),
+        _ => client.fetch_detail(entity_type, entity_id),
+    }
+}
+
+fn fetch_scoped_track(
+    client: &Client,
+    track_guid: &str,
+    feed_guid: Option<&str>,
+    include: Option<&str>,
+) -> Result<Track> {
+    match feed_guid.map(str::trim).filter(|guid| !guid.is_empty()) {
+        Some(feed_guid) => client.fetch_feed_track(feed_guid, track_guid, include),
+        None => client.fetch_track(track_guid, include),
     }
 }
 
@@ -2447,7 +2611,12 @@ fn hydrate_feed_track_play_urls(client: &Client, feed: &mut Feed) {
         let Some(track_guid) = nonempty_url(track.track_guid.as_deref()).map(str::to_string) else {
             continue;
         };
-        let Ok(hydrated) = client.fetch_track(&track_guid, Some("source_enclosures")) else {
+        let Ok(hydrated) = fetch_scoped_track(
+            client,
+            &track_guid,
+            track.feed_guid.as_deref(),
+            Some("source_enclosures"),
+        ) else {
             continue;
         };
         merge_track_play_fields(track, hydrated);

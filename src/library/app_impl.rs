@@ -65,9 +65,10 @@ use crate::ui::style::spacing;
 use crate::ui::tokens::SemanticColor;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
-    AlbumNode, ArtistNode, FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay,
-    FeedUpdatePhase, LibraryTrackActionVm, LibraryTrackRowVm, LibraryTree, LibraryViewModel,
-    MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay,
+    description_line_count, AlbumNode, ArtistNode, FeedUpdateActionDisplay, FeedUpdateActionKind,
+    FeedUpdateDisplay, FeedUpdatePhase, InspectorPanelKind, LibraryTrackActionVm,
+    LibraryTrackInspectorState, LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbTrackStatus,
+    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay,
     PlaylistSidebarRowVm, PlaylistSidebarVm, TrackSubscribeOutcome,
 };
 use crate::view_models::playlist_option_displays;
@@ -99,6 +100,7 @@ impl InspectorFrame {
             tag_compare: LazyPanel::Hidden,
             musicbrainz_lookup: LazyPanel::Hidden,
             musicbrainz_selected: 0,
+            inspector_state: LibraryTrackInspectorState::default(),
         }
     }
 }
@@ -1091,6 +1093,7 @@ impl LibraryApp {
             .or(track.album_image_href.as_deref())
             .and_then(|url| self.thumbnail_for_url(Some(url), true, cx));
         let mut frame = InspectorFrame::for_track(track.clone(), image);
+        frame.inspector_state.description_state = self.vm.track_description_state(track.id, None);
         if let Some(lookup) = self.vm.staged_musicbrainz(track.id).cloned() {
             frame.musicbrainz_lookup = LazyPanel::Loaded(lookup);
             frame.musicbrainz_selected = 0;
@@ -1470,9 +1473,16 @@ impl LibraryApp {
         let Some(frame) = self.selected_track_frame_mut() else {
             return;
         };
+        if !frame.local_subscription || frame.track.local_path.is_none() {
+            return;
+        }
+        let expanded = frame.toggle_inspector_panel(InspectorPanelKind::CompareId3);
+        if !expanded {
+            cx.notify();
+            return;
+        }
         match frame.tag_compare {
             LazyPanel::Loaded(_) => {
-                frame.tag_compare = LazyPanel::Hidden;
                 cx.notify();
                 return;
             }
@@ -1576,10 +1586,16 @@ impl LibraryApp {
         let Some(frame) = self.selected_track_frame_mut() else {
             return;
         };
+        if !frame.local_subscription || frame.track.local_path.is_none() {
+            return;
+        }
+        let expanded = frame.toggle_inspector_panel(InspectorPanelKind::MusicBrainz);
+        if !expanded {
+            cx.notify();
+            return;
+        }
         match frame.musicbrainz_lookup {
             LazyPanel::Loaded(_) => {
-                frame.musicbrainz_lookup = LazyPanel::Hidden;
-                frame.musicbrainz_selected = 0;
                 cx.notify();
                 return;
             }
@@ -1626,6 +1642,43 @@ impl LibraryApp {
                 cx.notify();
             }
         }
+    }
+
+    pub(crate) fn toggle_track_description(&mut self, cx: &mut Context<Self>) {
+        let Some(frame) = self.selected_track_frame_mut() else {
+            return;
+        };
+        let line_count =
+            description_line_count(frame.source_context.as_ref().and_then(|context| {
+                LibraryViewModel::display_description_text(context.track.description.as_deref())
+            }));
+        frame.inspector_state.project_description(line_count);
+        frame.toggle_description();
+        let track_id = frame.entity_id;
+        let state = frame.inspector_state.description_state;
+        self.vm.set_track_description_state(track_id, state);
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_album_description(&mut self, feed_id: i64, cx: &mut Context<Self>) {
+        let Some(description) = self.detail_album_description(feed_id) else {
+            return;
+        };
+        self.vm
+            .toggle_album_description(feed_id, Some(description.as_str()));
+        cx.notify();
+    }
+
+    fn detail_album_description(&self, feed_id: i64) -> Option<String> {
+        let LibraryDetail::Album(album) = &self.detail else {
+            return None;
+        };
+        (album.feed_id == Some(feed_id))
+            .then(|| {
+                LibraryViewModel::display_description_text(album.description.as_deref())
+                    .map(str::to_owned)
+            })
+            .flatten()
     }
 
     #[allow(dead_code)]
@@ -1985,6 +2038,11 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
             .push(track.clone());
     }
 
+    let subscribed_feeds: BTreeMap<i64, db::FeedRow> = db::subscribed_feeds(conn)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|feed| (feed.id, feed))
+        .collect();
     let mut feed_url_cache: BTreeMap<i64, Option<String>> = BTreeMap::new();
     let artists = artist_map
         .into_iter()
@@ -1996,10 +2054,21 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                     let feed_id = tracks.first().map(|t| t.feed_id);
                     let feed_guid = tracks.first().and_then(|t| t.feed_guid.clone());
                     let feed_url = feed_id.and_then(|fid| {
-                        feed_url_cache
-                            .entry(fid)
-                            .or_insert_with(|| db::feed_url_by_id(conn, fid).ok().flatten())
-                            .clone()
+                        subscribed_feeds.get(&fid).map_or_else(
+                            || {
+                                feed_url_cache
+                                    .entry(fid)
+                                    .or_insert_with(|| db::feed_url_by_id(conn, fid).ok().flatten())
+                                    .clone()
+                            },
+                            |feed| Some(feed.feed_url.clone()),
+                        )
+                    });
+                    let description = feed_id.and_then(|fid| {
+                        subscribed_feeds.get(&fid).and_then(|feed| {
+                            LibraryViewModel::display_description_text(feed.description.as_deref())
+                                .map(str::to_owned)
+                        })
                     });
                     let image_href = tracks
                         .iter()
@@ -2010,6 +2079,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         feed_id,
                         feed_guid,
                         feed_url,
+                        description,
                         image_href,
                         identity_facts: feed_id
                             .and_then(|fid| crate::local_identity::feed_facts(conn, fid).ok())
@@ -2286,6 +2356,7 @@ impl Render for LibraryApp {
             &self.detail,
             self.vm.busy_track(),
             self.vm.mb_status(),
+            &self.vm,
             &album_thumbs,
             self.vm.playlists(),
             &chrome,

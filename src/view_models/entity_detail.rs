@@ -324,8 +324,20 @@ impl TrackMetadataActionState {
 
     #[must_use]
     pub fn compare_action(&self, target: EntityActionTarget) -> Option<EntityActionVm> {
-        if self.context != EntitySurfaceContext::Library || !self.has_local_file {
+        if self.context != EntitySurfaceContext::Library {
             return None;
+        }
+
+        if !self.has_local_file {
+            return Some(
+                EntityActionVm::new(
+                    EntityActionKind::CompareMetadata,
+                    target,
+                    "Compare ID3",
+                    EntityActionTone::Quiet,
+                )
+                .disabled(),
+            );
         }
 
         let action = match self.compare {
@@ -354,8 +366,20 @@ impl TrackMetadataActionState {
 
     #[must_use]
     pub fn musicbrainz_action(&self, target: EntityActionTarget) -> Option<EntityActionVm> {
-        if self.context != EntitySurfaceContext::Library || !self.has_local_file {
+        if self.context != EntitySurfaceContext::Library {
             return None;
+        }
+
+        if !self.has_local_file {
+            return Some(
+                EntityActionVm::new(
+                    EntityActionKind::OpenMusicBrainz,
+                    target,
+                    "MusicBrainz",
+                    EntityActionTone::Quiet,
+                )
+                .disabled(),
+            );
         }
 
         let action = match self.musicbrainz {
@@ -2179,8 +2203,16 @@ mod tests {
             true,
         );
 
-        assert!(no_file.compare_action(target.clone()).is_none());
-        assert!(no_file.musicbrainz_action(target).is_none());
+        let disabled_compare = no_file
+            .compare_action(target.clone())
+            .expect("library compare action should render disabled without a local file");
+        let disabled_musicbrainz = no_file
+            .musicbrainz_action(target)
+            .expect("library musicbrainz action should render disabled without a local file");
+        assert_eq!(disabled_compare.label, "Compare ID3");
+        assert!(!disabled_compare.enabled);
+        assert_eq!(disabled_musicbrainz.label, "MusicBrainz");
+        assert!(!disabled_musicbrainz.enabled);
         assert!(no_file.show_compare_panel());
         assert!(no_file.show_musicbrainz_panel());
         assert!(!hidden.show_compare_panel());

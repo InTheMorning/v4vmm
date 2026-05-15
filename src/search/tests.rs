@@ -181,6 +181,7 @@ fn artist_rows_are_derived_from_feed_and_track_details() {
             source: crate::view_models::search::SearchResultSource::MusicIndex,
             entity_type: "track".into(),
             entity_id: "track-1".into(),
+            feed_guid: None,
             detail: Some(EntityDetail::Track(Track {
                 track_artist: Some("The Doerfels".into()),
                 release_artist: Some("The Doerfels".into()),
@@ -192,6 +193,7 @@ fn artist_rows_are_derived_from_feed_and_track_details() {
             source: crate::view_models::search::SearchResultSource::MusicIndex,
             entity_type: "feed".into(),
             entity_id: "feed-1".into(),
+            feed_guid: None,
             detail: Some(EntityDetail::Feed(Feed {
                 release_artist: Some("The Doerfels".into()),
                 image_url: Some("https://example.test/feed.png".into()),
@@ -202,6 +204,7 @@ fn artist_rows_are_derived_from_feed_and_track_details() {
             source: crate::view_models::search::SearchResultSource::MusicIndex,
             entity_type: "artist".into(),
             entity_id: "other".into(),
+            feed_guid: None,
             detail: Some(EntityDetail::Artist(Artist {
                 name: Some("Other Artist".into()),
                 ..Artist::default()

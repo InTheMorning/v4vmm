@@ -799,6 +799,204 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
 }
 
 #[test]
+fn adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures() {
+    let library_struct_source = read_source(&manifest_path("src/library.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let metadata_vm_source = read_source(&manifest_path("src/view_models/entity_detail.rs"));
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let metadata_shell_source = read_source(&manifest_path(
+        "src/ui/shells/library/track_detail_metadata.rs",
+    ));
+    let track_detail_source = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
+    let feed_detail_source = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    let disclosure_source = read_source(&manifest_path("src/ui/composites/disclosure_group.rs"));
+    let composite_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "inspector_state: LibraryTrackInspectorState",
+        "fn inspector_display(",
+        "fn toggle_inspector_panel(&mut self, kind: InspectorPanelKind) -> bool",
+        "fn toggle_description(&mut self)",
+    ] {
+        if !library_struct_source.contains(required) {
+            violations.push(format!(
+                "src/library.rs: ADR 0047 Phase C inspector frame contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "inspector_state: LibraryTrackInspectorState::default()",
+        "toggle_inspector_panel(InspectorPanelKind::CompareId3)",
+        "toggle_inspector_panel(InspectorPanelKind::MusicBrainz)",
+        "fn toggle_track_description(",
+        "fn toggle_album_description(",
+    ] {
+        if !library_app_source.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: ADR 0047 Phase C app wiring missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "if self.context != EntitySurfaceContext::Library || !self.has_local_file {\n            return None;",
+        "if !self.has_local_file {\n            return None;",
+    ] {
+        if metadata_vm_source.contains(forbidden) {
+            violations.push(
+                "src/view_models/entity_detail.rs: ADR 0047 Phase C metadata actions must stay visible and disabled when unavailable"
+                    .to_string(),
+            );
+        }
+    }
+
+    for required in [
+        "pub(crate) const DOWNLOAD_REQUIRED_METADATA_TOOLTIP",
+        "pub(crate) fn show_compare_id3_panel",
+        "pub(crate) fn show_musicbrainz_panel",
+        "pub(crate) const fn compare_id3_tooltip_text",
+        "pub(crate) const fn musicbrainz_tooltip_text",
+        "pub(crate) fn display_description_text",
+        "track_description_states: BTreeMap<i64, DescriptionState>",
+        "pub(crate) fn track_description_state",
+        "pub(crate) fn set_track_description_state",
+        "pub(crate) fn toggle_album_description",
+    ] {
+        if !library_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: ADR 0047 Phase C library VM projection missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "frame.inspector_display",
+        "show_compare_id3_panel()",
+        "show_musicbrainz_panel()",
+        "compare_id3_tooltip_text()",
+        "musicbrainz_tooltip_text()",
+        "if disabled {",
+        ".on_click(cx.listener(|this, _, _, cx| {",
+    ] {
+        if !metadata_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/library/track_detail_metadata.rs: ADR 0047 Phase C metadata shell missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "let show_id3_panel = metadata_state.show_compare_panel()",
+        "let show_musicbrainz_panel = metadata_state.show_musicbrainz_panel()",
+    ] {
+        if metadata_shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/library/track_detail_metadata.rs: ADR 0047 Phase C panel visibility must come from inspector display, found `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub struct DisclosureTextPanel",
+        "pub struct DisclosureTextPanelDisplay",
+        "DisclosureGroup::new",
+        "MultilineText::new",
+    ] {
+        if !disclosure_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/disclosure_group.rs: ADR 0047 Phase C shared disclosure panel missing `{required}`"
+            ));
+        }
+    }
+
+    if !composite_mod_source.contains("DisclosureTextPanel")
+        || !composite_mod_source.contains("DisclosureTextPanelDisplay")
+    {
+        violations.push(
+            "src/ui/composites/mod.rs: ADR 0047 Phase C disclosure text panel is not exported"
+                .to_string(),
+        );
+    }
+
+    for required in [
+        "DisclosureTextPanel",
+        "description_state.is_visible()",
+        "LibraryViewModel::display_description_text",
+        "toggle_track_description",
+    ] {
+        if !track_detail_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/library/track_detail.rs: ADR 0047 Phase C track description disclosure missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "DisclosureTextPanel",
+        "LibraryViewModel::display_description_text",
+        "album_description_state",
+        "toggle_album_description",
+    ] {
+        if !feed_detail_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/library/feed_detail.rs: ADR 0047 Phase C feed description disclosure missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Phase C inspector rewire violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0047_description_rendering_must_not_infer_placeholder_metadata() {
+    let checked_files = [
+        "src/view_models/library.rs",
+        "src/ui/shells/library/feed_detail.rs",
+        "src/ui/shells/library/track_detail.rs",
+        "src/ui/composites/disclosure_group.rs",
+        "src/ui/composites/track_detail_surface.rs",
+        "src/ui/shells/entity.rs",
+        "src/ui/shells/track.rs",
+    ];
+    let forbidden_patterns = [
+        ".trim_matches(|ch| ch == '.'",
+        ".trim_matches(|ch| ch == '\\u{2026}'",
+        ".all(|ch| ch.is_whitespace() || ch == '.'",
+        "description.contains(\"...\")",
+        "description == \"...\"",
+        "value == \"...\"",
+        "placeholder-only",
+        "placeholder description",
+    ];
+    let mut violations = Vec::new();
+
+    for path in checked_files {
+        let source = read_source(&manifest_path(path));
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in forbidden_patterns {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{path}:{line_number}: ADR 0047 forbids renderer/view-model placeholder inference for descriptions; fix source hydration instead of matching `{forbidden}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 prohibited description placeholder inference:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn workspace_frame_shell_composite_owns_shared_frame_chrome() {
     let source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
     let mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
