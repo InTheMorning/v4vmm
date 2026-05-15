@@ -77,7 +77,7 @@ use crate::view_models::workspace::{
     FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId, WorkspaceLayout,
     WorkspaceModelError,
 };
-use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
+use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts};
 
 impl InspectorFrame {
     fn for_track(track: TrackRow, image: Option<Arc<Image>>) -> Self {
@@ -879,7 +879,7 @@ impl LibraryApp {
     }
 
     fn hydrate_album_identity_on_view(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
-        if album_has_feed_identity_actions(&album.identity_facts) {
+        if album_has_feed_identity_actions(&album.identity_facts) && album.description.is_some() {
             return;
         }
         let (Some(feed_id), Some(feed_guid)) = (album.feed_id, album.feed_guid.clone()) else {
@@ -904,11 +904,17 @@ impl LibraryApp {
                 this.update(
                     cx,
                     move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        if let Ok(facts) = result {
-                            this.vm.update_album_identity_facts(feed_id, &facts);
+                        if let Ok(hydration) = result {
+                            this.vm
+                                .update_album_identity_facts(feed_id, &hydration.identity_facts);
+                            this.vm.update_album_description(
+                                feed_id,
+                                hydration.description.as_deref(),
+                            );
                             if let LibraryDetail::Album(album) = &mut this.detail {
                                 if album.feed_id == Some(feed_id) {
-                                    album.identity_facts = facts;
+                                    album.identity_facts = hydration.identity_facts;
+                                    album.description = hydration.description;
                                 }
                             }
                             cx.notify();
@@ -2107,22 +2113,34 @@ fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
     identity.website_url.is_some() && identity.nostr_npub.is_some()
 }
 
+#[derive(Debug)]
+struct AlbumHydration {
+    identity_facts: LocalIdentityFacts,
+    description: Option<String>,
+}
+
 fn hydrate_album_identity_facts(
     conn: Arc<Mutex<Connection>>,
     musicindex_endpoint: &str,
     feed_id: i64,
     feed_guid: &str,
-) -> anyhow::Result<LocalIdentityFacts> {
+) -> anyhow::Result<AlbumHydration> {
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
     let feed = client.fetch_feed(
         feed_guid,
-        Some("source_links,source_ids,source_contributors"),
+        Some("source_links,source_ids,source_release_claims,source_contributors"),
     )?;
+    let description = FeedView::from_api(feed.clone()).description;
     let mut db = conn
         .lock()
         .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+    db::set_feed_description(&db, feed_id, description.as_deref())?;
     crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
-    crate::local_identity::feed_facts(&db, feed_id)
+    let identity_facts = crate::local_identity::feed_facts(&db, feed_id)?;
+    Ok(AlbumHydration {
+        identity_facts,
+        description,
+    })
 }
 
 // ---------------------------------------------------------------------------

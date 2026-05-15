@@ -997,6 +997,60 @@ fn adr_0047_description_rendering_must_not_infer_placeholder_metadata() {
 }
 
 #[test]
+fn adr_0047_feed_description_panels_render_wrapped_body_text() {
+    let release_shell = read_source(&manifest_path("src/ui/shells/entity.rs"));
+    let disclosure_panel = read_source(&manifest_path("src/ui/composites/disclosure_group.rs"));
+    let mut violations = Vec::new();
+
+    for (path, source) in [
+        ("src/ui/shells/entity.rs", release_shell),
+        ("src/ui/composites/disclosure_group.rs", disclosure_panel),
+    ] {
+        if !source.contains(".wrap_lines()") {
+            violations.push(format!(
+                "{path}: ADR 0047 feed descriptions must wrap body text instead of single-line truncating source lines"
+            ));
+        }
+        if source.contains("MultilineText::new(display.body)\n                    .max_lines(3)") {
+            violations.push(format!(
+                "{path}: ADR 0047 feed descriptions must not cap release body text to three metadata-style lines"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 feed description panel regressions:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0047_library_album_hydration_updates_feed_description_source_fact() {
+    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "source_release_claims",
+        "FeedView::from_api(feed.clone()).description",
+        "db::set_feed_description",
+        "update_album_description",
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: ADR 0047 library album hydration must preserve feed description source data via `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 feed description hydration regressions:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn workspace_frame_shell_composite_owns_shared_frame_chrome() {
     let source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
     let mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));

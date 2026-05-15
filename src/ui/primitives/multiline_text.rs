@@ -29,6 +29,7 @@ const BLANK_PLACEHOLDER: &str = " ";
 pub struct MultilineText {
     value: SharedString,
     max_lines: usize,
+    wrap_lines: bool,
     color: Option<SemanticColor>,
     color_raw: Option<Rgba>,
     size: Option<FontSize>,
@@ -41,6 +42,7 @@ impl MultilineText {
         Self {
             value: value.into(),
             max_lines: 6,
+            wrap_lines: false,
             color: None,
             color_raw: None,
             size: None,
@@ -57,6 +59,12 @@ impl MultilineText {
     /// ellipsis line. Mirrors `SwiftUI` `.lineLimit(n)`.
     pub fn max_lines(mut self, max_lines: usize) -> Self {
         self.max_lines = max_lines.max(1);
+        self
+    }
+
+    /// Allow long source lines to wrap instead of truncating each line.
+    pub fn wrap_lines(mut self) -> Self {
+        self.wrap_lines = true;
         self
     }
 
@@ -96,7 +104,7 @@ impl RenderOnce for MultilineText {
         let size = self.size.unwrap_or(FontSize::Micro);
         let text_size = size.scaled(cx);
 
-        let mut container = div().flex().flex_col().text_size(text_size);
+        let mut container = div().flex().flex_col().min_w_0().text_size(text_size);
         if let Some(color) = self.color {
             container = container.text_color(resolve_color(cx, color, self.appearance));
         } else if let Some(raw) = self.color_raw {
@@ -109,7 +117,13 @@ impl RenderOnce for MultilineText {
         }
 
         for line in lines_for_render(&self.value, self.max_lines) {
-            container = container.child(div().truncate().child(SharedString::from(line)));
+            let mut line_el = div().min_w_0().child(SharedString::from(line));
+            if self.wrap_lines {
+                line_el = line_el.whitespace_normal();
+            } else {
+                line_el = line_el.truncate();
+            }
+            container = container.child(line_el);
         }
         container
     }
@@ -154,6 +168,12 @@ mod tests {
     fn from_text_owns_borrowed_value() {
         let text = MultilineText::from_text("value");
         assert_eq!(text.value, SharedString::from("value"));
+    }
+
+    #[test]
+    fn wrap_lines_opts_out_of_single_line_truncation() {
+        let text = MultilineText::from_text("value").wrap_lines();
+        assert!(text.wrap_lines);
     }
 
     #[test]

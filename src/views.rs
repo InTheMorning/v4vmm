@@ -757,6 +757,19 @@ mod tests {
     }
 
     #[test]
+    fn from_api_feed_preserves_top_level_feed_description() {
+        let description = "All music by Emily Whitehurst and Jaycen McKissick. All lyrics by Emily Whitehurst.\nProduced by Emily Whitehurst, Jaycen McKissick and Paul Haile.";
+        let feed = api::Feed {
+            description: Some(description.into()),
+            ..Default::default()
+        };
+
+        let view = FeedView::from_api(feed);
+
+        assert_eq!(view.description.as_deref(), Some(description));
+    }
+
+    #[test]
     fn from_api_track_converts_contributors_to_view_facts() {
         let track = api::Track {
             source_contributors: Some(vec![api::Contributor {

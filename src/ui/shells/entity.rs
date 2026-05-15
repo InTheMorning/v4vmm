@@ -385,7 +385,8 @@ fn render_text_panel(display: ReleaseTextPanelDisplay) -> AnyElement {
         .child(
             div().mt(spacing::XS).child(
                 crate::ui::primitives::MultilineText::new(display.body)
-                    .max_lines(3)
+                    .max_lines(usize::MAX)
+                    .wrap_lines()
                     .size(FontSize::Micro)
                     .line_height(typography::LINE_DETAIL)
                     .color(SemanticColor::Label),

@@ -866,6 +866,27 @@ impl LibraryViewModel {
         updated
     }
 
+    pub(crate) fn update_album_description(
+        &mut self,
+        feed_id: i64,
+        description: Option<&str>,
+    ) -> bool {
+        let mut updated = false;
+        let description = description.map(str::to_owned);
+        for album in self
+            .snapshot
+            .tree
+            .artists
+            .iter_mut()
+            .flat_map(|artist| artist.albums.iter_mut())
+            .filter(|album| album.feed_id == Some(feed_id))
+        {
+            album.description.clone_from(&description);
+            updated = true;
+        }
+        updated
+    }
+
     pub(crate) fn finish_library_reload(&mut self, track_count: usize) {
         self.library_loading = false;
         self.status = format!("{track_count} library track{}", plural(track_count));
@@ -3675,6 +3696,16 @@ mod tests {
             album.identity_facts.source_ids[0].value.as_deref(),
             Some("npub1saw")
         );
+    }
+
+    #[test]
+    fn library_view_model_updates_album_description_by_feed_id() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+
+        assert!(vm.update_album_description(10, Some("Source description")));
+        let album = &vm.tree().artists[0].albums[0];
+        assert_eq!(album.description.as_deref(), Some("Source description"));
     }
 
     #[test]

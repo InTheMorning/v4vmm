@@ -220,6 +220,7 @@ impl RenderOnce for DisclosureTextPanel {
                     div().mt(Spacing::XS.scaled(cx)).child(
                         MultilineText::new(self.display.body)
                             .max_lines(usize::MAX)
+                            .wrap_lines()
                             .size(FontSize::Micro)
                             .color(SemanticColor::Label),
                     ),
