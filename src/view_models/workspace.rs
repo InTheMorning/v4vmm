@@ -11,6 +11,7 @@
     reason = "ADR 0046 Task 001 lands workspace contracts before render wiring"
 )]
 
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 
@@ -567,32 +568,55 @@ impl BreadcrumbDisplay {
     ) -> Self {
         let mut entries: Vec<&FrameNavigationEntry> = nav.back_stack.iter().collect();
         entries.push(&nav.current);
-        let last_index = entries.len().saturating_sub(1);
-        let segments = entries
-            .into_iter()
-            .enumerate()
-            .map(|(index, entry)| {
-                let label = label_for(entry);
-                let is_current = index == last_index;
+        let segments = match entries.as_slice() {
+            [current] => vec![breadcrumb_segment(current, true, &mut label_for)],
+            [origin, current] => vec![
+                breadcrumb_segment(origin, false, &mut label_for),
+                breadcrumb_segment(current, true, &mut label_for),
+            ],
+            [origin, middle, current] => vec![
+                breadcrumb_segment(origin, false, &mut label_for),
+                breadcrumb_segment(middle, false, &mut label_for),
+                breadcrumb_segment(current, true, &mut label_for),
+            ],
+            [origin, .., current] => vec![
+                breadcrumb_segment(origin, false, &mut label_for),
                 BreadcrumbSegment {
-                    id: breadcrumb_entry_id(entry),
-                    a11y_label: if is_current {
-                        format!("Current location: {label}")
-                    } else {
-                        format!("Go to {label}")
-                    },
-                    label,
-                    is_current,
-                    target: (!is_current).then(|| entry.clone()),
-                }
-            })
-            .collect();
+                    id: "breadcrumb-ellipsis".to_string(),
+                    label: "…".to_string(),
+                    a11y_label: "Collapsed breadcrumb segments".to_string(),
+                    is_current: false,
+                    target: None,
+                },
+                breadcrumb_segment(current, true, &mut label_for),
+            ],
+            [] => Vec::new(),
+        };
 
         Self {
             id: id.into(),
             segments,
             truncation: BreadcrumbTruncation::MiddleEllipsis,
         }
+    }
+}
+
+fn breadcrumb_segment(
+    entry: &FrameNavigationEntry,
+    is_current: bool,
+    label_for: &mut impl FnMut(&FrameNavigationEntry) -> String,
+) -> BreadcrumbSegment {
+    let label = label_for(entry);
+    BreadcrumbSegment {
+        id: breadcrumb_entry_id(entry),
+        a11y_label: if is_current {
+            format!("Current location: {label}")
+        } else {
+            format!("Go to {label}")
+        },
+        label,
+        is_current,
+        target: (!is_current).then(|| entry.clone()),
     }
 }
 
@@ -634,6 +658,7 @@ fn slug_id(value: &str) -> String {
 pub(crate) struct WorkspaceLayout {
     frames: Vec<WorkspaceFrameState>,
     focused_frame_id: Option<WorkspaceFrameId>,
+    frame_navigation: BTreeMap<WorkspaceFrameId, FrameNavigationState>,
 }
 
 /// Serializable workspace layout configuration.
@@ -701,17 +726,20 @@ impl WorkspaceLayout {
         let mut layout = Self {
             frames,
             focused_frame_id: Some(Self::CONTENT_LIST_ID),
+            frame_navigation: BTreeMap::new(),
         };
+        layout.ensure_frame_navigation_entries();
         layout.sync_focus_flags();
         layout
     }
 
     /// Creates an empty workspace layout.
     #[must_use]
-    pub(crate) const fn empty() -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             frames: Vec::new(),
             focused_frame_id: None,
+            frame_navigation: BTreeMap::new(),
         }
     }
 
@@ -731,8 +759,10 @@ impl WorkspaceLayout {
         let mut layout = Self {
             frames,
             focused_frame_id: None,
+            frame_navigation: BTreeMap::new(),
         };
         layout.ensure_unique_frame_ids()?;
+        layout.ensure_frame_navigation_entries();
         if let Some(id) = focused_frame_id {
             layout.focus_frame(id)?;
         } else {
@@ -746,6 +776,59 @@ impl WorkspaceLayout {
     #[must_use]
     pub(crate) fn frames(&self) -> &[WorkspaceFrameState] {
         &self.frames
+    }
+
+    /// Returns the navigation state for a frame, when present.
+    #[must_use]
+    pub(crate) fn frame_nav(&self, id: WorkspaceFrameId) -> Option<&FrameNavigationState> {
+        self.frame_navigation.get(&id)
+    }
+
+    /// Returns mutable navigation state for a frame, when present.
+    pub(crate) fn frame_nav_mut(
+        &mut self,
+        id: WorkspaceFrameId,
+    ) -> Option<&mut FrameNavigationState> {
+        self.frame_navigation.get_mut(&id)
+    }
+
+    /// Resets a frame's navigation state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
+    /// exist in the layout.
+    pub(crate) fn reset_nav(
+        &mut self,
+        id: WorkspaceFrameId,
+        entry: FrameNavigationEntry,
+    ) -> Result<(), WorkspaceModelError> {
+        self.frame_nav_mut(id)
+            .ok_or(WorkspaceModelError::FrameNotFound(id))?
+            .reset(entry);
+        Ok(())
+    }
+
+    /// Pushes navigation onto a frame's history.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
+    /// exist in the layout.
+    pub(crate) fn push_nav(
+        &mut self,
+        id: WorkspaceFrameId,
+        entry: FrameNavigationEntry,
+    ) -> Result<(), WorkspaceModelError> {
+        self.frame_nav_mut(id)
+            .ok_or(WorkspaceModelError::FrameNotFound(id))?
+            .push(entry);
+        Ok(())
+    }
+
+    /// Pops a frame's back-history entry and returns the new current entry.
+    pub(crate) fn pop_nav(&mut self, id: WorkspaceFrameId) -> Option<FrameNavigationEntry> {
+        self.frame_navigation.get_mut(&id)?.go_back().ok().cloned()
     }
 
     /// Returns the currently focused frame id.
@@ -811,7 +894,11 @@ impl WorkspaceLayout {
         if self.frames.iter().any(|existing| existing.id == id) {
             return Err(WorkspaceModelError::DuplicateFrameId(id));
         }
+        let kind = frame.kind();
         self.frames.push(frame);
+        self.frame_navigation
+            .entry(id)
+            .or_insert_with(|| FrameNavigationState::new(default_navigation_entry(kind)));
         if self.focused_frame_id.is_none() {
             self.focused_frame_id = Some(id);
         }
@@ -837,6 +924,7 @@ impl WorkspaceLayout {
             return Err(WorkspaceModelError::LastFrameRemoval);
         }
         self.frames.remove(position);
+        self.frame_navigation.remove(&id);
         if self.focused_frame_id == Some(id) {
             let next_focus_index = position.saturating_sub(1);
             self.focused_frame_id = self
@@ -963,6 +1051,23 @@ impl WorkspaceLayout {
         for frame in &mut self.frames {
             frame.set_focused(Some(frame.id) == self.focused_frame_id);
         }
+    }
+
+    fn ensure_frame_navigation_entries(&mut self) {
+        for frame in &self.frames {
+            self.frame_navigation.entry(frame.id()).or_insert_with(|| {
+                FrameNavigationState::new(default_navigation_entry(frame.kind()))
+            });
+        }
+    }
+}
+
+fn default_navigation_entry(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
+    match kind {
+        WorkspaceFrameKind::SourceList => FrameNavigationEntry::SourceList,
+        WorkspaceFrameKind::ContentList => FrameNavigationEntry::Search(String::new()),
+        WorkspaceFrameKind::Detail => FrameNavigationEntry::TrackDetail(0),
+        WorkspaceFrameKind::QueueNowPlaying => FrameNavigationEntry::QueueNowPlaying,
     }
 }
 
@@ -1332,6 +1437,102 @@ mod tests {
         assert!(
             display.segments[1].is_current,
             "track segment should be the current location"
+        );
+    }
+
+    #[test]
+    fn breadcrumb_display_projects_single_segment_as_current() {
+        let nav = FrameNavigationState::new(FrameNavigationEntry::TrackDetail(42));
+
+        let display = BreadcrumbDisplay::project("crumbs", &nav, |entry| match entry {
+            FrameNavigationEntry::TrackDetail(id) => format!("Track {id}"),
+            _ => unreachable!("single-segment test should only project track detail"),
+        });
+
+        assert_eq!(display.id, "crumbs");
+        assert_eq!(display.truncation, BreadcrumbTruncation::MiddleEllipsis);
+        assert_eq!(display.segments.len(), 1);
+        assert_eq!(display.segments[0].label, "Track 42");
+        assert!(display.segments[0].is_current);
+        assert_eq!(display.segments[0].target, None);
+    }
+
+    #[test]
+    fn breadcrumb_display_projects_long_paths_with_middle_ellipsis() {
+        let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+        nav.push(FrameNavigationEntry::PlaylistDetail(7));
+        nav.push(FrameNavigationEntry::TrackDetail(42));
+        nav.push(FrameNavigationEntry::AlbumDetail(11));
+
+        let display = BreadcrumbDisplay::project("crumbs", &nav, |entry| match entry {
+            FrameNavigationEntry::SourceList => "Library".to_string(),
+            FrameNavigationEntry::PlaylistDetail(id) => format!("Playlist {id}"),
+            FrameNavigationEntry::TrackDetail(id) => format!("Track {id}"),
+            FrameNavigationEntry::AlbumDetail(id) => format!("Album {id}"),
+            _ => unreachable!("long-path test should only project breadcrumb entries"),
+        });
+
+        assert_eq!(display.segments.len(), 3);
+        assert_eq!(display.segments[0].label, "Library");
+        assert_eq!(
+            display.segments[0].target,
+            Some(FrameNavigationEntry::SourceList)
+        );
+        assert_eq!(display.segments[1].label, "…");
+        assert_eq!(display.segments[1].target, None);
+        assert!(!display.segments[1].is_current);
+        assert_eq!(display.segments[2].label, "Album 11");
+        assert!(display.segments[2].is_current);
+        assert_eq!(display.segments[2].target, None);
+    }
+
+    #[test]
+    fn workspace_frame_navigation_isolated_per_frame() {
+        let mut layout = WorkspaceLayout::default_layout();
+        let first = WorkspaceFrameId::new(2);
+        let second = WorkspaceFrameId::new(3);
+
+        layout
+            .reset_nav(first, FrameNavigationEntry::PlaylistDetail(7))
+            .expect("first frame should exist");
+        layout
+            .reset_nav(second, FrameNavigationEntry::TrackDetail(42))
+            .expect("second frame should exist");
+
+        assert_eq!(
+            layout
+                .frame_nav(first)
+                .expect("first frame navigation should exist")
+                .current(),
+            &FrameNavigationEntry::PlaylistDetail(7)
+        );
+        assert_eq!(
+            layout
+                .frame_nav(second)
+                .expect("second frame navigation should exist")
+                .current(),
+            &FrameNavigationEntry::TrackDetail(42)
+        );
+
+        assert_eq!(
+            layout.pop_nav(first),
+            None,
+            "a single-entry history should not go back"
+        );
+        layout
+            .push_nav(first, FrameNavigationEntry::TrackDetail(99))
+            .expect("first frame should exist");
+        assert_eq!(
+            layout.pop_nav(first),
+            Some(FrameNavigationEntry::PlaylistDetail(7)),
+            "popping one frame should not affect another frame's history"
+        );
+        assert_eq!(
+            layout
+                .frame_nav(second)
+                .expect("second frame navigation should remain intact")
+                .current(),
+            &FrameNavigationEntry::TrackDetail(42)
         );
     }
 

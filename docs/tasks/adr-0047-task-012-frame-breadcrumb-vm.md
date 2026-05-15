@@ -1,6 +1,6 @@
 # ADR 0047 Task 012: Frame Breadcrumb VM + Multi-Frame Nav State
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -40,7 +40,10 @@ projection that downstream frame-chrome rendering (task 013) consumes.
 - Truncation policy: middle ellipsis. Leftmost (origin) + rightmost
   (current) stay visible.
 - Projection consumes `FrameNavigationState`.
-- Observable behavior unchanged until task 013 renders breadcrumbs.
+- Observable behavior unchanged until task 013 renders frame-shell
+  breadcrumbs. Existing Library track breadcrumbs keep their normal
+  Library / Playlist / Track path shape; only longer paths collapse
+  the middle segment in the VM projection.
 
 ## Implementation Steps
 
@@ -59,12 +62,28 @@ projection that downstream frame-chrome rendering (task 013) consumes.
 
 ## Acceptance Criteria
 
-- [ ] Workspace VM owns `frame_navigation` keyed by frame id.
-- [ ] `LibraryApp` no longer owns nav state directly.
-- [ ] `BreadcrumbDisplay` projector covers single/multi/long cases.
-- [ ] Observable behavior unchanged (no UI render of breadcrumbs
+- [x] Workspace VM owns `frame_navigation` keyed by frame id.
+- [x] `LibraryApp` no longer owns nav state directly.
+- [x] `BreadcrumbDisplay` projector covers single/multi/long cases.
+- [x] Observable behavior unchanged (no UI render of breadcrumbs
   yet).
-- [ ] Unit tests cover the boundary cases.
+- [x] Unit tests cover the boundary cases.
+
+## Implementation Notes
+
+- `WorkspaceLayout` now owns a deterministic frame-navigation map keyed by
+  `WorkspaceFrameId` and exposes `frame_nav`, `frame_nav_mut`, `reset_nav`,
+  `push_nav`, and `pop_nav`.
+- Layout construction seeds navigation state for every frame and removes it
+  when a frame is removed; invalid frame ids return `FrameNotFound` for reset
+  and push operations.
+- `LibraryApp` now stores the workspace VM and routes playlist/track history
+  through the workspace helpers instead of owning a raw navigation map.
+- `BreadcrumbDisplay::project` keeps one-, two-, and three-segment paths
+  explicit to preserve current Library breadcrumbs; longer paths collapse to
+  origin, middle ellipsis, and current.
+- `tests/architecture_tests.rs` includes an ADR 0047 Task 012 guard so the raw
+  `LibraryApp` frame-navigation map cannot return.
 
 ## Test Commands
 

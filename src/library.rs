@@ -33,7 +33,7 @@ use crate::view_models::library::{
     description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
     LibraryTrackInspectorState, LibraryViewModel,
 };
-use crate::view_models::workspace::{FrameNavigationState, WorkspaceFrameId};
+use crate::view_models::workspace::WorkspaceLayout;
 use crate::views::ArtistView;
 
 // ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ pub struct LibraryApp {
     /// service handles, screen-only inspector state, or maps that
     /// still hold `Arc<gpui::Image>`. See ADR 0023.
     vm: LibraryViewModel,
-    frame_navigation: BTreeMap<WorkspaceFrameId, FrameNavigationState>,
+    workspace_layout: WorkspaceLayout,
     detail: LibraryDetail,
     thumbnails: BTreeMap<(String, bool), ThumbnailState>,
     new_playlist_input: Entity<InputState>,

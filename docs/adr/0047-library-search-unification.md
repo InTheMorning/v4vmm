@@ -6,8 +6,10 @@ Accepted - implementation in progress 2026-05-15. Promotes
 `docs/plans/library-search-unification-plan.md`, which is retained as
 the pre-ADR concept artifact. Phase D is implemented through Task 011:
 the Library-backed frame owns the visible source filter and the
-duplicate toolbar scope controls are retired. Search-results inspector
-routing remains follow-up work.
+duplicate toolbar scope controls are retired. Phase E is implemented
+through Task 012: per-frame navigation ownership now lives in the
+workspace VM and breadcrumb projection is ready for frame-shell
+rendering. Search-results inspector routing remains follow-up work.
 
 ## Context
 
@@ -90,13 +92,15 @@ Implementation follows
 - Phase B adds GPUI-free view-model contracts.
 - Phase C rewires inspector advanced panels and description disclosure.
 - Phase D moves content filters into per-frame chrome.
-- Phase E adds search-results inspector routing and breadcrumbs.
+- Phase E adds search-results inspector routing and breadcrumbs. Task
+  012 has landed the workspace-owned frame-navigation prerequisite.
 - Phase F retires the standalone Search screen module.
 - Phase G completes guards and light/dark visual proof.
 
-Phase E depends on ADR 0046 Phase 5 Task 012, because frame navigation
-state needs to be owned by the workspace VM and keyed by frame id before
-breadcrumbs can be implemented without a second refactor.
+Phase E depended on ADR 0046 Phase 5 Task 012 and ADR 0047 Task 012,
+because frame navigation state needed to be owned by the workspace VM
+and keyed by frame id before breadcrumbs could be implemented without a
+second refactor.
 
 ## Apple HIG Alignment
 

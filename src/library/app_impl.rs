@@ -127,13 +127,12 @@ enum TrackSubscriptionAction {
 // ---------------------------------------------------------------------------
 
 impl LibraryApp {
-    fn default_frame_navigation() -> BTreeMap<WorkspaceFrameId, FrameNavigationState> {
-        let mut frame_navigation = BTreeMap::new();
-        frame_navigation.insert(
-            Self::content_frame_id(),
-            FrameNavigationState::new(FrameNavigationEntry::SourceList),
-        );
-        frame_navigation
+    fn default_workspace_layout() -> WorkspaceLayout {
+        let mut layout = WorkspaceLayout::default_layout();
+        layout
+            .reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)
+            .expect("default workspace layout contains the content frame");
+        layout
     }
 
     const fn content_frame_id() -> WorkspaceFrameId {
@@ -153,15 +152,15 @@ impl LibraryApp {
         &mut self,
     ) -> Result<&mut FrameNavigationState, WorkspaceModelError> {
         let frame_id = Self::content_frame_id();
-        self.frame_navigation
-            .get_mut(&frame_id)
+        self.workspace_layout
+            .frame_nav_mut(frame_id)
             .ok_or(WorkspaceModelError::FrameNotFound(frame_id))
     }
 
     fn current_frame_navigation(&self) -> Result<&FrameNavigationState, WorkspaceModelError> {
         let frame_id = Self::content_frame_id();
-        self.frame_navigation
-            .get(&frame_id)
+        self.workspace_layout
+            .frame_nav(frame_id)
             .ok_or(WorkspaceModelError::FrameNotFound(frame_id))
     }
 
@@ -169,20 +168,22 @@ impl LibraryApp {
         &mut self,
         entry: FrameNavigationEntry,
     ) -> Result<(), WorkspaceModelError> {
-        self.current_frame_navigation_mut()?.reset(entry);
-        Ok(())
+        self.workspace_layout
+            .reset_nav(Self::content_frame_id(), entry)
     }
 
     fn push_frame_navigation(
         &mut self,
         entry: FrameNavigationEntry,
     ) -> Result<(), WorkspaceModelError> {
-        self.current_frame_navigation_mut()?.push(entry);
-        Ok(())
+        self.workspace_layout
+            .push_nav(Self::content_frame_id(), entry)
     }
 
     fn restore_frame_navigation(&mut self) -> Result<FrameNavigationEntry, WorkspaceModelError> {
-        self.current_frame_navigation_mut()?.go_back().cloned()
+        self.workspace_layout
+            .pop_nav(Self::content_frame_id())
+            .ok_or(WorkspaceModelError::CannotNavigateBack)
     }
 
     #[expect(
@@ -190,8 +191,8 @@ impl LibraryApp {
         reason = "ADR 0046 frame chrome back controls will consume this when navigation buttons are wired"
     )]
     fn frame_back_destination(&self) -> Option<FrameNavigationEntry> {
-        self.frame_navigation
-            .get(&Self::content_frame_id())
+        self.workspace_layout
+            .frame_nav(Self::content_frame_id())
             .and_then(FrameNavigationState::back_destination)
             .cloned()
     }
@@ -228,7 +229,7 @@ impl LibraryApp {
             cache,
             musicindex_endpoint,
             vm: LibraryViewModel::new(),
-            frame_navigation: Self::default_frame_navigation(),
+            workspace_layout: Self::default_workspace_layout(),
             detail: LibraryDetail::None,
             thumbnails: BTreeMap::new(),
             new_playlist_input,
@@ -1225,7 +1226,7 @@ impl LibraryApp {
     }
 
     fn track_breadcrumb_display(&self) -> Option<BreadcrumbDisplay> {
-        let nav = self.frame_navigation.get(&Self::content_frame_id())?;
+        let nav = self.workspace_layout.frame_nav(Self::content_frame_id())?;
         if !matches!(nav.current(), FrameNavigationEntry::TrackDetail(_)) {
             return None;
         }

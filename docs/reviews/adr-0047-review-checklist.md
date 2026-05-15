@@ -30,8 +30,9 @@
 
 ## Gate Status
 
-Status: Phase D Task 010 Library-backed frame wiring and Task 011 toolbar
-scope retirement are implemented and user-visually confirmed - 2026-05-15.
+Status: Phase E Task 012 frame-navigation ownership is implemented after
+Phase D Task 010 Library-backed frame wiring and Task 011 toolbar scope
+retirement were user-visually confirmed - 2026-05-15.
 
 Readiness decision: **Task 010 is implemented only through the GPUI-free
 `ContentListPageVm`. Do not extend chips to Search/Settings transitional mounts
@@ -42,7 +43,9 @@ requires operator visual confirmation. The operator resumed ADR 0047 completion
 on 2026-05-15; Task 009 is limited to shared frame-chrome filter chip structure
 and does not wire real filtering or remove `GlobalSearchScope`. Task 011 is the
 bounded Phase D cleanup for the duplicate toolbar controls observed after Task
-010, not a search-routing redesign; it is now implemented.
+010, not a search-routing redesign; it is now implemented. Task 012 begins
+Phase E by moving per-frame navigation ownership into the workspace VM without
+rendering new frame-shell breadcrumbs yet.
 
 ## Required Checks
 
@@ -91,6 +94,10 @@ bounded Phase D cleanup for the duplicate toolbar controls observed after Task
       `LibraryViewModel` owns `ContentListPageVm`, workspace shell accepts a
       typed filter-chip slot/callback, and `TopApp::set_frame_filter` dispatches
       by visible frame id.
+- [x] Task 012 implemented: `WorkspaceLayout` owns frame navigation keyed by
+      `WorkspaceFrameId`, `LibraryApp` routes history through workspace VM
+      helpers, and breadcrumb projection covers single, normal multi-segment,
+      and longer middle-ellipsis paths.
 
 ## Required Fixes
 
@@ -98,6 +105,9 @@ bounded Phase D cleanup for the duplicate toolbar controls observed after Task
   and `GlobalSearchScope` must not return.
 - Keep Search and Settings free of content-list chips until Phase E gives them
   real frame-local content/search-result owners.
+- Task 013 must consume the Task 012 VM contract from frame shell chrome; it
+  must not reintroduce inspector-local return controls or a second breadcrumb
+  model.
 
 ## Prohibited Regression
 
@@ -142,13 +152,15 @@ bounded Phase D cleanup for the duplicate toolbar controls observed after Task
 
 ## Test Gates
 
-Green on 2026-05-14:
+Green on 2026-05-15:
 
 ```bash
-cargo fmt -- --check
+cargo build
 cargo check
 cargo test
 cargo clippy -- -D warnings
+cargo fmt -- --check
+git diff --check
 ```
 
 ## Visual Readiness Checklist
@@ -181,9 +193,12 @@ cargo clippy -- -D warnings
   User visual proof confirmed the toolbar keeps the search field and submit
   button, the Library frame-local filter remains in frame chrome, and global
   search still submits into Search results.
+- 2026-05-15 Task 012 changes only GPUI-free workspace navigation ownership
+  and the existing LibraryApp bridge. No new frame-shell breadcrumb rendering
+  is introduced in this task; visual proof is deferred to Task 013.
 
 ## Merge Recommendation
 
-Task 011 passes review. Phase E remains the next architectural step for routing
-global search into the shared search-results inspector; do not reuse the retired
-toolbar source-scope model.
+Task 012 passes structural review. Task 013 is the next Phase E step and should
+render breadcrumbs from the workspace VM contract without reusing the retired
+toolbar source-scope model or inspector-local return controls.

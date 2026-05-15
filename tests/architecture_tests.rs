@@ -1839,6 +1839,70 @@ fn adr_0047_task_010_content_list_filter_chips_are_frame_local() {
 }
 
 #[test]
+fn adr_0047_task_012_frame_navigation_is_workspace_vm_owned() {
+    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let library_struct_source = read_source(&manifest_path("src/library.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "frame_navigation: BTreeMap<WorkspaceFrameId, FrameNavigationState>",
+        "pub(crate) fn frame_nav(&self, id: WorkspaceFrameId) -> Option<&FrameNavigationState>",
+        "pub(crate) fn frame_nav_mut(",
+        "pub(crate) fn reset_nav(",
+        "pub(crate) fn push_nav(",
+        "pub(crate) fn pop_nav(&mut self, id: WorkspaceFrameId) -> Option<FrameNavigationEntry>",
+        "fn default_navigation_entry(kind: WorkspaceFrameKind) -> FrameNavigationEntry",
+        "BreadcrumbTruncation::MiddleEllipsis",
+        "breadcrumb-ellipsis",
+    ] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0047 Task 012 workspace-owned frame navigation missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "workspace_layout: WorkspaceLayout",
+        "fn default_workspace_layout() -> WorkspaceLayout",
+        ".reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)",
+        ".push_nav(Self::content_frame_id(), entry)",
+        "self.workspace_layout\n            .pop_nav(Self::content_frame_id())",
+        "self.workspace_layout.frame_nav(Self::content_frame_id())",
+    ] {
+        let source = if required == "workspace_layout: WorkspaceLayout" {
+            &library_struct_source
+        } else {
+            &library_app_source
+        };
+        if !source.contains(required) {
+            violations.push(format!(
+                "LibraryApp ADR 0047 Task 012 workspace navigation bridge missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "frame_navigation: BTreeMap<WorkspaceFrameId, FrameNavigationState>",
+        "fn default_frame_navigation(",
+        "self.frame_navigation",
+    ] {
+        if library_struct_source.contains(forbidden) || library_app_source.contains(forbidden) {
+            violations.push(format!(
+                "LibraryApp must not own raw frame navigation after ADR 0047 Task 012; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 012 frame navigation ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn workspace_frame_phase_4_guards_queue_now_playing_vm_contract() {
     let source = read_source(&manifest_path("src/view_models/queue_now_playing.rs"));
     let mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
@@ -2101,13 +2165,16 @@ fn workspace_frame_phase_2_guards_frame_navigation_is_wired_in_library_app_impl(
     let source = read_source(&manifest_path("src/library/app_impl.rs"));
 
     for required in [
+        "WorkspaceLayout",
         "FrameNavigationState",
         "FrameNavigationEntry",
-        "fn default_frame_navigation()",
-        "FrameNavigationState::new(FrameNavigationEntry::SourceList)",
+        "fn default_workspace_layout() -> WorkspaceLayout",
+        ".reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)",
         "fn push_frame_navigation(",
         "fn restore_frame_navigation(",
         "fn frame_back_destination(&self)",
+        ".push_nav(Self::content_frame_id(), entry)",
+        "self.workspace_layout\n            .pop_nav(Self::content_frame_id())",
         "FrameNavigationEntry::PlaylistDetail(playlist_id)",
         "FrameNavigationEntry::TrackDetail(track.id)",
         "self.restore_frame_navigation()",
@@ -2119,6 +2186,9 @@ fn workspace_frame_phase_2_guards_frame_navigation_is_wired_in_library_app_impl(
     }
 
     for forbidden in [
+        "fn default_frame_navigation(",
+        "frame_navigation:",
+        "self.frame_navigation",
         "frame.origin =",
         "InspectorOrigin",
         "origin: Option<InspectorOrigin>",
@@ -7125,9 +7195,9 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
         "enum FrameHistoryMode",
         "Record",
         "Restore",
-        "frame_navigation: Self::default_frame_navigation(),",
-        "fn default_frame_navigation() -> BTreeMap<WorkspaceFrameId, FrameNavigationState>",
-        "FrameNavigationState::new(FrameNavigationEntry::SourceList)",
+        "workspace_layout: Self::default_workspace_layout(),",
+        "fn default_workspace_layout() -> WorkspaceLayout",
+        ".reset_nav(Self::content_frame_id(), FrameNavigationEntry::SourceList)",
         "pub fn refresh(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_preserving_detail(cx);",
         "pub(crate) fn start_async_reload(&mut self, cx: &mut Context<Self>) {\n        self.start_async_reload_with_mode(LibraryReloadMode::ResetDetail, cx);",
         "if mode == LibraryReloadMode::ResetDetail",

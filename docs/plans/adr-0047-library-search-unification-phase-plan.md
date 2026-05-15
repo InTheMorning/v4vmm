@@ -105,8 +105,9 @@ backward parity until D ships filter chips.
 
 ## Phase D - Per-Frame Filter Chips
 
-Status: In progress - Task 010 Library-backed visible wiring and Task 011
-toolbar scope retirement are implemented and visually confirmed - 2026-05-15.
+Status: Implemented for Phase E sequencing - Task 010 Library-backed visible
+wiring and Task 011 toolbar scope retirement are implemented and visually
+confirmed - 2026-05-15.
 
 Goal: relocate the All/Library/Index control from toolbar scope chips
 to per-frame chrome chips.
@@ -136,20 +137,24 @@ Deliverables:
 Current acceptance: the Library-backed `ContentList` frame renders its
 own chip strip, filter changes apply only to that frame, empty filter
 results use VM-owned copy, and the toolbar no longer duplicates the
-per-frame source filter. Phase D remains open only for any explicit
-narrow-menu interaction proof requested before Phase E begins.
+per-frame source filter. No explicit narrow-menu proof was requested before
+Phase E began; narrow pull-down visual proof remains in the Phase G visual
+inventory.
 
 Risks: HIG drift in narrow-mode pull-down. Mitigation: reuse existing
 pull-down primitive; visual proof in Phase G.
 
 ## Phase E - Search-Results Inspector and Breadcrumbs
 
+Status: In progress - Task 012 frame-navigation ownership landed
+2026-05-15. Task 013 is next and owns frame-shell breadcrumb rendering.
+
 Goal: route global search submit into a `Detail` frame rendering the
 tabbed `SearchResultsInspector` with breadcrumb chrome.
 
 Tasks:
 
-- `adr-0047-task-012-frame-breadcrumb-vm`
+- `adr-0047-task-012-frame-breadcrumb-vm` - implemented 2026-05-15
 - `adr-0047-task-013-frame-shell-breadcrumb-render`
 - `adr-0047-task-014-search-results-inspector-shell`
 - `adr-0047-task-015-search-submit-and-saved-search-commands`
