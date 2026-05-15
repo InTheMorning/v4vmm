@@ -27,11 +27,14 @@
 
 ## Gate Status
 
-Status: Phase D Task 009 implementation in progress - 2026-05-15; Phase C
-visual confirmation remains pending.
+Status: Phase D Task 009 automated implementation complete - 2026-05-15;
+Phase C visual confirmation remains pending.
 
-Readiness decision: **Do not close Phase D until Task 009 guards and visual
-proof are complete. Do not start Task 010 until this review is green.**
+Readiness decision: **ADR 46 Phase 4 visual proof is cleared. Task 010 may
+start after ADR 46 Task 012 lands, because later ADR 47 frame/breadcrumb work
+depends on persisted multi-frame layout state. Task 009 has no standalone
+user-visible mount in the current transitional workspace; carry its filter-strip
+visual proof into Task 010, where the strip is wired into a visible frame.**
 
 Phase B was view-model-only. Phase C touched inspector rendering, so it still
 requires operator visual confirmation. The operator resumed ADR 0047 completion
@@ -72,7 +75,9 @@ and does not wire real filtering or remove `GlobalSearchScope`.
 - [x] Task 009: `FrameShellDisplay` carries optional frame-local filter
       display and `frame_shell` renders it only when present.
 - [x] Task 009 architecture guard green.
-- [ ] Task 009 visual proof complete.
+- [x] Task 009 visual proof deferred to Task 010 visible-frame wiring.
+- [x] ADR 46 Phase 4 visual gate cleared for Task 010 sequencing.
+- [ ] ADR 46 Task 012 persistence gate cleared for Task 010 sequencing.
 
 ## Required Fixes
 
@@ -142,10 +147,15 @@ cargo clippy -- -D warnings
 - [ ] Phase C disabled Compare ID3 / MusicBrainz visual confirmation.
 - [ ] Phase C description collapsed and expanded visual confirmation.
 - [ ] Phase C feed description disclosure visual confirmation.
-- [ ] Phase D filter chip strip visual confirmation.
-- [ ] Phase D filter chip narrow menu visual confirmation.
+- [ ] Phase D Task 010 filter chip strip visual confirmation.
+- [ ] Phase D Task 010 filter chip narrow menu visual confirmation.
+- 2026-05-15 lower-context review found Task 010 and later tasks still
+  incomplete. Task 009 is structurally present, but the transitional workspace
+  does not mount the filter strip in normal app flow until Task 010. Do not
+  treat the deferred visual proof as completion of Phase D.
 
 ## Merge Recommendation
 
-Task 009 may proceed through automated review. Do not start Task 010 until
-Task 009 architecture guards, checks, and visual proof are complete.
+Task 009 may proceed through automated review. Start Task 010 after ADR 46 Task
+012 lands, and capture the filter chip strip and narrow pull-down proof as part
+of Task 010.

@@ -23,10 +23,9 @@
 
 ## Gate Status
 
-Status: Phase 4 automated implementation gate green - 2026-05-14.
+Status: Phase 4 implementation and visual proof green - 2026-05-15.
 
-Readiness decision: **Await Phase 4 visual confirmation before closing ADR 0046
-Phase 4.**
+Readiness decision: **Proceed to ADR 0046 Phase 5 Task 012.**
 
 QueueNowPlaying implementation began after Phase 2 and Phase 3
 frame-navigation/chrome work was complete and user-confirmed.
@@ -66,8 +65,9 @@ frame-navigation/chrome work was complete and user-confirmed.
 - [x] Task 008 narrow-width collapse implementation added named workspace
       breakpoints and runtime optional-frame collapse.
 - [x] Task 008 architecture guards integrated by parent task owner.
-- [ ] Task 008 visual proof complete.
-- [ ] Phase 4 manual visual proof complete.
+- [x] Task 008 visual proof complete.
+- [x] Phase 4 manual visual proof complete.
+- [x] Task 012 start gate cleared.
 
 ## Required Fixes
 
@@ -124,31 +124,39 @@ frame-navigation/chrome work was complete and user-confirmed.
   through the bundled vector search icon and gives Settings form inputs a
   full-width, scale-aware column contract. User confirmed both fixes on
   2026-05-15.
-- [ ] Light and dark default workspace show the expected frame hierarchy
+- [x] Light and dark default workspace show the expected frame hierarchy
       without overlap.
-- [ ] Narrow width collapses optional frames before hiding global search or
+- [x] Narrow width collapses optional frames before hiding global search or
       primary navigation. Implementation now omits QueueNowPlaying below
       `WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT` and Detail below
-      `WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT`; visual proof remains
-      required.
-- [ ] Frame chrome Back/Forward uses symbols, not text-only buttons.
-- [ ] Track inspector contains only track actions, no playlist-return button.
-- [ ] Queue frame can collapse and restore while toolbar Now Playing remains
-      readable. Collapse implementation is present; restore/accessibility proof
-      remains pending visual/manual review.
-- [ ] Queue frame shows multi-track queue rows, current-track emphasis,
+      `WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT`.
+- [x] Frame chrome Back/Forward uses symbols, not text-only buttons.
+- [x] Track inspector contains only track actions, no playlist-return button.
+- [x] Queue frame can collapse and restore while toolbar Now Playing remains
+      readable.
+- [x] Queue frame shows multi-track queue rows, current-track emphasis,
       previous/play-next transport controls, liveValue output menu, and volume
       slider.
-- [ ] Global toolbar Now Playing is compact: status/title plus play/pause only,
+- [x] Global toolbar Now Playing is compact: status/title plus play/pause only,
       with detailed queue/output controls absent.
-- [ ] liveValue output picker communicates unavailable routing without offering
+- [x] liveValue output picker communicates unavailable routing without offering
       an active no-op command.
-- [ ] Search remains dispatchable and scope remains reachable at compact width.
+- [x] Search remains dispatchable and scope remains reachable at compact width.
       Implementation now keeps a direct search icon button beside the compact
       scope menu; user confirmed compact visibility on 2026-05-15.
-- [ ] SourceList selection remains visibly persistent.
-- [ ] UI remains dense, quiet, and utilitarian; no hero panels, decorative
+- [x] SourceList selection remains visibly persistent.
+- [x] UI remains dense, quiet, and utilitarian; no hero panels, decorative
       cards, or branding-forward chrome.
+- User visual confirmation on 2026-05-15 provided default and narrow Library
+  screenshots showing persistent source selection, track detail in the content
+  frame, queue frame expansion, and queue collapse before toolbar nav/search
+  disappears. Earlier 2026-05-15 confirmation covered light/dark rendering and
+  compact search/icon fixes.
+- 2026-05-15 lower-context review found Task 012, Task 013, and Task 014 still
+  proposed. Task 012 remains the next implementation blocker after visual proof:
+  current `WorkspaceLayout` has earlier generic add/remove helpers, but it does
+  not yet expose `add_frame(kind) -> Result<WorkspaceFrameId, ...>`, protect
+  last-frame removal, or persist `workspace_layout` in `config.toml`.
 
 ## Test Gates
 
@@ -166,5 +174,5 @@ but phase readiness requires the full gate above.
 
 ## Merge Recommendation
 
-Task 008 implementation and architecture guards are ready for automated review.
-Do not close Task 008 until narrow-width visual proof is complete.
+Phase 4 is complete. Proceed with Task 012 as the next bounded implementation
+packet.
