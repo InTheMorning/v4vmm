@@ -12,7 +12,9 @@ use crate::audio_tags::{read_audio_tags, write_id3v24_edits, AudioTags, Id3v24Ed
 use crate::db::{self, TrackRow};
 use crate::identity_ingest;
 use crate::library_service;
-use crate::metadata::{source_text_missing, MusicBrainzLookupResult, TrackContext};
+use crate::metadata::{
+    sanitize_track_context_source_text, source_text_missing, MusicBrainzLookupResult, TrackContext,
+};
 use crate::metadata_service::{id3_edits_for_track_context, musicbrainz_lookup_metadata};
 use crate::musicbrainz::{lookup_recordings, MusicBrainzCandidate, MusicBrainzLookup};
 
@@ -95,10 +97,12 @@ fn merge_track_context_from_detail(
         Some(&feed),
     );
     crate::subscribe_service::enrich_track_context_from_rss(&mut track, Some(&mut feed));
-    TrackContext {
+    let mut context = TrackContext {
         track,
         feed: Some(feed),
-    }
+    };
+    sanitize_track_context_source_text(&mut context);
+    context
 }
 
 pub fn track_row_to_feed(track: &TrackRow) -> Feed {
@@ -340,10 +344,12 @@ pub fn track_row_to_track_context(track: &TrackRow) -> TrackContext {
         crate::subscribe_service::track_row_to_api_track(track),
         Some(&feed),
     );
-    TrackContext {
+    let mut context = TrackContext {
         track: api_track,
         feed: Some(feed),
-    }
+    };
+    sanitize_track_context_source_text(&mut context);
+    context
 }
 
 pub fn track_row_to_track_context_with_local_identity(
@@ -357,6 +363,7 @@ pub fn track_row_to_track_context_with_local_identity(
         context.feed.take(),
     )?);
     context.track = hydrate_track_identity(conn, track.id, context.track)?;
+    sanitize_track_context_source_text(&mut context);
     Ok(context)
 }
 

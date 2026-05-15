@@ -19,7 +19,9 @@ RSS, ID3, and MusicBrainz facts.
 - Correct the earliest boundary that can distinguish placeholder transport data
   from real source facts.
 - Treat `...`, Unicode ellipsis-only values, multiline ellipsis payloads, and
-  empty text as missing source text at that boundary.
+  empty text as missing source text at that boundary. Placeholder-only HTML or
+  entity wrappers such as `<p>...</p>`, `&hellip;`, `&#8230;`, and
+  whitespace-only `<br>` payloads are the same class of source-fact absence.
 - Prefer feed-scoped track fetches when both feed and track identifiers are
   available. Unscoped track GUID lookup can be ambiguous and can hydrate an
   inspector with the wrong or incomplete source facts.
@@ -68,3 +70,24 @@ read boundary.
 `db::set_feed_description` when the MusicIndex feed description matches
 placeholder detection, so the DB never persists `...` as a feed description
 in the first place.
+
+`src/metadata.rs::sanitize_track_context_source_text` is the shared projection
+guard for `TrackContext` display/source facts. Search inspectors, subscribe
+flows, local library reads, persistence handoff, and compare-file reads sanitize
+before building detail or metadata rows. `aligned_compare_rows` also refills
+stale placeholder source values from the current `TrackContext`, so a loaded
+compare panel cannot keep showing `...` after the underlying source context has
+been repaired.
+
+`src/rss/helpers.rs::clean_text` and `src/views.rs` API-to-view projections
+also call the same source-placeholder classifier. This is not renderer masking:
+RSS parsing and API projection are read boundaries where transport payloads are
+converted into source/display facts. They must reject placeholder-only markup or
+entity values before UI view models receive them.
+
+Migration `cleanup_placeholder_source_text` repairs databases that were already
+polluted by placeholder-only text. It only nulls placeholder-only payloads in
+nullable feed and track display/source text columns; real text containing
+ellipsis punctuation is preserved. Migration
+`cleanup_markup_placeholder_source_text` repeats the cleanup for databases that
+already ran the first cleanup before HTML/entity placeholder detection existed.

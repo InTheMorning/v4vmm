@@ -1,5 +1,6 @@
 use crate::api;
 use crate::db;
+use crate::metadata::drop_placeholder_source_text;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArtistRef {
@@ -320,9 +321,10 @@ fn checked_year(year: Option<i64>) -> Option<i32> {
 }
 
 fn nonempty_owned(value: Option<String>) -> Option<String> {
-    value
+    let value = value
         .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+        .filter(|value| !value.is_empty());
+    drop_placeholder_source_text(value)
 }
 
 impl ArtistView {
@@ -486,7 +488,7 @@ fn apply_single_artist_source_fact(view: &mut ArtistView, row: &db::ArtistSource
 
 impl FeedView {
     pub fn from_api(f: api::Feed) -> Self {
-        let image_url = f.image_url;
+        let image_url = nonempty_owned(f.image_url);
         let source_description =
             description_from_release_claims(f.source_release_claims.as_deref());
         let identity =
@@ -494,19 +496,19 @@ impl FeedView {
         Self {
             id: f.feed_guid.clone().map(FeedRef::Musicindex),
             feed_guid: f.feed_guid,
-            feed_url: f.feed_url,
+            feed_url: nonempty_owned(f.feed_url),
             title: nonempty_owned(f.title).or_else(|| nonempty_owned(f.name)),
             artist: nonempty_owned(f.release_artist),
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
             identity,
             release_date: f.release_date,
-            language: f.language,
+            language: nonempty_owned(f.language),
             explicit: f.explicit,
             episode_count: f.episode_count,
-            release_kind: f.release_kind,
-            publisher_text: f.publisher_text,
-            description: source_description.or(f.description),
+            release_kind: nonempty_owned(f.release_kind),
+            publisher_text: nonempty_owned(f.publisher_text),
+            description: source_description.or_else(|| nonempty_owned(f.description)),
             payment_routes: f.payment_routes.unwrap_or_default(),
             contributors: f
                 .source_contributors
@@ -584,7 +586,7 @@ impl TrackView {
                     .find(|l| l.link_type.as_deref() == Some("transcript"))
             })
             .and_then(|link| link.url.clone());
-        let image_url = t.image_url;
+        let image_url = nonempty_owned(t.image_url);
         let identity =
             EntityIdentityLinks::from_api_facts(image_url.clone(), source_links, t.source_ids);
 
@@ -593,7 +595,7 @@ impl TrackView {
             track_guid: t.track_guid,
             feed_guid: t.feed_guid,
             feed_title: nonempty_owned(t.feed_title.clone()),
-            feed_url: t.feed_url,
+            feed_url: nonempty_owned(t.feed_url),
             title: nonempty_owned(t.title).or_else(|| nonempty_owned(t.name)),
             artist: nonempty_owned(t.track_artist).or_else(|| nonempty_owned(t.release_artist)),
             album: nonempty_owned(t.feed_title),
@@ -602,14 +604,14 @@ impl TrackView {
             duration_secs: t.duration_secs,
             pub_date: t.pub_date,
             explicit: t.explicit,
-            description: t.description,
+            description: nonempty_owned(t.description),
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
             identity,
-            audio_url: t.enclosure_url,
-            mime: t.enclosure_type,
+            audio_url: nonempty_owned(t.enclosure_url),
+            mime: nonempty_owned(t.enclosure_type),
             bytes: t.enclosure_bytes,
-            publisher_text: t.publisher_text,
+            publisher_text: nonempty_owned(t.publisher_text),
             contributors: t
                 .source_contributors
                 .unwrap_or_default()
@@ -617,7 +619,7 @@ impl TrackView {
                 .map(ContributorView::from)
                 .collect(),
             payment_routes: t.payment_routes.unwrap_or_default(),
-            transcript_url,
+            transcript_url: nonempty_owned(transcript_url),
         }
     }
 
@@ -767,6 +769,52 @@ mod tests {
         let view = FeedView::from_api(feed);
 
         assert_eq!(view.description.as_deref(), Some(description));
+    }
+
+    #[test]
+    fn from_api_projection_drops_placeholder_source_text() {
+        let feed = api::Feed {
+            title: Some("<p>...</p><p>...</p>".into()),
+            name: Some("Real feed".into()),
+            feed_url: Some("&hellip;".into()),
+            description: Some("<p>...</p>".into()),
+            source_release_claims: Some(vec![
+                api::SourceReleaseClaim {
+                    claim_type: Some("description".into()),
+                    claim_value: Some("&hellip;".into()),
+                    ..Default::default()
+                },
+                api::SourceReleaseClaim {
+                    claim_type: Some("description".into()),
+                    claim_value: Some("Real source description".into()),
+                    ..Default::default()
+                },
+            ]),
+            tracks: Some(vec![api::Track {
+                title: Some("<p>...</p>".into()),
+                name: Some("Real track".into()),
+                description: Some("&#8230;".into()),
+                enclosure_url: Some("&nbsp;<br />...".into()),
+                source_links: Some(vec![api::SourceEntityLink {
+                    link_type: Some("transcript".into()),
+                    url: Some("&hellip;".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        };
+
+        let view = FeedView::from_api(feed);
+
+        assert_eq!(view.title.as_deref(), Some("Real feed"));
+        assert_eq!(view.feed_url, None);
+        assert_eq!(view.description.as_deref(), Some("Real source description"));
+        let track = view.tracks.first().expect("track projects");
+        assert_eq!(track.title.as_deref(), Some("Real track"));
+        assert_eq!(track.description, None);
+        assert_eq!(track.audio_url, None);
+        assert_eq!(track.transcript_url, None);
     }
 
     #[test]

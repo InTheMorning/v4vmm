@@ -1,6 +1,8 @@
 use rss::extension::{Extension, ExtensionMap};
 use serde_json::{json, Value as JsonValue};
 
+use crate::metadata::source_text_missing;
+
 pub fn find_ext<'a>(exts: &'a ExtensionMap, ns: &str, name: &str) -> Option<&'a Extension> {
     exts.get(ns)?.get(name)?.first()
 }
@@ -17,6 +19,7 @@ pub fn clean_text(value: Option<&str>) -> Option<String> {
     value
         .map(str::trim)
         .filter(|value| !value.is_empty())
+        .filter(|value| !source_text_missing(Some(value)))
         .map(ToOwned::to_owned)
 }
 

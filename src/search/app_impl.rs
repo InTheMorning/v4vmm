@@ -2496,6 +2496,7 @@ fn fetch_inspector_detail(
                 ),
             )?;
             hydrate_feed_track_play_urls(client, &mut feed);
+            sanitize_feed_source_text(&mut feed);
             let image_url = feed
                 .image_url
                 .as_deref()
@@ -2523,15 +2524,15 @@ fn fetch_inspector_detail(
                     .ok()
             });
             enrich_track_context_from_rss(&mut track, feed.as_mut());
-            let image_url = track
+            let mut track_context = TrackContext { track, feed };
+            sanitize_track_context_source_text(&mut track_context);
+            let image_url = track_context
+                .track
                 .image_url
                 .as_deref()
                 .and_then(|u| nonempty_url(Some(u)))
                 .map(str::to_string);
-            Ok((
-                InspectorDetail::Track(Box::new(TrackContext { track, feed })),
-                image_url,
-            ))
+            Ok((InspectorDetail::Track(Box::new(track_context)), image_url))
         }
         "publisher" => Ok((
             InspectorDetail::Publisher(client.fetch_publisher(entity_id)?),

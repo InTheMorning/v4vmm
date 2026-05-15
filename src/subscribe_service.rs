@@ -12,6 +12,7 @@ use crate::db::{self, TrackRow};
 use crate::identity_ingest;
 use crate::library_service;
 use crate::metadata::{
+    sanitize_feed_source_text, sanitize_track_context_source_text, sanitize_track_source_text,
     source_text_missing, MusicBrainzLookupResult, TagCompareResult, TrackContext,
 };
 use crate::metadata_service::{id3_edits_for_track_context, musicbrainz_lookup_metadata};
@@ -131,11 +132,13 @@ pub(crate) fn subscribe_feed_with_config(
     cfg: &config::Config,
     request: SubscribeFeedRequest,
 ) -> Result<SubscribeFeedOutcome> {
-    let feed = request.feed;
+    let mut feed = request.feed;
+    sanitize_feed_source_text(&mut feed);
     let musicindex_endpoint = request.musicindex_endpoint;
     let feed_url = feed
         .feed_url
         .clone()
+        .filter(|url| !source_text_missing(Some(url.as_str())))
         .ok_or_else(|| anyhow!("feed has no RSS URL"))?;
 
     {
@@ -171,6 +174,8 @@ pub(crate) fn subscribe_feed_with_config(
                 track_for_metadata = hydrated;
             }
         }
+        sanitize_track_source_text(&mut track_for_persistence);
+        sanitize_track_source_text(&mut track_for_metadata);
         {
             let mut db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
             identity_ingest::persist_musicindex_context_by_feed_url(
@@ -183,10 +188,11 @@ pub(crate) fn subscribe_feed_with_config(
         let mut track = track_with_feed_defaults(track_for_metadata, Some(&feed));
         let mut context_feed = feed.clone();
         enrich_track_context_from_rss(&mut track, Some(&mut context_feed));
-        let track_context = TrackContext {
+        let mut track_context = TrackContext {
             track: track.clone(),
             feed: Some(context_feed),
         };
+        sanitize_track_context_source_text(&mut track_context);
         let edits = id3_edits_for_track_context(&track_context);
 
         match subscribe_track_from_search_internal(
@@ -283,11 +289,23 @@ fn subscribe_track_from_search_internal(
     let original_track = track_context.track.clone();
     let mut track = track_with_feed_defaults(original_track.clone(), feed.as_ref());
     enrich_track_context_from_rss(&mut track, feed.as_mut());
-    let feed_url = track
+    let mut refreshed_context = TrackContext { track, feed };
+    sanitize_track_context_source_text(&mut refreshed_context);
+    let feed_url = refreshed_context
+        .track
         .feed_url
         .clone()
-        .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone()))
+        .filter(|url| !source_text_missing(Some(url.as_str())))
+        .or_else(|| {
+            refreshed_context
+                .feed
+                .as_ref()
+                .and_then(|feed| feed.feed_url.clone())
+        })
+        .filter(|url| !source_text_missing(Some(url.as_str())))
         .ok_or_else(|| anyhow!("track has no RSS feed URL"))?;
+    let track = refreshed_context.track.clone();
+    let feed = refreshed_context.feed.clone();
 
     let prior_subscribed = {
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
@@ -301,7 +319,7 @@ fn subscribe_track_from_search_internal(
             &mut db,
             &feed_url,
             feed.as_ref(),
-            Some(&original_track),
+            Some(&track),
         )?;
         if !mark_feed_subscribed && !prior_subscribed {
             db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
@@ -343,7 +361,6 @@ fn subscribe_track_from_search_internal(
     };
 
     let compare = if return_tag_compare {
-        let refreshed_context = TrackContext { track, feed };
         Some(compare_downloaded_track_path(&path, &refreshed_context)?)
     } else {
         None
@@ -421,7 +438,9 @@ pub fn enrich_track_context_from_rss(track: &mut Track, feed: Option<&mut Feed>)
     let feed_url = track
         .feed_url
         .clone()
-        .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone()));
+        .filter(|url| !source_text_missing(Some(url.as_str())))
+        .or_else(|| feed.as_ref().and_then(|feed| feed.feed_url.clone()))
+        .filter(|url| !source_text_missing(Some(url.as_str())));
     let Some(feed_url) = feed_url else {
         return;
     };
@@ -477,21 +496,25 @@ pub fn download_and_compare_track(
         None => None,
     };
     enrich_track_context_from_rss(&mut track, feed.as_mut());
+    let mut track_context = TrackContext { track, feed };
+    sanitize_track_context_source_text(&mut track_context);
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
     if !force_download {
-        if let Some(enclosure) = select_audio_enclosure(&track) {
-            let candidate = local_track_path(&cfg, &track, enclosure.format.canonical_extension());
+        if let Some(enclosure) = select_audio_enclosure(&track_context.track) {
+            let candidate = local_track_path(
+                &cfg,
+                &track_context.track,
+                enclosure.format.canonical_extension(),
+            );
             if candidate.exists() {
                 let path = crate::track_compare::ensure_taggable_local_path(&cfg, &candidate);
-                let track_context = TrackContext { track, feed };
                 return compare_downloaded_track_path(&path, &track_context);
             }
         }
     }
-    let downloaded = download_track(&cfg, &client.client, &track)?;
-    let track_context = TrackContext { track, feed };
+    let downloaded = download_track(&cfg, &client.client, &track_context.track)?;
     compare_downloaded_track_path(&downloaded.path, &track_context)
 }
 
@@ -546,6 +569,8 @@ pub fn compare_downloaded_track_path(
     path: &Path,
     track_context: &TrackContext,
 ) -> Result<TagCompareResult> {
+    let mut track_context = track_context.clone();
+    sanitize_track_context_source_text(&mut track_context);
     let tags = read_audio_tags(path)?;
     let file_image = tags.artwork.as_ref().and_then(|art| {
         if art.data.is_empty() {

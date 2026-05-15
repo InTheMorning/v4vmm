@@ -6535,8 +6535,11 @@ fn playlist_refresh_and_frame_navigation_preserve_context() {
 #[test]
 fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
     let feed_service_source = read_source(&manifest_path("src/feed_service.rs"));
+    let db_source = read_source(&manifest_path("src/db.rs"));
     let metadata_source = read_source(&manifest_path("src/metadata.rs"));
     let rss_enrich_source = read_source(&manifest_path("src/rss/enrich.rs"));
+    let rss_helpers_source = read_source(&manifest_path("src/rss/helpers.rs"));
+    let views_source = read_source(&manifest_path("src/views.rs"));
     for required in [
         "source_text_missing",
         ".fetch_feed_track(feed_guid, &track.item_guid, include)",
@@ -6566,6 +6569,11 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         "drop_placeholder(row.album_artist_name.clone())",
         "drop_placeholder(row.feed_title.clone())",
         "!source_text_missing(Some(url.as_str()))",
+        "sanitize_feed_source_text(&mut feed);",
+        "sanitize_track_source_text(&mut track_for_persistence);",
+        "sanitize_track_source_text(&mut track_for_metadata);",
+        "sanitize_track_context_source_text(&mut track_context);",
+        "sanitize_track_context_source_text(&mut refreshed_context);",
     ] {
         assert!(
             subscribe_service_source.contains(required),
@@ -6580,14 +6588,72 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         "RSS subscribe must not persist placeholder MusicIndex feed descriptions"
     );
     for required in [
+        "name: \"cleanup_placeholder_source_text\"",
+        "name: \"cleanup_markup_placeholder_source_text\"",
+        "migration_cleanup_placeholder_source_text",
+        "migration_cleanup_markup_placeholder_source_text",
+        "cleanup_placeholder_source_text_columns(conn, null_placeholder_text_column)",
+        "cleanup_placeholder_source_text_columns(conn, null_markup_placeholder_text_column)",
+        "migration_cleanup_placeholder_source_text_nulls_only_placeholder_payloads",
+    ] {
+        assert!(
+            db_source.contains(required),
+            "Polluted source-text cleanup must stay in the migration path: `{required}`"
+        );
+    }
+    for required in [
         "pub(crate) fn source_text_is_placeholder(value: &str) -> bool",
+        "pub(crate) fn sanitize_track_context_source_text(context: &mut TrackContext)",
+        "pub(crate) fn drop_placeholder_source_text(value: Option<String>) -> Option<String>",
+        "sanitize_track_context_source_text_clears_placeholder_display_facts",
+        "compare_track_rows_drop_placeholder_source_values",
+        "aligned_compare_rows_refills_placeholder_result_sources_from_context",
+        "track_metadata_rows_drop_markup_placeholder_source_values",
+        "drop_placeholder_source_text(row.source_value.clone())",
+        "source_value_for_metadata_field(row.field, track_context)",
+        "sanitize_source_release_claims",
         "source_placeholder_char",
-        "ch.is_whitespace() || source_placeholder_char(ch)",
+        "source_placeholder_scan",
+        "placeholder_entity_len",
+        "placeholder_markup_len",
+        "\"<p>...</p><p>...</p>\"",
+        "\"&hellip;\"",
         "'\\u{2026}'",
     ] {
         assert!(
             metadata_source.contains(required),
             "Source placeholder classification must stay centralized: `{required}`"
+        );
+    }
+    for required in [
+        "use crate::metadata::source_text_missing;",
+        ".filter(|value| !source_text_missing(Some(value)))",
+    ] {
+        assert!(
+            rss_helpers_source.contains(required),
+            "RSS text projection must reject placeholder-only payloads: `{required}`"
+        );
+    }
+    for required in [
+        "use crate::metadata::drop_placeholder_source_text;",
+        "drop_placeholder_source_text(value)",
+        "from_api_projection_drops_placeholder_source_text",
+    ] {
+        assert!(
+            views_source.contains(required),
+            "API-to-view projection must reject placeholder-only payloads: `{required}`"
+        );
+    }
+
+    let search_source = read_source(&manifest_path("src/search/app_impl.rs"));
+    for required in [
+        "sanitize_feed_source_text(&mut feed);",
+        "let mut track_context = TrackContext { track, feed };",
+        "sanitize_track_context_source_text(&mut track_context);",
+    ] {
+        assert!(
+            search_source.contains(required),
+            "Search inspector source facts must be sanitized before display: `{required}`"
         );
     }
     for required in [

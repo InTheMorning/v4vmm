@@ -156,6 +156,7 @@ pub fn compare_track_rows(
     tags: &crate::audio_tags::AudioTags,
 ) -> Vec<ComparisonRow> {
     let mut rows = compare_track_tags(track, tags);
+    sanitize_comparison_rows(&mut rows);
 
     push_compare_row(&mut rows, "RSS track guid", track.track_guid.clone(), None);
     push_compare_row(
@@ -215,8 +216,8 @@ pub fn push_if_differs(
     feed_value: Option<String>,
     track_value: Option<String>,
 ) {
-    if normalized_compare_value(feed_value.as_deref())
-        != normalized_compare_value(track_value.as_deref())
+    if normalized_source_value(feed_value.as_deref())
+        != normalized_source_value(track_value.as_deref())
     {
         push_compare_row(rows, field, feed_value, None);
     }
@@ -228,16 +229,33 @@ pub fn push_compare_row(
     source_value: Option<String>,
     tag_value: Option<String>,
 ) {
+    let source_value = drop_placeholder_source_text(source_value);
     if normalized_compare_value(source_value.as_deref()).is_some()
         || normalized_compare_value(tag_value.as_deref()).is_some()
     {
+        let status = compare_id3_field_values(field, source_value.as_deref(), tag_value.as_deref());
         rows.push(ComparisonRow {
             field,
             source_value,
             tag_value,
-            status: ComparisonStatus::MissingTag,
+            status,
         });
     }
+}
+
+fn sanitize_comparison_rows(rows: &mut Vec<ComparisonRow>) {
+    for row in rows.iter_mut() {
+        row.source_value = drop_placeholder_source_text(row.source_value.take());
+        row.status = compare_id3_field_values(
+            row.field,
+            row.source_value.as_deref(),
+            row.tag_value.as_deref(),
+        );
+    }
+    rows.retain(|row| {
+        normalized_compare_value(row.source_value.as_deref()).is_some()
+            || normalized_compare_value(row.tag_value.as_deref()).is_some()
+    });
 }
 
 pub fn track_nostr(track: &Track) -> Option<String> {
@@ -375,18 +393,180 @@ pub(crate) fn source_text_missing(value: Option<&str>) -> bool {
     value.is_none_or(source_text_is_placeholder)
 }
 
+pub(crate) fn drop_placeholder_source_text(value: Option<String>) -> Option<String> {
+    value.filter(|value| !source_text_missing(Some(value.as_str())))
+}
+
+pub(crate) fn sanitize_track_context_source_text(context: &mut TrackContext) {
+    sanitize_track_source_text(&mut context.track);
+    if let Some(feed) = &mut context.feed {
+        sanitize_feed_source_text(feed);
+    }
+}
+
+pub(crate) fn sanitize_track_source_text(track: &mut Track) {
+    track.feed_title = drop_placeholder_source_text(track.feed_title.take());
+    track.feed_url = drop_placeholder_source_text(track.feed_url.take());
+    track.title = drop_placeholder_source_text(track.title.take());
+    track.name = drop_placeholder_source_text(track.name.take());
+    track.description = drop_placeholder_source_text(track.description.take());
+    track.enclosure_url = drop_placeholder_source_text(track.enclosure_url.take());
+    track.enclosure_type = drop_placeholder_source_text(track.enclosure_type.take());
+    track.image_url = drop_placeholder_source_text(track.image_url.take());
+    track.track_artist = drop_placeholder_source_text(track.track_artist.take());
+    track.release_artist = drop_placeholder_source_text(track.release_artist.take());
+    track.publisher_text = drop_placeholder_source_text(track.publisher_text.take());
+    sanitize_source_links(track.source_links.as_mut());
+    sanitize_source_ids(track.source_ids.as_mut());
+    sanitize_source_release_claims(track.source_release_claims.as_mut());
+}
+
+pub(crate) fn sanitize_feed_source_text(feed: &mut Feed) {
+    feed.title = drop_placeholder_source_text(feed.title.take());
+    feed.name = drop_placeholder_source_text(feed.name.take());
+    feed.feed_url = drop_placeholder_source_text(feed.feed_url.take());
+    feed.release_artist = drop_placeholder_source_text(feed.release_artist.take());
+    feed.release_artist_sort = drop_placeholder_source_text(feed.release_artist_sort.take());
+    feed.raw_medium = drop_placeholder_source_text(feed.raw_medium.take());
+    feed.release_kind = drop_placeholder_source_text(feed.release_kind.take());
+    feed.publisher_text = drop_placeholder_source_text(feed.publisher_text.take());
+    feed.language = drop_placeholder_source_text(feed.language.take());
+    feed.description = drop_placeholder_source_text(feed.description.take());
+    feed.image_url = drop_placeholder_source_text(feed.image_url.take());
+    sanitize_source_links(feed.source_links.as_mut());
+    sanitize_source_ids(feed.source_ids.as_mut());
+    sanitize_source_release_claims(feed.source_release_claims.as_mut());
+    if let Some(tracks) = &mut feed.tracks {
+        for track in tracks {
+            sanitize_track_source_text(track);
+        }
+    }
+}
+
+fn sanitize_source_links(links: Option<&mut Vec<SourceEntityLink>>) {
+    let Some(links) = links else {
+        return;
+    };
+    for link in links.iter_mut() {
+        link.url = drop_placeholder_source_text(link.url.take());
+    }
+    links.retain(|link| link.url.is_some());
+}
+
+fn sanitize_source_ids(ids: Option<&mut Vec<SourceEntityId>>) {
+    let Some(ids) = ids else {
+        return;
+    };
+    for id in ids.iter_mut() {
+        id.value = drop_placeholder_source_text(id.value.take());
+    }
+}
+
+fn sanitize_source_release_claims(claims: Option<&mut Vec<SourceReleaseClaim>>) {
+    let Some(claims) = claims else {
+        return;
+    };
+    for claim in claims.iter_mut() {
+        claim.claim_value = drop_placeholder_source_text(claim.claim_value.take());
+    }
+}
+
 pub(crate) fn source_text_is_placeholder(value: &str) -> bool {
     let trimmed = value.trim();
-    trimmed.is_empty()
-        || (trimmed.len() >= 3
-            && trimmed
-                .chars()
-                .all(|ch| ch.is_whitespace() || source_placeholder_char(ch)))
-        || trimmed == "\u{2026}"
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let scan = source_placeholder_scan(trimmed);
+    scan.residual_text.is_empty()
+        && (scan.placeholder_count >= 3 || scan.saw_ellipsis || scan.saw_markup_or_entity)
 }
 
 fn source_placeholder_char(ch: char) -> bool {
     matches!(ch, '.' | '\u{2026}')
+}
+
+#[derive(Debug, Default)]
+struct SourcePlaceholderScan {
+    residual_text: String,
+    placeholder_count: usize,
+    saw_ellipsis: bool,
+    saw_markup_or_entity: bool,
+}
+
+fn source_placeholder_scan(value: &str) -> SourcePlaceholderScan {
+    let mut rest = value;
+    let mut scan = SourcePlaceholderScan::default();
+    while !rest.is_empty() {
+        if let Some(consumed) = placeholder_entity_len(rest) {
+            scan.saw_markup_or_entity = true;
+            if rest[..consumed].to_ascii_lowercase().contains("hellip")
+                || rest[..consumed].contains("8230")
+                || rest[..consumed].to_ascii_lowercase().contains("2026")
+                || rest[..consumed].to_ascii_lowercase().contains("mldr")
+            {
+                scan.saw_ellipsis = true;
+                scan.placeholder_count += 1;
+            }
+            rest = &rest[consumed..];
+            continue;
+        }
+
+        let Some(ch) = rest.chars().next() else {
+            break;
+        };
+        if ch.is_whitespace() || source_ignorable_format_char(ch) {
+            rest = &rest[ch.len_utf8()..];
+            continue;
+        }
+        if source_placeholder_char(ch) {
+            scan.placeholder_count += 1;
+            scan.saw_ellipsis |= ch == '\u{2026}';
+            rest = &rest[ch.len_utf8()..];
+            continue;
+        }
+        if let Some(consumed) = placeholder_markup_len(rest) {
+            scan.saw_markup_or_entity = true;
+            rest = &rest[consumed..];
+            continue;
+        }
+        scan.residual_text.push(ch);
+        rest = &rest[ch.len_utf8()..];
+    }
+    scan
+}
+
+fn source_ignorable_format_char(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{00A0}' | '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}'
+    )
+}
+
+fn placeholder_entity_len(value: &str) -> Option<usize> {
+    const PLACEHOLDER_ENTITIES: &[&str] = &[
+        "&hellip;", "&mldr;", "&#8230;", "&#x2026;", "&nbsp;", "&#160;", "&#xa0;", "&#x00a0;",
+    ];
+    let value = value.to_ascii_lowercase();
+    PLACEHOLDER_ENTITIES
+        .iter()
+        .find(|entity| value.starts_with(**entity))
+        .map(|entity| entity.len())
+}
+
+fn placeholder_markup_len(value: &str) -> Option<usize> {
+    const PLACEHOLDER_MARKUP: &[&str] = &[
+        "<p>", "</p>", "<br>", "<br/>", "<br />", "<div>", "</div>", "<span>", "</span>",
+    ];
+    let value = value.to_ascii_lowercase();
+    PLACEHOLDER_MARKUP
+        .iter()
+        .find(|markup| value.starts_with(**markup))
+        .map(|markup| markup.len())
+}
+
+fn normalized_source_value(value: Option<&str>) -> Option<String> {
+    normalized_compare_value(value).filter(|value| !source_text_missing(Some(value.as_str())))
 }
 
 // MusicBrainz helpers
@@ -805,37 +985,28 @@ pub fn track_metadata_rows(
         &mut rows,
         "identification-release-structure",
         "Title",
-        track
-            .title
-            .as_deref()
-            .or(track.name.as_deref())
-            .and_then(format_id3_title),
+        source_value_for_metadata_field("Title", track_context),
         musicbrainz_value_for_field("Title", musicbrainz),
     );
     push_track_metadata_row(
         &mut rows,
         "people-credits",
         "Artist",
-        track.track_artist.clone(),
+        source_value_for_metadata_field("Artist", track_context),
         musicbrainz_value_for_field("Artist", musicbrainz),
     );
     push_track_metadata_row(
         &mut rows,
         "people-credits",
         "Album artist",
-        track.release_artist.clone().or_else(|| {
-            track_context
-                .feed
-                .as_ref()
-                .and_then(|feed| feed.release_artist.clone())
-        }),
+        source_value_for_metadata_field("Album artist", track_context),
         None,
     );
     push_track_metadata_row(
         &mut rows,
         "identification-release-structure",
         "Album/Feed",
-        track.feed_title.clone(),
+        source_value_for_metadata_field("Album/Feed", track_context),
         musicbrainz_value_for_field("Album/Feed", musicbrainz),
     );
     let track_num = track.track_number.map(|n| n.to_string());
@@ -853,7 +1024,7 @@ pub fn track_metadata_rows(
         &mut rows,
         "descriptive-technical-rights-text",
         "Publisher",
-        track.publisher_text.clone(),
+        source_value_for_metadata_field("Publisher", track_context),
         musicbrainz_value_for_field("Publisher", musicbrainz),
     );
     push_track_metadata_row(
@@ -1007,17 +1178,11 @@ pub fn track_metadata_rows(
         }),
         None,
     );
-    let description = track.description.clone().or_else(|| {
-        track_context
-            .feed
-            .as_ref()
-            .and_then(|feed| feed.description.clone())
-    });
     push_track_metadata_row(
         &mut rows,
         "descriptive-technical-rights-text",
         "Description",
-        description,
+        source_value_for_metadata_field("Description", track_context),
         None,
     );
 
@@ -1050,6 +1215,7 @@ pub fn push_track_metadata_row(
     rss_value: Option<String>,
     musicbrainz_value: Option<String>,
 ) {
+    let rss_value = drop_placeholder_source_text(rss_value);
     let musicbrainz_status =
         compare_optional_values(rss_value.as_deref(), musicbrainz_value.as_deref());
     push_grouped_metadata_data_row(
@@ -1082,6 +1248,8 @@ pub fn aligned_compare_rows(
         let (rss_value, id3_value, mb_value, id3_compare_value) = if row.field == "Track #" {
             let total_rss = musicindex_total_tracks(track_context);
             let total_mb = musicbrainz_value_for_field("Total tracks", musicbrainz);
+            let source_track = drop_placeholder_source_text(row.source_value.clone())
+                .or_else(|| source_value_for_metadata_field(row.field, track_context));
             let id3_track_display =
                 id3_value_for_field(row.field, result).or_else(|| row.tag_value.clone());
             let id3_track_compare = row
@@ -1089,7 +1257,7 @@ pub fn aligned_compare_rows(
                 .clone()
                 .or_else(|| id3_compare_value_for_field(row.field, result));
             (
-                format_track_slash_total(row.source_value.as_deref(), total_rss.as_deref()),
+                format_track_slash_total(source_track.as_deref(), total_rss.as_deref()),
                 format_track_slash_total(
                     id3_track_display.as_deref(),
                     result.total_tracks.as_deref(),
@@ -1108,7 +1276,8 @@ pub fn aligned_compare_rows(
                 .clone()
                 .or_else(|| id3_compare_value_for_field(row.field, result));
             (
-                row.source_value.clone(),
+                drop_placeholder_source_text(row.source_value.clone())
+                    .or_else(|| source_value_for_metadata_field(row.field, track_context)),
                 id3_value,
                 musicbrainz_value,
                 id3_compare_value,
@@ -1250,12 +1419,7 @@ pub fn aligned_compare_rows(
             musicbrainz_status: ComparisonStatus::MissingTag,
         },
     );
-    let description_rss = track_context.track.description.clone().or_else(|| {
-        track_context
-            .feed
-            .as_ref()
-            .and_then(|feed| feed.description.clone())
-    });
+    let description_rss = source_value_for_metadata_field("Description", track_context);
     let description_id3 = id3_value_for_field("Description", result);
     let description_status =
         compare_optional_values(description_rss.as_deref(), description_id3.as_deref());
@@ -1668,8 +1832,71 @@ pub fn musicbrainz_source_value_for_field(
             "ISRC" => source_id_by_scheme(track.source_ids.as_deref(), &["isrc"]),
             "Duration" => track.duration_secs.map(fmt_dur),
             "Release year" => musicindex_release_date(track_context),
-            _ => None,
+            _ => source_value_for_metadata_field(field, track_context),
         })
+}
+
+fn source_value_for_metadata_field(field: &str, track_context: &TrackContext) -> Option<String> {
+    let track = &track_context.track;
+    let feed = track_context.feed.as_ref();
+    let value = match field {
+        "Title" => drop_placeholder_source_text(track.title.clone())
+            .or_else(|| drop_placeholder_source_text(track.name.clone()))
+            .as_deref()
+            .and_then(format_id3_title),
+        "Artist" => drop_placeholder_source_text(track.track_artist.clone()),
+        "Album artist" => {
+            drop_placeholder_source_text(track.release_artist.clone()).or_else(|| {
+                feed.and_then(|feed| drop_placeholder_source_text(feed.release_artist.clone()))
+            })
+        }
+        "Album/Feed" => track
+            .feed_title
+            .clone()
+            .and_then(|value| drop_placeholder_source_text(Some(value)))
+            .or_else(|| {
+                feed.and_then(|feed| {
+                    drop_placeholder_source_text(feed.title.clone())
+                        .or_else(|| drop_placeholder_source_text(feed.name.clone()))
+                })
+            }),
+        "Track #" => track
+            .track_number
+            .map(|track_number| track_number.to_string()),
+        "Publisher" | "Label" => drop_placeholder_source_text(track.publisher_text.clone())
+            .or_else(|| {
+                feed.and_then(|feed| drop_placeholder_source_text(feed.publisher_text.clone()))
+            }),
+        "RSS track guid" => track.track_guid.clone(),
+        "RSS feed guid" => track
+            .feed_guid
+            .clone()
+            .or_else(|| feed.and_then(|feed| feed.feed_guid.clone())),
+        "Nostr handle" => track_nostr(track),
+        "RSS feed nostr handle" => feed.and_then(feed_nostr),
+        "Website" => track_website(track),
+        "RSS feed website" => feed.and_then(feed_website),
+        "Release date" | "Release year" => musicindex_release_date(track_context),
+        "RSS item pubdate" => track_release_pubdate(track).filter(|item_pubdate| {
+            musicindex_release_date(track_context).as_deref() != Some(item_pubdate)
+        }),
+        "Duration" => track.duration_secs.map(fmt_dur),
+        "Artwork" => track_artwork_url(track_context),
+        "Transcript" | "Transcript text" => track_transcript_url(track),
+        "Description" => drop_placeholder_source_text(track.description.clone()).or_else(|| {
+            feed.and_then(|feed| drop_placeholder_source_text(feed.description.clone()))
+        }),
+        "Contributors" => track
+            .source_contributors
+            .as_deref()
+            .and_then(musicindex_contributors_id3_value),
+        "Value Routes" => track
+            .payment_routes
+            .as_deref()
+            .and_then(summarize_value_routes),
+        _ => None,
+    };
+    drop_placeholder_source_text(value)
 }
 
 pub fn metadata_group_row(
@@ -2446,7 +2673,7 @@ pub fn comparison_source_value(result: &TagCompareResult, field: &str) -> Option
         .rows
         .iter()
         .find(|row| row.field == field)
-        .and_then(|row| row.source_value.clone())
+        .and_then(|row| drop_placeholder_source_text(row.source_value.clone()))
 }
 
 pub fn comparison_tag_value(result: &TagCompareResult, field: &str) -> Option<String> {
@@ -3212,10 +3439,17 @@ pub fn metadata_drag_value(
 #[cfg(test)]
 mod tests {
     use super::{
-        display_contributor_tree, display_metadata_value, expanded_metadata_display_string,
-        expanded_metadata_display_value, id3_frame_base, pending_id3_target_key,
-        source_text_is_placeholder, summarize_contributor_value,
+        aligned_compare_rows, compare_track_rows, display_contributor_tree, display_metadata_value,
+        expanded_metadata_display_string, expanded_metadata_display_value, id3_frame_base,
+        pending_id3_target_key, sanitize_track_context_source_text, source_text_is_placeholder,
+        summarize_contributor_value, track_metadata_rows, MetadataGridRow, TagCompareResult,
+        TrackContext,
     };
+    use std::collections::BTreeSet;
+
+    use crate::api::{Feed, SourceEntityId, SourceEntityLink, SourceReleaseClaim, Track};
+    use crate::audio_tags::AudioTags;
+    use crate::track_compare::{ComparisonRow, ComparisonStatus};
 
     #[test]
     fn id3_target_keys_normalize_descriptor_control_chars() {
@@ -3279,9 +3513,313 @@ mod tests {
         assert!(source_text_is_placeholder("\u{2026}"));
         assert!(source_text_is_placeholder("...\n...\n..."));
         assert!(source_text_is_placeholder(" . . . \n \u{2026} "));
+        assert!(source_text_is_placeholder("<p>...</p><p>...</p>"));
+        assert!(source_text_is_placeholder("&hellip;"));
+        assert!(source_text_is_placeholder("&#8230;"));
+        assert!(source_text_is_placeholder("&nbsp;<br />..."));
+        assert!(source_text_is_placeholder("\u{200B}...\u{200B}"));
         assert!(!source_text_is_placeholder(
             "All music by Emily Whitehurst."
         ));
         assert!(!source_text_is_placeholder("... real text"));
+        assert!(!source_text_is_placeholder("<p>Real text ...</p>"));
+        assert!(!source_text_is_placeholder("<3>"));
+    }
+
+    #[test]
+    fn sanitize_track_context_source_text_clears_placeholder_display_facts() {
+        let mut context = TrackContext {
+            track: Track {
+                feed_title: Some("...".into()),
+                feed_url: Some("\u{2026}".into()),
+                title: Some("...\n...\n...".into()),
+                name: Some("Real fallback".into()),
+                description: Some(" . . . ".into()),
+                enclosure_url: Some("...".into()),
+                image_url: Some("...".into()),
+                source_links: Some(vec![
+                    SourceEntityLink {
+                        link_type: Some("website".into()),
+                        url: Some("...".into()),
+                        ..Default::default()
+                    },
+                    SourceEntityLink {
+                        link_type: Some("website".into()),
+                        url: Some("https://example.test".into()),
+                        ..Default::default()
+                    },
+                ]),
+                source_ids: Some(vec![SourceEntityId {
+                    scheme: Some("nostr_npub".into()),
+                    value: Some("&hellip;".into()),
+                    ..Default::default()
+                }]),
+                source_release_claims: Some(vec![SourceReleaseClaim {
+                    claim_type: Some("description".into()),
+                    claim_value: Some("<p>...</p><p>...</p>".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            },
+            feed: Some(Feed {
+                title: Some("...".into()),
+                name: Some("Real feed".into()),
+                feed_url: Some("...".into()),
+                description: Some("Real feed description".into()),
+                source_links: Some(vec![SourceEntityLink {
+                    link_type: Some("website".into()),
+                    url: Some("\u{2026}".into()),
+                    ..Default::default()
+                }]),
+                source_ids: Some(vec![SourceEntityId {
+                    scheme: Some("nostr_npub".into()),
+                    value: Some("npub1real".into()),
+                    ..Default::default()
+                }]),
+                source_release_claims: Some(vec![SourceReleaseClaim {
+                    claim_type: Some("description".into()),
+                    claim_value: Some("Feed source description".into()),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }),
+        };
+
+        sanitize_track_context_source_text(&mut context);
+
+        assert_eq!(context.track.feed_title, None);
+        assert_eq!(context.track.feed_url, None);
+        assert_eq!(context.track.title, None);
+        assert_eq!(context.track.name.as_deref(), Some("Real fallback"));
+        assert_eq!(context.track.description, None);
+        assert_eq!(context.track.enclosure_url, None);
+        assert_eq!(context.track.image_url, None);
+        assert_eq!(
+            context
+                .track
+                .source_links
+                .as_deref()
+                .and_then(|links| links.first())
+                .and_then(|link| link.url.as_deref()),
+            Some("https://example.test")
+        );
+        assert_eq!(
+            context
+                .track
+                .source_ids
+                .as_deref()
+                .and_then(|ids| ids.first())
+                .and_then(|id| id.value.as_deref()),
+            None
+        );
+        assert_eq!(
+            context
+                .track
+                .source_release_claims
+                .as_deref()
+                .and_then(|claims| claims.first())
+                .and_then(|claim| claim.claim_value.as_deref()),
+            None
+        );
+        let feed = context.feed.as_ref().expect("feed remains present");
+        assert_eq!(feed.title, None);
+        assert_eq!(feed.name.as_deref(), Some("Real feed"));
+        assert_eq!(feed.feed_url, None);
+        assert_eq!(feed.description.as_deref(), Some("Real feed description"));
+        assert!(feed.source_links.as_deref().is_none_or(<[_]>::is_empty));
+        assert_eq!(
+            feed.source_ids
+                .as_deref()
+                .and_then(|ids| ids.first())
+                .and_then(|id| id.value.as_deref()),
+            Some("npub1real")
+        );
+        assert_eq!(
+            feed.source_release_claims
+                .as_deref()
+                .and_then(|claims| claims.first())
+                .and_then(|claim| claim.claim_value.as_deref()),
+            Some("Feed source description")
+        );
+    }
+
+    #[test]
+    fn compare_track_rows_drop_placeholder_source_values() {
+        let track = Track {
+            title: Some("...\n...\n...".into()),
+            track_artist: Some("\u{2026}".into()),
+            feed_title: Some(" . . . ".into()),
+            publisher_text: Some("...".into()),
+            ..Default::default()
+        };
+        let tags = AudioTags {
+            title: Some("Embedded title".into()),
+            ..Default::default()
+        };
+
+        let rows = compare_track_rows(&track, None, &tags);
+
+        let title_row = rows
+            .iter()
+            .find(|row| row.field == "Title")
+            .expect("embedded title keeps row visible");
+        assert_eq!(title_row.source_value, None);
+        assert_eq!(title_row.status, ComparisonStatus::MissingSource);
+        assert!(
+            rows.iter().all(|row| row
+                .source_value
+                .as_deref()
+                .is_none_or(|value| !source_text_is_placeholder(value))),
+            "compare rows must never carry placeholder source facts"
+        );
+    }
+
+    #[test]
+    fn aligned_compare_rows_refills_placeholder_result_sources_from_context() {
+        let result = TagCompareResult {
+            path: "track.flac".into(),
+            rows: vec![
+                ComparisonRow {
+                    field: "Title",
+                    source_value: Some("...".into()),
+                    tag_value: Some("Embedded title".into()),
+                    status: ComparisonStatus::Different,
+                },
+                ComparisonRow {
+                    field: "Artist",
+                    source_value: Some("\u{2026}".into()),
+                    tag_value: None,
+                    status: ComparisonStatus::MissingTag,
+                },
+                ComparisonRow {
+                    field: "Album/Feed",
+                    source_value: Some("...\n...\n...".into()),
+                    tag_value: None,
+                    status: ComparisonStatus::MissingTag,
+                },
+                ComparisonRow {
+                    field: "Track #",
+                    source_value: Some("...".into()),
+                    tag_value: Some("3".into()),
+                    status: ComparisonStatus::Different,
+                },
+            ],
+            file_image: None,
+            contributors: Vec::new(),
+            value_routes: Vec::new(),
+            id3_fields: Vec::new(),
+            total_tracks: Some("18".into()),
+            format: None,
+        };
+        let track_context = TrackContext {
+            track: Track {
+                title: Some("The Platform".into()),
+                track_artist: Some("HeyCitizen".into()),
+                feed_title: Some("The Heycitizen Experience".into()),
+                track_number: Some(3),
+                duration_secs: Some(294),
+                description: Some("HeyCitizen makes sounds.".into()),
+                ..Default::default()
+            },
+            feed: Some(Feed {
+                episode_count: Some(18),
+                ..Default::default()
+            }),
+        };
+
+        let rows = aligned_compare_rows(&result, &track_context, None, false, &BTreeSet::new());
+
+        assert_eq!(
+            data_row(&rows, "Title").and_then(|row| row.rss_value.as_deref()),
+            Some("The Platform")
+        );
+        assert_eq!(
+            data_row(&rows, "Artist").and_then(|row| row.rss_value.as_deref()),
+            Some("HeyCitizen")
+        );
+        assert_eq!(
+            data_row(&rows, "Album/Feed").and_then(|row| row.rss_value.as_deref()),
+            Some("The Heycitizen Experience")
+        );
+        assert_eq!(
+            data_row(&rows, "Track #").and_then(|row| row.rss_value.as_deref()),
+            Some("3/18")
+        );
+        assert!(
+            rows.iter()
+                .filter_map(|row| match row {
+                    MetadataGridRow::Data(row) => row.rss_value.as_deref(),
+                    MetadataGridRow::Group(_) => None,
+                })
+                .all(|value| !source_text_is_placeholder(value)),
+            "aligned metadata rows must not display placeholder RSS values"
+        );
+    }
+
+    #[test]
+    fn track_metadata_rows_drop_markup_placeholder_source_values() {
+        let track_context = TrackContext {
+            track: Track {
+                title: Some("<p>...</p><p>...</p>".into()),
+                name: Some("Real title".into()),
+                track_artist: Some("&hellip;".into()),
+                release_artist: Some("Real artist".into()),
+                feed_title: Some("&nbsp;<br />...".into()),
+                publisher_text: Some("&#8230;".into()),
+                description: Some("<p>...</p>".into()),
+                ..Default::default()
+            },
+            feed: Some(Feed {
+                title: Some("Real feed".into()),
+                description: Some("Real feed description".into()),
+                ..Default::default()
+            }),
+        };
+
+        let rows = track_metadata_rows(&track_context, None, false);
+
+        assert_eq!(
+            data_row(&rows, "Title").and_then(|row| row.rss_value.as_deref()),
+            Some("Real title")
+        );
+        assert_eq!(
+            data_row(&rows, "Artist").and_then(|row| row.rss_value.as_deref()),
+            None
+        );
+        assert_eq!(
+            data_row(&rows, "Album artist").and_then(|row| row.rss_value.as_deref()),
+            Some("Real artist")
+        );
+        assert_eq!(
+            data_row(&rows, "Album/Feed").and_then(|row| row.rss_value.as_deref()),
+            Some("Real feed")
+        );
+        assert_eq!(
+            data_row(&rows, "Publisher").and_then(|row| row.rss_value.as_deref()),
+            None
+        );
+        assert_eq!(
+            data_row(&rows, "Description").and_then(|row| row.rss_value.as_deref()),
+            Some("Real feed description")
+        );
+        assert!(
+            rows.iter()
+                .filter_map(|row| match row {
+                    MetadataGridRow::Data(row) => row.rss_value.as_deref(),
+                    MetadataGridRow::Group(_) => None,
+                })
+                .all(|value| !source_text_is_placeholder(value)),
+            "track metadata rows must not display markup/entity placeholder source facts"
+        );
+    }
+
+    fn data_row<'a>(
+        rows: &'a [MetadataGridRow],
+        field: &str,
+    ) -> Option<&'a super::AlignedCompareRow> {
+        rows.iter().find_map(|row| match row {
+            MetadataGridRow::Data(row) if row.field == field => Some(row),
+            MetadataGridRow::Data(_) | MetadataGridRow::Group(_) => None,
+        })
     }
 }

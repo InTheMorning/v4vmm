@@ -2153,6 +2153,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "track_artist_source_bindings",
         apply: migration_track_artist_source_bindings,
     },
+    Migration {
+        version: 6,
+        name: "cleanup_placeholder_source_text",
+        apply: migration_cleanup_placeholder_source_text,
+    },
+    Migration {
+        version: 7,
+        name: "cleanup_markup_placeholder_source_text",
+        apply: migration_cleanup_markup_placeholder_source_text,
+    },
 ];
 
 pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
@@ -2221,21 +2231,63 @@ fn migration_track_artist_source_bindings(conn: &Connection) -> Result<()> {
     create_track_artist_source_binding_tables(conn)
 }
 
+fn migration_cleanup_placeholder_source_text(conn: &Connection) -> Result<()> {
+    cleanup_placeholder_source_text_columns(conn, null_placeholder_text_column)
+}
+
+fn migration_cleanup_markup_placeholder_source_text(conn: &Connection) -> Result<()> {
+    cleanup_placeholder_source_text_columns(conn, null_markup_placeholder_text_column)
+}
+
+fn cleanup_placeholder_source_text_columns(
+    conn: &Connection,
+    cleanup: fn(&Connection, &str, &str) -> Result<()>,
+) -> Result<()> {
+    for (table, columns) in [
+        (
+            "feeds",
+            &[
+                "title",
+                "link",
+                "language",
+                "description",
+                "podcast_medium",
+                "album_image_href",
+                "album_image_mime",
+            ][..],
+        ),
+        (
+            "tracks",
+            &[
+                "enclosure_url",
+                "enclosure_type",
+                "link",
+                "pub_date",
+                "track_title",
+                "artist_name",
+                "album_title",
+                "album_artist_name",
+                "itunes_duration_raw",
+                "itunes_explicit",
+                "track_image_href",
+                "track_image_mime",
+            ][..],
+        ),
+    ] {
+        for column in columns {
+            cleanup(conn, table, column)?;
+        }
+    }
+    Ok(())
+}
+
 fn add_column_if_missing(
     conn: &Connection,
     table: &str,
     column: &str,
     column_type: &str,
 ) -> Result<()> {
-    let mut stmt = conn
-        .prepare(&format!("PRAGMA table_info({table})"))
-        .with_context(|| format!("prepare table_info for {table}"))?;
-    let exists = stmt
-        .query_map([], |row| row.get::<_, String>(1))
-        .with_context(|| format!("query table_info for {table}"))?
-        .filter_map(Result::ok)
-        .any(|name| name.eq_ignore_ascii_case(column));
-    drop(stmt);
+    let exists = table_has_column(conn, table, column)?;
     if !exists {
         conn.execute(
             &format!("ALTER TABLE {table} ADD COLUMN {column} {column_type}"),
@@ -2243,6 +2295,52 @@ fn add_column_if_missing(
         )
         .with_context(|| format!("add column {column} to {table}"))?;
     }
+    Ok(())
+}
+
+fn table_has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .with_context(|| format!("prepare table_info for {table}"))?;
+    let has_column = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .with_context(|| format!("query table_info for {table}"))?
+        .filter_map(Result::ok)
+        .any(|name| name.eq_ignore_ascii_case(column));
+    Ok(has_column)
+}
+
+fn null_placeholder_text_column(conn: &Connection, table: &str, column: &str) -> Result<()> {
+    if !table_has_column(conn, table, column)? {
+        return Ok(());
+    }
+    conn.execute(
+        &format!(
+            "UPDATE {table}
+             SET {column} = NULL
+             WHERE {column} IS NOT NULL
+               AND length(trim(replace(replace(replace(replace(replace({column}, '.', ''), char(8230), ''), char(10), ''), char(13), ''), char(9), ''))) = 0"
+        ),
+        [],
+    )
+    .with_context(|| format!("null placeholder text in {table}.{column}"))?;
+    Ok(())
+}
+
+fn null_markup_placeholder_text_column(conn: &Connection, table: &str, column: &str) -> Result<()> {
+    if !table_has_column(conn, table, column)? {
+        return Ok(());
+    }
+    conn.execute(
+        &format!(
+            "UPDATE {table}
+             SET {column} = NULL
+             WHERE {column} IS NOT NULL
+               AND length(trim(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(lower({column}), '<p>', ''), '</p>', ''), '<br>', ''), '<br/>', ''), '<br />', ''), '&hellip;', ''), '&mldr;', ''), '&#8230;', ''), '&#x2026;', ''), '&nbsp;', ''), '&#160;', ''), '&#xa0;', ''), '&#x00a0;', ''), '.', ''), char(8230), ''), char(160), ''), char(10), ''), char(13), ''), char(9), ''))) = 0"
+        ),
+        [],
+    )
+    .with_context(|| format!("null markup placeholder text in {table}.{column}"))?;
     Ok(())
 }
 
@@ -3011,7 +3109,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5],
+            vec![1, 2, 3, 4, 5, 6, 7],
             "fresh schema should record all registry migrations"
         );
 
@@ -3055,8 +3153,160 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5],
+            vec![1, 2, 3, 4, 5, 6, 7],
             "migration registry should be idempotent"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn migration_cleanup_placeholder_source_text_nulls_only_placeholder_payloads() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+        init_schema(&conn)?;
+        conn.execute(
+            "INSERT INTO feeds (
+                feed_url, title, link, language, description, podcast_medium,
+                album_image_href, album_image_mime
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                "https://placeholder.example/feed.xml",
+                "...",
+                "\u{2026}",
+                " . . . ",
+                "<p>...</p>\n<p>&hellip;</p>",
+                "\t\u{2026}\n",
+                "...",
+                "..."
+            ],
+        )?;
+        let placeholder_feed_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO tracks (
+                feed_id, item_guid, enclosure_url, enclosure_type, link, pub_date,
+                track_title, artist_name, album_title, album_artist_name,
+                itunes_duration_raw, itunes_explicit, track_image_href, track_image_mime
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            rusqlite::params![
+                placeholder_feed_id,
+                "track-guid",
+                "...",
+                "\u{2026}",
+                " . . . ",
+                "<p>...</p>\n<p>&hellip;</p>",
+                "...",
+                "\u{2026}",
+                " . . . ",
+                "\n...\n",
+                "...",
+                "\u{2026}",
+                "...",
+                "..."
+            ],
+        )?;
+        let placeholder_track_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO feeds (feed_url, title, description, album_image_href)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![
+                "https://real.example/feed.xml",
+                "Real ... Feed",
+                "A real description with ... punctuation",
+                "https://real.example/cover.png"
+            ],
+        )?;
+        let real_feed_id = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO tracks (
+                feed_id, item_guid, track_title, artist_name, album_title,
+                album_artist_name, track_image_href
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                real_feed_id,
+                "real-track-guid",
+                "Song ... Title",
+                "Real Artist",
+                "Real Album",
+                "Real Album Artist",
+                "https://real.example/track.png"
+            ],
+        )?;
+        let real_track_id = conn.last_insert_rowid();
+
+        migrate_schema(&conn)?;
+        migrate_schema(&conn)?;
+
+        let placeholder_feed: (Option<String>, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT title, description, album_image_href FROM feeds WHERE id = ?1",
+                [placeholder_feed_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .context("read placeholder feed")?;
+        assert_eq!(placeholder_feed, (None, None, None));
+
+        let placeholder_track: (
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT track_title, artist_name, album_title, album_artist_name, track_image_href
+                 FROM tracks WHERE id = ?1",
+                [placeholder_track_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .context("read placeholder track")?;
+        assert_eq!(placeholder_track, (None, None, None, None, None));
+
+        let real_feed: (Option<String>, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT title, description, album_image_href FROM feeds WHERE id = ?1",
+                [real_feed_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .context("read real feed")?;
+        assert_eq!(
+            real_feed,
+            (
+                Some("Real ... Feed".into()),
+                Some("A real description with ... punctuation".into()),
+                Some("https://real.example/cover.png".into())
+            )
+        );
+
+        let real_track: (Option<String>, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT track_title, artist_name, track_image_href FROM tracks WHERE id = ?1",
+                [real_track_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .context("read real track")?;
+        assert_eq!(
+            real_track,
+            (
+                Some("Song ... Title".into()),
+                Some("Real Artist".into()),
+                Some("https://real.example/track.png".into())
+            )
+        );
+        assert_eq!(
+            applied_migration_versions(&conn)?,
+            vec![1, 2, 3, 4, 5, 6, 7],
+            "cleanup migration should be recorded exactly once"
         );
 
         Ok(())
