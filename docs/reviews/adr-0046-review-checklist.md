@@ -23,10 +23,13 @@
 
 ## Gate Status
 
-Status: Phase 5 Task 012 implementation and full automated gate green -
-2026-05-15.
+Status: Phase 5 Task 013 deferred until real per-frame content owners exist;
+automated guard updated - 2026-05-15.
 
-Readiness decision: **Proceed to ADR 0046 Phase 5 Task 013.**
+Readiness decision: **Do not close Phase 5 on user-visible multi-frame
+commands. Keep add/remove model support from Task 012, but hide open/close
+frame UI until ADR 0047/frame-navigation work creates non-duplicated content
+frames.**
 
 QueueNowPlaying implementation began after Phase 2 and Phase 3
 frame-navigation/chrome work was complete and user-confirmed.
@@ -77,6 +80,13 @@ frame-navigation/chrome work was complete and user-confirmed.
 - [x] Task 012 startup/save/shutdown persistence wiring recorded by architecture
       guard.
 - [x] Task 012 full automated gate green.
+- [x] Task 013 frame action menu ids and labels are not exposed while
+      `ContentList` is a transitional whole-screen mount.
+- [x] Task 013 context-menu and keybinding commands are deferred instead of
+      routing to duplicate active Library/Search/Settings frames.
+- [x] Task 013 keybindings for unavailable workspace-frame actions are absent.
+- [x] Task 013 focus indicator uses `SemanticColor::Focus`.
+- [x] Task 013 deferral architecture guard green.
 
 ## Required Fixes
 
@@ -96,6 +106,11 @@ frame-navigation/chrome work was complete and user-confirmed.
 - Do not move queue/liveValue controls into toolbar overflow.
 - Do not expose detach/dock UI before a follow-up windowing ADR.
 - Do not let lower-context tasks redesign frame kinds.
+- Do not expand Task 013 into breadcrumb, move/resize, or independent
+  per-frame Library/Search/Settings routing work; keep that for ADR 0047/
+  frame-navigation tasks.
+- Do not expose "Open New Frame" or workspace-frame keybindings while the only
+  possible result is a duplicate whole-screen Library/Search/Settings frame.
 
 ## Visual Readiness Checklist
 
@@ -167,6 +182,23 @@ frame-navigation/chrome work was complete and user-confirmed.
   removal, preserves focus invariants, and persists `workspace_layout` through
   `config.toml` with malformed-config fallback. Task 013 is the next visible
   Phase 5 slice.
+- 2026-05-15 Task 013 first implementation exposed shared frame action menu ids
+  and keybindings. User feedback showed the menu first opened an unusable
+  placeholder frame, then a misleading duplicate Library frame, while
+  `ctrl-shift-n` still did not trigger useful behavior on Linux. The corrected
+  Task 013 stance is to defer the user-visible open/close commands and project
+  persisted extra content frames out of the transitional layout. Breadcrumbs,
+  move/resize, and independent per-frame Library/Search/Settings routing remain
+  non-goals for Task 013 and belong to later ADR 0047/frame-navigation work.
+- 2026-05-15 local visual smoke was attempted with `cargo run` and
+  `LIBGL_ALWAYS_SOFTWARE=1 cargo run`; both failed before opening a GPUI window
+  due to X11/GPU initialization errors. Operator visual confirmation remains
+  required.
+- [ ] Task 013 default layout visual confirmation.
+- [ ] Task 013 confirms no duplicate second Library/Search/Settings frame is
+      reachable from frame chrome or keybindings.
+- [ ] Task 013 focused-frame indicator visual confirmation.
+- [ ] Task 013 light/dark visual confirmation.
 
 ## Test Gates
 
@@ -184,5 +216,6 @@ but phase readiness requires the full gate above.
 
 ## Merge Recommendation
 
-Phase 5 Task 012 is complete with the full automated gate green. Proceed with
-Task 013 as the next bounded implementation packet.
+Task 013 visible multi-frame commands are deferred. Do not close Phase 5 until
+the duplicate-frame regression is visually confirmed absent, or until a later
+ADR 0047 task provides real per-frame content owners.

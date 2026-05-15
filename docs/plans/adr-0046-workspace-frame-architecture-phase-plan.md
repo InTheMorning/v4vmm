@@ -132,8 +132,8 @@ Verification: `cargo test --test architecture_tests`, L/D visual review.
 
 ## Phase 5 - Multi-Frame Expansion
 
-Goal: allow opening additional content/detail frames and persist
-layout.
+Goal: persist frame layout state and prepare add/remove operations without
+exposing fake additional frames before content/detail frame owners exist.
 
 Tasks:
 
@@ -144,13 +144,14 @@ Deliverables:
 
 - Workspace VM add/remove operations with focus invariants
 - Layout persistence in `config.toml`
-- Frame-chrome context menu and keybinding for opening a second frame
-- Architecture guards + visual proof for multi-frame layouts
+- Frame-chrome context menu and keybinding remain deferred until a real
+  `ContentList`/`Detail` page VM can own non-duplicated content
+- Architecture guard preventing transitional whole-screen frame duplication
 
 Acceptance:
 
-- Users can view more than one source/detail context without losing
-  queue state.
+- Users are not offered a second frame that only duplicates the default
+  Library/Search/Settings mount.
 - Frame removal leaves a valid focused frame.
 - Layout persistence does not require schema migration.
 

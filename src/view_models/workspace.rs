@@ -1161,9 +1161,10 @@ mod tests {
             display.content_slot_id, "workspace-frame-7-content",
             "content slot id should be stable and frame-scoped"
         );
-        assert!(
-            display.action_menu_items.is_empty(),
-            "Task 005 defines the menu item contract without adding default actions"
+        assert_eq!(
+            display.action_menu_items,
+            Vec::new(),
+            "transitional workspace must not expose multi-frame actions before real frame content owners exist"
         );
         assert_eq!(
             display.filter_chip_strip, None,

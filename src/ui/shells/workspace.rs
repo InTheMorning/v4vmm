@@ -7,8 +7,8 @@
 #![warn(clippy::pedantic)]
 
 use gpui::{
-    div, prelude::FluentBuilder, AnyElement, App, IntoElement, ParentElement, Pixels, RenderOnce,
-    Styled, Window,
+    div, prelude::FluentBuilder, transparent_black, AnyElement, App, IntoElement, ParentElement,
+    Pixels, RenderOnce, Styled, Window,
 };
 
 use crate::ui::composites::{frame_shell, FrameShellSlots};
@@ -102,6 +102,7 @@ struct WorkspaceShell {
 impl RenderOnce for WorkspaceShell {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let workspace_width = window.bounds().size.width;
+        let focus_color = resolve_color(cx, SemanticColor::Focus, None);
         let mut collapsed_frames = Vec::new();
         let mut row = div()
             .size_full()
@@ -135,10 +136,19 @@ impl RenderOnce for WorkspaceShell {
             } else {
                 div().flex().flex_col().flex_1().min_w_0().min_h_0()
             };
-            row = row.child(frame_container.child(frame_shell(
-                display,
-                FrameShellSlots::new().content(content),
-            )));
+
+            row = row.child(
+                frame_container
+                    .border_1()
+                    .border_color(transparent_black())
+                    .when(frame.is_focused(), |el| {
+                        el.border_2().border_color(focus_color)
+                    })
+                    .child(frame_shell(
+                        display,
+                        FrameShellSlots::new().content(content),
+                    )),
+            );
         }
 
         div()

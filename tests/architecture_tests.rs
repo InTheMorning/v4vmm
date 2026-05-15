@@ -1385,7 +1385,8 @@ fn workspace_frame_phase_5_layout_persistence_contract() {
 
     for required in [
         "workspace_layout: WorkspaceLayout",
-        "WorkspaceLayout::from_config(workspace_layout_config.as_ref())",
+        "WorkspaceLayout::from_config(config)",
+        "initial_workspace_layout",
         "fn persist_workspace_layout(&self)",
         "&self.workspace_layout.to_config()",
         "impl Drop for TopApp",
@@ -1407,6 +1408,127 @@ fn workspace_frame_phase_5_layout_persistence_contract() {
     assert!(
         violations.is_empty(),
         "ADR 0046 Task 012 layout persistence violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frames_exist() {
+    let workspace_vm_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
+    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "action_menu_items: Vec<FrameChromeMenuItemDisplay>",
+        "action_menu_items: Vec::new()",
+    ] {
+        if !workspace_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0046 Task 013 deferred frame action contract missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "OPEN_NEW_FRAME_MENU_ID",
+        "CLOSE_FRAME_MENU_ID",
+        "workspace-frame-open-new-frame",
+        "workspace-frame-close-frame",
+        "Open New Frame",
+        "Close Frame",
+        "frame_action_menu_items",
+    ] {
+        if workspace_vm_source.contains(forbidden) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0046 Task 013 must not expose fake multi-frame action `{forbidden}` before real frame content exists"
+            ));
+        }
+    }
+
+    for required in [
+        "ContextMenuScope::WorkspaceFrame",
+        "Frame actions",
+        "on_menu_select",
+    ] {
+        if !frame_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: ADR 0046 Task 013 frame shell must keep shared context-menu routing; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in ["frame.is_focused()", "SemanticColor::Focus"] {
+        if !workspace_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0046 Task 013 focus wiring missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "crate::library::",
+        "crate::search::",
+        "crate::db",
+        "crate::playback",
+        "on_open_new_frame",
+        "on_close_frame",
+    ] {
+        if workspace_shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0046 Task 013 workspace shell must not dispatch unavailable multi-frame actions or screen/backend state `{forbidden}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "OpenNewContentFrame",
+        "CloseFocusedFrame",
+        "cmd-shift-n",
+        "ctrl-shift-n",
+        "ctrl-w",
+    ] {
+        if keyboard_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app/keyboard.rs: ADR 0046 Task 013 must not bind unavailable multi-frame action `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "visible_workspace_layout",
+        "content_seen",
+        ".content_list(active_screen)",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0046 Task 013 visible workspace projection missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "handle_open_new_content_frame",
+        "handle_close_focused_frame",
+        "TopApp::handle_open_new_content_frame",
+        "TopApp::handle_close_focused_frame",
+        "add_frame(WorkspaceFrameKind::ContentList)",
+        "self.workspace_layout.remove_frame(id)",
+        "content_frame_count",
+        "for _ in 0..content_frame_count",
+    ] {
+        if app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0046 Task 013 must not expose unavailable multi-frame routing `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0046 Task 013 deferred multi-frame command violations:\n{}",
         violations.join("\n")
     );
 }

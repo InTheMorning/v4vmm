@@ -28,15 +28,13 @@
 ## Gate Status
 
 Status: Phase D Task 009 automated implementation complete - 2026-05-15;
-ADR 46 Task 012 persistence gate cleared; Phase C visual confirmation remains
-pending.
+ADR 46 Task 012 persistence gate cleared; Task 010 escalated because the true
+`ContentList` page VM does not exist yet.
 
-Readiness decision: **ADR 46 Phase 4 visual proof is cleared. Task 010 may
-start because ADR 46 Task 012 has landed, giving later ADR 47
-frame/breadcrumb work persisted multi-frame layout state. Task 009 has no
-standalone user-visible mount in the current transitional workspace; carry its
-filter-strip visual proof into Task 010, where the strip is wired into a visible
-frame.**
+Readiness decision: **Do not implement Task 010 against the current whole-screen
+transitional mount. The task's escalation trigger applies: a real
+`ContentList` page VM must exist before per-frame filter state can be wired
+without creating a global or renderer-local filter store.**
 
 Phase B was view-model-only. Phase C touched inspector rendering, so it still
 requires operator visual confirmation. The operator resumed ADR 0047 completion
@@ -80,6 +78,8 @@ and does not wire real filtering or remove `GlobalSearchScope`.
 - [x] Task 009 visual proof deferred to Task 010 visible-frame wiring.
 - [x] ADR 46 Phase 4 visual gate cleared for Task 010 sequencing.
 - [x] ADR 46 Task 012 persistence gate cleared for Task 010 sequencing.
+- [x] Task 010 escalation recorded: current `ContentList` frame wraps whole
+      Library/Search/Settings screens and cannot host per-frame filter state.
 
 ## Required Fixes
 
@@ -155,9 +155,13 @@ cargo clippy -- -D warnings
   incomplete. Task 009 is structurally present, but the transitional workspace
   does not mount the filter strip in normal app flow until Task 010. Do not
   treat the deferred visual proof as completion of Phase D.
+- 2026-05-15 Task 010 exploration found no true GPUI-free `ContentList` page VM.
+  Rendering chips in frame chrome without filter-aware row projection would not
+  satisfy ADR 0047. Add or revise a bounded preparatory task for
+  `ContentListPageVm` ownership before wiring filter selection.
 
 ## Merge Recommendation
 
-Task 009 may proceed through automated review. ADR 46 Task 012 has cleared, so
-start Task 010 next and capture the filter chip strip and narrow pull-down proof
-as part of Task 010.
+Task 009 may proceed through automated review. Task 010 should be split or
+reframed before implementation; do not attach filters to the current
+whole-screen transitional mount.

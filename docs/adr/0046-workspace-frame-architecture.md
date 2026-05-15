@@ -103,8 +103,11 @@ as follows; rationale captured for downstream review:
 4. **Layout persistence in `config.toml`.** Workspace layout serializes
    to `config.toml`. Database-backed preferences revisited only if
    layout shape grows beyond what TOML expresses cleanly.
-5. **Open-second-frame commands.** Frame-chrome context menu plus a
-   keybinding in the first slice. Toolbar menu deferred.
+5. **Open-second-frame commands require real frame content owners.**
+   The workspace model may carry add/remove operations before every
+   frame kind is mounted, but the visible frame-chrome command and
+   keybinding stay deferred while `ContentList` is still a transitional
+   whole-screen Library/Search/Settings wrapper. Toolbar menu deferred.
 
 ### Apple HIG Alignment
 

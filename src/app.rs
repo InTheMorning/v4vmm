@@ -272,7 +272,10 @@ impl TopApp {
             endpoint_input,
             music_dir_input,
             flac_path_input,
-            workspace_layout: WorkspaceLayout::from_config(workspace_layout_config.as_ref()),
+            workspace_layout: Self::initial_workspace_layout(
+                workspace_layout_config.as_ref(),
+                WorkspaceScreenMount::Library,
+            ),
             ui_scale,
             theme_profile,
             cfg_path,
@@ -416,6 +419,99 @@ impl TopApp {
 
     fn persist_workspace_layout(&self) -> Result<()> {
         config::save_workspace_layout(&self.cfg_path, &self.workspace_layout.to_config())
+    }
+
+    fn initial_workspace_layout(
+        config: Option<&WorkspaceLayoutConfig>,
+        mount: WorkspaceScreenMount,
+    ) -> WorkspaceLayout {
+        let layout = WorkspaceLayout::from_config(config);
+        Self::visible_workspace_layout(&layout, mount)
+    }
+
+    fn visible_workspace_layout(
+        layout: &WorkspaceLayout,
+        mount: WorkspaceScreenMount,
+    ) -> WorkspaceLayout {
+        let mut content_seen = false;
+        let mut frames: Vec<_> = layout
+            .frames()
+            .iter()
+            .filter_map(|frame| match frame.kind() {
+                WorkspaceFrameKind::ContentList => {
+                    if content_seen {
+                        None
+                    } else {
+                        content_seen = true;
+                        Some(WorkspaceFrameState::new(
+                            frame.id(),
+                            frame.kind(),
+                            mount.frame_title(),
+                        ))
+                    }
+                }
+                WorkspaceFrameKind::QueueNowPlaying => Some(
+                    WorkspaceFrameState::with_default_title(frame.id(), frame.kind()),
+                ),
+                WorkspaceFrameKind::SourceList | WorkspaceFrameKind::Detail => None,
+            })
+            .collect();
+
+        if !frames
+            .iter()
+            .any(|frame| matches!(frame.kind(), WorkspaceFrameKind::ContentList))
+        {
+            frames.insert(
+                0,
+                WorkspaceFrameState::new(
+                    Self::unused_workspace_frame_id(&frames, WORKSPACE_CONTENT_FRAME_ID),
+                    WorkspaceFrameKind::ContentList,
+                    mount.frame_title(),
+                ),
+            );
+        }
+
+        if !frames
+            .iter()
+            .any(|frame| matches!(frame.kind(), WorkspaceFrameKind::QueueNowPlaying))
+        {
+            let queue_id = Self::unused_workspace_frame_id(&frames, WORKSPACE_QUEUE_FRAME_ID);
+            frames.push(WorkspaceFrameState::with_default_title(
+                queue_id,
+                WorkspaceFrameKind::QueueNowPlaying,
+            ));
+        }
+
+        let focused_frame_id = layout.focused_frame_id().filter(|id| {
+            frames
+                .iter()
+                .any(|frame| frame.id() == *id && frame.kind() == WorkspaceFrameKind::ContentList)
+        });
+        let focused_frame_id = focused_frame_id.or_else(|| {
+            frames
+                .iter()
+                .find(|frame| matches!(frame.kind(), WorkspaceFrameKind::ContentList))
+                .map(WorkspaceFrameState::id)
+        });
+
+        WorkspaceLayout::new(frames, focused_frame_id)
+            .expect("visible workspace layout preserves unique frame ids")
+    }
+
+    fn unused_workspace_frame_id(
+        frames: &[WorkspaceFrameState],
+        preferred: WorkspaceFrameId,
+    ) -> WorkspaceFrameId {
+        if !frames.iter().any(|frame| frame.id() == preferred) {
+            return preferred;
+        }
+        let next = frames
+            .iter()
+            .map(|frame| frame.id().value())
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        WorkspaceFrameId::new(next)
     }
 
     fn save_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -573,9 +669,10 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let active_screen = self.render_workspace_screen_mount(mount, cx);
+        let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
         let queue_frame = build_queue_now_playing_frame(self, cx);
         render_workspace(
-            &Self::transitional_workspace_layout(mount),
+            &layout,
             WorkspaceSlots::new()
                 .content_list(active_screen)
                 .queue_now_playing(queue_frame),
@@ -584,6 +681,10 @@ impl TopApp {
         .into_any_element()
     }
 
+    #[expect(
+        dead_code,
+        reason = "ADR 0046 Task 007 architecture guard keeps the legacy fallback constructor visible"
+    )]
     fn transitional_workspace_layout(mount: WorkspaceScreenMount) -> WorkspaceLayout {
         WorkspaceLayout::new(
             vec![
