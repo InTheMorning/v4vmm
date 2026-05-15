@@ -146,8 +146,8 @@ pull-down primitive; visual proof in Phase G.
 
 ## Phase E - Search-Results Inspector and Breadcrumbs
 
-Status: In progress - Task 012 frame-navigation ownership landed
-2026-05-15. Task 013 is next and owns frame-shell breadcrumb rendering.
+Status: In progress - Tasks 012, 013, and 014 landed 2026-05-15. Task 015 is
+next and owns search-submit and saved-search command routing.
 
 Goal: route global search submit into a `Detail` frame rendering the
 tabbed `SearchResultsInspector` with breadcrumb chrome.
@@ -155,8 +155,8 @@ tabbed `SearchResultsInspector` with breadcrumb chrome.
 Tasks:
 
 - `adr-0047-task-012-frame-breadcrumb-vm` - implemented 2026-05-15
-- `adr-0047-task-013-frame-shell-breadcrumb-render`
-- `adr-0047-task-014-search-results-inspector-shell`
+- `adr-0047-task-013-frame-shell-breadcrumb-render` - implemented 2026-05-15
+- `adr-0047-task-014-search-results-inspector-shell` - implemented 2026-05-15
 - `adr-0047-task-015-search-submit-and-saved-search-commands`
 
 Deliverables:

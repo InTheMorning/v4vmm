@@ -1,6 +1,6 @@
 # ADR 0047 Task 014: Search Results Inspector Shell
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -68,11 +68,30 @@ the new filter chip strip from task 009.
 
 ## Acceptance Criteria
 
-- [ ] Shell renders the three tabs and switches body content.
-- [ ] Filter chip strip renders via frame chrome.
-- [ ] Empty state renders when applicable.
-- [ ] No raw color/spacing literals.
-- [ ] Architecture guards lock the contracts.
+- [x] Shell renders the three tabs and switches body content.
+- [x] Filter chip strip renders via frame chrome.
+- [x] Empty state renders when applicable.
+- [x] No raw color/spacing literals.
+- [x] Architecture guards lock the contracts.
+
+## Implementation Notes
+
+- Added `src/ui/shells/search_results_inspector.rs` as a shared shell that
+  consumes `SearchResultsInspectorPageVm`, renders Artists / Feeds / Tracks
+  through the existing `SegmentedControl`, and renders active paged rows with
+  `ListRow`, `Thumbnail`, `Label`, and `TagBadge`.
+- The shell uses `PagedListVm::peek_row` so render does not enqueue loads.
+  Pending rows render a stable placeholder row; ready rows use the VM-owned
+  display fields and source-membership labels.
+- `SearchResultsInspectorPageVm::filter_chip_strip()` now projects
+  `FilterChipStripDisplay::default_for_search_inspector`, keeping the filter
+  contract GPUI-free.
+- `WorkspaceSlots` now accepts a Detail-frame filter strip and filter callback,
+  allowing search-results filters to render through `frame_shell` chrome when
+  Task 015 mounts the inspector.
+- This task is capability-only for visible routing: no global search-submit or
+  saved-search command path was changed. Visual proof is deferred to Task 015,
+  which owns the first visible mount.
 
 ## Test Commands
 

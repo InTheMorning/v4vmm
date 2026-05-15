@@ -1,6 +1,6 @@
 # ADR 0047 Task 013: Frame Shell Breadcrumb Render
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -55,11 +55,25 @@ chevron from ADR 0046 remains; breadcrumb is an additive chrome row.
 
 ## Acceptance Criteria
 
-- [ ] `frame_shell` renders breadcrumbs when display present.
-- [ ] Middle-ellipsis truncation works at narrow widths.
-- [ ] Clicking a segment dispatches the callback.
-- [ ] Back chevron and other chrome controls unchanged.
-- [ ] Architecture guard locks the contract.
+- [x] `frame_shell` renders breadcrumbs when display present.
+- [x] Middle-ellipsis truncation is consumed from the VM-projected
+  breadcrumb display.
+- [x] Clicking a segment dispatches the callback.
+- [x] Back chevron and other chrome controls unchanged.
+- [x] Architecture guard locks the contract.
+
+## Implementation Notes
+
+- `FrameShellDisplay` now carries `breadcrumb: Option<BreadcrumbDisplay>` and
+  exposes `with_breadcrumb`.
+- `FrameShellSlots` now accepts `on_breadcrumb_select`, dispatching typed
+  `FrameNavigationEntry` targets for non-current breadcrumb segments.
+- `frame_shell` renders an optional breadcrumb row below existing header/filter
+  chrome using semantic tokens and the icon catalog `ChevronRight` separator.
+- Current and ellipsis segments render as text; selectable parent segments
+  render as ghost buttons with accessibility labels.
+- This task is capability-only: no screen passes breadcrumbs into frame chrome
+  yet, so visual proof is deferred to the first visible wiring task.
 
 ## Test Commands
 

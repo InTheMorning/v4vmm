@@ -34,7 +34,9 @@ pub(crate) struct WorkspaceSlots {
     detail: Option<AnyElement>,
     queue_now_playing: Option<AnyElement>,
     content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
+    detail_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
+    on_detail_filter_select: Option<WorkspaceFilterSelectHandler>,
 }
 
 #[expect(
@@ -80,12 +82,27 @@ impl WorkspaceSlots {
         self
     }
 
+    /// Supplies frame-local filter chrome for the detail frame.
+    pub(crate) fn detail_filter_chip_strip(mut self, display: FilterChipStripDisplay) -> Self {
+        self.detail_filter_chip_strip = Some(display);
+        self
+    }
+
     /// Supplies the content-list filter callback.
     pub(crate) fn on_content_list_filter_select(
         mut self,
         handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_content_list_filter_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the detail-frame filter callback.
+    pub(crate) fn on_detail_filter_select(
+        mut self,
+        handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_detail_filter_select = Some(Rc::new(handler));
         self
     }
 
@@ -105,10 +122,10 @@ impl WorkspaceSlots {
     }
 
     fn filter_chip_strip_for(&self, kind: WorkspaceFrameKind) -> Option<FilterChipStripDisplay> {
-        if matches!(kind, WorkspaceFrameKind::ContentList) {
-            self.content_list_filter_chip_strip.clone()
-        } else {
-            None
+        match kind {
+            WorkspaceFrameKind::ContentList => self.content_list_filter_chip_strip.clone(),
+            WorkspaceFrameKind::Detail => self.detail_filter_chip_strip.clone(),
+            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -116,10 +133,10 @@ impl WorkspaceSlots {
         &self,
         kind: WorkspaceFrameKind,
     ) -> Option<WorkspaceFilterSelectHandler> {
-        if matches!(kind, WorkspaceFrameKind::ContentList) {
-            self.on_content_list_filter_select.clone()
-        } else {
-            None
+        match kind {
+            WorkspaceFrameKind::ContentList => self.on_content_list_filter_select.clone(),
+            WorkspaceFrameKind::Detail => self.on_detail_filter_select.clone(),
+            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 }

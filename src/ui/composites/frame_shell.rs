@@ -20,18 +20,21 @@ use gpui::{
 
 use crate::ui::composites::{filter_chip_strip, FilterChipStripSlots};
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::icons::IconName;
+use crate::ui::icons::{Icon, IconName};
 use crate::ui::primitives::{
     Button, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
 };
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
-    ContentFilter, FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameShellDisplay,
+    BreadcrumbDisplay, BreadcrumbSegment, ContentFilter, FilterChipStripDisplay,
+    FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameNavigationEntry, FrameShellDisplay,
 };
 
 type FrameButtonHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type FrameMenuSelectHandler = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
 type FrameFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
+type FrameBreadcrumbSelectHandler =
+    Rc<dyn Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static>;
 
 /// Callback and content slots supplied by a frame-shell caller.
 #[derive(Default)]
@@ -43,6 +46,7 @@ pub(crate) struct FrameShellSlots {
     on_close: Option<FrameButtonHandler>,
     on_menu_select: Option<FrameMenuSelectHandler>,
     on_filter_select: Option<FrameFilterSelectHandler>,
+    on_breadcrumb_select: Option<FrameBreadcrumbSelectHandler>,
     appearance: Option<Appearance>,
 }
 
@@ -91,6 +95,15 @@ impl FrameShellSlots {
         handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_filter_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the frame-local breadcrumb selection callback.
+    pub(crate) fn on_breadcrumb_select(
+        mut self,
+        handler: impl Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_breadcrumb_select = Some(Rc::new(handler));
         self
     }
 
@@ -177,6 +190,7 @@ fn render_chrome(
 ) -> impl IntoElement {
     let content_slot_id = display.content_slot_id.clone();
     let filter_chip_strip_display = display.filter_chip_strip.clone();
+    let breadcrumb_display = display.breadcrumb.clone();
     let mut nav = div()
         .flex()
         .flex_row()
@@ -267,21 +281,130 @@ fn render_chrome(
     chrome = chrome.child(header);
 
     if let Some(filter_display) = filter_chip_strip_display {
-        let mut filter_slots = FilterChipStripSlots::new();
-        if let Some(handler) = slots.on_filter_select {
-            filter_slots = filter_slots.on_select(move |filter, window, cx| {
-                handler(filter, window, cx);
-            });
-        }
-        chrome = chrome.child(
-            div()
-                .px(Spacing::MD.scaled(cx))
-                .pb(Spacing::XS.scaled(cx))
-                .child(filter_chip_strip(filter_display, filter_slots)),
-        );
+        chrome = chrome.child(frame_filter_row(filter_display, slots.on_filter_select, cx));
+    }
+
+    if let Some(breadcrumb) = breadcrumb_display {
+        let current_color = resolve_color(cx, SemanticColor::TertiaryLabel, slots.appearance);
+        chrome = chrome.child(frame_breadcrumb_row(
+            breadcrumb,
+            slots.on_breadcrumb_select.as_ref(),
+            secondary_color,
+            current_color,
+            cx,
+        ));
     }
 
     chrome
+}
+
+fn frame_filter_row(
+    filter_display: FilterChipStripDisplay,
+    handler: Option<FrameFilterSelectHandler>,
+    cx: &App,
+) -> AnyElement {
+    let mut filter_slots = FilterChipStripSlots::new();
+    if let Some(handler) = handler {
+        filter_slots = filter_slots.on_select(move |filter, window, cx| {
+            handler(filter, window, cx);
+        });
+    }
+    div()
+        .px(Spacing::MD.scaled(cx))
+        .pb(Spacing::XS.scaled(cx))
+        .child(filter_chip_strip(filter_display, filter_slots))
+        .into_any_element()
+}
+
+fn frame_breadcrumb_row(
+    display: BreadcrumbDisplay,
+    on_select: Option<&FrameBreadcrumbSelectHandler>,
+    secondary_color: gpui::Rgba,
+    current_color: gpui::Rgba,
+    cx: &App,
+) -> AnyElement {
+    div()
+        .id(SharedString::from(display.id))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(Spacing::XS.scaled(cx))
+        .min_w_0()
+        .px(Spacing::MD.scaled(cx))
+        .pb(Spacing::XS.scaled(cx))
+        .children(
+            display
+                .segments
+                .into_iter()
+                .enumerate()
+                .flat_map(|(index, segment)| {
+                    let mut elements = Vec::with_capacity(2);
+                    if index > 0 {
+                        elements.push(frame_breadcrumb_separator(secondary_color));
+                    }
+                    elements.push(frame_breadcrumb_segment(
+                        segment,
+                        on_select,
+                        secondary_color,
+                        current_color,
+                        cx,
+                    ));
+                    elements
+                }),
+        )
+        .into_any_element()
+}
+
+fn frame_breadcrumb_segment(
+    segment: BreadcrumbSegment,
+    on_select: Option<&FrameBreadcrumbSelectHandler>,
+    secondary_color: gpui::Rgba,
+    current_color: gpui::Rgba,
+    cx: &App,
+) -> AnyElement {
+    let Some(target) = segment.target.clone() else {
+        return breadcrumb_text_segment(segment, secondary_color, current_color, cx);
+    };
+    let Some(handler) = on_select.cloned() else {
+        return breadcrumb_text_segment(segment, secondary_color, current_color, cx);
+    };
+    if segment.is_current {
+        return breadcrumb_text_segment(segment, secondary_color, current_color, cx);
+    }
+
+    Button::styled(SharedString::from(segment.id), ControlStyle::Ghost)
+        .label(SharedString::from(segment.label))
+        .a11y_label(SharedString::from(segment.a11y_label))
+        .on_click(move |_, window, cx| {
+            handler(target.clone(), window, cx);
+        })
+        .into_any_element()
+}
+
+fn breadcrumb_text_segment(
+    segment: BreadcrumbSegment,
+    secondary_color: gpui::Rgba,
+    current_color: gpui::Rgba,
+    cx: &App,
+) -> AnyElement {
+    let text_color = if segment.is_current {
+        current_color
+    } else {
+        secondary_color
+    };
+    div()
+        .min_w_0()
+        .text_size(FontSize::Micro.scaled(cx))
+        .text_color(text_color)
+        .truncate()
+        .child(SharedString::from(segment.label))
+        .into_any_element()
+}
+
+fn frame_breadcrumb_separator(color: gpui::Rgba) -> AnyElement {
+    Icon::new(IconName::ChevronRight)
+        .color(color)
+        .into_any_element()
 }
 
 fn chrome_button(
@@ -362,13 +485,15 @@ mod tests {
             .on_back(|_, _| {})
             .on_forward(|_, _| {})
             .on_close(|_, _| {})
-            .on_menu_select(|_, _, _| {});
+            .on_menu_select(|_, _, _| {})
+            .on_breadcrumb_select(|_, _, _| {});
 
         assert!(slots.content.is_some());
         assert!(slots.on_back.is_some());
         assert!(slots.on_forward.is_some());
         assert!(slots.on_close.is_some());
         assert!(slots.on_menu_select.is_some());
+        assert!(slots.on_breadcrumb_select.is_some());
         assert!(slots.on_filter_select.is_none());
     }
 
@@ -377,5 +502,12 @@ mod tests {
         let slots = FrameShellSlots::new().on_filter_select(|_, _, _| {});
 
         assert!(slots.on_filter_select.is_some());
+    }
+
+    #[test]
+    fn slots_accept_breadcrumb_selection_callback() {
+        let slots = FrameShellSlots::new().on_breadcrumb_select(|_, _, _| {});
+
+        assert!(slots.on_breadcrumb_select.is_some());
     }
 }

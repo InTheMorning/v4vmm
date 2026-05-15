@@ -675,6 +675,7 @@ fn workspace_frame_shell_display_contract_lives_in_workspace_vm() {
         "pub(crate) forward: FrameChromeButtonDisplay",
         "pub(crate) close: Option<FrameChromeButtonDisplay>",
         "pub(crate) action_menu_items: Vec<FrameChromeMenuItemDisplay>",
+        "pub(crate) breadcrumb: Option<BreadcrumbDisplay>",
         "pub(crate) content_slot_id: String",
         "pub(crate) fn from_frame(",
         "nav.can_go_back()",
@@ -760,13 +761,15 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
     }
 
     for required in [
-        "use crate::view_models::workspace::ContentFilter;",
+        "use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};",
         "pub(crate) enum SearchResultsTab",
         "pub(crate) struct ArtistResultDisplay",
         "pub(crate) struct FeedResultDisplay",
         "pub(crate) struct TrackResultDisplay",
         "pub(crate) struct EmptyStateDisplay",
         "pub(crate) struct SearchResultsInspectorPageVm",
+        "pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay",
+        "FilterChipStripDisplay::default_for_search_inspector(self.filter, true)",
         "pub(crate) fn set_tab",
         "pub(crate) fn set_filter",
         "pub(crate) fn is_empty",
@@ -1898,6 +1901,160 @@ fn adr_0047_task_012_frame_navigation_is_workspace_vm_owned() {
     assert!(
         violations.is_empty(),
         "ADR 0047 Task 012 frame navigation ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0047_task_013_frame_shell_renders_breadcrumb_chrome() {
+    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) breadcrumb: Option<BreadcrumbDisplay>",
+        "breadcrumb: None",
+        "pub(crate) fn with_breadcrumb(mut self, display: BreadcrumbDisplay) -> Self",
+    ] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0047 Task 013 frame-shell breadcrumb display contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "type FrameBreadcrumbSelectHandler",
+        "on_breadcrumb_select: Option<FrameBreadcrumbSelectHandler>",
+        "pub(crate) fn on_breadcrumb_select(",
+        "let breadcrumb_display = display.breadcrumb.clone();",
+        "frame_breadcrumb_row(",
+        "frame_breadcrumb_segment(",
+        "frame_breadcrumb_separator(",
+        "Icon::new(IconName::ChevronRight)",
+        "Button::styled(SharedString::from(segment.id), ControlStyle::Ghost)",
+        "handler(target.clone(), window, cx);",
+    ] {
+        if !frame_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: ADR 0047 Task 013 breadcrumb chrome missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "BreadcrumbTrail::new",
+        "crate::library",
+        "crate::search",
+        "crate::app",
+        "crate::db",
+        "gpui::rgb(",
+        "gpui::px(",
+        ".absolute()",
+        ".fixed()",
+        ".z_index(",
+    ] {
+        if frame_shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: ADR 0047 Task 013 frame shell must not use `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 013 frame-shell breadcrumb violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0047_task_014_search_results_inspector_shell_contract() {
+    let shell_source = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+    let shells_mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
+    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let search_results_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) struct SearchResultsInspectorSlots",
+        "pub(crate) fn render_search_results_inspector",
+        "SearchResultsInspectorPageVm",
+        "SegmentedControl::new(selected)",
+        "Segment::new(tab_segment_display(SearchResultsTab::Artists))",
+        "Segment::new(tab_segment_display(SearchResultsTab::Feeds))",
+        "Segment::new(tab_segment_display(SearchResultsTab::Tracks))",
+        "vm.empty_state()",
+        "render_empty_state(",
+        "render_active_result_list(",
+        "window.peek_row(index)",
+        "RowSlot::Ready(row)",
+        "RowSlot::Pending(placeholder)",
+        "ListRow::new(",
+        "Thumbnail::new(kind, ThumbnailSize::Sm)",
+        "TagBadge::new(TagBadgeDisplay",
+    ] {
+        if !shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/search_results_inspector.rs: ADR 0047 Task 014 shell contract missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "crate::search",
+        "crate::library",
+        "crate::app",
+        "crate::db",
+        "gpui::rgb(",
+        "gpui::px(",
+        ".absolute()",
+        ".fixed()",
+        ".z_index(",
+        "ControlStyle::Pill",
+    ] {
+        if shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/search_results_inspector.rs: ADR 0047 Task 014 shell must not use `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub mod search_results_inspector;",
+        "detail_filter_chip_strip: Option<FilterChipStripDisplay>",
+        "on_detail_filter_select: Option<WorkspaceFilterSelectHandler>",
+        "pub(crate) fn detail_filter_chip_strip(",
+        "pub(crate) fn on_detail_filter_select(",
+        "WorkspaceFrameKind::Detail => self.detail_filter_chip_strip.clone()",
+        "WorkspaceFrameKind::Detail => self.on_detail_filter_select.clone()",
+    ] {
+        let source = if required == "pub mod search_results_inspector;" {
+            &shells_mod_source
+        } else {
+            &workspace_shell_source
+        };
+        if !source.contains(required) {
+            violations.push(format!(
+                "ADR 0047 Task 014 workspace search-inspector mounting support missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay",
+        "FilterChipStripDisplay::default_for_search_inspector(self.filter, true)",
+    ] {
+        if !search_results_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results.rs: ADR 0047 Task 014 search-results filter display missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 014 search-results inspector shell violations:\n{}",
         violations.join("\n")
     );
 }

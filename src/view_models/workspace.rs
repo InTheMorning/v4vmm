@@ -463,6 +463,8 @@ pub(crate) struct FrameShellDisplay {
     pub(crate) action_menu_items: Vec<FrameChromeMenuItemDisplay>,
     /// Optional frame-local content filter strip.
     pub(crate) filter_chip_strip: Option<FilterChipStripDisplay>,
+    /// Optional frame-local breadcrumb path.
+    pub(crate) breadcrumb: Option<BreadcrumbDisplay>,
     /// Stable content slot identifier for mounting frame body content.
     pub(crate) content_slot_id: String,
 }
@@ -504,6 +506,7 @@ impl FrameShellDisplay {
             }),
             action_menu_items: Vec::new(),
             filter_chip_strip: None,
+            breadcrumb: None,
             content_slot_id: format!("workspace-frame-{}-content", frame_id.value()),
         }
     }
@@ -512,6 +515,13 @@ impl FrameShellDisplay {
     #[must_use]
     pub(crate) fn with_filter_chip_strip(mut self, display: FilterChipStripDisplay) -> Self {
         self.filter_chip_strip = Some(display);
+        self
+    }
+
+    /// Returns this shell display with frame-local breadcrumbs attached.
+    #[must_use]
+    pub(crate) fn with_breadcrumb(mut self, display: BreadcrumbDisplay) -> Self {
+        self.breadcrumb = Some(display);
         self
     }
 }
@@ -1389,6 +1399,10 @@ mod tests {
             display.filter_chip_strip, None,
             "filter chips are opt-in frame chrome"
         );
+        assert_eq!(
+            display.breadcrumb, None,
+            "breadcrumbs are opt-in frame chrome"
+        );
     }
 
     #[test]
@@ -1405,6 +1419,22 @@ mod tests {
             display.filter_chip_strip,
             Some(filters),
             "frame shell should carry optional frame-local filters without applying them"
+        );
+    }
+
+    #[test]
+    fn frame_shell_display_accepts_optional_breadcrumb() {
+        let frame = frame(7, WorkspaceFrameKind::ContentList);
+        let nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
+        let breadcrumb = BreadcrumbDisplay::project("crumbs", &nav, |_| "Playlist".to_string());
+
+        let display =
+            FrameShellDisplay::from_frame(&frame, &nav, true).with_breadcrumb(breadcrumb.clone());
+
+        assert_eq!(
+            display.breadcrumb,
+            Some(breadcrumb),
+            "frame shell should carry optional frame-local breadcrumbs without routing them"
         );
     }
 

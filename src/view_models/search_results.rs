@@ -13,7 +13,7 @@
 )]
 
 use crate::runtime::paged_list_vm::PagedListVm;
-use crate::view_models::workspace::ContentFilter;
+use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};
 
 /// Stable numeric identity for one search-result row.
 pub(crate) type SearchResultItemId = u64;
@@ -388,6 +388,12 @@ impl SearchResultsInspectorPageVm {
         self.filter
     }
 
+    /// Returns the frame-chrome filter display for this inspector.
+    #[must_use]
+    pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay {
+        FilterChipStripDisplay::default_for_search_inspector(self.filter, true)
+    }
+
     /// Sets the content filter without changing the selected tab.
     pub(crate) fn set_filter(&mut self, filter: ContentFilter) {
         self.filter = filter;
@@ -591,5 +597,20 @@ mod tests {
         assert_eq!(track.a11y_label, "Track: Theme");
         assert!(SearchResultOrigin::Index.matches_filter(ContentFilter::All));
         assert!(!SearchResultOrigin::Index.matches_filter(ContentFilter::Library));
+    }
+
+    #[test]
+    fn filter_chip_strip_uses_search_inspector_contract() {
+        let mut vm = SearchResultsInspectorPageVm::new("beats");
+        vm.set_filter(ContentFilter::Index);
+
+        let strip = vm.filter_chip_strip();
+
+        assert_eq!(strip.id, "workspace-search-inspector-filter");
+        assert_eq!(strip.selected, ContentFilter::Index);
+        assert!(
+            strip.narrow_collapse_to_pulldown,
+            "search inspector filters should collapse in narrow detail frames"
+        );
     }
 }

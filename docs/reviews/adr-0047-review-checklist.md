@@ -15,6 +15,9 @@
 - `docs/tasks/adr-0047-task-009-filter-chip-strip-composite.md`
 - `docs/tasks/adr-0047-task-010-wire-filter-chips-into-content-list-frame.md`
 - `docs/tasks/adr-0047-task-010a-content-list-page-vm-ownership.md`
+- `docs/tasks/adr-0047-task-012-frame-breadcrumb-vm.md`
+- `docs/tasks/adr-0047-task-013-frame-shell-breadcrumb-render.md`
+- `docs/tasks/adr-0047-task-014-search-results-inspector-shell.md`
 - `src/library.rs`
 - `src/library/app_impl.rs`
 - `src/ui/composites/disclosure_group.rs`
@@ -23,6 +26,8 @@
 - `src/ui/shells/library/feed_detail.rs`
 - `src/ui/shells/library/track_detail.rs`
 - `src/ui/shells/library/track_detail_metadata.rs`
+- `src/ui/shells/search_results_inspector.rs`
+- `src/ui/shells/workspace.rs`
 - `src/view_models/workspace.rs`
 - `src/view_models/library.rs`
 - `src/view_models/search_results.rs`
@@ -30,9 +35,9 @@
 
 ## Gate Status
 
-Status: Phase E Task 012 frame-navigation ownership is implemented after
-Phase D Task 010 Library-backed frame wiring and Task 011 toolbar scope
-retirement were user-visually confirmed - 2026-05-15.
+Status: Phase E Tasks 012, 013, and 014 are implemented after Phase D Task 010
+Library-backed frame wiring and Task 011 toolbar scope retirement were
+user-visually confirmed - 2026-05-15.
 
 Readiness decision: **Task 010 is implemented only through the GPUI-free
 `ContentListPageVm`. Do not extend chips to Search/Settings transitional mounts
@@ -43,9 +48,11 @@ requires operator visual confirmation. The operator resumed ADR 0047 completion
 on 2026-05-15; Task 009 is limited to shared frame-chrome filter chip structure
 and does not wire real filtering or remove `GlobalSearchScope`. Task 011 is the
 bounded Phase D cleanup for the duplicate toolbar controls observed after Task
-010, not a search-routing redesign; it is now implemented. Task 012 begins
-Phase E by moving per-frame navigation ownership into the workspace VM without
-rendering new frame-shell breadcrumbs yet.
+010, not a search-routing redesign; it is now implemented. Tasks 012-014 begin
+Phase E by moving per-frame navigation ownership into the workspace VM,
+teaching the frame shell to render optional breadcrumb chrome, and adding the
+shared search-results inspector shell. Visible search-submit and saved-search
+routing has not started yet.
 
 ## Required Checks
 
@@ -98,6 +105,14 @@ rendering new frame-shell breadcrumbs yet.
       `WorkspaceFrameId`, `LibraryApp` routes history through workspace VM
       helpers, and breadcrumb projection covers single, normal multi-segment,
       and longer middle-ellipsis paths.
+- [x] Task 013 implemented: `FrameShellDisplay` carries optional breadcrumb
+      display, `FrameShellSlots` carries typed breadcrumb selection, and
+      `frame_shell` renders token-based breadcrumb chrome with chevron
+      separators when the display is present.
+- [x] Task 014 implemented: `SearchResultsInspectorPageVm` projects
+      search-inspector filter chrome, `WorkspaceSlots` admits Detail-frame
+      filter chips, and `search_results_inspector` renders three tabs,
+      paged rows, and VM-owned empty states through shared primitives.
 
 ## Required Fixes
 
@@ -105,9 +120,10 @@ rendering new frame-shell breadcrumbs yet.
   and `GlobalSearchScope` must not return.
 - Keep Search and Settings free of content-list chips until Phase E gives them
   real frame-local content/search-result owners.
-- Task 013 must consume the Task 012 VM contract from frame shell chrome; it
-  must not reintroduce inspector-local return controls or a second breadcrumb
-  model.
+- Task 015 must consume the Task 012-014 VM and chrome contracts for
+  search-submit and saved-search routing; it must not reintroduce
+  inspector-local return controls, a second breadcrumb model, or toolbar
+  source-scope controls.
 
 ## Prohibited Regression
 
@@ -194,11 +210,17 @@ git diff --check
   button, the Library frame-local filter remains in frame chrome, and global
   search still submits into Search results.
 - 2026-05-15 Task 012 changes only GPUI-free workspace navigation ownership
-  and the existing LibraryApp bridge. No new frame-shell breadcrumb rendering
-  is introduced in this task; visual proof is deferred to Task 013.
+  and the existing LibraryApp bridge.
+- 2026-05-15 Task 013 adds frame-shell breadcrumb rendering capability without
+  wiring any visible screen path to provide breadcrumbs yet. Visual proof is
+  deferred to the first visible search-results/frame breadcrumb wiring task.
+- 2026-05-15 Task 014 adds the shared search-results inspector shell and
+  Detail-frame filter-chip slot without changing global search-submit routing.
+  Visual proof is deferred to Task 015, which owns the first visible mount.
 
 ## Merge Recommendation
 
-Task 012 passes structural review. Task 013 is the next Phase E step and should
-render breadcrumbs from the workspace VM contract without reusing the retired
-toolbar source-scope model or inspector-local return controls.
+Task 014 passes structural review. Task 015 is the next Phase E step and should
+wire global search submit and saved-search activation into the Detail frame
+using the existing workspace VM, frame-shell breadcrumb, and search-results
+inspector contracts.

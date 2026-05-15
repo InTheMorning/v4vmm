@@ -7,9 +7,10 @@ Accepted - implementation in progress 2026-05-15. Promotes
 the pre-ADR concept artifact. Phase D is implemented through Task 011:
 the Library-backed frame owns the visible source filter and the
 duplicate toolbar scope controls are retired. Phase E is implemented
-through Task 012: per-frame navigation ownership now lives in the
-workspace VM and breadcrumb projection is ready for frame-shell
-rendering. Search-results inspector routing remains follow-up work.
+through Task 014: per-frame navigation ownership now lives in the
+workspace VM, frame-shell breadcrumb rendering capability is in
+place, and the shared search-results inspector shell exists.
+Search-submit and saved-search routing remain follow-up work.
 
 ## Context
 
@@ -92,8 +93,10 @@ Implementation follows
 - Phase B adds GPUI-free view-model contracts.
 - Phase C rewires inspector advanced panels and description disclosure.
 - Phase D moves content filters into per-frame chrome.
-- Phase E adds search-results inspector routing and breadcrumbs. Task
-  012 has landed the workspace-owned frame-navigation prerequisite.
+- Phase E adds search-results inspector routing and breadcrumbs. Tasks
+  012, 013, and 014 have landed the workspace-owned frame-navigation,
+  frame-shell breadcrumb, and search-results inspector shell
+  prerequisites.
 - Phase F retires the standalone Search screen module.
 - Phase G completes guards and light/dark visual proof.
 
