@@ -36,6 +36,7 @@ use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
+use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{ArtistView, FeedRef, FeedView, LocalIdentityFacts, TrackRef};
 
@@ -606,6 +607,195 @@ pub(crate) struct LibraryTrackPlaylistDisplay {
 pub(crate) struct LibraryTrackRowDisplay {
     pub(crate) row_id: String,
     pub(crate) toggle_button_id: String,
+}
+
+/// Source bucket for a row in the future workspace content-list frame.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListRowSource {
+    /// Row belongs to the local library.
+    Library,
+    /// Row is available from the remote index but is not local.
+    Index,
+}
+
+#[allow(dead_code)]
+impl ContentListRowSource {
+    /// Returns whether this source is visible under the content filter.
+    #[must_use]
+    pub(crate) const fn matches_filter(self, filter: ContentFilter) -> bool {
+        match filter {
+            ContentFilter::All => true,
+            ContentFilter::Library => matches!(self, Self::Library),
+            ContentFilter::Index => matches!(self, Self::Index),
+        }
+    }
+}
+
+/// Display row cached by the GPUI-free content-list page VM.
+#[allow(dead_code)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListRowDisplay {
+    /// Stable row identifier.
+    pub(crate) id: String,
+    /// Primary visible row title.
+    pub(crate) title: String,
+    /// Secondary visible row text.
+    pub(crate) secondary_text: String,
+    /// Local-vs-index provenance used by per-frame filtering.
+    pub(crate) source: ContentListRowSource,
+}
+
+#[allow(dead_code)]
+impl ContentListRowDisplay {
+    /// Creates a content-list row display.
+    #[must_use]
+    pub(crate) fn new(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        secondary_text: impl Into<String>,
+        source: ContentListRowSource,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            secondary_text: secondary_text.into(),
+            source,
+        }
+    }
+
+    /// Projects a database track row into content-list display data.
+    #[must_use]
+    pub(crate) fn from_track(track: &TrackRow) -> Self {
+        Self::new(
+            track.id.to_string(),
+            track
+                .track_title
+                .clone()
+                .or_else(|| track.feed_title.clone())
+                .unwrap_or_else(|| "Untitled".to_string()),
+            track
+                .album_artist_name
+                .clone()
+                .or_else(|| track.artist_name.clone())
+                .or_else(|| track.album_title.clone())
+                .unwrap_or_else(|| "Unknown Artist".to_string()),
+            if track.is_in_library {
+                ContentListRowSource::Library
+            } else {
+                ContentListRowSource::Index
+            },
+        )
+    }
+}
+
+/// Empty-state display for a filtered content-list frame.
+#[allow(dead_code)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListEmptyStateDisplay {
+    /// Primary empty-state title.
+    pub(crate) title: &'static str,
+    /// Secondary empty-state explanation.
+    pub(crate) secondary: &'static str,
+    /// Optional command id that clears the active filter.
+    pub(crate) clear_filter_action_id: Option<&'static str>,
+}
+
+#[allow(dead_code)]
+impl ContentListEmptyStateDisplay {
+    #[must_use]
+    const fn for_filter(filter: ContentFilter) -> Self {
+        match filter {
+            ContentFilter::All => Self {
+                title: "No content",
+                secondary: "No rows are available for this frame.",
+                clear_filter_action_id: None,
+            },
+            ContentFilter::Library => Self {
+                title: "No library content",
+                secondary: "No local rows match this frame filter.",
+                clear_filter_action_id: Some("content-list.clear-filter"),
+            },
+            ContentFilter::Index => Self {
+                title: "No index content",
+                secondary: "No index rows match this frame filter.",
+                clear_filter_action_id: Some("content-list.clear-filter"),
+            },
+        }
+    }
+}
+
+/// GPUI-free page VM for a workspace content-list frame.
+#[allow(dead_code)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListPageVm {
+    filter_state: ContentFilter,
+    cached_rows: Vec<ContentListRowDisplay>,
+}
+
+#[allow(dead_code)]
+impl ContentListPageVm {
+    /// Creates a content-list page VM with cached rows and the default filter.
+    #[must_use]
+    pub(crate) fn new(cached_rows: Vec<ContentListRowDisplay>) -> Self {
+        Self {
+            filter_state: ContentFilter::default(),
+            cached_rows,
+        }
+    }
+
+    /// Projects database track rows into a content-list page VM.
+    #[must_use]
+    pub(crate) fn from_tracks(tracks: &[TrackRow]) -> Self {
+        Self::new(
+            tracks
+                .iter()
+                .map(ContentListRowDisplay::from_track)
+                .collect(),
+        )
+    }
+
+    /// Returns the selected content filter.
+    #[must_use]
+    pub(crate) const fn filter(&self) -> ContentFilter {
+        self.filter_state
+    }
+
+    /// Sets the selected content filter for this frame-local page.
+    pub(crate) fn set_filter(&mut self, filter: ContentFilter) {
+        self.filter_state = filter;
+    }
+
+    /// Returns every cached row before filtering.
+    #[must_use]
+    pub(crate) fn cached_rows(&self) -> &[ContentListRowDisplay] {
+        &self.cached_rows
+    }
+
+    /// Returns rows visible under the current frame-local filter.
+    #[must_use]
+    pub(crate) fn visible_rows(&self) -> Vec<&ContentListRowDisplay> {
+        self.cached_rows
+            .iter()
+            .filter(|row| row.source.matches_filter(self.filter_state))
+            .collect()
+    }
+
+    /// Returns the active empty state when the current filter hides all rows.
+    #[must_use]
+    pub(crate) fn empty_state(&self) -> Option<ContentListEmptyStateDisplay> {
+        (!self
+            .cached_rows
+            .iter()
+            .any(|row| row.source.matches_filter(self.filter_state)))
+        .then(|| ContentListEmptyStateDisplay::for_filter(self.filter_state))
+    }
+
+    /// Returns the frame-local filter chip display for this content list.
+    #[must_use]
+    pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay {
+        FilterChipStripDisplay::default_for_content_list(self.filter_state, true)
+    }
 }
 
 impl<'a> LibraryTrackActionVm<'a> {
@@ -2695,6 +2885,146 @@ mod tests {
             local_path: None,
             transcript_url: None,
         }
+    }
+
+    fn content_row(id: &str, source: ContentListRowSource) -> ContentListRowDisplay {
+        ContentListRowDisplay::new(id, format!("{id} title"), format!("{id} secondary"), source)
+    }
+
+    #[test]
+    fn content_list_page_vm_defaults_to_all_filter() {
+        let page = ContentListPageVm::new(vec![
+            content_row("library", ContentListRowSource::Library),
+            content_row("index", ContentListRowSource::Index),
+        ]);
+
+        assert_eq!(
+            page.filter(),
+            ContentFilter::All,
+            "content list pages should default to the all-content filter"
+        );
+        assert_eq!(
+            page.cached_rows().len(),
+            2,
+            "cached rows should preserve the unfiltered row set"
+        );
+        assert_eq!(
+            page.visible_rows()
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["library", "index"],
+            "all filter should show library and index rows"
+        );
+        assert_eq!(
+            page.empty_state(),
+            None,
+            "all filter should not show an empty state when rows exist"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_set_filter_updates_visible_rows() {
+        let mut page = ContentListPageVm::new(vec![
+            content_row("library", ContentListRowSource::Library),
+            content_row("index", ContentListRowSource::Index),
+        ]);
+
+        page.set_filter(ContentFilter::Library);
+        assert_eq!(
+            page.visible_rows()
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["library"],
+            "library filter should show only library-sourced rows"
+        );
+
+        page.set_filter(ContentFilter::Index);
+        assert_eq!(
+            page.visible_rows()
+                .iter()
+                .map(|row| row.id.as_str())
+                .collect::<Vec<_>>(),
+            ["index"],
+            "index filter should show only index-sourced rows"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_projects_track_rows_from_membership_source() {
+        let mut local = row();
+        local.id = 1;
+        local.track_title = Some("Local Track".into());
+        local.artist_name = Some("Local Artist".into());
+        local.is_in_library = true;
+        let mut remote = row();
+        remote.id = 2;
+        remote.feed_title = Some("Remote Feed".into());
+        remote.album_title = Some("Remote Album".into());
+
+        let tracks = vec![local, remote];
+        let mut page = ContentListPageVm::from_tracks(&tracks);
+
+        page.set_filter(ContentFilter::Library);
+        assert_eq!(
+            page.visible_rows().into_iter().cloned().collect::<Vec<_>>(),
+            vec![ContentListRowDisplay::new(
+                "1",
+                "Local Track",
+                "Local Artist",
+                ContentListRowSource::Library,
+            )],
+            "TrackRow.is_in_library should project local rows as library content"
+        );
+
+        page.set_filter(ContentFilter::Index);
+        assert_eq!(
+            page.visible_rows().into_iter().cloned().collect::<Vec<_>>(),
+            vec![ContentListRowDisplay::new(
+                "2",
+                "Remote Feed",
+                "Remote Album",
+                ContentListRowSource::Index,
+            )],
+            "non-library TrackRow values should project as index content"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_projects_empty_filter_state() {
+        let mut page =
+            ContentListPageVm::new(vec![content_row("library", ContentListRowSource::Library)]);
+
+        page.set_filter(ContentFilter::Index);
+
+        assert_eq!(
+            page.empty_state(),
+            Some(ContentListEmptyStateDisplay {
+                title: "No index content",
+                secondary: "No index rows match this frame filter.",
+                clear_filter_action_id: Some("content-list.clear-filter"),
+            }),
+            "filtering away every row should surface an empty-filter state"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_filter_chip_strip_preserves_selected_filter() {
+        let mut page = ContentListPageVm::new(Vec::new());
+
+        page.set_filter(ContentFilter::Library);
+        let strip = page.filter_chip_strip();
+
+        assert_eq!(
+            strip.selected,
+            ContentFilter::Library,
+            "content-list chip strip should reflect the page-local selected filter"
+        );
+        assert!(
+            strip.narrow_collapse_to_pulldown,
+            "content-list chip strip should opt into narrow pull-down collapse"
+        );
     }
 
     #[test]

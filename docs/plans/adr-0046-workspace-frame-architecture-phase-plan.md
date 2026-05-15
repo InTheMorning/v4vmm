@@ -1,6 +1,11 @@
 # ADR 0046 Phase Plan: Workspace Frame Architecture
 
-Status: Draft - 2026-05-14.
+Status: Implemented for v1 scope - 2026-05-15.
+
+Visible multi-frame open/close commands remain explicitly deferred until real
+per-frame content owners exist. The implemented v1 scope includes the
+workspace model, frame shell, queue frame, layout persistence, command-deferral
+guards, and model-only detach/dock readiness.
 
 Companion to `docs/adr/0046-workspace-frame-architecture.md`. Each phase
 is additive; the prior visible UI keeps rendering until the
@@ -132,6 +137,8 @@ Verification: `cargo test --test architecture_tests`, L/D visual review.
 
 ## Phase 5 - Multi-Frame Expansion
 
+Status: Implemented as command-deferral slice - 2026-05-15.
+
 Goal: persist frame layout state and prepare add/remove operations without
 exposing fake additional frames before content/detail frame owners exist.
 
@@ -158,8 +165,9 @@ Acceptance:
 Risks: config-shape churn. Mitigation: workspace layout serializes
 additively; missing fields fall back to default.
 
-Verification: unit tests for add/remove/focus, L/D visual review of
-multi-frame layout.
+Verification: unit tests for add/remove/focus, architecture guard for deferred
+fake-frame commands, and operator confirmation that no duplicate
+Library/Search/Settings frame is reachable from frame chrome or keybindings.
 
 ## Phase 6 - Detach/Dock Readiness
 

@@ -1,6 +1,6 @@
 # ADR 0047 Task 010a: ContentList Page VM Ownership
 
-Status: Proposed - 2026-05-15.
+Status: Implemented - 2026-05-15.
 
 ## Goal
 
@@ -69,14 +69,29 @@ Library/Search/Settings whole-screen mount.
 
 ## Acceptance Criteria
 
-- [ ] `ContentListPageVm` exists and is GPUI-free.
-- [ ] VM owns `filter_state` and `set_filter(ContentFilter)`.
-- [ ] Row projection changes with `All`, `Library`, and `Index`.
-- [ ] Empty-filter state is modeled in the VM.
-- [ ] `filter_chip_strip()` returns `FilterChipStripDisplay` with the
+- [x] `ContentListPageVm` exists and is GPUI-free.
+- [x] VM owns `filter_state` and `set_filter(ContentFilter)`.
+- [x] Row projection changes with `All`, `Library`, and `Index`.
+- [x] Empty-filter state is modeled in the VM.
+- [x] `filter_chip_strip()` returns `FilterChipStripDisplay` with the
   current selected filter.
-- [ ] Architecture guard records the page-VM ownership contract.
-- [ ] No UI, app, backend, db, or playback files changed.
+- [x] Architecture guard records the page-VM ownership contract.
+- [x] No UI, app, backend, db, or playback files changed.
+
+## Implementation Notes
+
+- `src/view_models/library.rs` now defines `ContentListPageVm`,
+  `ContentListRowDisplay`, `ContentListRowSource`, and
+  `ContentListEmptyStateDisplay`.
+- `ContentListPageVm` owns frame-local `filter_state`, filters cached
+  rows through `ContentFilter`, and exposes `filter_chip_strip()` using
+  `FilterChipStripDisplay::default_for_content_list`.
+- `TrackRow.is_in_library` is the Task 010a membership discriminator:
+  local rows project to `Library`, non-local cached rows project to
+  `Index`. Future source/provenance refinement needs a separate task if
+  MusicIndex/local merge semantics require more than membership.
+- `tests/architecture_tests.rs` records that this task is VM-only and
+  must not wire `ContentListPageVm` into `src/ui/*` or `src/app.rs`.
 
 ## Test Commands
 

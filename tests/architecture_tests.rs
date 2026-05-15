@@ -1686,6 +1686,68 @@ fn adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell() {
 }
 
 #[test]
+fn adr_0047_task_010a_content_list_page_vm_owns_filter_projection() {
+    let library_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};",
+        "pub(crate) enum ContentListRowSource",
+        "pub(crate) const fn matches_filter(self, filter: ContentFilter) -> bool",
+        "pub(crate) struct ContentListRowDisplay",
+        "pub(crate) struct ContentListEmptyStateDisplay",
+        "pub(crate) struct ContentListPageVm",
+        "filter_state: ContentFilter",
+        "cached_rows: Vec<ContentListRowDisplay>",
+        "pub(crate) fn set_filter(&mut self, filter: ContentFilter)",
+        "pub(crate) fn visible_rows(&self) -> Vec<&ContentListRowDisplay>",
+        "pub(crate) fn empty_state(&self) -> Option<ContentListEmptyStateDisplay>",
+        "pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay",
+        "FilterChipStripDisplay::default_for_content_list(self.filter_state, true)",
+    ] {
+        if !library_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: ADR 0047 Task 010a content-list page VM ownership contract missing `{required}`"
+            ));
+        }
+    }
+
+    if library_source.contains("enum ContentFilter") {
+        violations.push(
+            "src/view_models/library.rs: ADR 0047 Task 010a must reuse workspace ContentFilter, not define a second enum"
+                .to_string(),
+        );
+    }
+
+    for path in rust_files_under("src/ui") {
+        let source = read_source(&path);
+        for forbidden in ["ContentListPageVm", "ContentListRowSource"] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{}: ADR 0047 Task 010a is VM-only; UI must not reference `{forbidden}` yet",
+                    rel_path(&path)
+                ));
+            }
+        }
+    }
+
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    for forbidden in ["ContentListPageVm", "SetFrameFilter"] {
+        if app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0047 Task 010a must not wire content-list filter commands yet; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 010a content-list page VM violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn workspace_frame_phase_4_guards_queue_now_playing_vm_contract() {
     let source = read_source(&manifest_path("src/view_models/queue_now_playing.rs"));
     let mod_source = read_source(&manifest_path("src/view_models/mod.rs"));

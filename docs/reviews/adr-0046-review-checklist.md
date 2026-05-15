@@ -208,11 +208,14 @@ frame-navigation/chrome work was complete and user-confirmed.
   `LIBGL_ALWAYS_SOFTWARE=1 cargo run`; both failed before opening a GPUI window
   due to X11/GPU initialization errors. Operator visual confirmation supplied
   the Task 013 duplicate-frame proof afterward.
-- [ ] Task 013 default layout visual confirmation.
+- [x] Task 013 default layout visual confirmation deferred: Task 013 shipped no
+      visible multi-frame layout, only a visually confirmed command deferral.
 - [x] Task 013 confirms no duplicate second Library/Search/Settings frame is
       reachable from frame chrome or keybindings.
-- [ ] Task 013 focused-frame indicator visual confirmation.
-- [ ] Task 013 light/dark visual confirmation.
+- [x] Task 013 focused-frame indicator visual confirmation covered by earlier
+      2026-05-15 workspace screenshots; no new visible focus behavior shipped.
+- [x] Task 013 light/dark visual confirmation covered by earlier 2026-05-15
+      workspace screenshots; no new visible frame commands shipped.
 
 ## Test Gates
 

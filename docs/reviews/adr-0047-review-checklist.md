@@ -30,15 +30,12 @@
 
 ## Gate Status
 
-Status: Phase D Task 009 automated implementation complete - 2026-05-15;
-ADR 46 Task 012 persistence gate cleared; Task 010 escalated because the true
-`ContentList` page VM does not exist yet. Task 010a now defines the bounded
-preparatory VM-only packet.
+Status: Phase D Task 010a VM prerequisite implemented - 2026-05-15. Task 010
+filter-chip frame wiring is next and must consume the new `ContentListPageVm`.
 
-Readiness decision: **Do not implement Task 010 against the current whole-screen
-transitional mount. The task's escalation trigger applies: a real
-`ContentList` page VM must exist before per-frame filter state can be wired
-without creating a global or renderer-local filter store.**
+Readiness decision: **Task 010 is unblocked only through the GPUI-free
+`ContentListPageVm`. Do not render filter chips over the old whole-screen
+transitional mount or create a global/renderer-local filter store.**
 
 Phase B was view-model-only. Phase C touched inspector rendering, so it still
 requires operator visual confirmation. The operator resumed ADR 0047 completion
@@ -84,13 +81,15 @@ and does not wire real filtering or remove `GlobalSearchScope`.
 - [x] ADR 46 Task 012 persistence gate cleared for Task 010 sequencing.
 - [x] Task 010 escalation recorded: current `ContentList` frame wraps whole
       Library/Search/Settings screens and cannot host per-frame filter state.
-- [x] Task 010a packet added: `ContentListPageVm` must own per-frame filter
-      state and row projection before frame-shell chip wiring resumes.
+- [x] Task 010a implemented: `ContentListPageVm` owns per-frame filter state,
+      source-aware row projection, empty-filter state, and chip-strip display
+      before frame-shell chip wiring resumes.
 
 ## Required Fixes
 
-- Implement Task 010a before Task 010. Do not render filter chips over the
-  transitional whole-screen `ContentList` mount.
+- Implement Task 010 next by routing filter-chip wiring through
+  `ContentListPageVm`; do not attach chips directly to the transitional
+  whole-screen mount.
 
 ## Prohibited Regression
 
@@ -164,11 +163,10 @@ cargo clippy -- -D warnings
   treat the deferred visual proof as completion of Phase D.
 - 2026-05-15 Task 010 exploration found no true GPUI-free `ContentList` page VM.
   Rendering chips in frame chrome without filter-aware row projection would not
-  satisfy ADR 0047. Add or revise a bounded preparatory task for
-  `ContentListPageVm` ownership before wiring filter selection.
+  satisfy ADR 0047. Task 010a now supplies the VM ownership contract; Task 010
+  remains responsible for visible frame-shell wiring and visual proof.
 
 ## Merge Recommendation
 
-Task 009 may proceed through automated review. Task 010 is split: implement
-Task 010a first, then resume frame-shell chip wiring after a real
-`ContentListPageVm` owns filter state and row projection.
+Task 010a may proceed through automated review. Resume Task 010 next and wire
+visible filter chips only through the real `ContentListPageVm`.

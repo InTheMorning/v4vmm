@@ -105,6 +105,9 @@ backward parity until D ships filter chips.
 
 ## Phase D - Per-Frame Filter Chips
 
+Status: In progress - Task 010a implemented, Task 010 visible wiring next -
+2026-05-15.
+
 Goal: relocate the All/Library/Index control from toolbar scope chips
 to per-frame chrome chips.
 

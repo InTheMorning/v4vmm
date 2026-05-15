@@ -1,6 +1,6 @@
 # ADR 0047 Task 010: Wire Filter Chips into ContentList Frame
 
-Status: Blocked - 2026-05-15.
+Status: Ready - prerequisite Task 010a implemented - 2026-05-15.
 
 ## Goal
 
@@ -8,7 +8,7 @@ Wire the filter chip strip into the `ContentList` frame VM and
 shell. Filter changes apply only to that frame's visible rows.
 Dispatch `SetFrameFilter(frame_id, ContentFilter)` to mutate state.
 
-## Blocker
+## Prerequisite Resolution
 
 2026-05-15 exploration found that the current `ContentList` frame is still the
 ADR 0046 transitional whole-screen mount around Library/Search/Settings. There
@@ -17,9 +17,10 @@ is no real GPUI-free `ContentList` page VM that can own per-frame
 escalation trigger applies; do not implement this task by rendering chips over
 the transitional mount without row filtering.
 
-Task 010a (`adr-0047-task-010a-content-list-page-vm-ownership`) must land first.
-It creates the GPUI-free `ContentListPageVm` ownership contract that this task
-will consume.
+Task 010a (`adr-0047-task-010a-content-list-page-vm-ownership`) has landed the
+GPUI-free `ContentListPageVm` ownership contract that this task will consume.
+This task is now unblocked, but still must not render chips over the old
+transitional mount without routing through the new VM.
 
 ## Files to Inspect
 
