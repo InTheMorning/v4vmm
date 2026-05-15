@@ -6,6 +6,8 @@
 
 #![warn(clippy::pedantic)]
 
+use std::rc::Rc;
+
 use gpui::{
     div, prelude::FluentBuilder, transparent_black, AnyElement, App, IntoElement, ParentElement,
     Pixels, RenderOnce, Styled, Window,
@@ -17,9 +19,11 @@ use crate::ui::layouts::{
 };
 use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::workspace::{
-    FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, WorkspaceFrameKind,
-    WorkspaceFrameState, WorkspaceLayout,
+    ContentFilter, FilterChipStripDisplay, FrameNavigationEntry, FrameNavigationState,
+    FrameShellDisplay, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
 };
+
+type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
 
 /// Whole-screen content mounts keyed by transitional workspace frame kind.
 #[derive(Default)]
@@ -29,6 +33,8 @@ pub(crate) struct WorkspaceSlots {
     content_list: Option<AnyElement>,
     detail: Option<AnyElement>,
     queue_now_playing: Option<AnyElement>,
+    content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
+    on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
 }
 
 #[expect(
@@ -65,6 +71,24 @@ impl WorkspaceSlots {
         self
     }
 
+    /// Supplies frame-local filter chrome for the content-list frame.
+    pub(crate) fn content_list_filter_chip_strip(
+        mut self,
+        display: FilterChipStripDisplay,
+    ) -> Self {
+        self.content_list_filter_chip_strip = Some(display);
+        self
+    }
+
+    /// Supplies the content-list filter callback.
+    pub(crate) fn on_content_list_filter_select(
+        mut self,
+        handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_content_list_filter_select = Some(Rc::new(handler));
+        self
+    }
+
     fn take(
         &mut self,
         kind: WorkspaceFrameKind,
@@ -78,6 +102,25 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::QueueNowPlaying => self.queue_now_playing.take(),
         }
         .unwrap_or_else(|| placeholder(frame, cx))
+    }
+
+    fn filter_chip_strip_for(&self, kind: WorkspaceFrameKind) -> Option<FilterChipStripDisplay> {
+        if matches!(kind, WorkspaceFrameKind::ContentList) {
+            self.content_list_filter_chip_strip.clone()
+        } else {
+            None
+        }
+    }
+
+    fn filter_select_handler_for(
+        &self,
+        kind: WorkspaceFrameKind,
+    ) -> Option<WorkspaceFilterSelectHandler> {
+        if matches!(kind, WorkspaceFrameKind::ContentList) {
+            self.on_content_list_filter_select.clone()
+        } else {
+            None
+        }
     }
 }
 
@@ -122,9 +165,20 @@ impl RenderOnce for WorkspaceShell {
                 continue;
             }
 
+            let filter_chip_strip = self.slots.filter_chip_strip_for(frame_kind);
+            let on_filter_select = self.slots.filter_select_handler_for(frame_kind);
             let content = self.slots.take(frame.kind(), frame, cx);
             let navigation = FrameNavigationState::new(navigation_entry_for(frame_kind));
-            let display = FrameShellDisplay::from_frame(frame, &navigation, false);
+            let mut display = FrameShellDisplay::from_frame(frame, &navigation, false);
+            if let Some(filter_chip_strip) = filter_chip_strip {
+                display = display.with_filter_chip_strip(filter_chip_strip);
+            }
+            let mut shell_slots = FrameShellSlots::new().content(content);
+            if let Some(handler) = on_filter_select {
+                shell_slots = shell_slots.on_filter_select(move |filter, window, cx| {
+                    handler(filter, window, cx);
+                });
+            }
             let frame_container = if matches!(frame_kind, WorkspaceFrameKind::QueueNowPlaying) {
                 div()
                     .flex()
@@ -144,10 +198,7 @@ impl RenderOnce for WorkspaceShell {
                     .when(frame.is_focused(), |el| {
                         el.border_2().border_color(focus_color)
                     })
-                    .child(frame_shell(
-                        display,
-                        FrameShellSlots::new().content(content),
-                    )),
+                    .child(frame_shell(display, shell_slots)),
             );
         }
 

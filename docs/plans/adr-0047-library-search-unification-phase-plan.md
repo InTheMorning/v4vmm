@@ -105,8 +105,8 @@ backward parity until D ships filter chips.
 
 ## Phase D - Per-Frame Filter Chips
 
-Status: In progress - Task 010a implemented, Task 010 visible wiring next -
-2026-05-15.
+Status: In progress - Task 010 Library-backed visible wiring and Task 011
+toolbar scope retirement are implemented and visually confirmed - 2026-05-15.
 
 Goal: relocate the All/Library/Index control from toolbar scope chips
 to per-frame chrome chips.
@@ -126,15 +126,18 @@ Deliverables:
 - A GPUI-free `ContentListPageVm` owns per-frame filter state,
   source-aware row projection, empty-filter state, and chip-strip
   display data before UI wiring
-- `SetFrameFilter(frame_id, ContentFilter)` command wired into
-  content-showing frame VMs
+- `SetFrameFilter(frame_id, ContentFilter)`-style dispatch wired into
+  the Library-backed `ContentList` frame VM without introducing a
+  global filter store
 - `GlobalSearchScope` and the toolbar segmented control removed
 - Architecture guards: no toolbar filter control; no global filter
   store
 
-Acceptance: every content-showing frame renders its own chip strip;
-filter changes apply only to that frame; narrow widths collapse the
-strip into a pull-down.
+Current acceptance: the Library-backed `ContentList` frame renders its
+own chip strip, filter changes apply only to that frame, empty filter
+results use VM-owned copy, and the toolbar no longer duplicates the
+per-frame source filter. Phase D remains open only for any explicit
+narrow-menu interaction proof requested before Phase E begins.
 
 Risks: HIG drift in narrow-mode pull-down. Mitigation: reuse existing
 pull-down primitive; visual proof in Phase G.

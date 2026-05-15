@@ -13,7 +13,6 @@ use std::fmt::Write as _;
 use crate::api::{self, Artist, EntityDetail, Feed, PaymentRoute, Publisher, Track};
 use crate::application::library_removal::{LibraryRemovalPlan, LibraryRemovalTarget};
 use crate::db;
-use crate::view_models::app_toolbar::GlobalSearchScope;
 use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseActionState,
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
@@ -23,6 +22,7 @@ use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
 use crate::view_models::track::TrackVm;
+use crate::view_models::workspace::ContentFilter;
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{FeedRef, TrackRef};
 
@@ -1211,7 +1211,7 @@ pub(crate) struct SearchViewModel {
     pub(crate) loading: bool,
     pub(crate) status: String,
     pub(crate) active_query: Option<String>,
-    pub(crate) active_scope: GlobalSearchScope,
+    pub(crate) active_filter: ContentFilter,
     pub(crate) cursor: Option<String>,
     pub(crate) has_more: bool,
     in_flight_tracks: HashSet<String>,
@@ -1632,7 +1632,7 @@ impl SearchViewModel {
             loading: false,
             status: String::new(),
             active_query: None,
-            active_scope: GlobalSearchScope::Index,
+            active_filter: ContentFilter::Index,
             cursor: None,
             has_more: false,
             in_flight_tracks: HashSet::new(),
@@ -1764,8 +1764,8 @@ impl SearchViewModel {
     #[must_use]
     pub(crate) fn result_sections(&self) -> Vec<SearchResultSection> {
         let mut sections = Vec::new();
-        match self.active_scope {
-            GlobalSearchScope::All => {
+        match self.active_filter {
+            ContentFilter::All => {
                 sections.push(SearchResultSection {
                     display: SearchResultSectionDisplay {
                         id: "search-section-library",
@@ -1785,7 +1785,7 @@ impl SearchViewModel {
                     show_empty: true,
                 });
             }
-            GlobalSearchScope::Library => {
+            ContentFilter::Library => {
                 sections.push(SearchResultSection {
                     display: SearchResultSectionDisplay {
                         id: "search-section-library",
@@ -1796,7 +1796,7 @@ impl SearchViewModel {
                     show_empty: false,
                 });
             }
-            GlobalSearchScope::Index => {
+            ContentFilter::Index => {
                 sections.push(SearchResultSection {
                     display: SearchResultSectionDisplay {
                         id: "search-section-index",
@@ -1836,7 +1836,7 @@ impl SearchViewModel {
             sections,
             selected_key: self.selected_key.clone(),
             type_filter: self.type_filter,
-            index_controls: if self.active_scope == GlobalSearchScope::Library {
+            index_controls: if self.active_filter == ContentFilter::Library {
                 IndexControlsVisibility::Hidden
             } else {
                 IndexControlsVisibility::Visible
@@ -1938,7 +1938,7 @@ impl SearchViewModel {
         self.loading = false;
         self.status = "MusicIndex endpoint updated".into();
         self.active_query = None;
-        self.active_scope = GlobalSearchScope::Index;
+        self.active_filter = ContentFilter::Index;
         self.cursor = None;
         self.has_more = false;
         self.clear_selection();
@@ -1961,7 +1961,7 @@ impl SearchViewModel {
         self.loading = false;
         self.status.clear();
         self.active_query = None;
-        self.active_scope = GlobalSearchScope::Index;
+        self.active_filter = ContentFilter::Index;
         self.cursor = None;
         self.has_more = false;
         self.results.clear();
@@ -2015,13 +2015,13 @@ impl SearchViewModel {
     #[must_use]
     pub(crate) fn begin_search_load(&mut self, append: bool) -> Option<SearchLoadIntent> {
         let query = self.active_query.clone().unwrap_or_default();
-        self.begin_global_search_load(query, GlobalSearchScope::Index, append)
+        self.begin_global_search_load(query, ContentFilter::Index, append)
     }
 
     pub(crate) fn begin_global_search_load(
         &mut self,
         query: impl Into<String>,
-        scope: GlobalSearchScope,
+        filter: ContentFilter,
         append: bool,
     ) -> Option<SearchLoadIntent> {
         if self.loading {
@@ -2030,12 +2030,12 @@ impl SearchViewModel {
         self.loading = true;
         self.status = if append {
             "Loading more...".into()
-        } else if scope == GlobalSearchScope::Library {
+        } else if filter == ContentFilter::Library {
             "Searching Library...".into()
         } else {
             "Searching...".into()
         };
-        self.active_scope = scope;
+        self.active_filter = filter;
 
         if !append {
             self.active_query = Some(query.into());
@@ -2056,23 +2056,23 @@ impl SearchViewModel {
 
     #[cfg(test)]
     pub(crate) fn finish_search_load(&mut self, batch: SearchBatch, append: bool) {
-        self.finish_global_search_load(Vec::new(), Some(batch), GlobalSearchScope::Index, append);
+        self.finish_global_search_load(Vec::new(), Some(batch), ContentFilter::Index, append);
     }
 
     pub(crate) fn finish_global_search_load(
         &mut self,
         library_rows: Vec<ResultRow>,
         index_batch: Option<SearchBatch>,
-        scope: GlobalSearchScope,
+        filter: ContentFilter,
         append: bool,
     ) {
         if !append {
-            self.library_results =
-                if matches!(scope, GlobalSearchScope::All | GlobalSearchScope::Library) {
-                    library_rows
-                } else {
-                    Vec::new()
-                };
+            self.library_results = if matches!(filter, ContentFilter::All | ContentFilter::Library)
+            {
+                library_rows
+            } else {
+                Vec::new()
+            };
         }
 
         let batch = index_batch.unwrap_or(SearchBatch {
@@ -3686,7 +3686,7 @@ mod tests {
     #[test]
     fn search_render_snapshot_groups_library_before_index_for_all_scope() {
         let mut vm = SearchViewModel::new();
-        vm.active_scope = GlobalSearchScope::All;
+        vm.active_filter = ContentFilter::All;
         vm.library_results = vec![ResultRow::local_library_track(
             42,
             EntityDetail::Track(Track {
@@ -3709,7 +3709,7 @@ mod tests {
     #[test]
     fn search_render_snapshot_applies_type_filter_to_library_and_index_sections() {
         let mut vm = SearchViewModel::new();
-        vm.active_scope = GlobalSearchScope::All;
+        vm.active_filter = ContentFilter::All;
         vm.set_type_filter(2);
         vm.library_results = vec![ResultRow::local_library_track(
             42,
@@ -3757,7 +3757,7 @@ mod tests {
     #[test]
     fn search_render_snapshot_hides_index_controls_for_library_scope() {
         let mut vm = SearchViewModel::new();
-        vm.active_scope = GlobalSearchScope::Library;
+        vm.active_filter = ContentFilter::Library;
 
         let snapshot = vm.render_snapshot(true, false);
 

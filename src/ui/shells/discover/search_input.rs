@@ -136,7 +136,7 @@ fn render_type_filter_control(
                     let query = this.vm.active_query.clone();
                     cx.notify();
                     if let Some(query) = query {
-                        this.run_global_search(query, this.vm.active_scope, cx);
+                        this.rerun_global_search_with_active_filter(query, cx);
                     }
                 }
             });

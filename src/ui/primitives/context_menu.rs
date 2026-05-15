@@ -28,7 +28,6 @@ pub enum ContextMenuScope {
     FeedList,
     TrackList,
     PlaylistTrack,
-    GlobalSearchScope,
     WorkspaceFrame,
 }
 
@@ -212,11 +211,10 @@ mod tests {
                 ContextMenuScope::FeedList,
                 ContextMenuScope::TrackList,
                 ContextMenuScope::PlaylistTrack,
-                ContextMenuScope::GlobalSearchScope,
                 ContextMenuScope::WorkspaceFrame,
             ]
             .len(),
-            5
+            4
         );
     }
 

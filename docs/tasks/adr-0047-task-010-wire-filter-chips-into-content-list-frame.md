@@ -1,6 +1,6 @@
 # ADR 0047 Task 010: Wire Filter Chips into ContentList Frame
 
-Status: Ready - prerequisite Task 010a implemented - 2026-05-15.
+Status: Implemented - visual confirmation pending - 2026-05-15.
 
 ## Goal
 
@@ -17,10 +17,12 @@ is no real GPUI-free `ContentList` page VM that can own per-frame
 escalation trigger applies; do not implement this task by rendering chips over
 the transitional mount without row filtering.
 
-Task 010a (`adr-0047-task-010a-content-list-page-vm-ownership`) has landed the
-GPUI-free `ContentListPageVm` ownership contract that this task will consume.
-This task is now unblocked, but still must not render chips over the old
-transitional mount without routing through the new VM.
+Task 010a (`adr-0047-task-010a-content-list-page-vm-ownership`) landed the
+GPUI-free `ContentListPageVm` ownership contract consumed by this task. The
+Task 010 implementation wires only the Library-backed `ContentList` frame,
+because Search and Settings still render through their transitional whole-screen
+mounts. Search scope retirement remains Task 011; search-results inspector
+routing remains Phase E.
 
 ## Files to Inspect
 
@@ -34,9 +36,10 @@ transitional mount without routing through the new VM.
 
 ## Files Likely to Change
 
-- `src/view_models/library.rs` (add `filter_state` + filter-aware row
-  projection)
+- `src/view_models/library.rs` (consume `ContentListPageVm` from Task 010a)
+- `src/library/app_impl.rs` (LibraryApp bridge for content-list filter state)
 - `src/ui/shells/workspace.rs` (consume the optional strip slot)
+- `src/app.rs` (frame-filter dispatch into the active Library content frame)
 - `tests/architecture_tests.rs`
 
 ## Do Not Touch
@@ -59,24 +62,47 @@ transitional mount without routing through the new VM.
 
 ## Implementation Steps
 
-1. Add `filter_state: ContentFilter` to the ContentList page VM.
-2. Add `set_filter(ContentFilter)` mutator.
-3. Update row projection to filter by `is_in_library` / source
-   provenance per `ContentFilter` semantics.
-4. Add `filter_chip_strip` projection on the page VM (returns
-   `FilterChipStripDisplay`).
-5. Workspace shell renders the strip via `FrameShellDisplay` slot.
-6. Architecture guards:
-   - ContentList page VM exposes `filter_state` + `set_filter`.
-   - Workspace shell passes the strip display to `frame_shell`.
+1. Consume the Task 010a `ContentListPageVm` from `LibraryViewModel`.
+2. Refresh the page VM row cache when the Library tree snapshot changes,
+   preserving the selected frame-local filter.
+3. Project Library tree rows through `ContentListPageVm.visible_row_ids()`.
+4. Expose the VM-owned `FilterChipStripDisplay` through `LibraryApp`.
+5. Add a workspace content-list filter slot and callback that passes through
+   to `frame_shell` without importing Library/Search state.
+6. Add `TopApp::set_frame_filter(frame_id, ContentFilter)` dispatch that
+   validates the visible `ContentList` frame and mutates the active Library
+   VM.
+7. Architecture guards:
+   - `ContentListPageVm` remains the owner of filter state and row projection.
+   - Workspace shell passes the strip display and callback to `frame_shell`.
    - No global filter store.
 
 ## Acceptance Criteria
 
-- [ ] ContentList frame renders the filter chip strip.
-- [ ] Filter changes apply to the frame's visible rows only.
-- [ ] Empty filter result renders an empty-state notice.
-- [ ] Architecture guards record the contracts.
+- [x] Library-backed `ContentList` frame renders the filter chip strip.
+- [x] Filter changes apply to Library frame visible rows through
+      `ContentListPageVm`.
+- [x] Empty filter result renders a VM-owned empty-state notice.
+- [x] Architecture guards record the contracts.
+- [ ] Operator visual confirmation: strip position, narrow collapse, and
+      Library/Index empty-state behavior in the running UI.
+
+## Implementation Notes
+
+- `LibraryViewModel` owns a `ContentListPageVm` and refreshes its cached row
+  set from the Library tree snapshot.
+- `LibraryViewModel::tree_projection()` filters via
+  `filter_tree_to_content_rows(&tree, &self.content_list_page)`, so frame
+  chips are not decorative.
+- `WorkspaceSlots` carries `content_list_filter_chip_strip` plus
+  `on_content_list_filter_select`; `src/ui/shells/workspace.rs` still imports
+  no screen, backend, or service modules.
+- `TopApp::set_frame_filter(frame_id, ContentFilter)` validates the visible
+  `ContentList` frame id before routing to the active Library VM.
+- Search and Settings transitional mounts do not receive content-list chips in
+  this task. Task 011 remains responsible for retiring the toolbar
+  `GlobalSearchScope` only after frame-local filtering is sufficient for the
+  search path.
 
 ## Test Commands
 
@@ -101,22 +127,28 @@ Read:
 - `docs/tasks/adr-0047-task-009-filter-chip-strip-composite.md`
 - `src/view_models/workspace.rs`
 - `src/view_models/library.rs`
+- `src/library/app_impl.rs`
+- `src/app.rs`
 - `src/ui/shells/workspace.rs`
 
 Goal:
-- Add per-frame `filter_state` to ContentList page VM and render the
-  filter chip strip in the frame.
+- Consume the Task 010a `ContentListPageVm`, render the Library-backed
+  `ContentList` filter chip strip in frame chrome, and dispatch filter changes
+  through `TopApp::set_frame_filter(frame_id, ContentFilter)`.
 
 Constraints:
 - No global filter store.
-- Row projection consumes filter state.
+- Row projection consumes `ContentListPageVm` state.
+- Do not attach chips to Search or Settings while they remain transitional
+  whole-screen mounts.
 
 Do not touch:
 - Backend, db, Musicindex
 - Toolbar global search
 
 Acceptance criteria:
-- Strip renders; filter changes only that frame's rows.
+- Strip renders for the Library-backed `ContentList`; filter changes only that
+  frame's rows.
 - Empty-state notice renders for zero-row filters.
 
 Test commands:

@@ -30,17 +30,19 @@
 
 ## Gate Status
 
-Status: Phase D Task 010a VM prerequisite implemented - 2026-05-15. Task 010
-filter-chip frame wiring is next and must consume the new `ContentListPageVm`.
+Status: Phase D Task 010 Library-backed frame wiring and Task 011 toolbar
+scope retirement are implemented and user-visually confirmed - 2026-05-15.
 
-Readiness decision: **Task 010 is unblocked only through the GPUI-free
-`ContentListPageVm`. Do not render filter chips over the old whole-screen
-transitional mount or create a global/renderer-local filter store.**
+Readiness decision: **Task 010 is implemented only through the GPUI-free
+`ContentListPageVm`. Do not extend chips to Search/Settings transitional mounts
+or create a global/renderer-local filter store.**
 
 Phase B was view-model-only. Phase C touched inspector rendering, so it still
 requires operator visual confirmation. The operator resumed ADR 0047 completion
 on 2026-05-15; Task 009 is limited to shared frame-chrome filter chip structure
-and does not wire real filtering or remove `GlobalSearchScope`.
+and does not wire real filtering or remove `GlobalSearchScope`. Task 011 is the
+bounded Phase D cleanup for the duplicate toolbar controls observed after Task
+010, not a search-routing redesign; it is now implemented.
 
 ## Required Checks
 
@@ -80,16 +82,22 @@ and does not wire real filtering or remove `GlobalSearchScope`.
 - [x] ADR 46 Phase 4 visual gate cleared for Task 010 sequencing.
 - [x] ADR 46 Task 012 persistence gate cleared for Task 010 sequencing.
 - [x] Task 010 escalation recorded: current `ContentList` frame wraps whole
-      Library/Search/Settings screens and cannot host per-frame filter state.
+      Library/Search/Settings screens and initially could not host per-frame
+      filter state.
 - [x] Task 010a implemented: `ContentListPageVm` owns per-frame filter state,
       source-aware row projection, empty-filter state, and chip-strip display
       before frame-shell chip wiring resumes.
+- [x] Task 010 implemented for the Library-backed `ContentList` frame:
+      `LibraryViewModel` owns `ContentListPageVm`, workspace shell accepts a
+      typed filter-chip slot/callback, and `TopApp::set_frame_filter` dispatches
+      by visible frame id.
 
 ## Required Fixes
 
-- Implement Task 010 next by routing filter-chip wiring through
-  `ContentListPageVm`; do not attach chips directly to the transitional
-  whole-screen mount.
+- Keep the Task 011 architecture guard in place: toolbar source scope controls
+  and `GlobalSearchScope` must not return.
+- Keep Search and Settings free of content-list chips until Phase E gives them
+  real frame-local content/search-result owners.
 
 ## Prohibited Regression
 
@@ -155,18 +163,27 @@ cargo clippy -- -D warnings
 - [ ] Phase C disabled Compare ID3 / MusicBrainz visual confirmation.
 - [ ] Phase C description collapsed and expanded visual confirmation.
 - [ ] Phase C feed description disclosure visual confirmation.
-- [ ] Phase D Task 010 filter chip strip visual confirmation.
+- [x] Phase D Task 010 Library-backed filter chip strip visual confirmation.
 - [ ] Phase D Task 010 filter chip narrow menu visual confirmation.
+- [x] Phase D Task 011 toolbar scope-control removal visual confirmation.
 - 2026-05-15 lower-context review found Task 010 and later tasks still
   incomplete. Task 009 is structurally present, but the transitional workspace
   does not mount the filter strip in normal app flow until Task 010. Do not
   treat the deferred visual proof as completion of Phase D.
-- 2026-05-15 Task 010 exploration found no true GPUI-free `ContentList` page VM.
-  Rendering chips in frame chrome without filter-aware row projection would not
-  satisfy ADR 0047. Task 010a now supplies the VM ownership contract; Task 010
-  remains responsible for visible frame-shell wiring and visual proof.
+- 2026-05-15 Task 010 implementation wires the Library-backed `ContentList`
+  through `ContentListPageVm`, so the chips mutate visible Library tree rows
+  and expose the VM-owned empty-filter state. User visual confirmation found the
+  planned follow-up problem: toolbar `GlobalSearchScope` controls still render
+  beside the per-frame chips. Search/Settings remain transitional whole-screen
+  mounts and intentionally do not receive chips yet.
+- 2026-05-15 Task 011 implementation removes the duplicate toolbar
+  `All / Library / Index` controls and deletes `GlobalSearchScope`.
+  User visual proof confirmed the toolbar keeps the search field and submit
+  button, the Library frame-local filter remains in frame chrome, and global
+  search still submits into Search results.
 
 ## Merge Recommendation
 
-Task 010a may proceed through automated review. Resume Task 010 next and wire
-visible filter chips only through the real `ContentListPageVm`.
+Task 011 passes review. Phase E remains the next architectural step for routing
+global search into the shared search-results inspector; do not reuse the retired
+toolbar source-scope model.

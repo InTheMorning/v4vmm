@@ -1,12 +1,18 @@
 # ADR 0047 Task 011: Retire GlobalSearchScope
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-15. Automated gates green and
+user visual proof confirmed toolbar scope controls are gone.
 
 ## Goal
 
 Remove the toolbar segmented control for `GlobalSearchScope` and
 delete the type now that filter chips live inside each frame.
 Toolbar keeps the search input and submit button (ADR 0043).
+
+Task 010 user visual confirmation exposed duplicate toolbar scope
+controls after the Library-backed content frame gained its own chip
+strip. This task implements the planned Phase D cleanup; it does not
+redesign search submit routing or per-frame filter ownership.
 
 ## Files to Inspect
 
@@ -40,6 +46,9 @@ Toolbar keeps the search input and submit button (ADR 0043).
 - Search submit continues to fire; the scope is no longer attached.
   Phase E adds the new submit semantics; this task only removes the
   scope control + type.
+- Treat Task 010 visual confirmation as evidence of the duplicate
+  toolbar-control problem, not as fresh proof that this task's code has
+  been implemented or visually verified.
 
 ## Implementation Steps
 
@@ -56,10 +65,25 @@ Toolbar keeps the search input and submit button (ADR 0043).
 
 ## Acceptance Criteria
 
-- [ ] Toolbar no longer renders the scope segmented control.
-- [ ] `GlobalSearchScope` type and references are deleted.
-- [ ] Toolbar search input + submit still render.
-- [ ] Architecture guards forbid re-introducing the scope control.
+- [x] Toolbar no longer renders the scope segmented control.
+- [x] `GlobalSearchScope` type and references are deleted.
+- [x] Toolbar search input + submit still render.
+- [x] Architecture guards forbid re-introducing the scope control.
+- [x] Fresh visual proof confirms the toolbar no longer duplicates the
+      per-frame filter chips.
+
+## Implementation Notes
+
+- `GlobalSearchScope`, `global_search_scope`, and
+  `set_global_search_scope` were removed from `src/`.
+- Toolbar global search now submits without a toolbar-owned source
+  scope; Search's legacy result-type filters remain screen-local until
+  Phase E replaces the Search screen route.
+- `SearchViewModel` uses the shared `ContentFilter` for its temporary
+  source-filter state so no second filter enum survives.
+- User visual proof on 2026-05-15 confirmed the toolbar keeps the
+  search field and submit button, no longer renders `All / Library /
+  Index` beside it, and still submits into Search results.
 
 ## Test Commands
 

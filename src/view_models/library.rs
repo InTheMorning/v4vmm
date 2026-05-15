@@ -766,6 +766,11 @@ impl ContentListPageVm {
         self.filter_state = filter;
     }
 
+    /// Replaces the cached rows while preserving the frame-local filter.
+    pub(crate) fn replace_rows(&mut self, cached_rows: Vec<ContentListRowDisplay>) {
+        self.cached_rows = cached_rows;
+    }
+
     /// Returns every cached row before filtering.
     #[must_use]
     pub(crate) fn cached_rows(&self) -> &[ContentListRowDisplay] {
@@ -778,6 +783,15 @@ impl ContentListPageVm {
         self.cached_rows
             .iter()
             .filter(|row| row.source.matches_filter(self.filter_state))
+            .collect()
+    }
+
+    /// Returns stable row identifiers visible under the current filter.
+    #[must_use]
+    pub(crate) fn visible_row_ids(&self) -> Vec<&str> {
+        self.visible_rows()
+            .into_iter()
+            .map(|row| row.id.as_str())
             .collect()
     }
 
@@ -978,6 +992,7 @@ pub(crate) struct LibraryViewModel {
     playlists_expanded: bool,
     playlist_sort: PlaylistSort,
     saved_searches: Vec<SavedSearchEntry>,
+    content_list_page: ContentListPageVm,
     album_description_states: BTreeMap<i64, DescriptionState>,
     track_description_states: BTreeMap<i64, DescriptionState>,
     // Selection / focus.
@@ -1011,6 +1026,7 @@ impl LibraryViewModel {
             playlists_expanded: true,
             playlist_sort: PlaylistSort::default(),
             saved_searches: Vec::new(),
+            content_list_page: ContentListPageVm::new(Vec::new()),
             album_description_states: BTreeMap::new(),
             track_description_states: BTreeMap::new(),
             selected_id: None,
@@ -1033,6 +1049,8 @@ impl LibraryViewModel {
     }
 
     pub(crate) fn replace_tree(&mut self, tree: LibraryTree) {
+        self.content_list_page
+            .replace_rows(content_list_rows_from_tree(&tree));
         self.snapshot.tree = tree;
     }
 
@@ -1102,15 +1120,22 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn tree_projection(&self) -> LibraryTreeProjection {
         let query = self.search_query.trim();
+        let tree = if query.is_empty() {
+            self.snapshot.tree.clone()
+        } else {
+            filter_tree(&self.snapshot.tree, query)
+        };
+
+        let tree = filter_tree_to_content_rows(&tree, &self.content_list_page);
+
         if query.is_empty() {
             return LibraryTreeProjection {
-                tree: self.snapshot.tree.clone(),
+                tree,
                 expanded_artists: self.expanded_artists.clone(),
                 expanded_albums: self.expanded_albums.clone(),
             };
         }
 
-        let tree = filter_tree(&self.snapshot.tree, query);
         let expanded_artists = tree
             .artists
             .iter()
@@ -1132,6 +1157,27 @@ impl LibraryViewModel {
             expanded_artists,
             expanded_albums,
         }
+    }
+
+    #[must_use]
+    pub(crate) const fn content_filter(&self) -> ContentFilter {
+        self.content_list_page.filter()
+    }
+
+    pub(crate) fn set_content_filter(&mut self, filter: ContentFilter) {
+        self.content_list_page.set_filter(filter);
+    }
+
+    #[must_use]
+    pub(crate) fn content_filter_chip_strip(&self) -> FilterChipStripDisplay {
+        self.content_list_page.filter_chip_strip()
+    }
+
+    #[must_use]
+    pub(crate) fn content_filter_empty_state(&self) -> Option<ContentListEmptyStateDisplay> {
+        (self.content_filter() != ContentFilter::All)
+            .then(|| self.content_list_page.empty_state())
+            .flatten()
     }
 
     #[must_use]
@@ -1999,6 +2045,59 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
             });
         }
     }
+    LibraryTree { artists }
+}
+
+fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay> {
+    tree.artists
+        .iter()
+        .flat_map(|artist| &artist.albums)
+        .flat_map(|album| album.tracks.iter())
+        .map(ContentListRowDisplay::from_track)
+        .collect()
+}
+
+fn filter_tree_to_content_rows(tree: &LibraryTree, page: &ContentListPageVm) -> LibraryTree {
+    let visible_row_ids: HashSet<i64> = page
+        .visible_row_ids()
+        .into_iter()
+        .filter_map(|id| id.parse::<i64>().ok())
+        .collect();
+    if visible_row_ids.len() == page.cached_rows().len() {
+        return tree.clone();
+    }
+
+    let mut artists = Vec::new();
+    for artist in &tree.artists {
+        let mut albums = Vec::new();
+        for album in &artist.albums {
+            let tracks: Vec<TrackRow> = album
+                .tracks
+                .iter()
+                .filter(|track| visible_row_ids.contains(&track.id))
+                .cloned()
+                .collect();
+            if !tracks.is_empty() {
+                albums.push(AlbumNode {
+                    name: album.name.clone(),
+                    feed_id: album.feed_id,
+                    feed_guid: album.feed_guid.clone(),
+                    feed_url: album.feed_url.clone(),
+                    description: album.description.clone(),
+                    image_href: album.image_href.clone(),
+                    identity_facts: album.identity_facts.clone(),
+                    tracks,
+                });
+            }
+        }
+        if !albums.is_empty() {
+            artists.push(ArtistNode {
+                name: artist.name.clone(),
+                albums,
+            });
+        }
+    }
+
     LibraryTree { artists }
 }
 
@@ -2948,6 +3047,25 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["index"],
             "index filter should show only index-sourced rows"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_replace_rows_preserves_filter() {
+        let mut page =
+            ContentListPageVm::new(vec![content_row("library", ContentListRowSource::Library)]);
+        page.set_filter(ContentFilter::Index);
+
+        page.replace_rows(vec![
+            content_row("next-library", ContentListRowSource::Library),
+            content_row("next-index", ContentListRowSource::Index),
+        ]);
+
+        assert_eq!(page.filter(), ContentFilter::Index);
+        assert_eq!(
+            page.visible_row_ids(),
+            ["next-index"],
+            "row refresh should preserve the frame-local selected filter"
         );
     }
 
@@ -3913,12 +4031,18 @@ mod tests {
         let mut rhubarb = row();
         rhubarb.id = 1;
         rhubarb.track_title = Some("Rhubarb".into());
+        rhubarb.is_in_library = true;
         let mut cliffs = row();
         cliffs.id = 2;
         cliffs.track_title = Some("Cliffs".into());
+        cliffs.is_in_library = true;
         let mut windowlicker = row();
         windowlicker.id = 3;
         windowlicker.track_title = Some("Windowlicker".into());
+        windowlicker.is_in_library = true;
+        let mut tri_repetae = row();
+        tri_repetae.id = 4;
+        tri_repetae.is_in_library = true;
 
         LibraryTree {
             artists: vec![
@@ -3957,7 +4081,7 @@ mod tests {
                         description: None,
                         image_href: None,
                         identity_facts: LocalIdentityFacts::default(),
-                        tracks: vec![row()],
+                        tracks: vec![tri_repetae],
                     }],
                 },
             ],
@@ -4164,6 +4288,39 @@ mod tests {
         assert_eq!(projection.tree.artists.len(), 1);
         assert_eq!(projection.tree.artists[0].albums.len(), 1);
         assert_eq!(projection.tree.artists[0].albums[0].tracks.len(), 2);
+    }
+
+    #[test]
+    fn library_view_model_content_filter_uses_content_list_page_vm() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+
+        vm.set_content_filter(ContentFilter::Index);
+        let projection = vm.tree_projection();
+
+        assert!(
+            projection.tree.artists.is_empty(),
+            "index filter should hide local library rows in the content-list projection"
+        );
+        assert_eq!(
+            vm.content_filter_empty_state(),
+            Some(ContentListEmptyStateDisplay {
+                title: "No index content",
+                secondary: "No index rows match this frame filter.",
+                clear_filter_action_id: Some("content-list.clear-filter"),
+            }),
+            "empty-filter state should be owned by the content-list page VM"
+        );
+
+        vm.set_content_filter(ContentFilter::Library);
+        let projection = vm.tree_projection();
+
+        assert_eq!(projection.tree.artists.len(), 2);
+        assert_eq!(
+            vm.content_filter_chip_strip().selected,
+            ContentFilter::Library,
+            "frame chrome should reflect the selected content-list filter"
+        );
     }
 
     #[test]

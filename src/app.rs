@@ -27,10 +27,10 @@ use crate::ui::shells::window_layers::render_window_layers;
 use crate::ui::shells::workspace::{render_workspace, WorkspaceSlots};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
-use crate::view_models::app_toolbar::{AppToolbarVm, GlobalSearchScope};
+use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 use crate::view_models::workspace::{
-    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    ContentFilter, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
     WorkspaceLayoutConfig,
 };
 
@@ -103,7 +103,6 @@ pub struct TopApp {
     search: Entity<SearchApp>,
     library: Entity<LibraryApp>,
     global_search_input: Entity<InputState>,
-    global_search_scope: GlobalSearchScope,
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
@@ -268,7 +267,6 @@ impl TopApp {
             search,
             library,
             global_search_input,
-            global_search_scope: GlobalSearchScope::All,
             endpoint_input,
             music_dir_input,
             flac_path_input,
@@ -341,21 +339,35 @@ impl TopApp {
         }
     }
 
-    pub(super) fn set_global_search_scope(
-        &mut self,
-        scope: GlobalSearchScope,
-        cx: &mut Context<Self>,
-    ) {
-        self.global_search_scope = scope;
-        cx.notify();
-    }
-
     pub(super) fn submit_global_search(&mut self, cx: &mut Context<Self>) {
         let query = self.global_search_input.read(cx).value().to_string();
         self.tab = AppTab::Search;
-        let scope = self.global_search_scope;
         self.search
-            .update(cx, |search, cx| search.run_global_search(query, scope, cx));
+            .update(cx, |search, cx| search.run_global_search(query, cx));
+        cx.notify();
+    }
+
+    fn set_frame_filter(
+        &mut self,
+        frame_id: WorkspaceFrameId,
+        filter: ContentFilter,
+        cx: &mut Context<Self>,
+    ) {
+        let mount = self.active_workspace_screen_mount();
+        let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
+        let is_content_frame = layout
+            .frames()
+            .iter()
+            .any(|frame| frame.id() == frame_id && frame.kind() == WorkspaceFrameKind::ContentList);
+        if !is_content_frame {
+            return;
+        }
+
+        if matches!(mount, WorkspaceScreenMount::Library) {
+            self.library.update(cx, |library, cx| {
+                library.set_content_filter(filter, cx);
+            });
+        }
         cx.notify();
     }
 
@@ -671,14 +683,26 @@ impl TopApp {
         let active_screen = self.render_workspace_screen_mount(mount, cx);
         let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
         let queue_frame = build_queue_now_playing_frame(self, cx);
-        render_workspace(
-            &layout,
-            WorkspaceSlots::new()
-                .content_list(active_screen)
-                .queue_now_playing(queue_frame),
-            cx,
-        )
-        .into_any_element()
+        let content_frame_id = layout
+            .frames()
+            .iter()
+            .find(|frame| matches!(frame.kind(), WorkspaceFrameKind::ContentList))
+            .map_or(WORKSPACE_CONTENT_FRAME_ID, WorkspaceFrameState::id);
+        let entity = cx.entity();
+        let mut workspace_slots = WorkspaceSlots::new()
+            .content_list(active_screen)
+            .queue_now_playing(queue_frame);
+        if matches!(mount, WorkspaceScreenMount::Library) {
+            let filter_chip_strip = self.library.read(cx).content_filter_chip_strip();
+            workspace_slots = workspace_slots
+                .content_list_filter_chip_strip(filter_chip_strip)
+                .on_content_list_filter_select(move |filter, _window, cx| {
+                    entity.update(cx, |this, cx| {
+                        this.set_frame_filter(content_frame_id, filter, cx);
+                    });
+                });
+        }
+        render_workspace(&layout, workspace_slots, cx).into_any_element()
     }
 
     #[expect(

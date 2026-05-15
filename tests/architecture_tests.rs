@@ -1748,6 +1748,97 @@ fn adr_0047_task_010a_content_list_page_vm_owns_filter_projection() {
 }
 
 #[test]
+fn adr_0047_task_010_content_list_filter_chips_are_frame_local() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let library_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "content_list_page: ContentListPageVm",
+        "self.content_list_page",
+        "replace_rows(content_list_rows_from_tree(&tree))",
+        "filter_tree_to_content_rows(&tree, &self.content_list_page)",
+        "pub(crate) fn set_content_filter(&mut self, filter: ContentFilter)",
+        "pub(crate) fn content_filter_chip_strip(&self) -> FilterChipStripDisplay",
+        "pub(crate) fn content_filter_empty_state(&self) -> Option<ContentListEmptyStateDisplay>",
+        "fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>",
+        "fn filter_tree_to_content_rows(tree: &LibraryTree, page: &ContentListPageVm) -> LibraryTree",
+    ] {
+        if !library_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: ADR 0047 Task 010 content-list filter ownership missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn content_filter_chip_strip(&self) -> FilterChipStripDisplay",
+        "pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>)",
+        "self.vm.set_content_filter(filter)",
+    ] {
+        if !library_app_source.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: ADR 0047 Task 010 LibraryApp filter bridge missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "content_list_filter_chip_strip: Option<FilterChipStripDisplay>",
+        "on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>",
+        "pub(crate) fn content_list_filter_chip_strip(",
+        "pub(crate) fn on_content_list_filter_select(",
+        "filter_chip_strip_for(&self, kind: WorkspaceFrameKind)",
+        "filter_select_handler_for(",
+        "display.with_filter_chip_strip(filter_chip_strip)",
+        "shell_slots.on_filter_select",
+    ] {
+        if !workspace_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0047 Task 010 workspace filter slot missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "fn set_frame_filter(",
+        "frame_id: WorkspaceFrameId",
+        "filter: ContentFilter",
+        "frame.kind() == WorkspaceFrameKind::ContentList",
+        ".content_list_filter_chip_strip(filter_chip_strip)",
+        ".on_content_list_filter_select(move |filter, _window, cx|",
+        "this.set_frame_filter(content_frame_id, filter, cx)",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0047 Task 010 app frame-filter dispatch missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "static CONTENT_FILTER",
+        "global_content_filter",
+        "toolbar_content_filter",
+        "WorkspaceSlots::new().content_list_filter_chip_strip(FilterChipStripDisplay::default",
+    ] {
+        if app_source.contains(forbidden) || workspace_shell_source.contains(forbidden) {
+            violations.push(format!(
+                "ADR 0047 Task 010 must keep filters frame-local and VM-projected; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 010 content-list frame filter violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn workspace_frame_phase_4_guards_queue_now_playing_vm_contract() {
     let source = read_source(&manifest_path("src/view_models/queue_now_playing.rs"));
     let mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
@@ -2496,20 +2587,34 @@ fn global_search_contract_has_toolbar_vm_and_local_query_boundary() {
     let mut violations = Vec::new();
 
     for required in [
-        "pub(crate) enum GlobalSearchScope",
         "pub(crate) struct GlobalSearchDisplay",
         "input_id",
         "search_button_id",
         "search_button_label",
         "search_button_a11y_label",
-        "GlobalSearchScope::All",
-        "GlobalSearchScope::Library",
-        "GlobalSearchScope::Index",
     ] {
         if !vm_source.contains(required) {
             violations.push(format!(
                 "src/view_models/app_toolbar.rs: ADR 0043 global search VM contract missing `{required}`"
             ));
+        }
+    }
+
+    for path in rust_files_under("src") {
+        let source = read_source(&path);
+        for forbidden in [
+            "GlobalSearchScope",
+            "global_search_scope",
+            "set_global_search_scope",
+            "APP_TOOLBAR_SCOPE_BREAKPOINT",
+            "ContextMenuScope::GlobalSearchScope",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{}: ADR 0047 Task 011 retired toolbar global-search scope controls; remove `{forbidden}`",
+                    rel_path(&path)
+                ));
+            }
         }
     }
 
@@ -2581,10 +2686,9 @@ fn global_search_replaces_screen_local_search_chrome() {
     let mut violations = Vec::new();
 
     for required in [
-        "global_search_scope: GlobalSearchScope",
         "fn on_global_search_event(",
         "fn submit_global_search(",
-        "search.run_global_search(query, scope, cx)",
+        "search.run_global_search(query, cx)",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
@@ -2602,14 +2706,7 @@ fn global_search_replaces_screen_local_search_chrome() {
         ".w(now_playing_width)",
         ".min_w(now_playing_width)",
         "toolbar_width,",
-        "let show_scope_controls = toolbar_width >= layout::APP_TOOLBAR_SCOPE_BREAKPOINT;",
         "let use_compact_search =",
-        ".when(show_scope_controls, |el|",
-        "SegmentedControl::new(app.global_search_scope)",
-        ".when(!show_scope_controls, |el|",
-        "include_search_action",
-        "format!(\"{id}:submit\")",
-        "ContextMenuScope::GlobalSearchScope",
         "display.search_button_id",
         ".label(display.search_button_label)",
         "UiButton::styled(display.search_button_id, ControlStyle::ToolbarIcon)",
@@ -2692,15 +2789,29 @@ fn global_search_replaces_screen_local_search_chrome() {
         "pub(crate) enum SearchResultSource",
         "pub(crate) struct SearchResultSection",
         "library_results: Vec<ResultRow>",
-        "active_scope: GlobalSearchScope",
+        "active_filter: ContentFilter",
         "index_controls: IndexControlsVisibility",
-        "GlobalSearchScope::All",
+        "ContentFilter::All",
         "show_recents_command = !show_recents_root",
         "pub(crate) fn return_to_recent_feeds(",
     ] {
         if !search_vm_source.contains(required) {
             violations.push(format!(
                 "src/view_models/search.rs: grouped search VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "show_scope_controls",
+        "SegmentedControl::new(app.global_search_scope)",
+        "ContextMenuScope::GlobalSearchScope",
+        "include_search_action",
+        "APP_TOOLBAR_SCOPE_BREAKPOINT",
+    ] {
+        if toolbar_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app/tab_bar.rs: ADR 0047 Task 011 retired toolbar scope controls; remove `{forbidden}`"
             ));
         }
     }

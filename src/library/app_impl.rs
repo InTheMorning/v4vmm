@@ -72,8 +72,8 @@ use crate::view_models::library::{
 use crate::view_models::playlist_option_displays;
 use crate::view_models::search::pending_skeleton_count;
 use crate::view_models::workspace::{
-    BreadcrumbDisplay, FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId,
-    WorkspaceLayout, WorkspaceModelError,
+    BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FrameNavigationEntry,
+    FrameNavigationState, WorkspaceFrameId, WorkspaceLayout, WorkspaceModelError,
 };
 use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts};
 
@@ -138,6 +138,15 @@ impl LibraryApp {
 
     const fn content_frame_id() -> WorkspaceFrameId {
         WorkspaceLayout::default_content_frame_id()
+    }
+
+    pub(crate) fn content_filter_chip_strip(&self) -> FilterChipStripDisplay {
+        self.vm.content_filter_chip_strip()
+    }
+
+    pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>) {
+        self.vm.set_content_filter(filter);
+        cx.notify();
     }
 
     fn current_frame_navigation_mut(
@@ -2390,6 +2399,7 @@ impl Render for LibraryApp {
             cx,
         );
         let filtered_empty = tree_projection.is_empty();
+        let content_filter_empty_state = self.vm.content_filter_empty_state();
 
         let PlaylistSidebarVm {
             header_id: playlist_header_id,
@@ -2637,15 +2647,25 @@ impl Render for LibraryApp {
                             .gap(spacing::XXS)
                             .children(left_items)
                             .when(self.vm.should_show_empty_library(filtered_empty), |el| {
-                                el.child(
-                                    div()
-                                        .text_center()
-                                        .p(spacing::XXL + spacing::LG)
-                                        .text_color(color::text_muted())
+                                let mut empty_label = div()
+                                    .text_center()
+                                    .p(spacing::XXL + spacing::LG)
+                                    .text_color(color::text_muted());
+                                if let Some(empty_state) = content_filter_empty_state {
+                                    empty_label = empty_label
+                                        .child(div().mt(spacing::SM).child(empty_state.title))
                                         .child(
-                                            div().mt(spacing::SM).child(chrome.empty_library_label),
-                                        ),
-                                )
+                                            div()
+                                                .mt(spacing::XS)
+                                                .text_xs()
+                                                .child(empty_state.secondary),
+                                        );
+                                } else {
+                                    empty_label = empty_label.child(
+                                        div().mt(spacing::SM).child(chrome.empty_library_label),
+                                    );
+                                }
+                                el.child(empty_label)
                             }),
                     ),
             )

@@ -2,9 +2,12 @@
 
 ## Status
 
-Proposed - 2026-05-14. Promotes
+Accepted - implementation in progress 2026-05-15. Promotes
 `docs/plans/library-search-unification-plan.md`, which is retained as
-the pre-ADR concept artifact.
+the pre-ADR concept artifact. Phase D is implemented through Task 011:
+the Library-backed frame owns the visible source filter and the
+duplicate toolbar scope controls are retired. Search-results inspector
+routing remains follow-up work.
 
 ## Context
 

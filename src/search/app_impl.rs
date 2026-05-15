@@ -45,7 +45,6 @@ use crate::ui::shells::discover::track_inspector_metadata::track_metadata_rows_f
 use crate::ui::shells::library_removal_confirmation::open_library_removal_confirmation_dialog;
 use crate::ui::style::{color, typography};
 use crate::ui::tokens::FontSize;
-use crate::view_models::app_toolbar::GlobalSearchScope;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::search::{
     artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
@@ -54,6 +53,7 @@ use crate::view_models::search::{
     SearchResultSource, SearchSubscriptionCommand, SearchViewModel, TrackRowActionVm,
 };
 use crate::view_models::track::TrackVm;
+use crate::view_models::workspace::ContentFilter;
 use crate::views::ContributorView;
 
 use super::{
@@ -188,15 +188,10 @@ impl SearchApp {
         let Some(query) = self.vm.active_query.clone() else {
             return;
         };
-        self.run_global_search_page(query, self.vm.active_scope, append, cx);
+        self.run_global_search_page(query, self.vm.active_filter, append, cx);
     }
 
-    pub(crate) fn run_global_search(
-        &mut self,
-        query: impl Into<String>,
-        scope: GlobalSearchScope,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn run_global_search(&mut self, query: impl Into<String>, cx: &mut Context<Self>) {
         let query = query.into();
         if normalized_search_query(&query).is_none() {
             let should_load = self.vm.return_to_recent_feeds();
@@ -207,19 +202,27 @@ impl SearchApp {
             }
             return;
         }
-        self.run_global_search_page(query, scope, false, cx);
+        self.run_global_search_page(query, ContentFilter::All, false, cx);
+    }
+
+    pub(crate) fn rerun_global_search_with_active_filter(
+        &mut self,
+        query: impl Into<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_global_search_page(query.into(), self.vm.active_filter, false, cx);
     }
 
     fn run_global_search_page(
         &mut self,
         query: String,
-        scope: GlobalSearchScope,
+        filter: ContentFilter,
         append: bool,
         cx: &mut Context<Self>,
     ) {
         let Some(intent) = self
             .vm
-            .begin_global_search_load(query.clone(), scope, append)
+            .begin_global_search_load(query.clone(), filter, append)
         else {
             return;
         };
@@ -228,7 +231,7 @@ impl SearchApp {
         }
         cx.notify();
 
-        let entity_type = if scope == GlobalSearchScope::Library {
+        let entity_type = if filter == ContentFilter::Library {
             None
         } else {
             SearchViewModel::type_filter_value(intent.type_filter()).map(str::to_string)
@@ -245,14 +248,14 @@ impl SearchApp {
                     .background_executor()
                     .spawn(async move {
                         let library_rows = if !append
-                            && matches!(scope, GlobalSearchScope::All | GlobalSearchScope::Library)
+                            && matches!(filter, ContentFilter::All | ContentFilter::Library)
                         {
                             fetch_local_library_search_rows(&conn, &query_service, &query)?
                         } else {
                             Vec::new()
                         };
                         let index_batch =
-                            if matches!(scope, GlobalSearchScope::All | GlobalSearchScope::Index) {
+                            if matches!(filter, ContentFilter::All | ContentFilter::Index) {
                                 Some(fetch_search_batch(
                                     &client,
                                     &query,
@@ -284,7 +287,7 @@ impl SearchApp {
                                 this.vm.finish_global_search_load(
                                     library_rows,
                                     index_batch,
-                                    scope,
+                                    filter,
                                     append,
                                 );
                             }
@@ -304,7 +307,7 @@ impl SearchApp {
         let query = self.vm.active_query.clone();
         cx.notify();
         if let Some(query) = query {
-            self.run_global_search_page(query, self.vm.active_scope, false, cx);
+            self.run_global_search_page(query, self.vm.active_filter, false, cx);
         }
     }
 
