@@ -131,7 +131,7 @@ Negative:
 ## Implementation result
 
 - Composite call-site evidence is recorded in
-  `docs/handoff/composite-audit.md`.
+  `docs/research/composite-audit-adr-0042.md`.
 - The confirmed single-use composites were inlined:
   `recent_feed_tile` moved into `src/ui/shells/discover/recent.rs`,
   `track_inspector_pane` moved into
