@@ -59,28 +59,40 @@ impl FrameShellSlots {
     }
 
     /// Supplies the back-navigation callback.
-    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires frame navigation")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
+    )]
     pub(crate) fn on_back(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_back = Some(Rc::new(handler));
         self
     }
 
     /// Supplies the forward-navigation callback.
-    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires frame navigation")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
+    )]
     pub(crate) fn on_forward(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_forward = Some(Rc::new(handler));
         self
     }
 
     /// Supplies the close-frame callback.
-    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires frame navigation")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
+    )]
     pub(crate) fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Rc::new(handler));
         self
     }
 
     /// Supplies the action-menu selection callback.
-    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires frame action menus")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
+    )]
     pub(crate) fn on_menu_select(
         mut self,
         handler: impl Fn(SharedString, &mut Window, &mut App) + 'static,
@@ -99,9 +111,9 @@ impl FrameShellSlots {
     }
 
     /// Supplies the frame-local breadcrumb selection callback.
-    #[expect(
-        dead_code,
-        reason = "ADR 0046 Task 008+ wires frame breadcrumb navigation"
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
     )]
     pub(crate) fn on_breadcrumb_select(
         mut self,

@@ -95,6 +95,7 @@ impl RenderOnce for QueueNowPlayingShell {
             live_value,
             volume,
             empty_label,
+            ..
         } = self.vm;
         let slots = self.slots;
 

@@ -6,6 +6,13 @@
 //! playback state.
 
 #![warn(clippy::pedantic)]
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "active-frame search dispatch lands queue filter VM state before UI routing consumes it"
+    )
+)]
 
 use crate::view_models::format::fmt_total_runtime_clock;
 use crate::view_models::workspace::FrameChromeButtonDisplay;
@@ -297,6 +304,8 @@ impl VolumeDisplay {
 pub(crate) struct QueueNowPlayingPageVm {
     /// Ordered queue rows.
     pub(crate) rows: Vec<QueueRowDisplay>,
+    all_rows: Vec<QueueRowDisplay>,
+    text_filter: Option<String>,
     /// Transport control display state.
     pub(crate) transport: TransportDisplay,
     /// liveValue output picker display state.
@@ -311,6 +320,26 @@ impl QueueNowPlayingPageVm {
     /// Creates a queue page builder.
     pub(crate) fn builder() -> QueueNowPlayingPageVmBuilder {
         QueueNowPlayingPageVmBuilder::default()
+    }
+
+    /// Returns the active queue text filter, if any.
+    #[must_use]
+    pub(crate) fn text_filter(&self) -> Option<&str> {
+        self.text_filter.as_deref()
+    }
+
+    /// Updates the queue text filter and visible row projection.
+    pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
+        self.text_filter = normalize_text_filter(filter);
+        self.rows = match self.text_filter.as_deref() {
+            Some(filter) => self
+                .all_rows
+                .iter()
+                .filter(|row| queue_row_matches_text_filter(row, filter))
+                .cloned()
+                .collect(),
+            None => self.all_rows.clone(),
+        };
     }
 }
 
@@ -378,12 +407,15 @@ impl QueueNowPlayingPageVmBuilder {
     /// Projects the builder input into a display-ready page.
     #[must_use]
     pub(crate) fn build(self) -> QueueNowPlayingPageVm {
+        let rows = self
+            .tracks
+            .into_iter()
+            .map(QueueRowDisplay::from_track)
+            .collect::<Vec<_>>();
         QueueNowPlayingPageVm {
-            rows: self
-                .tracks
-                .into_iter()
-                .map(QueueRowDisplay::from_track)
-                .collect(),
+            all_rows: rows.clone(),
+            rows,
+            text_filter: None,
             transport: TransportDisplay::from_state_with_skip_availability(
                 self.transport_state,
                 self.can_skip_previous,
@@ -394,6 +426,26 @@ impl QueueNowPlayingPageVmBuilder {
             empty_label: "Queue is empty",
         }
     }
+}
+
+fn normalize_text_filter(filter: Option<String>) -> Option<String> {
+    filter
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn queue_row_matches_text_filter(row: &QueueRowDisplay, filter: &str) -> bool {
+    let filter = filter.to_lowercase();
+    row.title.to_lowercase().contains(&filter)
+        || row
+            .artist
+            .as_deref()
+            .is_some_and(|artist| artist.to_lowercase().contains(&filter))
+        || row
+            .duration_label
+            .as_deref()
+            .is_some_and(|duration| duration.to_lowercase().contains(&filter))
+        || row.a11y_label.to_lowercase().contains(&filter)
 }
 
 fn queue_row_a11y_label(
@@ -500,5 +552,70 @@ mod tests {
     fn volume_level_is_clamped() {
         assert_eq!(VolumeDisplay::new(1.5, false).level, 1.0);
         assert_eq!(VolumeDisplay::new(-0.5, false).level, 0.0);
+    }
+
+    #[test]
+    fn text_filter_defaults_to_full_queue() {
+        let vm = QueueNowPlayingPageVm::builder()
+            .tracks([track(1, "First", true), track(2, "Second", false)])
+            .build();
+
+        assert_eq!(vm.text_filter(), None);
+        assert_eq!(vm.rows.len(), 2);
+    }
+
+    #[test]
+    fn text_filter_projects_matching_rows_without_discarding_queue() {
+        let mut vm = QueueNowPlayingPageVm::builder()
+            .tracks([track(1, "First", true), track(2, "Second", false)])
+            .build();
+
+        vm.set_text_filter(Some("second".to_string()));
+
+        assert_eq!(vm.text_filter(), Some("second"));
+        assert_eq!(vm.rows.len(), 1);
+        assert_eq!(vm.rows[0].title, "Second");
+
+        vm.set_text_filter(None);
+
+        assert_eq!(vm.text_filter(), None);
+        assert_eq!(vm.rows.len(), 2);
+        assert_eq!(vm.rows[0].title, "First");
+        assert_eq!(vm.rows[1].title, "Second");
+    }
+
+    #[test]
+    fn text_filter_matches_artist_and_is_case_insensitive() {
+        let mut vm = QueueNowPlayingPageVm::builder()
+            .tracks([
+                QueueTrackInput {
+                    artist: Some("Alice".to_string()),
+                    ..track(1, "First", true)
+                },
+                QueueTrackInput {
+                    artist: Some("Bob".to_string()),
+                    ..track(2, "Second", false)
+                },
+            ])
+            .build();
+
+        vm.set_text_filter(Some("ALICE".to_string()));
+
+        assert_eq!(vm.text_filter(), Some("ALICE"));
+        assert_eq!(vm.rows.len(), 1);
+        assert_eq!(vm.rows[0].artist.as_deref(), Some("Alice"));
+    }
+
+    #[test]
+    fn whitespace_text_filter_clears_visible_projection() {
+        let mut vm = QueueNowPlayingPageVm::builder()
+            .tracks([track(1, "First", true), track(2, "Second", false)])
+            .build();
+
+        vm.set_text_filter(Some("first".to_string()));
+        vm.set_text_filter(Some("   ".to_string()));
+
+        assert_eq!(vm.text_filter(), None);
+        assert_eq!(vm.rows.len(), 2);
     }
 }

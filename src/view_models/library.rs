@@ -687,6 +687,14 @@ impl ContentListRowDisplay {
             },
         )
     }
+
+    #[must_use]
+    fn matches_text_filter(&self, filter: &str) -> bool {
+        let filter = filter.trim().to_lowercase();
+        filter.is_empty()
+            || self.title.to_lowercase().contains(&filter)
+            || self.secondary_text.to_lowercase().contains(&filter)
+    }
 }
 
 /// Empty-state display for a filtered content-list frame.
@@ -730,6 +738,7 @@ impl ContentListEmptyStateDisplay {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ContentListPageVm {
     filter_state: ContentFilter,
+    text_filter: Option<String>,
     cached_rows: Vec<ContentListRowDisplay>,
 }
 
@@ -740,6 +749,7 @@ impl ContentListPageVm {
     pub(crate) fn new(cached_rows: Vec<ContentListRowDisplay>) -> Self {
         Self {
             filter_state: ContentFilter::default(),
+            text_filter: None,
             cached_rows,
         }
     }
@@ -766,6 +776,17 @@ impl ContentListPageVm {
         self.filter_state = filter;
     }
 
+    /// Returns the active text filter, when set.
+    #[must_use]
+    pub(crate) fn text_filter(&self) -> Option<&str> {
+        self.text_filter.as_deref()
+    }
+
+    /// Sets or clears the frame-local text filter.
+    pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
+        self.text_filter = normalize_text_filter(filter);
+    }
+
     /// Replaces the cached rows while preserving the frame-local filter.
     pub(crate) fn replace_rows(&mut self, cached_rows: Vec<ContentListRowDisplay>) {
         self.cached_rows = cached_rows;
@@ -783,6 +804,11 @@ impl ContentListPageVm {
         self.cached_rows
             .iter()
             .filter(|row| row.source.matches_filter(self.filter_state))
+            .filter(|row| {
+                self.text_filter
+                    .as_deref()
+                    .is_none_or(|filter| row.matches_text_filter(filter))
+            })
             .collect()
     }
 
@@ -798,11 +824,9 @@ impl ContentListPageVm {
     /// Returns the active empty state when the current filter hides all rows.
     #[must_use]
     pub(crate) fn empty_state(&self) -> Option<ContentListEmptyStateDisplay> {
-        (!self
-            .cached_rows
-            .iter()
-            .any(|row| row.source.matches_filter(self.filter_state)))
-        .then(|| ContentListEmptyStateDisplay::for_filter(self.filter_state))
+        self.visible_rows()
+            .is_empty()
+            .then(|| ContentListEmptyStateDisplay::for_filter(self.filter_state))
     }
 
     /// Returns the frame-local filter chip display for this content list.
@@ -1166,6 +1190,29 @@ impl LibraryViewModel {
 
     pub(crate) fn set_content_filter(&mut self, filter: ContentFilter) {
         self.content_list_page.set_filter(filter);
+    }
+
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "active-frame search dispatch lands content text state before toolbar routing"
+        )
+    )]
+    pub(crate) fn content_text_filter(&self) -> Option<&str> {
+        self.content_list_page.text_filter()
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "active-frame search dispatch lands content text state before toolbar routing"
+        )
+    )]
+    pub(crate) fn set_content_text_filter(&mut self, filter: Option<String>) {
+        self.content_list_page.set_text_filter(filter);
     }
 
     #[must_use]
@@ -1567,6 +1614,18 @@ impl LibraryViewModel {
         &self.search_query
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "active-frame search dispatch lands source-list text state before toolbar routing"
+        )
+    )]
+    pub(crate) fn set_source_text_filter(&mut self, filter: Option<String>) {
+        self.search_query = normalize_text_filter(filter).unwrap_or_default();
+        self.selected_id = None;
+    }
+
     pub(crate) fn set_error_status(&mut self, error: impl std::fmt::Display) {
         self.library_loading = false;
         self.library_removal.cancel();
@@ -1866,8 +1925,7 @@ impl LibraryViewModel {
 
     #[cfg(test)]
     pub(crate) fn apply_search_query(&mut self, query: impl Into<String>) {
-        self.search_query = query.into().trim().to_string();
-        self.selected_id = None;
+        self.set_source_text_filter(Some(query.into()));
     }
 
     pub(crate) fn toggle_creating_playlist(&mut self) {
@@ -2032,6 +2090,26 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
         }
     }
     LibraryTree { artists }
+}
+
+fn normalize_text_filter(filter: Option<String>) -> Option<String> {
+    filter
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn track_row_matches_text_filter(track: &TrackRow, filter: &str) -> bool {
+    let filter = filter.to_lowercase();
+    [
+        track.track_title.as_deref(),
+        track.artist_name.as_deref(),
+        track.album_artist_name.as_deref(),
+        track.album_title.as_deref(),
+        track.feed_title.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|value| value.to_lowercase().contains(&filter))
 }
 
 fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay> {
@@ -2831,12 +2909,17 @@ impl<'a> PlaylistTrackRowVm<'a> {
 pub(crate) struct PlaylistDetailVm<'a> {
     playlist: &'a db::Playlist,
     tracks: &'a [TrackRow],
+    text_filter: Option<String>,
 }
 
 impl<'a> PlaylistDetailVm<'a> {
     #[must_use]
     pub(crate) fn new(playlist: &'a db::Playlist, tracks: &'a [TrackRow]) -> Self {
-        Self { playlist, tracks }
+        Self {
+            playlist,
+            tracks,
+            text_filter: None,
+        }
     }
 
     #[must_use]
@@ -2858,18 +2941,30 @@ impl<'a> PlaylistDetailVm<'a> {
 
     #[must_use]
     pub(crate) fn track_count(&self) -> usize {
-        self.tracks.len()
+        self.visible_tracks().len()
     }
 
     #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
-        self.tracks.is_empty()
+        self.visible_tracks().is_empty()
+    }
+
+    #[must_use]
+    pub(crate) fn text_filter(&self) -> Option<&str> {
+        self.text_filter.as_deref()
+    }
+
+    pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
+        self.text_filter = normalize_text_filter(filter);
     }
 
     /// Sum of all track durations in seconds.
     #[must_use]
     pub(crate) fn total_duration_seconds(&self) -> i64 {
-        self.tracks.iter().filter_map(|t| t.duration_seconds).sum()
+        self.visible_tracks()
+            .into_iter()
+            .filter_map(|(_, track)| track.duration_seconds)
+            .sum()
     }
 
     /// `"M:SS"` for short playlists, `"Hh Mm"` once total runtime
@@ -2928,13 +3023,24 @@ impl<'a> PlaylistDetailVm<'a> {
     #[must_use]
     pub(crate) fn track_rows(&self) -> Vec<PlaylistTrackRowVm<'a>> {
         let last_position = self.tracks.len().saturating_sub(1);
-        self.tracks
-            .iter()
-            .enumerate()
+        self.visible_tracks()
+            .into_iter()
             .map(|(position, track)| PlaylistTrackRowVm {
                 track,
                 position,
                 last_position,
+            })
+            .collect()
+    }
+
+    fn visible_tracks(&self) -> Vec<(usize, &'a TrackRow)> {
+        self.tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, track)| {
+                self.text_filter
+                    .as_deref()
+                    .is_none_or(|filter| track_row_matches_text_filter(track, filter))
             })
             .collect()
     }
@@ -3037,10 +3143,90 @@ mod tests {
     }
 
     #[test]
+    fn content_list_page_vm_set_text_filter_updates_visible_rows() {
+        let mut page = ContentListPageVm::new(vec![
+            ContentListRowDisplay::new(
+                "library",
+                "Local Mix",
+                "Aphex Twin",
+                ContentListRowSource::Library,
+            ),
+            ContentListRowDisplay::new(
+                "index",
+                "Remote Feed",
+                "Detroit Techno",
+                ContentListRowSource::Index,
+            ),
+        ]);
+
+        page.set_text_filter(Some("  techno  ".to_string()));
+
+        assert_eq!(page.text_filter(), Some("techno"));
+        assert_eq!(
+            page.visible_row_ids(),
+            ["index"],
+            "text filter should match display-owned secondary row text"
+        );
+
+        page.set_text_filter(Some("   ".to_string()));
+
+        assert_eq!(page.text_filter(), None);
+        assert_eq!(
+            page.visible_row_ids(),
+            ["library", "index"],
+            "whitespace-only text filter should clear filtering"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_text_filter_composes_with_source_filter() {
+        let mut page = ContentListPageVm::new(vec![
+            ContentListRowDisplay::new(
+                "library",
+                "Shared Title",
+                "Local Artist",
+                ContentListRowSource::Library,
+            ),
+            ContentListRowDisplay::new(
+                "index",
+                "Shared Title",
+                "Remote Artist",
+                ContentListRowSource::Index,
+            ),
+        ]);
+
+        page.set_filter(ContentFilter::Library);
+        page.set_text_filter(Some("shared".to_string()));
+
+        assert_eq!(
+            page.visible_row_ids(),
+            ["library"],
+            "content source filtering should remain active with text filtering"
+        );
+
+        page.set_text_filter(Some("remote".to_string()));
+
+        assert!(
+            page.visible_rows().is_empty(),
+            "library source filter should hide matching index text"
+        );
+        assert_eq!(
+            page.empty_state(),
+            Some(ContentListEmptyStateDisplay {
+                title: "No library content",
+                secondary: "No local rows match this frame filter.",
+                clear_filter_action_id: Some("content-list.clear-filter"),
+            }),
+            "empty state should still reflect the active source filter"
+        );
+    }
+
+    #[test]
     fn content_list_page_vm_replace_rows_preserves_filter() {
         let mut page =
             ContentListPageVm::new(vec![content_row("library", ContentListRowSource::Library)]);
         page.set_filter(ContentFilter::Index);
+        page.set_text_filter(Some("next".to_string()));
 
         page.replace_rows(vec![
             content_row("next-library", ContentListRowSource::Library),
@@ -3048,10 +3234,11 @@ mod tests {
         ]);
 
         assert_eq!(page.filter(), ContentFilter::Index);
+        assert_eq!(page.text_filter(), Some("next"));
         assert_eq!(
             page.visible_row_ids(),
             ["next-index"],
-            "row refresh should preserve the frame-local selected filter"
+            "row refresh should preserve frame-local source and text filters"
         );
     }
 
@@ -3703,6 +3890,48 @@ mod tests {
     }
 
     #[test]
+    fn playlist_detail_vm_text_filter_preserves_original_positions() {
+        let pl = playlist("Mix");
+        let mut first = row();
+        first.id = 1;
+        first.track_title = Some("Opening".into());
+        first.artist_name = Some("Alice".into());
+        first.duration_seconds = Some(60);
+        let mut second = row();
+        second.id = 2;
+        second.track_title = Some("Middle".into());
+        second.artist_name = Some("Bob".into());
+        second.duration_seconds = Some(120);
+        let mut third = row();
+        third.id = 3;
+        third.track_title = Some("Finale".into());
+        third.artist_name = Some("Alice".into());
+        third.duration_seconds = Some(180);
+        let tracks = vec![first, second, third];
+        let mut vm = PlaylistDetailVm::new(&pl, &tracks);
+
+        vm.set_text_filter(Some("alice".to_string()));
+
+        let rows = vm.track_rows();
+        assert_eq!(vm.text_filter(), Some("alice"));
+        assert_eq!(vm.track_count(), 2);
+        assert_eq!(vm.total_duration_seconds(), 240);
+        assert_eq!(
+            rows.iter()
+                .map(PlaylistTrackRowVm::position)
+                .collect::<Vec<_>>(),
+            [0, 2],
+            "filtered playlist rows should keep original playlist positions for commands"
+        );
+
+        vm.set_text_filter(Some("   ".to_string()));
+
+        assert_eq!(vm.text_filter(), None);
+        assert_eq!(vm.track_count(), 3);
+        assert_eq!(vm.track_rows().len(), 3);
+    }
+
+    #[test]
     fn playlist_detail_vm_projects_rename_and_delete_controls() {
         let mut pl = playlist("Mix");
         pl.id = 42;
@@ -4306,6 +4535,66 @@ mod tests {
             vm.content_filter_chip_strip().selected,
             ContentFilter::Library,
             "frame chrome should reflect the selected content-list filter"
+        );
+    }
+
+    #[test]
+    fn library_view_model_content_text_filter_uses_content_list_page_vm() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+
+        vm.set_content_text_filter(Some("cliff".to_string()));
+        let projection = vm.tree_projection();
+
+        assert_eq!(vm.content_text_filter(), Some("cliff"));
+        assert_eq!(projection.tree.artists.len(), 1);
+        assert_eq!(
+            projection.tree.artists[0].albums[0].tracks[0]
+                .track_title
+                .as_deref(),
+            Some("Cliffs")
+        );
+
+        vm.set_content_text_filter(None);
+        let projection = vm.tree_projection();
+
+        assert_eq!(vm.content_text_filter(), None);
+        assert_eq!(
+            projection
+                .tree
+                .artists
+                .iter()
+                .flat_map(|artist| &artist.albums)
+                .flat_map(|album| &album.tracks)
+                .count(),
+            4,
+            "clearing the content-list text filter should restore visible rows"
+        );
+    }
+
+    #[test]
+    fn library_view_model_source_text_filter_trims_and_clears_selection() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        vm.select_library_item(99);
+
+        vm.set_source_text_filter(Some("  ambient  ".to_string()));
+
+        assert_eq!(vm.search_query(), "ambient");
+        assert_eq!(vm.selected_id(), None);
+        assert_eq!(
+            vm.tree_projection().tree.artists[0].albums[0].tracks.len(),
+            2,
+            "source-list text filter should reuse existing tree query projection"
+        );
+
+        vm.set_source_text_filter(Some("   ".to_string()));
+
+        assert_eq!(vm.search_query(), "");
+        assert_eq!(
+            vm.tree_projection().tree.artists.len(),
+            2,
+            "whitespace source-list filter should clear the query"
         );
     }
 

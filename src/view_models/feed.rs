@@ -19,6 +19,7 @@ use crate::views::{contributor_views_to_api, FeedView};
 pub struct FeedVm<'a> {
     view: &'a FeedView,
     tracks: &'a [Track],
+    text_filter: Option<String>,
 }
 
 /// One scalar key/value entry in the feed-inspector detail grid.
@@ -31,7 +32,22 @@ pub struct DetailEntry {
 impl<'a> FeedVm<'a> {
     #[must_use]
     pub fn new(view: &'a FeedView, tracks: &'a [Track]) -> Self {
-        Self { view, tracks }
+        Self {
+            view,
+            tracks,
+            text_filter: None,
+        }
+    }
+
+    pub fn set_text_filter(&mut self, filter: Option<String>) {
+        self.text_filter = filter
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
+    }
+
+    #[must_use]
+    pub fn text_filter(&self) -> Option<&str> {
+        self.text_filter.as_deref()
     }
 
     #[must_use]
@@ -117,7 +133,12 @@ impl<'a> FeedVm<'a> {
     /// owns the sorted list.
     #[must_use]
     pub fn sorted_tracks(&self) -> Vec<Track> {
-        let mut sorted = self.tracks.to_vec();
+        let mut sorted: Vec<Track> = self
+            .tracks
+            .iter()
+            .filter(|track| self.track_matches_text_filter(track))
+            .cloned()
+            .collect();
         sorted.sort_by(|a, b| {
             let a_num = a.track_number.unwrap_or(i32::MAX);
             let b_num = b.track_number.unwrap_or(i32::MAX);
@@ -128,6 +149,23 @@ impl<'a> FeedVm<'a> {
             })
         });
         sorted
+    }
+
+    fn track_matches_text_filter(&self, track: &Track) -> bool {
+        self.text_filter.as_deref().is_none_or(|filter| {
+            [
+                track.title.as_deref(),
+                track.name.as_deref(),
+                track.feed_title.as_deref(),
+                track.track_artist.as_deref(),
+                track.release_artist.as_deref(),
+                track.publisher_text.as_deref(),
+                track.description.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|value| value.to_lowercase().contains(filter))
+        })
     }
 
     /// Sum of every track's known duration in seconds.
@@ -325,6 +363,79 @@ mod tests {
             .map(|t| t.pub_date)
             .collect();
         assert_eq!(dates, vec![Some(50), Some(5)]);
+    }
+
+    #[test]
+    fn text_filter_trims_normalizes_and_clears() {
+        let view = empty_view();
+        let mut vm = FeedVm::new(&view, &[]);
+        assert_eq!(vm.text_filter(), None);
+
+        vm.set_text_filter(Some("  Lead Singer  ".to_string()));
+        assert_eq!(vm.text_filter(), Some("lead singer"));
+
+        vm.set_text_filter(Some("   ".to_string()));
+        assert_eq!(vm.text_filter(), None);
+
+        vm.set_text_filter(Some("album".to_string()));
+        vm.set_text_filter(None);
+        assert_eq!(vm.text_filter(), None);
+    }
+
+    #[test]
+    fn sorted_tracks_filters_by_display_track_text() {
+        let tracks = vec![
+            Track {
+                track_number: Some(1),
+                title: Some("Opening Song".to_string()),
+                ..Track::default()
+            },
+            Track {
+                track_number: Some(2),
+                track_artist: Some("Lead Singer".to_string()),
+                ..Track::default()
+            },
+            Track {
+                track_number: Some(3),
+                description: Some("studio outtake".to_string()),
+                ..Track::default()
+            },
+        ];
+        let view = empty_view();
+        let mut vm = FeedVm::new(&view, &tracks);
+
+        vm.set_text_filter(Some("singer".to_string()));
+
+        let nums: Vec<Option<i32>> = vm.sorted_tracks().iter().map(|t| t.track_number).collect();
+        assert_eq!(nums, vec![Some(2)]);
+    }
+
+    #[test]
+    fn clearing_text_filter_restores_sorted_tracks() {
+        let tracks = vec![
+            Track {
+                track_number: Some(2),
+                title: Some("Filtered".to_string()),
+                ..Track::default()
+            },
+            Track {
+                track_number: Some(1),
+                title: Some("Restored".to_string()),
+                ..Track::default()
+            },
+        ];
+        let view = empty_view();
+        let mut vm = FeedVm::new(&view, &tracks);
+        vm.set_text_filter(Some("filtered".to_string()));
+        let filtered_nums: Vec<Option<i32>> =
+            vm.sorted_tracks().iter().map(|t| t.track_number).collect();
+        assert_eq!(filtered_nums, vec![Some(2)]);
+
+        vm.set_text_filter(None);
+
+        let restored_nums: Vec<Option<i32>> =
+            vm.sorted_tracks().iter().map(|t| t.track_number).collect();
+        assert_eq!(restored_nums, vec![Some(1), Some(2)]);
     }
 
     #[test]

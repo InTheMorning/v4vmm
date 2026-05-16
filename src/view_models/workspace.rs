@@ -6,9 +6,12 @@
 //! later tasks.
 
 #![warn(clippy::pedantic)]
-#![expect(
-    dead_code,
-    reason = "ADR 0046 Task 001 lands workspace contracts before render wiring"
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "workspace contracts land before every frame action is wired"
+    )
 )]
 
 use std::collections::BTreeMap;
@@ -75,6 +78,38 @@ pub(crate) enum FrameDockTarget {
     Center,
     /// Dock the frame into the trailing workspace lane.
     Trailing,
+}
+
+/// Search interpretation for the currently focused workspace frame.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FrameSearchScope {
+    /// Filter source-list rows.
+    Sidebar,
+    /// Search or filter library/content rows.
+    LibraryRows,
+    /// Search or filter settings rows.
+    SettingsRows,
+    /// Filter queue rows.
+    QueueRows,
+    /// Refine a search-results inspector query.
+    InspectorQuery,
+    /// Filter track rows in an entity detail inspector.
+    DetailTracks,
+}
+
+/// GPUI-free search descriptor projected from the focused workspace frame.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FrameSearchDescriptor {
+    /// Focused frame identifier.
+    pub(crate) frame_id: WorkspaceFrameId,
+    /// Focused frame kind.
+    pub(crate) kind: WorkspaceFrameKind,
+    /// Focused frame's current navigation entry.
+    pub(crate) nav: FrameNavigationEntry,
+    /// Frame-local destination for submitted search text.
+    pub(crate) scope: FrameSearchScope,
+    /// Toolbar placeholder for the focused frame.
+    pub(crate) placeholder: &'static str,
 }
 
 impl FrameDockTarget {
@@ -909,6 +944,38 @@ impl WorkspaceLayout {
         self.frames.iter().find(|frame| frame.id == focused_id)
     }
 
+    /// Projects the focused frame into a toolbar search descriptor.
+    #[must_use]
+    pub(crate) fn focused_search_descriptor(&self) -> Option<FrameSearchDescriptor> {
+        let frame = self.focused_frame()?;
+        let nav = self.frame_nav(frame.id())?.current().clone();
+        let (scope, placeholder) = match (frame.kind(), &nav) {
+            (WorkspaceFrameKind::SourceList, _) => (FrameSearchScope::Sidebar, "Filter sidebar..."),
+            (
+                WorkspaceFrameKind::ContentList,
+                FrameNavigationEntry::SourceList | FrameNavigationEntry::Search(_),
+            ) => (FrameSearchScope::LibraryRows, "Search library..."),
+            (WorkspaceFrameKind::ContentList, _) => {
+                (FrameSearchScope::SettingsRows, "Search settings...")
+            }
+            (WorkspaceFrameKind::Detail, FrameNavigationEntry::Search(_)) => {
+                (FrameSearchScope::InspectorQuery, "Refine search...")
+            }
+            (WorkspaceFrameKind::Detail, _) => (FrameSearchScope::DetailTracks, "Filter tracks..."),
+            (WorkspaceFrameKind::QueueNowPlaying, _) => {
+                (FrameSearchScope::QueueRows, "Filter queue...")
+            }
+        };
+
+        Some(FrameSearchDescriptor {
+            frame_id: frame.id(),
+            kind: frame.kind(),
+            nav,
+            scope,
+            placeholder,
+        })
+    }
+
     /// Focuses an existing frame.
     ///
     /// # Errors
@@ -1282,12 +1349,158 @@ mod tests {
     use super::{
         BreadcrumbDisplay, BreadcrumbTruncation, ContentFilter, FilterChipStripDisplay,
         FrameDetachEligibility, FrameDockTarget, FrameNavigationEntry, FrameNavigationState,
-        FrameShellDisplay, WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind,
-        WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
+        FrameSearchDescriptor, FrameSearchScope, FrameShellDisplay, WorkspaceFrameConfig,
+        WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+        WorkspaceLayoutConfig, WorkspaceModelError,
     };
 
     fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
         WorkspaceFrameState::with_default_title(WorkspaceFrameId::new(id), kind)
+    }
+
+    fn descriptor_for(
+        frame_id: u64,
+        kind: WorkspaceFrameKind,
+        nav: FrameNavigationEntry,
+    ) -> FrameSearchDescriptor {
+        let frame_id = WorkspaceFrameId::new(frame_id);
+        let mut layout = WorkspaceLayout::new(vec![frame(frame_id.value(), kind)], Some(frame_id))
+            .expect("single-frame descriptor layout should be valid");
+        layout
+            .reset_nav(frame_id, nav)
+            .expect("single-frame descriptor layout should have navigation");
+        layout
+            .focused_search_descriptor()
+            .expect("focused frame should project a descriptor")
+    }
+
+    #[test]
+    fn focused_search_descriptor_returns_none_for_empty_layout() {
+        let layout = WorkspaceLayout::empty();
+
+        assert_eq!(
+            layout.focused_search_descriptor(),
+            None,
+            "empty layouts should not project a search descriptor"
+        );
+    }
+
+    #[test]
+    fn focused_search_descriptor_projects_source_list_sidebar_search() {
+        let descriptor = descriptor_for(
+            11,
+            WorkspaceFrameKind::SourceList,
+            FrameNavigationEntry::SourceList,
+        );
+
+        assert_eq!(
+            descriptor,
+            FrameSearchDescriptor {
+                frame_id: WorkspaceFrameId::new(11),
+                kind: WorkspaceFrameKind::SourceList,
+                nav: FrameNavigationEntry::SourceList,
+                scope: FrameSearchScope::Sidebar,
+                placeholder: "Filter sidebar...",
+            },
+            "source-list focus should filter sidebar rows"
+        );
+    }
+
+    #[test]
+    fn focused_search_descriptor_projects_content_source_list_as_library_rows() {
+        let descriptor = descriptor_for(
+            12,
+            WorkspaceFrameKind::ContentList,
+            FrameNavigationEntry::SourceList,
+        );
+
+        assert_eq!(descriptor.frame_id, WorkspaceFrameId::new(12));
+        assert_eq!(descriptor.kind, WorkspaceFrameKind::ContentList);
+        assert_eq!(descriptor.nav, FrameNavigationEntry::SourceList);
+        assert_eq!(descriptor.scope, FrameSearchScope::LibraryRows);
+        assert_eq!(descriptor.placeholder, "Search library...");
+    }
+
+    #[test]
+    fn focused_search_descriptor_projects_content_search_as_library_rows() {
+        let descriptor = descriptor_for(
+            13,
+            WorkspaceFrameKind::ContentList,
+            FrameNavigationEntry::Search("ambient".to_string()),
+        );
+
+        assert_eq!(
+            descriptor.nav,
+            FrameNavigationEntry::Search("ambient".to_string()),
+            "descriptor should clone the current navigation entry"
+        );
+        assert_eq!(descriptor.scope, FrameSearchScope::LibraryRows);
+        assert_eq!(descriptor.placeholder, "Search library...");
+    }
+
+    #[test]
+    fn focused_search_descriptor_projects_content_non_search_as_settings_rows() {
+        let descriptor = descriptor_for(
+            14,
+            WorkspaceFrameKind::ContentList,
+            FrameNavigationEntry::PlaylistDetail(7),
+        );
+
+        assert_eq!(descriptor.kind, WorkspaceFrameKind::ContentList);
+        assert_eq!(descriptor.nav, FrameNavigationEntry::PlaylistDetail(7));
+        assert_eq!(descriptor.scope, FrameSearchScope::SettingsRows);
+        assert_eq!(descriptor.placeholder, "Search settings...");
+    }
+
+    #[test]
+    fn focused_search_descriptor_projects_detail_search_as_inspector_query() {
+        let descriptor = descriptor_for(
+            15,
+            WorkspaceFrameKind::Detail,
+            FrameNavigationEntry::Search("drums".to_string()),
+        );
+
+        assert_eq!(descriptor.kind, WorkspaceFrameKind::Detail);
+        assert_eq!(
+            descriptor.nav,
+            FrameNavigationEntry::Search("drums".to_string())
+        );
+        assert_eq!(descriptor.scope, FrameSearchScope::InspectorQuery);
+        assert_eq!(descriptor.placeholder, "Refine search...");
+    }
+
+    #[test]
+    fn focused_search_descriptor_projects_detail_entity_as_detail_tracks() {
+        for nav in [
+            FrameNavigationEntry::PlaylistDetail(3),
+            FrameNavigationEntry::TrackDetail(4),
+            FrameNavigationEntry::AlbumDetail(5),
+            FrameNavigationEntry::ArtistDetail("Dawn Chorus".to_string()),
+        ] {
+            let descriptor = descriptor_for(16, WorkspaceFrameKind::Detail, nav.clone());
+
+            assert_eq!(
+                descriptor.nav, nav,
+                "entity-detail descriptor should carry the current navigation entry"
+            );
+            assert_eq!(descriptor.scope, FrameSearchScope::DetailTracks);
+            assert_eq!(descriptor.placeholder, "Filter tracks...");
+        }
+    }
+
+    #[test]
+    fn focused_search_descriptor_projects_queue_rows() {
+        let descriptor = descriptor_for(
+            17,
+            WorkspaceFrameKind::QueueNowPlaying,
+            FrameNavigationEntry::QueueNowPlaying,
+        );
+
+        assert_eq!(descriptor.frame_id, WorkspaceFrameId::new(17));
+        assert_eq!(descriptor.kind, WorkspaceFrameKind::QueueNowPlaying);
+        assert_eq!(descriptor.nav, FrameNavigationEntry::QueueNowPlaying);
+        assert_eq!(descriptor.scope, FrameSearchScope::QueueRows);
+        assert_eq!(descriptor.placeholder, "Filter queue...");
     }
 
     #[test]

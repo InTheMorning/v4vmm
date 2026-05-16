@@ -370,6 +370,17 @@ impl SearchResultsInspectorPageVm {
         &self.query
     }
 
+    /// Updates the query represented by this page.
+    pub(crate) fn set_query(&mut self, query: String) {
+        self.query = query;
+        self.refresh_empty_state();
+    }
+
+    /// Clears the query represented by this page.
+    pub(crate) fn clear_query(&mut self) {
+        self.set_query(String::new());
+    }
+
     /// Returns the selected tab.
     #[must_use]
     pub(crate) const fn tab(&self) -> SearchResultsTab {
@@ -611,6 +622,36 @@ mod tests {
         assert!(
             strip.narrow_collapse_to_pulldown,
             "search inspector filters should collapse in narrow detail frames"
+        );
+    }
+
+    #[test]
+    fn query_update_refreshes_empty_state_copy() {
+        let mut vm = SearchResultsInspectorPageVm::new("old query");
+
+        vm.set_query("new query".to_string());
+
+        assert_eq!(vm.query(), "new query");
+        assert_eq!(
+            vm.empty_state()
+                .expect("empty inspector should expose empty state")
+                .secondary,
+            "No results matched \"new query\"."
+        );
+    }
+
+    #[test]
+    fn clear_query_refreshes_empty_state_copy() {
+        let mut vm = SearchResultsInspectorPageVm::new("old query");
+
+        vm.clear_query();
+
+        assert_eq!(vm.query(), "");
+        assert_eq!(
+            vm.empty_state()
+                .expect("empty inspector should expose empty state")
+                .secondary,
+            "No results matched \"\"."
         );
     }
 }

@@ -2204,6 +2204,129 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
 }
 
 #[test]
+fn active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models() {
+    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let library_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let feed_source = read_source(&manifest_path("src/view_models/feed.rs"));
+    let playlist_detail_source = read_source(&manifest_path("src/view_models/playlist_detail.rs"));
+    let search_results_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let queue_source = read_source(&manifest_path("src/view_models/queue_now_playing.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) enum FrameSearchScope",
+        "pub(crate) struct FrameSearchDescriptor",
+        "pub(crate) fn focused_search_descriptor(&self) -> Option<FrameSearchDescriptor>",
+        "frame_id: WorkspaceFrameId",
+        "kind: WorkspaceFrameKind",
+        "nav: FrameNavigationEntry",
+        "scope: FrameSearchScope",
+        "placeholder: &'static str",
+        "FrameSearchScope::Sidebar",
+        "FrameSearchScope::LibraryRows",
+        "FrameSearchScope::SettingsRows",
+        "FrameSearchScope::InspectorQuery",
+        "FrameSearchScope::DetailTracks",
+        "FrameSearchScope::QueueRows",
+        "Filter sidebar...",
+        "Search library...",
+        "Search settings...",
+        "Refine search...",
+        "Filter tracks...",
+        "Filter queue...",
+    ] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: active-frame search descriptor contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "text_filter: Option<String>",
+        "pub(crate) fn set_text_filter(&mut self, filter: Option<String>)",
+        "pub(crate) fn text_filter(&self) -> Option<&str>",
+        "pub(crate) fn set_content_text_filter(&mut self, filter: Option<String>)",
+        "pub(crate) fn set_source_text_filter(&mut self, filter: Option<String>)",
+        "normalize_text_filter(filter)",
+    ] {
+        if !library_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: active-frame content/source text filter contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub fn set_text_filter(&mut self, filter: Option<String>)",
+        "pub fn text_filter(&self) -> Option<&str>",
+        "fn track_matches_text_filter(&self, track: &Track) -> bool",
+    ] {
+        if !feed_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/feed.rs: active-frame feed detail text filter contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn set_text_filter(&mut self, filter: Option<String>)",
+        "pub(crate) fn text_filter(&self) -> Option<&str>",
+        "self.detail.set_text_filter(filter);",
+    ] {
+        if !playlist_detail_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/playlist_detail.rs: active-frame playlist page text filter contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn set_query(&mut self, query: String)",
+        "pub(crate) fn clear_query(&mut self)",
+        "self.refresh_empty_state();",
+    ] {
+        if !search_results_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results.rs: active-frame search inspector query contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "all_rows: Vec<QueueRowDisplay>",
+        "text_filter: Option<String>",
+        "pub(crate) fn set_text_filter(&mut self, filter: Option<String>)",
+        "pub(crate) fn text_filter(&self) -> Option<&str>",
+        "queue_row_matches_text_filter(row, filter)",
+    ] {
+        if !queue_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/queue_now_playing.rs: active-frame queue text filter contract missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "static QUEUE_TEXT_FILTERS",
+        "OnceLock<Mutex<HashMap",
+        "thread_local!",
+    ] {
+        if queue_source.contains(forbidden) {
+            violations.push(format!(
+                "src/view_models/queue_now_playing.rs: queue text filter state must be owned by QueueNowPlayingPageVm, found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Active-frame search dispatch Phase 1 VM contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn workspace_frame_phase_4_guards_queue_now_playing_vm_contract() {
     let source = read_source(&manifest_path("src/view_models/queue_now_playing.rs"));
     let mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
