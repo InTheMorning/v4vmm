@@ -1192,7 +1192,7 @@ fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
 
     for forbidden in [
         "render_library_sidebar",
-        "render_search_results",
+        "render_search_results(",
         "WorkspaceScreenMount::SourceList",
         "WorkspaceScreenMount::ContentList",
         "WorkspaceScreenMount::Detail",
@@ -1243,7 +1243,7 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
         "crate::db",
         "PlaybackOwner",
         "render_library_sidebar",
-        "render_search_results",
+        "render_search_results(",
     ] {
         if source.contains(forbidden) {
             violations.push(format!(
@@ -1668,7 +1668,9 @@ fn adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell() {
     }
 
     for required in [
-        "use crate::ui::composites::{filter_chip_strip, FilterChipStripSlots};",
+        "use crate::ui::composites::{",
+        "filter_chip_strip",
+        "FilterChipStripSlots",
         "type FrameFilterSelectHandler",
         "on_filter_select",
         "display.filter_chip_strip.clone()",
@@ -1928,12 +1930,11 @@ fn adr_0047_task_013_frame_shell_renders_breadcrumb_chrome() {
         "on_breadcrumb_select: Option<FrameBreadcrumbSelectHandler>",
         "pub(crate) fn on_breadcrumb_select(",
         "let breadcrumb_display = display.breadcrumb.clone();",
-        "frame_breadcrumb_row(",
-        "frame_breadcrumb_segment(",
-        "frame_breadcrumb_separator(",
-        "Icon::new(IconName::ChevronRight)",
-        "Button::styled(SharedString::from(segment.id), ControlStyle::Ghost)",
-        "handler(target.clone(), window, cx);",
+        "BreadcrumbTrail::new(breadcrumb)",
+        ".appearance(",
+        ".on_select(move |entry, window, cx",
+        "px(Spacing::MD.scaled(cx))",
+        "pb(Spacing::XS.scaled(cx))",
     ] {
         if !frame_shell_source.contains(required) {
             violations.push(format!(
@@ -1943,7 +1944,6 @@ fn adr_0047_task_013_frame_shell_renders_breadcrumb_chrome() {
     }
 
     for forbidden in [
-        "BreadcrumbTrail::new",
         "crate::library",
         "crate::search",
         "crate::app",
@@ -1964,6 +1964,30 @@ fn adr_0047_task_013_frame_shell_renders_breadcrumb_chrome() {
     assert!(
         violations.is_empty(),
         "ADR 0047 Task 013 frame-shell breadcrumb violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0047_breadcrumb_unification_guards_frame_shell_helpers_removed() {
+    let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
+    let mut violations = Vec::new();
+
+    for forbidden_fn in [
+        "fn frame_breadcrumb_row",
+        "fn frame_breadcrumb_segment",
+        "fn frame_breadcrumb_separator",
+    ] {
+        if frame_shell_source.contains(forbidden_fn) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: breadcrumb unification must remove `{forbidden_fn}` hand-rolled helper"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 breadcrumb unification violations:\n{}",
         violations.join("\n")
     );
 }
@@ -2055,6 +2079,126 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
     assert!(
         violations.is_empty(),
         "ADR 0047 Task 014 search-results inspector shell violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0047_task_015_search_submit_and_saved_search_commands() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let library_event_source = read_source(&manifest_path("src/library.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) const fn default_detail_frame_id() -> WorkspaceFrameId",
+        "pub(crate) fn replace_nav(",
+        "pub(crate) fn open_search_results_frame(",
+        "FrameNavigationEntry::Search(query)",
+        "self.reset_nav(detail_frame_id, FrameNavigationEntry::Search(query))?;",
+        "self.focus_frame(detail_frame_id)?;",
+        "pub(crate) fn display_label(&self) -> String",
+        "format!(\"Search: {query}\")",
+    ] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace.rs: ADR 0047 Task 015 workspace-owned search frame command missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "search_results_detail: Option<SearchResultsInspectorPageVm>",
+        "fn open_search_results(",
+        ".open_search_results_frame(query.clone())",
+        "SearchResultsInspectorPageVm::new(query)",
+        "fn open_saved_search(",
+        "fn set_search_results_filter(",
+        "fn set_search_results_tab(",
+        "SearchResultsInspectorSlots::new()",
+        ".on_tab_select(move |tab, _window, cx|",
+        ".on_clear_filter(move |_window, cx|",
+        "render_search_results_inspector(search_results, &inspector_slots, cx)",
+        ".detail(detail_content)",
+        ".detail_filter_chip_strip(filter_chip_strip)",
+        ".on_detail_filter_select(move |filter, _window, cx|",
+        "LibraryAppEvent::OpenSavedSearch",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0047 Task 015 app-level search inspector routing missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "self.tab = AppTab::Search;",
+        "search.run_global_search(query, cx)",
+    ] {
+        if app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0047 Task 015 must not route toolbar submit through the legacy Search tab; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        ".frame_nav(frame.id())",
+        "BreadcrumbDisplay::project(",
+        "FrameNavigationEntry::display_label",
+        "fn should_render_breadcrumb(",
+        "matches!(kind, WorkspaceFrameKind::Detail)",
+        "FrameNavigationEntry::Search(_)",
+    ] {
+        if !workspace_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0047 Task 015 Detail breadcrumb projection missing `{required}`"
+            ));
+        }
+    }
+
+    for required in ["OpenSavedSearch {", "saved_search_id: i64", "query: String"] {
+        if !library_event_source.contains(required) {
+            violations.push(format!(
+                "src/library.rs: ADR 0047 Task 015 saved-search event missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "SavedSearchesSectionDisplay",
+        "fn open_saved_search(&mut self, saved_search_id: i64",
+        ".saved_searches()",
+        "LibraryAppEvent::OpenSavedSearch",
+        "self.vm.saved_searches_section()",
+        "ListRow::compact(SharedString::from(row_id))",
+        "this.open_saved_search(saved_search_id, cx);",
+    ] {
+        if !library_app_source.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: ADR 0047 Task 015 source-list saved-search command missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "this.select_playlist(saved_search_id",
+        "this.select_track(saved_search_id",
+        "select_playlist_with_history(saved_search_id",
+        "select_track_with_history(saved_search_id",
+    ] {
+        if library_app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/library/app_impl.rs: ADR 0047 Task 015 saved-search activation must not disturb source-list selection; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 015 search-submit and saved-search command violations:\n{}",
         violations.join("\n")
     );
 }
@@ -2915,11 +3059,22 @@ fn global_search_replaces_screen_local_search_chrome() {
     for required in [
         "fn on_global_search_event(",
         "fn submit_global_search(",
-        "search.run_global_search(query, cx)",
+        "self.open_search_results(query, cx)",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
                 "src/app.rs: ADR 0043 toolbar search routing missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "self.tab = AppTab::Search;",
+        "search.run_global_search(query, cx)",
+    ] {
+        if app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0047 Task 015 toolbar search submit must route through the workspace Detail frame, found `{forbidden}`"
             ));
         }
     }

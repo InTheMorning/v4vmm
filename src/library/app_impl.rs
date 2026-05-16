@@ -60,14 +60,14 @@ use crate::ui::shells::library_removal_confirmation::open_library_removal_confir
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::color;
 use crate::ui::style::spacing;
-use crate::ui::tokens::{SemanticColor, Spacing};
+use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
     description_line_count, AlbumNode, ArtistNode, FeedUpdateActionDisplay, FeedUpdateActionKind,
     FeedUpdateDisplay, FeedUpdatePhase, InspectorPanelKind, LibraryTrackActionVm,
     LibraryTrackInspectorState, LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbTrackStatus,
     PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay,
-    PlaylistSidebarRowVm, PlaylistSidebarVm, TrackSubscribeOutcome,
+    PlaylistSidebarRowVm, PlaylistSidebarVm, SavedSearchesSectionDisplay, TrackSubscribeOutcome,
 };
 use crate::view_models::playlist_option_displays;
 use crate::view_models::search::pending_skeleton_count;
@@ -146,6 +146,20 @@ impl LibraryApp {
     pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>) {
         self.vm.set_content_filter(filter);
         cx.notify();
+    }
+
+    fn open_saved_search(&mut self, saved_search_id: i64, cx: &mut Context<Self>) {
+        if let Some(saved_search) = self
+            .vm
+            .saved_searches()
+            .iter()
+            .find(|saved_search| saved_search.id == saved_search_id)
+        {
+            cx.emit(super::LibraryAppEvent::OpenSavedSearch {
+                saved_search_id,
+                query: saved_search.query.clone(),
+            });
+        }
     }
 
     fn current_frame_navigation_mut(
@@ -2536,6 +2550,45 @@ impl Render for LibraryApp {
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.create_playlist(cx);
                                 })),
+                        )
+                        .into_any_element(),
+                );
+            }
+        }
+
+        if let Some(SavedSearchesSectionDisplay { heading, rows }) =
+            self.vm.saved_searches_section()
+        {
+            left_items.push(
+                div()
+                    .px(Spacing::SM.scaled(cx))
+                    .py(Spacing::XS.scaled(cx))
+                    .child(Label::new(heading).weight(FontWeight::SEMIBOLD))
+                    .into_any_element(),
+            );
+            for saved_search in rows {
+                let saved_search_id = saved_search.id;
+                let row_id = format!("saved-search-{saved_search_id}");
+                left_items.push(
+                    ListRow::compact(SharedString::from(row_id))
+                        .a11y_label(ListRowA11yLabel {
+                            label: saved_search.a11y_label.into(),
+                        })
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            this.open_saved_search(saved_search_id, cx);
+                        }))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .pl(Spacing::MD.scaled(cx))
+                                .child(Label::new(saved_search.label).truncated())
+                                .child(
+                                    Label::new(saved_search.query)
+                                        .size(FontSize::Micro)
+                                        .color(SemanticColor::TertiaryLabel)
+                                        .truncated(),
+                                ),
                         )
                         .into_any_element(),
                 );

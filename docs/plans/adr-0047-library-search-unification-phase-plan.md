@@ -146,8 +146,9 @@ pull-down primitive; visual proof in Phase G.
 
 ## Phase E - Search-Results Inspector and Breadcrumbs
 
-Status: In progress - Tasks 012, 013, and 014 landed 2026-05-15. Task 015 is
-next and owns search-submit and saved-search command routing.
+Status: Implemented through Task 015 - Tasks 012, 013, 014, and 015 landed
+2026-05-15. Phase F still remains and owns result data loading cleanup plus
+retirement of the standalone `src/search.rs` path.
 
 Goal: route global search submit into a `Detail` frame rendering the
 tabbed `SearchResultsInspector` with breadcrumb chrome.
@@ -157,7 +158,8 @@ Tasks:
 - `adr-0047-task-012-frame-breadcrumb-vm` - implemented 2026-05-15
 - `adr-0047-task-013-frame-shell-breadcrumb-render` - implemented 2026-05-15
 - `adr-0047-task-014-search-results-inspector-shell` - implemented 2026-05-15
-- `adr-0047-task-015-search-submit-and-saved-search-commands`
+- `adr-0047-task-015-search-submit-and-saved-search-commands` - implemented
+  2026-05-15
 
 Deliverables:
 
@@ -167,12 +169,16 @@ Deliverables:
   truncation; back chevron remains
 - Tabbed search-results inspector shell rendering Artists / Feeds /
   Tracks tabs through existing track/feed/artist composites
-- `SubmitGlobalSearch` opens or focuses a `Detail` frame; saved-search
-  activation dispatches `OpenSavedSearch(id)`
+- `SubmitGlobalSearch` opens or updates a `Detail` search-results frame through
+  `open_search_results_frame`; saved-search activation dispatches
+  `OpenSavedSearch(saved_search_id, query)` and reuses the same Detail
+  inspector path
 
 Acceptance: search submit produces an inspector with breadcrumbs;
-drilling pushes nav state; saved searches in source list open the
-same inspector.
+re-submitting updates the existing Detail search-results frame instead of
+switching to the Search tab; saved searches in source list open the same
+inspector without disturbing source-list selection. Result data loading and
+deletion of `src/search.rs` remain Phase F work.
 
 Risks: nav state generalization cascades into Library callers.
 Mitigation: ship the workspace-VM ownership move as a discrete prior

@@ -715,6 +715,12 @@ impl WorkspaceLayout {
         Self::CONTENT_LIST_ID
     }
 
+    /// Returns the default detail frame identifier.
+    #[must_use]
+    pub(crate) const fn default_detail_frame_id() -> WorkspaceFrameId {
+        Self::DETAIL_ID
+    }
+
     /// Creates the ADR 0046 default workspace layout.
     #[must_use]
     pub(crate) fn default_layout() -> Self {
@@ -839,6 +845,55 @@ impl WorkspaceLayout {
     /// Pops a frame's back-history entry and returns the new current entry.
     pub(crate) fn pop_nav(&mut self, id: WorkspaceFrameId) -> Option<FrameNavigationEntry> {
         self.frame_navigation.get_mut(&id)?.go_back().ok().cloned()
+    }
+
+    /// Replaces a frame's full navigation state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::FrameNotFound`] when the frame does not
+    /// exist in the layout.
+    pub(crate) fn replace_nav(
+        &mut self,
+        id: WorkspaceFrameId,
+        nav: FrameNavigationState,
+    ) -> Result<(), WorkspaceModelError> {
+        let slot = self
+            .frame_navigation
+            .get_mut(&id)
+            .ok_or(WorkspaceModelError::FrameNotFound(id))?;
+        *slot = nav;
+        Ok(())
+    }
+
+    /// Opens or focuses the Detail frame for a submitted search query.
+    ///
+    /// The frame is reused when present so repeated toolbar submissions update
+    /// the same search-results surface instead of spawning duplicates.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::DuplicateFrameId`] if a new Detail frame
+    /// cannot be allocated.
+    pub(crate) fn open_search_results_frame(
+        &mut self,
+        query: impl Into<String>,
+    ) -> Result<WorkspaceFrameId, WorkspaceModelError> {
+        let query = query.into();
+        let detail_frame_id = self
+            .frames
+            .iter()
+            .find(|frame| frame.kind() == WorkspaceFrameKind::Detail)
+            .map(WorkspaceFrameState::id);
+        let detail_frame_id = if let Some(id) = detail_frame_id {
+            id
+        } else {
+            self.add_frame(WorkspaceFrameKind::Detail)?
+        };
+
+        self.reset_nav(detail_frame_id, FrameNavigationEntry::Search(query))?;
+        self.focus_frame(detail_frame_id)?;
+        Ok(detail_frame_id)
     }
 
     /// Returns the currently focused frame id.
@@ -1101,6 +1156,28 @@ pub(crate) enum FrameNavigationEntry {
     Search(String),
     /// Queue and Now Playing frame root.
     QueueNowPlaying,
+}
+
+impl FrameNavigationEntry {
+    /// Returns the default visible label for this navigation entry.
+    #[must_use]
+    pub(crate) fn display_label(&self) -> String {
+        match self {
+            Self::SourceList => "Library".to_string(),
+            Self::PlaylistDetail(id) => format!("Playlist {id}"),
+            Self::TrackDetail(id) => format!("Track {id}"),
+            Self::AlbumDetail(id) => format!("Album {id}"),
+            Self::ArtistDetail(name) => name.clone(),
+            Self::Search(query) => {
+                if query.trim().is_empty() {
+                    "Search".to_string()
+                } else {
+                    format!("Search: {query}")
+                }
+            }
+            Self::QueueNowPlaying => "Queue".to_string(),
+        }
+    }
 }
 
 /// Per-frame back/forward navigation history.
@@ -1767,6 +1844,121 @@ mod tests {
                 .count(),
             1,
             "add_frame should preserve exactly one focused frame"
+        );
+    }
+
+    #[test]
+    fn open_search_results_frame_reuses_detail_frame_and_records_query() {
+        let mut layout = WorkspaceLayout::default_layout();
+        let detail_id = WorkspaceLayout::default_detail_frame_id();
+
+        let opened = layout
+            .open_search_results_frame("hey citizen")
+            .expect("default detail frame should open for search results");
+
+        assert_eq!(opened, detail_id);
+        assert_eq!(
+            layout.focused_frame_id(),
+            Some(detail_id),
+            "search results should focus the reused Detail frame"
+        );
+        assert_eq!(
+            layout
+                .frame_nav(detail_id)
+                .expect("detail nav should exist")
+                .current(),
+            &FrameNavigationEntry::Search("hey citizen".to_string()),
+            "search results should reset Detail navigation to the submitted query"
+        );
+
+        let reopened = layout
+            .open_search_results_frame("ambient")
+            .expect("resubmitting should reuse the same Detail frame");
+
+        assert_eq!(reopened, detail_id);
+        assert_eq!(
+            layout
+                .frames()
+                .iter()
+                .filter(|frame| frame.kind() == WorkspaceFrameKind::Detail)
+                .count(),
+            1,
+            "resubmitting search must not spawn another Detail frame"
+        );
+        assert_eq!(
+            layout
+                .frame_nav(detail_id)
+                .expect("detail nav should remain")
+                .current(),
+            &FrameNavigationEntry::Search("ambient".to_string())
+        );
+    }
+
+    #[test]
+    fn open_search_results_frame_adds_missing_detail_frame() {
+        let mut layout = WorkspaceLayout::new(
+            vec![frame(2, WorkspaceFrameKind::ContentList)],
+            Some(WorkspaceFrameId::new(2)),
+        )
+        .expect("content-only layout should be valid");
+
+        let opened = layout
+            .open_search_results_frame("noise")
+            .expect("missing Detail frame should be allocated");
+
+        assert_eq!(
+            layout
+                .frames()
+                .iter()
+                .filter(|frame| frame.kind() == WorkspaceFrameKind::Detail)
+                .count(),
+            1,
+            "helper should add one Detail frame when none exists"
+        );
+        assert_eq!(layout.focused_frame_id(), Some(opened));
+        assert_eq!(
+            layout
+                .frame_nav(opened)
+                .expect("new detail nav should exist")
+                .current(),
+            &FrameNavigationEntry::Search("noise".to_string())
+        );
+    }
+
+    #[test]
+    fn replace_nav_preserves_full_history_for_visible_layout_projection() {
+        let mut source = WorkspaceLayout::default_layout();
+        let detail_id = WorkspaceLayout::default_detail_frame_id();
+        source
+            .reset_nav(detail_id, FrameNavigationEntry::Search("jazz".to_string()))
+            .expect("detail frame should exist");
+        source
+            .push_nav(detail_id, FrameNavigationEntry::TrackDetail(9))
+            .expect("detail frame should accept drill-down");
+
+        let mut projected = WorkspaceLayout::new(
+            vec![frame(detail_id.value(), WorkspaceFrameKind::Detail)],
+            Some(detail_id),
+        )
+        .expect("projected layout should be valid");
+        projected
+            .replace_nav(
+                detail_id,
+                source
+                    .frame_nav(detail_id)
+                    .expect("source detail nav should exist")
+                    .clone(),
+            )
+            .expect("projected detail frame should accept copied nav");
+
+        let nav = projected
+            .frame_nav(detail_id)
+            .expect("projected detail nav should exist");
+        assert_eq!(nav.current(), &FrameNavigationEntry::TrackDetail(9));
+        assert_eq!(
+            nav.back_destination(),
+            Some(&FrameNavigationEntry::Search("jazz".to_string())),
+            "full navigation history should survive projection"
         );
     }
 

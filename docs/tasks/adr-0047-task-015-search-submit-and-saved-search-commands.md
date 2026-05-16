@@ -1,13 +1,13 @@
 # ADR 0047 Task 015: Search Submit + Saved Search Commands
 
-Status: Proposed - 2026-05-14.
+Status: Implemented / documentation updated - 2026-05-15.
 
 ## Goal
 
-Wire the toolbar search-submit action to open or focus a `Detail`
+Wire the toolbar search-submit action to open or update a `Detail`
 frame rendering `SearchResultsInspector`. Wire saved-search activation
-in `SourceList` to dispatch `OpenSavedSearch(saved_search_id)` with
-the same effect.
+in `SourceList` to dispatch `OpenSavedSearch(saved_search_id, query)`
+with the same Detail-inspector path.
 
 ## Files to Inspect
 
@@ -46,9 +46,10 @@ the same effect.
   `Search(query)` entry as the origin.
 - Re-submitting from the toolbar with a `Detail` frame already
   showing search results updates that frame in place rather than
-  spawning a second.
-- `OpenSavedSearch(id)` resolves the saved query and reuses the
-  same opener path.
+  spawning a second or switching to the Search tab.
+- `OpenSavedSearch(saved_search_id, query)` carries the source-list
+  saved-search identity and query to `TopApp`, which reuses the same
+  Detail-inspector opener path.
 - Source-list selection state is not disturbed by either command.
 - HIG: search submit animation acceptable but not required in this
   task.
@@ -57,9 +58,10 @@ the same effect.
 
 1. Add a workspace-VM helper:
    `open_search_results_frame(query) -> WorkspaceFrameId` that opens
-   or focuses the appropriate `Detail` frame.
-2. Add `OpenSavedSearch(id)` command that looks up the saved query
-   and delegates to the helper.
+   or updates the appropriate `Detail` frame.
+2. Add `OpenSavedSearch(saved_search_id, query)` command dispatch from
+   saved-search source-list rows and delegate from `TopApp` to the
+   same Detail-inspector path.
 3. Update the toolbar submit handler in
    `src/app/tab_bar.rs` (or wherever it lives) to call the helper
    instead of switching tabs.
@@ -73,13 +75,25 @@ the same effect.
 
 ## Acceptance Criteria
 
-- [ ] Submitting a search opens a `Detail` frame with the inspector.
-- [ ] Re-submitting updates the existing search-results frame in
+- [x] Submitting a search opens a `Detail` frame with the
+  `SearchResultsInspectorPageVm` inspector through the workspace VM
+  `open_search_results_frame` helper.
+- [x] Re-submitting updates/reuses the existing search-results frame in
   place.
-- [ ] Saved-search click opens the same inspector with the saved
-  query.
-- [ ] Source-list selection unaffected by either command.
-- [ ] Architecture guards record the contracts.
+- [x] Search submit does not switch to the Search tab.
+- [x] Saved-search source-list rows dispatch
+  `LibraryAppEvent::OpenSavedSearch` with `saved_search_id` and
+  `query`, then `TopApp` opens the same Detail inspector path.
+- [x] `SearchResultsInspectorPageVm` is mounted in the `Detail` slot
+  with frame-local filter chips and tab callbacks.
+- [x] Frame breadcrumb display is projected by the workspace shell from
+  the Detail frame `FrameNavigationEntry::Search` query.
+- [x] Source-list selection is unaffected by either command.
+- [x] Architecture guards record the contracts.
+- [ ] Task015 visual smoke entry still needs to be filled by the main
+  agent or operator before claiming visual proof. Codex attempted
+  `cargo run` on 2026-05-15, but GPUI failed to initialize the local
+  X11/GPU context before opening a window.
 
 ## Test Commands
 

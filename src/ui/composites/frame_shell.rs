@@ -6,10 +6,6 @@
 //! chrome locally.
 
 #![warn(clippy::pedantic)]
-#![expect(
-    dead_code,
-    reason = "ADR 0046 Task 006 lands the frame shell before Task 007 wires it"
-)]
 
 use std::rc::Rc;
 
@@ -18,16 +14,16 @@ use gpui::{
     SharedString, Styled, Window,
 };
 
-use crate::ui::composites::{filter_chip_strip, FilterChipStripSlots};
+use crate::ui::composites::{filter_chip_strip, BreadcrumbTrail, FilterChipStripSlots};
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::icons::{Icon, IconName};
+use crate::ui::icons::IconName;
 use crate::ui::primitives::{
     Button, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
 };
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
-    BreadcrumbDisplay, BreadcrumbSegment, ContentFilter, FilterChipStripDisplay,
-    FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameNavigationEntry, FrameShellDisplay,
+    ContentFilter, FilterChipStripDisplay, FrameChromeButtonDisplay, FrameChromeMenuItemDisplay,
+    FrameNavigationEntry, FrameShellDisplay,
 };
 
 type FrameButtonHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -63,24 +59,28 @@ impl FrameShellSlots {
     }
 
     /// Supplies the back-navigation callback.
+    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires frame navigation")]
     pub(crate) fn on_back(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_back = Some(Rc::new(handler));
         self
     }
 
     /// Supplies the forward-navigation callback.
+    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires frame navigation")]
     pub(crate) fn on_forward(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_forward = Some(Rc::new(handler));
         self
     }
 
     /// Supplies the close-frame callback.
+    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires frame navigation")]
     pub(crate) fn on_close(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_close = Some(Rc::new(handler));
         self
     }
 
     /// Supplies the action-menu selection callback.
+    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires frame action menus")]
     pub(crate) fn on_menu_select(
         mut self,
         handler: impl Fn(SharedString, &mut Window, &mut App) + 'static,
@@ -99,6 +99,10 @@ impl FrameShellSlots {
     }
 
     /// Supplies the frame-local breadcrumb selection callback.
+    #[expect(
+        dead_code,
+        reason = "ADR 0046 Task 008+ wires frame breadcrumb navigation"
+    )]
     pub(crate) fn on_breadcrumb_select(
         mut self,
         handler: impl Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static,
@@ -108,6 +112,7 @@ impl FrameShellSlots {
     }
 
     /// Overrides appearance resolution for this shell.
+    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires per-frame appearance")]
     pub(crate) fn appearance(mut self, appearance: Appearance) -> Self {
         self.appearance = Some(appearance);
         self
@@ -181,6 +186,7 @@ impl RenderOnce for FrameShell {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_chrome(
     display: FrameShellDisplay,
     slots: FrameShellSlots,
@@ -285,14 +291,20 @@ fn render_chrome(
     }
 
     if let Some(breadcrumb) = breadcrumb_display {
-        let current_color = resolve_color(cx, SemanticColor::TertiaryLabel, slots.appearance);
-        chrome = chrome.child(frame_breadcrumb_row(
-            breadcrumb,
-            slots.on_breadcrumb_select.as_ref(),
-            secondary_color,
-            current_color,
-            cx,
-        ));
+        let mut breadcrumb_trail =
+            BreadcrumbTrail::new(breadcrumb).appearance(slots.appearance.unwrap_or_default());
+        if let Some(handler) = slots.on_breadcrumb_select {
+            breadcrumb_trail = breadcrumb_trail.on_select(move |entry, window, cx| {
+                handler(entry, window, cx);
+            });
+        }
+        chrome = chrome.child(
+            div()
+                .px(Spacing::MD.scaled(cx))
+                .pb(Spacing::XS.scaled(cx))
+                .child(breadcrumb_trail)
+                .into_any_element(),
+        );
     }
 
     chrome
@@ -313,97 +325,6 @@ fn frame_filter_row(
         .px(Spacing::MD.scaled(cx))
         .pb(Spacing::XS.scaled(cx))
         .child(filter_chip_strip(filter_display, filter_slots))
-        .into_any_element()
-}
-
-fn frame_breadcrumb_row(
-    display: BreadcrumbDisplay,
-    on_select: Option<&FrameBreadcrumbSelectHandler>,
-    secondary_color: gpui::Rgba,
-    current_color: gpui::Rgba,
-    cx: &App,
-) -> AnyElement {
-    div()
-        .id(SharedString::from(display.id))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(Spacing::XS.scaled(cx))
-        .min_w_0()
-        .px(Spacing::MD.scaled(cx))
-        .pb(Spacing::XS.scaled(cx))
-        .children(
-            display
-                .segments
-                .into_iter()
-                .enumerate()
-                .flat_map(|(index, segment)| {
-                    let mut elements = Vec::with_capacity(2);
-                    if index > 0 {
-                        elements.push(frame_breadcrumb_separator(secondary_color));
-                    }
-                    elements.push(frame_breadcrumb_segment(
-                        segment,
-                        on_select,
-                        secondary_color,
-                        current_color,
-                        cx,
-                    ));
-                    elements
-                }),
-        )
-        .into_any_element()
-}
-
-fn frame_breadcrumb_segment(
-    segment: BreadcrumbSegment,
-    on_select: Option<&FrameBreadcrumbSelectHandler>,
-    secondary_color: gpui::Rgba,
-    current_color: gpui::Rgba,
-    cx: &App,
-) -> AnyElement {
-    let Some(target) = segment.target.clone() else {
-        return breadcrumb_text_segment(segment, secondary_color, current_color, cx);
-    };
-    let Some(handler) = on_select.cloned() else {
-        return breadcrumb_text_segment(segment, secondary_color, current_color, cx);
-    };
-    if segment.is_current {
-        return breadcrumb_text_segment(segment, secondary_color, current_color, cx);
-    }
-
-    Button::styled(SharedString::from(segment.id), ControlStyle::Ghost)
-        .label(SharedString::from(segment.label))
-        .a11y_label(SharedString::from(segment.a11y_label))
-        .on_click(move |_, window, cx| {
-            handler(target.clone(), window, cx);
-        })
-        .into_any_element()
-}
-
-fn breadcrumb_text_segment(
-    segment: BreadcrumbSegment,
-    secondary_color: gpui::Rgba,
-    current_color: gpui::Rgba,
-    cx: &App,
-) -> AnyElement {
-    let text_color = if segment.is_current {
-        current_color
-    } else {
-        secondary_color
-    };
-    div()
-        .min_w_0()
-        .text_size(FontSize::Micro.scaled(cx))
-        .text_color(text_color)
-        .truncate()
-        .child(SharedString::from(segment.label))
-        .into_any_element()
-}
-
-fn frame_breadcrumb_separator(color: gpui::Rgba) -> AnyElement {
-    Icon::new(IconName::ChevronRight)
-        .color(color)
         .into_any_element()
 }
 

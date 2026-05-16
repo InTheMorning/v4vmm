@@ -14,13 +14,15 @@ use gpui::{
 };
 
 use crate::ui::composites::{frame_shell, FrameShellSlots};
+use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::layouts::{
     WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT, WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT,
 };
 use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::workspace::{
-    ContentFilter, FilterChipStripDisplay, FrameNavigationEntry, FrameNavigationState,
-    FrameShellDisplay, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FrameNavigationEntry,
+    FrameNavigationState, FrameShellDisplay, WorkspaceFrameKind, WorkspaceFrameState,
+    WorkspaceLayout,
 };
 
 type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
@@ -39,10 +41,6 @@ pub(crate) struct WorkspaceSlots {
     on_detail_filter_select: Option<WorkspaceFilterSelectHandler>,
 }
 
-#[expect(
-    dead_code,
-    reason = "ADR 0046 Task 007 defines all frame slots before later tasks fill them"
-)]
 impl WorkspaceSlots {
     /// Creates an empty slot map.
     pub(crate) fn new() -> Self {
@@ -50,6 +48,7 @@ impl WorkspaceSlots {
     }
 
     /// Supplies content for the source-list frame.
+    #[expect(dead_code, reason = "ADR 0046 Task 008+ wires source-list content")]
     pub(crate) fn source_list(mut self, content: impl IntoElement) -> Self {
         self.source_list = Some(content.into_any_element());
         self
@@ -185,10 +184,22 @@ impl RenderOnce for WorkspaceShell {
             let filter_chip_strip = self.slots.filter_chip_strip_for(frame_kind);
             let on_filter_select = self.slots.filter_select_handler_for(frame_kind);
             let content = self.slots.take(frame.kind(), frame, cx);
-            let navigation = FrameNavigationState::new(navigation_entry_for(frame_kind));
-            let mut display = FrameShellDisplay::from_frame(frame, &navigation, false);
+            let fallback_navigation = FrameNavigationState::new(navigation_entry_for(frame_kind));
+            let navigation = self
+                .layout
+                .frame_nav(frame.id())
+                .unwrap_or(&fallback_navigation);
+            let mut display = FrameShellDisplay::from_frame(frame, navigation, false);
             if let Some(filter_chip_strip) = filter_chip_strip {
                 display = display.with_filter_chip_strip(filter_chip_strip);
+            }
+            if should_render_breadcrumb(frame_kind, navigation) {
+                let breadcrumb = BreadcrumbDisplay::project(
+                    format!("workspace-frame-{}-breadcrumb", frame.id().value()),
+                    navigation,
+                    FrameNavigationEntry::display_label,
+                );
+                display = display.with_breadcrumb(breadcrumb);
             }
             let mut shell_slots = FrameShellSlots::new().content(content);
             if let Some(handler) = on_filter_select {
@@ -232,6 +243,11 @@ impl RenderOnce for WorkspaceShell {
     }
 }
 
+fn should_render_breadcrumb(kind: WorkspaceFrameKind, nav: &FrameNavigationState) -> bool {
+    matches!(kind, WorkspaceFrameKind::Detail)
+        && matches!(nav.current(), FrameNavigationEntry::Search(_))
+}
+
 fn should_collapse_frame(kind: WorkspaceFrameKind, workspace_width: Pixels) -> bool {
     match kind {
         WorkspaceFrameKind::QueueNowPlaying => {
@@ -247,12 +263,14 @@ fn should_collapse_frame(kind: WorkspaceFrameKind, workspace_width: Pixels) -> b
 fn collapsed_frames_hint(frame_titles: &[String], cx: &App) -> AnyElement {
     div()
         .flex()
+        .gap(Spacing::XS.scaled(cx))
         .flex_shrink_0()
         .px(Spacing::SM.scaled(cx))
         .pb(Spacing::SM.scaled(cx))
         .text_size(FontSize::Caption.scaled(cx))
         .text_color(resolve_color(cx, SemanticColor::TertiaryLabel, None))
-        .child(format!("Collapsed: {}", frame_titles.join(", ")))
+        .child(Icon::new(IconName::ChevronLeft).size(IconSize::Transport))
+        .child(format!("Off-screen: {}", frame_titles.join(", ")))
         .into_any_element()
 }
 

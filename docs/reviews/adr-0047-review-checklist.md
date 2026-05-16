@@ -18,6 +18,7 @@
 - `docs/tasks/adr-0047-task-012-frame-breadcrumb-vm.md`
 - `docs/tasks/adr-0047-task-013-frame-shell-breadcrumb-render.md`
 - `docs/tasks/adr-0047-task-014-search-results-inspector-shell.md`
+- `docs/tasks/adr-0047-task-015-search-submit-and-saved-search-commands.md`
 - `src/library.rs`
 - `src/library/app_impl.rs`
 - `src/ui/composites/disclosure_group.rs`
@@ -35,8 +36,8 @@
 
 ## Gate Status
 
-Status: Phase E Tasks 012, 013, and 014 are implemented after Phase D Task 010
-Library-backed frame wiring and Task 011 toolbar scope retirement were
+Status: Phase E Tasks 012, 013, 014, and 015 are implemented after Phase D
+Task 010 Library-backed frame wiring and Task 011 toolbar scope retirement were
 user-visually confirmed - 2026-05-15.
 
 Readiness decision: **Task 010 is implemented only through the GPUI-free
@@ -48,11 +49,13 @@ requires operator visual confirmation. The operator resumed ADR 0047 completion
 on 2026-05-15; Task 009 is limited to shared frame-chrome filter chip structure
 and does not wire real filtering or remove `GlobalSearchScope`. Task 011 is the
 bounded Phase D cleanup for the duplicate toolbar controls observed after Task
-010, not a search-routing redesign; it is now implemented. Tasks 012-014 begin
-Phase E by moving per-frame navigation ownership into the workspace VM,
-teaching the frame shell to render optional breadcrumb chrome, and adding the
-shared search-results inspector shell. Visible search-submit and saved-search
-routing has not started yet.
+010, not a search-routing redesign; it is now implemented. Tasks 012-015
+complete the documented Phase E command-routing path by moving per-frame
+navigation ownership into the workspace VM, teaching the frame shell to render
+optional breadcrumb chrome, adding the shared search-results inspector shell,
+then routing toolbar search-submit and saved-search activation into a reusable
+Detail search-results frame. Phase F still owns result data loading cleanup and
+retirement of `src/search.rs`.
 
 ## Required Checks
 
@@ -113,6 +116,17 @@ routing has not started yet.
       search-inspector filter chrome, `WorkspaceSlots` admits Detail-frame
       filter chips, and `search_results_inspector` renders three tabs,
       paged rows, and VM-owned empty states through shared primitives.
+- [x] Task 015 implemented: toolbar global search submit calls the workspace VM
+      `open_search_results_frame` helper and opens or updates a Detail
+      `SearchResultsInspectorPageVm` frame instead of switching to the Search
+      tab.
+- [x] Task 015 implemented: source-list saved-search rows dispatch
+      `LibraryAppEvent::OpenSavedSearch` with `saved_search_id` and `query`,
+      and `TopApp` opens the same Detail inspector path without disturbing
+      source-list selection.
+- [x] Task 015 implemented: the Detail search-results frame carries
+      frame-local filter chips, tab callbacks, and workspace-shell breadcrumb
+      projection from `FrameNavigationEntry::Search`.
 
 ## Required Fixes
 
@@ -120,10 +134,10 @@ routing has not started yet.
   and `GlobalSearchScope` must not return.
 - Keep Search and Settings free of content-list chips until Phase E gives them
   real frame-local content/search-result owners.
-- Task 015 must consume the Task 012-014 VM and chrome contracts for
-  search-submit and saved-search routing; it must not reintroduce
-  inspector-local return controls, a second breadcrumb model, or toolbar
-  source-scope controls.
+- Add the Task015 visual smoke entry before claiming visual proof for search
+  submit or saved-search activation.
+- Phase F must not claim `src/search.rs` is retired until Task 016 deletes the
+  standalone path and its guards pass.
 
 ## Prohibited Regression
 
@@ -217,10 +231,22 @@ git diff --check
 - 2026-05-15 Task 014 adds the shared search-results inspector shell and
   Detail-frame filter-chip slot without changing global search-submit routing.
   Visual proof is deferred to Task 015, which owns the first visible mount.
+- [ ] Phase E Task 015 search-submit Detail-frame smoke entry.
+- [ ] Phase E Task 015 saved-search Detail-frame smoke entry.
+- 2026-05-15 Task 015 routes toolbar search-submit and saved-search activation
+  into the Detail search-results frame. Visual proof still needs a Task015
+  smoke entry before this checklist can mark those flows visually confirmed.
+- 2026-05-15 Codex visual-smoke attempt was blocked by the local GPUI runtime:
+  `cargo run` reached `target/debug/v4vmm`, then failed before opening a window
+  with `Failed to initialize X11 client` / `Unable to init GPU context`.
+  `vulkaninfo --summary` also reported no usable driver and the sandbox has no
+  `/dev/dri` or NVIDIA device nodes. Operator visual confirmation remains
+  required for Task 015.
 
 ## Merge Recommendation
 
-Task 014 passes structural review. Task 015 is the next Phase E step and should
-wire global search submit and saved-search activation into the Detail frame
-using the existing workspace VM, frame-shell breadcrumb, and search-results
-inspector contracts.
+Task 015 passes documentation-level structural review against the implemented
+direction. The next step is Phase F / Task 016: retire the standalone
+`src/search.rs` path only after preserving result loading behavior and adding
+the required guards. Do not treat Task015 visual proof as complete until the
+main agent fills the smoke entry.

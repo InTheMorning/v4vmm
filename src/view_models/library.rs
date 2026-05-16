@@ -1242,13 +1242,6 @@ impl LibraryViewModel {
     }
 
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0047 Phase B exposes saved searches before source-list rendering consumes them"
-        )
-    )]
     pub(crate) fn saved_searches(&self) -> &[SavedSearchEntry] {
         &self.saved_searches
     }
@@ -1265,13 +1258,6 @@ impl LibraryViewModel {
     }
 
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0047 Phase B exposes saved-search section data before rendering consumes it"
-        )
-    )]
     pub(crate) fn saved_searches_section(&self) -> Option<SavedSearchesSectionDisplay> {
         (!self.saved_searches.is_empty()).then(|| SavedSearchesSectionDisplay {
             heading: "Saved Searches",

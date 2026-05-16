@@ -6,11 +6,6 @@
 //! breadcrumbs, and source filters remain owned by `frame_shell`.
 
 #![warn(clippy::pedantic)]
-#![expect(
-    dead_code,
-    reason = "ADR 0047 Task 014 lands the shell before Task 015 routes search submit into it"
-)]
-
 use std::rc::Rc;
 
 use gpui::{
@@ -60,6 +55,13 @@ impl SearchResultsInspectorSlots {
     }
 
     /// Supplies the result-row activation callback.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0047 Task 015 mounts the inspector before Phase F wires result drill-down"
+        )
+    )]
     pub(crate) fn on_result_select(
         mut self,
         handler: impl Fn(SearchResultsTab, String, &mut Window, &mut App) + 'static,
@@ -430,7 +432,7 @@ const fn origin_label_text(origin: SearchResultOrigin) -> &'static str {
 
 const fn origin_label_color(origin: SearchResultOrigin) -> SemanticColor {
     match origin {
-        SearchResultOrigin::Library => SemanticColor::Success,
+        SearchResultOrigin::Library => SemanticColor::Accent,
         SearchResultOrigin::Index => SemanticColor::TertiaryLabel,
     }
 }
@@ -452,7 +454,7 @@ mod tests {
         assert_eq!(origin_label_text(SearchResultOrigin::Index), "Index");
         assert_eq!(
             origin_label_color(SearchResultOrigin::Library),
-            SemanticColor::Success
+            SemanticColor::Accent
         );
     }
 

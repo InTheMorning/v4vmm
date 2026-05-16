@@ -68,6 +68,10 @@ pub enum LibraryAppEvent {
         playlist_id: i64,
         playlist_position: i64,
     },
+    OpenSavedSearch {
+        saved_search_id: i64,
+        query: String,
+    },
 }
 
 impl gpui::EventEmitter<LibraryAppEvent> for LibraryApp {}

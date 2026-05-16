@@ -23,12 +23,16 @@ use crate::theme_profile::ThemeProfile;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::Button as UiButton;
+use crate::ui::shells::search_results_inspector::{
+    render_search_results_inspector, SearchResultsInspectorSlots,
+};
 use crate::ui::shells::window_layers::render_window_layers;
 use crate::ui::shells::workspace::{render_workspace, WorkspaceSlots};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
+use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::workspace::{
     ContentFilter, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
     WorkspaceLayoutConfig,
@@ -107,6 +111,7 @@ pub struct TopApp {
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
     workspace_layout: WorkspaceLayout,
+    search_results_detail: Option<SearchResultsInspectorPageVm>,
     ui_scale: crate::config::UiScale,
     theme_profile: ThemeProfile,
     cfg_path: PathBuf,
@@ -227,6 +232,10 @@ impl TopApp {
                     playlist_id,
                     playlist_position,
                 } => this.play_playlist_at(*playlist_id, *playlist_position, cx),
+                LibraryAppEvent::OpenSavedSearch {
+                    saved_search_id,
+                    query,
+                } => this.open_saved_search(*saved_search_id, query, cx),
             },
         );
         let appearance_sub = cx.observe_window_appearance(window, |this, window, cx| {
@@ -274,6 +283,7 @@ impl TopApp {
                 workspace_layout_config.as_ref(),
                 WorkspaceScreenMount::Library,
             ),
+            search_results_detail: None,
             ui_scale,
             theme_profile,
             cfg_path,
@@ -341,10 +351,28 @@ impl TopApp {
 
     pub(super) fn submit_global_search(&mut self, cx: &mut Context<Self>) {
         let query = self.global_search_input.read(cx).value().to_string();
-        self.tab = AppTab::Search;
-        self.search
-            .update(cx, |search, cx| search.run_global_search(query, cx));
+        self.open_search_results(&query, cx);
         cx.notify();
+    }
+
+    fn open_search_results(&mut self, query: &str, cx: &mut Context<Self>) {
+        let query = query.trim().to_string();
+        if query.is_empty() {
+            return;
+        }
+
+        if self
+            .workspace_layout
+            .open_search_results_frame(query.clone())
+            .is_ok()
+        {
+            self.search_results_detail = Some(SearchResultsInspectorPageVm::new(query));
+        }
+        cx.notify();
+    }
+
+    fn open_saved_search(&mut self, _saved_search_id: i64, query: &str, cx: &mut Context<Self>) {
+        self.open_search_results(query, cx);
     }
 
     fn set_frame_filter(
@@ -354,7 +382,7 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         let mount = self.active_workspace_screen_mount();
-        let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
+        let layout = Self::visible_workspace_layout(&self.workspace_layout, mount, None);
         let is_content_frame = layout
             .frames()
             .iter()
@@ -369,6 +397,48 @@ impl TopApp {
             });
         }
         cx.notify();
+    }
+
+    fn set_search_results_filter(
+        &mut self,
+        frame_id: WorkspaceFrameId,
+        filter: ContentFilter,
+        cx: &mut Context<Self>,
+    ) {
+        let is_detail_frame = self
+            .workspace_layout
+            .frames()
+            .iter()
+            .any(|frame| frame.id() == frame_id && frame.kind() == WorkspaceFrameKind::Detail);
+        if !is_detail_frame {
+            return;
+        }
+
+        if let Some(detail) = &mut self.search_results_detail {
+            detail.set_filter(filter);
+            cx.notify();
+        }
+    }
+
+    fn set_search_results_tab(
+        &mut self,
+        frame_id: WorkspaceFrameId,
+        tab: SearchResultsTab,
+        cx: &mut Context<Self>,
+    ) {
+        let is_detail_frame = self
+            .workspace_layout
+            .frames()
+            .iter()
+            .any(|frame| frame.id() == frame_id && frame.kind() == WorkspaceFrameKind::Detail);
+        if !is_detail_frame {
+            return;
+        }
+
+        if let Some(detail) = &mut self.search_results_detail {
+            detail.set_tab(tab);
+            cx.notify();
+        }
     }
 
     pub(super) fn focus_global_search(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -438,14 +508,16 @@ impl TopApp {
         mount: WorkspaceScreenMount,
     ) -> WorkspaceLayout {
         let layout = WorkspaceLayout::from_config(config);
-        Self::visible_workspace_layout(&layout, mount)
+        Self::visible_workspace_layout(&layout, mount, None)
     }
 
     fn visible_workspace_layout(
         layout: &WorkspaceLayout,
         mount: WorkspaceScreenMount,
+        detail_title: Option<&str>,
     ) -> WorkspaceLayout {
         let mut content_seen = false;
+        let mut detail_seen = false;
         let mut frames: Vec<_> = layout
             .frames()
             .iter()
@@ -465,7 +537,16 @@ impl TopApp {
                 WorkspaceFrameKind::QueueNowPlaying => Some(
                     WorkspaceFrameState::with_default_title(frame.id(), frame.kind()),
                 ),
-                WorkspaceFrameKind::SourceList | WorkspaceFrameKind::Detail => None,
+                WorkspaceFrameKind::Detail => {
+                    if detail_seen {
+                        None
+                    } else {
+                        detail_seen = true;
+                        detail_title
+                            .map(|title| WorkspaceFrameState::new(frame.id(), frame.kind(), title))
+                    }
+                }
+                WorkspaceFrameKind::SourceList => None,
             })
             .collect();
 
@@ -485,6 +566,26 @@ impl TopApp {
 
         if !frames
             .iter()
+            .any(|frame| matches!(frame.kind(), WorkspaceFrameKind::Detail))
+        {
+            if let Some(title) = detail_title {
+                let detail_id = Self::unused_workspace_frame_id(
+                    &frames,
+                    WorkspaceLayout::default_detail_frame_id(),
+                );
+                let insert_at = frames
+                    .iter()
+                    .position(|frame| matches!(frame.kind(), WorkspaceFrameKind::QueueNowPlaying))
+                    .unwrap_or(frames.len());
+                frames.insert(
+                    insert_at,
+                    WorkspaceFrameState::new(detail_id, WorkspaceFrameKind::Detail, title),
+                );
+            }
+        }
+
+        if !frames
+            .iter()
             .any(|frame| matches!(frame.kind(), WorkspaceFrameKind::QueueNowPlaying))
         {
             let queue_id = Self::unused_workspace_frame_id(&frames, WORKSPACE_QUEUE_FRAME_ID);
@@ -494,11 +595,9 @@ impl TopApp {
             ));
         }
 
-        let focused_frame_id = layout.focused_frame_id().filter(|id| {
-            frames
-                .iter()
-                .any(|frame| frame.id() == *id && frame.kind() == WorkspaceFrameKind::ContentList)
-        });
+        let focused_frame_id = layout
+            .focused_frame_id()
+            .filter(|id| frames.iter().any(|frame| frame.id() == *id));
         let focused_frame_id = focused_frame_id.or_else(|| {
             frames
                 .iter()
@@ -506,8 +605,21 @@ impl TopApp {
                 .map(WorkspaceFrameState::id)
         });
 
-        WorkspaceLayout::new(frames, focused_frame_id)
-            .expect("visible workspace layout preserves unique frame ids")
+        let mut visible = WorkspaceLayout::new(frames, focused_frame_id)
+            .expect("visible workspace layout preserves unique frame ids");
+        let visible_ids: Vec<_> = visible
+            .frames()
+            .iter()
+            .map(WorkspaceFrameState::id)
+            .collect();
+        for id in visible_ids {
+            if let Some(nav) = layout.frame_nav(id).cloned() {
+                visible
+                    .replace_nav(id, nav)
+                    .expect("visible workspace layout contains copied frame id");
+            }
+        }
+        visible
     }
 
     fn unused_workspace_frame_id(
@@ -681,24 +793,63 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let active_screen = self.render_workspace_screen_mount(mount, cx);
-        let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
+        let detail_title = self
+            .search_results_detail
+            .as_ref()
+            .map(|_| "Search Results");
+        let layout = Self::visible_workspace_layout(&self.workspace_layout, mount, detail_title);
         let queue_frame = build_queue_now_playing_frame(self, cx);
         let content_frame_id = layout
             .frames()
             .iter()
             .find(|frame| matches!(frame.kind(), WorkspaceFrameKind::ContentList))
             .map_or(WORKSPACE_CONTENT_FRAME_ID, WorkspaceFrameState::id);
+        let detail_frame_id = layout
+            .frames()
+            .iter()
+            .find(|frame| matches!(frame.kind(), WorkspaceFrameKind::Detail))
+            .map(WorkspaceFrameState::id);
         let entity = cx.entity();
         let mut workspace_slots = WorkspaceSlots::new()
             .content_list(active_screen)
             .queue_now_playing(queue_frame);
         if matches!(mount, WorkspaceScreenMount::Library) {
             let filter_chip_strip = self.library.read(cx).content_filter_chip_strip();
+            let content_filter_entity = entity.clone();
             workspace_slots = workspace_slots
                 .content_list_filter_chip_strip(filter_chip_strip)
                 .on_content_list_filter_select(move |filter, _window, cx| {
-                    entity.update(cx, |this, cx| {
+                    content_filter_entity.update(cx, |this, cx| {
                         this.set_frame_filter(content_frame_id, filter, cx);
+                    });
+                });
+        }
+        if let (Some(search_results), Some(detail_frame_id)) =
+            (self.search_results_detail.as_ref(), detail_frame_id)
+        {
+            let filter_chip_strip = search_results.filter_chip_strip();
+            let filter_entity = entity.clone();
+            let tab_entity = entity.clone();
+            let clear_entity = entity.clone();
+            let inspector_slots = SearchResultsInspectorSlots::new()
+                .on_tab_select(move |tab, _window, cx| {
+                    tab_entity.update(cx, |this, cx| {
+                        this.set_search_results_tab(detail_frame_id, tab, cx);
+                    });
+                })
+                .on_clear_filter(move |_window, cx| {
+                    clear_entity.update(cx, |this, cx| {
+                        this.set_search_results_filter(detail_frame_id, ContentFilter::All, cx);
+                    });
+                });
+            let detail_content =
+                render_search_results_inspector(search_results, &inspector_slots, cx);
+            workspace_slots = workspace_slots
+                .detail(detail_content)
+                .detail_filter_chip_strip(filter_chip_strip)
+                .on_detail_filter_select(move |filter, _window, cx| {
+                    filter_entity.update(cx, |this, cx| {
+                        this.set_search_results_filter(detail_frame_id, filter, cx);
                     });
                 });
         }
