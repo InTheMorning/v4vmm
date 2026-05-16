@@ -34,8 +34,8 @@ use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::workspace::{
-    ContentFilter, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
-    WorkspaceLayoutConfig,
+    ContentFilter, FrameSearchDescriptor, FrameSearchScope, WorkspaceFrameId, WorkspaceFrameKind,
+    WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
 };
 
 mod bootstrap;
@@ -65,6 +65,20 @@ enum AppTab {
     Library,
     Search,
     Settings,
+}
+
+// ---------------------------------------------------------------------------
+// SubmitModifier
+// ---------------------------------------------------------------------------
+
+/// Modifier for global search submission behavior.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SubmitModifier {
+    /// Route query to the focused frame's search descriptor.
+    ActiveFrame,
+    /// Open a new search results detail frame.
+    /// Wired via Phase 3 secondary toolbar button.
+    NewFrame,
 }
 
 /// ADR 0046 Phase 3 transitional mount boundary.
@@ -112,6 +126,8 @@ pub struct TopApp {
     flac_path_input: Entity<InputState>,
     workspace_layout: WorkspaceLayout,
     search_results_detail: Option<SearchResultsInspectorPageVm>,
+    queue_text_filter: Option<String>,
+    detail_text_filter: Option<String>,
     ui_scale: crate::config::UiScale,
     theme_profile: ThemeProfile,
     cfg_path: PathBuf,
@@ -284,6 +300,8 @@ impl TopApp {
                 WorkspaceScreenMount::Library,
             ),
             search_results_detail: None,
+            queue_text_filter: None,
+            detail_text_filter: None,
             ui_scale,
             theme_profile,
             cfg_path,
@@ -350,8 +368,23 @@ impl TopApp {
     }
 
     pub(super) fn submit_global_search(&mut self, cx: &mut Context<Self>) {
+        let modifier = SubmitModifier::ActiveFrame;
+        self.submit_global_search_with(modifier, cx);
+    }
+
+    fn submit_global_search_with(&mut self, modifier: SubmitModifier, cx: &mut Context<Self>) {
         let query = self.global_search_input.read(cx).value().to_string();
-        self.open_search_results(&query, cx);
+        match modifier {
+            SubmitModifier::NewFrame => {
+                self.open_search_results(&query, cx);
+            }
+            SubmitModifier::ActiveFrame => {
+                let Some(descriptor) = self.workspace_layout.focused_search_descriptor() else {
+                    return;
+                };
+                self.dispatch_active_frame_search(&descriptor, &query, cx);
+            }
+        }
         cx.notify();
     }
 
@@ -438,6 +471,47 @@ impl TopApp {
         if let Some(detail) = &mut self.search_results_detail {
             detail.set_tab(tab);
             cx.notify();
+        }
+    }
+
+    fn dispatch_active_frame_search(
+        &mut self,
+        descriptor: &FrameSearchDescriptor,
+        query: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let filter = if query.trim().is_empty() {
+            None
+        } else {
+            Some(query.trim().to_owned())
+        };
+        match descriptor.scope {
+            FrameSearchScope::LibraryRows => {
+                self.library.update(cx, |library, cx| {
+                    library.set_content_list_text_filter(filter, cx);
+                });
+            }
+            FrameSearchScope::InspectorQuery => {
+                if let Some(vm) = self.search_results_detail.as_mut() {
+                    match filter {
+                        Some(q) => vm.set_query(q),
+                        None => vm.clear_query(),
+                    }
+                }
+            }
+            FrameSearchScope::QueueRows => {
+                self.queue_text_filter = filter;
+                cx.notify();
+            }
+            FrameSearchScope::DetailTracks => {
+                self.detail_text_filter = filter.clone();
+                self.library.update(cx, |library, cx| {
+                    library.set_detail_text_filter(filter, cx);
+                });
+            }
+            FrameSearchScope::Sidebar | FrameSearchScope::SettingsRows => {
+                // v1 no-op: Sidebar and SettingsRows filtering not yet supported
+            }
         }
     }
 

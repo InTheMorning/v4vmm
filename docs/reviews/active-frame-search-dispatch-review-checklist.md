@@ -1,6 +1,6 @@
 # Active-Frame Search Dispatch Review Checklist
 
-Status: Implemented - 2026-05-16.
+Status: Implemented - 2026-05-15.
 
 ## Reviewed Artifacts
 
@@ -22,7 +22,12 @@ Status: Implemented - 2026-05-16.
 
 ## Gate Status
 
-Status: Phase 1 VM contracts implemented and verified - 2026-05-16.
+Status: Phases 1-4 implemented and verified - 2026-05-15.
+
+- Phase 1: FrameSearchScope / FrameSearchDescriptor VM contracts ✓
+- Phase 2: Toolbar dispatch via focused_search_descriptor(); six scopes routed ✓
+- Phase 3: Secondary toolbar button + Cmd/Ctrl+Enter modifier; placeholder bind deferred ✓
+- Phase 4: Architecture guard added to lock dispatch contract ✓
 
 ## Required Checks
 
@@ -78,8 +83,10 @@ Status: Phase 1 VM contracts implemented and verified - 2026-05-16.
   Detail frame.
 - Search result loading remains a separate follow-up plan.
 
+## Sandbox Limitations
+
+GPUI initialization requires X11/GPU, unavailable in the sandbox. Visual verification of placeholder-by-frame and secondary toolbar button requires operator-led testing.
+
 ## Merge Recommendation
 
-Phase 1 can merge. Phase 2 should wire toolbar placeholder and submit dispatch
-through `WorkspaceLayout::focused_search_descriptor()` without changing the
-search-results loader scope.
+All phases 1-4 complete. Dispatcher path is stable and locked by architecture guards. Result loading remains a separate follow-up plan (phases α-γ in ADR 0047). Recomm. to merge.

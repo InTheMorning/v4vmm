@@ -8651,3 +8651,63 @@ fn runtime_layer_does_not_import_gpui_or_ui() {
         violations.join("\n")
     );
 }
+
+#[test]
+fn active_frame_search_dispatch_routes_through_workspace_descriptor() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+
+    // Guard 1: Dispatcher must call focused_search_descriptor() from workspace layout
+    assert!(
+        app_source.contains("self.workspace_layout.focused_search_descriptor()"),
+        "active-frame search dispatch must read descriptor from workspace layout via focused_search_descriptor()"
+    );
+
+    // Guard 2: dispatch_active_frame_search must exist and handle all six FrameSearchScope variants
+    assert!(
+        app_source.contains("fn dispatch_active_frame_search("),
+        "dispatch_active_frame_search function must be defined"
+    );
+
+    let required_variants = vec![
+        "FrameSearchScope::LibraryRows",
+        "FrameSearchScope::InspectorQuery",
+        "FrameSearchScope::QueueRows",
+        "FrameSearchScope::DetailTracks",
+        "FrameSearchScope::Sidebar",
+        "FrameSearchScope::SettingsRows",
+    ];
+
+    for variant in &required_variants {
+        assert!(
+            app_source.contains(variant),
+            "dispatch_active_frame_search must handle all FrameSearchScope variants; missing: {}",
+            variant
+        );
+    }
+
+    // Guard 3: submit_global_search_with must exist and route both modifiers
+    assert!(
+        app_source.contains("fn submit_global_search_with("),
+        "submit_global_search_with function must be defined"
+    );
+
+    assert!(
+        app_source.contains("SubmitModifier::NewFrame")
+            && app_source.contains("SubmitModifier::ActiveFrame"),
+        "submit_global_search_with must handle both NewFrame and ActiveFrame modifiers"
+    );
+
+    // Guard 4: NewFrame path must call open_search_results
+    assert!(
+        app_source.contains("SubmitModifier::NewFrame")
+            && app_source.contains("open_search_results("),
+        "NewFrame modifier must route through open_search_results legacy helper"
+    );
+
+    // Guard 5: ActiveFrame path must call dispatch_active_frame_search
+    assert!(
+        app_source.contains("SubmitModifier::ActiveFrame")
+            && app_source.contains("dispatch_active_frame_search("),
+        "ActiveFrame modifier must dispatch through dispatch_active_frame_search"
+    );
+}

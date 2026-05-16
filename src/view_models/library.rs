@@ -1034,6 +1034,8 @@ pub(crate) struct LibraryViewModel {
     search_query: String,
     creating_playlist: bool,
     renaming_playlist_id: Option<i64>,
+    // Phase 3: detail frame text filter state.
+    detail_text_filter: Option<String>,
 }
 
 impl LibraryViewModel {
@@ -1064,6 +1066,7 @@ impl LibraryViewModel {
             search_query: String::new(),
             creating_playlist: false,
             renaming_playlist_id: None,
+            detail_text_filter: None,
         }
     }
 
@@ -1193,26 +1196,25 @@ impl LibraryViewModel {
     }
 
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "active-frame search dispatch lands content text state before toolbar routing"
-        )
+    #[expect(
+        dead_code,
+        reason = "tested in library_view_model_content_text_filter_uses_content_list_page_vm"
     )]
     pub(crate) fn content_text_filter(&self) -> Option<&str> {
         self.content_list_page.text_filter()
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "active-frame search dispatch lands content text state before toolbar routing"
-        )
-    )]
     pub(crate) fn set_content_text_filter(&mut self, filter: Option<String>) {
         self.content_list_page.set_text_filter(filter);
+    }
+
+    pub(crate) fn set_detail_text_filter(&mut self, filter: Option<String>) {
+        self.detail_text_filter = filter;
+    }
+
+    #[allow(dead_code, reason = "part of public API for testing and diagnostic")]
+    pub(crate) fn detail_text_filter(&self) -> Option<&String> {
+        self.detail_text_filter.as_ref()
     }
 
     #[must_use]

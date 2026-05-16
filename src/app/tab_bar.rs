@@ -137,6 +137,10 @@ fn render_global_search(
 ) -> gpui::AnyElement {
     let use_compact_search = toolbar_width < layout::APP_TOOLBAR_GLOBAL_SEARCH_COMPACT_BREAKPOINT;
 
+    // TODO(Phase 3): bind placeholder to focused frame descriptor.
+    // InputState::set_placeholder requires &mut Window, which is not available in render context.
+    // Consider updating placeholder outside render, e.g., on focus_changed event.
+
     let search_input = div()
         .id(display.input_id)
         .flex_1()
@@ -167,6 +171,17 @@ fn render_global_search(
         toolbar_search =
             toolbar_search.child(render_global_search_submit_button(display, false, cx));
     }
+
+    // Add secondary "open in new frame" button.
+    toolbar_search = toolbar_search.child(
+        UiButton::styled("global_search_new_frame_button", ControlStyle::ToolbarIcon)
+            .leading_icon(IconName::Add)
+            .tooltip("Search in new frame")
+            .a11y_label("Search in new frame")
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.submit_global_search_with(super::SubmitModifier::NewFrame, cx);
+            })),
+    );
 
     toolbar_search.into_any_element()
 }

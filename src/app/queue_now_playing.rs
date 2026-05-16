@@ -66,13 +66,19 @@ fn queue_now_playing_vm(app: &TopApp) -> QueueNowPlayingPageVm {
             queue_tracks_for_session(app, &conn, session)
         });
 
-    QueueNowPlayingPageVm::builder()
+    let mut vm = QueueNowPlayingPageVm::builder()
         .tracks(queue.tracks)
         .transport_state(transport_state)
         .skip_availability(queue.can_skip_previous, queue.can_skip_next)
         .live_value(LiveValueDeviceDisplay::unavailable())
         .volume(VolumeDisplay::new(1.0, true))
-        .build()
+        .build();
+
+    if let Some(filter) = app.queue_text_filter.clone() {
+        vm.set_text_filter(Some(filter));
+    }
+
+    vm
 }
 
 #[derive(Default)]

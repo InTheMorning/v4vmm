@@ -148,6 +148,24 @@ impl LibraryApp {
         cx.notify();
     }
 
+    pub(crate) fn set_content_list_text_filter(
+        &mut self,
+        filter: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.vm.set_content_text_filter(filter);
+        cx.notify();
+    }
+
+    pub(crate) fn set_detail_text_filter(
+        &mut self,
+        filter: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        self.vm.set_detail_text_filter(filter);
+        cx.notify();
+    }
+
     fn open_saved_search(&mut self, saved_search_id: i64, cx: &mut Context<Self>) {
         if let Some(saved_search) = self
             .vm
