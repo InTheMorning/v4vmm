@@ -699,7 +699,15 @@ fn workspace_frame_shell_display_contract_lives_in_workspace_vm() {
 fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
     let workspace_source = workspace_vm_source();
     let library_source = read_source(&manifest_path("src/view_models/library.rs"));
-    let search_results_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let search_results_mod_source =
+        read_source(&manifest_path("src/view_models/search_results/mod.rs"));
+    let search_results_tabs_source =
+        read_source(&manifest_path("src/view_models/search_results/tabs.rs"));
+    let search_results_results_source =
+        read_source(&manifest_path("src/view_models/search_results/results.rs"));
+    let search_results_empty_state_source = read_source(&manifest_path(
+        "src/view_models/search_results/empty_state.rs",
+    ));
     let mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
     let mut violations = Vec::new();
 
@@ -710,8 +718,20 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
         ),
         ("src/view_models/library.rs", library_source.as_str()),
         (
-            "src/view_models/search_results.rs",
-            search_results_source.as_str(),
+            "src/view_models/search_results/mod.rs",
+            search_results_mod_source.as_str(),
+        ),
+        (
+            "src/view_models/search_results/tabs.rs",
+            search_results_tabs_source.as_str(),
+        ),
+        (
+            "src/view_models/search_results/results.rs",
+            search_results_results_source.as_str(),
+        ),
+        (
+            "src/view_models/search_results/empty_state.rs",
+            search_results_empty_state_source.as_str(),
         ),
     ] {
         for (line_number, line) in code_lines(source) {
@@ -764,11 +784,6 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
 
     for required in [
         "use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};",
-        "pub(crate) enum SearchResultsTab",
-        "pub(crate) struct ArtistResultDisplay",
-        "pub(crate) struct FeedResultDisplay",
-        "pub(crate) struct TrackResultDisplay",
-        "pub(crate) struct EmptyStateDisplay",
         "pub(crate) struct SearchResultsInspectorPageVm",
         "pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay",
         "FilterChipStripDisplay::default_for_search_inspector(self.filter, true)",
@@ -776,16 +791,46 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
         "pub(crate) fn set_filter",
         "pub(crate) fn is_empty",
     ] {
-        if !search_results_source.contains(required) {
+        if !search_results_mod_source.contains(required) {
             violations.push(format!(
-                "src/view_models/search_results.rs: ADR 0047 Phase B search-results contract missing `{required}`"
+                "src/view_models/search_results/mod.rs: ADR 0047 Phase B search-results contract missing `{required}`"
             ));
         }
     }
 
-    if search_results_source.contains("enum ContentFilter") {
+    for required in ["pub(crate) enum SearchResultsTab"] {
+        if !search_results_tabs_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results/tabs.rs: ADR 0047 Phase B search-results contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) struct ArtistResultDisplay",
+        "pub(crate) struct FeedResultDisplay",
+        "pub(crate) struct TrackResultDisplay",
+        "struct LocalArtistResult",
+        "struct LocalFeedResult",
+    ] {
+        if !search_results_results_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results/results.rs: ADR 0047 Phase B search-results contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in ["pub(crate) struct EmptyStateDisplay"] {
+        if !search_results_empty_state_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results/empty_state.rs: ADR 0047 Phase B search-results contract missing `{required}`"
+            ));
+        }
+    }
+
+    if search_results_mod_source.contains("enum ContentFilter") {
         violations.push(
-            "src/view_models/search_results.rs: ADR 0047 Phase B must reuse workspace ContentFilter, not define a second enum"
+            "src/view_models/search_results/mod.rs: ADR 0047 Phase B must reuse workspace ContentFilter, not define a second enum"
                 .to_string(),
         );
     }
@@ -1924,7 +1969,11 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
-    let search_results_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let search_results_mod_source =
+        read_source(&manifest_path("src/view_models/search_results/mod.rs"));
+    let search_results_index_detail_source = read_source(&manifest_path(
+        "src/view_models/search_results/index_detail.rs",
+    ));
     let search_results_shell_source =
         read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
     let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
@@ -1989,7 +2038,6 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     }
 
     for required in [
-        "pub(crate) struct IndexDetailDisplay",
         "pub(crate) fn index_feed_detail(",
         "pub(crate) fn index_track_detail(",
         "pub(crate) fn index_feed_label(",
@@ -1997,9 +2045,17 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "tab_was_user_selected",
         "select_first_populated_tab_if_automatic(",
     ] {
-        if !search_results_source.contains(required) {
+        if !search_results_mod_source.contains(required) {
             violations.push(format!(
-                "src/view_models/search_results.rs: ADR 0049 Index drill-down VM contract missing `{required}`"
+                "src/view_models/search_results/mod.rs: ADR 0049 Index drill-down VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in ["pub(crate) struct IndexDetailDisplay"] {
+        if !search_results_index_detail_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results/index_detail.rs: ADR 0049 Index drill-down VM contract missing `{required}`"
             ));
         }
     }
@@ -2009,7 +2065,10 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "pub(crate) fn set_notice(",
         "show_index_detail_notice(",
     ] {
-        if app_source.contains(forbidden) || search_results_source.contains(forbidden) {
+        if app_source.contains(forbidden)
+            || search_results_mod_source.contains(forbidden)
+            || search_results_index_detail_source.contains(forbidden)
+        {
             violations.push(format!(
                 "ADR 0049 rejected visible notice path must stay removed; found `{forbidden}`"
             ));
@@ -2214,7 +2273,8 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
     let shell_source = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
     let shells_mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
     let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
-    let search_results_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let search_results_source =
+        read_source(&manifest_path("src/view_models/search_results/mod.rs"));
     let mut violations = Vec::new();
 
     for required in [
@@ -2288,7 +2348,7 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
     ] {
         if !search_results_source.contains(required) {
             violations.push(format!(
-                "src/view_models/search_results.rs: ADR 0047 Task 014 search-results filter display missing `{required}`"
+                "src/view_models/search_results/mod.rs: ADR 0047 Task 014 search-results filter display missing `{required}`"
             ));
         }
     }
@@ -2612,7 +2672,8 @@ fn active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models() 
     let library_source = read_source(&manifest_path("src/view_models/library.rs"));
     let feed_source = read_source(&manifest_path("src/view_models/feed.rs"));
     let playlist_detail_source = read_source(&manifest_path("src/view_models/playlist_detail.rs"));
-    let search_results_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let search_results_source =
+        read_source(&manifest_path("src/view_models/search_results/mod.rs"));
     let queue_source = read_source(&manifest_path("src/view_models/queue_now_playing.rs"));
     let mut violations = Vec::new();
 
@@ -2691,7 +2752,7 @@ fn active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models() 
     ] {
         if !search_results_source.contains(required) {
             violations.push(format!(
-                "src/view_models/search_results.rs: active-frame search inspector query contract missing `{required}`"
+                "src/view_models/search_results/mod.rs: active-frame search inspector query contract missing `{required}`"
             ));
         }
     }
@@ -9234,7 +9295,8 @@ fn adr_0048_forbids_secondary_search_frame_path() {
 #[test]
 fn adr_0048_index_search_is_async_and_vm_owned() {
     let app_source = read_source(&manifest_path("src/app.rs"));
-    let search_results_vm_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let search_results_vm_source =
+        read_source(&manifest_path("src/view_models/search_results/mod.rs"));
     let inspector_source = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
 
     for required in [
