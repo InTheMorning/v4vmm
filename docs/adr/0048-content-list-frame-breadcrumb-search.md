@@ -135,11 +135,32 @@ Negative / risks:
 - The Discover module is temporarily dead UI. Mitigation: leave it compiled for
   now and remove it in a dedicated cleanup pass after visual verification.
 
+## Composite call-site exception
+
+The `frame_shell` composite (`src/ui/composites/frame_shell.rs`) has one
+call site (`WorkspaceShell::render`). ADR 0042 requires composites to have
+at least two distinct call sites or collapse into the consuming shell.
+
+`frame_shell` is exempted from that rule because it is the canonical home
+of frame chrome under ADR 0033. The composite centralizes title, back,
+forward, breadcrumb, filter chip strip, close, and menu so that hand-rolled
+floating chrome is forbidden by the matching architecture guard. Even at
+one caller, the module earns its existence by enforcing that contract.
+
+If a future ADR introduces a second frame-chrome consumer (a detachable
+window, a per-pane mini frame, or a non-workspace shell), that consumer
+must also go through `frame_shell` rather than reinvent the chrome.
+
+A module-level doc comment in `src/ui/composites/frame_shell.rs` records
+this exception with a pointer back here.
+
 ## References
 
 - ADR 0046 — workspace frame architecture
 - ADR 0047 — library/search unification
+- ADR 0050 — post-ADR-0048 module decomposition
 - `docs/plans/search-in-library-frame-plan.md` — implementation plan
   (Implemented - 2026-05-16)
 - `docs/plans/active-frame-search-dispatch-plan.md` — Superseded
 - `docs/reviews/active-frame-search-dispatch-review-checklist.md` — Superseded
+- `docs/reviews/adr-0047-0048-0049-implementation-review.md` — post-merge review
