@@ -43,7 +43,7 @@ use crate::ui::shells::entity::{
 };
 use crate::ui::shells::search_results_inspector::{
     render_index_detail_display, render_index_feed_detail, render_search_results_inspector,
-    render_search_results_inspector_scoped, SearchResultsInspectorSlots,
+    SearchResultsHeaderMode, SearchResultsInspectorSlots,
 };
 use crate::ui::shells::window_layers::render_window_layers;
 use crate::ui::shells::workspace::{render_workspace, WorkspaceSlots};
@@ -1790,8 +1790,12 @@ impl TopApp {
                             this.handle_search_result_selected(tab, &result_id, cx);
                         });
                     });
-                let inspector_content =
-                    render_search_results_inspector(search_results, &inspector_slots, cx);
+                let inspector_content = render_search_results_inspector(
+                    search_results,
+                    &inspector_slots,
+                    SearchResultsHeaderMode::Tabbed,
+                    cx,
+                );
                 WorkspaceSlots::new()
                     .content_list(inspector_content)
                     .queue_now_playing(queue_frame)
@@ -1814,11 +1818,13 @@ impl TopApp {
                         });
                     },
                 );
-                let inspector_content = render_search_results_inspector_scoped(
+                let inspector_content = render_search_results_inspector(
                     search_results,
                     &inspector_slots,
-                    SearchResultsTab::Feeds,
-                    ContentFilter::Index,
+                    SearchResultsHeaderMode::Scoped {
+                        tab: SearchResultsTab::Feeds,
+                        filter: ContentFilter::Index,
+                    },
                     cx,
                 );
                 WorkspaceSlots::new()

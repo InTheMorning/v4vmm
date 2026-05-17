@@ -4,6 +4,11 @@
 //! history controls, close, action menu, and a caller-supplied content slot.
 //! Screens provide content and command callbacks; they do not render frame
 //! chrome locally.
+//!
+//! ADR 0048 records the composite call-site exception: `frame_shell` remains
+//! the canonical home for frame chrome even with a single caller
+//! (`WorkspaceShell::render`), and any future frame-chrome consumer must route
+//! through this composite instead of re-creating the chrome locally.
 
 #![warn(clippy::pedantic)]
 

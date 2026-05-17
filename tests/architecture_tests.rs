@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -1942,7 +1942,7 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "FrameNavigationEntry::IndexFeedDetail {",
         "FrameNavigationEntry::IndexTrackDetail {",
         "render_index_detail_display(",
-        "render_search_results_inspector_scoped(",
+        "SearchResultsHeaderMode::Scoped {",
         "INDEX_FEED_DETAIL_INCLUDE",
         "content_list_breadcrumb_labeler(",
         "render_index_feed_detail(feed, slots)",
@@ -2338,7 +2338,7 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
         "SearchResultsInspectorSlots::new()",
         ".on_tab_select(move |tab, _window, cx|",
         ".on_clear_filter(move |_window, cx|",
-        "render_search_results_inspector(search_results, &inspector_slots, cx)",
+        "SearchResultsHeaderMode::Tabbed,",
         "LibraryAppEvent::OpenSavedSearch",
     ] {
         if !app_source.contains(required) {
@@ -2492,6 +2492,116 @@ fn adr_0047_task_016_retires_standalone_search_module_and_workspace_toggle() {
         "ADR 0047 Task 016 search-module retirement violations:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn discover_module_public_surface_is_pinned() {
+    let source = read_source(&manifest_path("src/discover.rs"));
+    let expected = [
+        "ArtistContext",
+        "discover_inspector_action_row",
+        "FeedTrackListContext",
+        "InspectorDetail",
+        "InspectorFrame",
+        "is_local_library_track",
+        "render_play_icon_button_with_id",
+        "render_track_download_button",
+        "render_track_list_rows",
+    ];
+    let mut actual = BTreeSet::new();
+    let mut pending_use: Option<String> = None;
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+
+        if let Some(buffer) = pending_use.as_mut() {
+            buffer.push(' ');
+            buffer.push_str(trimmed);
+            if trimmed.ends_with(';') {
+                if let Some(names) = pub_crate_use_names(buffer) {
+                    actual.extend(names);
+                }
+                pending_use = None;
+            }
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("pub(crate) enum ") {
+            actual.insert(name_from_decl(rest));
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("pub(crate) struct ") {
+            actual.insert(name_from_decl(rest));
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("pub(crate) fn ") {
+            actual.insert(name_from_decl(rest));
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("pub(crate) type ") {
+            actual.insert(name_from_decl(rest));
+            continue;
+        }
+        if trimmed.starts_with("pub(crate) use ") {
+            if trimmed.ends_with(';') {
+                if let Some(names) = pub_crate_use_names(trimmed) {
+                    actual.extend(names);
+                }
+            } else {
+                pending_use = Some(trimmed.to_string());
+            }
+        }
+    }
+
+    let expected = expected
+        .into_iter()
+        .map(String::from)
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(
+        actual, expected,
+        "src/discover.rs: parked Discover surface changed; update the fixture only with deliberate maintenance"
+    );
+}
+
+fn name_from_decl(rest: &str) -> String {
+    rest.split(|ch: char| ch == '{' || ch == '(' || ch == '<' || ch.is_whitespace())
+        .next()
+        .unwrap_or(rest)
+        .trim()
+        .to_string()
+}
+
+fn pub_crate_use_names(line: &str) -> Option<Vec<String>> {
+    let rest = line.strip_prefix("pub(crate) use ")?;
+    let rest = rest.strip_suffix(';').unwrap_or(rest);
+
+    if let Some(braced) = rest.split_once('{') {
+        let (_, tail) = braced;
+        let body = tail.strip_suffix('}')?;
+        let mut names = Vec::new();
+
+        for item in body.split(',') {
+            let item = item.trim();
+            if item.is_empty() {
+                continue;
+            }
+            let item = item.split_whitespace().next().unwrap_or(item);
+            let name = item.rsplit("::").next().unwrap_or(item).trim();
+            if !name.is_empty() {
+                names.push(name.to_string());
+            }
+        }
+
+        return Some(names);
+    }
+
+    let name = rest.rsplit("::").next().unwrap_or(rest).trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(vec![name.to_string()])
+    }
 }
 
 #[test]

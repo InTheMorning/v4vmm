@@ -37,9 +37,12 @@ type ResultSelectHandler = Rc<dyn Fn(SearchResultsTab, String, &mut Window, &mut
 type ClearFilterHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum SearchResultsHeaderMode {
+pub(crate) enum SearchResultsHeaderMode {
     Tabbed,
-    Scoped,
+    Scoped {
+        tab: SearchResultsTab,
+        filter: ContentFilter,
+    },
 }
 
 /// Callback slots supplied by the screen or frame owner.
@@ -89,35 +92,22 @@ impl SearchResultsInspectorSlots {
 pub(crate) fn render_search_results_inspector(
     vm: &SearchResultsInspectorPageVm,
     slots: &SearchResultsInspectorSlots,
+    header_mode: SearchResultsHeaderMode,
     cx: &App,
 ) -> AnyElement {
-    render_search_results_inspector_with_scope(
-        vm,
-        slots,
-        vm.tab(),
-        vm.filter(),
-        vm.empty_state(),
-        SearchResultsHeaderMode::Tabbed,
-        cx,
-    )
-}
-
-/// Renders a search-results inspector using an explicit tab/filter scope.
-pub(crate) fn render_search_results_inspector_scoped(
-    vm: &SearchResultsInspectorPageVm,
-    slots: &SearchResultsInspectorSlots,
-    tab: SearchResultsTab,
-    filter: ContentFilter,
-    cx: &App,
-) -> AnyElement {
-    let empty_state = vm.empty_state_for_scope(tab, filter);
+    let (tab, filter, empty_state) = match header_mode {
+        SearchResultsHeaderMode::Tabbed => (vm.tab(), vm.filter(), vm.empty_state().cloned()),
+        SearchResultsHeaderMode::Scoped { tab, filter } => {
+            (tab, filter, vm.empty_state_for_scope(tab, filter))
+        }
+    };
     render_search_results_inspector_with_scope(
         vm,
         slots,
         tab,
         filter,
         empty_state.as_ref(),
-        SearchResultsHeaderMode::Scoped,
+        header_mode,
         cx,
     )
 }
