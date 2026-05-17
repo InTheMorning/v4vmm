@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-16. Deferred. Pick up after ADR 0050 lands.
+Accepted - 2026-05-17. Implemented.
 
 ## Context
 

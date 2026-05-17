@@ -1536,6 +1536,101 @@ fn workspace_frame_phase_5_layout_persistence_contract() {
 }
 
 #[test]
+fn workspace_pane_width_persistence_contract() {
+    let config_source = read_source(&manifest_path("src/config.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let bootstrap_source = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let resize_source = read_source(&manifest_path("src/app/resize.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "WorkspaceConfig",
+        "WorkspaceLayoutPrefs",
+        "deserialize_workspace_config",
+        "deserialize_workspace_layout_prefs",
+        "deserialize_optional_f32",
+        "save_workspace_layout_prefs",
+        "workspace: Option<WorkspaceConfig>",
+    ] {
+        if !config_source.contains(required) {
+            violations.push(format!(
+                "src/config.rs: ADR 0051 pane width persistence missing `{required}`"
+            ));
+        }
+    }
+
+    for required in ["Self::initial_content_pane_width(workspace_layout_prefs)"] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0051 pane width persistence wiring missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "initial_content_pane_width",
+        "persist_content_pane_width",
+        "clamped_content_pane_width",
+        "config::save_workspace_layout_prefs",
+    ] {
+        if !resize_source.contains(required) {
+            violations.push(format!(
+                "src/app/resize.rs: ADR 0051 pane width resize owner missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        ".workspace",
+        "workspace.layout.clone()",
+        "workspace_layout_prefs.as_ref()",
+    ] {
+        if !bootstrap_source.contains(required) {
+            violations.push(format!(
+                "src/app/bootstrap.rs: ADR 0051 startup must pass workspace.layout prefs into TopApp; missing `{required}`"
+            ));
+        }
+    }
+
+    if !resize_source.contains("persist_content_pane_width") {
+        violations
+            .push("src/app/resize.rs: ADR 0051 resize end must persist the pane width".to_string());
+    }
+
+    if resize_source.matches("persist_content_pane_width").count() != 2 {
+        violations.push(
+            "src/app/resize.rs: ADR 0051 pane width persistence must happen once in end_content_pane_resize"
+                .to_string(),
+        );
+    }
+
+    if resize_source.contains("resize_content_pane(&mut self, x: f32, cx: &mut Context<Self>) {")
+        && resize_source.contains("persist_content_pane_width")
+    {
+        let move_fn = resize_source
+            .split("pub(super) fn resize_content_pane")
+            .nth(1)
+            .unwrap_or("");
+        let resize_body = move_fn
+            .split("pub(super) fn end_content_pane_resize")
+            .next()
+            .unwrap_or("");
+        if resize_body.contains("persist_content_pane_width") {
+            violations.push(
+                "src/app/resize.rs: ADR 0051 resize_content_pane must not persist config"
+                    .to_string(),
+            );
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0051 pane width persistence violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frames_exist() {
     let workspace_vm_source = workspace_vm_source();
     let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));

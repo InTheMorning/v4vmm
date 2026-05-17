@@ -1,7 +1,7 @@
 // src/config.rs
 use anyhow::{anyhow, Context, Result};
 use directories::{BaseDirs, ProjectDirs};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -47,6 +47,31 @@ pub struct Config {
     /// the workspace VM, so older or manually edited configs keep loading.
     #[serde(default, deserialize_with = "deserialize_workspace_layout_config")]
     pub(crate) workspace_layout: Option<WorkspaceLayoutConfig>,
+
+    /// Additive ADR 0051 workspace layout preferences.
+    ///
+    /// Missing or malformed values fall back to the default pane width in the
+    /// app bootstrap, so older or manually edited configs keep loading.
+    #[serde(default, deserialize_with = "deserialize_workspace_config")]
+    pub(crate) workspace: Option<WorkspaceConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
+pub(crate) struct WorkspaceConfig {
+    /// Forward-compatible workspace layout preferences.
+    #[serde(default, deserialize_with = "deserialize_workspace_layout_prefs")]
+    pub(crate) layout: Option<WorkspaceLayoutPrefs>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Serialize)]
+pub(crate) struct WorkspaceLayoutPrefs {
+    /// Persisted content-pane width in logical pixels.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_f32",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) content_pane_width: Option<f32>,
 }
 
 /// Persisted UI scale enum — TOML representation is a lowercase string
@@ -109,6 +134,53 @@ where
             eprintln!("v4vmm::config: ignoring malformed workspace_layout: {error}");
             Ok(None)
         }
+    }
+}
+
+fn deserialize_workspace_config<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<WorkspaceConfig>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = toml::Value::deserialize(deserializer)?;
+    match value.try_into::<WorkspaceConfig>() {
+        Ok(config) => Ok(Some(config)),
+        Err(error) => {
+            eprintln!("v4vmm::config: ignoring malformed workspace: {error}");
+            Ok(None)
+        }
+    }
+}
+
+fn deserialize_workspace_layout_prefs<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<WorkspaceLayoutPrefs>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = toml::Value::deserialize(deserializer)?;
+    match value.try_into::<WorkspaceLayoutPrefs>() {
+        Ok(config) => Ok(Some(config)),
+        Err(error) => {
+            eprintln!("v4vmm::config: ignoring malformed workspace.layout: {error}");
+            Ok(None)
+        }
+    }
+}
+
+fn deserialize_optional_f32<'de, D>(deserializer: D) -> std::result::Result<Option<f32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<toml::Value>::deserialize(deserializer)?;
+    match value {
+        None => Ok(None),
+        Some(toml::Value::Float(value)) => Ok(Some(value as f32)),
+        Some(toml::Value::Integer(value)) => Ok(Some(value as f32)),
+        Some(other) => Err(serde::de::Error::custom(format!(
+            "expected integer or float, got {other}"
+        ))),
     }
 }
 
@@ -307,6 +379,56 @@ pub(crate) fn save_workspace_layout(
     let layout_value =
         toml::Value::try_from(workspace_layout).context("serialize workspace layout config")?;
     table.insert("workspace_layout".into(), layout_value);
+
+    let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
+    fs::write(cfg_path, updated.as_bytes())
+        .with_context(|| format!("write config {}", cfg_path.display()))?;
+    Ok(())
+}
+
+pub(crate) fn save_workspace_layout_prefs(
+    cfg_path: &Path,
+    workspace_layout_prefs: &WorkspaceLayoutPrefs,
+) -> Result<()> {
+    if !cfg_path.exists() {
+        let _ = load_config(cfg_path)?;
+    }
+
+    let raw = fs::read_to_string(cfg_path)
+        .with_context(|| format!("read config {}", cfg_path.display()))?;
+    let mut table = raw
+        .parse::<toml::Table>()
+        .with_context(|| format!("parse TOML {}", cfg_path.display()))?;
+
+    if !table.get("workspace").is_some_and(toml::Value::is_table) {
+        table.insert("workspace".into(), toml::Value::Table(toml::Table::new()));
+    }
+    let workspace_table = table
+        .get_mut("workspace")
+        .and_then(toml::Value::as_table_mut)
+        .expect("workspace was normalized to a table");
+    if !workspace_table
+        .get("layout")
+        .is_some_and(toml::Value::is_table)
+    {
+        workspace_table.insert("layout".into(), toml::Value::Table(toml::Table::new()));
+    }
+    let layout_table = workspace_table
+        .get_mut("layout")
+        .and_then(toml::Value::as_table_mut)
+        .expect("workspace.layout was normalized to a table");
+
+    match workspace_layout_prefs.content_pane_width {
+        Some(width) => {
+            layout_table.insert(
+                "content_pane_width".into(),
+                toml::Value::Float(f64::from(width)),
+            );
+        }
+        None => {
+            layout_table.remove("content_pane_width");
+        }
+    }
 
     let updated = toml::to_string_pretty(&table).context("serialize config TOML")?;
     fs::write(cfg_path, updated.as_bytes())
@@ -553,6 +675,27 @@ db_path = "/tmp/v4vmm.sqlite"
     }
 
     #[test]
+    fn load_config_defaults_missing_workspace_prefs_to_none() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(
+            cfg.workspace, None,
+            "missing workspace prefs should keep old configs valid"
+        );
+    }
+
+    #[test]
     fn load_config_parses_workspace_layout() {
         let temp = tempfile::tempdir().expect("tempdir");
         let cfg_path = temp.path().join("config.toml");
@@ -583,6 +726,68 @@ frames = [
     }
 
     #[test]
+    fn load_config_parses_workspace_layout_prefs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[workspace]
+unknown = "keep"
+
+[workspace.layout]
+content_pane_width = 1400
+other = true
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let prefs = cfg
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.layout.as_ref());
+
+        assert_eq!(
+            prefs.and_then(|prefs| prefs.content_pane_width),
+            Some(1400.0),
+            "workspace prefs should load the persisted pane width"
+        );
+    }
+
+    #[test]
+    fn load_config_parses_float_workspace_layout_prefs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[workspace.layout]
+content_pane_width = 1024.5
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let prefs = cfg
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.layout.as_ref());
+
+        assert_eq!(
+            prefs.and_then(|prefs| prefs.content_pane_width),
+            Some(1024.5),
+            "workspace prefs should accept float pane widths"
+        );
+    }
+
+    #[test]
     fn load_config_ignores_malformed_workspace_layout() {
         let temp = tempfile::tempdir().expect("tempdir");
         let cfg_path = temp.path().join("config.toml");
@@ -601,6 +806,34 @@ workspace_layout = "not a layout"
         assert_eq!(
             cfg.workspace_layout, None,
             "malformed workspace layout should not make config loading fail"
+        );
+    }
+
+    #[test]
+    fn load_config_ignores_malformed_workspace_layout_prefs() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[workspace]
+[workspace.layout]
+content_pane_width = "wide"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(
+            cfg.workspace
+                .as_ref()
+                .and_then(|workspace| workspace.layout.as_ref()),
+            None,
+            "malformed workspace prefs should not make config loading fail"
         );
     }
 
@@ -810,6 +1043,128 @@ extra = "keep"
             restored.focused_frame_id(),
             Some(focused_id),
             "workspace layout save should preserve focused frame id"
+        );
+    }
+
+    #[test]
+    fn save_workspace_layout_prefs_persists_without_dropping_existing_values() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/old"
+db_path = "/tmp/v4vmm.sqlite"
+extra = "keep"
+
+[workspace]
+workspace_extra = "keep"
+
+[workspace.layout]
+content_pane_width = 640.0
+layout_extra = "keep"
+
+[workspace_layout]
+focused_frame_id = 8
+frames = [
+  { id = 1, kind = "source_list" },
+  { id = 8, kind = "detail" },
+]
+"#,
+        )
+        .expect("write config");
+
+        save_workspace_layout_prefs(
+            &cfg_path,
+            &WorkspaceLayoutPrefs {
+                content_pane_width: Some(1400.0),
+            },
+        )
+        .expect("save workspace layout prefs");
+
+        let raw = fs::read_to_string(&cfg_path).expect("read config");
+        let table = raw.parse::<toml::Table>().expect("parse TOML");
+        let cfg = load_config(&cfg_path).expect("load config");
+        let prefs = cfg
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.layout.as_ref());
+
+        assert_eq!(
+            table.get("extra").and_then(toml::Value::as_str),
+            Some("keep"),
+            "workspace prefs save should preserve unrelated root settings"
+        );
+        assert!(
+            table
+                .get("workspace_layout")
+                .and_then(toml::Value::as_table)
+                .is_some(),
+            "workspace prefs save should preserve existing workspace layout config"
+        );
+        assert!(
+            cfg.workspace_layout.is_some(),
+            "workspace prefs save should preserve the existing workspace layout data"
+        );
+        assert_eq!(
+            prefs.and_then(|prefs| prefs.content_pane_width),
+            Some(1400.0),
+            "workspace prefs save should update the persisted pane width"
+        );
+        assert_eq!(
+            table
+                .get("workspace")
+                .and_then(toml::Value::as_table)
+                .and_then(|workspace| workspace.get("workspace_extra"))
+                .and_then(toml::Value::as_str),
+            Some("keep"),
+            "workspace prefs save should preserve unrelated workspace keys"
+        );
+        assert_eq!(
+            table
+                .get("workspace")
+                .and_then(toml::Value::as_table)
+                .and_then(|workspace| workspace.get("layout"))
+                .and_then(toml::Value::as_table)
+                .and_then(|layout| layout.get("layout_extra"))
+                .and_then(toml::Value::as_str),
+            Some("keep"),
+            "workspace prefs save should preserve unrelated workspace.layout keys"
+        );
+    }
+
+    #[test]
+    fn save_workspace_layout_prefs_recovers_malformed_workspace_tables() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/old"
+db_path = "/tmp/v4vmm.sqlite"
+workspace = "not a table"
+"#,
+        )
+        .expect("write config");
+
+        save_workspace_layout_prefs(
+            &cfg_path,
+            &WorkspaceLayoutPrefs {
+                content_pane_width: Some(900.0),
+            },
+        )
+        .expect("save workspace layout prefs");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let prefs = cfg
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.layout.as_ref());
+
+        assert_eq!(
+            prefs.and_then(|prefs| prefs.content_pane_width),
+            Some(900.0),
+            "workspace prefs save should replace malformed workspace tables"
         );
     }
 }

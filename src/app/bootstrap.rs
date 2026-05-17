@@ -48,6 +48,10 @@ pub fn run_app() {
         let musicindex_endpoint =
             config::load_musicindex_endpoint(&cfg_path).expect("load MusicIndex endpoint");
         config::ensure_dirs(&cfg).expect("ensure dirs");
+        let workspace_layout_prefs = cfg
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.layout.clone());
 
         // Re-apply theme now that config has provided the user's UI scale.
         crate::ui::theme_bridge::install_theme(cfg.theme_profile, cfg.ui_scale.into(), cx);
@@ -101,6 +105,7 @@ pub fn run_app() {
                             cfg.music_dir,
                             cfg.flac_path,
                             cfg.workspace_layout,
+                            workspace_layout_prefs.as_ref(),
                             cfg.ui_scale,
                             cfg.theme_profile,
                             playback_owner,
