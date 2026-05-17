@@ -1,6 +1,6 @@
 # Active-Frame Search Dispatch Review Checklist
 
-Status: Implemented - 2026-05-15.
+Status: Superseded - 2026-05-16.
 
 ## Reviewed Artifacts
 
@@ -23,11 +23,19 @@ Status: Implemented - 2026-05-15.
 ## Gate Status
 
 Status: Phases 1-4 implemented and verified - 2026-05-15.
+Correction applied - 2026-05-16: user visual testing showed primary
+toolbar Search and secondary "Search in new frame" produced different
+surfaces for the same query. Primary toolbar Search now routes through
+the same Search Results Detail path as the secondary action. Follow-up
+smoke then showed that the unified Search Results surface still failed
+because local Library matches were not loaded; local Library-origin
+Artists, Feeds, and Tracks now hydrate from
+`search_local_library_tracks`.
 
 - Phase 1: FrameSearchScope / FrameSearchDescriptor VM contracts ✓
-- Phase 2: Toolbar dispatch via focused_search_descriptor(); six scopes routed ✓
-- Phase 3: Secondary toolbar button + Cmd/Ctrl+Enter modifier; placeholder bind deferred ✓
-- Phase 4: Architecture guard added to lock dispatch contract ✓
+- Phase 2: Active-frame dispatcher via focused_search_descriptor(); six scopes routed ✓
+- Phase 3: Secondary toolbar Search Results Detail button added; placeholder bind deferred ✓
+- Phase 4: Architecture guards added for active-frame dispatch and toolbar Search parity ✓
 
 ## Required Checks
 
@@ -48,8 +56,12 @@ Status: Phases 1-4 implemented and verified - 2026-05-15.
       projections.
 - [x] Task 003: VMs without track row projections are intentionally left
       unchanged and reported.
-- [x] Architecture guard records that toolbar search dispatch must use the
+- [x] Architecture guard records that active-frame dispatch must use the
       workspace descriptor path.
+- [x] Architecture guard records that primary toolbar Search and secondary
+      "Search in new frame" use the same Search Results Detail surface.
+- [x] Search Results Detail loads local Library-origin result rows for
+      matching Artists, Feeds, and Tracks.
 - [x] No app dispatch, toolbar UI, DB, backend, playback, or network behavior
       changes in Phase 1.
 - [x] `cargo fmt -- --check` is green.
@@ -64,6 +76,11 @@ Status: Phases 1-4 implemented and verified - 2026-05-15.
 - Do not put fallback labels, placeholders, or query interpretation in
   renderers.
 - Do not wire result loading for search-results inspector in this plan.
+- Do not bind primary toolbar Search to active-frame filtering; that
+  produces a Library/Queue/entity filter while the secondary action
+  opens Search Results Detail.
+- Do not ship a local Library query that opens an empty Search Results
+  inspector when matching local rows exist.
 
 ## Optional Improvements
 
@@ -74,19 +91,31 @@ Status: Phases 1-4 implemented and verified - 2026-05-15.
 
 ## Architectural Drift Watchlist
 
-- Toolbar input remains a dispatcher; it does not own page-specific search
-  semantics.
+- Toolbar input primary Search opens Search Results Detail. Frame-local
+  dispatch remains infrastructure for a future explicit in-frame
+  find/filter affordance.
 - `WorkspaceLayout` remains GPUI-free.
 - Page VMs own text/query state and row projection.
-- Empty-query submit clears the focused VM filter once Phase 2 wiring lands.
-- Cmd/Ctrl+Enter remains the only v1 modifier for opening a new search-results
-  Detail frame.
-- Search result loading remains a separate follow-up plan.
+- Empty-query behavior for future frame-local filtering must be scoped in a
+  separate visible affordance task.
+- Primary Search and secondary "Search in new frame" must remain the same
+  Search Results Detail surface.
+- Remote Index result loading remains a separate follow-up plan.
 
 ## Sandbox Limitations
 
-GPUI initialization requires X11/GPU, unavailable in the sandbox. Visual verification of placeholder-by-frame and secondary toolbar button requires operator-led testing.
+GPUI initialization requires X11/GPU, unavailable in the sandbox. User
+visual evidence on 2026-05-16 identified both the mismatched search
+surfaces and the empty local Search Results inspector; post-fix visual
+confirmation requires operator-led testing.
 
 ## Merge Recommendation
 
-All phases 1-4 complete. Dispatcher path is stable and locked by architecture guards. Result loading remains a separate follow-up plan (phases α-γ in ADR 0047). Recomm. to merge.
+Dispatcher infrastructure for Phase 1-4 remains in place and is not
+removed. However, the primary toolbar Search behavior that once
+dispatched to focused-frame filtering has been retired in favor of
+breadcrumb-driven search navigation within the ContentList frame
+(see `docs/plans/search-in-library-frame-plan.md`). The
+`FrameSearchScope`, `FrameSearchDescriptor`, and `set_text_filter`
+contracts now exist as follow-up infrastructure for a future explicit
+in-frame find/filter affordance, not as the active toolbar UX.

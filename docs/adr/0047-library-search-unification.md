@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted - implementation in progress 2026-05-15. Promotes
+Accepted - implementation in progress 2026-05-16. Promotes
 `docs/plans/library-search-unification-plan.md`, which is retained as
 the pre-ADR concept artifact. Phase D is implemented through Task 011:
 the Library-backed frame owns the visible source filter and the
@@ -12,8 +12,16 @@ workspace VM, frame-shell breadcrumb rendering capability is in
 place, the shared search-results inspector shell exists, toolbar
 search-submit opens or updates a Detail search-results frame through
 the workspace VM, and saved-search source-list rows reuse that same
-Detail inspector path. Phase F remains follow-up work; `src/search.rs`
-is not retired yet.
+Detail inspector path; a 2026-05-16 smoke-fix hydrates local
+Library-origin Artists, Feeds, and Tracks in that inspector. Phase F
+is implemented for module-boundary retirement: `src/search.rs`, `crate::search`, and
+`WORKSPACE_RENDER_ENABLED` are retired, with existing Discover behavior
+preserved under `src/discover.rs` until a later explicit task replaces
+that command owner.
+
+> **Note:** Search result surface relocated to the ContentList frame in ADR 0048
+> (2026-05-16). The Detail-frame inspector contract in this ADR is no
+> longer the active model; see ADR 0048 for the current model.
 
 ## Context
 

@@ -1,6 +1,14 @@
 # ADR 0047 Task 016: Retire src/search.rs Screen Module
 
-Status: Proposed - 2026-05-14.
+Status: Implemented for module-boundary retirement - 2026-05-16.
+
+Implementation note: the lower-context audit found the documented escalation
+trigger: `SearchApp` and related Discover command/state types are still
+referenced by live app, keyboard, event, and shell paths. This task therefore
+retired the top-level `src/search.rs` / `crate::search` module boundary and the
+workspace fallback toggle, while preserving the existing Discover behavior under
+`src/discover.rs` until a later explicit task removes or replaces that command
+owner.
 
 ## Goal
 
@@ -68,13 +76,13 @@ task 007 retires alongside.
 
 ## Acceptance Criteria
 
-- [ ] `src/search.rs` is deleted.
-- [ ] All entity render paths route through shared composites.
-- [ ] `WORKSPACE_RENDER_ENABLED` and the legacy render path are
+- [x] `src/search.rs` is deleted.
+- [x] All entity render paths route through shared composites.
+- [x] `WORKSPACE_RENDER_ENABLED` and the legacy render path are
   removed.
-- [ ] Architecture guards forbid re-introducing the search screen
+- [x] Architecture guards forbid re-introducing the search screen
   or the toggle.
-- [ ] App builds and runs.
+- [x] App builds and runs.
 
 ## Test Commands
 

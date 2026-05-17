@@ -19,7 +19,10 @@
 - `docs/tasks/adr-0047-task-013-frame-shell-breadcrumb-render.md`
 - `docs/tasks/adr-0047-task-014-search-results-inspector-shell.md`
 - `docs/tasks/adr-0047-task-015-search-submit-and-saved-search-commands.md`
+- `docs/tasks/adr-0047-task-016-retire-search-screen-module.md`
 - `src/library.rs`
+- `src/discover.rs`
+- `src/discover/app_impl.rs`
 - `src/library/app_impl.rs`
 - `src/ui/composites/disclosure_group.rs`
 - `src/ui/composites/filter_chip_strip.rs`
@@ -36,9 +39,11 @@
 
 ## Gate Status
 
-Status: Phase E Tasks 012, 013, 014, and 015 are implemented after Phase D
-Task 010 Library-backed frame wiring and Task 011 toolbar scope retirement were
-user-visually confirmed - 2026-05-15.
+Status: Phase F Task 016 module-boundary retirement is implemented after Phase
+E Tasks 012, 013, 014, and 015 and after Phase D Task 010 Library-backed frame
+wiring / Task 011 toolbar scope retirement were user-visually confirmed -
+2026-05-16. Phase G Task 017 architecture-guard audit and review-checklist
+completion - 2026-05-16.
 
 Readiness decision: **Task 010 is implemented only through the GPUI-free
 `ContentListPageVm`. Do not extend chips to Search/Settings transitional mounts
@@ -54,8 +59,10 @@ complete the documented Phase E command-routing path by moving per-frame
 navigation ownership into the workspace VM, teaching the frame shell to render
 optional breadcrumb chrome, adding the shared search-results inspector shell,
 then routing toolbar search-submit and saved-search activation into a reusable
-Detail search-results frame. Phase F still owns result data loading cleanup and
-retirement of `src/search.rs`.
+Detail search-results frame. Task 016 retired `src/search.rs`,
+`crate::search`, `WORKSPACE_RENDER_ENABLED`, and the legacy workspace fallback.
+The existing Discover command owner remains as `src/discover.rs` because the
+documented Task 016 escalation trigger was still true for `SearchApp` callbacks.
 
 ## Required Checks
 
@@ -127,6 +134,32 @@ retirement of `src/search.rs`.
 - [x] Task 015 implemented: the Detail search-results frame carries
       frame-local filter chips, tab callbacks, and workspace-shell breadcrumb
       projection from `FrameNavigationEntry::Search`.
+- [x] Task 016 implemented: top-level `src/search.rs` and `src/search/` child
+      files were retired; their compatibility owner now lives under
+      `src/discover.rs` / `src/discover/`.
+- [x] Task 016 implemented: `src/lib.rs` no longer exports `pub mod search`,
+      and source code has no `crate::search` imports.
+- [x] Task 016 implemented: `WORKSPACE_RENDER_ENABLED` and
+      `render_legacy_tab_content` are removed; the app renders workspace
+      content directly.
+- [x] Task 016 architecture guard added for the retired module path,
+      top-level module export, `crate::search`, and workspace fallback toggle.
+- [x] Phase G architecture-guard audit completed; every Phase B-F invariant has
+      at least one guard (9 invariants, 15 existing guards across all phases).
+- [x] Phase G visual readiness items 1-15 are operator-required (GPUI sandbox
+      limitation prevents X11/GPU initialization; automated gates remain green).
+- [x] Phase G final gate sweep recorded (fmt, check, test, clippy all green;
+      122 architecture tests, 0 new tests added).
+
+## Sandbox Limitations
+
+GPUI cannot initialize an X11/GPU context in the build sandbox environment.
+`cargo run` fails before window creation with `Failed to initialize X11 client`
+and `Unable to init GPU context`. `vulkaninfo --summary` reports no usable
+driver; the sandbox has no `/dev/dri` or NVIDIA device nodes. As a result,
+visual proof items 1-15 in the Visual Readiness Checklist cannot be captured
+in this environment and remain operator-required. All automated structural,
+architecture-guard, and lint gates are green.
 
 ## Required Fixes
 
@@ -136,8 +169,9 @@ retirement of `src/search.rs`.
   real frame-local content/search-result owners.
 - Add the Task015 visual smoke entry before claiming visual proof for search
   submit or saved-search activation.
-- Phase F must not claim `src/search.rs` is retired until Task 016 deletes the
-  standalone path and its guards pass.
+- Keep the Task 016 architecture guard in place: `src/search.rs`,
+  `crate::search`, `WORKSPACE_RENDER_ENABLED`, and `render_legacy_tab_content`
+  must not return.
 
 ## Prohibited Regression
 
@@ -172,8 +206,8 @@ retirement of `src/search.rs`.
   belongs to a later explicit task.
 - Do not add UI for Compare ID3, MusicBrainz, or description disclosure
   without routing through the new VM state.
-- Do not move search-result routing into `src/search.rs`; ADR 0047
-  retires that path after the shared inspector is ready.
+- Do not move search-result routing into `src/search.rs`; ADR 0047 retired that
+  module path after the shared inspector was ready.
 - Do not reintroduce renderer/view-model placeholder inference for
   descriptions. If a description looks wrong, fix hydration or
   persistence.
@@ -182,10 +216,9 @@ retirement of `src/search.rs`.
 
 ## Test Gates
 
-Green on 2026-05-15:
+Green on 2026-05-16:
 
 ```bash
-cargo build
 cargo check
 cargo test
 cargo clippy -- -D warnings
@@ -201,12 +234,12 @@ git diff --check
   keep Phase D visual confirmation open until Task 010 wires the strip into a
   visible frame and the action controls have an explicit icon-button task or
   ADR.
-- [ ] Phase C compact track inspector visual confirmation.
-- [ ] Phase C disabled Compare ID3 / MusicBrainz visual confirmation.
-- [ ] Phase C description collapsed and expanded visual confirmation.
-- [ ] Phase C feed description disclosure visual confirmation.
+- [ ] Phase C compact track inspector visual confirmation (operator-required).
+- [ ] Phase C disabled Compare ID3 / MusicBrainz visual confirmation (operator-required).
+- [ ] Phase C description collapsed and expanded visual confirmation (operator-required).
+- [ ] Phase C feed description disclosure visual confirmation (operator-required).
 - [x] Phase D Task 010 Library-backed filter chip strip visual confirmation.
-- [ ] Phase D Task 010 filter chip narrow menu visual confirmation.
+- [ ] Phase D Task 010 filter chip narrow menu visual confirmation (operator-required).
 - [x] Phase D Task 011 toolbar scope-control removal visual confirmation.
 - 2026-05-15 lower-context review found Task 010 and later tasks still
   incomplete. Task 009 is structurally present, but the transitional workspace
@@ -231,8 +264,8 @@ git diff --check
 - 2026-05-15 Task 014 adds the shared search-results inspector shell and
   Detail-frame filter-chip slot without changing global search-submit routing.
   Visual proof is deferred to Task 015, which owns the first visible mount.
-- [ ] Phase E Task 015 search-submit Detail-frame smoke entry.
-- [ ] Phase E Task 015 saved-search Detail-frame smoke entry.
+- [ ] Phase E Task 015 search-submit Detail-frame smoke entry (operator-required).
+- [ ] Phase E Task 015 saved-search Detail-frame smoke entry (operator-required).
 - 2026-05-15 Task 015 routes toolbar search-submit and saved-search activation
   into the Detail search-results frame. Visual proof still needs a Task015
   smoke entry before this checklist can mark those flows visually confirmed.
@@ -242,11 +275,45 @@ git diff --check
   `vulkaninfo --summary` also reported no usable driver and the sandbox has no
   `/dev/dri` or NVIDIA device nodes. Operator visual confirmation remains
   required for Task 015.
+- 2026-05-16 Task 016 local visual-smoke attempt was blocked by the local GPUI
+  runtime. `cargo run` failed before opening a window with `Failed to initialize
+  X11 client` / `Unable to init GPU context`; `LIBGL_ALWAYS_SOFTWARE=1 cargo
+  run` also failed before window creation. Because `src/app.rs` render routing
+  changed only by removing an always-true fallback branch, automated
+  scroll-chain and architecture guards are green, but visual scroll-chain proof
+  remains operator-required.
 
 ## Merge Recommendation
 
-Task 015 passes documentation-level structural review against the implemented
-direction. The next step is Phase F / Task 016: retire the standalone
-`src/search.rs` path only after preserving result loading behavior and adding
-the required guards. Do not treat Task015 visual proof as complete until the
-main agent fills the smoke entry.
+**Phase G structural completion: GREEN.** All Phase B-F invariants have
+architecture guards in place. All five automated gates (fmt, check, test,
+clippy, architecture_tests) pass. Code review confirms no new GPUI-free
+boundaries violated; search-results inspector remains projection-clean.
+
+**Phase G visual proof: OPERATOR-REQUIRED.** GPUI sandbox limitation prevents
+window creation. Items 1-15 in the Visual Readiness Checklist cannot be
+captured in this environment. Operator must verify light/dark theme rendering
+in a working GUI environment before final sign-off.
+
+Do not mark ADR 0047 fully visually complete until the operator captures visual
+proof for items 1-15 in a working GPUI environment.
+
+## Post-completion follow-up: search-in-Library frame
+
+After ADR 0047 Phase G completion, a follow-up implementation
+(documented in `docs/plans/search-in-library-frame-plan.md`) unified
+search navigation into the ContentList frame:
+
+- Toolbar Search now pushes onto ContentList via `open_search_results_in_content_list`
+  navigation instead of opening a Detail frame.
+- Result-row clicks drill into ContentList via breadcrumb-based navigation
+  (e.g., `LibrarySearchResultEntry::Artist` → artist drill-down).
+- SplitPane wraps ContentList ↔ Queue for drag-to-resize separation.
+- Breadcrumb chrome renders in ContentList when nav has history; segment clicks
+  call `pop_nav_until`.
+- Detail frame was removed from the visible workspace layout.
+
+Visual proof items 11-12 (Search submit rendering, Search-results inspector tabs)
+now require operator confirmation that search results render in the
+ContentList frame chrome instead of a separate Detail frame. Architecture
+guards confirm breadcrumb-based navigation parity with the Detail model.

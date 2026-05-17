@@ -147,8 +147,9 @@ pull-down primitive; visual proof in Phase G.
 ## Phase E - Search-Results Inspector and Breadcrumbs
 
 Status: Implemented through Task 015 - Tasks 012, 013, 014, and 015 landed
-2026-05-15. Phase F still remains and owns result data loading cleanup plus
-retirement of the standalone `src/search.rs` path.
+2026-05-15, with a 2026-05-16 smoke-fix that hydrates local Library
+results in the Search Results inspector. Phase F still owns retirement
+of the standalone `src/search.rs` path.
 
 Goal: route global search submit into a `Detail` frame rendering the
 tabbed `SearchResultsInspector` with breadcrumb chrome.
@@ -173,12 +174,15 @@ Deliverables:
   `open_search_results_frame`; saved-search activation dispatches
   `OpenSavedSearch(saved_search_id, query)` and reuses the same Detail
   inspector path
+- The Search Results inspector hydrates local Library-origin Artists,
+  Feeds, and Tracks from `search_local_library_tracks`
 
 Acceptance: search submit produces an inspector with breadcrumbs;
 re-submitting updates the existing Detail search-results frame instead of
 switching to the Search tab; saved searches in source list open the same
-inspector without disturbing source-list selection. Result data loading and
-deletion of `src/search.rs` remain Phase F work.
+inspector without disturbing source-list selection. Local Library result
+loading was completed by the 2026-05-16 smoke-fix; remote Index loading
+remains separate.
 
 Risks: nav state generalization cascades into Library callers.
 Mitigation: ship the workspace-VM ownership move as a discrete prior
@@ -186,6 +190,8 @@ step inside task 012; do not change observable behavior until task
 015 wires the new command.
 
 ## Phase F - Retire `src/search.rs`
+
+Status: Implemented for module-boundary retirement - 2026-05-16.
 
 Goal: delete the standalone Search screen module; route all
 artist/feed/track render through shared composites consumed by
@@ -199,6 +205,9 @@ Deliverables:
 
 - `src/search.rs` deleted; shared composites (`ui_artist`, `ui_feed`,
   `ui_track`) host all entity render
+- Existing Discover command/state behavior preserved under `src/discover.rs`
+  because `SearchApp` still owns live keyboard, event, and shell callbacks;
+  deleting it outright hit the Task 016 escalation trigger.
 - Library and search-result inspectors call the same composites
 - Feed and track membership controls are a single shared
   Download/Remove action vocabulary. UI labels must not expose
@@ -209,7 +218,8 @@ Deliverables:
 - Architecture guards: search.rs absent; no `crate::search::*` import
 
 Acceptance: app builds and runs without `src/search.rs`; all entity
-inspectors render identically across library and search origins.
+inspectors render through the existing shared shells/composites. The
+`crate::search` boundary and workspace fallback toggle are guarded absent.
 
 Risks: hidden call-site coupling. Mitigation: search-screen retirement
 is the last code-deletion step; preceding phases keep parallel paths
