@@ -13,6 +13,7 @@
 
 use crate::api::{Feed, Track};
 use crate::view_models::format::{fmt_date, fmt_runtime};
+use crate::view_models::text_filter::{contains_normalized, normalize};
 use crate::views::{contributor_views_to_api, FeedView};
 
 /// Display-ready projection of a [`FeedView`].
@@ -40,9 +41,7 @@ impl<'a> FeedVm<'a> {
     }
 
     pub fn set_text_filter(&mut self, filter: Option<String>) {
-        self.text_filter = filter
-            .map(|value| value.trim().to_lowercase())
-            .filter(|value| !value.is_empty());
+        self.text_filter = normalize(filter).map(|value| value.to_lowercase());
     }
 
     #[must_use]
@@ -164,7 +163,7 @@ impl<'a> FeedVm<'a> {
             ]
             .into_iter()
             .flatten()
-            .any(|value| value.to_lowercase().contains(filter))
+            .any(|value| contains_normalized(value, filter))
         })
     }
 

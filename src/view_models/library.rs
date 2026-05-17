@@ -36,6 +36,7 @@ use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
+use crate::view_models::text_filter::{contains_normalized, normalize};
 use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{ArtistView, FeedRef, FeedView, LocalIdentityFacts, TrackRef};
@@ -690,10 +691,9 @@ impl ContentListRowDisplay {
 
     #[must_use]
     fn matches_text_filter(&self, filter: &str) -> bool {
-        let filter = filter.trim().to_lowercase();
         filter.is_empty()
-            || self.title.to_lowercase().contains(&filter)
-            || self.secondary_text.to_lowercase().contains(&filter)
+            || contains_normalized(&self.title, filter)
+            || contains_normalized(&self.secondary_text, filter)
     }
 }
 
@@ -784,7 +784,7 @@ impl ContentListPageVm {
 
     /// Sets or clears the frame-local text filter.
     pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
-        self.text_filter = normalize_text_filter(filter);
+        self.text_filter = normalize(filter);
     }
 
     /// Replaces the cached rows while preserving the frame-local filter.
@@ -1674,7 +1674,7 @@ impl LibraryViewModel {
         )
     )]
     pub(crate) fn set_source_text_filter(&mut self, filter: Option<String>) {
-        self.search_query = normalize_text_filter(filter).unwrap_or_default();
+        self.search_query = normalize(filter).unwrap_or_default();
         self.selected_id = None;
     }
 
@@ -2144,14 +2144,7 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
     LibraryTree { artists }
 }
 
-fn normalize_text_filter(filter: Option<String>) -> Option<String> {
-    filter
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
 fn track_row_matches_text_filter(track: &TrackRow, filter: &str) -> bool {
-    let filter = filter.to_lowercase();
     [
         track.track_title.as_deref(),
         track.artist_name.as_deref(),
@@ -2161,7 +2154,7 @@ fn track_row_matches_text_filter(track: &TrackRow, filter: &str) -> bool {
     ]
     .into_iter()
     .flatten()
-    .any(|value| value.to_lowercase().contains(&filter))
+    .any(|value| contains_normalized(value, filter))
 }
 
 fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay> {
@@ -2977,7 +2970,7 @@ impl<'a> PlaylistDetailVm<'a> {
     }
 
     pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
-        self.text_filter = normalize_text_filter(filter);
+        self.text_filter = normalize(filter);
     }
 
     /// Sum of all track durations in seconds.

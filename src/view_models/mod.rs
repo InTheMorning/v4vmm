@@ -76,6 +76,7 @@ pub mod playlist_detail;
 pub(crate) mod queue_now_playing;
 pub mod search;
 pub mod search_results;
+pub(crate) mod text_filter;
 pub mod track;
 pub mod track_detail;
 pub mod track_metadata_grid;

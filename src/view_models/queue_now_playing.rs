@@ -15,6 +15,7 @@
 )]
 
 use crate::view_models::format::fmt_total_runtime_clock;
+use crate::view_models::text_filter::{contains_normalized, normalize};
 use crate::view_models::workspace::FrameChromeButtonDisplay;
 
 /// Transport state for the queue frame.
@@ -330,7 +331,7 @@ impl QueueNowPlayingPageVm {
 
     /// Updates the queue text filter and visible row projection.
     pub(crate) fn set_text_filter(&mut self, filter: Option<String>) {
-        self.text_filter = normalize_text_filter(filter);
+        self.text_filter = normalize(filter);
         self.rows = match self.text_filter.as_deref() {
             Some(filter) => self
                 .all_rows
@@ -428,24 +429,17 @@ impl QueueNowPlayingPageVmBuilder {
     }
 }
 
-fn normalize_text_filter(filter: Option<String>) -> Option<String> {
-    filter
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
 fn queue_row_matches_text_filter(row: &QueueRowDisplay, filter: &str) -> bool {
-    let filter = filter.to_lowercase();
-    row.title.to_lowercase().contains(&filter)
+    contains_normalized(&row.title, filter)
         || row
             .artist
             .as_deref()
-            .is_some_and(|artist| artist.to_lowercase().contains(&filter))
+            .is_some_and(|artist| contains_normalized(artist, filter))
         || row
             .duration_label
             .as_deref()
-            .is_some_and(|duration| duration.to_lowercase().contains(&filter))
-        || row.a11y_label.to_lowercase().contains(&filter)
+            .is_some_and(|duration| contains_normalized(duration, filter))
+        || contains_normalized(&row.a11y_label, filter)
 }
 
 fn queue_row_a11y_label(

@@ -2649,7 +2649,7 @@ fn active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models() 
         "pub(crate) fn text_filter(&self) -> Option<&str>",
         "pub(crate) fn set_content_text_filter(&mut self, filter: Option<String>)",
         "pub(crate) fn set_source_text_filter(&mut self, filter: Option<String>)",
-        "normalize_text_filter(filter)",
+        "normalize(filter)",
     ] {
         if !library_source.contains(required) {
             violations.push(format!(
@@ -2723,6 +2723,28 @@ fn active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models() 
     assert!(
         violations.is_empty(),
         "Active-frame search dispatch Phase 1 VM contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn view_models_do_not_reintroduce_file_local_text_filter_normalizers() {
+    let mut violations = Vec::new();
+
+    for path in rust_files_under("src/view_models") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        if file != "src/view_models/text_filter.rs" && source.contains("fn normalize_text_filter(")
+        {
+            violations.push(format!(
+                "{file}: text filters must use src/view_models/text_filter.rs instead of a file-local `normalize_text_filter` helper"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Shared text-filter helper architecture violations:\n{}",
         violations.join("\n")
     );
 }
