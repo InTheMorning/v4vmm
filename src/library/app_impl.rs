@@ -20,7 +20,7 @@ use super::{
 use crate::api::Client as MusicIndexClient;
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::{
-    ApplyFeedUpdates, CheckFeedStaleness, CheckSubscribedFeeds,
+    ApplyFeedUpdates, CheckFeedStaleness, CheckSubscribedFeeds, SubscribeFeed,
 };
 use crate::application::commands::library_removal::RemoveFromLibrary;
 use crate::application::commands::metadata::{
@@ -44,7 +44,7 @@ use crate::metadata::{
 use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
 use crate::sources;
-use crate::subscribe_service::{self, SubscribeTrackRequest};
+use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::{
     DisclosureIndicator, DisclosureIndicatorDisplay, DisclosureSupplementDisplay,
     DisclosureSupplementLabel, ListRow, ListRowA11yLabel, PlaylistOption, PlaylistOptionDisplay,
@@ -122,6 +122,118 @@ enum TrackSubscriptionAction {
     Remove(i64),
 }
 
+fn apply_library_removal_to_album_detail(detail: &mut LibraryDetail, target: LibraryRemovalTarget) {
+    if let LibraryDetail::Album(album) = detail {
+        match target {
+            LibraryRemovalTarget::Track(track_id) => {
+                if let Some(track) = album.tracks.iter_mut().find(|track| track.id == track_id) {
+                    track.is_in_library = false;
+                    track.local_path = None;
+                }
+            }
+            LibraryRemovalTarget::Feed(feed_id) if album.feed_id == Some(feed_id) => {
+                for track in &mut album.tracks {
+                    track.is_in_library = false;
+                    track.local_path = None;
+                }
+            }
+            LibraryRemovalTarget::Feed(_) => {}
+        }
+    }
+}
+
+fn apply_track_subscription_to_album_detail(
+    detail: &mut LibraryDetail,
+    track_id: i64,
+    path: &str,
+    marked_downloaded: bool,
+) {
+    if !marked_downloaded {
+        return;
+    }
+
+    let LibraryDetail::Album(album) = detail else {
+        return;
+    };
+
+    if let Some(track) = album.tracks.iter_mut().find(|track| track.id == track_id) {
+        track.is_in_library = true;
+        track.local_path = Some(path.to_string());
+    }
+}
+
+fn api_feed_from_album(album: &AlbumNode) -> crate::api::Feed {
+    crate::api::Feed {
+        feed_guid: album.feed_guid.clone(),
+        feed_url: album.feed_url.clone(),
+        title: Some(album.name.clone()),
+        name: Some(album.name.clone()),
+        description: album.description.clone(),
+        image_url: album.image_href.clone(),
+        tracks: Some(
+            album
+                .tracks
+                .iter()
+                .map(subscribe_service::track_row_to_api_track)
+                .collect(),
+        ),
+        ..crate::api::Feed::default()
+    }
+}
+
+fn album_thumbnail_urls(album: &AlbumNode) -> Vec<String> {
+    album
+        .image_href
+        .iter()
+        .chain(
+            album
+                .identity_facts
+                .contributors
+                .iter()
+                .filter_map(|contributor| contributor.image_url.as_ref()),
+        )
+        .chain(album.tracks.iter().filter_map(|track| {
+            track
+                .track_image_href
+                .as_ref()
+                .or(track.album_image_href.as_ref())
+        }))
+        .cloned()
+        .collect()
+}
+
+fn apply_library_removal_to_inspector_frame(
+    frame: &mut InspectorFrame,
+    target: LibraryRemovalTarget,
+) {
+    let message = match target {
+        LibraryRemovalTarget::Track(track_id) if frame.entity_id == track_id => {
+            Some("Removed track")
+        }
+        LibraryRemovalTarget::Feed(feed_id) if frame.track.feed_id == feed_id => {
+            Some("Removed feed")
+        }
+        LibraryRemovalTarget::Track(_) | LibraryRemovalTarget::Feed(_) => None,
+    };
+
+    if let Some(message) = message {
+        reset_removed_inspector_frame(frame, message);
+    }
+}
+
+fn reset_removed_inspector_frame(frame: &mut InspectorFrame, message: &'static str) {
+    frame.subscription_busy = false;
+    frame.local_subscription = false;
+    frame.track.is_in_library = false;
+    frame.track.local_path = None;
+    frame.source_context = None;
+    frame.tag_compare = LazyPanel::Hidden;
+    frame.pending_id3_edits.clear();
+    frame.suppressed_auto_id3_edits.clear();
+    frame.id3_apply_error = None;
+    frame.subscription_message = Some(message.into());
+}
+
 // ---------------------------------------------------------------------------
 // LibraryApp
 // ---------------------------------------------------------------------------
@@ -143,11 +255,16 @@ impl LibraryApp {
         self.vm.content_filter_chip_strip()
     }
 
+    pub(crate) fn has_filterable_content_detail(&self) -> bool {
+        matches!(self.detail, LibraryDetail::Album(_))
+    }
+
     pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>) {
         self.vm.set_content_filter(filter);
         cx.notify();
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_content_list_text_filter(
         &mut self,
         filter: Option<String>,
@@ -157,6 +274,7 @@ impl LibraryApp {
         cx.notify();
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_detail_text_filter(
         &mut self,
         filter: Option<String>,
@@ -437,6 +555,10 @@ impl LibraryApp {
         }
     }
 
+    pub(crate) fn playlists(&self) -> &[db::Playlist] {
+        self.vm.playlists()
+    }
+
     fn refresh_selected_detail(&mut self, cx: &mut Context<Self>) {
         let playlist_id = match &self.detail {
             LibraryDetail::Playlist(detail) => Some(detail.playlist.id),
@@ -448,6 +570,15 @@ impl LibraryApp {
         if let Some(playlist_id) = playlist_id {
             self.select_playlist_with_history(playlist_id, FrameHistoryMode::Restore, cx);
             return;
+        }
+
+        if let LibraryDetail::Album(album) = &self.detail {
+            if let Some(feed_id) = album.feed_id {
+                if let Some(album) = self.album_for_detail_by_feed_id(feed_id) {
+                    self.select_album(&album, cx);
+                }
+                return;
+            }
         }
 
         if let LibraryDetail::Track(frame) = &self.detail {
@@ -958,8 +1089,21 @@ impl LibraryApp {
         } else {
             self.vm.clear_library_selection();
         }
+        let mut album = album.clone();
+        if let Some(feed_id) = album.feed_id {
+            if let Ok(tracks) = self
+                .conn
+                .lock()
+                .map_err(|_| anyhow::anyhow!("database lock poisoned"))
+                .and_then(|conn| db::feed_tracks(&conn, feed_id))
+            {
+                if !tracks.is_empty() {
+                    album.tracks = tracks;
+                }
+            }
+        }
         self.detail = LibraryDetail::Album(album.clone());
-        self.hydrate_album_identity_on_view(album, cx);
+        self.hydrate_album_identity_on_view(&album, cx);
         if let Some(feed_id) = album.feed_id {
             self.check_feed_on_view(feed_id, cx);
         }
@@ -976,6 +1120,44 @@ impl LibraryApp {
                 }
             }
         }
+    }
+
+    pub(crate) fn find_album_by_feed_id(&self, feed_id: i64) -> Option<&AlbumNode> {
+        for artist_node in &self.vm.tree().artists {
+            for album in &artist_node.albums {
+                if album.feed_id == Some(feed_id) {
+                    return Some(album);
+                }
+            }
+        }
+        None
+    }
+
+    pub(crate) fn album_for_detail_by_feed_id(&self, feed_id: i64) -> Option<AlbumNode> {
+        if let Some(album) = self.find_album_by_feed_id(feed_id) {
+            return Some(album.clone());
+        }
+
+        let conn = self.conn.lock().ok()?;
+        let tracks = db::feed_tracks(&conn, feed_id).ok()?;
+        let first = tracks.first()?;
+        Some(AlbumNode {
+            name: first
+                .feed_title
+                .clone()
+                .or_else(|| first.album_title.clone())
+                .unwrap_or_else(|| "Untitled Feed".to_string()),
+            feed_id: Some(feed_id),
+            feed_guid: first.feed_guid.clone(),
+            feed_url: db::feed_url_by_id(&conn, feed_id).ok().flatten(),
+            description: None,
+            image_href: first
+                .album_image_href
+                .clone()
+                .or_else(|| first.track_image_href.clone()),
+            identity_facts: crate::local_identity::feed_facts(&conn, feed_id).unwrap_or_default(),
+            tracks,
+        })
     }
 
     fn hydrate_album_identity_on_view(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
@@ -1050,6 +1232,56 @@ impl LibraryApp {
             view,
             tracks,
         }));
+    }
+
+    /// Synchronize LibraryApp detail state to match a navigation entry.
+    ///
+    /// Maps the nav entry to the appropriate Library detail state:
+    /// - `TrackDetail(id)` → look up track and call `select_track`
+    /// - `AlbumDetail(id)` → look up album via feed_id and call `select_album`
+    /// - `ArtistDetail(name)` → call `select_artist`
+    /// - `Search(_)` / `SourceList` / others → clear detail to root state
+    pub(crate) fn hydrate_detail_from_nav(
+        &mut self,
+        entry: &FrameNavigationEntry,
+        cx: &mut Context<Self>,
+    ) {
+        match entry {
+            FrameNavigationEntry::TrackDetail(track_id) => {
+                if let Some(track_row) = self.conn.lock().ok().and_then(|conn| {
+                    library_service::track_row_by_id(&conn, *track_id)
+                        .ok()
+                        .flatten()
+                }) {
+                    self.select_track(&track_row, cx);
+                }
+            }
+            FrameNavigationEntry::AlbumDetail(feed_id) => {
+                if let Some(album) = self.album_for_detail_by_feed_id(*feed_id) {
+                    self.select_album(&album, cx);
+                }
+            }
+            FrameNavigationEntry::ArtistDetail(name) => {
+                self.select_artist(name, cx);
+            }
+            FrameNavigationEntry::Search(_)
+            | FrameNavigationEntry::IndexArtistDetail(_)
+            | FrameNavigationEntry::IndexFeedDetail { .. }
+            | FrameNavigationEntry::IndexTrackDetail { .. }
+            | FrameNavigationEntry::SourceList
+            | FrameNavigationEntry::Settings => {
+                // Reset detail to default/unset state for root navigation
+                self.clear_detail();
+            }
+            // Other nav entries (PlaylistDetail, QueueNowPlaying) don't drive library detail
+            _ => {}
+        }
+    }
+
+    /// Clear the detail state, resetting to library root.
+    pub(crate) fn clear_detail(&mut self) {
+        self.detail = LibraryDetail::None;
+        self.vm.clear_library_selection();
     }
 
     fn check_feed_on_view(&mut self, feed_id: i64, cx: &mut Context<Self>) {
@@ -1280,9 +1512,13 @@ impl LibraryApp {
                 _ => "Track".to_string(),
             },
             FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
-            FrameNavigationEntry::ArtistDetail(name) => name.clone(),
+            FrameNavigationEntry::ArtistDetail(name)
+            | FrameNavigationEntry::IndexArtistDetail(name) => name.clone(),
             FrameNavigationEntry::Search(query) if query.trim().is_empty() => "Search".to_string(),
             FrameNavigationEntry::Search(query) => query.clone(),
+            FrameNavigationEntry::IndexFeedDetail { label, .. }
+            | FrameNavigationEntry::IndexTrackDetail { label, .. } => label.clone(),
+            FrameNavigationEntry::Settings => "Settings".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
         }
     }
@@ -1322,6 +1558,42 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         self.request_library_removal(LibraryRemovalIntent::FeedId(feed_id), window, cx);
+    }
+
+    pub(crate) fn download_feed(&mut self, feed_id: i64, cx: &mut Context<Self>) {
+        if self.vm.has_busy_track() || self.vm.has_busy_feed() {
+            return;
+        }
+        let Some(feed) = self.api_feed_for_album(feed_id) else {
+            self.vm.set_album_has_no_tracks();
+            cx.notify();
+            return;
+        };
+        self.vm.begin_busy_feed(feed_id, "Downloading feed...");
+        cx.notify();
+        let command = SubscribeFeed::new(
+            Arc::clone(&self.conn),
+            self.application_services.download_manager(),
+            SubscribeFeedRequest {
+                feed,
+                musicindex_endpoint: self.musicindex_endpoint.clone(),
+            },
+        );
+        self.command_runner.run(
+            command,
+            CommandContext::next(),
+            cx,
+            |this, result, cx| {
+                this.vm.finish_feed_download(
+                    result.downloaded(),
+                    result.applied_edits(),
+                    result.skipped(),
+                );
+                this.refresh_origin_playlist_actor();
+                this.start_async_reload_preserving_detail(cx);
+            },
+            |this, error, _cx| this.vm.fail_feed_download(error),
+        );
     }
 
     pub(crate) fn remove_track(
@@ -1382,50 +1654,33 @@ impl LibraryApp {
         target: LibraryRemovalTarget,
         cx: &mut Context<Self>,
     ) {
+        if let LibraryRemovalTarget::Feed(feed_id) = target {
+            self.vm.begin_busy_feed(feed_id, "Removing feed...");
+            cx.notify();
+        }
         let command = RemoveFromLibrary::new(Arc::clone(&self.conn), target);
         self.command_runner.run(
             command,
             CommandContext::next(),
             cx,
             |this, result, cx| {
+                this.vm.clear_busy_feed();
                 this.apply_library_removal_result_to_selected_detail(result.target());
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
             },
-            |this, err, _cx| this.vm.set_error_status(err),
+            |this, err, _cx| {
+                this.vm.clear_busy_feed();
+                this.vm.set_error_status(err);
+            },
         );
     }
 
     fn apply_library_removal_result_to_selected_detail(&mut self, target: LibraryRemovalTarget) {
-        let Some(frame) = self.selected_track_frame_mut() else {
-            return;
-        };
-        match target {
-            LibraryRemovalTarget::Track(track_id) if frame.entity_id == track_id => {
-                frame.subscription_busy = false;
-                frame.local_subscription = false;
-                frame.track.is_in_library = false;
-                frame.track.local_path = None;
-                frame.source_context = None;
-                frame.tag_compare = LazyPanel::Hidden;
-                frame.pending_id3_edits.clear();
-                frame.suppressed_auto_id3_edits.clear();
-                frame.id3_apply_error = None;
-                frame.subscription_message = Some("Removed track".into());
-            }
-            LibraryRemovalTarget::Feed(feed_id) if frame.track.feed_id == feed_id => {
-                frame.subscription_busy = false;
-                frame.local_subscription = false;
-                frame.track.is_in_library = false;
-                frame.track.local_path = None;
-                frame.source_context = None;
-                frame.tag_compare = LazyPanel::Hidden;
-                frame.pending_id3_edits.clear();
-                frame.suppressed_auto_id3_edits.clear();
-                frame.id3_apply_error = None;
-                frame.subscription_message = Some("Removed feed".into());
-            }
-            LibraryRemovalTarget::Track(_) | LibraryRemovalTarget::Feed(_) => {}
+        apply_library_removal_to_album_detail(&mut self.detail, target);
+
+        if let Some(frame) = self.selected_track_frame_mut() {
+            apply_library_removal_to_inspector_frame(frame, target);
         }
     }
 
@@ -1435,6 +1690,11 @@ impl LibraryApp {
             return;
         };
         self.execute_library_removal_target(target, cx);
+    }
+
+    fn api_feed_for_album(&self, feed_id: i64) -> Option<crate::api::Feed> {
+        let album = self.album_for_detail_by_feed_id(feed_id)?;
+        Some(api_feed_from_album(&album))
     }
 
     pub(crate) fn subscribe_track(&mut self, track: TrackRow, cx: &mut Context<Self>) {
@@ -1460,9 +1720,16 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, outcome, cx| {
+            move |this, outcome, cx| {
+                let path = outcome.path().to_string();
+                apply_track_subscription_to_album_detail(
+                    &mut this.detail,
+                    track_id,
+                    &path,
+                    outcome.marked_downloaded(),
+                );
                 this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
-                    outcome.path().to_string(),
+                    path,
                     outcome.format_warning().map(str::to_string),
                 ));
                 this.refresh_origin_playlist_actor();
@@ -1658,8 +1925,15 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             move |this, result, cx| {
+                let path = result.path().to_string();
+                apply_track_subscription_to_album_detail(
+                    &mut this.detail,
+                    track_id,
+                    &path,
+                    result.marked_downloaded(),
+                );
                 this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
-                    result.path().to_string(),
+                    path.clone(),
                     result.format_warning().map(str::to_string),
                 ));
                 if let Some(frame) = this.selected_track_frame_mut() {
@@ -1668,7 +1942,7 @@ impl LibraryApp {
                         frame.local_subscription = result.marked_downloaded();
                         frame.track.is_in_library = result.marked_downloaded();
                         if result.marked_downloaded() {
-                            frame.track.local_path = Some(result.path().to_string());
+                            frame.track.local_path = Some(path);
                         }
                         frame.source_context = None;
                         frame.tag_compare = LazyPanel::Hidden;
@@ -2386,27 +2660,12 @@ impl Render for LibraryApp {
                 .artists
                 .iter()
                 .flat_map(|a| &a.albums)
-                .flat_map(|album| {
-                    album
-                        .image_href
-                        .iter()
-                        .chain(
-                            album
-                                .identity_facts
-                                .contributors
-                                .iter()
-                                .filter_map(|contributor| contributor.image_url.as_ref()),
-                        )
-                        .chain(album.tracks.iter().filter_map(|track| {
-                            track
-                                .track_image_href
-                                .as_ref()
-                                .or(track.album_image_href.as_ref())
-                        }))
-                        .cloned()
-                })
+                .flat_map(album_thumbnail_urls)
                 .collect()
         };
+        if let LibraryDetail::Album(album) = &self.detail {
+            urls.extend(album_thumbnail_urls(album));
+        }
         if let LibraryDetail::Artist(artist) = &self.detail {
             if let Some(url) = artist.view.image_url.clone() {
                 urls.push(url);
@@ -2788,6 +3047,165 @@ impl Render for LibraryApp {
             .flex_col()
             .overflow_hidden()
             .child(split_pane)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_track(id: i64, feed_id: i64, is_in_library: bool) -> TrackRow {
+        TrackRow {
+            id,
+            feed_id,
+            item_guid: format!("track-{id}"),
+            track_title: Some(format!("Track {id}")),
+            is_in_library,
+            local_path: is_in_library.then(|| format!("/music/track-{id}.mp3")),
+            ..TrackRow::default()
+        }
+    }
+
+    fn test_album(feed_id: i64, tracks: Vec<TrackRow>) -> AlbumNode {
+        AlbumNode {
+            name: "Test Album".into(),
+            feed_id: Some(feed_id),
+            feed_guid: Some("feed-guid".into()),
+            feed_url: Some("https://example.test/feed.xml".into()),
+            description: None,
+            image_href: Some("https://example.test/art.png".into()),
+            identity_facts: LocalIdentityFacts::default(),
+            tracks,
+        }
+    }
+
+    fn test_inspector_frame(track: TrackRow) -> InspectorFrame {
+        InspectorFrame {
+            entity_id: track.id,
+            title: "Track".into(),
+            track,
+            source_context: None,
+            image: None,
+            expanded_id3_frame_groups: BTreeSet::new(),
+            expanded_metadata_cells: BTreeSet::new(),
+            pending_id3_edits: BTreeMap::new(),
+            suppressed_auto_id3_edits: BTreeSet::new(),
+            applying_id3_edits: false,
+            id3_apply_error: Some("stale error".into()),
+            local_subscription: true,
+            subscription_busy: true,
+            subscription_message: None,
+            tag_compare: LazyPanel::Empty("stale comparison".into()),
+            musicbrainz_lookup: LazyPanel::Hidden,
+            musicbrainz_selected: 0,
+            inspector_state: LibraryTrackInspectorState::default(),
+        }
+    }
+
+    #[test]
+    fn removal_keeps_album_detail_row_as_index_content() {
+        let mut detail = LibraryDetail::Album(test_album(
+            7,
+            vec![test_track(1, 7, true), test_track(2, 7, true)],
+        ));
+
+        apply_library_removal_to_album_detail(&mut detail, LibraryRemovalTarget::Track(1));
+
+        let LibraryDetail::Album(album) = detail else {
+            panic!("detail remains an album");
+        };
+        assert!(
+            !album.tracks[0].is_in_library,
+            "removed row should remain in the album as Index content"
+        );
+        assert!(
+            album.tracks[0].local_path.is_none(),
+            "removed row must stop advertising a local file"
+        );
+        assert!(
+            album.tracks[1].is_in_library,
+            "unrelated rows should retain their local membership"
+        );
+    }
+
+    #[test]
+    fn removal_resets_open_track_inspector_to_downloadable_state() {
+        let mut frame = test_inspector_frame(test_track(9, 7, true));
+
+        apply_library_removal_to_inspector_frame(&mut frame, LibraryRemovalTarget::Track(9));
+
+        assert!(!frame.subscription_busy);
+        assert!(!frame.local_subscription);
+        assert!(!frame.track.is_in_library);
+        assert!(frame.track.local_path.is_none());
+        assert!(matches!(frame.tag_compare, LazyPanel::Hidden));
+        assert_eq!(frame.subscription_message.as_deref(), Some("Removed track"));
+    }
+
+    #[test]
+    fn subscription_updates_album_detail_row_to_library_content() {
+        let mut detail = LibraryDetail::Album(test_album(
+            7,
+            vec![test_track(1, 7, false), test_track(2, 7, true)],
+        ));
+
+        apply_track_subscription_to_album_detail(&mut detail, 1, "/music/track-1.mp3", true);
+
+        let LibraryDetail::Album(album) = detail else {
+            panic!("detail remains an album");
+        };
+        assert!(
+            album.tracks[0].is_in_library,
+            "downloaded row should move back to Library content in place"
+        );
+        assert_eq!(
+            album.tracks[0].local_path.as_deref(),
+            Some("/music/track-1.mp3")
+        );
+        assert!(
+            album.tracks[1].is_in_library,
+            "unrelated rows should retain their membership"
+        );
+    }
+
+    #[test]
+    fn album_thumbnail_urls_include_open_detail_artwork_after_tree_removal() {
+        let mut track = test_track(1, 7, false);
+        track.track_image_href = Some("https://example.test/track.png".into());
+        let album = test_album(7, vec![track]);
+
+        let urls = album_thumbnail_urls(&album);
+
+        assert!(
+            urls.iter().any(|url| url == "https://example.test/art.png"),
+            "open album detail artwork must stay prefetched even when the album is no longer in the library tree"
+        );
+        assert!(
+            urls.iter()
+                .any(|url| url == "https://example.test/track.png"),
+            "track row artwork must stay prefetched for index-content rows"
+        );
+    }
+
+    #[test]
+    fn api_feed_from_album_preserves_track_download_sources() {
+        let mut track = test_track(1, 7, false);
+        track.enclosure_url = Some("https://example.test/audio.mp3".into());
+        track.enclosure_type = Some("audio/mpeg".into());
+        let album = test_album(7, vec![track]);
+
+        let feed = api_feed_from_album(&album);
+        let track = feed
+            .tracks
+            .as_deref()
+            .and_then(|tracks| tracks.first())
+            .expect("album track");
+
+        assert_eq!(
+            track.enclosure_url.as_deref(),
+            Some("https://example.test/audio.mp3")
+        );
+        assert_eq!(track.enclosure_type.as_deref(), Some("audio/mpeg"));
     }
 }
 

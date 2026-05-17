@@ -1,5 +1,5 @@
 use crate::api::Track;
-use crate::search::{
+use crate::discover::{
     discover_inspector_action_row, render_track_list_rows, InspectorFrame, SearchApp,
 };
 use crate::ui::composites::ReleaseSurfaceElement;

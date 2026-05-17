@@ -10,7 +10,7 @@ use gpui::{
 };
 
 use crate::api::{Feed, Publisher};
-use crate::search::{ArtistContext, SearchApp};
+use crate::discover::{ArtistContext, SearchApp};
 use crate::ui::composites::{
     DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow as CompositeDetailRow,
     DetailTextRow as CompositeDetailTextRow, EntityKind, Thumbnail, ThumbnailSize,

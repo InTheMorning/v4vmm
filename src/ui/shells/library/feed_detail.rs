@@ -77,14 +77,24 @@ pub(crate) fn render_library_feed_detail(
         .and_then(|url| album_thumbs.get(url.as_str()))
         .and_then(Clone::clone);
 
+    let vm = LibraryAlbumDetailVm::new(&feed_view, &album.tracks, mb_status);
+    let feed_busy = album
+        .feed_id
+        .is_some_and(|feed_id| library_vm.busy_feed() == Some(feed_id));
+    let active_filter = library_vm.content_filter();
     let track_rows: Vec<ReleaseSurfaceElement> = album
         .tracks
         .iter()
+        .filter(|track| match active_filter {
+            crate::view_models::workspace::ContentFilter::All => true,
+            crate::view_models::workspace::ContentFilter::Library => track.is_in_library,
+            crate::view_models::workspace::ContentFilter::Index => !track.is_in_library,
+        })
         .map(|track| {
             ReleaseSurfaceElement::from_element(render_library_track_row(
                 track,
                 mb_status,
-                busy_track,
+                vm.track_row_busy(track, busy_track == Some(track.id), feed_busy),
                 album_thumbs,
                 playlists,
                 cx,
@@ -92,25 +102,36 @@ pub(crate) fn render_library_feed_detail(
         })
         .collect();
 
-    let vm = LibraryAlbumDetailVm::new(&feed_view, &album.tracks, mb_status);
-
     let album_for_mb = album.clone();
     let feed_id = album.feed_id;
     let mut buttons = div().flex().flex_row().items_center().gap(spacing::SM);
     if let Some(fid) = feed_id {
-        let remove_action = vm.primary_action_vm(fid, false);
-        let remove_a11y = remove_action.a11y_label();
-        let remove_label = remove_action.label;
+        let primary_action = vm.primary_action_vm(fid, library_vm.busy_feed() == Some(fid));
+        let primary_kind = primary_action.kind.clone();
+        let primary_enabled = primary_action.enabled;
+        let primary_a11y = primary_action.a11y_label();
+        let primary_label = primary_action.label;
         buttons = buttons.child(
             action_button(
                 ActionButtonDisplay {
-                    label: SharedString::from(remove_label),
-                    a11y_label: SharedString::from(remove_a11y),
+                    label: SharedString::from(primary_label),
+                    a11y_label: SharedString::from(primary_a11y),
                 },
                 cx,
             )
+            .disabled(!primary_enabled)
             .on_click(cx.listener(move |this, _, window, cx| {
-                this.unsubscribe_feed(fid, window, cx);
+                match primary_kind {
+                    EntityActionKind::Download => this.download_feed(fid, cx),
+                    EntityActionKind::Remove => this.unsubscribe_feed(fid, window, cx),
+                    EntityActionKind::AddToPlaylist
+                    | EntityActionKind::Play
+                    | EntityActionKind::CompareMetadata
+                    | EntityActionKind::OpenMusicBrainz
+                    | EntityActionKind::OpenWebsite
+                    | EntityActionKind::CopyNostr
+                    | EntityActionKind::OpenRss => {}
+                }
                 cx.notify();
             })),
         );
@@ -263,7 +284,7 @@ fn library_contributor_identity_actions(
 fn render_library_track_row(
     track: &TrackRow,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
-    busy_track: Option<i64>,
+    is_busy: bool,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
@@ -271,7 +292,6 @@ fn render_library_track_row(
     let track_for_click = track.clone();
     let track_for_select = track.clone();
     let track_id = track.id;
-    let is_busy = busy_track == Some(track_id);
     let vm = LibraryTrackRowVm::new(track, mb_status.get(&track_id));
     let EntityActionVm {
         kind,

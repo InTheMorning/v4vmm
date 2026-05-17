@@ -5,11 +5,11 @@
 
 use gpui::{div, prelude::*, AnyElement, Context, SharedString, Styled};
 
+use crate::discover::{InspectorFrame, SearchApp};
 use crate::metadata::{
     aligned_compare_rows, auto_populated_pending_id3_edits, expand_woar_metadata_rows,
     track_metadata_rows, MetadataGridRow, MusicBrainzLookupResult, TagCompareResult, TrackContext,
 };
-use crate::search::{InspectorFrame, SearchApp};
 use crate::ui::composites::{action_button, ActionButtonDisplay, FileHeader, MusicBrainzPanel};
 use crate::ui::primitives::LoadingMessage;
 use crate::ui::shells::discover::track_inspector_metadata_grid::discover_track_metadata_grid;

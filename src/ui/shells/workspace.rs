@@ -13,12 +13,13 @@ use gpui::{
     Pixels, RenderOnce, Styled, Window,
 };
 
-use crate::ui::composites::{frame_shell, FrameShellSlots};
+use crate::ui::composites::{frame_shell, FrameShellSlots, SplitPane};
 use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::layouts::{
-    WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT, WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT,
+    CONTENT_PANE_DEFAULT_WIDTH, CONTENT_PANE_MIN_WIDTH, WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT,
+    WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT,
 };
-use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Size, Spacing};
+use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FrameNavigationEntry,
     FrameNavigationState, FrameShellDisplay, WorkspaceFrameKind, WorkspaceFrameState,
@@ -26,6 +27,14 @@ use crate::view_models::workspace::{
 };
 
 type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
+type WorkspaceBreadcrumbSelectHandler =
+    Rc<dyn Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static>;
+type WorkspaceBreadcrumbLabeler = Rc<dyn Fn(&FrameNavigationEntry) -> String + 'static>;
+type WorkspaceBackSelectHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
+type WorkspaceContentPaneResizeHandler = Box<dyn Fn(Pixels, &mut Window, &mut App) + 'static>;
+type WorkspaceContentPaneResizeStartHandler = Box<dyn Fn(&mut Window, &mut App) + 'static>;
+type WorkspaceContentPaneResizeMoveHandler = Box<dyn Fn(f32, &mut Window, &mut App) + 'static>;
 
 /// Whole-screen content mounts keyed by transitional workspace frame kind.
 #[derive(Default)]
@@ -39,6 +48,13 @@ pub(crate) struct WorkspaceSlots {
     detail_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
     on_detail_filter_select: Option<WorkspaceFilterSelectHandler>,
+    on_content_list_breadcrumb_select: Option<WorkspaceBreadcrumbSelectHandler>,
+    content_list_breadcrumb_labeler: Option<WorkspaceBreadcrumbLabeler>,
+    on_content_list_back_select: Option<WorkspaceBackSelectHandler>,
+    content_pane_width: Option<Pixels>,
+    on_content_pane_resize_start: Option<WorkspaceContentPaneResizeStartHandler>,
+    on_content_pane_resize_move: Option<WorkspaceContentPaneResizeMoveHandler>,
+    on_content_pane_resize_end: Option<WorkspaceContentPaneResizeHandler>,
 }
 
 impl WorkspaceSlots {
@@ -61,6 +77,10 @@ impl WorkspaceSlots {
     }
 
     /// Supplies content for the detail frame.
+    #[expect(
+        dead_code,
+        reason = "Stage 5: Detail frame reserved for future workflows"
+    )]
     pub(crate) fn detail(mut self, content: impl IntoElement) -> Self {
         self.detail = Some(content.into_any_element());
         self
@@ -82,6 +102,10 @@ impl WorkspaceSlots {
     }
 
     /// Supplies frame-local filter chrome for the detail frame.
+    #[expect(
+        dead_code,
+        reason = "Stage 5: Detail frame reserved for future workflows"
+    )]
     pub(crate) fn detail_filter_chip_strip(mut self, display: FilterChipStripDisplay) -> Self {
         self.detail_filter_chip_strip = Some(display);
         self
@@ -97,11 +121,75 @@ impl WorkspaceSlots {
     }
 
     /// Supplies the detail-frame filter callback.
+    #[expect(
+        dead_code,
+        reason = "Stage 5: Detail frame reserved for future workflows"
+    )]
     pub(crate) fn on_detail_filter_select(
         mut self,
         handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_detail_filter_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the content-list breadcrumb selection callback.
+    pub(crate) fn on_content_list_breadcrumb_select(
+        mut self,
+        handler: impl Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_content_list_breadcrumb_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the content-list breadcrumb label projection.
+    pub(crate) fn content_list_breadcrumb_labeler(
+        mut self,
+        labeler: impl Fn(&FrameNavigationEntry) -> String + 'static,
+    ) -> Self {
+        self.content_list_breadcrumb_labeler = Some(Rc::new(labeler));
+        self
+    }
+
+    /// Supplies the content-list back button callback.
+    pub(crate) fn on_content_list_back_select(
+        mut self,
+        handler: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_content_list_back_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the content pane width for the `SplitPane`.
+    pub(crate) fn content_pane_width(mut self, width: Pixels) -> Self {
+        self.content_pane_width = Some(width);
+        self
+    }
+
+    /// Supplies the content pane resize-start callback.
+    pub(crate) fn on_content_pane_resize_start<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(&mut Window, &mut App) + 'static,
+    {
+        self.on_content_pane_resize_start = Some(Box::new(handler));
+        self
+    }
+
+    /// Supplies the content pane resize-move callback.
+    pub(crate) fn on_content_pane_resize_move<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(f32, &mut Window, &mut App) + 'static,
+    {
+        self.on_content_pane_resize_move = Some(Box::new(handler));
+        self
+    }
+
+    /// Supplies the content pane resize-end callback.
+    pub(crate) fn on_content_pane_resize_end<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(Pixels, &mut Window, &mut App) + 'static,
+    {
+        self.on_content_pane_resize_end = Some(Box::new(handler));
         self
     }
 
@@ -138,6 +226,42 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
+
+    fn breadcrumb_select_handler_for(
+        &self,
+        kind: WorkspaceFrameKind,
+    ) -> Option<WorkspaceBreadcrumbSelectHandler> {
+        match kind {
+            WorkspaceFrameKind::ContentList => self.on_content_list_breadcrumb_select.clone(),
+            WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::QueueNowPlaying => None,
+        }
+    }
+
+    fn breadcrumb_labeler_for(
+        &self,
+        kind: WorkspaceFrameKind,
+    ) -> Option<WorkspaceBreadcrumbLabeler> {
+        match kind {
+            WorkspaceFrameKind::ContentList => self.content_list_breadcrumb_labeler.clone(),
+            WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::QueueNowPlaying => None,
+        }
+    }
+
+    fn back_select_handler_for(
+        &self,
+        kind: WorkspaceFrameKind,
+    ) -> Option<WorkspaceBackSelectHandler> {
+        match kind {
+            WorkspaceFrameKind::ContentList => self.on_content_list_back_select.clone(),
+            WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::QueueNowPlaying => None,
+        }
+    }
 }
 
 /// Renders a workspace layout using shared frame chrome.
@@ -159,20 +283,13 @@ struct WorkspaceShell {
 }
 
 impl RenderOnce for WorkspaceShell {
+    #[allow(clippy::too_many_lines)]
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let workspace_width = window.bounds().size.width;
         let focus_color = resolve_color(cx, SemanticColor::Focus, None);
         let mut collapsed_frames = Vec::new();
-        let mut row = div()
-            .size_full()
-            .flex()
-            .flex_row()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .gap(Spacing::SM.scaled(cx))
-            .p(Spacing::SM.scaled(cx))
-            .overflow_hidden();
+        let mut content_list_element: Option<AnyElement> = None;
+        let mut queue_element: Option<AnyElement> = None;
 
         for frame in self.layout.frames() {
             let frame_kind = frame.kind();
@@ -194,11 +311,18 @@ impl RenderOnce for WorkspaceShell {
                 display = display.with_filter_chip_strip(filter_chip_strip);
             }
             if should_render_breadcrumb(frame_kind, navigation) {
-                let breadcrumb = BreadcrumbDisplay::project(
-                    format!("workspace-frame-{}-breadcrumb", frame.id().value()),
-                    navigation,
-                    FrameNavigationEntry::display_label,
-                );
+                let breadcrumb_id = format!("workspace-frame-{}-breadcrumb", frame.id().value());
+                let breadcrumb = if let Some(labeler) =
+                    self.slots.breadcrumb_labeler_for(frame_kind)
+                {
+                    BreadcrumbDisplay::project(breadcrumb_id, navigation, |entry| labeler(entry))
+                } else {
+                    BreadcrumbDisplay::project(
+                        breadcrumb_id,
+                        navigation,
+                        FrameNavigationEntry::display_label,
+                    )
+                };
                 display = display.with_breadcrumb(breadcrumb);
             }
             let mut shell_slots = FrameShellSlots::new().content(content);
@@ -207,28 +331,110 @@ impl RenderOnce for WorkspaceShell {
                     handler(filter, window, cx);
                 });
             }
-            let frame_container = if matches!(frame_kind, WorkspaceFrameKind::QueueNowPlaying) {
-                div()
-                    .flex()
-                    .flex_col()
-                    .w(Size::ColumnRegular.scaled(cx))
-                    .flex_shrink_0()
-                    .min_w_0()
-                    .min_h_0()
-            } else {
-                div().flex().flex_col().flex_1().min_w_0().min_h_0()
-            };
+            if let Some(handler) = self.slots.breadcrumb_select_handler_for(frame_kind) {
+                shell_slots = shell_slots.on_breadcrumb_select(move |entry, window, cx| {
+                    handler(entry, window, cx);
+                });
+            }
+            if let Some(handler) = self.slots.back_select_handler_for(frame_kind) {
+                shell_slots = shell_slots.on_back(move |window, cx| {
+                    handler(window, cx);
+                });
+            }
 
-            row = row.child(
-                frame_container
-                    .border_1()
-                    .border_color(transparent_black())
-                    .when(frame.is_focused(), |el| {
-                        el.border_2().border_color(focus_color)
-                    })
-                    .child(frame_shell(display, shell_slots)),
-            );
+            let frame_element = frame_shell(display, shell_slots);
+
+            let frame_container = div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .border_1()
+                .border_color(transparent_black())
+                .when(frame.is_focused(), |el| {
+                    el.border_2().border_color(focus_color)
+                })
+                .child(frame_element);
+
+            match frame_kind {
+                WorkspaceFrameKind::ContentList => {
+                    content_list_element = Some(frame_container.into_any_element());
+                }
+                WorkspaceFrameKind::QueueNowPlaying => {
+                    queue_element = Some(frame_container.into_any_element());
+                }
+                _ => {}
+            }
         }
+
+        let content_pane_width = self
+            .slots
+            .content_pane_width
+            .unwrap_or(CONTENT_PANE_DEFAULT_WIDTH);
+
+        let has_both_frames = content_list_element.is_some() && queue_element.is_some();
+
+        let layout_element: AnyElement = if has_both_frames {
+            let content = content_list_element.unwrap();
+            let queue = queue_element.unwrap();
+
+            let mut split = SplitPane::new("workspace-split")
+                .leading_width(content_pane_width)
+                .leading_min_width(CONTENT_PANE_MIN_WIDTH)
+                .leading(content)
+                .trailing(queue);
+
+            if let Some(handler) = self.slots.on_content_pane_resize_start {
+                split = split.on_resize_start(move |_event: &gpui::MouseDownEvent, window, cx| {
+                    handler(window, cx);
+                });
+            }
+
+            if let Some(handler) = self.slots.on_content_pane_resize_move {
+                split = split.on_resize_move(move |event: &gpui::MouseMoveEvent, window, cx| {
+                    let x = f32::from(event.position.x);
+                    handler(x, window, cx);
+                });
+            }
+
+            if let Some(handler) = self.slots.on_content_pane_resize_end {
+                split = split.on_resize_end(move |_event: &gpui::MouseUpEvent, window, cx| {
+                    handler(content_pane_width, window, cx);
+                });
+            }
+
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .min_h_0()
+                .min_w_0()
+                .p(Spacing::SM.scaled(cx))
+                .overflow_hidden()
+                .child(split)
+                .into_any_element()
+        } else {
+            let mut fallback_row = div()
+                .size_full()
+                .flex()
+                .flex_row()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .gap(Spacing::SM.scaled(cx))
+                .p(Spacing::SM.scaled(cx))
+                .overflow_hidden();
+
+            if let Some(content) = content_list_element {
+                fallback_row = fallback_row.child(content);
+            }
+            if let Some(queue) = queue_element {
+                fallback_row = fallback_row.child(queue);
+            }
+
+            fallback_row.into_any_element()
+        };
 
         div()
             .size_full()
@@ -236,7 +442,7 @@ impl RenderOnce for WorkspaceShell {
             .flex_col()
             .min_h_0()
             .min_w_0()
-            .child(row)
+            .child(layout_element)
             .when(!collapsed_frames.is_empty(), |el| {
                 el.child(collapsed_frames_hint(&collapsed_frames, cx))
             })
@@ -244,8 +450,11 @@ impl RenderOnce for WorkspaceShell {
 }
 
 fn should_render_breadcrumb(kind: WorkspaceFrameKind, nav: &FrameNavigationState) -> bool {
-    matches!(kind, WorkspaceFrameKind::Detail)
-        && matches!(nav.current(), FrameNavigationEntry::Search(_))
+    let is_detail_search = matches!(kind, WorkspaceFrameKind::Detail)
+        && matches!(nav.current(), FrameNavigationEntry::Search(_));
+    let is_content_list_with_history =
+        matches!(kind, WorkspaceFrameKind::ContentList) && nav.has_history();
+    is_detail_search || is_content_list_with_history
 }
 
 fn should_collapse_frame(kind: WorkspaceFrameKind, workspace_width: Pixels) -> bool {
@@ -276,8 +485,9 @@ fn collapsed_frames_hint(frame_titles: &[String], cx: &App) -> AnyElement {
 
 fn navigation_entry_for(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
     match kind {
-        WorkspaceFrameKind::SourceList => FrameNavigationEntry::SourceList,
-        WorkspaceFrameKind::ContentList => FrameNavigationEntry::Search(String::new()),
+        WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => {
+            FrameNavigationEntry::SourceList
+        }
         WorkspaceFrameKind::Detail => FrameNavigationEntry::TrackDetail(0),
         WorkspaceFrameKind::QueueNowPlaying => FrameNavigationEntry::QueueNowPlaying,
     }

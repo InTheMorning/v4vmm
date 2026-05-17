@@ -1,6 +1,6 @@
 //! Discover track inspector core: header, hero, actions, contributors, and value routes.
 //!
-//! Metadata editing remains in `src/search.rs` until the metadata slice moves it.
+//! Metadata editing remains in `src/discover.rs` until the metadata slice moves it.
 
 #![warn(clippy::pedantic)]
 
@@ -12,8 +12,8 @@ use gpui::{
 };
 
 use crate::api::PaymentRoute;
+use crate::discover::{InspectorFrame, SearchApp};
 use crate::metadata::TrackContext;
-use crate::search::{InspectorFrame, SearchApp};
 use crate::ui::composites::{
     identity_action_button, DisclosureGroup, DisclosureGroupDisplay, IdentityActionButtonDisplay,
     IdentityActionKind, ReleaseSurfaceElement, TrackDetailSurface, TrackSurfaceElement,

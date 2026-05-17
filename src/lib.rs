@@ -7,6 +7,7 @@ pub mod cli;
 pub mod config;
 pub mod db;
 pub mod debug_contracts;
+pub mod discover;
 pub mod feed_service;
 pub mod identity_ingest;
 pub mod library;
@@ -24,7 +25,6 @@ pub mod presentation;
 pub mod rss;
 #[cfg(feature = "async-runtime")]
 pub mod runtime;
-pub mod search;
 pub mod sources;
 pub mod subscribe_service;
 pub mod tag_field;

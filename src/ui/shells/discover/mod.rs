@@ -5,7 +5,7 @@
 //! `&mut Context<SearchApp>` directly and dispatch mutations via
 //! `cx.listener(...)` calls into screen-side mutator methods.
 //!
-//! Selected-entity state stays in `crate::search::SearchApp.inspector_stack`.
+//! Selected-entity state stays in `crate::discover::SearchApp.inspector_stack`.
 //! Surfaces are render-only after their callbacks return; they do not retain
 //! state.
 //!

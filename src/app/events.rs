@@ -5,7 +5,6 @@ use gpui::{Context, Window};
 use crate::application::ApplicationEvent;
 use crate::library::LibraryApp;
 use crate::presentation::PresentationEventBridge;
-use crate::search::SearchApp;
 
 use super::TopApp;
 
@@ -31,7 +30,6 @@ impl TopApp {
         if events.iter().any(affects_library_surfaces) {
             self.reload_cached();
             self.library.update(cx, LibraryApp::refresh);
-            self.search.update(cx, SearchApp::refresh_application_state);
         }
         cx.notify();
     }

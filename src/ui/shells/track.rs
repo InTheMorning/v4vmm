@@ -12,7 +12,7 @@ use gpui::{prelude::*, AnyElement, ClickEvent, ClipboardItem, Context, Image, Sh
 
 use crate::api::{Feed, Track};
 use crate::db;
-use crate::search::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
+use crate::discover::{render_play_icon_button_with_id, render_track_download_button, SearchApp};
 use crate::ui::composites::{
     identity_action_button, AddToPlaylistDisplay, AddToPlaylistPopover,
     IdentityActionButtonDisplay, IdentityActionKind, PlaylistOption, PlaylistOptionDisplay,

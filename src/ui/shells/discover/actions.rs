@@ -9,8 +9,8 @@ use gpui_component::{Disableable, Size};
 
 use crate::api::{Feed, Track};
 use crate::db;
+use crate::discover::{InspectorDetail, InspectorFrame, SearchApp};
 use crate::library_service;
-use crate::search::{InspectorDetail, InspectorFrame, SearchApp};
 use crate::ui::composites::{
     action_button, ActionButtonDisplay, ActionRow, ActionRowDisplay, ActionRowMessage,
     AddToPlaylistDisplay, AddToPlaylistPopover, PlaylistOption, PlaylistOptionDisplay,

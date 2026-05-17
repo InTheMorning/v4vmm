@@ -3,7 +3,6 @@
 use gpui::{actions, App, Context, KeyBinding, Window};
 
 use crate::library::LibraryApp;
-use crate::search::SearchApp;
 
 use super::{AppTab, TopApp};
 
@@ -19,7 +18,6 @@ actions!(
         FocusSearch,
         NewPlaylist,
         SelectLibraryTab,
-        SelectDiscoverTab,
         SelectSettingsTab,
         RefreshLibrary,
         CancelActivePane,
@@ -37,7 +35,6 @@ pub(super) enum AppKeyCommand {
     FocusSearch,
     NewPlaylist,
     SelectLibraryTab,
-    SelectDiscoverTab,
     SelectSettingsTab,
     RefreshLibrary,
     CancelActivePane,
@@ -104,14 +101,8 @@ pub(super) const APP_KEY_BINDING_SPECS: &[AppKeyBindingSpec] = &[
         scope: AppKeyScope::Global,
     },
     AppKeyBindingSpec {
-        command: AppKeyCommand::SelectDiscoverTab,
-        keystroke: "cmd-2",
-        label: "Search",
-        scope: AppKeyScope::Global,
-    },
-    AppKeyBindingSpec {
         command: AppKeyCommand::SelectSettingsTab,
-        keystroke: "cmd-3",
+        keystroke: "cmd-2",
         label: "Settings",
         scope: AppKeyScope::Global,
     },
@@ -176,9 +167,6 @@ impl AppKeyBindingSpec {
             AppKeyCommand::NewPlaylist => KeyBinding::new(self.keystroke, NewPlaylist, context),
             AppKeyCommand::SelectLibraryTab => {
                 KeyBinding::new(self.keystroke, SelectLibraryTab, context)
-            }
-            AppKeyCommand::SelectDiscoverTab => {
-                KeyBinding::new(self.keystroke, SelectDiscoverTab, context)
             }
             AppKeyCommand::SelectSettingsTab => {
                 KeyBinding::new(self.keystroke, SelectSettingsTab, context)
@@ -266,15 +254,6 @@ impl TopApp {
         self.select_tab(AppTab::Library, cx);
     }
 
-    pub(super) fn handle_select_discover_tab(
-        &mut self,
-        _: &SelectDiscoverTab,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.select_tab(AppTab::Search, cx);
-    }
-
     pub(super) fn handle_select_settings_tab(
         &mut self,
         _: &SelectSettingsTab,
@@ -305,9 +284,6 @@ impl TopApp {
             AppTab::Library => {
                 self.library.update(cx, LibraryApp::pop_inspector);
             }
-            AppTab::Search => {
-                self.search.update(cx, SearchApp::pop_inspector);
-            }
             AppTab::Settings => {}
         }
     }
@@ -320,7 +296,6 @@ impl TopApp {
     ) {
         match self.tab {
             AppTab::Library => self.library.update(cx, LibraryApp::move_up),
-            AppTab::Search => self.search.update(cx, SearchApp::move_up),
             AppTab::Settings => {}
         }
     }
@@ -333,7 +308,6 @@ impl TopApp {
     ) {
         match self.tab {
             AppTab::Library => self.library.update(cx, LibraryApp::move_down),
-            AppTab::Search => self.search.update(cx, SearchApp::move_down),
             AppTab::Settings => {}
         }
     }
@@ -346,14 +320,8 @@ impl TopApp {
     ) {
         match self.tab {
             AppTab::Library => self.library.update(cx, LibraryApp::confirm),
-            AppTab::Search => self.search.update(cx, SearchApp::confirm),
             AppTab::Settings => {}
         }
-    }
-
-    fn select_tab(&mut self, tab: AppTab, cx: &mut Context<Self>) {
-        self.tab = tab;
-        cx.notify();
     }
 }
 
@@ -379,7 +347,6 @@ mod tests {
             AppKeyCommand::FocusSearch,
             AppKeyCommand::NewPlaylist,
             AppKeyCommand::SelectLibraryTab,
-            AppKeyCommand::SelectDiscoverTab,
             AppKeyCommand::SelectSettingsTab,
             AppKeyCommand::CancelActivePane,
             AppKeyCommand::MoveSelectionUp,

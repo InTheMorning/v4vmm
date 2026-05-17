@@ -5,8 +5,8 @@
 use gpui::{AnyElement, Context};
 
 use crate::api::{Feed, Track};
+use crate::discover::{FeedTrackListContext, SearchApp};
 use crate::library_service;
-use crate::search::{FeedTrackListContext, SearchApp};
 use crate::ui::shells::track;
 use crate::view_models::search::TrackRowActionVm;
 

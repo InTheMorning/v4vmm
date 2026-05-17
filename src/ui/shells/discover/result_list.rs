@@ -12,7 +12,7 @@ use gpui::{
     InteractiveElement, ScrollHandle, ScrollWheelEvent, SharedString, Styled,
 };
 
-use crate::search::SearchApp;
+use crate::discover::SearchApp;
 use crate::ui::composites::{
     EntityKind, ListRow, ListRowA11yLabel, SkeletonTrackRow, TagBadge, TagBadgeDisplay, Thumbnail,
     ThumbnailSize,

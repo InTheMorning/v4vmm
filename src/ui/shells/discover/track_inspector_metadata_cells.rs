@@ -10,11 +10,11 @@ use gpui::{
     Pixels, Point, SharedString, Styled,
 };
 
+use crate::discover::SearchApp;
 use crate::metadata::{
     display_metadata_value, id3v24_drag_copy_frame_is_writable, normalized_compare_value,
     AlignedCompareRow, MetadataColumn, MetadataDragValue, MetadataGroupRow, PendingId3Edit,
 };
-use crate::search::SearchApp;
 use crate::track_compare::ComparisonStatus;
 use crate::ui::composites::{DisclosureGroup, DisclosureGroupDisplay, ProvenanceRole};
 use crate::ui::layouts as layout;

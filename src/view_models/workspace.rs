@@ -624,7 +624,13 @@ impl BreadcrumbDisplay {
                 breadcrumb_segment(middle, false, &mut label_for),
                 breadcrumb_segment(current, true, &mut label_for),
             ],
-            [origin, .., current] => vec![
+            [origin, first, second, current] => vec![
+                breadcrumb_segment(origin, false, &mut label_for),
+                breadcrumb_segment(first, false, &mut label_for),
+                breadcrumb_segment(second, false, &mut label_for),
+                breadcrumb_segment(current, true, &mut label_for),
+            ],
+            [origin, .., parent, current] => vec![
                 breadcrumb_segment(origin, false, &mut label_for),
                 BreadcrumbSegment {
                     id: "breadcrumb-ellipsis".to_string(),
@@ -633,6 +639,7 @@ impl BreadcrumbDisplay {
                     is_current: false,
                     target: None,
                 },
+                breadcrumb_segment(parent, false, &mut label_for),
                 breadcrumb_segment(current, true, &mut label_for),
             ],
             [] => Vec::new(),
@@ -673,6 +680,16 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
         FrameNavigationEntry::AlbumDetail(id) => format!("album-{id}"),
         FrameNavigationEntry::ArtistDetail(name) => format!("artist-{}", slug_id(name)),
         FrameNavigationEntry::Search(query) => format!("search-{}", slug_id(query)),
+        FrameNavigationEntry::IndexArtistDetail(name) => {
+            format!("index-artist-{}", slug_id(name))
+        }
+        FrameNavigationEntry::IndexFeedDetail { id, .. } => {
+            format!("index-feed-{}", slug_id(id))
+        }
+        FrameNavigationEntry::IndexTrackDetail { id, .. } => {
+            format!("index-track-{}", slug_id(id))
+        }
+        FrameNavigationEntry::Settings => "settings".to_string(),
         FrameNavigationEntry::QueueNowPlaying => "queue-now-playing".to_string(),
     }
 }
@@ -901,34 +918,80 @@ impl WorkspaceLayout {
         Ok(())
     }
 
-    /// Opens or focuses the Detail frame for a submitted search query.
+    /// Opens search results in the `ContentList` frame's nav stack.
     ///
-    /// The frame is reused when present so repeated toolbar submissions update
-    /// the same search-results surface instead of spawning duplicates.
+    /// A search from a non-search destination pushes
+    /// [`FrameNavigationEntry::Search`] so the user can navigate back to their
+    /// previous content. A search submitted while an existing search flow is
+    /// active replaces that search entry and discards its descendants, preserving
+    /// earlier history without stacking query crumbs. The `ContentList` frame
+    /// must exist in a valid layout; it is not auto-created.
     ///
     /// # Errors
     ///
-    /// Returns [`WorkspaceModelError::DuplicateFrameId`] if a new Detail frame
-    /// cannot be allocated.
-    pub(crate) fn open_search_results_frame(
+    /// Returns [`WorkspaceModelError::FrameNotFound`] if the `ContentList` frame
+    /// does not exist.
+    pub(crate) fn open_search_results_in_content_list(
         &mut self,
         query: impl Into<String>,
     ) -> Result<WorkspaceFrameId, WorkspaceModelError> {
         let query = query.into();
-        let detail_frame_id = self
+        let content_list_frame_id = self
             .frames
             .iter()
-            .find(|frame| frame.kind() == WorkspaceFrameKind::Detail)
-            .map(WorkspaceFrameState::id);
-        let detail_frame_id = if let Some(id) = detail_frame_id {
-            id
-        } else {
-            self.add_frame(WorkspaceFrameKind::Detail)?
-        };
+            .find(|frame| frame.kind() == WorkspaceFrameKind::ContentList)
+            .map(WorkspaceFrameState::id)
+            .ok_or(WorkspaceModelError::FrameNotFound(Self::CONTENT_LIST_ID))?;
 
-        self.reset_nav(detail_frame_id, FrameNavigationEntry::Search(query))?;
-        self.focus_frame(detail_frame_id)?;
-        Ok(detail_frame_id)
+        let nav = self
+            .frame_nav_mut(content_list_frame_id)
+            .ok_or(WorkspaceModelError::FrameNotFound(content_list_frame_id))?;
+        nav.replace_active_search_or_push(FrameNavigationEntry::Search(query));
+        self.focus_frame(content_list_frame_id)?;
+        Ok(content_list_frame_id)
+    }
+
+    /// Pops the named frame's nav stack until the given entry is on top.
+    ///
+    /// If the entry is already at the top, this is a no-op. If the entry does
+    /// not exist in the back-history, returns [`WorkspaceModelError::FrameNotFound`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkspaceModelError::FrameNotFound`] if the frame or the target
+    /// entry does not exist in the frame's history.
+    pub(crate) fn pop_nav_until(
+        &mut self,
+        frame_id: WorkspaceFrameId,
+        target_entry: &FrameNavigationEntry,
+    ) -> Result<(), WorkspaceModelError> {
+        let nav_state = self
+            .frame_nav_mut(frame_id)
+            .ok_or(WorkspaceModelError::FrameNotFound(frame_id))?;
+
+        // If already at target, no-op
+        if nav_state.current() == target_entry {
+            return Ok(());
+        }
+
+        // Search the back_stack for the target entry
+        let back_stack_len = nav_state.back_stack.len();
+        let mut found_at = None;
+        for (i, entry) in nav_state.back_stack.iter().enumerate() {
+            if entry == target_entry {
+                found_at = Some(i);
+                break;
+            }
+        }
+
+        let found_at = found_at.ok_or(WorkspaceModelError::FrameNotFound(frame_id))?;
+
+        // Pop until the target is on top: we need to pop (back_stack_len - found_at) times
+        for _ in 0..(back_stack_len - found_at) {
+            nav_state.go_back()?;
+        }
+
+        Ok(())
     }
 
     /// Returns the currently focused frame id.
@@ -951,12 +1014,15 @@ impl WorkspaceLayout {
         let nav = self.frame_nav(frame.id())?.current().clone();
         let (scope, placeholder) = match (frame.kind(), &nav) {
             (WorkspaceFrameKind::SourceList, _) => (FrameSearchScope::Sidebar, "Filter sidebar..."),
+            (WorkspaceFrameKind::ContentList, FrameNavigationEntry::Settings) => {
+                (FrameSearchScope::SettingsRows, "Search settings...")
+            }
             (
                 WorkspaceFrameKind::ContentList,
                 FrameNavigationEntry::SourceList | FrameNavigationEntry::Search(_),
             ) => (FrameSearchScope::LibraryRows, "Search library..."),
             (WorkspaceFrameKind::ContentList, _) => {
-                (FrameSearchScope::SettingsRows, "Search settings...")
+                (FrameSearchScope::DetailTracks, "Filter tracks...")
             }
             (WorkspaceFrameKind::Detail, FrameNavigationEntry::Search(_)) => {
                 (FrameSearchScope::InspectorQuery, "Refine search...")
@@ -1196,8 +1262,9 @@ impl WorkspaceLayout {
 
 fn default_navigation_entry(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
     match kind {
-        WorkspaceFrameKind::SourceList => FrameNavigationEntry::SourceList,
-        WorkspaceFrameKind::ContentList => FrameNavigationEntry::Search(String::new()),
+        WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => {
+            FrameNavigationEntry::SourceList
+        }
         WorkspaceFrameKind::Detail => FrameNavigationEntry::TrackDetail(0),
         WorkspaceFrameKind::QueueNowPlaying => FrameNavigationEntry::QueueNowPlaying,
     }
@@ -1221,6 +1288,24 @@ pub(crate) enum FrameNavigationEntry {
     ArtistDetail(String),
     /// Search results by submitted query.
     Search(String),
+    /// Remote Index artist drill-down by display name.
+    IndexArtistDetail(String),
+    /// Remote Index feed drill-down.
+    IndexFeedDetail {
+        /// Stable remote feed id.
+        id: String,
+        /// Display label captured from the selected result row.
+        label: String,
+    },
+    /// Remote Index track drill-down.
+    IndexTrackDetail {
+        /// Stable remote track activation id.
+        id: String,
+        /// Display label captured from the selected result row.
+        label: String,
+    },
+    /// Application settings.
+    Settings,
     /// Queue and Now Playing frame root.
     QueueNowPlaying,
 }
@@ -1234,7 +1319,7 @@ impl FrameNavigationEntry {
             Self::PlaylistDetail(id) => format!("Playlist {id}"),
             Self::TrackDetail(id) => format!("Track {id}"),
             Self::AlbumDetail(id) => format!("Album {id}"),
-            Self::ArtistDetail(name) => name.clone(),
+            Self::ArtistDetail(name) | Self::IndexArtistDetail(name) => name.clone(),
             Self::Search(query) => {
                 if query.trim().is_empty() {
                     "Search".to_string()
@@ -1242,6 +1327,10 @@ impl FrameNavigationEntry {
                     format!("Search: {query}")
                 }
             }
+            Self::IndexFeedDetail { label, .. } | Self::IndexTrackDetail { label, .. } => {
+                label.clone()
+            }
+            Self::Settings => "Settings".to_string(),
             Self::QueueNowPlaying => "Queue".to_string(),
         }
     }
@@ -1282,6 +1371,32 @@ impl FrameNavigationState {
         self.back_stack.last()
     }
 
+    /// Returns the active search query for a search flow or one of its descendants.
+    ///
+    /// Search-result drill-down entries remain part of the search flow, so the
+    /// owning app can keep the inspector VM alive while breadcrumbs navigate
+    /// below a submitted query.
+    #[must_use]
+    pub(crate) fn active_search_query(&self) -> Option<&str> {
+        match &self.current {
+            FrameNavigationEntry::Search(query) => Some(query.as_str()),
+            _ => self.back_stack.iter().rev().find_map(|entry| match entry {
+                FrameNavigationEntry::Search(query) => Some(query.as_str()),
+                _ => None,
+            }),
+        }
+    }
+
+    /// Returns the visible navigation path from root history through current.
+    #[must_use]
+    pub(crate) fn path_entries(&self) -> Vec<FrameNavigationEntry> {
+        self.back_stack
+            .iter()
+            .chain(std::iter::once(&self.current))
+            .cloned()
+            .collect()
+    }
+
     /// Returns whether a back-history entry is available.
     #[must_use]
     pub(crate) fn can_go_back(&self) -> bool {
@@ -1309,6 +1424,49 @@ impl FrameNavigationState {
         self.back_stack.clear();
         self.current = entry;
         self.forward_stack.clear();
+    }
+
+    /// Replaces only the current navigation entry.
+    ///
+    /// Back history stays intact so transient destinations such as updated
+    /// search queries do not erase the path back to the previous content.
+    pub(crate) fn replace_current(&mut self, entry: FrameNavigationEntry) {
+        if self.current == entry {
+            return;
+        }
+        self.current = entry;
+        self.forward_stack.clear();
+    }
+
+    /// Replaces the active search flow or pushes a new search entry.
+    ///
+    /// If the frame is already at `Search(_)`, this replaces the current query.
+    /// If a search entry exists in the back stack, descendants of that search
+    /// are discarded and the new query becomes current. Otherwise this behaves
+    /// like [`Self::push`].
+    pub(crate) fn replace_active_search_or_push(&mut self, entry: FrameNavigationEntry) {
+        debug_assert!(
+            matches!(entry, FrameNavigationEntry::Search(_)),
+            "replace_active_search_or_push only accepts search entries"
+        );
+
+        if matches!(self.current, FrameNavigationEntry::Search(_)) {
+            self.replace_current(entry);
+            return;
+        }
+
+        if let Some(index) = self
+            .back_stack
+            .iter()
+            .rposition(|candidate| matches!(candidate, FrameNavigationEntry::Search(_)))
+        {
+            self.back_stack.truncate(index);
+            self.current = entry;
+            self.forward_stack.clear();
+            return;
+        }
+
+        self.push(entry);
     }
 
     /// Moves back one navigation entry.
@@ -1341,6 +1499,16 @@ impl FrameNavigationState {
         let current = std::mem::replace(&mut self.current, next);
         self.back_stack.push(current);
         Ok(&self.current)
+    }
+
+    /// Returns whether the navigation state has more than the root entry.
+    ///
+    /// Returns true when a back action would be valid (i.e., the `back_stack`
+    /// is non-empty), indicating the user can meaningfully press back or a
+    /// breadcrumb-segment button.
+    #[must_use]
+    pub(crate) fn has_history(&self) -> bool {
+        !self.back_stack.is_empty()
     }
 }
 
@@ -1439,15 +1607,15 @@ mod tests {
     }
 
     #[test]
-    fn focused_search_descriptor_projects_content_non_search_as_settings_rows() {
+    fn focused_search_descriptor_projects_content_settings_as_settings_rows() {
         let descriptor = descriptor_for(
             14,
             WorkspaceFrameKind::ContentList,
-            FrameNavigationEntry::PlaylistDetail(7),
+            FrameNavigationEntry::Settings,
         );
 
         assert_eq!(descriptor.kind, WorkspaceFrameKind::ContentList);
-        assert_eq!(descriptor.nav, FrameNavigationEntry::PlaylistDetail(7));
+        assert_eq!(descriptor.nav, FrameNavigationEntry::Settings);
         assert_eq!(descriptor.scope, FrameSearchScope::SettingsRows);
         assert_eq!(descriptor.placeholder, "Search settings...");
     }
@@ -1476,6 +1644,15 @@ mod tests {
             FrameNavigationEntry::TrackDetail(4),
             FrameNavigationEntry::AlbumDetail(5),
             FrameNavigationEntry::ArtistDetail("Dawn Chorus".to_string()),
+            FrameNavigationEntry::IndexArtistDetail("Dawn Chorus".to_string()),
+            FrameNavigationEntry::IndexFeedDetail {
+                id: "feed-guid".to_string(),
+                label: "Dawn Chorus Feed".to_string(),
+            },
+            FrameNavigationEntry::IndexTrackDetail {
+                id: "feed-guid:track-guid".to_string(),
+                label: "Morning Theme".to_string(),
+            },
         ] {
             let descriptor = descriptor_for(16, WorkspaceFrameKind::Detail, nav.clone());
 
@@ -1761,6 +1938,62 @@ mod tests {
     }
 
     #[test]
+    fn breadcrumb_display_projects_index_search_drilldown_path() {
+        let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+        nav.push(FrameNavigationEntry::Search("survival guide".to_string()));
+        nav.push(FrameNavigationEntry::IndexArtistDetail(
+            "Survival Guide".to_string(),
+        ));
+        nav.push(FrameNavigationEntry::IndexFeedDetail {
+            id: "feed-guid".to_string(),
+            label: "deathdreams".to_string(),
+        });
+
+        let display = BreadcrumbDisplay::project("index-search-breadcrumb", &nav, |entry| {
+            entry.display_label()
+        });
+
+        assert_eq!(
+            display
+                .segments
+                .iter()
+                .map(|segment| segment.label.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "Library",
+                "Search: survival guide",
+                "Survival Guide",
+                "deathdreams"
+            ]
+        );
+        assert_eq!(
+            display.segments[2].target,
+            Some(FrameNavigationEntry::IndexArtistDetail(
+                "Survival Guide".to_string()
+            )),
+            "the immediate Index parent must stay selectable in the breadcrumb"
+        );
+        assert_eq!(
+            nav.active_search_query(),
+            Some("survival guide"),
+            "Index drill-down entries must keep their search ancestor active"
+        );
+        assert_eq!(
+            nav.path_entries(),
+            vec![
+                FrameNavigationEntry::SourceList,
+                FrameNavigationEntry::Search("survival guide".to_string()),
+                FrameNavigationEntry::IndexArtistDetail("Survival Guide".to_string()),
+                FrameNavigationEntry::IndexFeedDetail {
+                    id: "feed-guid".to_string(),
+                    label: "deathdreams".to_string(),
+                },
+            ],
+            "breadcrumb labelers need the same full path rendered by frame chrome"
+        );
+    }
+
+    #[test]
     fn breadcrumb_display_projects_single_segment_as_current() {
         let nav = FrameNavigationState::new(FrameNavigationEntry::TrackDetail(42));
 
@@ -1778,7 +2011,7 @@ mod tests {
     }
 
     #[test]
-    fn breadcrumb_display_projects_long_paths_with_middle_ellipsis() {
+    fn breadcrumb_display_projects_four_segment_paths_without_ellipsis() {
         let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
         nav.push(FrameNavigationEntry::PlaylistDetail(7));
         nav.push(FrameNavigationEntry::TrackDetail(42));
@@ -1792,18 +2025,25 @@ mod tests {
             _ => unreachable!("long-path test should only project breadcrumb entries"),
         });
 
-        assert_eq!(display.segments.len(), 3);
+        assert_eq!(display.segments.len(), 4);
         assert_eq!(display.segments[0].label, "Library");
         assert_eq!(
             display.segments[0].target,
             Some(FrameNavigationEntry::SourceList)
         );
-        assert_eq!(display.segments[1].label, "…");
-        assert_eq!(display.segments[1].target, None);
-        assert!(!display.segments[1].is_current);
-        assert_eq!(display.segments[2].label, "Album 11");
-        assert!(display.segments[2].is_current);
-        assert_eq!(display.segments[2].target, None);
+        assert_eq!(display.segments[1].label, "Playlist 7");
+        assert_eq!(
+            display.segments[1].target,
+            Some(FrameNavigationEntry::PlaylistDetail(7))
+        );
+        assert_eq!(display.segments[2].label, "Track 42");
+        assert_eq!(
+            display.segments[2].target,
+            Some(FrameNavigationEntry::TrackDetail(42))
+        );
+        assert_eq!(display.segments[3].label, "Album 11");
+        assert!(display.segments[3].is_current);
+        assert_eq!(display.segments[3].target, None);
     }
 
     #[test]
@@ -2057,84 +2297,6 @@ mod tests {
                 .count(),
             1,
             "add_frame should preserve exactly one focused frame"
-        );
-    }
-
-    #[test]
-    fn open_search_results_frame_reuses_detail_frame_and_records_query() {
-        let mut layout = WorkspaceLayout::default_layout();
-        let detail_id = WorkspaceLayout::default_detail_frame_id();
-
-        let opened = layout
-            .open_search_results_frame("hey citizen")
-            .expect("default detail frame should open for search results");
-
-        assert_eq!(opened, detail_id);
-        assert_eq!(
-            layout.focused_frame_id(),
-            Some(detail_id),
-            "search results should focus the reused Detail frame"
-        );
-        assert_eq!(
-            layout
-                .frame_nav(detail_id)
-                .expect("detail nav should exist")
-                .current(),
-            &FrameNavigationEntry::Search("hey citizen".to_string()),
-            "search results should reset Detail navigation to the submitted query"
-        );
-
-        let reopened = layout
-            .open_search_results_frame("ambient")
-            .expect("resubmitting should reuse the same Detail frame");
-
-        assert_eq!(reopened, detail_id);
-        assert_eq!(
-            layout
-                .frames()
-                .iter()
-                .filter(|frame| frame.kind() == WorkspaceFrameKind::Detail)
-                .count(),
-            1,
-            "resubmitting search must not spawn another Detail frame"
-        );
-        assert_eq!(
-            layout
-                .frame_nav(detail_id)
-                .expect("detail nav should remain")
-                .current(),
-            &FrameNavigationEntry::Search("ambient".to_string())
-        );
-    }
-
-    #[test]
-    fn open_search_results_frame_adds_missing_detail_frame() {
-        let mut layout = WorkspaceLayout::new(
-            vec![frame(2, WorkspaceFrameKind::ContentList)],
-            Some(WorkspaceFrameId::new(2)),
-        )
-        .expect("content-only layout should be valid");
-
-        let opened = layout
-            .open_search_results_frame("noise")
-            .expect("missing Detail frame should be allocated");
-
-        assert_eq!(
-            layout
-                .frames()
-                .iter()
-                .filter(|frame| frame.kind() == WorkspaceFrameKind::Detail)
-                .count(),
-            1,
-            "helper should add one Detail frame when none exists"
-        );
-        assert_eq!(layout.focused_frame_id(), Some(opened));
-        assert_eq!(
-            layout
-                .frame_nav(opened)
-                .expect("new detail nav should exist")
-                .current(),
-            &FrameNavigationEntry::Search("noise".to_string())
         );
     }
 
@@ -2541,5 +2703,202 @@ mod tests {
         );
         assert!(!nav.can_go_back(), "reset should clear back history");
         assert!(!nav.can_go_forward(), "reset should clear forward history");
+    }
+
+    #[test]
+    fn has_history_returns_false_for_fresh_state() {
+        let nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+
+        assert!(
+            !nav.has_history(),
+            "fresh navigation state should have no history"
+        );
+    }
+
+    #[test]
+    fn has_history_returns_true_after_push() {
+        let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+        nav.push(FrameNavigationEntry::PlaylistDetail(7));
+
+        assert!(
+            nav.has_history(),
+            "navigation state with a back-stack entry should have history"
+        );
+    }
+
+    #[test]
+    fn open_search_results_in_content_list_pushes_search_onto_content_list_nav() {
+        let mut layout = WorkspaceLayout::default_layout();
+
+        let result = layout.open_search_results_in_content_list("ambient");
+
+        assert_eq!(
+            result,
+            Ok(WorkspaceFrameId::new(2)),
+            "should return the ContentList frame id"
+        );
+        let nav = layout
+            .frame_nav(WorkspaceFrameId::new(2))
+            .expect("ContentList should have navigation state");
+        assert_eq!(
+            nav.current(),
+            &FrameNavigationEntry::Search("ambient".to_string()),
+            "ContentList nav top should be the search query"
+        );
+        assert_eq!(
+            layout.focused_frame_id(),
+            Some(WorkspaceFrameId::new(2)),
+            "ContentList should be focused"
+        );
+    }
+
+    #[test]
+    fn open_search_results_in_content_list_pushes_from_non_search_nav() {
+        let mut layout = WorkspaceLayout::default_layout();
+        let content_list_id = WorkspaceFrameId::new(2);
+
+        layout
+            .reset_nav(content_list_id, FrameNavigationEntry::PlaylistDetail(7))
+            .expect("should reset ContentList nav");
+        layout
+            .open_search_results_in_content_list("drums")
+            .expect("should push search onto ContentList");
+
+        let nav = layout
+            .frame_nav(content_list_id)
+            .expect("ContentList should have navigation state");
+        assert_eq!(
+            nav.current(),
+            &FrameNavigationEntry::Search("drums".to_string()),
+            "current should be the new search"
+        );
+        assert!(
+            nav.can_go_back(),
+            "back history should contain the playlist detail entry"
+        );
+        assert_eq!(
+            nav.back_destination(),
+            Some(&FrameNavigationEntry::PlaylistDetail(7)),
+            "back should go to the playlist detail"
+        );
+    }
+
+    #[test]
+    fn open_search_results_in_content_list_replaces_current_search_nav() {
+        let mut layout = WorkspaceLayout::default_layout();
+        let content_list_id = WorkspaceFrameId::new(2);
+
+        layout
+            .reset_nav(content_list_id, FrameNavigationEntry::PlaylistDetail(7))
+            .expect("should reset ContentList nav");
+        layout
+            .open_search_results_in_content_list("drums")
+            .expect("should push the first search");
+        layout
+            .open_search_results_in_content_list("survival guide")
+            .expect("should replace the current search");
+
+        let nav = layout
+            .frame_nav(content_list_id)
+            .expect("ContentList should have navigation state");
+        assert_eq!(
+            nav.current(),
+            &FrameNavigationEntry::Search("survival guide".to_string()),
+            "current should be the latest search"
+        );
+        assert_eq!(
+            nav.back_destination(),
+            Some(&FrameNavigationEntry::PlaylistDetail(7)),
+            "back should skip the overwritten search and return to prior content"
+        );
+    }
+
+    #[test]
+    fn open_search_results_in_content_list_replaces_search_ancestor_nav() {
+        let mut layout = WorkspaceLayout::default_layout();
+        let content_list_id = WorkspaceFrameId::new(2);
+
+        layout
+            .reset_nav(content_list_id, FrameNavigationEntry::PlaylistDetail(7))
+            .expect("should reset ContentList nav");
+        layout
+            .open_search_results_in_content_list("heycitizen")
+            .expect("should push the first search");
+        layout
+            .push_nav(
+                content_list_id,
+                FrameNavigationEntry::ArtistDetail("HeyCitizen".to_string()),
+            )
+            .expect("should push selected result detail");
+        layout
+            .open_search_results_in_content_list("survival guide")
+            .expect("should replace the active search flow");
+
+        let nav = layout
+            .frame_nav(content_list_id)
+            .expect("ContentList should have navigation state");
+        assert_eq!(
+            nav.current(),
+            &FrameNavigationEntry::Search("survival guide".to_string()),
+            "current should be the latest search"
+        );
+        assert_eq!(
+            nav.back_destination(),
+            Some(&FrameNavigationEntry::PlaylistDetail(7)),
+            "back should skip the previous search and selected detail"
+        );
+    }
+
+    #[test]
+    fn pop_nav_until_pops_to_target() {
+        let mut layout = WorkspaceLayout::default_layout();
+        let detail_id = WorkspaceFrameId::new(3);
+
+        layout
+            .reset_nav(detail_id, FrameNavigationEntry::PlaylistDetail(1))
+            .expect("should reset Detail nav");
+        layout
+            .push_nav(detail_id, FrameNavigationEntry::TrackDetail(42))
+            .expect("should push track detail");
+        layout
+            .push_nav(detail_id, FrameNavigationEntry::AlbumDetail(5))
+            .expect("should push album detail");
+
+        layout
+            .pop_nav_until(detail_id, &FrameNavigationEntry::PlaylistDetail(1))
+            .expect("should pop until playlist detail");
+
+        let nav = layout
+            .frame_nav(detail_id)
+            .expect("Detail should have navigation state");
+        assert_eq!(
+            nav.current(),
+            &FrameNavigationEntry::PlaylistDetail(1),
+            "should be back at the playlist detail after pop_nav_until"
+        );
+    }
+
+    #[test]
+    fn pop_nav_until_noop_when_already_at_target() {
+        let mut layout = WorkspaceLayout::default_layout();
+        let detail_id = WorkspaceFrameId::new(3);
+
+        layout
+            .reset_nav(detail_id, FrameNavigationEntry::TrackDetail(42))
+            .expect("should reset Detail nav");
+
+        layout
+            .pop_nav_until(detail_id, &FrameNavigationEntry::TrackDetail(42))
+            .expect("should not error when already at target");
+
+        let nav = layout
+            .frame_nav(detail_id)
+            .expect("Detail should have navigation state");
+        assert_eq!(
+            nav.current(),
+            &FrameNavigationEntry::TrackDetail(42),
+            "should remain at the target entry"
+        );
+        assert!(!nav.can_go_back(), "back history should remain empty");
     }
 }

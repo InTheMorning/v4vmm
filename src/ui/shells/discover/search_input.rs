@@ -6,7 +6,7 @@ use gpui::{div, prelude::*, AnyElement, Context, FontWeight, Rgba, SharedString,
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::Size;
 
-use crate::search::SearchApp;
+use crate::discover::SearchApp;
 use crate::ui::composites::{Segment, SegmentDisplay, SegmentedControl};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;

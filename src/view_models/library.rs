@@ -1025,6 +1025,7 @@ pub(crate) struct LibraryViewModel {
     hovered_thumb_url: Option<String>,
     // Operation state.
     busy_track: Option<i64>,
+    busy_feed: Option<i64>,
     library_removal: LibraryRemovalConfirmationState,
     status: String,
     library_loading: bool,
@@ -1059,6 +1060,7 @@ impl LibraryViewModel {
             selected_playlist_id: None,
             hovered_thumb_url: None,
             busy_track: None,
+            busy_feed: None,
             library_removal: LibraryRemovalConfirmationState::new(),
             status: String::new(),
             library_loading: false,
@@ -1153,8 +1155,6 @@ impl LibraryViewModel {
             filter_tree(&self.snapshot.tree, query)
         };
 
-        let tree = filter_tree_to_content_rows(&tree, &self.content_list_page);
-
         if query.is_empty() {
             return LibraryTreeProjection {
                 tree,
@@ -1196,18 +1196,23 @@ impl LibraryViewModel {
     }
 
     #[must_use]
-    #[expect(
-        dead_code,
-        reason = "tested in library_view_model_content_text_filter_uses_content_list_page_vm"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "tested in library_view_model_content_text_filter_uses_content_list_page_vm"
+        )
     )]
     pub(crate) fn content_text_filter(&self) -> Option<&str> {
         self.content_list_page.text_filter()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_content_text_filter(&mut self, filter: Option<String>) {
         self.content_list_page.set_text_filter(filter);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn set_detail_text_filter(&mut self, filter: Option<String>) {
         self.detail_text_filter = filter;
     }
@@ -1560,8 +1565,24 @@ impl LibraryViewModel {
         self.busy_track.is_some()
     }
 
+    #[must_use]
+    pub(crate) fn busy_feed(&self) -> Option<i64> {
+        self.busy_feed
+    }
+
+    #[must_use]
+    pub(crate) fn has_busy_feed(&self) -> bool {
+        self.busy_feed.is_some()
+    }
+
     pub(crate) fn begin_busy_track(&mut self, track_id: i64, status: impl Into<String>) {
         self.busy_track = Some(track_id);
+        self.library_removal.cancel();
+        self.status = status.into();
+    }
+
+    pub(crate) fn begin_busy_feed(&mut self, feed_id: i64, status: impl Into<String>) {
+        self.busy_feed = Some(feed_id);
         self.library_removal.cancel();
         self.status = status.into();
     }
@@ -1577,6 +1598,10 @@ impl LibraryViewModel {
         self.busy_track = None;
     }
 
+    pub(crate) fn clear_busy_feed(&mut self) {
+        self.busy_feed = None;
+    }
+
     pub(crate) fn finish_track_subscribe(&mut self, outcome: TrackSubscribeOutcome) {
         self.busy_track = None;
         let mut message = format!("Downloaded track: {}", outcome.path_label);
@@ -1590,6 +1615,31 @@ impl LibraryViewModel {
     pub(crate) fn fail_track_subscribe(&mut self, error: impl std::fmt::Display) {
         self.busy_track = None;
         self.status = format!("Error downloading track: {error:#}");
+    }
+
+    pub(crate) fn finish_feed_download(
+        &mut self,
+        downloaded: usize,
+        applied_edits: usize,
+        skipped: usize,
+    ) {
+        self.busy_feed = None;
+        let mut message = format!(
+            "Downloaded feed: {} track{}, applied {} ID3 edit{}",
+            downloaded,
+            plural(downloaded),
+            applied_edits,
+            plural(applied_edits)
+        );
+        if skipped > 0 {
+            write!(&mut message, ", skipped {skipped}").expect("writing to a String cannot fail");
+        }
+        self.status = message;
+    }
+
+    pub(crate) fn fail_feed_download(&mut self, error: impl std::fmt::Display) {
+        self.busy_feed = None;
+        self.status = format!("Error downloading feed: {error:#}");
     }
 
     #[must_use]
@@ -2123,50 +2173,6 @@ fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>
         .collect()
 }
 
-fn filter_tree_to_content_rows(tree: &LibraryTree, page: &ContentListPageVm) -> LibraryTree {
-    let visible_row_ids: HashSet<i64> = page
-        .visible_row_ids()
-        .into_iter()
-        .filter_map(|id| id.parse::<i64>().ok())
-        .collect();
-    if visible_row_ids.len() == page.cached_rows().len() {
-        return tree.clone();
-    }
-
-    let mut artists = Vec::new();
-    for artist in &tree.artists {
-        let mut albums = Vec::new();
-        for album in &artist.albums {
-            let tracks: Vec<TrackRow> = album
-                .tracks
-                .iter()
-                .filter(|track| visible_row_ids.contains(&track.id))
-                .cloned()
-                .collect();
-            if !tracks.is_empty() {
-                albums.push(AlbumNode {
-                    name: album.name.clone(),
-                    feed_id: album.feed_id,
-                    feed_guid: album.feed_guid.clone(),
-                    feed_url: album.feed_url.clone(),
-                    description: album.description.clone(),
-                    image_href: album.image_href.clone(),
-                    identity_facts: album.identity_facts.clone(),
-                    tracks,
-                });
-            }
-        }
-        if !albums.is_empty() {
-            artists.push(ArtistNode {
-                name: artist.name.clone(),
-                albums,
-            });
-        }
-    }
-
-    LibraryTree { artists }
-}
-
 impl Default for LibraryViewModel {
     fn default() -> Self {
         Self::new()
@@ -2556,6 +2562,7 @@ fn artist_active_years(begin_year: Option<i32>, end_year: Option<i32>) -> Option
 pub(crate) struct LibraryAlbumDetailVm<'a> {
     mb_status: &'a BTreeMap<i64, MbTrackStatus>,
     description_state: DescriptionState,
+    has_library_tracks: bool,
 }
 
 /// Display contract for the Library album `MusicBrainz` action.
@@ -2577,11 +2584,12 @@ impl<'a> LibraryAlbumDetailVm<'a> {
     #[must_use]
     pub(crate) fn new(
         feed_view: &'a FeedView,
-        _tracks: &'a [TrackRow],
+        tracks: &'a [TrackRow],
         mb_status: &'a BTreeMap<i64, MbTrackStatus>,
     ) -> Self {
         Self {
             mb_status,
+            has_library_tracks: tracks.iter().any(|track| track.is_in_library),
             description_state: DescriptionState::project(description_line_count(
                 feed_view.description.as_deref(),
             )),
@@ -2616,6 +2624,16 @@ impl<'a> LibraryAlbumDetailVm<'a> {
     }
 
     #[must_use]
+    pub(crate) fn track_row_busy(
+        &self,
+        track: &TrackRow,
+        track_busy: bool,
+        feed_busy: bool,
+    ) -> bool {
+        track_busy || (feed_busy && (!self.has_library_tracks || track.is_in_library))
+    }
+
+    #[must_use]
     pub(crate) fn playlist_action_vm(&self, feed_id: i64) -> Option<EntityActionVm> {
         self.release_action_state(false, PlaylistActionState::Closed)
             .playlist_action(EntityActionTarget::Feed(FeedRef::LocalFeedId(feed_id)))
@@ -2640,19 +2658,21 @@ impl<'a> LibraryAlbumDetailVm<'a> {
     }
 
     #[must_use]
-    #[expect(
-        clippy::unused_self,
-        reason = "kept on the album VM while Library action wiring is migrated"
-    )]
     fn release_action_state(
         &self,
         is_busy: bool,
         playlist: PlaylistActionState,
     ) -> ReleaseActionState {
         let membership = if is_busy {
-            ReleaseMembershipState::Removing
-        } else {
+            if self.has_library_tracks {
+                ReleaseMembershipState::Removing
+            } else {
+                ReleaseMembershipState::Downloading
+            }
+        } else if self.has_library_tracks {
             ReleaseMembershipState::InLibrary
+        } else {
+            ReleaseMembershipState::RemoteOnly
         };
 
         ReleaseActionState::new(membership, playlist)
@@ -4508,16 +4528,17 @@ mod tests {
     }
 
     #[test]
-    fn library_view_model_content_filter_uses_content_list_page_vm() {
+    fn library_view_model_content_filter_does_not_filter_source_tree() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
 
         vm.set_content_filter(ContentFilter::Index);
         let projection = vm.tree_projection();
 
-        assert!(
-            projection.tree.artists.is_empty(),
-            "index filter should hide local library rows in the content-list projection"
+        assert_eq!(
+            projection.tree.artists.len(),
+            2,
+            "content-source filters must not hide local Library source-tree rows"
         );
         assert_eq!(
             vm.content_filter_empty_state(),
@@ -4541,7 +4562,7 @@ mod tests {
     }
 
     #[test]
-    fn library_view_model_content_text_filter_uses_content_list_page_vm() {
+    fn library_view_model_content_text_filter_does_not_filter_source_tree() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
 
@@ -4549,18 +4570,24 @@ mod tests {
         let projection = vm.tree_projection();
 
         assert_eq!(vm.content_text_filter(), Some("cliff"));
-        assert_eq!(projection.tree.artists.len(), 1);
         assert_eq!(
-            projection.tree.artists[0].albums[0].tracks[0]
-                .track_title
-                .as_deref(),
-            Some("Cliffs")
+            projection.tree.artists.len(),
+            2,
+            "content-list text filtering must not hide source-tree rows"
         );
+        let visible_rows = vm.content_list_page.visible_rows();
+        assert_eq!(visible_rows.len(), 1);
+        assert_eq!(visible_rows[0].title, "Cliffs");
 
         vm.set_content_text_filter(None);
         let projection = vm.tree_projection();
 
         assert_eq!(vm.content_text_filter(), None);
+        assert_eq!(
+            vm.content_list_page.visible_rows().len(),
+            4,
+            "clearing the content-list text filter should restore page VM rows"
+        );
         assert_eq!(
             projection
                 .tree
@@ -4570,7 +4597,7 @@ mod tests {
                 .flat_map(|album| &album.tracks)
                 .count(),
             4,
-            "clearing the content-list text filter should restore visible rows"
+            "source-tree rows should remain stable across content-list text filtering"
         );
     }
 
@@ -5242,6 +5269,22 @@ mod tests {
     }
 
     #[test]
+    fn library_view_model_busy_feed_and_status_transition_together() {
+        let mut vm = LibraryViewModel::new();
+        assert!(!vm.has_busy_feed());
+        assert_eq!(vm.busy_feed(), None);
+
+        vm.begin_busy_feed(7, "Downloading feed...");
+
+        assert!(vm.has_busy_feed());
+        assert_eq!(vm.busy_feed(), Some(7));
+        assert_eq!(vm.status(), "Downloading feed...");
+
+        vm.clear_busy_feed();
+        assert_eq!(vm.busy_feed(), None);
+    }
+
+    #[test]
     fn library_view_model_deferred_panel_error_message_owns_error_prefix() {
         assert_eq!(
             LibraryViewModel::deferred_panel_error_message("offline"),
@@ -5608,7 +5651,11 @@ mod tests {
     fn album_detail_vm_release_actions_use_shared_feed_vocabulary() {
         let view = feed_view_with(None, None);
         let mb = BTreeMap::new();
-        let vm = LibraryAlbumDetailVm::new(&view, &[], &mb);
+        let tracks = vec![TrackRow {
+            is_in_library: true,
+            ..TrackRow::default()
+        }];
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
         let primary = vm.primary_action_vm(7, false);
         let busy = vm.primary_action_vm(7, true);
         let playlist = vm
@@ -5620,5 +5667,78 @@ mod tests {
         assert_eq!(busy.label, "Removing...");
         assert!(!busy.enabled);
         assert_eq!(playlist.label, "Add feed to playlist ▾");
+    }
+
+    #[test]
+    fn album_detail_vm_empty_library_album_is_downloadable() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let tracks = vec![TrackRow {
+            is_in_library: false,
+            ..TrackRow::default()
+        }];
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+
+        let primary = vm.primary_action_vm(7, false);
+
+        assert_eq!(
+            primary.kind,
+            crate::view_models::entity_detail::EntityActionKind::Download
+        );
+        assert_eq!(primary.label, "Download Feed");
+    }
+
+    #[test]
+    fn album_detail_vm_empty_library_album_busy_action_is_downloading() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let tracks = vec![TrackRow {
+            is_in_library: false,
+            ..TrackRow::default()
+        }];
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+
+        let primary = vm.primary_action_vm(7, true);
+
+        assert_eq!(
+            primary.kind,
+            crate::view_models::entity_detail::EntityActionKind::Download
+        );
+        assert_eq!(primary.label, "Downloading...");
+        assert!(!primary.enabled);
+    }
+
+    #[test]
+    fn album_detail_vm_feed_download_marks_remote_rows_busy() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let track = TrackRow {
+            is_in_library: false,
+            ..TrackRow::default()
+        };
+        let tracks = vec![track.clone()];
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+
+        assert!(vm.track_row_busy(&track, false, true));
+    }
+
+    #[test]
+    fn album_detail_vm_feed_removal_marks_only_library_rows_busy() {
+        let view = feed_view_with(None, None);
+        let mb = BTreeMap::new();
+        let library_track = TrackRow {
+            is_in_library: true,
+            ..TrackRow::default()
+        };
+        let remote_track = TrackRow {
+            is_in_library: false,
+            ..TrackRow::default()
+        };
+        let tracks = vec![library_track.clone(), remote_track.clone()];
+        let vm = LibraryAlbumDetailVm::new(&view, &tracks, &mb);
+
+        assert!(vm.track_row_busy(&library_track, false, true));
+        assert!(!vm.track_row_busy(&remote_track, false, true));
+        assert!(vm.track_row_busy(&remote_track, true, false));
     }
 }

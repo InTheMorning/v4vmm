@@ -113,8 +113,7 @@ impl TopApp {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.tab = AppTab::Settings;
-        cx.notify();
+        self.select_tab(AppTab::Settings, cx);
     }
 }
 

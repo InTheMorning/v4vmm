@@ -6,7 +6,7 @@
 //!
 //! Shells:
 //! - Import view-models, composites, primitives, and tokens.
-//! - Do not import screens (`src/library.rs`, `src/search.rs`, `src/app/`),
+//! - Do not import screens (`src/library.rs`, `src/discover.rs`, `src/app/`),
 //!   services, or backend modules.
 //! - Carry no selected-entity state; that belongs to screens.
 //! - Resolve all dimensions through `.scaled(cx)` and all colors through
@@ -14,7 +14,7 @@
 //!
 //! Screen-specific shells live under `library/` and `discover/`. They are
 //! allowed to reference their owning screen module
-//! (`crate::library::LibraryApp` / `crate::search::SearchApp`) because they are
+//! (`crate::library::LibraryApp` / `crate::discover::SearchApp`) because they are
 //! owned by that screen.
 //!
 //! See `docs/adr/0038-presentation-contract-enforcement.md` for the layer

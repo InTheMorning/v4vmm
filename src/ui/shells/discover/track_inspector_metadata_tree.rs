@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use gpui::{div, prelude::*, px, AnyElement, ClickEvent, Context, SharedString, Styled};
 
-use crate::search::SearchApp;
+use crate::discover::SearchApp;
 use crate::ui::style::{color, spacing, typography};
 use crate::view_models::metadata::value_route_recipient_label;
 use crate::view_models::track_metadata_grid::{

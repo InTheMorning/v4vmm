@@ -156,11 +156,15 @@ pub(crate) fn subscribe_feed_with_config(
     let mut downloaded = 0usize;
     let mut applied_edits = 0usize;
     let mut skipped = 0usize;
+    let local_tracks = local_feed_tracks(&conn, &feed_url)?;
     let tracks = feed.tracks.clone().unwrap_or_default();
     let track_count = tracks.len();
 
-    for track in tracks {
-        let original_track = track;
+    for (index, track) in tracks.into_iter().enumerate() {
+        let mut original_track = track;
+        let local_track =
+            local_track_for_feed_download(&original_track, &local_tracks, index, track_count);
+        fill_missing_download_source(&mut original_track, local_track);
         let mut track_for_metadata = original_track.clone();
         let mut track_for_persistence = original_track.clone();
         if let Some(track_guid) = track_for_metadata.track_guid.as_deref() {
@@ -172,6 +176,8 @@ pub(crate) fn subscribe_feed_with_config(
             ) {
                 track_for_persistence = hydrated.clone();
                 track_for_metadata = hydrated;
+                fill_missing_download_source(&mut track_for_persistence, local_track);
+                fill_missing_download_source(&mut track_for_metadata, local_track);
             }
         }
         sanitize_track_source_text(&mut track_for_persistence);
@@ -235,6 +241,84 @@ pub(crate) fn subscribe_feed_with_config(
         applied_edits,
         skipped,
     })
+}
+
+fn local_feed_tracks(conn: &Arc<Mutex<Connection>>, feed_url: &str) -> Result<Vec<TrackRow>> {
+    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+    let Some(feed_id) = db::feed_id_by_url(&db, feed_url)? else {
+        return Ok(Vec::new());
+    };
+    db::feed_tracks(&db, feed_id)
+}
+
+fn local_track_for_feed_download<'a>(
+    track: &Track,
+    local_tracks: &'a [TrackRow],
+    index: usize,
+    remote_track_count: usize,
+) -> Option<&'a TrackRow> {
+    track
+        .track_guid
+        .as_deref()
+        .and_then(|track_guid| {
+            local_tracks
+                .iter()
+                .find(|local| local.item_guid == track_guid)
+        })
+        .or_else(|| {
+            track.enclosure_url.as_deref().and_then(|enclosure_url| {
+                local_tracks
+                    .iter()
+                    .find(|local| local.enclosure_url.as_deref() == Some(enclosure_url))
+            })
+        })
+        .or_else(|| {
+            track.track_number.and_then(|track_number| {
+                local_tracks.iter().find(|local| {
+                    local.track_number == Some(i64::from(track_number))
+                        && track
+                            .title
+                            .as_deref()
+                            .is_none_or(|title| local.track_title.as_deref() == Some(title))
+                })
+            })
+        })
+        .or_else(|| {
+            (local_tracks.len() == remote_track_count)
+                .then(|| local_tracks.get(index))
+                .flatten()
+        })
+}
+
+fn fill_missing_download_source(track: &mut Track, local_track: Option<&TrackRow>) {
+    if let Some(local_track) = local_track {
+        fill_missing_download_source_from_local_row(track, local_track);
+    }
+}
+
+fn fill_missing_download_source_from_local_row(track: &mut Track, local: &TrackRow) {
+    if source_text_missing(track.enclosure_url.as_deref()) {
+        track.enclosure_url.clone_from(&local.enclosure_url);
+    }
+    if source_text_missing(track.enclosure_type.as_deref()) {
+        track.enclosure_type.clone_from(&local.enclosure_type);
+    }
+    if source_text_missing(track.image_url.as_deref()) {
+        track.image_url.clone_from(&local.track_image_href);
+    }
+    if track.track_number.is_none() {
+        track.track_number = local.track_number.and_then(|track_number| {
+            i32::try_from(track_number)
+                .ok()
+                .filter(|track_number| *track_number > 0)
+        });
+    }
+    if source_text_missing(track.title.as_deref()) {
+        track.title.clone_from(&local.track_title);
+    }
+    if source_text_missing(track.feed_title.as_deref()) {
+        track.feed_title.clone_from(&local.feed_title);
+    }
 }
 
 fn subscribe_library_track_internal(
@@ -713,6 +797,57 @@ mod tests {
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].link_type.as_deref(), Some("transcript"));
         assert_eq!(links[0].url.as_deref(), Some("https://x/transcript.vtt"));
+    }
+
+    #[test]
+    fn local_track_for_feed_download_uses_same_feed_rss_row_by_position() {
+        let remote = Track {
+            title: Some("Remote Title".into()),
+            track_number: Some(4),
+            ..Track::default()
+        };
+        let local = TrackRow {
+            id: 7,
+            item_guid: "rss-guid".into(),
+            track_title: Some("RSS Title".into()),
+            track_number: Some(4),
+            enclosure_url: Some("https://x/audio.mp3".into()),
+            enclosure_type: Some("audio/mpeg".into()),
+            ..TrackRow::default()
+        };
+
+        let selected = local_track_for_feed_download(&remote, std::slice::from_ref(&local), 0, 1)
+            .expect("same feed row");
+
+        assert_eq!(selected.enclosure_url, local.enclosure_url);
+    }
+
+    #[test]
+    fn fill_missing_download_source_from_local_row_preserves_remote_identity() {
+        let mut remote = Track {
+            track_guid: Some("musicindex-track".into()),
+            title: Some("Remote Title".into()),
+            ..Track::default()
+        };
+        let local = TrackRow {
+            item_guid: "rss-guid".into(),
+            track_title: Some("RSS Title".into()),
+            track_number: Some(4),
+            enclosure_url: Some("https://x/audio.mp3".into()),
+            enclosure_type: Some("audio/mpeg".into()),
+            track_image_href: Some("https://x/art.jpg".into()),
+            feed_title: Some("Feed".into()),
+            ..TrackRow::default()
+        };
+
+        fill_missing_download_source_from_local_row(&mut remote, &local);
+
+        assert_eq!(remote.track_guid.as_deref(), Some("musicindex-track"));
+        assert_eq!(remote.title.as_deref(), Some("Remote Title"));
+        assert_eq!(remote.enclosure_url.as_deref(), Some("https://x/audio.mp3"));
+        assert_eq!(remote.enclosure_type.as_deref(), Some("audio/mpeg"));
+        assert_eq!(remote.image_url.as_deref(), Some("https://x/art.jpg"));
+        assert_eq!(remote.feed_title.as_deref(), Some("Feed"));
     }
 
     #[test]

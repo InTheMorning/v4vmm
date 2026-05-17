@@ -1,6 +1,6 @@
 //! Search-results inspector shell.
 //!
-//! ADR 0047 routes global search results into a workspace Detail frame. This
+//! ADR 0048 routes global search results into the workspace `ContentList` frame. This
 //! shell consumes the GPUI-free search-results inspector VM and renders only
 //! the body content: tab selection, paged rows, and empty states. Frame chrome,
 //! breadcrumbs, and source filters remain owned by `frame_shell`.
@@ -20,15 +20,27 @@ use crate::ui::composites::{
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label, LabelVariant};
-use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
-use crate::view_models::search_results::{
-    ArtistResultDisplay, EmptyStateDisplay, FeedResultDisplay, SearchResultItemId,
-    SearchResultOrigin, SearchResultsInspectorPageVm, SearchResultsTab, TrackResultDisplay,
+use crate::ui::shells::entity::{
+    render_feed_identity_actions, render_release_detail_shell, ReleaseDetailBehaviorSlots,
 };
+use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
+use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
+use crate::view_models::search_results::{
+    ArtistResultDisplay, EmptyStateDisplay, FeedResultDisplay, IndexDetailDisplay, IndexDetailKind,
+    SearchResultItemId, SearchResultOrigin, SearchResultsInspectorPageVm, SearchResultsTab,
+    TrackResultDisplay,
+};
+use crate::view_models::workspace::ContentFilter;
 
 type TabSelectHandler = Rc<dyn Fn(SearchResultsTab, &mut Window, &mut App) + 'static>;
 type ResultSelectHandler = Rc<dyn Fn(SearchResultsTab, String, &mut Window, &mut App) + 'static>;
 type ClearFilterHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SearchResultsHeaderMode {
+    Tabbed,
+    Scoped,
+}
 
 /// Callback slots supplied by the screen or frame owner.
 #[derive(Default)]
@@ -55,13 +67,6 @@ impl SearchResultsInspectorSlots {
     }
 
     /// Supplies the result-row activation callback.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0047 Task 015 mounts the inspector before Phase F wires result drill-down"
-        )
-    )]
     pub(crate) fn on_result_select(
         mut self,
         handler: impl Fn(SearchResultsTab, String, &mut Window, &mut App) + 'static,
@@ -86,17 +91,55 @@ pub(crate) fn render_search_results_inspector(
     slots: &SearchResultsInspectorSlots,
     cx: &App,
 ) -> AnyElement {
-    let tab = vm.tab();
-    let filter = vm.filter();
+    render_search_results_inspector_with_scope(
+        vm,
+        slots,
+        vm.tab(),
+        vm.filter(),
+        vm.empty_state(),
+        SearchResultsHeaderMode::Tabbed,
+        cx,
+    )
+}
+
+/// Renders a search-results inspector using an explicit tab/filter scope.
+pub(crate) fn render_search_results_inspector_scoped(
+    vm: &SearchResultsInspectorPageVm,
+    slots: &SearchResultsInspectorSlots,
+    tab: SearchResultsTab,
+    filter: ContentFilter,
+    cx: &App,
+) -> AnyElement {
+    let empty_state = vm.empty_state_for_scope(tab, filter);
+    render_search_results_inspector_with_scope(
+        vm,
+        slots,
+        tab,
+        filter,
+        empty_state.as_ref(),
+        SearchResultsHeaderMode::Scoped,
+        cx,
+    )
+}
+
+fn render_search_results_inspector_with_scope(
+    vm: &SearchResultsInspectorPageVm,
+    slots: &SearchResultsInspectorSlots,
+    tab: SearchResultsTab,
+    filter: ContentFilter,
+    empty_state: Option<&EmptyStateDisplay>,
+    header_mode: SearchResultsHeaderMode,
+    cx: &App,
+) -> AnyElement {
     let query = vm.query().to_string();
     let on_result_select = slots.result_select.as_ref();
-    let body = if let Some(empty) = vm.empty_state() {
+    let body = if let Some(empty) = empty_state {
         render_empty_state(empty, slots.clear_filter.as_ref(), cx)
     } else {
-        render_active_result_list(vm, on_result_select, cx)
+        render_active_result_list(vm, tab, filter, on_result_select, cx)
     };
 
-    div()
+    let inspector = div()
         .id(SharedString::from(format!(
             "search-results-inspector-{}",
             tab_id(tab)
@@ -112,47 +155,133 @@ pub(crate) fn render_search_results_inspector(
             tab,
             filter.label(),
             slots.tab_select.as_ref(),
+            header_mode,
             cx,
-        ))
-        .child(body)
+        ));
+
+    inspector.child(body).into_any_element()
+}
+
+/// Renders a remote Index detail page reached from search-result drill-down.
+pub(crate) fn render_index_detail_display(display: &IndexDetailDisplay, cx: &App) -> AnyElement {
+    if let Some(feed) = display.feed.as_ref() {
+        return render_index_feed_detail(feed, ReleaseDetailBehaviorSlots::default());
+    }
+
+    let kind = entity_kind_for_index_detail(display.kind);
+    let mut heading = div()
+        .flex()
+        .flex_col()
+        .min_w_0()
+        .gap(Spacing::XS.scaled(cx))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(Spacing::XS.scaled(cx))
+                .child(TagBadge::new(TagBadgeDisplay {
+                    kind,
+                    label: Some(SharedString::from(display.kind.label())),
+                }))
+                .child(origin_label(SearchResultOrigin::Index)),
+        )
+        .child(
+            Label::new(display.title.clone())
+                .variant(LabelVariant::Title)
+                .truncated(),
+        );
+    if !display.secondary_text.is_empty() {
+        heading = heading.child(
+            Label::new(display.secondary_text.clone())
+                .variant(LabelVariant::Caption)
+                .truncated(),
+        );
+    }
+
+    div()
+        .id(SharedString::from(format!(
+            "index-detail-{}",
+            detail_id_suffix(display.kind)
+        )))
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .overflow_y_scroll()
+        .p(Spacing::MD.scaled(cx))
+        .gap(Spacing::LG.scaled(cx))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_start()
+                .gap(Spacing::MD.scaled(cx))
+                .child(Thumbnail::new(kind, ThumbnailSize::Lg))
+                .child(heading),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(Spacing::XS.scaled(cx))
+                .child(detail_metadata_row("Source", "Index", cx))
+                .child(detail_metadata_row("ID", &display.id, cx)),
+        )
         .into_any_element()
+}
+
+/// Renders a remote Index feed through the shared release-detail shell.
+pub(crate) fn render_index_feed_detail(
+    feed: &crate::views::FeedView,
+    mut slots: ReleaseDetailBehaviorSlots,
+) -> AnyElement {
+    let projection = ReleaseDetailVm::new(feed, EntitySurfaceContext::Library);
+    let page = projection.page();
+    slots.identity_actions = render_feed_identity_actions(&page);
+    render_release_detail_shell(&page, slots)
 }
 
 fn render_inspector_header(
     query: &str,
     selected: SearchResultsTab,
     filter_label: &str,
-    on_tab_select: Option<&TabSelectHandler>,
+    tab_select: Option<&TabSelectHandler>,
+    header_mode: SearchResultsHeaderMode,
     cx: &App,
 ) -> AnyElement {
+    let mut header_row = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    Label::new(query.to_string())
+                        .variant(LabelVariant::Headline)
+                        .truncated(),
+                )
+                .child(
+                    Label::new(filter_label.to_string())
+                        .variant(LabelVariant::Caption)
+                        .truncated(),
+                ),
+        );
+
+    if header_mode == SearchResultsHeaderMode::Tabbed {
+        header_row = header_row.child(render_tab_strip(selected, tab_select));
+    }
+
     div()
         .flex()
         .flex_col()
         .gap(Spacing::XS.scaled(cx))
         .p(Spacing::MD.scaled(cx))
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(Spacing::SM.scaled(cx))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(
-                            Label::new(query.to_string())
-                                .variant(LabelVariant::Headline)
-                                .truncated(),
-                        )
-                        .child(
-                            Label::new(filter_label.to_string())
-                                .variant(LabelVariant::Caption)
-                                .truncated(),
-                        ),
-                )
-                .child(render_tab_strip(selected, on_tab_select)),
-        )
+        .child(header_row)
         .into_any_element()
 }
 
@@ -184,17 +313,42 @@ fn tab_segment_display(tab: SearchResultsTab) -> SegmentDisplay<SearchResultsTab
     }
 }
 
+fn detail_metadata_row(label: &str, value: &str, cx: &App) -> AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap(Spacing::SM.scaled(cx))
+        .child(
+            Label::new(label.to_string())
+                .size(FontSize::Micro)
+                .color(SemanticColor::TertiaryLabel),
+        )
+        .child(
+            div().flex_1().min_w_0().child(
+                Label::new(value.to_string())
+                    .size(FontSize::Micro)
+                    .truncated(),
+            ),
+        )
+        .into_any_element()
+}
+
 fn render_active_result_list(
     vm: &SearchResultsInspectorPageVm,
+    tab: SearchResultsTab,
+    filter: ContentFilter,
     on_result_select: Option<&ResultSelectHandler>,
     cx: &App,
 ) -> AnyElement {
-    let filter = vm.filter();
-    match vm.tab() {
+    let show_loading_placeholders =
+        vm.is_index_loading() && matches!(filter, ContentFilter::All | ContentFilter::Index);
+    match tab {
         SearchResultsTab::Artists => render_result_window(
             vm.artists().window(filter),
             SearchResultsTab::Artists,
             EntityKind::Artist,
+            show_loading_placeholders,
             on_result_select,
             artist_fields,
             cx,
@@ -203,6 +357,7 @@ fn render_active_result_list(
             vm.feeds().window(filter),
             SearchResultsTab::Feeds,
             EntityKind::Feed,
+            show_loading_placeholders,
             on_result_select,
             feed_fields,
             cx,
@@ -211,6 +366,7 @@ fn render_active_result_list(
             vm.tracks().window(filter),
             SearchResultsTab::Tracks,
             EntityKind::Track,
+            show_loading_placeholders,
             on_result_select,
             track_fields,
             cx,
@@ -222,11 +378,17 @@ fn render_result_window<Row>(
     window: &PagedListVm<SearchResultItemId, Row>,
     tab: SearchResultsTab,
     kind: EntityKind,
+    show_loading_placeholders: bool,
     on_result_select: Option<&ResultSelectHandler>,
     fields_for: fn(&Row) -> ResultRowFields<'_>,
     cx: &App,
 ) -> AnyElement {
-    let visible_rows = window.total().min(window.page_size());
+    let show_loading_placeholders = show_loading_placeholders && window.total() == 0;
+    let visible_rows = if show_loading_placeholders {
+        3
+    } else {
+        window.total().min(window.page_size())
+    };
 
     div()
         .id(SharedString::from(format!(
@@ -242,12 +404,18 @@ fn render_result_window<Row>(
         .px(Spacing::MD.scaled(cx))
         .pb(Spacing::MD.scaled(cx))
         .gap(Spacing::XXS.scaled(cx))
-        .children((0..visible_rows).map(|index| match window.peek_row(index) {
-            RowSlot::Ready(row) => {
-                render_result_row(tab, kind, fields_for(row.as_ref()), on_result_select)
-            }
-            RowSlot::Pending(placeholder) => {
-                render_pending_result_row(tab, kind, placeholder.index)
+        .children((0..visible_rows).map(|index| {
+            if show_loading_placeholders {
+                render_pending_result_row(tab, kind, index)
+            } else {
+                match window.peek_row(index) {
+                    RowSlot::Ready(row) => {
+                        render_result_row(tab, kind, fields_for(row.as_ref()), on_result_select)
+                    }
+                    RowSlot::Pending(placeholder) => {
+                        render_pending_result_row(tab, kind, placeholder.index)
+                    }
+                }
             }
         }))
         .into_any_element()
@@ -434,6 +602,20 @@ const fn origin_label_color(origin: SearchResultOrigin) -> SemanticColor {
     match origin {
         SearchResultOrigin::Library => SemanticColor::Accent,
         SearchResultOrigin::Index => SemanticColor::TertiaryLabel,
+    }
+}
+
+const fn entity_kind_for_index_detail(kind: IndexDetailKind) -> EntityKind {
+    match kind {
+        IndexDetailKind::Feed => EntityKind::Feed,
+        IndexDetailKind::Track => EntityKind::Track,
+    }
+}
+
+const fn detail_id_suffix(kind: IndexDetailKind) -> &'static str {
+    match kind {
+        IndexDetailKind::Feed => "feed",
+        IndexDetailKind::Track => "track",
     }
 }
 

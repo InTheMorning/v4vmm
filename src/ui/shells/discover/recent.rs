@@ -13,7 +13,7 @@ use gpui::{
     InteractiveElement, IntoElement, RenderOnce, SharedString, Styled, Window,
 };
 
-use crate::search::SearchApp;
+use crate::discover::SearchApp;
 use crate::ui::composites::{EntityKind, SkeletonFeedTile};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;

@@ -17,7 +17,7 @@
 //! ### Layer rules
 //!
 //! Lives under `src/presentation/` because it bridges `gpui` callers to
-//! `runtime` actors. Screens (`src/library.rs`, `src/search.rs`) hold an
+//! `runtime` actors. Screens (`src/library.rs`, `src/discover.rs`) hold an
 //! `Arc<RuntimeHost>` but never touch [`tokio::runtime::Runtime`] directly.
 
 #![warn(clippy::pedantic)]

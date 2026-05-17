@@ -59,10 +59,6 @@ impl FrameShellSlots {
     }
 
     /// Supplies the back-navigation callback.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
-    )]
     pub(crate) fn on_back(mut self, handler: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_back = Some(Rc::new(handler));
         self
@@ -111,10 +107,6 @@ impl FrameShellSlots {
     }
 
     /// Supplies the frame-local breadcrumb selection callback.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "deferred frame action wiring consumes this slot")
-    )]
     pub(crate) fn on_breadcrumb_select(
         mut self,
         handler: impl Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static,

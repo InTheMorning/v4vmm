@@ -7,7 +7,6 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum AppToolbarTabKey {
     Library,
-    Search,
     Settings,
 }
 
@@ -41,7 +40,7 @@ pub(crate) struct AppToolbarDisplay {
     pub(crate) center_id: &'static str,
     pub(crate) mark_id: &'static str,
     pub(crate) mark_a11y_label: &'static str,
-    pub(crate) tabs: [AppToolbarTabDisplay; 3],
+    pub(crate) tabs: [AppToolbarTabDisplay; 2],
     pub(crate) global_search: GlobalSearchDisplay,
     pub(crate) now_playing: NowPlayingFrameDisplay,
 }
@@ -70,12 +69,6 @@ impl AppToolbarVm {
                     id: "app-tab-library",
                     label: "Library",
                     a11y_label: "Show Library",
-                },
-                AppToolbarTabDisplay {
-                    key: AppToolbarTabKey::Search,
-                    id: "app-tab-discover",
-                    label: "Search",
-                    a11y_label: "Show Search",
                 },
                 AppToolbarTabDisplay {
                     key: AppToolbarTabKey::Settings,
@@ -119,8 +112,8 @@ mod tests {
         let labels: Vec<_> = display.tabs.iter().map(|tab| tab.label).collect();
         let a11y: Vec<_> = display.tabs.iter().map(|tab| tab.a11y_label).collect();
 
-        assert_eq!(labels, ["Library", "Search", "Settings"]);
-        assert_eq!(a11y, ["Show Library", "Show Search", "Show Settings"]);
+        assert_eq!(labels, ["Library", "Settings"]);
+        assert_eq!(a11y, ["Show Library", "Show Settings"]);
     }
 
     #[test]
@@ -145,7 +138,6 @@ mod tests {
             display.now_playing.a11y_label,
             display.tabs[0].label,
             display.tabs[1].label,
-            display.tabs[2].label,
         ];
 
         assert!(

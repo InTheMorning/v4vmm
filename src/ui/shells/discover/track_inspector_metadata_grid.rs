@@ -24,8 +24,8 @@ use gpui::{
     Styled, Window,
 };
 
+use crate::discover::SearchApp;
 use crate::metadata::{MetadataGridRow, PendingId3Edit};
-use crate::search::SearchApp;
 use crate::ui::composites::TrackMetadataGrid;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::MultilineText;

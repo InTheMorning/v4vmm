@@ -10,7 +10,7 @@ use gpui::{
     SharedString, Styled,
 };
 
-use crate::search::SearchApp;
+use crate::discover::SearchApp;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::{Image as ImagePrimitive, ImageSize};
 use crate::ui::style::{color, spacing, typography};

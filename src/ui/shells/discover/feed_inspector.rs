@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use crate::api::Feed;
-use crate::search::{InspectorDetail, InspectorFrame, SearchApp};
+use crate::discover::{InspectorDetail, InspectorFrame, SearchApp};
 use crate::ui::composites::{EntityKind, SkeletonInspector, Thumbnail, ThumbnailSize};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;

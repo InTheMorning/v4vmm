@@ -9,7 +9,6 @@ use gpui::{
 use gpui_component::input::Input;
 use gpui_component::{IconName as InputIconName, Size};
 
-use crate::library::LibraryApp;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
 use crate::ui::layouts as layout;
@@ -172,17 +171,6 @@ fn render_global_search(
             toolbar_search.child(render_global_search_submit_button(display, false, cx));
     }
 
-    // Add secondary "open in new frame" button.
-    toolbar_search = toolbar_search.child(
-        UiButton::styled("global_search_new_frame_button", ControlStyle::ToolbarIcon)
-            .leading_icon(IconName::Add)
-            .tooltip("Search in new frame")
-            .a11y_label("Search in new frame")
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.submit_global_search_with(super::SubmitModifier::NewFrame, cx);
-            })),
-    );
-
     toolbar_search.into_any_element()
 }
 
@@ -233,11 +221,7 @@ fn render_app_tab(
         .track_focus(focus_handle)
         .tooltip(move |window, cx| tooltip.build(window, cx))
         .on_click(cx.listener(move |this, _, _, cx| {
-            this.tab = tab;
-            if tab == AppTab::Library {
-                this.library.update(cx, LibraryApp::refresh);
-            }
-            cx.notify();
+            this.select_tab(tab, cx);
         }))
         .px(spacing_md)
         .min_h(hit_target_min)
@@ -266,7 +250,6 @@ fn render_app_tab(
 const fn app_tab_for_key(key: AppToolbarTabKey) -> AppTab {
     match key {
         AppToolbarTabKey::Library => AppTab::Library,
-        AppToolbarTabKey::Search => AppTab::Search,
         AppToolbarTabKey::Settings => AppTab::Settings,
     }
 }
@@ -274,7 +257,6 @@ const fn app_tab_for_key(key: AppToolbarTabKey) -> AppTab {
 fn focus_handle_for_key(key: AppToolbarTabKey, app: &TopApp) -> &gpui::FocusHandle {
     match key {
         AppToolbarTabKey::Library => &app.library_tab_focus,
-        AppToolbarTabKey::Search => &app.search_tab_focus,
         AppToolbarTabKey::Settings => &app.settings_tab_focus,
     }
 }

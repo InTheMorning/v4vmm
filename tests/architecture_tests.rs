@@ -121,8 +121,8 @@ const SCREEN_LIBRARY_REMOVAL_LEGACY_PATTERNS: &[&str] = &[
 const LIBRARY_REMOVAL_PRESENTATION_FILES: &[&str] = &[
     "src/library.rs",
     "src/library/app_impl.rs",
-    "src/search.rs",
-    "src/search/app_impl.rs",
+    "src/discover.rs",
+    "src/discover/app_impl.rs",
 ];
 
 const SCREEN_LIBRARY_REMOVAL_PRESENTATION_FORBIDDEN_PATTERNS: &[(&str, &str)] = &[
@@ -216,7 +216,7 @@ const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
         max_count: 0,
     },
     DeprecatedVisualHelperBaseline {
-        file: "src/search.rs",
+        file: "src/discover.rs",
         helper: "theme::color",
         import_patterns: &[
             "use crate::ui::theme::color;",
@@ -227,7 +227,7 @@ const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
         max_count: 0,
     },
     DeprecatedVisualHelperBaseline {
-        file: "src/search.rs",
+        file: "src/discover.rs",
         helper: "theme::badges",
         import_patterns: &[
             "use crate::ui::theme::badges;",
@@ -238,7 +238,7 @@ const DEPRECATED_VISUAL_HELPER_BASELINES: &[DeprecatedVisualHelperBaseline] = &[
         max_count: 0,
     },
     DeprecatedVisualHelperBaseline {
-        file: "src/search.rs",
+        file: "src/discover.rs",
         helper: "theme::glyphs",
         import_patterns: &[
             "use crate::ui::theme::glyphs;",
@@ -290,7 +290,7 @@ const DIRECT_COMPONENT_BUTTON_BASELINES: &[DirectComponentButtonBaseline] = &[
         max_unmarked_count: 0,
     },
     DirectComponentButtonBaseline {
-        file: "src/search.rs",
+        file: "src/discover.rs",
         max_unmarked_count: 0,
     },
 ];
@@ -307,12 +307,12 @@ const PROVENANCE_DIFF_HELPER_BASELINES: &[DiffHelperBaseline] = &[
         max_count: 0,
     },
     DiffHelperBaseline {
-        file: "src/search.rs",
+        file: "src/discover.rs",
         pattern: "color::diff_",
         max_count: 0,
     },
     DiffHelperBaseline {
-        file: "src/search.rs",
+        file: "src/discover.rs",
         pattern: "glyphs::DIFF_",
         max_count: 0,
     },
@@ -332,19 +332,19 @@ const SCREEN_LOCAL_PLAYLIST_POPOVER_BASELINES: &[ScreenLocalPlaylistPopoverBasel
         note: "legacy Library track-inspector playlist panel toggle",
     },
     ScreenLocalPlaylistPopoverBaseline {
-        file: "src/search.rs",
+        file: "src/discover.rs",
         pattern: "fn render_add_to_playlist_panel_search(",
         max_count: 0,
         note: "legacy Discover inspector playlist panel",
     },
     ScreenLocalPlaylistPopoverBaseline {
-        file: "src/search.rs",
+        file: "src/discover.rs",
         pattern: ".when(frame.add_to_playlist_open, |el|",
         max_count: 0,
         note: "legacy Discover inspector playlist panel toggle",
     },
     ScreenLocalPlaylistPopoverBaseline {
-        file: "src/search.rs",
+        file: "src/discover.rs",
         pattern: "fn render_row_playlist_popup(",
         max_count: 0,
         note: "legacy Discover row popup compatibility wrapper",
@@ -355,7 +355,7 @@ const RENDER_HELPER_DUPLICATION_BASELINES: &[RenderHelperDuplicationBaseline] = 
 
 const PLAYLIST_POPOVER_CALLSITE_FILES: &[&str] = &[
     "src/library.rs",
-    "src/search.rs",
+    "src/discover.rs",
     "src/ui/shells/track.rs",
     "src/ui/shells/library/feed_detail.rs",
     "src/ui/shells/library/track_detail_metadata.rs",
@@ -392,7 +392,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/playback_bar.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
-    "src/search.rs",
+    "src/discover.rs",
 ];
 
 const SCREEN_SURFACE_DIRS: &[&str] = &["src/ui/shells/library", "src/ui/shells/discover"];
@@ -436,7 +436,7 @@ const PRESENTATION_GLUE_FILES: &[&str] = &[
     "src/app/queue_now_playing.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
-    "src/search.rs",
+    "src/discover.rs",
 ];
 
 const SCREEN_LOCAL_FLOATING_CHROME_FORBIDDEN_PATTERNS: &[&str] = &[
@@ -1179,7 +1179,6 @@ fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
         "fn active_workspace_screen_mount(&self) -> WorkspaceScreenMount",
         "fn render_workspace_screen_mount(",
         "WorkspaceScreenMount::Library => self.library.clone().into_any_element()",
-        "WorkspaceScreenMount::Search => self.search.clone().into_any_element()",
         "WorkspaceScreenMount::Settings => render_settings(self, cx)",
         "workspace render wraps the active whole-screen",
     ] {
@@ -1193,6 +1192,7 @@ fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
     for forbidden in [
         "render_library_sidebar",
         "render_search_results(",
+        "WorkspaceScreenMount::Search",
         "WorkspaceScreenMount::SourceList",
         "WorkspaceScreenMount::ContentList",
         "WorkspaceScreenMount::Detail",
@@ -1253,18 +1253,25 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
     }
 
     for required in [
-        "const WORKSPACE_RENDER_ENABLED: bool = true",
-        "fn render_legacy_tab_content(",
         "fn render_workspace_content(",
         "fn transitional_workspace_layout(",
         "WorkspaceSlots::new()",
-        ".content_list(active_screen)",
+        "match &current_nav",
+        "FrameNavigationEntry::Settings",
         "WorkspaceFrameKind::QueueNowPlaying",
         "WorkspaceFrameState::with_default_title",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
-                "src/app.rs: ADR 0046 Task 007 app render fallback/workspace wiring missing `{required}`"
+                "src/app.rs: ADR 0046 Task 007 app workspace wiring missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in ["WORKSPACE_RENDER_ENABLED", "render_legacy_tab_content("] {
+        if app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0047 Task 016 retired the workspace fallback; found `{forbidden}`"
             ));
         }
     }
@@ -1340,6 +1347,67 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
     assert!(
         violations.is_empty(),
         "ADR 0046 Task 007 workspace layout render violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn workspace_split_pane_uses_fluid_resize_pattern() {
+    let source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));
+    let mut violations = Vec::new();
+
+    for required in [".on_resize_start(", ".on_resize_move(", ".on_resize_end("] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: P2b fluid resize pattern missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "fn begin_content_pane_resize(&mut self",
+        "fn resize_content_pane(&mut self",
+        "fn end_content_pane_resize(&mut self",
+        "fn is_content_pane_resizing(&self) -> bool",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: P2b fluid resize TopApp methods missing `{required}`"
+            ));
+        }
+    }
+
+    if !app_source.contains("is_content_pane_resizing: bool") {
+        violations.push(
+            "src/app.rs: P2b TopApp struct missing `is_content_pane_resizing: bool` field"
+                .to_string(),
+        );
+    }
+
+    if !app_source.contains(".on_content_pane_resize_start(") {
+        violations.push(
+            "src/app.rs: P2b TopApp render_workspace_content must wire .on_content_pane_resize_start"
+                .to_string(),
+        );
+    }
+
+    if !app_source.contains(".on_content_pane_resize_move(") {
+        violations.push(
+            "src/app.rs: P2b TopApp render_workspace_content must wire .on_content_pane_resize_move"
+                .to_string(),
+        );
+    }
+
+    if !layout_source.contains("pub const CONTENT_PANE_MAX_WIDTH") {
+        violations
+            .push("src/ui/layouts.rs: P2b missing `pub const CONTENT_PANE_MAX_WIDTH`".to_string());
+    }
+
+    assert!(
+        violations.is_empty(),
+        "P2b workspace fluid split-pane resize pattern violations:\n{}",
         violations.join("\n")
     );
 }
@@ -1503,7 +1571,8 @@ fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frame
     for required in [
         "visible_workspace_layout",
         "content_seen",
-        ".content_list(active_screen)",
+        "content_list_frame_title",
+        "FrameNavigationEntry::Settings",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
@@ -1764,18 +1833,23 @@ fn adr_0047_task_010_content_list_filter_chips_are_frame_local() {
         "content_list_page: ContentListPageVm",
         "self.content_list_page",
         "replace_rows(content_list_rows_from_tree(&tree))",
-        "filter_tree_to_content_rows(&tree, &self.content_list_page)",
         "pub(crate) fn set_content_filter(&mut self, filter: ContentFilter)",
         "pub(crate) fn content_filter_chip_strip(&self) -> FilterChipStripDisplay",
         "pub(crate) fn content_filter_empty_state(&self) -> Option<ContentListEmptyStateDisplay>",
         "fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>",
-        "fn filter_tree_to_content_rows(tree: &LibraryTree, page: &ContentListPageVm) -> LibraryTree",
     ] {
         if !library_source.contains(required) {
             violations.push(format!(
                 "src/view_models/library.rs: ADR 0047 Task 010 content-list filter ownership missing `{required}`"
             ));
         }
+    }
+
+    if library_source.contains("filter_tree_to_content_rows(&tree, &self.content_list_page)") {
+        violations.push(
+            "src/view_models/library.rs: ADR 0049 forbids filtering the Library source tree with the ContentList content filter"
+                .to_string(),
+        );
     }
 
     for required in [
@@ -1839,6 +1913,147 @@ fn adr_0047_task_010_content_list_filter_chips_are_frame_local() {
     assert!(
         violations.is_empty(),
         "ADR 0047 Task 010 content-list frame filter violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0049_inspector_source_ownership_is_guarded() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let search_results_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let search_results_shell_source =
+        read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let feed_detail_source = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "!matches!(current_nav, Some(FrameNavigationEntry::SourceList) | None)",
+        "handle_index_feed_result_selected(",
+        "handle_index_track_result_selected(",
+        "handle_index_artist_result_selected(",
+        "strip_prefix(\"index-feed:\")",
+        "strip_prefix(\"index-track:\")",
+        "strip_prefix(\"index-artist:\")",
+        "has_filterable_content_detail()",
+        "FrameNavigationEntry::IndexArtistDetail(",
+        "FrameNavigationEntry::IndexFeedDetail {",
+        "FrameNavigationEntry::IndexTrackDetail {",
+        "render_index_detail_display(",
+        "render_search_results_inspector_scoped(",
+        "INDEX_FEED_DETAIL_INCLUDE",
+        "content_list_breadcrumb_labeler(",
+        "render_index_feed_detail(feed, slots)",
+        "hero_image: self.index_feed_hero_image(feed, cx)",
+        "fn index_feed_hero_image(",
+        "RemoteDetailThumbnailState::Loaded",
+        "fn index_feed_artwork_url(",
+        "fn index_feed_primary_actions(",
+        "fn index_feed_track_rows(",
+        "DisclosureTextPanel::new(",
+        "SubscribeFeedRequest {",
+        "SubscribeTrackRequest::SearchTrack",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0049 ContentList dispatch/Index activation missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "db::feed_tracks(&conn, feed_id)",
+        "LibraryDetail::Album(album)",
+        "track.is_in_library = false;",
+        "track.local_path = None;",
+        "apply_track_subscription_to_album_detail(",
+        "track.is_in_library = true;",
+        "pub(crate) fn playlists(&self) -> &[db::Playlist]",
+    ] {
+        if !library_app_source.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: ADR 0049 album mutation/detail ownership missing `{required}`"
+            ));
+        }
+    }
+
+    if library_vm_source.contains("filter_tree_to_content_rows(&tree, &self.content_list_page)") {
+        violations.push(
+            "src/view_models/library.rs: ADR 0049 source tree must not be filtered by content filter"
+                .to_string(),
+        );
+    }
+
+    for required in [
+        "pub(crate) struct IndexDetailDisplay",
+        "pub(crate) fn index_feed_detail(",
+        "pub(crate) fn index_track_detail(",
+        "pub(crate) fn index_feed_label(",
+        "pub(crate) fn index_track_label(",
+        "tab_was_user_selected",
+        "select_first_populated_tab_if_automatic(",
+    ] {
+        if !search_results_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results.rs: ADR 0049 Index drill-down VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "SearchResultsNoticeDisplay",
+        "pub(crate) fn set_notice(",
+        "show_index_detail_notice(",
+    ] {
+        if app_source.contains(forbidden) || search_results_source.contains(forbidden) {
+            violations.push(format!(
+                "ADR 0049 rejected visible notice path must stay removed; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "SearchResultsHeaderMode::Scoped",
+        "SearchResultsHeaderMode::Tabbed",
+        "pub(crate) fn render_index_feed_detail(",
+        "EntitySurfaceContext::Library",
+    ] {
+        if !search_results_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/search_results_inspector.rs: ADR 0049 scoped drill-down chrome missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "content_list_breadcrumb_labeler:",
+        "fn breadcrumb_labeler_for(",
+        "BreadcrumbDisplay::project(breadcrumb_id, navigation, |entry| labeler(entry))",
+    ] {
+        if !workspace_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: ADR 0049 breadcrumb label ownership missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "let active_filter = library_vm.content_filter();",
+        "ContentFilter::Library => track.is_in_library",
+        "ContentFilter::Index => !track.is_in_library",
+    ] {
+        if !feed_detail_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/library/feed_detail.rs: ADR 0049 inspector filter projection missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0049 inspector source ownership violations:\n{}",
         violations.join("\n")
     );
 }
@@ -2095,10 +2310,12 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
     for required in [
         "pub(crate) const fn default_detail_frame_id() -> WorkspaceFrameId",
         "pub(crate) fn replace_nav(",
-        "pub(crate) fn open_search_results_frame(",
+        "pub(crate) fn open_search_results_in_content_list(",
         "FrameNavigationEntry::Search(query)",
-        "self.reset_nav(detail_frame_id, FrameNavigationEntry::Search(query))?;",
-        "self.focus_frame(detail_frame_id)?;",
+        "nav.replace_active_search_or_push(FrameNavigationEntry::Search(query));",
+        "pub(crate) fn replace_active_search_or_push(",
+        ".rposition(|candidate| matches!(candidate, FrameNavigationEntry::Search(_)))",
+        "self.focus_frame(content_list_frame_id)?;",
         "pub(crate) fn display_label(&self) -> String",
         "format!(\"Search: {query}\")",
     ] {
@@ -2111,9 +2328,10 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
 
     for required in [
         "search_results_detail: Option<SearchResultsInspectorPageVm>",
-        "fn open_search_results(",
-        ".open_search_results_frame(query.clone())",
-        "SearchResultsInspectorPageVm::new(query)",
+        "fn open_search_results_in_content_list(",
+        "fn search_results_detail_for_query(",
+        ".search_local_library_tracks(&conn, query, None)",
+        "SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks)",
         "fn open_saved_search(",
         "fn set_search_results_filter(",
         "fn set_search_results_tab(",
@@ -2121,9 +2339,6 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
         ".on_tab_select(move |tab, _window, cx|",
         ".on_clear_filter(move |_window, cx|",
         "render_search_results_inspector(search_results, &inspector_slots, cx)",
-        ".detail(detail_content)",
-        ".detail_filter_chip_strip(filter_chip_strip)",
-        ".on_detail_filter_select(move |filter, _window, cx|",
         "LibraryAppEvent::OpenSavedSearch",
     ] {
         if !app_source.contains(required) {
@@ -2149,12 +2364,14 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
         "BreadcrumbDisplay::project(",
         "FrameNavigationEntry::display_label",
         "fn should_render_breadcrumb(",
-        "matches!(kind, WorkspaceFrameKind::Detail)",
+        "matches!(kind, WorkspaceFrameKind::ContentList)",
+        "nav.has_history()",
         "FrameNavigationEntry::Search(_)",
+        ".on_back(move |window, cx|",
     ] {
         if !workspace_shell_source.contains(required) {
             violations.push(format!(
-                "src/ui/shells/workspace.rs: ADR 0047 Task 015 Detail breadcrumb projection missing `{required}`"
+                "src/ui/shells/workspace.rs: ADR 0048 ContentList breadcrumb/back projection missing `{required}`"
             ));
         }
     }
@@ -2199,6 +2416,80 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
     assert!(
         violations.is_empty(),
         "ADR 0047 Task 015 search-submit and saved-search command violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0047_task_016_retires_standalone_search_module_and_workspace_toggle() {
+    let lib_source = read_source(&manifest_path("src/lib.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let mut violations = Vec::new();
+
+    for retired_path in [
+        manifest_path("src/search.rs"),
+        manifest_path("src/search/app_impl.rs"),
+        manifest_path("src/search/tests.rs"),
+    ] {
+        if retired_path.exists() {
+            violations.push(format!(
+                "{}: ADR 0047 Task 016 retired the standalone search module path",
+                rel_path(&retired_path)
+            ));
+        }
+    }
+
+    if lib_source.contains("pub mod search;") {
+        violations.push(
+            "src/lib.rs: ADR 0047 Task 016 must not export the retired top-level search module"
+                .to_string(),
+        );
+    }
+    if !lib_source.contains("pub mod discover;") {
+        violations.push(
+            "src/lib.rs: ADR 0047 Task 016 preserved Discover behavior under `discover`"
+                .to_string(),
+        );
+    }
+
+    for required in ["pub struct SearchApp", "mod app_impl;", "mod tests;"] {
+        let discover_source = read_source(&manifest_path("src/discover.rs"));
+        if !discover_source.contains(required) {
+            violations.push(format!(
+                "src/discover.rs: ADR 0047 Task 016 Discover compatibility module missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "WORKSPACE_RENDER_ENABLED",
+        "render_legacy_tab_content",
+        "if WORKSPACE_RENDER_ENABLED",
+    ] {
+        if app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0047 Task 016 retired workspace fallback still present as `{forbidden}`"
+            ));
+        }
+    }
+
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in ["crate::search", "src/search.rs"] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{file}:{line_number}: ADR 0047 Task 016 forbids retired search-module references; found `{forbidden}` in `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0047 Task 016 search-module retirement violations:\n{}",
         violations.join("\n")
     );
 }
@@ -2891,7 +3182,6 @@ fn top_level_keyboard_shortcuts_route_through_key_binding_taxonomy() {
         "FocusSearch",
         "NewPlaylist",
         "SelectLibraryTab",
-        "SelectDiscoverTab",
         "SelectSettingsTab",
         "MoveSelectionUp",
         "MoveSelectionDown",
@@ -3174,7 +3464,7 @@ fn global_search_replaces_screen_local_search_chrome() {
     let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
     let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
     let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
-    let search_app_source = read_source(&manifest_path("src/search/app_impl.rs"));
+    let search_app_source = read_source(&manifest_path("src/discover/app_impl.rs"));
     let search_shell_source = read_source(&manifest_path("src/ui/shells/discover/search_input.rs"));
     let search_vm_source = read_source(&manifest_path("src/view_models/search.rs"));
     let mut violations = Vec::new();
@@ -3182,7 +3472,7 @@ fn global_search_replaces_screen_local_search_chrome() {
     for required in [
         "fn on_global_search_event(",
         "fn submit_global_search(",
-        "self.open_search_results(query, cx)",
+        "self.open_search_results_in_content_list(",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
@@ -3285,7 +3575,7 @@ fn global_search_replaces_screen_local_search_chrome() {
     ] {
         if !search_app_source.contains(required) {
             violations.push(format!(
-                "src/search/app_impl.rs: Search workspace global routing missing `{required}`"
+                "src/discover/app_impl.rs: Search workspace global routing missing `{required}`"
             ));
         }
     }
@@ -3694,7 +3984,7 @@ fn shared_view_facts_do_not_expose_api_identity_rows() {
 fn screen_contributor_panels_use_shared_projection_facts() {
     let mut violations = Vec::new();
 
-    for file in ["src/search.rs", "src/library.rs"] {
+    for file in ["src/discover.rs", "src/library.rs"] {
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             for pattern in SCREEN_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS {
@@ -4624,7 +4914,7 @@ fn discover_screen_modules_are_decomposed_under_src_ui_shells_discover() {
 
 #[test]
 fn screen_entry_modules_under_500_loc() {
-    let ceilings = [("src/library.rs", 500), ("src/search.rs", 500)];
+    let ceilings = [("src/library.rs", 500), ("src/discover.rs", 500)];
     let mut violations = Vec::new();
 
     for (file, ceiling) in ceilings {
@@ -5302,7 +5592,7 @@ fn screens_do_not_construct_track_inspector_pane_locally() {
     let forbidden = ["TrackHeader::new(", "TrackHeaderVm::new("];
     let mut violations = Vec::new();
 
-    for file in ["src/search.rs", "src/library.rs"] {
+    for file in ["src/discover.rs", "src/library.rs"] {
         let source = read_source(&manifest_path(file));
         for (line_number, line) in code_lines(&source) {
             for pattern in forbidden {
@@ -5331,7 +5621,7 @@ fn track_surface_consumers_use_track_detail_vm() {
             "TrackDetailVm::new(",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "TrackDetailSurface::new(",
             "TrackDetailVm::new(",
         ),
@@ -5426,7 +5716,7 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
         }
     }
 
-    for file in ["src/library.rs", "src/search.rs"] {
+    for file in ["src/library.rs", "src/discover.rs"] {
         let source = read_source(&manifest_path(file));
         if source.contains("TrackDetailSurface::new(") {
             violations.push(format!(
@@ -5523,182 +5813,182 @@ fn screens_do_not_coerce_empty_feed_url_to_empty_string() {
 fn view_models_own_display_fallbacks_for_library_and_search() {
     let forbidden = [
         (
-            "src/search.rs",
+            "src/discover.rs",
             "feed_link_label.unwrap_or_else",
             "Discover track feed-link label fallback belongs in TrackInspectorHeaderVm::feed_link_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "header_vm.feed_link_label(",
             "Discover track feed-link label should enter the screen through TrackFeedLinkDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "header_vm.feed_link_url()",
             "Discover track feed-link URL should enter the screen through TrackFeedLinkDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let tooltip = guid.clone();",
             "Discover track feed-link tooltip should enter the screen through TrackFeedLinkDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "route.address.clone().unwrap_or_default()",
             "payment-route address presence belongs in PaymentRouteVm::address",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "route.address.is_some()",
             "payment-route address presence belongs in PaymentRouteVm::address",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "route.custom_key.is_some()",
             "payment-route custom field presence belongs in PaymentRouteVm::custom_fields",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "route.custom_value.is_some()",
             "payment-route custom field presence belongs in PaymentRouteVm::custom_fields",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "&route.custom_key",
             "payment-route custom field display belongs in PaymentRouteVm::custom_fields",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "&route.custom_value",
             "payment-route custom field display belongs in PaymentRouteVm::custom_fields",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "vm.recipient_name()",
             "payment-route primary summary belongs in PaymentRouteVm::summary",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "vm.route_type()",
             "payment-route primary summary belongs in PaymentRouteVm::summary",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "vm.kind_label()",
             "payment-route primary summary belongs in PaymentRouteVm::summary",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let split = vm.split()",
             "payment-route primary summary belongs in PaymentRouteVm::summary",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "feed.feed_guid.clone().unwrap_or_default()",
             "Discover feed-list tile id fallback belongs in RecentFeedTileVm::display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "feed.tracks.clone().unwrap_or_default()",
             "Discover feed-inspector missing-track fallback belongs in SearchViewModel::feed_inspector_tracks",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let episode_note =",
             "Discover feed-list episode note belongs in RecentFeedTileVm::display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "Label::new(feed_display_title(&feed))",
             "Discover feed-list title fallback belongs in RecentFeedTileVm::display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let guid = display.id.clone()",
             "Discover feed-list navigation id should be consumed from RecentFeedTileDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(display.feed_list_tile_id)",
             "Discover feed-list tile id should be consumed from RecentFeedTileDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let click_guid = display.id.clone()",
             "Discover podroll tile id should be consumed from RecentFeedTileDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(display.podroll_tile_id)",
             "Discover podroll tile id should be consumed from RecentFeedTileDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let element_id = link.element_id",
             "Discover track feed-link display should be consumed from TrackFeedLinkDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let title = link.label",
             "Discover track feed-link label should be consumed from TrackFeedLinkDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let display = PublisherLinkDisplay::new",
             "Discover publisher link display should be consumed from PublisherLinkDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let guid = match feed.feed_guid.clone()",
             "Discover recent-feed navigation id should be consumed from RecentFeedTileDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(audio_display.button_id.clone())",
             "Discover track play-button id should be consumed by the TrackPlayAudioDisplay renderer",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "display.recent_tile_id.clone()",
             "Discover recent-feed tile id should be consumed by RecentFeedTile",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "snapshot.status.display_text.clone()",
             "Discover status display text should be consumed from SearchRenderSnapshot",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "release_subscription_action.label.clone()",
             "Discover feed subscription action label should be consumed from EntityActionVm",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "action.label.clone()",
             "Discover track row action labels should be consumed from EntityActionVm",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "self.label.clone()",
             "Discover metadata drag preview should consume TrackMetadataDragPreviewDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "self.value.clone()",
             "Discover metadata drag preview should consume TrackMetadataDragPreviewDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "self.display.label.clone()",
             "Discover metadata drag preview should consume TrackMetadataDragPreviewDisplay without renderer-side label cloning",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "self.display.value.clone()",
             "Discover metadata drag preview should consume TrackMetadataDragPreviewDisplay without renderer-side value cloning",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "LoadingMessage::new(message.clone())",
             "Discover inspector loading text should be consumed without renderer-side message cloning",
         ),
@@ -5753,7 +6043,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library contributor identity action target should be consumed from ContributorIdentityActionDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let target_for_click = action.target.clone()",
             "Discover contributor identity action target should be consumed from ContributorIdentityActionDisplay",
         ),
@@ -5768,7 +6058,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata RSS cell value fallback belongs in TrackMetadataGridVm::rss_cell_value",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "row.rss_value.as_deref().unwrap_or(\"\")",
             "metadata RSS cell value fallback belongs in TrackMetadataGridVm::rss_cell_value",
         ),
@@ -5778,7 +6068,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata ID3 cell value fallback belongs in TrackMetadataGridVm::id3_cell_value",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".or(row.id3_value.as_deref())",
             "metadata ID3 cell value fallback belongs in TrackMetadataGridVm::id3_cell_value",
         ),
@@ -5788,22 +6078,22 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata ID3 cell frame fallback belongs in TrackMetadataGridVm::id3_cell_frame",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".or(row.id3_frame.as_deref())",
             "metadata ID3 cell frame fallback belongs in TrackMetadataGridVm::id3_cell_frame",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "row.id3_frame.clone().unwrap_or_default()",
             "metadata drag frame fallback belongs in TrackMetadataGridVm::id3_drag_frame",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "frame_id_owned.unwrap_or_default()",
             "metadata ID3 displayed frame label fallback belongs in TrackMetadataGridVm::id3_frame_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "frame_id.unwrap_or_default()",
             "metadata ID3 displayed frame label fallback belongs in TrackMetadataGridVm::id3_frame_label",
         ),
@@ -5813,22 +6103,22 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata field label display belongs in TrackMetadataGridVm::field_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".child(SharedString::from(row.field.clone()))",
             "Discover metadata field label display belongs in TrackMetadataGridVm::field_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "field: row.field.clone()",
             "Discover metadata drag field label display belongs in TrackMetadataGridVm::field_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "label: drag.field.clone()",
             "Discover metadata drag preview label belongs in TrackMetadataGridVm::drag_preview_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "value: drag.value.clone()",
             "Discover metadata drag preview value belongs in TrackMetadataGridVm::drag_preview_display",
         ),
@@ -5838,12 +6128,12 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata ID3 frame label display belongs in TrackMetadataGridVm::id3_frame_display_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(frame_label.to_string())",
             "Discover metadata ID3 frame label display belongs in TrackMetadataGridVm::id3_frame_display_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(frame_label.clone())",
             "Discover metadata ID3 frame label display should be consumed without renderer-side cloning",
         ),
@@ -5853,22 +6143,22 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata ID3 frame color role belongs in TrackMetadataGridVm::id3_frame_color_role",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "fn id3_frame_version_color(",
             "Discover metadata ID3 frame color role belongs in TrackMetadataGridVm::id3_frame_color_role",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "fn id3_frame_version(",
             "Discover metadata ID3 frame version classification belongs in metadata/view-model contracts",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "enum Id3FrameVersion",
             "Discover metadata ID3 frame version classification belongs in metadata/view-model contracts",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "frame.map(id3_frame_base).map(id3_frame_version_color)",
             "Discover metadata ID3 frame color role belongs in TrackMetadataGridVm::id3_frame_color_role",
         ),
@@ -5878,7 +6168,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library expanded metadata raw/display selection belongs in TrackMetadataGridVm::expanded_display_value",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "expanded_metadata_display_string(",
             "Discover expanded metadata raw/display selection belongs in TrackMetadataGridVm::expanded_display_value",
         ),
@@ -5888,7 +6178,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata text display values belong in TrackMetadataGridVm::text_value_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(display_value.to_string())",
             "Discover metadata text display values belong in TrackMetadataGridVm::text_value_display",
         ),
@@ -5898,7 +6188,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata text value projection belongs in TrackMetadataGridVm::text_value_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "MultilineText::new(value.to_string())",
             "Discover metadata text value projection belongs in TrackMetadataGridVm::text_value_display",
         ),
@@ -5908,87 +6198,87 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library expanded metadata raw fallback belongs in TrackMetadataGridVm::text_value_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(line.to_string())",
             "Discover expanded metadata line display belongs in TrackMetadataGridVm::text_value_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(raw_value.to_string())",
             "Discover expanded artwork URL display belongs in TrackMetadataGridVm::artwork_url_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "fn muted_line(value: &str)",
             "Discover deferred-panel empty-line display belongs in SearchViewModel::deferred_panel_empty_line",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(value.to_string())",
             "Discover deferred-panel empty-line display belongs in SearchViewModel::deferred_panel_empty_line",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "title: title.to_string().into()",
             "Discover feed header title display belongs in SearchViewModel::feed_header_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".filter(|value| !value.trim().is_empty())",
             "Discover feed header subtitle filtering belongs in SearchViewModel::feed_header_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "const TYPE_LABELS",
             "Discover type-filter labels belong in SearchViewModel::type_filter_options",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "const TYPE_VALUES",
             "Discover type-filter query values belong in SearchViewModel::type_filter_value",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "TYPE_VALUES[intent.type_filter()]",
             "Discover type-filter query values belong in SearchViewModel::type_filter_value",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".label(SharedString::from(label.to_string()))",
             "Discover type-filter labels belong in SearchViewModel::type_filter_options",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "render_feed_list_section(\"Feeds\"",
             "Discover feed-list section heading belongs in SearchViewModel::feed_list_section_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SectionHeader::new(heading.to_string())",
             "Discover feed-list section heading belongs in SearchViewModel::feed_list_section_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(row.entity_type.clone())",
             "Discover result type badge label belongs in ResultRowDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "Label::new(title.to_string())",
             "Discover inspector title display belongs in SearchViewModel::inspector_title_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "vm.add_to_playlist_label().to_string()",
             "Discover playlist trigger fallback belongs in ActionRowVm::playlist_trigger_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "group_heading(group.to_string())",
             "Discover payment-route group heading belongs in PaymentRouteVm::group_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "pub(crate) fn render_collapsed_text_section",
             "Dead Discover collapsed text section render helpers must not reintroduce screen-local display strings",
         ),
@@ -6033,7 +6323,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata disclosure id binding should consume TrackMetadataGridVm display ids directly",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "display.disclosure_id.as_deref()",
             "Discover metadata disclosure id binding should consume TrackMetadataGridVm display ids directly",
         ),
@@ -6043,7 +6333,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata disclosure id binding should not re-project VM display ids",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "disclosure_id.to_string()",
             "Discover metadata disclosure id binding should not re-project VM display ids",
         ),
@@ -6068,7 +6358,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library playlist sidebar count should be consumed from PlaylistSidebarRowVm",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "playlist.name.clone()",
             "Discover playlist popover option display belongs in playlist_option_displays",
         ),
@@ -6078,37 +6368,37 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Track shell playlist popover option display belongs in playlist_option_displays",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "fn compare_row_id(",
             "Discover metadata compare-row slug display belongs in TrackMetadataGridVm::compare_row_id",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"id3-unused-{}\"",
             "Discover unused ID3 frame row id belongs in TrackMetadataGridVm::unused_id3_frame_row_id",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"id3-field-{}\"",
             "Discover used ID3 field row id belongs in TrackMetadataGridVm::used_id3_field_row_id",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"ID3 {frame_id}\")",
             "Discover unused ID3 frame label belongs in TrackMetadataGridVm::id3_field_display_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"ID3 {}\", field.frame_id)",
             "Discover used ID3 field label belongs in TrackMetadataGridVm::id3_field_display_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"metadata-rss-drag-{}\"",
             "Discover RSS metadata source-drag id belongs in TrackMetadataGridVm::source_drag_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"metadata-musicbrainz-drag-{}\"",
             "Discover MusicBrainz metadata source-drag id belongs in TrackMetadataGridVm::source_drag_display",
         ),
@@ -6118,7 +6408,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata contributor summary fallback belongs in TrackMetadataGridVm::contributor_summary",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "summarize_contributor_value(raw_value).unwrap_or_else",
             "metadata contributor summary fallback belongs in TrackMetadataGridVm::contributor_summary",
         ),
@@ -6128,17 +6418,17 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata value-route summary belongs in TrackMetadataGridVm::value_routes_summary",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"[{} items]\", arr.len())",
             "metadata value-route summary belongs in TrackMetadataGridVm::value_routes_summary",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"[{lines} lines]\")",
             "metadata value-route multiline fallback belongs in TrackMetadataGridVm::value_routes_summary",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "fn expandable_cell_summary(",
             "Discover expandable metadata summary policy belongs in TrackMetadataGridVm::expandable_cell_summary",
         ),
@@ -6148,12 +6438,12 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata artwork URL summary policy belongs in TrackMetadataGridVm::expandable_cell_summary",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "raw_value.starts_with(\"http://\") || raw_value.starts_with(\"https://\")",
             "metadata artwork URL summary policy belongs in TrackMetadataGridVm::artwork_url",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let line = if line.is_empty() { \" \" } else { line };",
             "metadata transcript blank-line display belongs in TrackMetadataGridVm::transcript_line_display",
         ),
@@ -6178,17 +6468,17 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library Value Routes child-field visibility belongs in TrackMetadataGridVm::value_route_child_field_is_visible",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "if key == \"recipient_name\"",
             "Discover Value Routes child-field visibility belongs in TrackMetadataGridVm::value_route_child_field_is_visible",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "serde_json::Value::String(s) => s.clone()",
             "Discover JSON-tree scalar display belongs in TrackMetadataGridVm::json_tree_scalar_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "serde_json::Value::Null => \"null\".into()",
             "Discover JSON-tree null display belongs in TrackMetadataGridVm::json_tree_scalar_label",
         ),
@@ -6198,7 +6488,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library action-row message tone/width belongs in VM display contracts",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "ActionRowMessageDisplay {",
             "Discover action-row message tone/width belongs in VM display contracts",
         ),
@@ -6208,7 +6498,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library action-row message tone belongs in VM display contracts",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "ActionRowMessageTone::",
             "Discover action-row message tone belongs in VM display contracts",
         ),
@@ -6218,7 +6508,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library subscription message severity belongs in LibraryTrackActionVm::subscription_message_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "message_is_error()",
             "Discover subscription message severity belongs in ActionRowVm::subscription_message_display",
         ),
@@ -6238,7 +6528,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata expandability gate belongs in TrackMetadataGridVm::field_is_expandable",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "metadata_field_is_expandable(&row.field) && !value.is_empty()",
             "Discover metadata expandability gate belongs in TrackMetadataGridVm::field_is_expandable",
         ),
@@ -6248,7 +6538,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library expanded metadata field kind belongs in TrackMetadataGridVm::expanded_field_kind",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "field == \"Value Routes\"",
             "Discover expanded metadata field kind belongs in TrackMetadataGridVm::expanded_field_kind",
         ),
@@ -6258,17 +6548,17 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library expanded metadata artwork kind belongs in TrackMetadataGridVm::expanded_field_kind",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "field == \"Artwork\"",
             "Discover expanded metadata artwork kind belongs in TrackMetadataGridVm::expanded_field_kind",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "matches!(field, \"Artwork\")",
             "Discover expanded metadata artwork kind belongs in TrackMetadataGridVm::expanded_field_kind",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "matches!(field, \"Transcript\" | \"Transcript text\")",
             "Discover expanded transcript kind belongs in TrackMetadataGridVm::expanded_field_kind",
         ),
@@ -6278,7 +6568,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata group heading fallback belongs in TrackMetadataGridVm::group_heading_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"{} ({} unused)\", group.label, group.unused_count)",
             "metadata group heading fallback belongs in TrackMetadataGridVm::group_heading_label",
         ),
@@ -6298,7 +6588,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata value-route field key display belongs in TrackMetadataGridVm::value_route_field_key_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"{key}: \")",
             "metadata value-route field key display belongs in TrackMetadataGridVm::value_route_field_key_label",
         ),
@@ -6308,17 +6598,17 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata value-route field value display belongs in TrackMetadataGridVm::value_route_field_value_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "serde_json::Value::Bool(b) => b.to_string()",
             "metadata value-route field value display belongs in TrackMetadataGridVm::value_route_field_value_label",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"No audio URL\"",
             "track play-audio tooltip fallback belongs in TrackVm::play_audio_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "url.clone().unwrap_or_else(|| \"No audio URL\".into())",
             "track play-audio tooltip fallback belongs in TrackVm::play_audio_display",
         ),
@@ -6328,7 +6618,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata MusicBrainz cell value fallback belongs in TrackMetadataGridVm::musicbrainz_cell_value",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "row.musicbrainz_value.as_deref().unwrap_or(\"\")",
             "metadata MusicBrainz cell value fallback belongs in TrackMetadataGridVm::musicbrainz_cell_value",
         ),
@@ -6338,7 +6628,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata comparison role display belongs in TrackMetadataGridVm::comparison_role",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "fn comparison_status_role(",
             "metadata comparison role display belongs in TrackMetadataGridVm::comparison_role",
         ),
@@ -6348,7 +6638,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata comparison glyph display belongs in TrackMetadataGridVm::comparison_glyph",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "fn comparison_status_glyph(",
             "metadata comparison glyph display belongs in TrackMetadataGridVm::comparison_glyph",
         ),
@@ -6358,7 +6648,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata glyph-prefix display belongs in TrackMetadataGridVm::display_with_glyph",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "fn display_with_glyph(",
             "metadata glyph-prefix display belongs in TrackMetadataGridVm::display_with_glyph",
         ),
@@ -6368,7 +6658,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata pending-source role display belongs in TrackMetadataGridVm::pending_source_role",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "fn source_cell_role(",
             "metadata pending-source role display belongs in TrackMetadataGridVm::pending_source_role",
         ),
@@ -6378,122 +6668,122 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "metadata standalone-ID3 status fallback belongs in TrackMetadataGridVm::id3_status_role",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "row.id3_value.is_some() && row.rss_value.is_none() && row.musicbrainz_value.is_none()",
             "metadata standalone-ID3 status fallback belongs in TrackMetadataGridVm::id3_status_role",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "StatusRole::Danger.glyph()",
             "Discover status error-prefix display belongs in SearchStatusSnapshot",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"Fuzzy: On\"",
             "Discover fuzzy-toggle label display belongs in SearchRenderSnapshot",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"Fuzzy: Off\"",
             "Discover fuzzy-toggle label display belongs in SearchRenderSnapshot",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"No results\"",
             "Discover empty-results label display belongs in SearchRenderSnapshot",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"Load more\"",
             "Discover load-more label display belongs in SearchRenderSnapshot or RecentFeedsSnapshot",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"Recent Feeds\"",
             "Discover recent-feeds panel title belongs in RecentFeedsSnapshot",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"No recent feeds\"",
             "Discover recent-feeds empty label belongs in RecentFeedsSnapshot",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"Open publisher: {publisher_text}\")",
             "Discover publisher-link tooltip display belongs in PublisherLinkDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"Loading {title}...\")",
             "Discover inspector loading display belongs in SearchViewModel::inspector_loading_message",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "LoadingMessage::new(format!(\"Error: {error}\"))",
             "Discover inspector error display belongs in SearchViewModel::inspector_error_message",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"\u{2190} Back\"",
             "Discover inspector back label belongs in SearchViewModel::inspector_chrome_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"Select a result to inspect\"",
             "Discover empty-inspector label belongs in SearchViewModel::inspector_chrome_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "text_3xl().opacity(0.4).child(\"\u{1F50D}\")",
             "Discover empty-inspector icon belongs in SearchViewModel::inspector_chrome_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"Loading contributors...\"",
             "Discover contributor-panel loading label belongs in SearchViewModel::deferred_panel_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"Loading value routes...\"",
             "Discover value-route-panel loading label belongs in SearchViewModel::deferred_panel_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SplitPane::new(\"pane-container\")",
             "Discover split-pane container id belongs in SearchViewModel render snapshot display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "resize_handle_id(\"resize-handle\")",
             "Discover split-pane resize handle id belongs in SearchViewModel render snapshot display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"No contributors found\"",
             "Discover contributor-panel empty label belongs in SearchViewModel::deferred_panel_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"No value routes found\"",
             "Discover value-route-panel empty label belongs in SearchViewModel::deferred_panel_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "id: \"section:contributors\".into()",
             "Discover contributor-panel heading id belongs in SearchViewModel::deferred_panel_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "label: \"Contributors\".into()",
             "Discover contributor-panel heading label belongs in SearchViewModel::deferred_panel_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "id: \"section:value-routes\".into()",
             "Discover value-route-panel heading id belongs in SearchViewModel::deferred_panel_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "label: \"Value Routes\".into()",
             "Discover value-route-panel heading label belongs in SearchViewModel::deferred_panel_display",
         ),
@@ -6573,7 +6863,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Feed identity action rendering should consume ReleaseDetailPageVm identity prefix",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"discover-track\"",
             "Discover track identity action prefix belongs in TrackDetailVm",
         ),
@@ -6588,7 +6878,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Track identity action rendering should consume TrackDetailVm identity prefix",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".identity_actions(\"contributor\")",
             "Discover contributor identity action prefix belongs in ContributorRowVm",
         ),
@@ -6633,7 +6923,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Release track row id belongs in SharedTrackRowVm",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"Discover artists, feeds, and tracks...\"",
             "Discover search input placeholder belongs in SearchViewModel::search_input_display",
         ),
@@ -6688,27 +6978,27 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Contributor role row label should be consumed from ContributorRoleRowVm",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "EntityKind::from_legacy_str(&row.entity_type)",
             "Discover result thumbnail kind belongs with ResultRowDisplay kind projection",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let key = row.key()",
             "Discover result row selection key belongs in ResultRowRenderItem",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let entity_type = row.entity_type.clone()",
             "Discover result row navigation target belongs in ResultRowRenderItem",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let entity_id = row.entity_id.clone()",
             "Discover result row navigation target belongs in ResultRowRenderItem",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let title = row.inspector_title()",
             "Discover result row navigation title belongs in ResultRowRenderItem",
         ),
@@ -6848,12 +7138,12 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library contributor Nostr action display belongs in ContributorRowVm::identity_actions",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"contributor-website:{label}:{href}\")",
             "Discover contributor website action display belongs in ContributorRowVm::identity_actions",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"contributor-nostr:{label}:{npub}\")",
             "Discover contributor Nostr action display belongs in ContributorRowVm::identity_actions",
         ),
@@ -6873,7 +7163,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata group disclosure id belongs in TrackMetadataGridVm::group_heading_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"section:id3-frame-group:{group_key}\")",
             "Discover metadata group disclosure id belongs in TrackMetadataGridVm::group_heading_display",
         ),
@@ -6888,22 +7178,22 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata expandable header id belongs in TrackMetadataGridVm::library_expandable_cell_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"expandable-rss-{}\", field)",
             "Discover RSS expandable cell id belongs in TrackMetadataGridVm::discover_expandable_cell_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"expandable-rss-{}-hdr\", field)",
             "Discover RSS expandable header id belongs in TrackMetadataGridVm::discover_expandable_cell_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"expandable-id3-{}\", field)",
             "Discover ID3 expandable cell id belongs in TrackMetadataGridVm::discover_expandable_cell_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"expandable-id3-{}-hdr\", field)",
             "Discover ID3 expandable header id belongs in TrackMetadataGridVm::discover_expandable_cell_display",
         ),
@@ -6918,7 +7208,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library value-route item header id belongs in TrackMetadataGridVm::library_value_route_item_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"vr-{column}-{i}\")",
             "Discover value-route item id belongs in TrackMetadataGridVm::discover_value_route_item_display",
         ),
@@ -6928,7 +7218,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata disclosure glyph belongs in TrackMetadataGridVm expandable display contracts",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let glyph = if expanded",
             "Discover metadata disclosure glyph belongs in TrackMetadataGridVm expandable display contracts",
         ),
@@ -6938,7 +7228,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library value-route disclosure glyph belongs in TrackMetadataGridVm value-route item display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let sub_glyph = if sub_expanded",
             "Discover value-route disclosure glyph belongs in TrackMetadataGridVm value-route item display",
         ),
@@ -6948,7 +7238,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library metadata expansion keys should be consumed by destructuring TrackMetadataExpandableCellDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "display.cell_key.clone()",
             "Discover metadata expansion keys should be consumed by destructuring TrackMetadataExpandableCellDisplay",
         ),
@@ -6958,7 +7248,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library Value Routes item keys should be consumed by destructuring TrackMetadataValueRouteItemDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "display.item_key.clone()",
             "Discover Value Routes item keys should be consumed by destructuring TrackMetadataValueRouteItemDisplay",
         ),
@@ -7013,17 +7303,17 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Discover track playlist popover id should be consumed from TrackRowControlsDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"track-row-download-spin:{key}\")",
             "Discover track download spinner id display belongs in TrackRowActionVm::download_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"track-row-download:{key}\")",
             "Discover track download button id display belongs in TrackRowActionVm::download_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"inspector-add:{}\", frame.entity_id)",
             "Discover inspector playlist popover id belongs in ActionRowVm::inspector_playlist_display",
         ),
@@ -7043,32 +7333,32 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library album-track playlist trigger label belongs in LibraryTrackRowVm::playlist_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"feed-tile:{guid}\")",
             "Discover feed-list tile id display belongs in RecentFeedTileVm::display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"recent-tile:{guid}\")",
             "Discover recent-feed tile id display belongs in RecentFeedTileVm::display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"podroll-tile:{guid}\")",
             "Discover podroll tile id display belongs in RecentFeedTileVm::display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "SharedString::from(\"track-play-audio\")",
             "Discover track-inspector play button id belongs in TrackVm::play_audio_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".label(\"▶\")",
             "Discover play button glyph belongs in TrackVm::play_audio_display",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"track-feed-link:{guid}\")",
             "Discover track feed-link id belongs in TrackFeedLinkDisplay",
         ),
@@ -7303,12 +7593,12 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library local subscription error message belongs in LibraryTrackActionVm",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "LazyPanel::Empty(format!(\"Error: {error}\"))",
             "Discover deferred-panel error prefix belongs in LazyPanel",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"Downloaded track\"",
             "Discover track download success label belongs in SearchSubscriptionCommand",
         ),
@@ -7328,7 +7618,7 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library duplicate ID3 target message belongs in TrackMetadataActionState",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "Resolve duplicate ID3 target{}: {}",
             "Discover duplicate ID3 target message belongs in TrackMetadataActionState",
         ),
@@ -7338,72 +7628,72 @@ fn view_models_own_display_fallbacks_for_library_and_search() {
             "Library ID3 apply error message belongs in TrackMetadataActionState",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\"Error applying ID3 edits: {error}\")",
             "Discover ID3 apply error message belongs in TrackMetadataActionState",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "format!(\", applied {} ID3 edit{}\"",
             "Discover download success ID3 edit suffix belongs in SearchSubscriptionCommand",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "Some(format!(\"Downloaded track{edit_text}\"))",
             "Discover download success message belongs in SearchSubscriptionCommand",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".child(\"🔍\")",
             "Discover results empty-state icon belongs in SearchPaneDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"result-item:{}:{}\"",
             "Discover result row id belongs in ResultRowDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".child(\"Podroll\")",
             "Discover podroll heading label belongs in PodrollSectionDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"podroll-scroll:{}\"",
             "Discover podroll scroll id belongs in PodrollSectionDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "Button::new(\"search-btn\")",
             "Discover search button id belongs in SearchPaneDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "\"fuzzy-toggle\"",
             "Discover fuzzy-toggle id belongs in SearchPaneDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".id(\"results-scroll\")",
             "Discover results scroll id belongs in SearchPaneDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "UiButton::styled(\"load-more\"",
             "Discover result load-more id belongs in SearchPaneDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "UiButton::styled(\"inspector-back\"",
             "Discover inspector back id belongs in InspectorChromeDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".id(\"inspector-scroll\")",
             "Discover inspector scroll id belongs in InspectorChromeDisplay",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "UiButton::styled(\"recent-load-more\"",
             "Discover recent-feed load-more id belongs in RecentFeedsDisplay",
         ),
@@ -7856,7 +8146,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         );
     }
 
-    let search_source = read_source(&manifest_path("src/search/app_impl.rs"));
+    let search_source = read_source(&manifest_path("src/discover/app_impl.rs"));
     for required in [
         "sanitize_feed_source_text(&mut feed);",
         "let mut track_context = TrackContext { track, feed };",
@@ -7884,7 +8174,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         "pub(crate) fn select_frame_breadcrumb(",
         "TrackSubscriptionAction::Download(track)",
         "SubscribeTrackRequest::LibraryTrack",
-        "frame.track.local_path = Some(result.path().to_string());",
+        "frame.track.local_path = Some(path);",
         "frame.source_context = None;",
         "fn load_track_source_context(&mut self, track: TrackRow",
         // Album hydration must skip writes when MusicIndex feed description
@@ -8031,62 +8321,62 @@ fn screen_level_fallback_expressions_stay_domain_only() {
             "debug conversion fallback is data-contract compatibility, not display fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".unwrap_or(false);",
             "boolean state fallback is command/control state, not display fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".unwrap_or(false)",
             "boolean state fallback is command/control state, not display fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".unwrap_or_else(|| row.entity_id.clone()),",
             "result navigation target fallback is identity routing, not display label fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "artist_track_count_by_feed.get(guid).copied().unwrap_or(0);",
             "artist feed count fallback is numeric aggregation, not display fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".unwrap_or_default();",
             "podroll dedupe key fallback is feed identity plumbing, not display fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".unwrap_or(artist_context.tracks.len() as i32);",
             "artist track-count fallback is numeric aggregation, not display fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".unwrap_or_else(color::text_primary);",
             "metadata cell default color is token render chrome, not label fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".unwrap_or_else(|| id3_cell_status_color(row, cx));",
             "ID3 status default color is token render chrome, not label fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             ".unwrap_or_else(|| comparison_status_color(&row.musicbrainz_status, cx));",
             "MusicBrainz status default color is token render chrome, not label fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "let frame_color = frame_color.unwrap_or_else(color::text_muted);",
             "ID3 frame default color is token render chrome, not label fallback",
         ),
         (
-            "src/search.rs",
+            "src/discover.rs",
             "crate::view_models::track::fmt_dur((ms / 1000).try_into().unwrap_or(i32::MAX))",
             "duration range clamp is numeric conversion safety, not display fallback",
         ),
     ];
-    let files = ["src/library.rs", "src/search.rs"];
+    let files = ["src/library.rs", "src/discover.rs"];
     let mut violations = Vec::new();
 
     for file in files {
@@ -8476,7 +8766,7 @@ fn appearance_dark_is_approved(file: &str, source: &str, line_number: usize) -> 
                 "Re-apply theme now that config has provided",
             ],
         ),
-        "src/search.rs" => nearby_source_mentions(
+        "src/discover.rs" => nearby_source_mentions(
             source,
             line_number,
             &[
@@ -8653,61 +8943,228 @@ fn runtime_layer_does_not_import_gpui_or_ui() {
 }
 
 #[test]
-fn active_frame_search_dispatch_routes_through_workspace_descriptor() {
+fn global_search_routes_to_content_list() {
     let app_source = read_source(&manifest_path("src/app.rs"));
 
-    // Guard 1: Dispatcher must call focused_search_descriptor() from workspace layout
+    // Guard: submit_global_search must call open_search_results_in_content_list
     assert!(
-        app_source.contains("self.workspace_layout.focused_search_descriptor()"),
-        "active-frame search dispatch must read descriptor from workspace layout via focused_search_descriptor()"
+        app_source.contains("pub(super) fn submit_global_search(")
+            && app_source.contains("open_search_results_in_content_list("),
+        "submit_global_search must route to open_search_results_in_content_list"
     );
 
-    // Guard 2: dispatch_active_frame_search must exist and handle all six FrameSearchScope variants
+    // Guard: Forbid dead old paths
     assert!(
-        app_source.contains("fn dispatch_active_frame_search("),
-        "dispatch_active_frame_search function must be defined"
+        !app_source.contains("SubmitModifier")
+            && !app_source.contains("submit_global_search_with(")
+            && !app_source.contains("fn dispatch_active_frame_search("),
+        "Legacy paths (SubmitModifier, submit_global_search_with, dispatch_active_frame_search) must be removed"
     );
+}
 
-    let required_variants = vec![
-        "FrameSearchScope::LibraryRows",
-        "FrameSearchScope::InspectorQuery",
-        "FrameSearchScope::QueueRows",
-        "FrameSearchScope::DetailTracks",
-        "FrameSearchScope::Sidebar",
-        "FrameSearchScope::SettingsRows",
-    ];
+#[test]
+fn nav_top_drives_content_list_body_switch() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
 
-    for variant in &required_variants {
+    // Guard: render_workspace_content must match on all nav top variants
+    for nav_variant in [
+        "FrameNavigationEntry::Search(_)",
+        "FrameNavigationEntry::TrackDetail(_)",
+        "FrameNavigationEntry::AlbumDetail(_)",
+        "FrameNavigationEntry::ArtistDetail(_)",
+        "FrameNavigationEntry::PlaylistDetail(_)",
+        "FrameNavigationEntry::IndexArtistDetail(_)",
+        "FrameNavigationEntry::IndexFeedDetail { .. }",
+        "FrameNavigationEntry::IndexTrackDetail { .. }",
+        "FrameNavigationEntry::Settings",
+        "FrameNavigationEntry::SourceList",
+    ] {
         assert!(
-            app_source.contains(variant),
-            "dispatch_active_frame_search must handle all FrameSearchScope variants; missing: {}",
-            variant
+            app_source.contains(nav_variant),
+            "render_workspace_content body switch must explicitly match on `{nav_variant}`"
         );
     }
 
-    // Guard 3: submit_global_search_with must exist and route both modifiers
+    // Ensure the match pattern is in render_workspace_content
     assert!(
-        app_source.contains("fn submit_global_search_with("),
-        "submit_global_search_with function must be defined"
+        app_source.contains("fn render_workspace_content(")
+            && app_source.contains("match &current_nav"),
+        "render_workspace_content must have exhaustive match on nav top"
     );
 
     assert!(
-        app_source.contains("SubmitModifier::NewFrame")
-            && app_source.contains("SubmitModifier::ActiveFrame"),
-        "submit_global_search_with must handle both NewFrame and ActiveFrame modifiers"
+        !app_source.contains(".content_list(active_screen)"),
+        "ContentList body must be selected from nav top, not the active toolbar tab mount"
+    );
+}
+
+#[test]
+fn adr_0048_removes_search_tab_and_workspace_mount() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
+    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
+
+    for forbidden in [
+        "AppTab::Search",
+        "WorkspaceScreenMount::Search",
+        "AppToolbarTabKey::Search",
+        "search_tab_focus",
+        "SelectDiscoverTab",
+        "tabs: [AppToolbarTabDisplay; 3]",
+    ] {
+        assert!(
+            !app_source.contains(forbidden)
+                && !toolbar_vm_source.contains(forbidden)
+                && !toolbar_source.contains(forbidden)
+                && !keyboard_source.contains(forbidden),
+            "ADR 0048 retired the Search tab/mount; found `{forbidden}`"
+        );
+    }
+
+    assert!(
+        toolbar_vm_source.contains("tabs: [AppToolbarTabDisplay; 2]")
+            && toolbar_vm_source.contains("label: \"Library\"")
+            && toolbar_vm_source.contains("label: \"Settings\""),
+        "toolbar VM must expose exactly Library and Settings tabs"
+    );
+}
+
+#[test]
+fn adr_0048_library_settings_tabs_drive_content_list_nav() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+
+    for required in [
+        "fn select_tab(&mut self, tab: AppTab",
+        "AppTab::Settings =>",
+        ".reset_nav(content_list_id, FrameNavigationEntry::Settings)",
+        "last_library_content_nav: Option<FrameNavigationState>",
+        "self.last_library_content_nav = Some(nav)",
+        "replace_nav(content_list_id, nav)",
+        "WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList",
+        "FrameNavigationEntry::Settings",
+    ] {
+        assert!(
+            app_source.contains(required) || workspace_source.contains(required),
+            "Library/Settings tab switching must be owned by ContentList nav; missing `{required}`"
+        );
+    }
+}
+
+#[test]
+fn adr_0048_content_list_frame_back_is_wired() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+
+    for required in [
+        "fn handle_content_list_back_select(",
+        "self.workspace_layout.pop_nav(content_list_id)",
+        "on_content_list_back_select",
+        ".on_back(move |window, cx|",
+    ] {
+        assert!(
+            app_source.contains(required) || workspace_shell_source.contains(required),
+            "ContentList frame back must be wired through workspace shell; missing `{required}`"
+        );
+    }
+}
+
+#[test]
+fn adr_0048_forbids_secondary_search_frame_path() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+
+    assert!(
+        !app_source.contains("submit_global_search_with(")
+            && !app_source.contains("SubmitModifier")
+            && !workspace_source.contains("open_search_results_frame("),
+        "ADR 0048 forbids secondary/new-frame toolbar search paths"
+    );
+}
+
+#[test]
+fn adr_0048_index_search_is_async_and_vm_owned() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let search_results_vm_source = read_source(&manifest_path("src/view_models/search_results.rs"));
+    let inspector_source = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+
+    for required in [
+        "IndexSearchResultRows",
+        "fn mark_index_loading(",
+        "fn replace_index_results(",
+        "fn set_index_error(",
+        "fn is_index_loading(",
+    ] {
+        assert!(
+            search_results_vm_source.contains(required),
+            "SearchResultsInspectorPageVm must own Index loading/results/error state; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "fn start_index_search_for_query(",
+        "fetch_index_search_result_rows(",
+        "fetch_index_feed_result_rows(",
+        "fetch_index_track_result_rows(",
+        "Some(\"feed\")",
+        "Some(\"track\")",
+        "index_artist_candidates_from_track(",
+        ".background_executor()",
+        "content_list_nav_matches_search",
+        "detail.replace_index_results(rows)",
+        "set_index_error(",
+    ] {
+        assert!(
+            app_source.contains(required),
+            "TopApp must async-load Index results and race-guard ContentList nav; missing `{required}`"
+        );
+    }
+
+    assert!(
+        inspector_source.contains("vm.is_index_loading()")
+            && inspector_source.contains("render_pending_result_row(tab, kind, index)"),
+        "SearchResultsInspector renderer must expose VM-owned loading via pending rows"
+    );
+}
+
+#[test]
+fn breadcrumb_pop_syncs_library_detail() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+
+    // Guard: handle_content_list_breadcrumb_select must call hydrate_detail_from_nav
+    assert!(
+        app_source.contains("fn handle_content_list_breadcrumb_select(")
+            && app_source.contains("hydrate_detail_from_nav"),
+        "handle_content_list_breadcrumb_select must call hydrate_detail_from_nav to sync LibraryApp detail"
+    );
+}
+
+#[test]
+fn search_results_detail_syncs_with_search_nav_flow() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+
+    // Guard: sync_search_results_detail_with_nav must exist and be called.
+    assert!(
+        app_source.contains("fn sync_search_results_detail_with_nav("),
+        "app.rs must define sync_search_results_detail_with_nav helper"
     );
 
-    // Guard 4: NewFrame path must call open_search_results
+    // Guard: it must be called from handle_content_list_breadcrumb_select
     assert!(
-        app_source.contains("SubmitModifier::NewFrame")
-            && app_source.contains("open_search_results("),
-        "NewFrame modifier must route through open_search_results legacy helper"
+        app_source.contains("fn handle_content_list_breadcrumb_select(")
+            && app_source.contains("self.sync_search_results_detail_with_nav("),
+        "sync_search_results_detail_with_nav must be called from handle_content_list_breadcrumb_select"
     );
 
-    // Guard 5: ActiveFrame path must call dispatch_active_frame_search
+    // Guard: it must be called from handle_search_result_selected
     assert!(
-        app_source.contains("SubmitModifier::ActiveFrame")
-            && app_source.contains("dispatch_active_frame_search("),
-        "ActiveFrame modifier must dispatch through dispatch_active_frame_search"
+        app_source.contains("fn handle_search_result_selected(")
+            && count_matches(&app_source, "self.sync_search_results_detail_with_nav(") >= 2,
+        "sync_search_results_detail_with_nav must be called from both breadcrumb and result-select handlers"
     );
+}
+
+fn count_matches(source: &str, pattern: &str) -> usize {
+    source.matches(pattern).count()
 }
