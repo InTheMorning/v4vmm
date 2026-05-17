@@ -385,11 +385,14 @@ const SCREEN_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS: &[&str] = &[
 
 const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
+    "src/app/breadcrumb.rs",
     "src/app/bootstrap.rs",
     "src/app/events.rs",
     "src/app/keyboard.rs",
     "src/app/menu.rs",
     "src/app/playback_bar.rs",
+    "src/app/resize.rs",
+    "src/app/search_dispatch.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
     "src/discover.rs",
@@ -1402,6 +1405,7 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
 fn workspace_split_pane_uses_fluid_resize_pattern() {
     let source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
     let app_source = read_source(&manifest_path("src/app.rs"));
+    let resize_source = read_source(&manifest_path("src/app/resize.rs"));
     let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));
     let mut violations = Vec::new();
 
@@ -1414,14 +1418,15 @@ fn workspace_split_pane_uses_fluid_resize_pattern() {
     }
 
     for required in [
+        "fn set_content_pane_width(&mut self",
         "fn begin_content_pane_resize(&mut self",
         "fn resize_content_pane(&mut self",
         "fn end_content_pane_resize(&mut self",
         "fn is_content_pane_resizing(&self) -> bool",
     ] {
-        if !app_source.contains(required) {
+        if !resize_source.contains(required) {
             violations.push(format!(
-                "src/app.rs: P2b fluid resize TopApp methods missing `{required}`"
+                "src/app/resize.rs: P2b fluid resize TopApp methods missing `{required}`"
             ));
         }
     }
@@ -1967,6 +1972,7 @@ fn adr_0047_task_010_content_list_filter_chips_are_frame_local() {
 #[test]
 fn adr_0049_inspector_source_ownership_is_guarded() {
     let app_source = read_source(&manifest_path("src/app.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
     let search_results_mod_source =
@@ -1982,13 +1988,13 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
 
     for required in [
         "!matches!(current_nav, Some(FrameNavigationEntry::SourceList) | None)",
+        "has_filterable_content_detail()",
         "handle_index_feed_result_selected(",
         "handle_index_track_result_selected(",
         "handle_index_artist_result_selected(",
         "strip_prefix(\"index-feed:\")",
         "strip_prefix(\"index-track:\")",
         "strip_prefix(\"index-artist:\")",
-        "has_filterable_content_detail()",
         "FrameNavigationEntry::IndexArtistDetail(",
         "FrameNavigationEntry::IndexFeedDetail {",
         "FrameNavigationEntry::IndexTrackDetail {",
@@ -2003,13 +2009,14 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "fn index_feed_artwork_url(",
         "fn index_feed_primary_actions(",
         "fn index_feed_track_rows(",
+        "fn render_index_feed_or_fallback_detail(",
         "DisclosureTextPanel::new(",
         "SubscribeFeedRequest {",
         "SubscribeTrackRequest::SearchTrack",
     ] {
-        if !app_source.contains(required) {
+        if !app_source.contains(required) && !search_dispatch_source.contains(required) {
             violations.push(format!(
-                "src/app.rs: ADR 0049 ContentList dispatch/Index activation missing `{required}`"
+                "src/app.rs or src/app/search_dispatch.rs: ADR 0049 ContentList dispatch/Index activation missing `{required}`"
             ));
         }
     }
@@ -2363,6 +2370,7 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
 #[test]
 fn adr_0047_task_015_search_submit_and_saved_search_commands() {
     let app_source = read_source(&manifest_path("src/app.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
     let library_event_source = read_source(&manifest_path("src/library.rs"));
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let workspace_source = workspace_vm_source();
@@ -2390,10 +2398,6 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
 
     for required in [
         "search_results_detail: Option<SearchResultsInspectorPageVm>",
-        "fn open_search_results_in_content_list(",
-        "fn search_results_detail_for_query(",
-        ".search_local_library_tracks(&conn, query, None)",
-        "SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks)",
         "fn open_saved_search(",
         "fn set_search_results_filter(",
         "fn set_search_results_tab(",
@@ -2406,6 +2410,19 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
         if !app_source.contains(required) {
             violations.push(format!(
                 "src/app.rs: ADR 0047 Task 015 app-level search inspector routing missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "fn open_search_results_in_content_list(",
+        "fn search_results_detail_for_query(",
+        ".search_local_library_tracks(&conn, query, None)",
+        "SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks)",
+    ] {
+        if !search_dispatch_source.contains(required) {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: ADR 0047 Task 015 app-level search inspector routing missing `{required}`"
             ));
         }
     }
@@ -3655,6 +3672,7 @@ fn global_search_contract_has_toolbar_vm_and_local_query_boundary() {
 #[test]
 fn global_search_replaces_screen_local_search_chrome() {
     let app_source = read_source(&manifest_path("src/app.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
     let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
     let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
     let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
@@ -3664,14 +3682,20 @@ fn global_search_replaces_screen_local_search_chrome() {
     let search_vm_source = read_source(&manifest_path("src/view_models/search.rs"));
     let mut violations = Vec::new();
 
+    if !app_source.contains("fn on_global_search_event(") {
+        violations.push(
+            "src/app.rs: ADR 0043 toolbar search routing missing `fn on_global_search_event(`"
+                .to_string(),
+        );
+    }
+
     for required in [
-        "fn on_global_search_event(",
         "fn submit_global_search(",
         "self.open_search_results_in_content_list(",
     ] {
-        if !app_source.contains(required) {
+        if !search_dispatch_source.contains(required) {
             violations.push(format!(
-                "src/app.rs: ADR 0043 toolbar search routing missing `{required}`"
+                "src/app/search_dispatch.rs: ADR 0043 toolbar search routing missing `{required}`"
             ));
         }
     }
@@ -9154,18 +9178,21 @@ fn runtime_layer_does_not_import_gpui_or_ui() {
 #[test]
 fn global_search_routes_to_content_list() {
     let app_source = read_source(&manifest_path("src/app.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
 
     // Guard: submit_global_search must call open_search_results_in_content_list
     assert!(
-        app_source.contains("pub(super) fn submit_global_search(")
-            && app_source.contains("open_search_results_in_content_list("),
+        search_dispatch_source.contains("pub(super) fn submit_global_search(")
+            && search_dispatch_source.contains("open_search_results_in_content_list("),
         "submit_global_search must route to open_search_results_in_content_list"
     );
 
     // Guard: Forbid dead old paths
     assert!(
         !app_source.contains("SubmitModifier")
+            && !search_dispatch_source.contains("SubmitModifier")
             && !app_source.contains("submit_global_search_with(")
+            && !search_dispatch_source.contains("submit_global_search_with(")
             && !app_source.contains("fn dispatch_active_frame_search("),
         "Legacy paths (SubmitModifier, submit_global_search_with, dispatch_active_frame_search) must be removed"
     );
@@ -9282,11 +9309,14 @@ fn adr_0048_content_list_frame_back_is_wired() {
 #[test]
 fn adr_0048_forbids_secondary_search_frame_path() {
     let app_source = read_source(&manifest_path("src/app.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
     let workspace_source = workspace_vm_source();
 
     assert!(
         !app_source.contains("submit_global_search_with(")
+            && !search_dispatch_source.contains("submit_global_search_with(")
             && !app_source.contains("SubmitModifier")
+            && !search_dispatch_source.contains("SubmitModifier")
             && !workspace_source.contains("open_search_results_frame("),
         "ADR 0048 forbids secondary/new-frame toolbar search paths"
     );
@@ -9294,7 +9324,7 @@ fn adr_0048_forbids_secondary_search_frame_path() {
 
 #[test]
 fn adr_0048_index_search_is_async_and_vm_owned() {
-    let app_source = read_source(&manifest_path("src/app.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
     let search_results_vm_source =
         read_source(&manifest_path("src/view_models/search_results/mod.rs"));
     let inspector_source = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
@@ -9326,7 +9356,7 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
         "set_index_error(",
     ] {
         assert!(
-            app_source.contains(required),
+            search_dispatch_source.contains(required),
             "TopApp must async-load Index results and race-guard ContentList nav; missing `{required}`"
         );
     }
@@ -9340,37 +9370,39 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
 
 #[test]
 fn breadcrumb_pop_syncs_library_detail() {
-    let app_source = read_source(&manifest_path("src/app.rs"));
+    let breadcrumb_source = read_source(&manifest_path("src/app/breadcrumb.rs"));
 
     // Guard: handle_content_list_breadcrumb_select must call hydrate_detail_from_nav
     assert!(
-        app_source.contains("fn handle_content_list_breadcrumb_select(")
-            && app_source.contains("hydrate_detail_from_nav"),
+        breadcrumb_source.contains("fn handle_content_list_breadcrumb_select(")
+            && breadcrumb_source.contains("hydrate_detail_from_nav"),
         "handle_content_list_breadcrumb_select must call hydrate_detail_from_nav to sync LibraryApp detail"
     );
 }
 
 #[test]
 fn search_results_detail_syncs_with_search_nav_flow() {
-    let app_source = read_source(&manifest_path("src/app.rs"));
+    let breadcrumb_source = read_source(&manifest_path("src/app/breadcrumb.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
 
     // Guard: sync_search_results_detail_with_nav must exist and be called.
     assert!(
-        app_source.contains("fn sync_search_results_detail_with_nav("),
-        "app.rs must define sync_search_results_detail_with_nav helper"
+        search_dispatch_source.contains("fn sync_search_results_detail_with_nav("),
+        "src/app/search_dispatch.rs must define sync_search_results_detail_with_nav helper"
     );
 
     // Guard: it must be called from handle_content_list_breadcrumb_select
     assert!(
-        app_source.contains("fn handle_content_list_breadcrumb_select(")
-            && app_source.contains("self.sync_search_results_detail_with_nav("),
+        breadcrumb_source.contains("fn handle_content_list_breadcrumb_select(")
+            && breadcrumb_source.contains("self.sync_search_results_detail_with_nav("),
         "sync_search_results_detail_with_nav must be called from handle_content_list_breadcrumb_select"
     );
 
     // Guard: it must be called from handle_search_result_selected
     assert!(
-        app_source.contains("fn handle_search_result_selected(")
-            && count_matches(&app_source, "self.sync_search_results_detail_with_nav(") >= 2,
+        search_dispatch_source.contains("fn handle_search_result_selected(")
+            && count_matches(&search_dispatch_source, "self.sync_search_results_detail_with_nav(")
+                >= 2,
         "sync_search_results_detail_with_nav must be called from both breadcrumb and result-select handlers"
     );
 }
