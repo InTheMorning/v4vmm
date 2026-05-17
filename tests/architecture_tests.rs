@@ -606,8 +606,7 @@ fn view_models_do_not_import_gpui_or_screen_layers() {
 
 #[test]
 fn workspace_view_model_contract_is_gpui_free() {
-    let path = manifest_path("src/view_models/workspace.rs");
-    let source = read_source(&path);
+    let source = workspace_vm_source();
     let mut violations = Vec::new();
 
     for (line_number, line) in code_lines(&source) {
@@ -619,7 +618,7 @@ fn workspace_view_model_contract_is_gpui_free() {
         ] {
             if line.contains(pattern) {
                 violations.push(format!(
-                    "src/view_models/workspace.rs:{line_number}: workspace model must stay GPUI-free; found `{pattern}` in `{line}`"
+                    "src/view_models/workspace/mod.rs:{line_number}: workspace model must stay GPUI-free; found `{pattern}` in `{line}`"
                 ));
             }
         }
@@ -660,7 +659,7 @@ fn workspace_view_model_contract_is_gpui_free() {
 
 #[test]
 fn workspace_frame_shell_display_contract_lives_in_workspace_vm() {
-    let source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let source = workspace_vm_source();
     let mut violations = Vec::new();
 
     for required in [
@@ -684,7 +683,7 @@ fn workspace_frame_shell_display_contract_lives_in_workspace_vm() {
     ] {
         if !source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0046 Task 005 frame-shell display contract missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0046 Task 005 frame-shell display contract missing `{required}`"
             ));
         }
     }
@@ -698,14 +697,17 @@ fn workspace_frame_shell_display_contract_lives_in_workspace_vm() {
 
 #[test]
 fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
-    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_source = workspace_vm_source();
     let library_source = read_source(&manifest_path("src/view_models/library.rs"));
     let search_results_source = read_source(&manifest_path("src/view_models/search_results.rs"));
     let mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
     let mut violations = Vec::new();
 
     for (path, source) in [
-        ("src/view_models/workspace.rs", workspace_source.as_str()),
+        (
+            "src/view_models/workspace/mod.rs",
+            workspace_source.as_str(),
+        ),
         ("src/view_models/library.rs", library_source.as_str()),
         (
             "src/view_models/search_results.rs",
@@ -737,7 +739,7 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
     ] {
         if !workspace_source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0047 Phase B content-filter contract missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0047 Phase B content-filter contract missing `{required}`"
             ));
         }
     }
@@ -1414,7 +1416,7 @@ fn workspace_split_pane_uses_fluid_resize_pattern() {
 
 #[test]
 fn workspace_frame_phase_5_layout_persistence_contract() {
-    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_source = workspace_vm_source();
     let config_source = read_source(&manifest_path("src/config.rs"));
     let app_source = read_source(&manifest_path("src/app.rs"));
     let bootstrap_source = read_source(&manifest_path("src/app/bootstrap.rs"));
@@ -1434,7 +1436,7 @@ fn workspace_frame_phase_5_layout_persistence_contract() {
     ] {
         if !workspace_source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0046 Task 012 layout persistence contract missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0046 Task 012 layout persistence contract missing `{required}`"
             ));
         }
     }
@@ -1485,7 +1487,7 @@ fn workspace_frame_phase_5_layout_persistence_contract() {
 
 #[test]
 fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frames_exist() {
-    let workspace_vm_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_vm_source = workspace_vm_source();
     let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
     let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
     let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
@@ -1498,7 +1500,7 @@ fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frame
     ] {
         if !workspace_vm_source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0046 Task 013 deferred frame action contract missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0046 Task 013 deferred frame action contract missing `{required}`"
             ));
         }
     }
@@ -1514,7 +1516,7 @@ fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frame
     ] {
         if workspace_vm_source.contains(forbidden) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0046 Task 013 must not expose fake multi-frame action `{forbidden}` before real frame content exists"
+                "src/view_models/workspace/mod.rs: ADR 0046 Task 013 must not expose fake multi-frame action `{forbidden}` before real frame content exists"
             ));
         }
     }
@@ -1607,7 +1609,7 @@ fn workspace_frame_phase_5_multi_frame_commands_are_deferred_until_content_frame
 
 #[test]
 fn workspace_frame_phase_6_detach_dock_model_only_contract() {
-    let workspace_vm_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_vm_source = workspace_vm_source();
     let app_source = read_source(&manifest_path("src/app.rs"));
     let mut violations = Vec::new();
 
@@ -1628,7 +1630,7 @@ fn workspace_frame_phase_6_detach_dock_model_only_contract() {
     ] {
         if !workspace_vm_source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0046 Task 014 detach/dock model contract missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0046 Task 014 detach/dock model contract missing `{required}`"
             ));
         }
     }
@@ -1681,7 +1683,7 @@ fn adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell() {
     let filter_source = read_source(&manifest_path("src/ui/composites/filter_chip_strip.rs"));
     let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
     let composites_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
-    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_source = workspace_vm_source();
     let mut violations = Vec::new();
 
     for required in [
@@ -1731,7 +1733,7 @@ fn adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell() {
     ] {
         if !workspace_source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0047 Task 009 frame-shell display contract missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0047 Task 009 frame-shell display contract missing `{required}`"
             ));
         }
     }
@@ -2060,7 +2062,7 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
 
 #[test]
 fn adr_0047_task_012_frame_navigation_is_workspace_vm_owned() {
-    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_source = workspace_vm_source();
     let library_struct_source = read_source(&manifest_path("src/library.rs"));
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let mut violations = Vec::new();
@@ -2078,7 +2080,7 @@ fn adr_0047_task_012_frame_navigation_is_workspace_vm_owned() {
     ] {
         if !workspace_source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0047 Task 012 workspace-owned frame navigation missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0047 Task 012 workspace-owned frame navigation missing `{required}`"
             ));
         }
     }
@@ -2124,7 +2126,7 @@ fn adr_0047_task_012_frame_navigation_is_workspace_vm_owned() {
 
 #[test]
 fn adr_0047_task_013_frame_shell_renders_breadcrumb_chrome() {
-    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_source = workspace_vm_source();
     let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
     let mut violations = Vec::new();
 
@@ -2135,7 +2137,7 @@ fn adr_0047_task_013_frame_shell_renders_breadcrumb_chrome() {
     ] {
         if !workspace_source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0047 Task 013 frame-shell breadcrumb display contract missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0047 Task 013 frame-shell breadcrumb display contract missing `{required}`"
             ));
         }
     }
@@ -2303,7 +2305,7 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let library_event_source = read_source(&manifest_path("src/library.rs"));
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
-    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_source = workspace_vm_source();
     let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
     let mut violations = Vec::new();
 
@@ -2321,7 +2323,7 @@ fn adr_0047_task_015_search_submit_and_saved_search_commands() {
     ] {
         if !workspace_source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0047 Task 015 workspace-owned search frame command missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0047 Task 015 workspace-owned search frame command missing `{required}`"
             ));
         }
     }
@@ -2606,7 +2608,7 @@ fn pub_crate_use_names(line: &str) -> Option<Vec<String>> {
 
 #[test]
 fn active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models() {
-    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_source = workspace_vm_source();
     let library_source = read_source(&manifest_path("src/view_models/library.rs"));
     let feed_source = read_source(&manifest_path("src/view_models/feed.rs"));
     let playlist_detail_source = read_source(&manifest_path("src/view_models/playlist_detail.rs"));
@@ -2638,7 +2640,7 @@ fn active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models() 
     ] {
         if !workspace_source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: active-frame search descriptor contract missing `{required}`"
+                "src/view_models/workspace/mod.rs: active-frame search descriptor contract missing `{required}`"
             ));
         }
     }
@@ -2963,7 +2965,7 @@ fn workspace_frame_phase_4_guards_toolbar_now_playing_is_compact() {
 
 #[test]
 fn workspace_frame_phase_2_guards_workspace_vm_contract_is_gpui_free_and_typed() {
-    let source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let source = workspace_vm_source();
     let mut violations = Vec::new();
 
     for (line_number, line) in code_lines(&source) {
@@ -2975,7 +2977,7 @@ fn workspace_frame_phase_2_guards_workspace_vm_contract_is_gpui_free_and_typed()
         ] {
             if line.contains(pattern) {
                 violations.push(format!(
-                    "src/view_models/workspace.rs:{line_number}: ADR 0046 Phase 2 workspace model must stay GPUI-free; found `{pattern}` in `{line}`"
+                    "src/view_models/workspace/mod.rs:{line_number}: ADR 0046 Phase 2 workspace model must stay GPUI-free; found `{pattern}` in `{line}`"
                 ));
             }
         }
@@ -2995,7 +2997,7 @@ fn workspace_frame_phase_2_guards_workspace_vm_contract_is_gpui_free_and_typed()
     ] {
         if !source.contains(required) {
             violations.push(format!(
-                "src/view_models/workspace.rs: ADR 0046 Phase 2 workspace VM contract missing `{required}`"
+                "src/view_models/workspace/mod.rs: ADR 0046 Phase 2 workspace VM contract missing `{required}`"
             ));
         }
     }
@@ -9026,6 +9028,20 @@ fn read_source(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
 }
 
+fn workspace_vm_source() -> String {
+    [
+        "src/view_models/workspace/mod.rs",
+        "src/view_models/workspace/frame.rs",
+        "src/view_models/workspace/chrome.rs",
+        "src/view_models/workspace/nav.rs",
+        "src/view_models/workspace/breadcrumb.rs",
+    ]
+    .into_iter()
+    .map(|file| read_source(&manifest_path(file)))
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
 fn manifest_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
@@ -9165,7 +9181,7 @@ fn adr_0048_removes_search_tab_and_workspace_mount() {
 #[test]
 fn adr_0048_library_settings_tabs_drive_content_list_nav() {
     let app_source = read_source(&manifest_path("src/app.rs"));
-    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_source = workspace_vm_source();
 
     for required in [
         "fn select_tab(&mut self, tab: AppTab",
@@ -9205,7 +9221,7 @@ fn adr_0048_content_list_frame_back_is_wired() {
 #[test]
 fn adr_0048_forbids_secondary_search_frame_path() {
     let app_source = read_source(&manifest_path("src/app.rs"));
-    let workspace_source = read_source(&manifest_path("src/view_models/workspace.rs"));
+    let workspace_source = workspace_vm_source();
 
     assert!(
         !app_source.contains("submit_global_search_with(")
