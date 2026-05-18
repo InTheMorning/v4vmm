@@ -20,6 +20,9 @@ use crate::musicbrainz::lookup_recordings;
 use crate::rss;
 use crate::track_compare::{download_track, local_track_path, select_audio_enclosure};
 
+const MUSICINDEX_TRACK_PERSISTENCE_INCLUDE: &str =
+    "source_enclosures,source_links,source_ids,source_contributors,payment_routes";
+
 pub enum SubscribeTrackRequest {
     LibraryTrack {
         track: Box<TrackRow>,
@@ -50,6 +53,15 @@ pub struct SubscribeFeedOutcome {
     pub downloaded: usize,
     pub applied_edits: usize,
     pub skipped: usize,
+}
+
+struct SearchTrackSubscription {
+    track_context: TrackContext,
+    persistence_track: Option<Track>,
+    edits: Vec<Id3v24Edit>,
+    musicindex_endpoint: String,
+    mark_feed_subscribed: bool,
+    return_tag_compare: bool,
 }
 
 pub(crate) enum PreparedTrack {
@@ -108,11 +120,14 @@ pub(crate) fn subscribe_track_with_config(
         } => subscribe_track_from_search_internal(
             conn,
             cfg,
-            *track_context,
-            edits,
-            musicindex_endpoint,
-            mark_feed_subscribed,
-            return_tag_compare,
+            SearchTrackSubscription {
+                track_context: *track_context,
+                persistence_track: None,
+                edits,
+                musicindex_endpoint,
+                mark_feed_subscribed,
+                return_tag_compare,
+            },
         ),
     }
 }
@@ -204,11 +219,14 @@ pub(crate) fn subscribe_feed_with_config(
         match subscribe_track_from_search_internal(
             Arc::clone(&conn),
             cfg,
-            track_context,
-            edits.clone(),
-            musicindex_endpoint.clone(),
-            true,  // mark_feed_subscribed
-            false, // return_tag_compare
+            SearchTrackSubscription {
+                track_context,
+                persistence_track: Some(track_for_persistence),
+                edits: edits.clone(),
+                musicindex_endpoint: musicindex_endpoint.clone(),
+                mark_feed_subscribed: true,
+                return_tag_compare: false,
+            },
         ) {
             Ok(outcome) => {
                 if outcome.marked_downloaded {
@@ -363,12 +381,16 @@ fn subscribe_library_track_internal(
 fn subscribe_track_from_search_internal(
     conn: Arc<Mutex<Connection>>,
     cfg: &config::Config,
-    track_context: TrackContext,
-    edits: Vec<Id3v24Edit>,
-    musicindex_endpoint: String,
-    mark_feed_subscribed: bool,
-    return_tag_compare: bool,
+    input: SearchTrackSubscription,
 ) -> Result<SubscribeTrackOutcome> {
+    let SearchTrackSubscription {
+        track_context,
+        persistence_track,
+        edits,
+        musicindex_endpoint,
+        mark_feed_subscribed,
+        return_tag_compare,
+    } = input;
     let mut feed = track_context.feed;
     let original_track = track_context.track.clone();
     let mut track = track_with_feed_defaults(original_track.clone(), feed.as_ref());
@@ -390,6 +412,11 @@ fn subscribe_track_from_search_internal(
         .ok_or_else(|| anyhow!("track has no RSS feed URL"))?;
     let track = refreshed_context.track.clone();
     let feed = refreshed_context.feed.clone();
+    let api_client = Client::new_with_base_url(musicindex_endpoint.clone());
+    let track_for_persistence =
+        authoritative_track_for_persistence(persistence_track, &original_track, |track_guid| {
+            api_client.fetch_track(track_guid, Some(MUSICINDEX_TRACK_PERSISTENCE_INCLUDE))
+        });
 
     let prior_subscribed = {
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
@@ -403,7 +430,7 @@ fn subscribe_track_from_search_internal(
             &mut db,
             &feed_url,
             feed.as_ref(),
-            Some(&track),
+            track_for_persistence.as_ref(),
         )?;
         if !mark_feed_subscribed && !prior_subscribed {
             db::set_feed_subscribed_by_url(&db, &feed_url, false)?;
@@ -692,6 +719,50 @@ pub fn compare_downloaded_track_path(
     })
 }
 
+fn authoritative_track_for_persistence<F>(
+    explicit_track: Option<Track>,
+    original_track: &Track,
+    fetch_track: F,
+) -> Option<Track>
+where
+    F: FnOnce(&str) -> Result<Track>,
+{
+    if let Some(mut explicit_track) = explicit_track {
+        sanitize_track_source_text(&mut explicit_track);
+        return Some(explicit_track);
+    }
+
+    let track_guid = original_track
+        .track_guid
+        .as_deref()
+        .filter(|guid| !source_text_missing(Some(guid)))?;
+    let mut fetched = fetch_track(track_guid).ok()?;
+    fill_missing_track_match_fields(&mut fetched, original_track);
+    sanitize_track_source_text(&mut fetched);
+    Some(fetched)
+}
+
+fn fill_missing_track_match_fields(track: &mut Track, fallback: &Track) {
+    fill_missing_source_text(&mut track.track_guid, &fallback.track_guid);
+    fill_missing_source_text(&mut track.feed_guid, &fallback.feed_guid);
+    fill_missing_source_text(&mut track.feed_url, &fallback.feed_url);
+    fill_missing_source_text(&mut track.enclosure_url, &fallback.enclosure_url);
+}
+
+fn fill_missing_source_text(target: &mut Option<String>, fallback: &Option<String>) {
+    if target
+        .as_deref()
+        .is_some_and(|value| !source_text_missing(Some(value)))
+    {
+        return;
+    }
+
+    *target = fallback
+        .as_ref()
+        .filter(|value| !source_text_missing(Some(value.as_str())))
+        .cloned();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -729,6 +800,94 @@ mod tests {
             ..SourceEnclosure::default()
         }]);
         t
+    }
+
+    #[test]
+    fn authoritative_persistence_prefers_explicit_track_payload() {
+        let original = Track {
+            track_guid: Some("track-guid".into()),
+            publisher_text: Some("Feed Publisher".into()),
+            description: Some("Feed description".into()),
+            ..Track::default()
+        };
+        let explicit = Track {
+            track_guid: Some("track-guid".into()),
+            publisher_text: Some("Track Publisher".into()),
+            description: Some("Track description".into()),
+            ..Track::default()
+        };
+
+        let resolved =
+            authoritative_track_for_persistence(Some(explicit), &original, |_| unreachable!())
+                .expect("explicit track should resolve");
+
+        assert_eq!(resolved.publisher_text.as_deref(), Some("Track Publisher"));
+        assert_eq!(resolved.description.as_deref(), Some("Track description"));
+    }
+
+    #[test]
+    fn authoritative_persistence_does_not_fallback_to_defaulted_context_on_fetch_error() {
+        let original = Track {
+            track_guid: Some("track-guid".into()),
+            publisher_text: Some("Feed Publisher".into()),
+            description: Some("Feed description".into()),
+            ..Track::default()
+        };
+
+        let resolved = authoritative_track_for_persistence(None, &original, |_| {
+            Err(anyhow::anyhow!("offline"))
+        });
+
+        assert!(
+            resolved.is_none(),
+            "defaulted context metadata must not be persisted as track-owned facts"
+        );
+    }
+
+    #[test]
+    fn fetched_authoritative_persistence_merges_only_match_fields() {
+        let original = Track {
+            track_guid: Some("track-guid".into()),
+            feed_guid: Some("feed-guid".into()),
+            feed_url: Some("https://example.test/feed.xml".into()),
+            enclosure_url: Some("https://example.test/audio.mp3".into()),
+            publisher_text: Some("Feed Publisher".into()),
+            description: Some("Feed description".into()),
+            pub_date: Some(1_714_300_000),
+            explicit: Some(true),
+            ..Track::default()
+        };
+        let fetched = Track {
+            track_guid: Some("track-guid".into()),
+            publisher_text: Some("Track Publisher".into()),
+            ..Track::default()
+        };
+
+        let resolved = authoritative_track_for_persistence(None, &original, |_| Ok(fetched))
+            .expect("fetched track should resolve");
+
+        assert_eq!(resolved.feed_guid.as_deref(), Some("feed-guid"));
+        assert_eq!(
+            resolved.feed_url.as_deref(),
+            Some("https://example.test/feed.xml")
+        );
+        assert_eq!(
+            resolved.enclosure_url.as_deref(),
+            Some("https://example.test/audio.mp3")
+        );
+        assert_eq!(resolved.publisher_text.as_deref(), Some("Track Publisher"));
+        assert_eq!(
+            resolved.description, None,
+            "feed-default description must not be copied into fetched persistence track"
+        );
+        assert_eq!(
+            resolved.pub_date, None,
+            "feed/download-context pubdate must not be copied into fetched persistence track"
+        );
+        assert_eq!(
+            resolved.explicit, None,
+            "feed/download-context explicit flag must not be copied into fetched persistence track"
+        );
     }
 
     #[test]

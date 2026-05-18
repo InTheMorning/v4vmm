@@ -82,7 +82,8 @@ pub(crate) fn persist_musicindex_track(
         LocalEntityOwner::Track(track_id),
         track.source_contributors.as_deref(),
     )?;
-    persist_track_artist_bindings(conn, track_id, track)
+    persist_track_artist_bindings(conn, track_id, track)?;
+    persist_track_metadata_facts(conn, track_id, track)
 }
 
 pub(crate) fn persist_musicindex_artist(conn: &mut Connection, artist: &Artist) -> Result<()> {
@@ -296,6 +297,16 @@ fn persist_feed_metadata_facts(conn: &mut Connection, feed_id: i64, feed: &Feed)
     Ok(())
 }
 
+fn persist_track_metadata_facts(conn: &mut Connection, track_id: i64, track: &Track) -> Result<()> {
+    let facts = track_metadata_facts(track);
+    db::replace_local_metadata_facts(
+        conn,
+        LocalMetadataOwner::Track(track_id),
+        MUSICINDEX_SOURCE,
+        &facts,
+    )
+}
+
 fn merge_existing_metadata_facts_for_partial_source(
     conn: &Connection,
     owner: LocalMetadataOwner,
@@ -327,7 +338,7 @@ fn feed_metadata_facts_by_source(feed: &Feed) -> BTreeMap<String, Vec<LocalMetad
     let mut grouped = BTreeMap::from([(MUSICINDEX_SOURCE.to_owned(), Vec::new())]);
     let feed_raw_json = raw_json(feed);
 
-    push_text_metadata_fact(
+    push_grouped_text_metadata_fact(
         &mut grouped,
         MUSICINDEX_SOURCE,
         "publisher_text",
@@ -336,7 +347,7 @@ fn feed_metadata_facts_by_source(feed: &Feed) -> BTreeMap<String, Vec<LocalMetad
         feed.updated_at,
         feed_raw_json.clone(),
     );
-    push_text_metadata_fact(
+    push_grouped_text_metadata_fact(
         &mut grouped,
         MUSICINDEX_SOURCE,
         "musicindex_release_kind",
@@ -357,7 +368,7 @@ fn feed_metadata_facts_by_source(feed: &Feed) -> BTreeMap<String, Vec<LocalMetad
                 raw_json: feed_raw_json.clone(),
             });
     }
-    push_text_metadata_fact(
+    push_grouped_text_metadata_fact(
         &mut grouped,
         MUSICINDEX_SOURCE,
         "language",
@@ -378,7 +389,7 @@ fn feed_metadata_facts_by_source(feed: &Feed) -> BTreeMap<String, Vec<LocalMetad
                 raw_json: feed_raw_json.clone(),
             });
     }
-    push_text_metadata_fact(
+    push_grouped_text_metadata_fact(
         &mut grouped,
         MUSICINDEX_SOURCE,
         "description",
@@ -393,7 +404,7 @@ fn feed_metadata_facts_by_source(feed: &Feed) -> BTreeMap<String, Vec<LocalMetad
             if claim.claim_type.as_deref() != Some("description") {
                 continue;
             }
-            push_text_metadata_fact(
+            push_grouped_text_metadata_fact(
                 &mut grouped,
                 &source_token(claim.source.as_deref()),
                 "description",
@@ -408,7 +419,49 @@ fn feed_metadata_facts_by_source(feed: &Feed) -> BTreeMap<String, Vec<LocalMetad
     grouped
 }
 
-fn push_text_metadata_fact(
+fn track_metadata_facts(track: &Track) -> Vec<LocalMetadataFactInput> {
+    let mut facts = Vec::new();
+    let track_raw_json = raw_json(track);
+
+    push_text_metadata_fact(
+        &mut facts,
+        "publisher_text",
+        track.publisher_text.as_deref(),
+        Some("$.publisher_text"),
+        track.updated_at,
+        track_raw_json.clone(),
+    );
+    push_text_metadata_fact(
+        &mut facts,
+        "description",
+        track.description.as_deref(),
+        Some("$.description"),
+        track.updated_at,
+        track_raw_json.clone(),
+    );
+    if let Some(pub_date) = track.pub_date {
+        facts.push(LocalMetadataFactInput {
+            fact_key: "pub_date".to_owned(),
+            value: LocalMetadataValue::Integer(pub_date),
+            extraction_path: Some("$.pub_date".to_owned()),
+            observed_at: track.updated_at,
+            raw_json: track_raw_json.clone(),
+        });
+    }
+    if let Some(explicit) = track.explicit {
+        facts.push(LocalMetadataFactInput {
+            fact_key: "explicit".to_owned(),
+            value: LocalMetadataValue::Boolean(explicit),
+            extraction_path: Some("$.explicit".to_owned()),
+            observed_at: track.updated_at,
+            raw_json: track_raw_json,
+        });
+    }
+
+    facts
+}
+
+fn push_grouped_text_metadata_fact(
     grouped: &mut BTreeMap<String, Vec<LocalMetadataFactInput>>,
     source: &str,
     fact_key: &str,
@@ -431,6 +484,27 @@ fn push_text_metadata_fact(
             observed_at,
             raw_json,
         });
+}
+
+fn push_text_metadata_fact(
+    facts: &mut Vec<LocalMetadataFactInput>,
+    fact_key: &str,
+    value: Option<&str>,
+    extraction_path: Option<&str>,
+    observed_at: Option<i64>,
+    raw_json: Option<String>,
+) {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return;
+    };
+
+    facts.push(LocalMetadataFactInput {
+        fact_key: fact_key.to_owned(),
+        value: LocalMetadataValue::Text(value.to_owned()),
+        extraction_path: extraction_path.map(str::to_owned),
+        observed_at,
+        raw_json,
+    });
 }
 
 fn source_token(source: Option<&str>) -> String {
@@ -741,6 +815,148 @@ mod tests {
         let contributors = db::local_contributors(&conn, LocalEntityOwner::Track(track_id))?;
         assert_eq!(contributors.len(), 1);
         assert_eq!(contributors[0].name.as_deref(), Some("Bob"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_track_metadata_persists_supported_top_level_fields() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        let track = Track {
+            publisher_text: Some("Track Publisher".into()),
+            description: Some("Track description".into()),
+            pub_date: Some(1_714_300_000),
+            explicit: Some(true),
+            updated_at: Some(1_714_400_000),
+            ..Track::default()
+        };
+
+        persist_musicindex_track(&mut conn, track_id, &track)?;
+
+        let facts = db::local_metadata_facts(&conn, LocalMetadataOwner::Track(track_id))?;
+        assert_eq!(facts.len(), 4, "all supported track metadata facts persist");
+        assert!(facts.iter().all(|fact| fact.source == "musicindex"));
+        assert!(
+            facts.iter().any(|fact| fact.fact_key == "publisher_text"
+                && fact.value == LocalMetadataValue::Text("Track Publisher".to_owned())
+                && fact.extraction_path.as_deref() == Some("$.publisher_text")
+                && fact.observed_at == Some(1_714_400_000)
+                && fact
+                    .raw_json
+                    .as_deref()
+                    .is_some_and(|raw| raw.contains("Track Publisher"))),
+            "publisher_text should retain top-level track provenance"
+        );
+        assert!(facts.iter().any(|fact| fact.fact_key == "description"
+            && fact.value == LocalMetadataValue::Text("Track description".to_owned())));
+        assert!(facts.iter().any(|fact| fact.fact_key == "pub_date"
+            && fact.value == LocalMetadataValue::Integer(1_714_300_000)));
+        assert!(facts
+            .iter()
+            .any(|fact| fact.fact_key == "explicit"
+                && fact.value == LocalMetadataValue::Boolean(true)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_track_metadata_skips_empty_strings_and_preserves_false_explicit() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        let track = Track {
+            publisher_text: Some("   ".into()),
+            description: Some("\t".into()),
+            explicit: Some(false),
+            ..Track::default()
+        };
+
+        persist_musicindex_track(&mut conn, track_id, &track)?;
+
+        let facts = db::local_metadata_facts(&conn, LocalMetadataOwner::Track(track_id))?;
+        assert_eq!(facts.len(), 1);
+        assert!(facts
+            .iter()
+            .any(|fact| fact.fact_key == "explicit"
+                && fact.value == LocalMetadataValue::Boolean(false)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_track_metadata_replacement_preserves_rss_source_rows() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        db::replace_local_metadata_facts(
+            &mut conn,
+            LocalMetadataOwner::Track(track_id),
+            "rss",
+            &[LocalMetadataFactInput {
+                fact_key: "description".to_owned(),
+                value: LocalMetadataValue::Text("RSS track description".to_owned()),
+                extraction_path: Some("$.item.description".to_owned()),
+                observed_at: Some(1),
+                raw_json: Some(r#"{"description":"RSS track description"}"#.to_owned()),
+            }],
+        )?;
+
+        persist_musicindex_track(
+            &mut conn,
+            track_id,
+            &Track {
+                description: Some("MusicIndex track description".into()),
+                ..Track::default()
+            },
+        )?;
+
+        let facts = db::local_metadata_facts(&conn, LocalMetadataOwner::Track(track_id))?;
+        assert_eq!(facts.len(), 2);
+        assert!(facts.iter().any(|fact| fact.source == "rss"
+            && fact.fact_key == "description"
+            && fact.value == LocalMetadataValue::Text("RSS track description".to_owned())));
+        assert!(facts.iter().any(|fact| fact.source == "musicindex"
+            && fact.fact_key == "description"
+            && fact.value == LocalMetadataValue::Text("MusicIndex track description".to_owned())));
+
+        Ok(())
+    }
+
+    #[test]
+    fn musicindex_track_metadata_does_not_persist_feed_defaulted_text() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (feed_id, track_id) = create_feed_and_track(&conn)?;
+        let feed = Feed {
+            publisher_text: Some("Feed Publisher".into()),
+            description: Some("Feed description".into()),
+            ..Feed::default()
+        };
+        let track = Track {
+            track_guid: Some("track-guid".into()),
+            enclosure_url: Some("https://example.test/track.mp3".into()),
+            ..Track::default()
+        };
+
+        persist_musicindex_context_by_feed_url(
+            &mut conn,
+            "https://example.test/feed.xml",
+            Some(&feed),
+            Some(&track),
+        )?;
+
+        let feed_facts = db::local_metadata_facts(&conn, LocalMetadataOwner::Feed(feed_id))?;
+        assert!(feed_facts
+            .iter()
+            .any(|fact| fact.fact_key == "publisher_text"
+                && fact.value == LocalMetadataValue::Text("Feed Publisher".to_owned())));
+        assert!(feed_facts.iter().any(|fact| fact.fact_key == "description"
+            && fact.value == LocalMetadataValue::Text("Feed description".to_owned())));
+        let track_facts = db::local_metadata_facts(&conn, LocalMetadataOwner::Track(track_id))?;
+        assert!(
+            track_facts
+                .iter()
+                .all(|fact| fact.fact_key != "publisher_text" && fact.fact_key != "description"),
+            "feed-default copied publisher/description must not become track facts"
+        );
 
         Ok(())
     }
