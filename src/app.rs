@@ -642,9 +642,8 @@ impl TopApp {
             FrameNavigationEntry::TrackDetail(_)
             | FrameNavigationEntry::IndexTrackDetail { .. } => "Track".to_string(),
             FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
-            FrameNavigationEntry::ArtistDetail(_) | FrameNavigationEntry::IndexArtistDetail(_) => {
-                "Artist".to_string()
-            }
+            FrameNavigationEntry::ArtistDetail(_)
+            | FrameNavigationEntry::IndexArtistFeedScope(_) => "Artist".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
         }
     }
@@ -871,7 +870,7 @@ impl TopApp {
                         });
                     })
             }
-            Some(FrameNavigationEntry::IndexArtistDetail(_))
+            Some(FrameNavigationEntry::IndexArtistFeedScope(_))
                 if self.search_results_detail.is_some() =>
             {
                 let search_results = self.search_results_detail.as_ref().unwrap();
@@ -937,7 +936,7 @@ impl TopApp {
                 | FrameNavigationEntry::AlbumDetail(_)
                 | FrameNavigationEntry::ArtistDetail(_)
                 | FrameNavigationEntry::PlaylistDetail(_)
-                | FrameNavigationEntry::IndexArtistDetail(_)
+                | FrameNavigationEntry::IndexArtistFeedScope(_)
                 | FrameNavigationEntry::IndexFeedDetail { .. }
                 | FrameNavigationEntry::IndexTrackDetail { .. }
                 | FrameNavigationEntry::SourceList,

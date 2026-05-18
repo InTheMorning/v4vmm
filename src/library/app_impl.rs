@@ -1267,7 +1267,7 @@ impl LibraryApp {
                 self.select_artist(name, cx);
             }
             FrameNavigationEntry::Search(_)
-            | FrameNavigationEntry::IndexArtistDetail(_)
+            | FrameNavigationEntry::IndexArtistFeedScope(_)
             | FrameNavigationEntry::IndexFeedDetail { .. }
             | FrameNavigationEntry::IndexTrackDetail { .. }
             | FrameNavigationEntry::SourceList
@@ -1515,7 +1515,7 @@ impl LibraryApp {
             },
             FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
             FrameNavigationEntry::ArtistDetail(name)
-            | FrameNavigationEntry::IndexArtistDetail(name) => name.clone(),
+            | FrameNavigationEntry::IndexArtistFeedScope(name) => name.clone(),
             FrameNavigationEntry::Search(query) if query.trim().is_empty() => "Search".to_string(),
             FrameNavigationEntry::Search(query) => query.clone(),
             FrameNavigationEntry::IndexFeedDetail { label, .. }

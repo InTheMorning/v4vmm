@@ -128,7 +128,7 @@ fn focused_search_descriptor_projects_detail_entity_as_detail_tracks() {
         FrameNavigationEntry::TrackDetail(4),
         FrameNavigationEntry::AlbumDetail(5),
         FrameNavigationEntry::ArtistDetail("Dawn Chorus".to_string()),
-        FrameNavigationEntry::IndexArtistDetail("Dawn Chorus".to_string()),
+        FrameNavigationEntry::IndexArtistFeedScope("Dawn Chorus".to_string()),
         FrameNavigationEntry::IndexFeedDetail {
             id: "feed-guid".to_string(),
             label: "Dawn Chorus Feed".to_string(),
@@ -422,7 +422,7 @@ fn breadcrumb_display_projects_navigation_path() {
 fn breadcrumb_display_projects_index_search_drilldown_path() {
     let mut nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
     nav.push(FrameNavigationEntry::Search("survival guide".to_string()));
-    nav.push(FrameNavigationEntry::IndexArtistDetail(
+    nav.push(FrameNavigationEntry::IndexArtistFeedScope(
         "Survival Guide".to_string(),
     ));
     nav.push(FrameNavigationEntry::IndexFeedDetail {
@@ -449,7 +449,7 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
     );
     assert_eq!(
         display.segments[2].target,
-        Some(FrameNavigationEntry::IndexArtistDetail(
+        Some(FrameNavigationEntry::IndexArtistFeedScope(
             "Survival Guide".to_string()
         )),
         "the immediate Index parent must stay selectable in the breadcrumb"
@@ -464,7 +464,7 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
         vec![
             FrameNavigationEntry::SourceList,
             FrameNavigationEntry::Search("survival guide".to_string()),
-            FrameNavigationEntry::IndexArtistDetail("Survival Guide".to_string()),
+            FrameNavigationEntry::IndexArtistFeedScope("Survival Guide".to_string()),
             FrameNavigationEntry::IndexFeedDetail {
                 id: "feed-guid".to_string(),
                 label: "deathdreams".to_string(),

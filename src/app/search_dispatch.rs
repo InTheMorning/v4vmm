@@ -275,7 +275,7 @@ impl TopApp {
     ) {
         if let Err(error) = self.workspace_layout.push_nav(
             content_frame_id,
-            FrameNavigationEntry::IndexArtistDetail(artist_name.to_string()),
+            FrameNavigationEntry::IndexArtistFeedScope(artist_name.to_string()),
         ) {
             self.settings_status = format!("Failed to navigate to index artist: {error}");
         }

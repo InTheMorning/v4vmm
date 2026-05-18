@@ -2157,7 +2157,7 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "strip_prefix(\"index-feed:\")",
         "strip_prefix(\"index-track:\")",
         "strip_prefix(\"index-artist:\")",
-        "FrameNavigationEntry::IndexArtistDetail(",
+        "FrameNavigationEntry::IndexArtistFeedScope(",
         "FrameNavigationEntry::IndexFeedDetail {",
         "FrameNavigationEntry::IndexTrackDetail {",
         "render_index_detail_display(",
@@ -9587,6 +9587,70 @@ fn global_search_routes_to_content_list() {
 }
 
 #[test]
+fn index_artist_activation_is_scoped_feed_route_not_detail_page() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let workspace_nav_source = read_source(&manifest_path("src/view_models/workspace/nav.rs"));
+    let workspace_breadcrumb_source =
+        read_source(&manifest_path("src/view_models/workspace/breadcrumb.rs"));
+    let workspace_tests_source = read_source(&manifest_path("src/view_models/workspace/tests.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let index_detail_source = read_source(&manifest_path(
+        "src/view_models/search_results/index_detail.rs",
+    ));
+    let retired_artist_detail_route_name = concat!("IndexArtist", "Detail");
+
+    for (path, source) in [
+        ("src/app.rs", app_source.as_str()),
+        (
+            "src/app/search_dispatch.rs",
+            search_dispatch_source.as_str(),
+        ),
+        (
+            "src/view_models/workspace/nav.rs",
+            workspace_nav_source.as_str(),
+        ),
+        (
+            "src/view_models/workspace/breadcrumb.rs",
+            workspace_breadcrumb_source.as_str(),
+        ),
+        (
+            "src/view_models/workspace/tests.rs",
+            workspace_tests_source.as_str(),
+        ),
+        ("src/library/app_impl.rs", library_app_source.as_str()),
+    ] {
+        assert!(
+            !source.contains(retired_artist_detail_route_name),
+            "{path}: Index artist activation must be named as a scoped feed-results route"
+        );
+    }
+
+    assert!(
+        workspace_nav_source.contains("IndexArtistFeedScope(String)")
+            && search_dispatch_source
+                .contains("FrameNavigationEntry::IndexArtistFeedScope(artist_name.to_string())")
+            && app_source.contains("FrameNavigationEntry::IndexArtistFeedScope(_)")
+            && app_source.contains("SearchResultsHeaderMode::Scoped")
+            && app_source.contains("tab: SearchResultsTab::Feeds")
+            && app_source.contains("filter: ContentFilter::Index"),
+        "Index artist activation must route to scoped Index feed results"
+    );
+    assert!(
+        workspace_tests_source.contains("display.segments[2].target")
+            && workspace_tests_source.contains("FrameNavigationEntry::IndexArtistFeedScope")
+            && workspace_tests_source.contains("the immediate Index parent must stay selectable"),
+        "breadcrumb tests must keep the scoped artist feed parent selectable"
+    );
+    assert!(
+        !index_detail_source.contains("IndexDetailKind::Artist")
+            && !app_source.contains("ArtistDetailPageVm")
+            && !search_dispatch_source.contains("ArtistDetailPageVm"),
+        "Index artist rows must not invent an Index artist detail kind or reuse Library artist detail VM"
+    );
+}
+
+#[test]
 fn nav_top_drives_content_list_body_switch() {
     let app_source = read_source(&manifest_path("src/app.rs"));
 
@@ -9597,7 +9661,7 @@ fn nav_top_drives_content_list_body_switch() {
         "FrameNavigationEntry::AlbumDetail(_)",
         "FrameNavigationEntry::ArtistDetail(_)",
         "FrameNavigationEntry::PlaylistDetail(_)",
-        "FrameNavigationEntry::IndexArtistDetail(_)",
+        "FrameNavigationEntry::IndexArtistFeedScope(_)",
         "FrameNavigationEntry::IndexFeedDetail { .. }",
         "FrameNavigationEntry::IndexTrackDetail { .. }",
         "FrameNavigationEntry::Settings",

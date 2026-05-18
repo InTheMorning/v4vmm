@@ -33,8 +33,8 @@ pub(crate) enum FrameNavigationEntry {
     ArtistDetail(String),
     /// Search results by submitted query.
     Search(String),
-    /// Remote Index artist drill-down by display name.
-    IndexArtistDetail(String),
+    /// Remote Index feed results scoped by an artist result display name.
+    IndexArtistFeedScope(String),
     /// Remote Index feed drill-down.
     IndexFeedDetail {
         /// Stable remote feed id.
@@ -64,7 +64,7 @@ impl FrameNavigationEntry {
             Self::PlaylistDetail(id) => format!("Playlist {id}"),
             Self::TrackDetail(id) => format!("Track {id}"),
             Self::AlbumDetail(id) => format!("Album {id}"),
-            Self::ArtistDetail(name) | Self::IndexArtistDetail(name) => name.clone(),
+            Self::ArtistDetail(name) | Self::IndexArtistFeedScope(name) => name.clone(),
             Self::Search(query) => {
                 if query.trim().is_empty() {
                     "Search".to_string()
