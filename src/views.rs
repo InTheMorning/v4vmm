@@ -78,6 +78,28 @@ pub struct LocalIdentityFacts {
     pub contributors: Vec<ContributorView>,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FeedMetadataFacts {
+    pub publisher_text: Option<String>,
+    pub release_kind: Option<String>,
+    pub release_date: Option<i64>,
+    pub language: Option<String>,
+    pub explicit: Option<bool>,
+    pub description: Option<String>,
+}
+
+impl FeedMetadataFacts {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.publisher_text.is_none()
+            && self.release_kind.is_none()
+            && self.release_date.is_none()
+            && self.language.is_none()
+            && self.explicit.is_none()
+            && self.description.is_none()
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ArtistView {
     pub id: Option<ArtistRef>,
@@ -535,6 +557,15 @@ impl FeedView {
         tracks: Vec<TrackView>,
         facts: LocalIdentityFacts,
     ) -> Self {
+        Self::from_local_with_facts(f, tracks, facts, FeedMetadataFacts::default())
+    }
+
+    pub fn from_local_with_facts(
+        f: db::FeedRow,
+        tracks: Vec<TrackView>,
+        facts: LocalIdentityFacts,
+        metadata_facts: FeedMetadataFacts,
+    ) -> Self {
         let artist = tracks.first().and_then(|t| t.artist.clone());
         let image_url = f.album_image_href;
         let identity = EntityIdentityLinks::from_source_facts(
@@ -542,6 +573,10 @@ impl FeedView {
             facts.source_links,
             facts.source_ids,
         );
+        let language = metadata_facts
+            .language
+            .or_else(|| nonempty_owned(f.language));
+        let description = metadata_facts.description.or(f.description);
 
         Self {
             id: Some(FeedRef::LocalFeedId(f.id)),
@@ -552,13 +587,13 @@ impl FeedView {
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
             identity,
-            release_date: None,
-            language: nonempty_owned(f.language),
-            explicit: None,
+            release_date: metadata_facts.release_date,
+            language,
+            explicit: metadata_facts.explicit,
             episode_count: Some(tracks.len() as i32),
-            release_kind: None,
-            publisher_text: None,
-            description: f.description,
+            release_kind: nonempty_owned(metadata_facts.release_kind),
+            publisher_text: nonempty_owned(metadata_facts.publisher_text),
+            description,
             payment_routes: Vec::new(),
             contributors: facts.contributors,
             tracks,
@@ -1012,6 +1047,60 @@ mod tests {
         let view = FeedView::from_local(feed, Vec::new());
 
         assert_eq!(view.language, None);
+    }
+
+    #[test]
+    fn from_local_feed_projects_metadata_facts() {
+        let feed = db::FeedRow {
+            id: 1,
+            feed_url: "http://example.com".into(),
+            language: Some("scalar-language".into()),
+            description: Some("Scalar description".into()),
+            ..Default::default()
+        };
+        let metadata_facts = FeedMetadataFacts {
+            publisher_text: Some("Example Publisher".into()),
+            release_kind: Some("album".into()),
+            release_date: Some(1_700_000_000),
+            language: Some("en".into()),
+            explicit: Some(true),
+            description: Some("Fact description".into()),
+        };
+
+        let view = FeedView::from_local_with_facts(
+            feed,
+            Vec::new(),
+            LocalIdentityFacts::default(),
+            metadata_facts,
+        );
+
+        assert_eq!(view.publisher_text.as_deref(), Some("Example Publisher"));
+        assert_eq!(view.release_kind.as_deref(), Some("album"));
+        assert_eq!(view.release_date, Some(1_700_000_000));
+        assert_eq!(view.language.as_deref(), Some("en"));
+        assert_eq!(view.explicit, Some(true));
+        assert_eq!(view.description.as_deref(), Some("Fact description"));
+    }
+
+    #[test]
+    fn from_local_feed_preserves_scalar_language_and_description_fallbacks() {
+        let feed = db::FeedRow {
+            id: 1,
+            feed_url: "http://example.com".into(),
+            language: Some(" en ".into()),
+            description: Some("Scalar description".into()),
+            ..Default::default()
+        };
+
+        let view = FeedView::from_local_with_facts(
+            feed,
+            Vec::new(),
+            LocalIdentityFacts::default(),
+            FeedMetadataFacts::default(),
+        );
+
+        assert_eq!(view.language.as_deref(), Some("en"));
+        assert_eq!(view.description.as_deref(), Some("Scalar description"));
     }
 
     #[test]

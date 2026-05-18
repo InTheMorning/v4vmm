@@ -75,7 +75,7 @@ use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FrameNavigationEntry,
     FrameNavigationState, WorkspaceFrameId, WorkspaceLayout, WorkspaceModelError,
 };
-use crate::views::{EntityIdentityLinks, FeedView, LocalIdentityFacts};
+use crate::views::{EntityIdentityLinks, FeedMetadataFacts, FeedView, LocalIdentityFacts};
 
 impl InspectorFrame {
     fn for_track(track: TrackRow, image: Option<Arc<Image>>) -> Self {
@@ -1158,12 +1158,18 @@ impl LibraryApp {
                 .clone()
                 .or_else(|| first.track_image_href.clone()),
             identity_facts: crate::local_identity::feed_facts(&conn, feed_id).unwrap_or_default(),
+            metadata_facts: Box::new(
+                crate::local_metadata::feed_facts(&conn, feed_id).unwrap_or_default(),
+            ),
             tracks,
         })
     }
 
     fn hydrate_album_identity_on_view(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
-        if album_has_feed_identity_actions(&album.identity_facts) && album.description.is_some() {
+        if album_has_feed_identity_actions(&album.identity_facts)
+            && album.description.is_some()
+            && !album.metadata_facts.is_empty()
+        {
             return;
         }
         let (Some(feed_id), Some(feed_guid)) = (album.feed_id, album.feed_guid.clone()) else {
@@ -1191,6 +1197,8 @@ impl LibraryApp {
                         if let Ok(hydration) = result {
                             this.vm
                                 .update_album_identity_facts(feed_id, &hydration.identity_facts);
+                            this.vm
+                                .update_album_metadata_facts(feed_id, &hydration.metadata_facts);
                             this.vm.update_album_description(
                                 feed_id,
                                 hydration.description.as_deref(),
@@ -1198,6 +1206,7 @@ impl LibraryApp {
                             if let LibraryDetail::Album(album) = &mut this.detail {
                                 if album.feed_id == Some(feed_id) {
                                     album.identity_facts = hydration.identity_facts;
+                                    *album.metadata_facts = hydration.metadata_facts;
                                     album.description = hydration.description;
                                 }
                             }
@@ -2600,6 +2609,11 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         identity_facts: feed_id
                             .and_then(|fid| crate::local_identity::feed_facts(conn, fid).ok())
                             .unwrap_or_default(),
+                        metadata_facts: Box::new(
+                            feed_id
+                                .and_then(|fid| crate::local_metadata::feed_facts(conn, fid).ok())
+                                .unwrap_or_default(),
+                        ),
                         tracks,
                     }
                 })
@@ -2626,6 +2640,7 @@ fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
 #[derive(Debug)]
 struct AlbumHydration {
     identity_facts: LocalIdentityFacts,
+    metadata_facts: FeedMetadataFacts,
     description: Option<String>,
 }
 
@@ -2649,8 +2664,10 @@ fn hydrate_album_identity_facts(
     }
     crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
     let identity_facts = crate::local_identity::feed_facts(&db, feed_id)?;
+    let metadata_facts = crate::local_metadata::feed_facts(&db, feed_id)?;
     Ok(AlbumHydration {
         identity_facts,
+        metadata_facts,
         description,
     })
 }
@@ -3093,6 +3110,7 @@ mod tests {
             description: None,
             image_href: Some("https://example.test/art.png".into()),
             identity_facts: LocalIdentityFacts::default(),
+            metadata_facts: Box::<crate::views::FeedMetadataFacts>::default(),
             tracks,
         }
     }
@@ -3123,6 +3141,50 @@ mod tests {
 
         assert_eq!(album.feed_id, Some(feed_id));
         assert_eq!(album.language.as_deref(), Some("fr"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn build_tree_loads_feed_metadata_facts() -> anyhow::Result<()> {
+        let mut conn = Connection::open_in_memory()?;
+        db::init_schema(&conn)?;
+        conn.execute(
+            "INSERT INTO feeds (feed_url, title, is_subscribed)
+             VALUES (?1, ?2, 0)",
+            rusqlite::params!["https://example.test/feed.xml", "Example Feed"],
+        )?;
+        let feed_id = conn.last_insert_rowid();
+        db::replace_local_metadata_facts(
+            &mut conn,
+            db::LocalMetadataOwner::Feed(feed_id),
+            "musicindex",
+            &[db::LocalMetadataFactInput {
+                fact_key: "publisher_text".into(),
+                value: db::LocalMetadataValue::Text("Example Publisher".into()),
+                extraction_path: None,
+                observed_at: None,
+                raw_json: None,
+            }],
+        )?;
+        let track = TrackRow {
+            id: 1,
+            feed_id,
+            item_guid: "track-1".into(),
+            track_title: Some("Track 1".into()),
+            artist_name: Some("Example Artist".into()),
+            album_title: Some("Example Feed".into()),
+            is_in_library: true,
+            ..TrackRow::default()
+        };
+
+        let tree = build_tree(&[track], &conn);
+        let album = &tree.artists[0].albums[0];
+
+        assert_eq!(
+            album.metadata_facts.publisher_text.as_deref(),
+            Some("Example Publisher")
+        );
 
         Ok(())
     }

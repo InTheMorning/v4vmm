@@ -61,7 +61,7 @@ pub(crate) fn render_library_feed_detail(
         album_image_href: album.image_href.clone(),
         is_subscribed: false,
     };
-    let feed_view = FeedView::from_local_with_identity(
+    let feed_view = FeedView::from_local_with_facts(
         feed_row,
         album
             .tracks
@@ -70,6 +70,7 @@ pub(crate) fn render_library_feed_detail(
             .map(TrackView::from_local)
             .collect(),
         album.identity_facts.clone(),
+        (*album.metadata_facts).clone(),
     );
 
     let thumb_image = album

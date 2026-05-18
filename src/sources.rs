@@ -7,6 +7,7 @@ use crate::api;
 use crate::db;
 use crate::library_service;
 use crate::local_identity;
+use crate::local_metadata;
 use crate::views::{ArtistRef, ArtistView, FeedRef, FeedView, TrackRef, TrackView};
 
 #[derive(Clone, Copy, Debug)]
@@ -120,10 +121,12 @@ fn local_feed_view(
         .map(|row| local_track_view(conn, row))
         .collect::<Result<Vec<_>>>()?;
     let facts = local_identity::feed_facts(conn, feed_row.id)?;
-    Ok(FeedView::from_local_with_identity(
+    let metadata_facts = local_metadata::feed_facts(conn, feed_row.id)?;
+    Ok(FeedView::from_local_with_facts(
         feed_row,
         track_views,
         facts,
+        metadata_facts,
     ))
 }
 
@@ -346,6 +349,37 @@ mod tests {
         )
     }
 
+    fn add_feed_metadata(conn: &mut Connection, feed_id: i64) -> Result<()> {
+        db::replace_local_metadata_facts(
+            conn,
+            db::LocalMetadataOwner::Feed(feed_id),
+            "musicindex",
+            &[
+                db::LocalMetadataFactInput {
+                    fact_key: "publisher_text".into(),
+                    value: db::LocalMetadataValue::Text("Example Publisher".into()),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+                db::LocalMetadataFactInput {
+                    fact_key: "musicindex_release_kind".into(),
+                    value: db::LocalMetadataValue::Text("album".into()),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+                db::LocalMetadataFactInput {
+                    fact_key: "language".into(),
+                    value: db::LocalMetadataValue::Text("en".into()),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+            ],
+        )
+    }
+
     fn add_track_identity(conn: &mut Connection, track_id: i64) -> Result<()> {
         db::replace_local_identity_links(
             conn,
@@ -412,6 +446,7 @@ mod tests {
         let mut conn = setup_test_db()?;
         let (feed_id, track_id) = create_feed_and_track(&conn)?;
         add_feed_identity(&mut conn, feed_id)?;
+        add_feed_metadata(&mut conn, feed_id)?;
         add_track_identity(&mut conn, track_id)?;
         let source = LocalSource::new(Arc::new(Mutex::new(conn)));
 
@@ -427,6 +462,9 @@ mod tests {
             view.contributors[0].href.as_deref(),
             Some("https://example.test/feed-contributor")
         );
+        assert_eq!(view.publisher_text.as_deref(), Some("Example Publisher"));
+        assert_eq!(view.release_kind.as_deref(), Some("album"));
+        assert_eq!(view.language.as_deref(), Some("en"));
         assert_eq!(view.tracks.len(), 1);
         assert_eq!(
             view.tracks[0].identity.website_url.as_deref(),

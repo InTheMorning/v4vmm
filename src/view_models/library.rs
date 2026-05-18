@@ -39,7 +39,9 @@ use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::text_filter::{contains_normalized, normalize};
 use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
-use crate::views::{ArtistView, FeedRef, FeedView, LocalIdentityFacts, TrackRef};
+use crate::views::{
+    ArtistView, FeedMetadataFacts, FeedRef, FeedView, LocalIdentityFacts, TrackRef,
+};
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 
@@ -323,6 +325,7 @@ pub(crate) struct AlbumNode {
     pub(crate) description: Option<String>,
     pub(crate) image_href: Option<String>,
     pub(crate) identity_facts: LocalIdentityFacts,
+    pub(crate) metadata_facts: Box<FeedMetadataFacts>,
     pub(crate) tracks: Vec<TrackRow>,
 }
 
@@ -1099,6 +1102,26 @@ impl LibraryViewModel {
             .filter(|album| album.feed_id == Some(feed_id))
         {
             album.identity_facts = facts.clone();
+            updated = true;
+        }
+        updated
+    }
+
+    pub(crate) fn update_album_metadata_facts(
+        &mut self,
+        feed_id: i64,
+        facts: &FeedMetadataFacts,
+    ) -> bool {
+        let mut updated = false;
+        for album in self
+            .snapshot
+            .tree
+            .artists
+            .iter_mut()
+            .flat_map(|artist| artist.albums.iter_mut())
+            .filter(|album| album.feed_id == Some(feed_id))
+        {
+            *album.metadata_facts = facts.clone();
             updated = true;
         }
         updated
@@ -2132,6 +2155,7 @@ fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
                     description: album.description.clone(),
                     image_href: album.image_href.clone(),
                     identity_facts: album.identity_facts.clone(),
+                    metadata_facts: album.metadata_facts.clone(),
                     tracks,
                 });
             }
@@ -4336,6 +4360,7 @@ mod tests {
                             description: None,
                             image_href: Some("saw.jpg".into()),
                             identity_facts: LocalIdentityFacts::default(),
+                            metadata_facts: Box::<FeedMetadataFacts>::default(),
                             tracks: vec![rhubarb, cliffs],
                         },
                         AlbumNode {
@@ -4347,6 +4372,7 @@ mod tests {
                             description: None,
                             image_href: None,
                             identity_facts: LocalIdentityFacts::default(),
+                            metadata_facts: Box::<FeedMetadataFacts>::default(),
                             tracks: vec![windowlicker],
                         },
                     ],
@@ -4362,6 +4388,7 @@ mod tests {
                         description: None,
                         image_href: None,
                         identity_facts: LocalIdentityFacts::default(),
+                        metadata_facts: Box::<FeedMetadataFacts>::default(),
                         tracks: vec![tri_repetae],
                     }],
                 },
@@ -4449,6 +4476,35 @@ mod tests {
         assert_eq!(
             album.identity_facts.source_ids[0].value.as_deref(),
             Some("npub1saw")
+        );
+    }
+
+    #[test]
+    fn library_view_model_updates_album_metadata_facts_by_feed_id() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        let facts = FeedMetadataFacts {
+            publisher_text: Some("Example Publisher".into()),
+            release_kind: Some("album".into()),
+            release_date: Some(1_700_000_000),
+            language: Some("en".into()),
+            explicit: Some(true),
+            description: Some("Fact description".into()),
+        };
+
+        assert!(vm.update_album_metadata_facts(10, &facts));
+        let album = &vm.tree().artists[0].albums[0];
+        assert_eq!(
+            album.metadata_facts.publisher_text.as_deref(),
+            Some("Example Publisher")
+        );
+        assert_eq!(album.metadata_facts.release_kind.as_deref(), Some("album"));
+        assert_eq!(album.metadata_facts.release_date, Some(1_700_000_000));
+        assert_eq!(album.metadata_facts.language.as_deref(), Some("en"));
+        assert_eq!(album.metadata_facts.explicit, Some(true));
+        assert_eq!(
+            album.metadata_facts.description.as_deref(),
+            Some("Fact description")
         );
     }
 

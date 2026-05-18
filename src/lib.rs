@@ -13,6 +13,7 @@ pub mod identity_ingest;
 pub mod library;
 pub mod library_service;
 pub(crate) mod local_identity;
+pub(crate) mod local_metadata;
 pub mod media;
 pub mod metadata;
 pub mod metadata_service;
