@@ -31,7 +31,7 @@ use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
 };
 use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
-use crate::application::{ApplicationServices, CommandContext};
+use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext};
 use crate::audio_tags::write_id3v24_edits;
 use crate::db::{self, TrackRow};
 use crate::feed_service::{self, track_row_to_track_context, StagedMusicBrainzLookup};
@@ -42,7 +42,7 @@ use crate::metadata::{
     pending_id3_edits_for_apply, source_text_missing, MusicBrainzLookupResult, TrackContext,
 };
 use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
-use crate::presentation::GpuiCommandRunner;
+use crate::presentation::present_command;
 use crate::sources;
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::{
@@ -368,10 +368,18 @@ impl LibraryApp {
         });
         let rename_playlist_sub =
             cx.subscribe(&rename_playlist_input, Self::on_rename_playlist_event);
-        let command_runner = GpuiCommandRunner::new(
-            application_services.command_bus(),
-            application_services.event_bus(),
-        );
+        let command_runner = match runtime_host.as_ref() {
+            Some(host) => AsyncCommandRunner::with_vm_bus_on_handle(
+                application_services.command_bus(),
+                application_services.event_bus(),
+                host.bus().clone(),
+                host.handle().clone(),
+            ),
+            None => AsyncCommandRunner::new(
+                application_services.command_bus(),
+                application_services.event_bus(),
+            ),
+        };
         let mut app = Self {
             conn,
             application_services,
@@ -776,7 +784,8 @@ impl LibraryApp {
             return;
         }
         let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -795,7 +804,8 @@ impl LibraryApp {
             return;
         }
         let command = RenamePlaylist::new(Arc::clone(&self.conn), id, trimmed.to_string());
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -846,7 +856,8 @@ impl LibraryApp {
 
     pub(crate) fn delete_playlist(&mut self, id: i64, cx: &mut Context<Self>) {
         let command = DeletePlaylist::new(Arc::clone(&self.conn), id);
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -867,7 +878,8 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         let command = RemovePlaylistTrackAt::new(Arc::clone(&self.conn), playlist_id, position);
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -892,7 +904,8 @@ impl LibraryApp {
             return;
         }
         let command = ReorderPlaylistTrack::new(Arc::clone(&self.conn), playlist_id, from, to);
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -923,7 +936,8 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -969,7 +983,8 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -996,7 +1011,8 @@ impl LibraryApp {
             playlist_id,
             track_ids,
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1306,7 +1322,8 @@ impl LibraryApp {
             feed_id,
         );
         cx.notify();
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1360,7 +1377,8 @@ impl LibraryApp {
             self.musicindex_endpoint.clone(),
             feeds,
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1384,7 +1402,8 @@ impl LibraryApp {
             self.musicindex_endpoint.clone(),
             stale,
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1619,7 +1638,8 @@ impl LibraryApp {
                 musicindex_endpoint: self.musicindex_endpoint.clone(),
             },
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1699,7 +1719,8 @@ impl LibraryApp {
             cx.notify();
         }
         let command = RemoveFromLibrary::new(Arc::clone(&self.conn), target);
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1756,7 +1777,8 @@ impl LibraryApp {
             },
             LibraryTrackActionVm::track_subscribe_success_message(),
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1960,7 +1982,8 @@ impl LibraryApp {
             SubscribeTrackRequest::LibraryTrack { track },
             LibraryTrackActionVm::track_subscribe_success_message(),
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -2148,7 +2171,8 @@ impl LibraryApp {
         let track = frame.track.clone();
         cx.notify();
 
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             LookupMusicBrainzTrack::new(track),
             CommandContext::next(),
             cx,
@@ -2228,7 +2252,8 @@ impl LibraryApp {
         cx.notify();
 
         let track_id = track.id;
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             StageMusicBrainzTrack::new(track),
             CommandContext::next(),
             cx,

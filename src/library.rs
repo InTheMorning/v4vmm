@@ -20,11 +20,10 @@ use gpui_component::input::InputState;
 
 #[cfg(feature = "async-runtime")]
 use crate::application::paged_track_list::{PagedTrackListMsg, PagedTrackListSnapshot};
-use crate::application::ApplicationServices;
+use crate::application::{ApplicationServices, AsyncCommandRunner};
 use crate::db::{self, TrackRow};
 use crate::media::ImageCache;
 use crate::metadata::{MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext};
-use crate::presentation::GpuiCommandRunner;
 #[cfg(feature = "async-runtime")]
 use crate::presentation::RuntimeHost;
 #[cfg(feature = "async-runtime")]
@@ -147,7 +146,7 @@ enum ThumbnailState {
 pub struct LibraryApp {
     conn: Arc<Mutex<Connection>>,
     application_services: Arc<ApplicationServices>,
-    command_runner: GpuiCommandRunner,
+    command_runner: AsyncCommandRunner,
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
     /// Stateful screen view-model. Owns all pure UI state and loaded
