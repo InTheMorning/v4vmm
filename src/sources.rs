@@ -108,7 +108,8 @@ impl LocalSource {
 
 fn local_track_view(conn: &Connection, row: db::TrackRow) -> Result<TrackView> {
     let facts = local_identity::track_facts(conn, row.id)?;
-    Ok(TrackView::from_local_with_identity(row, facts))
+    let metadata_facts = local_metadata::track_facts(conn, row.id)?;
+    Ok(TrackView::from_local_with_facts(row, facts, metadata_facts))
 }
 
 fn local_feed_view(
@@ -416,6 +417,21 @@ mod tests {
         )
     }
 
+    fn add_track_metadata(conn: &mut Connection, track_id: i64) -> Result<()> {
+        db::replace_local_metadata_facts(
+            conn,
+            db::LocalMetadataOwner::Track(track_id),
+            "musicindex",
+            &[db::LocalMetadataFactInput {
+                fact_key: "description".into(),
+                value: db::LocalMetadataValue::Text("Track description".into()),
+                extraction_path: None,
+                observed_at: None,
+                raw_json: None,
+            }],
+        )
+    }
+
     #[test]
     fn local_source_fetch_track_hydrates_persisted_identity_facts() -> Result<()> {
         let mut conn = setup_test_db()?;
@@ -438,6 +454,19 @@ mod tests {
             Some("https://example.test/track-contributor.jpg")
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn local_source_fetch_track_hydrates_persisted_metadata_facts() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let (_, track_id) = create_feed_and_track(&conn)?;
+        add_track_metadata(&mut conn, track_id)?;
+        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
+
+        let view = source.fetch_track(&TrackRef::LocalTrackId(track_id))?;
+
+        assert_eq!(view.description.as_deref(), Some("Track description"));
         Ok(())
     }
 

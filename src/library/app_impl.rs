@@ -39,7 +39,7 @@ use crate::library_service;
 use crate::media::ImageCache;
 use crate::metadata::{
     auto_populated_pending_id3_edits, pending_id3_conflict_descriptions,
-    pending_id3_edits_for_apply, MusicBrainzLookupResult,
+    pending_id3_edits_for_apply, source_text_missing, MusicBrainzLookupResult, TrackContext,
 };
 use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::GpuiCommandRunner;
@@ -1455,12 +1455,17 @@ impl LibraryApp {
     fn load_track_source_context(&mut self, track: TrackRow, cx: &mut Context<Self>) {
         let entity_id = track.id;
         let musicindex_endpoint = self.musicindex_endpoint.clone();
+        let conn = Arc::clone(&self.conn);
         cx.spawn(
             async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
                 let result = cx
                     .background_executor()
                     .spawn(async move {
-                        feed_service::fetch_library_track_context(&track, &musicindex_endpoint)
+                        Self::fetch_library_track_context_with_local_fallback(
+                            &conn,
+                            &track,
+                            &musicindex_endpoint,
+                        )
                     })
                     .await;
 
@@ -1481,6 +1486,28 @@ impl LibraryApp {
             },
         )
         .detach();
+    }
+
+    fn fetch_library_track_context_with_local_fallback(
+        conn: &Arc<Mutex<Connection>>,
+        track: &TrackRow,
+        musicindex_endpoint: &str,
+    ) -> anyhow::Result<TrackContext> {
+        let local_context = conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database lock poisoned"))
+            .and_then(|db| {
+                feed_service::track_row_to_track_context_with_local_identity(&db, track)
+            });
+        match feed_service::fetch_library_track_context(track, musicindex_endpoint) {
+            Ok(mut remote_context) => {
+                if let Ok(local_context) = local_context {
+                    apply_local_track_metadata_defaults(&mut remote_context, &local_context);
+                }
+                Ok(remote_context)
+            }
+            Err(_) => local_context,
+        }
     }
 
     #[expect(
@@ -2672,6 +2699,27 @@ fn hydrate_album_identity_facts(
     })
 }
 
+fn apply_local_track_metadata_defaults(remote: &mut TrackContext, local: &TrackContext) {
+    if source_text_missing(remote.track.publisher_text.as_deref()) {
+        remote
+            .track
+            .publisher_text
+            .clone_from(&local.track.publisher_text);
+    }
+    if source_text_missing(remote.track.description.as_deref()) {
+        remote
+            .track
+            .description
+            .clone_from(&local.track.description);
+    }
+    if remote.track.pub_date.is_none() {
+        remote.track.pub_date = local.track.pub_date;
+    }
+    if remote.track.explicit.is_none() {
+        remote.track.explicit = local.track.explicit;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Render
 // ---------------------------------------------------------------------------
@@ -3187,6 +3235,92 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn library_track_context_falls_back_to_local_hydrated_context() -> anyhow::Result<()> {
+        let mut conn = Connection::open_in_memory()?;
+        db::init_schema(&conn)?;
+        conn.execute(
+            "INSERT INTO feeds (id, feed_url, feed_guid, title)
+             VALUES (2, ?1, ?2, ?3)",
+            rusqlite::params!["https://example.test/feed.xml", "feed-guid", "Feed"],
+        )?;
+        conn.execute(
+            "INSERT INTO tracks (id, feed_id, item_guid, track_title)
+             VALUES (9, 2, ?1, ?2)",
+            rusqlite::params!["track-guid", "Track"],
+        )?;
+        db::replace_local_metadata_facts(
+            &mut conn,
+            db::LocalMetadataOwner::Track(9),
+            "musicindex",
+            &[db::LocalMetadataFactInput {
+                fact_key: "description".into(),
+                value: db::LocalMetadataValue::Text("Local track description".into()),
+                extraction_path: None,
+                observed_at: None,
+                raw_json: None,
+            }],
+        )?;
+        let track = TrackRow {
+            id: 9,
+            feed_id: 2,
+            feed_guid: Some("feed-guid".into()),
+            item_guid: "track-guid".into(),
+            track_title: Some("Track".into()),
+            feed_title: Some("Feed".into()),
+            ..TrackRow::default()
+        };
+        let conn = Arc::new(Mutex::new(conn));
+
+        let context = LibraryApp::fetch_library_track_context_with_local_fallback(
+            &conn,
+            &track,
+            "http://127.0.0.1:9",
+        )?;
+
+        assert_eq!(
+            context.track.description.as_deref(),
+            Some("Local track description")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn local_track_metadata_fills_missing_remote_context_fields() {
+        let mut remote_context = TrackContext {
+            track: crate::api::Track {
+                title: Some("Remote Track".into()),
+                publisher_text: Some("Remote Publisher".into()),
+                ..crate::api::Track::default()
+            },
+            feed: None,
+        };
+        let local_context = TrackContext {
+            track: crate::api::Track {
+                publisher_text: Some("Local Publisher".into()),
+                description: Some("Local track description".into()),
+                pub_date: Some(1_700_000_000),
+                explicit: Some(true),
+                ..crate::api::Track::default()
+            },
+            feed: None,
+        };
+
+        apply_local_track_metadata_defaults(&mut remote_context, &local_context);
+
+        assert_eq!(
+            remote_context.track.publisher_text.as_deref(),
+            Some("Remote Publisher"),
+            "remote source text should not be overwritten"
+        );
+        assert_eq!(
+            remote_context.track.description.as_deref(),
+            Some("Local track description")
+        );
+        assert_eq!(remote_context.track.pub_date, Some(1_700_000_000));
+        assert_eq!(remote_context.track.explicit, Some(true));
     }
 
     fn test_inspector_frame(track: TrackRow) -> InspectorFrame {

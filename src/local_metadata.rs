@@ -11,11 +11,16 @@ use rusqlite::Connection;
 
 use crate::db::{self, LocalMetadataOwner, LocalMetadataValue};
 use crate::metadata::drop_placeholder_source_text;
-use crate::views::FeedMetadataFacts;
+use crate::views::{FeedMetadataFacts, TrackMetadataFacts};
 
 pub(crate) fn feed_facts(conn: &Connection, feed_id: i64) -> Result<FeedMetadataFacts> {
     let rows = db::local_metadata_facts(conn, LocalMetadataOwner::Feed(feed_id))?;
     Ok(feed_facts_from_rows(rows))
+}
+
+pub(crate) fn track_facts(conn: &Connection, track_id: i64) -> Result<TrackMetadataFacts> {
+    let rows = db::local_metadata_facts(conn, LocalMetadataOwner::Track(track_id))?;
+    Ok(track_facts_from_rows(rows))
 }
 
 fn feed_facts_from_rows(rows: Vec<db::LocalMetadataFactRow>) -> FeedMetadataFacts {
@@ -52,6 +57,28 @@ fn feed_facts_from_rows(rows: Vec<db::LocalMetadataFactRow>) -> FeedMetadataFact
         }
     }
     facts.description = facts.description.or(top_level_description);
+    facts
+}
+
+fn track_facts_from_rows(rows: Vec<db::LocalMetadataFactRow>) -> TrackMetadataFacts {
+    let mut facts = TrackMetadataFacts::default();
+    for row in rows {
+        match row.fact_key.as_str() {
+            "publisher_text" if facts.publisher_text.is_none() => {
+                facts.publisher_text = text_value(row.value);
+            }
+            "description" if facts.description.is_none() => {
+                facts.description = text_value(row.value);
+            }
+            "pub_date" if facts.pub_date.is_none() => {
+                facts.pub_date = integer_value(&row.value);
+            }
+            "explicit" if facts.explicit.is_none() => {
+                facts.explicit = boolean_value(&row.value);
+            }
+            _ => {}
+        }
+    }
     facts
 }
 
@@ -173,5 +200,62 @@ mod tests {
         ]);
 
         assert_eq!(facts.description.as_deref(), Some("RSS description"));
+    }
+
+    #[test]
+    fn track_facts_projects_supported_track_metadata_rows() -> Result<()> {
+        let mut conn = Connection::open_in_memory()?;
+        db::init_schema(&conn)?;
+        conn.execute(
+            "INSERT INTO feeds (id, feed_url, title) VALUES (7, ?1, ?2)",
+            rusqlite::params!["https://example.test/feed.xml", "Example Feed"],
+        )?;
+        conn.execute(
+            "INSERT INTO tracks (id, feed_id, item_guid) VALUES (11, 7, ?1)",
+            rusqlite::params!["track-guid"],
+        )?;
+        db::replace_local_metadata_facts(
+            &mut conn,
+            LocalMetadataOwner::Track(11),
+            "musicindex",
+            &[
+                db::LocalMetadataFactInput {
+                    fact_key: "publisher_text".into(),
+                    value: LocalMetadataValue::Text("Example Publisher".into()),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+                db::LocalMetadataFactInput {
+                    fact_key: "description".into(),
+                    value: LocalMetadataValue::Text("Track description".into()),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+                db::LocalMetadataFactInput {
+                    fact_key: "pub_date".into(),
+                    value: LocalMetadataValue::Integer(1_700_000_000),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+                db::LocalMetadataFactInput {
+                    fact_key: "explicit".into(),
+                    value: LocalMetadataValue::Boolean(true),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+            ],
+        )?;
+
+        let facts = track_facts(&conn, 11)?;
+
+        assert_eq!(facts.publisher_text.as_deref(), Some("Example Publisher"));
+        assert_eq!(facts.description.as_deref(), Some("Track description"));
+        assert_eq!(facts.pub_date, Some(1_700_000_000));
+        assert_eq!(facts.explicit, Some(true));
+        Ok(())
     }
 }

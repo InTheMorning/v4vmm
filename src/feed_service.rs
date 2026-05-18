@@ -12,6 +12,7 @@ use crate::audio_tags::{read_audio_tags, write_id3v24_edits, AudioTags, Id3v24Ed
 use crate::db::{self, TrackRow};
 use crate::identity_ingest;
 use crate::library_service;
+use crate::local_metadata;
 use crate::metadata::{
     sanitize_track_context_source_text, source_text_missing, MusicBrainzLookupResult, TrackContext,
 };
@@ -363,6 +364,7 @@ pub fn track_row_to_track_context_with_local_identity(
         context.feed.take(),
     )?);
     context.track = hydrate_track_identity(conn, track.id, context.track)?;
+    context.track = hydrate_track_metadata(conn, track.id, context.track)?;
     sanitize_track_context_source_text(&mut context);
     Ok(context)
 }
@@ -409,6 +411,23 @@ fn hydrate_track_identity(conn: &Connection, track_id: i64, mut track: Track) ->
             .map(contributor_from_local)
             .collect(),
     );
+    Ok(track)
+}
+
+fn hydrate_track_metadata(conn: &Connection, track_id: i64, mut track: Track) -> Result<Track> {
+    let facts = local_metadata::track_facts(conn, track_id)?;
+    if facts.publisher_text.is_some() {
+        track.publisher_text = facts.publisher_text;
+    }
+    if facts.description.is_some() {
+        track.description = facts.description;
+    }
+    if facts.pub_date.is_some() {
+        track.pub_date = facts.pub_date;
+    }
+    if facts.explicit.is_some() {
+        track.explicit = facts.explicit;
+    }
     Ok(track)
 }
 
@@ -951,6 +970,63 @@ mod tests {
             Some("https://example.test/contributor.jpg")
         );
 
+        Ok(())
+    }
+
+    #[test]
+    fn local_track_context_hydrates_persisted_metadata_facts() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let mut track = insert_track(&conn)?;
+        track.pub_date = Some(1);
+        track.explicit = Some(false);
+        db::replace_local_metadata_facts(
+            &mut conn,
+            db::LocalMetadataOwner::Track(track.id),
+            "musicindex",
+            &[
+                db::LocalMetadataFactInput {
+                    fact_key: "publisher_text".into(),
+                    value: db::LocalMetadataValue::Text("Example Publisher".into()),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+                db::LocalMetadataFactInput {
+                    fact_key: "description".into(),
+                    value: db::LocalMetadataValue::Text("Track description".into()),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+                db::LocalMetadataFactInput {
+                    fact_key: "pub_date".into(),
+                    value: db::LocalMetadataValue::Integer(1_700_000_000),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+                db::LocalMetadataFactInput {
+                    fact_key: "explicit".into(),
+                    value: db::LocalMetadataValue::Boolean(true),
+                    extraction_path: None,
+                    observed_at: None,
+                    raw_json: None,
+                },
+            ],
+        )?;
+
+        let context = track_row_to_track_context_with_local_identity(&conn, &track)?;
+
+        assert_eq!(
+            context.track.publisher_text.as_deref(),
+            Some("Example Publisher")
+        );
+        assert_eq!(
+            context.track.description.as_deref(),
+            Some("Track description")
+        );
+        assert_eq!(context.track.pub_date, Some(1_700_000_000));
+        assert_eq!(context.track.explicit, Some(true));
         Ok(())
     }
 }

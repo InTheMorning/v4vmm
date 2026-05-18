@@ -176,6 +176,14 @@ pub struct TrackView {
     pub transcript_url: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TrackMetadataFacts {
+    pub publisher_text: Option<String>,
+    pub description: Option<String>,
+    pub pub_date: Option<i64>,
+    pub explicit: Option<bool>,
+}
+
 impl From<api::SourceEntityLink> for IdentityLinkFact {
     fn from(link: api::SourceEntityLink) -> Self {
         Self {
@@ -663,6 +671,14 @@ impl TrackView {
     }
 
     pub fn from_local_with_identity(t: db::TrackRow, facts: LocalIdentityFacts) -> Self {
+        Self::from_local_with_facts(t, facts, TrackMetadataFacts::default())
+    }
+
+    pub fn from_local_with_facts(
+        t: db::TrackRow,
+        facts: LocalIdentityFacts,
+        metadata_facts: TrackMetadataFacts,
+    ) -> Self {
         let image_url = t.track_image_href.or(t.album_image_href);
         let identity = EntityIdentityLinks::from_source_facts(
             image_url.clone(),
@@ -681,16 +697,16 @@ impl TrackView {
             track_number: t.track_number.and_then(|v| v.try_into().ok()),
             disc_number: t.disc_number.and_then(|v| v.try_into().ok()),
             duration_secs: t.duration_seconds.and_then(|v| v.try_into().ok()),
-            pub_date: t.pub_date,
-            explicit: t.explicit,
-            description: None,
+            pub_date: metadata_facts.pub_date.or(t.pub_date),
+            explicit: metadata_facts.explicit.or(t.explicit),
+            description: nonempty_owned(metadata_facts.description),
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
             identity,
             audio_url: t.enclosure_url,
             mime: t.enclosure_type,
             bytes: None,
-            publisher_text: None,
+            publisher_text: nonempty_owned(metadata_facts.publisher_text),
             contributors: facts.contributors,
             payment_routes: Vec::new(),
             transcript_url: t.transcript_url,
@@ -935,6 +951,31 @@ mod tests {
         assert_eq!(view.pub_date, Some(1_712_275_200));
         assert_eq!(view.explicit, Some(true));
         assert_eq!(view.audio_url, Some("http://a/b.mp3".into()));
+    }
+
+    #[test]
+    fn from_local_track_hydrates_metadata_facts() {
+        let track = db::TrackRow {
+            id: 42,
+            item_guid: "g".into(),
+            pub_date: Some(1),
+            explicit: Some(false),
+            ..Default::default()
+        };
+        let metadata_facts = TrackMetadataFacts {
+            publisher_text: Some("Example Publisher".into()),
+            description: Some("Track description".into()),
+            pub_date: Some(1_712_275_200),
+            explicit: Some(true),
+        };
+
+        let view =
+            TrackView::from_local_with_facts(track, LocalIdentityFacts::default(), metadata_facts);
+
+        assert_eq!(view.publisher_text.as_deref(), Some("Example Publisher"));
+        assert_eq!(view.description.as_deref(), Some("Track description"));
+        assert_eq!(view.pub_date, Some(1_712_275_200));
+        assert_eq!(view.explicit, Some(true));
     }
 
     #[test]
