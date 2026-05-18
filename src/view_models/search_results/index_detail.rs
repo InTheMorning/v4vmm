@@ -2,7 +2,7 @@
 
 #![warn(clippy::pedantic)]
 
-use crate::views::FeedView;
+use crate::views::{FeedView, TrackView};
 
 use super::{FeedResultDisplay, TrackResultDisplay};
 
@@ -50,6 +50,8 @@ pub(crate) struct IndexDetailDisplay {
     pub(crate) secondary_text: String,
     /// Optional rich remote feed detail for Index feed drill-down.
     pub(crate) feed: Option<FeedView>,
+    /// Optional rich remote track detail for Index track drill-down.
+    pub(crate) track: Option<TrackView>,
 }
 
 impl IndexDetailDisplay {
@@ -65,6 +67,7 @@ impl IndexDetailDisplay {
             title: title.into(),
             secondary_text: secondary_text.into(),
             feed: None,
+            track: None,
         }
     }
 
@@ -80,11 +83,13 @@ impl IndexDetailDisplay {
     }
 
     pub(super) fn track(row: &TrackResultDisplay, fallback_id: &str) -> Self {
-        Self::new(
+        let mut display = Self::new(
             IndexDetailKind::Track,
             fallback_id,
             row.label.clone(),
             row.secondary_text.clone(),
-        )
+        );
+        display.track.clone_from(&row.remote_track);
+        display
     }
 }

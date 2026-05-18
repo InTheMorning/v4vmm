@@ -24,8 +24,7 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::shells::search_results_inspector::{
-    render_index_detail_display, render_search_results_inspector, SearchResultsHeaderMode,
-    SearchResultsInspectorSlots,
+    render_search_results_inspector, SearchResultsHeaderMode, SearchResultsInspectorSlots,
 };
 use crate::ui::shells::window_layers::render_window_layers;
 use crate::ui::shells::workspace::{render_workspace, WorkspaceSlots};
@@ -920,8 +919,9 @@ impl TopApp {
                     .as_ref()
                     .unwrap()
                     .index_track_detail(&activation_id, id, label);
+                let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
                 WorkspaceSlots::new()
-                    .content_list(render_index_detail_display(&detail, cx))
+                    .content_list(detail_content)
                     .queue_now_playing(queue_frame)
             }
             Some(FrameNavigationEntry::Settings) => {

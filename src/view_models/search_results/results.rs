@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::db::TrackRow;
 use crate::view_models::format::plural;
 use crate::view_models::library::LibraryTrackRowVm;
-use crate::views::FeedView;
+use crate::views::{FeedView, TrackView};
 
 use super::{SearchResultItemId, SearchResultOrigin};
 
@@ -124,7 +124,7 @@ impl FeedResultDisplay {
 }
 
 /// Display-ready track search-result row.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct TrackResultDisplay {
     /// Stable track identifier from the source system.
     pub(crate) id: String,
@@ -138,6 +138,8 @@ pub(crate) struct TrackResultDisplay {
     pub(crate) a11y_label: String,
     /// Source origin used for local content filtering.
     pub(crate) origin: SearchResultOrigin,
+    /// Optional remote track detail captured during Index search.
+    pub(crate) remote_track: Option<TrackView>,
 }
 
 impl TrackResultDisplay {
@@ -156,6 +158,7 @@ impl TrackResultDisplay {
             secondary_text: String::new(),
             thumbnail_href: None,
             origin,
+            remote_track: None,
         }
     }
 
@@ -170,6 +173,13 @@ impl TrackResultDisplay {
     #[must_use]
     pub(crate) fn with_thumbnail_href(mut self, value: impl Into<String>) -> Self {
         self.thumbnail_href = Some(value.into());
+        self
+    }
+
+    /// Returns this display with remote track detail attached.
+    #[must_use]
+    pub(crate) fn with_remote_track(mut self, track: TrackView) -> Self {
+        self.remote_track = Some(track);
         self
     }
 }

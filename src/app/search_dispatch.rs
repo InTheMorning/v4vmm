@@ -26,8 +26,9 @@ use crate::ui::shells::entity::{
     render_release_track_row, ReleaseDetailBehaviorSlots, ReleaseTrackRowSlot,
 };
 use crate::ui::shells::search_results_inspector::{
-    render_index_detail_display, render_index_feed_detail,
+    render_index_detail_display, render_index_feed_detail, render_index_track_detail,
 };
+use crate::ui::shells::track::TrackDetailBehaviorSlots;
 use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
 use crate::view_models::search_results::{
     ArtistResultDisplay, FeedResultDisplay, IndexSearchResultRows, SearchResultItemId,
@@ -294,32 +295,7 @@ impl TopApp {
             .as_ref()
             .and_then(|detail| detail.index_feed_label(&activation_id))
             .unwrap_or_else(|| feed_guid.to_string());
-        let feed_id = self
-            .conn
-            .lock()
-            .ok()
-            .and_then(|conn| db::find_feed_id_by_guid(&conn, feed_guid).ok().flatten());
-
-        let Some(feed_id) = feed_id else {
-            self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
-            return;
-        };
-
-        if let Some(album) = self.library.read(cx).album_for_detail_by_feed_id(feed_id) {
-            self.library.update(cx, |library, cx| {
-                library.select_album(&album, cx);
-            });
-            if let Err(error) = self
-                .workspace_layout
-                .push_nav(content_frame_id, FrameNavigationEntry::AlbumDetail(feed_id))
-            {
-                self.settings_status = format!("Failed to navigate to index feed: {error}");
-            }
-            self.sync_search_results_detail_with_nav(content_frame_id);
-            cx.notify();
-        } else {
-            self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
-        }
+        self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
     }
 
     fn push_index_feed_detail(
@@ -359,34 +335,7 @@ impl TopApp {
             .as_ref()
             .and_then(|detail| detail.index_track_label(&activation_id))
             .unwrap_or_else(|| track_guid.to_string());
-        let track_row = self.conn.lock().ok().and_then(|conn| {
-            library_service::find_track_id(&conn, None, Some(track_guid), None)
-                .ok()
-                .flatten()
-                .and_then(|track_id| {
-                    library_service::track_row_by_id(&conn, track_id)
-                        .ok()
-                        .flatten()
-                })
-        });
-
-        let Some(track_row) = track_row else {
-            self.push_index_track_detail(content_frame_id, target, label, cx);
-            return;
-        };
-
-        let track_id = track_row.id;
-        self.library.update(cx, |library, cx| {
-            library.select_track(&track_row, cx);
-        });
-        if let Err(error) = self.workspace_layout.push_nav(
-            content_frame_id,
-            FrameNavigationEntry::TrackDetail(track_id),
-        ) {
-            self.settings_status = format!("Failed to navigate to index track: {error}");
-        }
-        self.sync_search_results_detail_with_nav(content_frame_id);
-        cx.notify();
+        self.push_index_track_detail(content_frame_id, target, label, cx);
     }
 
     fn push_index_track_detail(
@@ -414,11 +363,15 @@ impl TopApp {
         detail: &crate::view_models::search_results::IndexDetailDisplay,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let Some(feed) = detail.feed.as_ref() else {
-            return render_index_detail_display(detail, cx);
-        };
-        let slots = self.index_feed_detail_slots(feed, cx);
-        render_index_feed_detail(feed, slots)
+        if let Some(feed) = detail.feed.as_ref() {
+            let slots = self.index_feed_detail_slots(feed, cx);
+            return render_index_feed_detail(feed, slots);
+        }
+        if let Some(track) = detail.track.as_ref() {
+            let slots = self.index_track_detail_slots(track, cx);
+            return render_index_track_detail(track, slots, cx);
+        }
+        render_index_detail_display(detail, cx)
     }
 
     fn index_feed_detail_slots(
@@ -441,6 +394,34 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> Option<Arc<Image>> {
         let url = index_feed_artwork_url(feed)?;
+        self.index_remote_detail_hero_image(url, cx)
+    }
+
+    fn index_track_detail_slots(
+        &mut self,
+        track: &TrackView,
+        cx: &mut Context<Self>,
+    ) -> TrackDetailBehaviorSlots {
+        TrackDetailBehaviorSlots {
+            hero_image: self.index_track_hero_image(track, cx),
+            ..TrackDetailBehaviorSlots::default()
+        }
+    }
+
+    fn index_track_hero_image(
+        &mut self,
+        track: &TrackView,
+        cx: &mut Context<Self>,
+    ) -> Option<Arc<Image>> {
+        let url = index_track_artwork_url(track)?;
+        self.index_remote_detail_hero_image(url, cx)
+    }
+
+    fn index_remote_detail_hero_image(
+        &mut self,
+        url: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<Arc<Image>> {
         if let Some(image) = self.image_cache.peek_static(url) {
             return Some(image);
         }
@@ -895,6 +876,10 @@ fn index_feed_artwork_url(feed: &FeedView) -> Option<&str> {
     })
 }
 
+fn index_track_artwork_url(track: &TrackView) -> Option<&str> {
+    non_empty_str(track.image_url.as_deref())
+}
+
 fn api_feed_from_view(feed: &FeedView) -> crate::api::Feed {
     crate::api::Feed {
         feed_guid: feed_guid_from_view(feed),
@@ -1004,6 +989,29 @@ mod remote_detail_thumbnail_tests {
             index_feed_artwork_url(&feed),
             Some("https://example.test/track.jpg")
         );
+    }
+
+    #[test]
+    fn index_track_artwork_url_uses_track_image() {
+        let track = TrackView {
+            image_url: Some("https://example.test/track.jpg".to_string()),
+            ..TrackView::default()
+        };
+
+        assert_eq!(
+            index_track_artwork_url(&track),
+            Some("https://example.test/track.jpg")
+        );
+    }
+
+    #[test]
+    fn index_track_artwork_url_ignores_empty_image() {
+        let track = TrackView {
+            image_url: Some("   ".to_string()),
+            ..TrackView::default()
+        };
+
+        assert_eq!(index_track_artwork_url(&track), None);
     }
 }
 
@@ -1311,6 +1319,7 @@ fn index_track_display(
         TrackResultDisplay::new(activation_id.clone(), track_guid, SearchResultOrigin::Index);
 
     if let Some(crate::api::EntityDetail::Track(track)) = detail {
+        let remote_track = TrackView::from_api(track.clone());
         let label = track
             .title
             .or(track.name)
@@ -1324,6 +1333,7 @@ fn index_track_display(
         if let Some(image_url) = non_empty_string(track.image_url) {
             display = display.with_thumbnail_href(image_url);
         }
+        display = display.with_remote_track(remote_track);
     }
 
     display
@@ -1366,4 +1376,70 @@ fn non_empty_string(value: Option<String>) -> Option<String> {
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{Contributor, EntityDetail, SourceEntityId, SourceEntityLink, Track};
+
+    #[test]
+    fn index_track_display_attaches_fetched_track_view() {
+        let display = index_track_display(
+            "track-guid",
+            Some("feed-guid"),
+            Some(EntityDetail::Track(Track {
+                track_guid: Some("track-guid".to_string()),
+                feed_guid: Some("feed-guid".to_string()),
+                feed_title: Some("Remote Release".to_string()),
+                title: Some("Remote Track".to_string()),
+                duration_secs: Some(125),
+                pub_date: Some(1_712_275_200),
+                track_number: Some(7),
+                explicit: Some(true),
+                image_url: Some("https://example.test/track.jpg".to_string()),
+                track_artist: Some("Track Artist".to_string()),
+                source_contributors: Some(vec![Contributor {
+                    name: Some("Contributor".to_string()),
+                    role: Some("producer".to_string()),
+                    ..Contributor::default()
+                }]),
+                source_links: Some(vec![SourceEntityLink {
+                    link_type: Some("transcript".to_string()),
+                    url: Some("https://example.test/transcript.srt".to_string()),
+                    ..SourceEntityLink::default()
+                }]),
+                source_ids: Some(vec![SourceEntityId {
+                    scheme: Some("nostr_npub".to_string()),
+                    value: Some("npub1track".to_string()),
+                    ..SourceEntityId::default()
+                }]),
+                ..Track::default()
+            })),
+        );
+
+        assert_eq!(display.label, "Remote Track");
+        assert_eq!(display.secondary_text, "Track Artist - Remote Release");
+        assert_eq!(
+            display.thumbnail_href.as_deref(),
+            Some("https://example.test/track.jpg")
+        );
+
+        let track = display
+            .remote_track
+            .as_ref()
+            .expect("fetched Index detail should attach a TrackView to the result row");
+        assert_eq!(track.title.as_deref(), Some("Remote Track"));
+        assert_eq!(track.feed_title.as_deref(), Some("Remote Release"));
+        assert_eq!(track.track_number, Some(7));
+        assert_eq!(track.duration_secs, Some(125));
+        assert_eq!(track.pub_date, Some(1_712_275_200));
+        assert_eq!(track.explicit, Some(true));
+        assert_eq!(track.identity.nostr_npub.as_deref(), Some("npub1track"));
+        assert_eq!(track.contributors.len(), 1);
+        assert_eq!(
+            track.transcript_url.as_deref(),
+            Some("https://example.test/transcript.srt")
+        );
+    }
 }

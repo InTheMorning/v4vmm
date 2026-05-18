@@ -23,6 +23,9 @@ use crate::ui::primitives::{Button as UiButton, Label, LabelVariant};
 use crate::ui::shells::entity::{
     render_feed_identity_actions, render_release_detail_shell, ReleaseDetailBehaviorSlots,
 };
+use crate::ui::shells::track::{
+    build_track_detail_surface, render_track_page_identity_actions, TrackDetailBehaviorSlots,
+};
 use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::search_results::{
@@ -30,6 +33,7 @@ use crate::view_models::search_results::{
     SearchResultItemId, SearchResultOrigin, SearchResultsInspectorPageVm, SearchResultsTab,
     TrackResultDisplay,
 };
+use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::workspace::ContentFilter;
 
 type TabSelectHandler = Rc<dyn Fn(SearchResultsTab, &mut Window, &mut App) + 'static>;
@@ -157,6 +161,9 @@ pub(crate) fn render_index_detail_display(display: &IndexDetailDisplay, cx: &App
     if let Some(feed) = display.feed.as_ref() {
         return render_index_feed_detail(feed, ReleaseDetailBehaviorSlots::default());
     }
+    if let Some(track) = display.track.as_ref() {
+        return render_index_track_detail(track, TrackDetailBehaviorSlots::default(), cx);
+    }
 
     let kind = entity_kind_for_index_detail(display.kind);
     let mut heading = div()
@@ -231,6 +238,28 @@ pub(crate) fn render_index_feed_detail(
     let page = projection.page();
     slots.identity_actions = render_feed_identity_actions(&page);
     render_release_detail_shell(&page, slots)
+}
+
+/// Renders a remote Index track through the shared track-detail shell.
+pub(crate) fn render_index_track_detail(
+    track: &crate::views::TrackView,
+    mut slots: TrackDetailBehaviorSlots,
+    cx: &App,
+) -> AnyElement {
+    let page = TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover).page();
+    slots.external_links = render_track_page_identity_actions(&page);
+
+    div()
+        .id(SharedString::from("index-detail-track"))
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .overflow_y_scroll()
+        .p(Spacing::MD.scaled(cx))
+        .child(build_track_detail_surface(&page, slots))
+        .into_any_element()
 }
 
 fn render_inspector_header(

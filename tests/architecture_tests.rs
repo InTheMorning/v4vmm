@@ -2244,6 +2244,70 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         }
     }
 
+    let index_feed_selection = search_dispatch_source
+        .split("fn handle_index_feed_result_selected(")
+        .nth(1)
+        .and_then(|source| source.split("fn push_index_feed_detail(").next())
+        .unwrap_or_default();
+    if index_feed_selection.is_empty() {
+        violations.push(
+            "src/app/search_dispatch.rs: ADR 0049 Index feed selection handler not found"
+                .to_string(),
+        );
+    }
+    for forbidden in [
+        "db::find_feed_id_by_guid",
+        "FrameNavigationEntry::AlbumDetail(",
+        "album_for_detail_by_feed_id",
+        "select_album(",
+    ] {
+        if index_feed_selection.contains(forbidden) {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: ADR 0049 index-feed activation must preserve Index detail source; found local redirect `{forbidden}`"
+            ));
+        }
+    }
+    if !index_feed_selection
+        .contains("self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);")
+    {
+        violations.push(
+            "src/app/search_dispatch.rs: ADR 0049 index-feed activation must push IndexFeedDetail directly"
+                .to_string(),
+        );
+    }
+
+    let index_track_selection = search_dispatch_source
+        .split("fn handle_index_track_result_selected(")
+        .nth(1)
+        .and_then(|source| source.split("fn push_index_track_detail(").next())
+        .unwrap_or_default();
+    if index_track_selection.is_empty() {
+        violations.push(
+            "src/app/search_dispatch.rs: ADR 0049 Index track selection handler not found"
+                .to_string(),
+        );
+    }
+    for forbidden in [
+        "library_service::find_track_id",
+        "library_service::track_row_by_id",
+        "FrameNavigationEntry::TrackDetail(",
+        "select_track(",
+    ] {
+        if index_track_selection.contains(forbidden) {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: ADR 0049 index-track activation must preserve Index detail source; found local redirect `{forbidden}`"
+            ));
+        }
+    }
+    if !index_track_selection
+        .contains("self.push_index_track_detail(content_frame_id, target, label, cx);")
+    {
+        violations.push(
+            "src/app/search_dispatch.rs: ADR 0049 index-track activation must push IndexTrackDetail directly"
+                .to_string(),
+        );
+    }
+
     for required in [
         "SearchResultsHeaderMode::Scoped",
         "SearchResultsHeaderMode::Tabbed",
@@ -2284,6 +2348,114 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     assert!(
         violations.is_empty(),
         "ADR 0049 inspector source ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0024_index_track_detail_uses_rich_track_view_path() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let results_source = read_source(&manifest_path("src/view_models/search_results/results.rs"));
+    let index_detail_source = read_source(&manifest_path(
+        "src/view_models/search_results/index_detail.rs",
+    ));
+    let search_results_shell_source =
+        read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) remote_track: Option<TrackView>",
+        "pub(crate) fn with_remote_track",
+    ] {
+        if !results_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results/results.rs: ADR 0024 Index track rows must carry rich remote track detail; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "TrackView::from_api(track.clone())",
+        "display = display.with_remote_track(remote_track)",
+    ] {
+        if !search_dispatch_source.contains(required) {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: ADR 0024 Index track detail fetch path must attach TrackView from fetched api::Track; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) track: Option<TrackView>",
+        "display.track.clone_from(&row.remote_track)",
+    ] {
+        if !index_detail_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results/index_detail.rs: ADR 0024 Index detail must propagate rich track projection; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "if let Some(track) = display.track.as_ref()",
+        "TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover).page()",
+        "slots.external_links = render_track_page_identity_actions(&page)",
+        "build_track_detail_surface(&page, slots)",
+    ] {
+        if !search_results_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/search_results_inspector.rs: ADR 0024 rich Index track detail must render through shared track surface; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "render_index_track_detail(track, slots, cx)",
+        "fn index_track_detail_slots(",
+        "hero_image: self.index_track_hero_image(track, cx)",
+        "fn index_track_artwork_url(track: &TrackView)",
+    ] {
+        if !search_dispatch_source.contains(required) {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: ADR 0024 rich Index track detail must keep remote artwork in the shared surface slot; missing `{required}`"
+            ));
+        }
+    }
+
+    if !search_results_shell_source.contains("detail_metadata_row(\"Source\", \"Index\", cx)")
+        || !search_results_shell_source.contains("detail_metadata_row(\"ID\", &display.id, cx)")
+    {
+        violations.push(
+            "src/ui/shells/search_results_inspector.rs: ADR 0024 sparse Index Source/ID fallback must remain for missing remote track detail"
+                .to_string(),
+        );
+    }
+
+    let index_track_branch = app_source
+        .split("Some(FrameNavigationEntry::IndexTrackDetail")
+        .nth(1)
+        .and_then(|source| source.split("Some(FrameNavigationEntry::Settings)").next())
+        .unwrap_or_default();
+    if index_track_branch.is_empty() {
+        violations
+            .push("src/app.rs: ADR 0024 IndexTrackDetail render branch not found".to_string());
+    } else if !index_track_branch.contains("render_index_feed_or_fallback_detail(&detail, cx)") {
+        violations.push(
+            "src/app.rs: ADR 0024 IndexTrackDetail must use TopApp detail slots so rich track artwork resolves"
+                .to_string(),
+        );
+    }
+    if index_track_branch.contains("render_index_detail_display(&detail, cx)") {
+        violations.push(
+            "src/app.rs: ADR 0024 IndexTrackDetail must not bypass TopApp detail slots with the fallback renderer"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0024 rich Index track-detail path violations:\n{}",
         violations.join("\n")
     );
 }

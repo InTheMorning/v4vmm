@@ -21,6 +21,20 @@ fn track(id: SearchResultItemId, label: &str) -> TrackResultDisplay {
     TrackResultDisplay::new(id.to_string(), label, SearchResultOrigin::Index)
 }
 
+fn remote_track() -> TrackView {
+    TrackView {
+        title: Some("Remote Track".to_string()),
+        artist: Some("Remote Artist".to_string()),
+        feed_title: Some("Remote Release".to_string()),
+        track_number: Some(7),
+        duration_secs: Some(125),
+        pub_date: Some(1_712_275_200),
+        explicit: Some(true),
+        transcript_url: Some("https://example.test/transcript.srt".to_string()),
+        ..TrackView::default()
+    }
+}
+
 fn local_track(id: i64, feed_id: i64, feed_title: &str, title: &str, artist: &str) -> TrackRow {
     TrackRow {
         id,
@@ -134,6 +148,50 @@ fn result_display_builders_project_accessible_labels() {
     assert_eq!(track.a11y_label, "Track: Theme");
     assert!(SearchResultOrigin::Index.matches_filter(ContentFilter::All));
     assert!(!SearchResultOrigin::Index.matches_filter(ContentFilter::Library));
+}
+
+#[test]
+fn track_result_display_can_carry_remote_track_view() {
+    let display = track(9, "Theme").with_remote_track(remote_track());
+    let remote = display
+        .remote_track
+        .as_ref()
+        .expect("remote Index track detail should stay attached to result row");
+
+    assert_eq!(remote.title.as_deref(), Some("Remote Track"));
+    assert_eq!(remote.feed_title.as_deref(), Some("Remote Release"));
+    assert_eq!(remote.track_number, Some(7));
+    assert_eq!(remote.duration_secs, Some(125));
+    assert_eq!(remote.pub_date, Some(1_712_275_200));
+    assert_eq!(remote.explicit, Some(true));
+    assert_eq!(
+        remote.transcript_url.as_deref(),
+        Some("https://example.test/transcript.srt")
+    );
+}
+
+#[test]
+fn index_detail_display_preserves_remote_track_view() {
+    let row = TrackResultDisplay::new(
+        "index-track:feed-guid:track-guid",
+        "Remote Track",
+        SearchResultOrigin::Index,
+    )
+    .with_secondary_text("Remote Artist")
+    .with_remote_track(remote_track());
+
+    let detail = super::IndexDetailDisplay::track(&row, "feed-guid:track-guid");
+    let track = detail
+        .track
+        .as_ref()
+        .expect("Index track detail should preserve rich remote track projection");
+
+    assert_eq!(detail.kind, IndexDetailKind::Track);
+    assert_eq!(detail.title, "Remote Track");
+    assert_eq!(detail.secondary_text, "Remote Artist");
+    assert_eq!(track.feed_title.as_deref(), Some("Remote Release"));
+    assert_eq!(track.track_number, Some(7));
+    assert_eq!(track.duration_secs, Some(125));
 }
 
 #[test]
@@ -312,7 +370,8 @@ fn index_detail_projection_uses_cached_result_rows() {
                 "Remote Track",
                 SearchResultOrigin::Index,
             )
-            .with_secondary_text("Remote Artist"),
+            .with_secondary_text("Remote Artist")
+            .with_remote_track(remote_track()),
         )],
     });
 
@@ -347,6 +406,15 @@ fn index_detail_projection_uses_cached_result_rows() {
     assert_eq!(track.kind, IndexDetailKind::Track);
     assert_eq!(track.title, "Remote Track");
     assert_eq!(track.secondary_text, "Remote Artist");
+    assert!(
+        track.track.is_some(),
+        "Index track detail should preserve rich remote track projection when search fetched it"
+    );
+    assert_eq!(
+        track.track.as_ref().and_then(|track| track.track_number),
+        Some(7),
+        "Index track detail should preserve track fields for shared track-detail rendering"
+    );
 }
 
 #[test]
