@@ -14,12 +14,14 @@ use gpui::{
 };
 
 use crate::discover::SearchApp;
-use crate::ui::composites::{EntityKind, SkeletonFeedTile};
+use crate::ui::composites::EntityKind;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
-use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label};
+use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, Skeleton};
 use crate::ui::style::{color, spacing, typography};
-use crate::ui::tokens::{color as token_color, FontSize, Radius, SemanticColor, Spacing};
+use crate::ui::tokens::{
+    color as token_color, FontSize, Radius, SemanticColor, SkeletonBlock, Spacing,
+};
 use crate::view_models::search::{
     pending_skeleton_count, RecentFeedTileDisplay, RecentFeedsDisplay,
 };
@@ -128,6 +130,51 @@ impl RenderOnce for RecentFeedTile {
                 ),
             )
         })
+    }
+}
+
+/// Discover-local skeleton tile sized to match [`RecentFeedTile`].
+#[derive(IntoElement)]
+#[must_use]
+struct SkeletonFeedTile {
+    id: ElementId,
+}
+
+impl SkeletonFeedTile {
+    fn new(id: impl Into<ElementId>) -> Self {
+        Self { id: id.into() }
+    }
+}
+
+impl RenderOnce for SkeletonFeedTile {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let gap = Spacing::SM.scaled(cx);
+        let pad = Spacing::SM.scaled(cx);
+        let radius_lg = Radius::LG.scaled(cx);
+        let (subtitle_w, subtitle_h) = SkeletonBlock::FeedTileSubtitle.scaled(cx);
+
+        let tile = div()
+            .id(self.id)
+            .flex()
+            .flex_col()
+            .gap(gap)
+            .w(layout::SEARCH_TILE_WIDTH)
+            .p(pad)
+            .rounded(radius_lg)
+            .child(div().flex_shrink_0().child(
+                Skeleton::block(layout::THUMBNAIL_XL, layout::THUMBNAIL_XL).radius(Radius::MD),
+            ))
+            .child(
+                div()
+                    .w(layout::THUMBNAIL_XL)
+                    .child(Skeleton::row().full_width()),
+            );
+
+        tile.child(
+            div()
+                .w(layout::THUMBNAIL_XL)
+                .child(Skeleton::block(subtitle_w, subtitle_h)),
+        )
     }
 }
 

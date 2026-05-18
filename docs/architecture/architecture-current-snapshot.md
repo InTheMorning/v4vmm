@@ -275,10 +275,8 @@ graph TD
 
     subgraph Comps["Composites (ui/composites/)"]
         CSkelTrack["SkeletonTrackRow"]
-        CSkelFeed["SkeletonFeedTile"]
         CSkelIns["SkeletonInspector<br/>(hero + title + body rows)"]
         CTrackRow["TrackRow"]
-        CFeedTile["FeedTile / RecentFeedTile"]
         CMetaGrid["MetaGrid (RSS · ID3 · MB)"]
         CNPBar["NowPlayingBar"]
         CPlPop["PlaylistPopover"]
@@ -286,7 +284,7 @@ graph TD
 
     subgraph Shells["Shells (ui/shells/*)"]
         ShDiscInsp["discover/feed_inspector +<br/>track_inspector"]
-        ShDiscRecent["discover/recent_*"]
+        ShDiscRecent["discover/recent<br/>(RecentFeedTile + skeleton tile local)"]
         ShLibDetail["library/detail · feed_detail ·<br/>track_detail · playlist_detail"]
         ShLibSidebar["library/sidebar"]
         ShPlaylist["playlist.rs<br/>(slot-driven, used by library)"]
@@ -300,7 +298,7 @@ graph TD
     end
 
     Tokens --> Prims --> Comps --> Shells --> AppScreens
-    PSkel --> CSkelTrack & CSkelFeed & CSkelIns
+    PSkel --> CSkelTrack & CSkelIns
     ShPlaylist -. consumed by .-> ShLibDetail
 ```
 
@@ -336,7 +334,7 @@ sequenceDiagram
     U->>V: open Discover
     V->>VM: snapshot()
     VM-->>V: skeleton state
-    V-->>U: SkeletonFeedTile rows render
+    V-->>U: Discover-local skeleton feed tiles render
 
     V->>GCR: load_recent_feeds(page=1)
     GCR->>ACR: enqueue

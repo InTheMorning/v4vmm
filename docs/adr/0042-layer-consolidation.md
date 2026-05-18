@@ -147,3 +147,24 @@ Negative:
 - ADR 0033 and ADR 0038 reference this ADR for the composite-vs-shell
   rule, and `docs/architecture/architecture-current-snapshot.md`
   describes the post-ADR-0042 layer shape.
+
+## 2026-05-18 Reconciliation
+
+The ADR 0052-0054 implementation review re-ran the composite audit after the
+workspace-frame and parity work. Follow-up changes reconciled the visible
+single-site cases:
+
+- `frame_shell` remains the ADR 0048-documented exception. It is the canonical
+  frame chrome owner even though `WorkspaceShell::render` is the only direct
+  caller.
+- `breadcrumb_trail` is no longer single-site: both `frame_shell` and the
+  Library track-detail shell route through `BreadcrumbTrail`.
+- `musicbrainz_panel` remains multi-site through the Library and Discover
+  track-metadata shells.
+- `skeleton_feed_tile` was inlined into `src/ui/shells/discover/recent.rs`
+  because it is a Discover-recent-only placeholder.
+- `release_detail_surface` is retained despite one direct Rust call site
+  because that call site is the shared `src/ui/shells/entity.rs` release/feed
+  shell, not a single product page. It remains the cross-entity release detail
+  contract used by Library and Index projections. If that shell stops carrying
+  multiple release/feed surfaces, the composite should collapse into the shell.

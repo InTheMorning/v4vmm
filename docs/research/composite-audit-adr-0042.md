@@ -86,3 +86,22 @@ contract, folding it into `list_row` would require a parallel
 `TrackRowDisplay` on `list_row`, which would in turn break the
 "primitive vs composite" boundary `list_row` defends. No rename
 performed; both names retained as a deliberate two-tier shape.
+
+## Follow-up Reconciliation (2026-05-18)
+
+The ADR 0052-0054 implementation review rechecked the current tree and found a
+few stale or newly changed call-site facts:
+
+- `breadcrumb_trail` now has two production users:
+  `src/ui/composites/frame_shell.rs` and
+  `src/ui/shells/library/track_detail.rs`.
+- `musicbrainz_panel` still has two production users:
+  `src/ui/shells/library/track_detail_metadata.rs` and
+  `src/ui/shells/discover/track_inspector_metadata.rs`.
+- `skeleton_feed_tile` had only Discover-recent usage and was inlined into
+  `src/ui/shells/discover/recent.rs`.
+- `release_detail_surface` now has one direct Rust caller,
+  `src/ui/shells/entity.rs`, but that caller is the shared entity release/feed
+  shell for Library and Index projections. It remains retained under the
+  ADR 0042 reconciliation note unless that shell stops serving multiple
+  release/feed surfaces.

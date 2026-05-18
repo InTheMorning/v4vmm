@@ -4864,6 +4864,48 @@ fn composites_do_not_reintroduce_raw_color_or_numeric_px_literals() {
     );
 }
 
+#[test]
+fn adr_0042_composite_call_site_reconciliation_is_current() {
+    let adr = read_source(&manifest_path("docs/adr/0042-layer-consolidation.md"));
+    let audit = read_source(&manifest_path("docs/research/composite-audit-adr-0042.md"));
+    let composites_mod = read_source(&manifest_path("src/ui/composites/mod.rs"));
+    let recent_shell = read_source(&manifest_path("src/ui/shells/discover/recent.rs"));
+    let frame_shell = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
+    let entity_shell = read_source(&manifest_path("src/ui/shells/entity.rs"));
+    let library_metadata = read_source(&manifest_path(
+        "src/ui/shells/library/track_detail_metadata.rs",
+    ));
+    let discover_metadata = read_source(&manifest_path(
+        "src/ui/shells/discover/track_inspector_metadata.rs",
+    ));
+
+    assert!(
+        !composites_mod.contains("skeleton_feed_tile"),
+        "ADR 0042 reconciliation inlines Discover-only skeleton_feed_tile out of composites"
+    );
+    assert!(
+        recent_shell.contains("struct SkeletonFeedTile"),
+        "Discover recent shell should own its local skeleton feed tile"
+    );
+    assert!(
+        frame_shell.contains("BreadcrumbTrail::new(breadcrumb)")
+            && read_source(&manifest_path("src/ui/shells/library/track_detail.rs"))
+                .contains("BreadcrumbTrail::new(breadcrumb)"),
+        "BreadcrumbTrail must keep both frame-shell and Library track-detail callers"
+    );
+    assert!(
+        library_metadata.contains("MusicBrainzPanel::new(vm)")
+            && discover_metadata.contains("MusicBrainzPanel::new(vm)"),
+        "MusicBrainzPanel must keep Library and Discover metadata callers"
+    );
+    assert!(
+        entity_shell.contains("ReleaseDetailSurface::new(page.detail_scroll_id)")
+            && adr.contains("release_detail_surface` is retained")
+            && audit.contains("`release_detail_surface` now has one direct Rust caller"),
+        "ReleaseDetailSurface single direct caller must remain documented as the shared entity shell contract"
+    );
+}
+
 /// Renders run inside an active `entity.update`, so re-reading the owning
 /// entity (or any chain rooted at `cx.entity()`) panics with
 /// `cannot read X while it is already being updated`. Forbid that pattern in
