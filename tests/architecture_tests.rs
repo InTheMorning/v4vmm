@@ -4927,6 +4927,45 @@ fn screens_do_not_access_track_artist_binding_storage() {
 }
 
 #[test]
+fn ui_and_view_models_do_not_access_metadata_source_fact_storage() {
+    let forbidden = [
+        "entity_metadata_facts",
+        "LocalMetadataFact",
+        "LocalMetadataOwner",
+        "LocalMetadataValue",
+        "local_metadata_facts(",
+        "replace_local_metadata_facts(",
+    ];
+    let mut files = screen_enforcement_files();
+    files.extend(
+        rust_files_under("src/view_models")
+            .into_iter()
+            .map(|path| rel_path(&path)),
+    );
+
+    let mut violations = Vec::new();
+    for file in files {
+        let path = manifest_path(&file);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in forbidden {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{file}:{line_number}: ADR 0054 metadata source-fact storage must stay out of UI/view-model layers: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0054 UI/view-model metadata source-fact storage violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn track_artist_binding_storage_is_owned_by_db_ingest_and_read_models() {
     let mut violations = Vec::new();
     for path in rust_files_under("src") {

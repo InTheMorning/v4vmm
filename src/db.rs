@@ -121,6 +121,19 @@ pub enum LocalEntityOwner {
     Track(i64),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocalMetadataOwner {
+    Feed(i64),
+    Track(i64),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LocalMetadataValue {
+    Text(String),
+    Integer(i64),
+    Boolean(bool),
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LocalIdentityLinkInput {
     pub entity_type: Option<String>,
@@ -196,6 +209,25 @@ pub struct LocalContributorRow {
     pub source: String,
     pub raw_json: Option<String>,
     pub observed_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocalMetadataFactInput {
+    pub fact_key: String,
+    pub value: LocalMetadataValue,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+    pub raw_json: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocalMetadataFactRow {
+    pub fact_key: String,
+    pub value: LocalMetadataValue,
+    pub source: String,
+    pub extraction_path: Option<String>,
+    pub observed_at: Option<i64>,
+    pub raw_json: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -1057,10 +1089,25 @@ impl LocalEntityOwner {
     }
 }
 
+impl LocalMetadataOwner {
+    fn sql_parts(self) -> (&'static str, Option<i64>, Option<i64>) {
+        match self {
+            Self::Feed(feed_id) => ("feed", Some(feed_id), None),
+            Self::Track(track_id) => ("track", None, Some(track_id)),
+        }
+    }
+}
+
 fn explicit_source_token(source: &str) -> Result<&str> {
     let source = source.trim();
     anyhow::ensure!(!source.is_empty(), "source token cannot be empty");
     Ok(source)
+}
+
+fn explicit_fact_key(fact_key: &str) -> Result<&str> {
+    let fact_key = fact_key.trim();
+    anyhow::ensure!(!fact_key.is_empty(), "metadata fact key cannot be empty");
+    Ok(fact_key)
 }
 
 fn explicit_source_artist_id(source_artist_id: &str) -> Result<&str> {
@@ -1318,6 +1365,93 @@ pub fn local_contributors(
         .context("query local_contributors")?
         .collect::<std::result::Result<Vec<_>, _>>()
         .context("collect local_contributors")?;
+
+    Ok(rows)
+}
+
+pub fn replace_local_metadata_facts(
+    conn: &mut Connection,
+    owner: LocalMetadataOwner,
+    source: &str,
+    facts: &[LocalMetadataFactInput],
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
+    for fact in facts {
+        explicit_fact_key(&fact.fact_key)?;
+    }
+
+    let tx = conn.transaction().context("start transaction")?;
+    let (owner_kind, feed_id, track_id) = owner.sql_parts();
+
+    tx.execute(
+        "DELETE FROM entity_metadata_facts
+         WHERE owner_kind = ?1
+           AND feed_id IS ?2
+           AND track_id IS ?3
+           AND source = ?4",
+        rusqlite::params![owner_kind, feed_id, track_id, source],
+    )
+    .context("delete local metadata facts for source")?;
+
+    for fact in facts {
+        let (value_text, value_integer, value_boolean) = match &fact.value {
+            LocalMetadataValue::Text(value) => (Some(value.as_str()), None, None),
+            LocalMetadataValue::Integer(value) => (None, Some(*value), None),
+            LocalMetadataValue::Boolean(value) => (None, None, Some(i64::from(*value))),
+        };
+        tx.execute(
+            "INSERT INTO entity_metadata_facts (
+                 owner_kind, feed_id, track_id, fact_key, value_text,
+                 value_integer, value_boolean, source, extraction_path,
+                 observed_at, raw_json
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            rusqlite::params![
+                owner_kind,
+                feed_id,
+                track_id,
+                explicit_fact_key(&fact.fact_key)?,
+                value_text,
+                value_integer,
+                value_boolean,
+                source,
+                fact.extraction_path.as_deref(),
+                fact.observed_at,
+                fact.raw_json.as_deref(),
+            ],
+        )
+        .context("insert local metadata fact")?;
+    }
+
+    tx.commit().context("commit transaction")?;
+    Ok(())
+}
+
+pub fn local_metadata_facts(
+    conn: &Connection,
+    owner: LocalMetadataOwner,
+) -> Result<Vec<LocalMetadataFactRow>> {
+    let (owner_kind, feed_id, track_id) = owner.sql_parts();
+    let mut stmt = conn
+        .prepare(
+            "SELECT fact_key, value_text, value_integer, value_boolean, source,
+                    extraction_path, observed_at, raw_json
+             FROM entity_metadata_facts
+             WHERE owner_kind = ?1
+               AND feed_id IS ?2
+               AND track_id IS ?3
+             ORDER BY source COLLATE NOCASE, fact_key COLLATE NOCASE, id",
+        )
+        .context("prepare local_metadata_facts")?;
+
+    let rows = stmt
+        .query_map(
+            rusqlite::params![owner_kind, feed_id, track_id],
+            local_metadata_fact_row_from_sql,
+        )
+        .context("query local_metadata_facts")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect local_metadata_facts")?;
 
     Ok(rows)
 }
@@ -1628,6 +1762,33 @@ fn local_contributor_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<Local
         source: row.get(7)?,
         raw_json: row.get(8)?,
         observed_at: row.get(9)?,
+    })
+}
+
+fn local_metadata_fact_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<LocalMetadataFactRow> {
+    let value_text: Option<String> = row.get(1)?;
+    let value_integer: Option<i64> = row.get(2)?;
+    let value_boolean: Option<i64> = row.get(3)?;
+    let value = match (value_text, value_integer, value_boolean) {
+        (Some(value), None, None) => LocalMetadataValue::Text(value),
+        (None, Some(value), None) => LocalMetadataValue::Integer(value),
+        (None, None, Some(value)) => LocalMetadataValue::Boolean(value != 0),
+        _ => {
+            return Err(rusqlite::Error::InvalidColumnType(
+                1,
+                "metadata_value".to_owned(),
+                rusqlite::types::Type::Null,
+            ));
+        }
+    };
+
+    Ok(LocalMetadataFactRow {
+        fact_key: row.get(0)?,
+        value,
+        source: row.get(4)?,
+        extraction_path: row.get(5)?,
+        observed_at: row.get(6)?,
+        raw_json: row.get(7)?,
     })
 }
 
@@ -2206,6 +2367,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "cleanup_markup_placeholder_source_text",
         apply: migration_cleanup_markup_placeholder_source_text,
     },
+    Migration {
+        version: 8,
+        name: "metadata_source_facts",
+        apply: migration_metadata_source_facts,
+    },
 ];
 
 pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
@@ -2280,6 +2446,10 @@ fn migration_cleanup_placeholder_source_text(conn: &Connection) -> Result<()> {
 
 fn migration_cleanup_markup_placeholder_source_text(conn: &Connection) -> Result<()> {
     cleanup_placeholder_source_text_columns(conn, null_markup_placeholder_text_column)
+}
+
+fn migration_metadata_source_facts(conn: &Connection) -> Result<()> {
+    create_metadata_source_fact_tables(conn)
 }
 
 fn cleanup_placeholder_source_text_columns(
@@ -2495,6 +2665,7 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<()> {
     create_identity_source_fact_tables(conn)?;
     create_artist_source_fact_tables(conn)?;
     create_track_artist_source_binding_tables(conn)?;
+    create_metadata_source_fact_tables(conn)?;
 
     Ok(())
 }
@@ -2629,6 +2800,52 @@ fn create_identity_source_fact_tables(conn: &Connection) -> Result<()> {
         "#,
     )
     .context("create identity source fact tables")?;
+    Ok(())
+}
+
+fn create_metadata_source_fact_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS entity_metadata_facts (
+            id INTEGER PRIMARY KEY,
+            owner_kind TEXT NOT NULL,
+            feed_id INTEGER NULL REFERENCES feeds(id) ON DELETE CASCADE,
+            track_id INTEGER NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            fact_key TEXT NOT NULL CHECK (fact_key != ''),
+            value_text TEXT NULL,
+            value_integer INTEGER NULL,
+            value_boolean INTEGER NULL CHECK (value_boolean IN (0, 1)),
+            source TEXT NOT NULL CHECK (source != ''),
+            extraction_path TEXT NULL,
+            observed_at INTEGER NULL,
+            raw_json TEXT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            CHECK (
+                (owner_kind = 'feed'
+                    AND feed_id IS NOT NULL
+                    AND track_id IS NULL)
+                OR (owner_kind = 'track'
+                    AND feed_id IS NULL
+                    AND track_id IS NOT NULL)
+            ),
+            CHECK (
+                (value_text IS NOT NULL)
+                + (value_integer IS NOT NULL)
+                + (value_boolean IS NOT NULL) = 1
+            )
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_entity_metadata_facts_owner
+            ON entity_metadata_facts(owner_kind, feed_id, track_id);
+        CREATE INDEX IF NOT EXISTS idx_entity_metadata_facts_owner_source
+            ON entity_metadata_facts(owner_kind, feed_id, track_id, source);
+        CREATE INDEX IF NOT EXISTS idx_entity_metadata_facts_feed_id
+            ON entity_metadata_facts(feed_id);
+        CREATE INDEX IF NOT EXISTS idx_entity_metadata_facts_track_id
+            ON entity_metadata_facts(track_id);
+        "#,
+    )
+    .context("create metadata source fact tables")?;
     Ok(())
 }
 
@@ -3207,7 +3424,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7],
+            vec![1, 2, 3, 4, 5, 6, 7, 8],
             "fresh schema should record all registry migrations"
         );
 
@@ -3251,7 +3468,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7],
+            vec![1, 2, 3, 4, 5, 6, 7, 8],
             "migration registry should be idempotent"
         );
 
@@ -3403,7 +3620,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7],
+            vec![1, 2, 3, 4, 5, 6, 7, 8],
             "cleanup migration should be recorded exactly once"
         );
 
@@ -3425,6 +3642,311 @@ mod tests {
         assert!(
             table_exists(&conn, "entity_contributors")?,
             "schema should include entity_contributors"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata_source_fact_schema_creates_tables() -> Result<()> {
+        let conn = setup_test_db()?;
+
+        assert!(
+            table_exists(&conn, "entity_metadata_facts")?,
+            "schema should include entity_metadata_facts"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata_source_fact_round_trip() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+
+        replace_local_metadata_facts(
+            &mut conn,
+            LocalMetadataOwner::Feed(feed_id),
+            "musicindex",
+            &[
+                LocalMetadataFactInput {
+                    fact_key: "publisher_text".to_owned(),
+                    value: LocalMetadataValue::Text("Example Publisher".to_owned()),
+                    extraction_path: Some("$.publisher".to_owned()),
+                    observed_at: Some(1_714_000_000),
+                    raw_json: Some(r#"{"publisher":"Example Publisher"}"#.to_owned()),
+                },
+                LocalMetadataFactInput {
+                    fact_key: "explicit".to_owned(),
+                    value: LocalMetadataValue::Boolean(true),
+                    extraction_path: Some("$.explicit".to_owned()),
+                    observed_at: Some(1_714_000_001),
+                    raw_json: Some(r#"{"explicit":true}"#.to_owned()),
+                },
+            ],
+        )?;
+        replace_local_metadata_facts(
+            &mut conn,
+            LocalMetadataOwner::Track(track_id),
+            "musicindex",
+            &[LocalMetadataFactInput {
+                fact_key: "duration_seconds".to_owned(),
+                value: LocalMetadataValue::Integer(123),
+                extraction_path: Some("$.duration".to_owned()),
+                observed_at: Some(1_714_000_002),
+                raw_json: Some(r#"{"duration":123}"#.to_owned()),
+            }],
+        )?;
+
+        let feed_facts = local_metadata_facts(&conn, LocalMetadataOwner::Feed(feed_id))?;
+        assert_eq!(feed_facts.len(), 2);
+        assert_eq!(feed_facts[0].fact_key, "explicit");
+        assert_eq!(feed_facts[0].value, LocalMetadataValue::Boolean(true));
+        assert_eq!(feed_facts[0].source, "musicindex");
+        assert_eq!(
+            feed_facts[1],
+            LocalMetadataFactRow {
+                fact_key: "publisher_text".to_owned(),
+                value: LocalMetadataValue::Text("Example Publisher".to_owned()),
+                source: "musicindex".to_owned(),
+                extraction_path: Some("$.publisher".to_owned()),
+                observed_at: Some(1_714_000_000),
+                raw_json: Some(r#"{"publisher":"Example Publisher"}"#.to_owned()),
+            }
+        );
+
+        let track_facts = local_metadata_facts(&conn, LocalMetadataOwner::Track(track_id))?;
+        assert_eq!(
+            track_facts,
+            vec![LocalMetadataFactRow {
+                fact_key: "duration_seconds".to_owned(),
+                value: LocalMetadataValue::Integer(123),
+                source: "musicindex".to_owned(),
+                extraction_path: Some("$.duration".to_owned()),
+                observed_at: Some(1_714_000_002),
+                raw_json: Some(r#"{"duration":123}"#.to_owned()),
+            }]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata_source_fact_replacement_is_source_scoped() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let owner = LocalMetadataOwner::Feed(feed_id);
+
+        replace_local_metadata_facts(
+            &mut conn,
+            owner,
+            "musicindex",
+            &[LocalMetadataFactInput {
+                fact_key: "publisher_text".to_owned(),
+                value: LocalMetadataValue::Text("Old Publisher".to_owned()),
+                extraction_path: None,
+                observed_at: None,
+                raw_json: None,
+            }],
+        )?;
+        replace_local_metadata_facts(
+            &mut conn,
+            owner,
+            "rss",
+            &[LocalMetadataFactInput {
+                fact_key: "rss_podcast_medium".to_owned(),
+                value: LocalMetadataValue::Text("podcast".to_owned()),
+                extraction_path: None,
+                observed_at: None,
+                raw_json: None,
+            }],
+        )?;
+        replace_local_metadata_facts(
+            &mut conn,
+            owner,
+            "musicindex",
+            &[LocalMetadataFactInput {
+                fact_key: "publisher_text".to_owned(),
+                value: LocalMetadataValue::Text("New Publisher".to_owned()),
+                extraction_path: None,
+                observed_at: None,
+                raw_json: None,
+            }],
+        )?;
+
+        let facts = local_metadata_facts(&conn, owner)?;
+        assert_eq!(facts.len(), 2);
+        assert!(facts.iter().any(|fact| {
+            fact.source == "musicindex"
+                && fact.fact_key == "publisher_text"
+                && fact.value == LocalMetadataValue::Text("New Publisher".to_owned())
+        }));
+        assert!(facts.iter().any(|fact| {
+            fact.source == "rss"
+                && fact.fact_key == "rss_podcast_medium"
+                && fact.value == LocalMetadataValue::Text("podcast".to_owned())
+        }));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata_source_fact_rejects_invalid_owner_and_value_shapes() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+
+        let invalid_owner = conn.execute(
+            "INSERT INTO entity_metadata_facts (
+                 owner_kind, feed_id, track_id, fact_key, value_text, source
+             )
+             VALUES ('feed', ?1, ?2, 'publisher_text', 'Publisher', 'musicindex')",
+            rusqlite::params![feed_id, track_id],
+        );
+        assert!(
+            invalid_owner.is_err(),
+            "feed metadata fact cannot also set track_id"
+        );
+
+        let missing_value = conn.execute(
+            "INSERT INTO entity_metadata_facts (
+                 owner_kind, feed_id, fact_key, source
+             )
+             VALUES ('feed', ?1, 'publisher_text', 'musicindex')",
+            [feed_id],
+        );
+        assert!(
+            missing_value.is_err(),
+            "metadata facts require exactly one typed value"
+        );
+
+        let duplicate_value = conn.execute(
+            "INSERT INTO entity_metadata_facts (
+                 owner_kind, feed_id, fact_key, value_text, value_integer, source
+             )
+             VALUES ('feed', ?1, 'publisher_text', 'Publisher', 1, 'musicindex')",
+            [feed_id],
+        );
+        assert!(
+            duplicate_value.is_err(),
+            "metadata facts reject multiple typed values"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata_source_fact_requires_explicit_source_and_fact_key() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let fact = LocalMetadataFactInput {
+            fact_key: "publisher_text".to_owned(),
+            value: LocalMetadataValue::Text("Publisher".to_owned()),
+            extraction_path: None,
+            observed_at: None,
+            raw_json: None,
+        };
+
+        assert!(
+            replace_local_metadata_facts(
+                &mut conn,
+                LocalMetadataOwner::Feed(feed_id),
+                "",
+                &[fact.clone()]
+            )
+            .is_err(),
+            "metadata facts require a non-empty source"
+        );
+        assert!(
+            replace_local_metadata_facts(
+                &mut conn,
+                LocalMetadataOwner::Feed(feed_id),
+                "musicindex",
+                &[LocalMetadataFactInput {
+                    fact_key: String::new(),
+                    ..fact
+                }],
+            )
+            .is_err(),
+            "metadata facts require a non-empty fact key"
+        );
+
+        let invalid_source = conn.execute(
+            "INSERT INTO entity_metadata_facts (
+                 owner_kind, feed_id, fact_key, value_text, source
+             )
+             VALUES ('feed', ?1, 'publisher_text', 'Publisher', '')",
+            [feed_id],
+        );
+        assert!(
+            invalid_source.is_err(),
+            "schema should reject empty source tokens"
+        );
+
+        let invalid_fact_key = conn.execute(
+            "INSERT INTO entity_metadata_facts (
+                 owner_kind, feed_id, fact_key, value_text, source
+             )
+             VALUES ('feed', ?1, '', 'Publisher', 'musicindex')",
+            [feed_id],
+        );
+        assert!(
+            invalid_fact_key.is_err(),
+            "schema should reject empty fact keys"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata_source_facts_cascade_when_feed_or_track_is_deleted() -> Result<()> {
+        let mut conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+
+        replace_local_metadata_facts(
+            &mut conn,
+            LocalMetadataOwner::Feed(feed_id),
+            "musicindex",
+            &[LocalMetadataFactInput {
+                fact_key: "publisher_text".to_owned(),
+                value: LocalMetadataValue::Text("Publisher".to_owned()),
+                extraction_path: None,
+                observed_at: None,
+                raw_json: None,
+            }],
+        )?;
+        replace_local_metadata_facts(
+            &mut conn,
+            LocalMetadataOwner::Track(track_id),
+            "musicindex",
+            &[LocalMetadataFactInput {
+                fact_key: "description".to_owned(),
+                value: LocalMetadataValue::Text("Track description".to_owned()),
+                extraction_path: None,
+                observed_at: None,
+                raw_json: None,
+            }],
+        )?;
+
+        conn.execute("DELETE FROM tracks WHERE id = ?1", [track_id])?;
+
+        assert_eq!(
+            local_metadata_facts(&conn, LocalMetadataOwner::Feed(feed_id))?.len(),
+            1,
+            "deleting a track should preserve feed metadata facts"
+        );
+        assert!(
+            local_metadata_facts(&conn, LocalMetadataOwner::Track(track_id))?.is_empty(),
+            "deleting a track should delete track metadata facts"
+        );
+
+        conn.execute("DELETE FROM feeds WHERE id = ?1", [feed_id])?;
+
+        assert!(
+            local_metadata_facts(&conn, LocalMetadataOwner::Feed(feed_id))?.is_empty(),
+            "deleting a feed should delete feed metadata facts"
         );
 
         Ok(())

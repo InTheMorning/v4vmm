@@ -99,6 +99,8 @@ Negative / risks:
 
 ## Follow-Up Work
 
+- ADR 0054 owns the concrete first schema route for feed and track metadata
+  source facts.
 - Draft a concrete source-fact schema / migration ADR if any of the reserved
   fields become required product behavior.
 - Decide `podcast_medium` versus MusicIndex `release_kind` mapping.
@@ -109,6 +111,7 @@ Negative / risks:
 ## References
 
 - ADR 0028 - Local identity source-fact persistence
+- ADR 0054 - Local metadata source-fact persistence
 - ADR 0052 - Library / Index data parity triage
 - `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`
 - `docs/reviews/library-discover-parity-triage-album.md`
