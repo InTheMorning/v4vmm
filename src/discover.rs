@@ -15,12 +15,11 @@ use gpui_component::Root;
 use rusqlite::Connection;
 
 use crate::api::{Artist, Feed, PaymentRoute, Publisher, Track};
-use crate::application::ApplicationServices;
+use crate::application::{ApplicationServices, AsyncCommandRunner};
 use crate::config;
 use crate::db;
 use crate::media::ImageCache;
 use crate::metadata::*;
-use crate::presentation::GpuiCommandRunner;
 use crate::view_models::search::{LazyPanel, SearchViewModel};
 use crate::views::ContributorView;
 
@@ -129,7 +128,7 @@ enum ThumbnailState {
 pub struct SearchApp {
     pub(crate) conn: Arc<Mutex<Connection>>,
     application_services: Arc<ApplicationServices>,
-    command_runner: GpuiCommandRunner,
+    command_runner: AsyncCommandRunner,
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
     /// Stateful screen view-model. Owns all pure UI scalars,
@@ -229,6 +228,8 @@ pub fn run_search_app() {
             ApplicationServices::local_with_service_adapters()
                 .expect("application services are fully wired"),
         );
+        #[cfg(feature = "async-runtime")]
+        let runtime_host = crate::presentation::RuntimeHost::new().ok();
 
         cx.open_window(
             WindowOptions {
@@ -247,7 +248,7 @@ pub fn run_search_app() {
                         musicindex_endpoint,
                         application_services,
                         #[cfg(feature = "async-runtime")]
-                        None,
+                        runtime_host,
                         window,
                         cx,
                     )

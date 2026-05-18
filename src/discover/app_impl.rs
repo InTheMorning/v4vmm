@@ -15,7 +15,7 @@ use crate::application::commands::feed::SubscribeFeed;
 use crate::application::commands::library_removal::RemoveFromLibrary;
 use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
-use crate::application::{ApplicationServices, CommandContext};
+use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext};
 use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
 use crate::db;
 use crate::feed_service;
@@ -23,7 +23,7 @@ use crate::identity_ingest;
 use crate::library_service;
 use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::*;
-use crate::presentation::GpuiCommandRunner;
+use crate::presentation::present_command;
 use crate::rss;
 use crate::subscribe_service::{
     self, compare_downloaded_track_path, download_image, enrich_track_context_from_rss,
@@ -73,10 +73,18 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) -> Self {
         let _ = window;
-        let command_runner = GpuiCommandRunner::new(
-            application_services.command_bus(),
-            application_services.event_bus(),
-        );
+        let command_runner = match runtime_host.as_ref() {
+            Some(host) => AsyncCommandRunner::with_vm_bus_on_handle(
+                application_services.command_bus(),
+                application_services.event_bus(),
+                host.bus().clone(),
+                host.handle().clone(),
+            ),
+            None => AsyncCommandRunner::new(
+                application_services.command_bus(),
+                application_services.event_bus(),
+            ),
+        };
 
         let mut this = Self {
             conn,
@@ -1136,7 +1144,8 @@ impl SearchApp {
 
         let success_key = key.clone();
         let error_key = key;
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1241,7 +1250,8 @@ impl SearchApp {
                 let success_entity_id = entity_id.clone();
                 let error_entity_type = entity_type;
                 let error_entity_id = entity_id;
-                self.command_runner.run(
+                present_command(
+                    &self.command_runner,
                     app_command,
                     CommandContext::next(),
                     cx,
@@ -1297,7 +1307,8 @@ impl SearchApp {
                 let success_entity_id = entity_id.clone();
                 let error_entity_type = entity_type;
                 let error_entity_id = entity_id;
-                self.command_runner.run(
+                present_command(
+                    &self.command_runner,
                     app_command,
                     CommandContext::next(),
                     cx,
@@ -1499,7 +1510,8 @@ impl SearchApp {
     ) {
         let command = RemoveFromLibrary::new(Arc::clone(&self.conn), target);
         let success_origin = origin.clone();
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1627,7 +1639,8 @@ impl SearchApp {
         let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
         let feed_guid = feed_guid.to_string();
         let feed_url = feed_url.map(str::to_string);
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1651,7 +1664,8 @@ impl SearchApp {
         cx: &mut Context<Self>,
     ) {
         let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1675,7 +1689,8 @@ impl SearchApp {
         let feed_guid = feed_guid.to_string();
         let feed_url = feed_url.map(str::to_string);
         let track_guid = track_guid.to_string();
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -1754,7 +1769,8 @@ impl SearchApp {
             playlist_id,
             track_ids,
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
