@@ -646,8 +646,8 @@ impl TrackView {
             track_number: t.track_number.and_then(|v| v.try_into().ok()),
             disc_number: t.disc_number.and_then(|v| v.try_into().ok()),
             duration_secs: t.duration_seconds.and_then(|v| v.try_into().ok()),
-            pub_date: None,
-            explicit: None,
+            pub_date: t.pub_date,
+            explicit: t.explicit,
             description: None,
             image_url: image_url.clone(),
             artwork: artwork_from_url(&image_url),
@@ -888,6 +888,8 @@ mod tests {
             item_guid: "g".into(),
             enclosure_url: Some("http://a/b.mp3".into()),
             duration_seconds: Some(180),
+            pub_date: Some(1_712_275_200),
+            explicit: Some(true),
             ..Default::default()
         };
 
@@ -895,6 +897,8 @@ mod tests {
 
         assert!(matches!(view.id, Some(TrackRef::LocalTrackId(42))));
         assert_eq!(view.duration_secs, Some(180));
+        assert_eq!(view.pub_date, Some(1_712_275_200));
+        assert_eq!(view.explicit, Some(true));
         assert_eq!(view.audio_url, Some("http://a/b.mp3".into()));
     }
 

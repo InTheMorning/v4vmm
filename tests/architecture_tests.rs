@@ -8775,6 +8775,60 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
 }
 
 #[test]
+fn local_track_pubdate_and_explicit_projection_path_is_guarded() {
+    let db_source = read_source(&manifest_path("src/db.rs"));
+    let views_source = read_source(&manifest_path("src/views.rs"));
+    let metadata_source = read_source(&manifest_path("src/metadata.rs"));
+    let track_detail_source = read_source(&manifest_path("src/view_models/track_detail.rs"));
+
+    for required in [
+        "pub pub_date: Option<i64>",
+        "pub explicit: Option<bool>",
+        "t.pub_date",
+        "t.itunes_explicit",
+        "parse_local_track_pub_date(row.get::<_, Option<String>>(18)?.as_deref())",
+        "parse_itunes_explicit(row.get::<_, Option<String>>(19)?.as_deref())",
+        "track_row_loads_local_pubdate_and_explicit_columns",
+    ] {
+        assert!(
+            db_source.contains(required),
+            "Local track DB rows must keep pubdate/explicit loading at the read-model boundary: `{required}`"
+        );
+    }
+
+    for required in ["pub_date: t.pub_date", "explicit: t.explicit"] {
+        assert!(
+            views_source.contains(required),
+            "TrackView::from_local_with_identity must preserve local pubdate/explicit values: `{required}`"
+        );
+    }
+
+    for required in [
+        "\"Explicit\"",
+        "if let Some(explicit) = track.explicit.and_then(explicit_metadata_value)",
+        "track.explicit.and_then(explicit_metadata_value)",
+        "explicit.then(|| \"Yes\".to_string())",
+        "track_metadata_rows_include_local_pubdate_and_explicit_true_only",
+    ] {
+        assert!(
+            metadata_source.contains(required),
+            "Track metadata rows must surface explicit only from VM data: `{required}`"
+        );
+    }
+
+    for required in [
+        "if self.track.explicit == Some(true)",
+        "TrackDetailSummaryRow::new(\"Explicit\", \"Yes\", 1)",
+        "summary_rows_omit_non_explicit_state",
+    ] {
+        assert!(
+            track_detail_source.contains(required),
+            "Track detail summary rows must surface explicit only when true: `{required}`"
+        );
+    }
+}
+
+#[test]
 fn immediate_view_state_regressions_are_guarded() {
     let app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     for required in [

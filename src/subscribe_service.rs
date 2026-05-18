@@ -486,6 +486,8 @@ pub fn track_row_to_api_track(row: &TrackRow) -> Track {
         feed_title: drop_placeholder(row.feed_title.clone()),
         track_number: row.track_number.and_then(|n| n.try_into().ok()),
         duration_secs: row.duration_seconds.and_then(|s| s.try_into().ok()),
+        pub_date: row.pub_date,
+        explicit: row.explicit,
         enclosure_url: drop_placeholder(row.enclosure_url.clone()),
         enclosure_type: drop_placeholder(row.enclosure_type.clone()),
         image_url: drop_placeholder(row.track_image_href.clone()),
@@ -783,6 +785,8 @@ mod tests {
             feed_title: Some("Feed".into()),
             album_image_href: None,
             local_path: None,
+            pub_date: Some(1_712_275_200),
+            explicit: Some(true),
             transcript_url: Some("https://x/transcript.vtt".into()),
         };
 
@@ -793,6 +797,8 @@ mod tests {
         assert_eq!(api.track_artist.as_deref(), Some("Artist"));
         assert_eq!(api.track_number, Some(2));
         assert_eq!(api.duration_secs, Some(120));
+        assert_eq!(api.pub_date, Some(1_712_275_200));
+        assert_eq!(api.explicit, Some(true));
         assert_eq!(api.enclosure_url.as_deref(), Some("https://x/audio.mp3"));
         let links = api.source_links.expect("source_links");
         assert_eq!(links.len(), 1);

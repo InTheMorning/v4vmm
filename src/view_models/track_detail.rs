@@ -268,6 +268,9 @@ impl<'a> TrackDetailVm<'a> {
             self.release_date_display(),
             1,
         );
+        if self.track.explicit == Some(true) {
+            rows.push(TrackDetailSummaryRow::new("Explicit", "Yes", 1));
+        }
         push_optional(
             &mut rows,
             labels.publisher_label(),
@@ -566,7 +569,8 @@ mod tests {
 
     #[test]
     fn summary_rows_use_canonical_label_order() {
-        let track = track();
+        let mut track = track();
+        track.explicit = Some(true);
         let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover);
         let rows = vm.summary_rows();
 
@@ -579,8 +583,23 @@ mod tests {
                 ("Track #", "7"),
                 ("Duration", "2:05"),
                 ("Release Date", "Apr 5, 2024"),
+                ("Explicit", "Yes"),
                 ("Publisher", "Publisher"),
             ]
+        );
+    }
+
+    #[test]
+    fn summary_rows_omit_non_explicit_state() {
+        let mut track = track();
+        track.explicit = Some(false);
+        let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover);
+
+        assert!(
+            vm.summary_rows()
+                .iter()
+                .all(|row| row.label.as_str() != "Explicit"),
+            "explicit summary row should only render true state"
         );
     }
 

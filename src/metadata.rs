@@ -362,6 +362,10 @@ pub fn feed_release_pubdate(feed: &Feed) -> Option<String> {
         })
 }
 
+fn explicit_metadata_value(explicit: bool) -> Option<String> {
+    explicit.then(|| "Yes".to_string())
+}
+
 pub fn musicindex_release_date(track_context: &TrackContext) -> Option<String> {
     track_release_pubdate(&track_context.track)
         .or_else(|| track_context.feed.as_ref().and_then(feed_release_pubdate))
@@ -1126,6 +1130,15 @@ pub fn track_metadata_rows(
         track.duration_secs.map(fmt_dur),
         musicbrainz_value_for_field("Duration", musicbrainz),
     );
+    if let Some(explicit) = track.explicit.and_then(explicit_metadata_value) {
+        push_track_metadata_row(
+            &mut rows,
+            "descriptive-technical-rights-text",
+            "Explicit",
+            Some(explicit),
+            None,
+        );
+    }
     push_track_metadata_row(
         &mut rows,
         "lyrics-comments-artwork-user-facing-content",
@@ -1602,6 +1615,7 @@ pub fn metadata_field_group_key(field: &str) -> &'static str {
         | "Release secondary types"
         | "Track note"
         | "Duration"
+        | "Explicit"
         | "Description" => "descriptive-technical-rights-text",
         "Tempo" => "timing-seeking-audio-analysis-playback-control",
         "Artwork" | "Transcript" | "Transcript text" => {
@@ -1898,6 +1912,7 @@ fn source_value_for_metadata_field(field: &str, track_context: &TrackContext) ->
             musicindex_release_date(track_context).as_deref() != Some(item_pubdate)
         }),
         "Duration" => track.duration_secs.map(fmt_dur),
+        "Explicit" => track.explicit.and_then(explicit_metadata_value),
         "Artwork" => track_artwork_url(track_context),
         "Transcript" | "Transcript text" => track_transcript_url(track),
         "Description" => drop_placeholder_source_text(track.description.clone()).or_else(|| {
@@ -3838,6 +3853,42 @@ mod tests {
                 })
                 .all(|value| !source_text_is_placeholder(value)),
             "track metadata rows must not display markup/entity placeholder source facts"
+        );
+    }
+
+    #[test]
+    fn track_metadata_rows_include_local_pubdate_and_explicit_true_only() {
+        let track_context = TrackContext {
+            track: Track {
+                pub_date: Some(1_712_275_200),
+                explicit: Some(true),
+                ..Default::default()
+            },
+            feed: None,
+        };
+
+        let rows = track_metadata_rows(&track_context, None, false);
+
+        assert_eq!(
+            data_row(&rows, "Release date").and_then(|row| row.rss_value.as_deref()),
+            Some("Apr 5, 2024")
+        );
+        assert_eq!(
+            data_row(&rows, "Explicit").and_then(|row| row.rss_value.as_deref()),
+            Some("Yes")
+        );
+
+        let clean_context = TrackContext {
+            track: Track {
+                explicit: Some(false),
+                ..Default::default()
+            },
+            feed: None,
+        };
+        let clean_rows = track_metadata_rows(&clean_context, None, false);
+        assert!(
+            data_row(&clean_rows, "Explicit").is_none(),
+            "explicit metadata row should only render true state"
         );
     }
 

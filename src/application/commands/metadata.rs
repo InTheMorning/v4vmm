@@ -178,6 +178,8 @@ mod tests {
             feed_title: Some("Feed".into()),
             album_image_href: None,
             local_path: None,
+            pub_date: None,
+            explicit: None,
             transcript_url: None,
         }
     }

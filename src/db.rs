@@ -38,6 +38,8 @@ pub struct TrackRow {
     pub feed_title: Option<String>,
     pub album_image_href: Option<String>,
     pub local_path: Option<String>,
+    pub pub_date: Option<i64>,
+    pub explicit: Option<bool>,
     pub transcript_url: Option<String>,
 }
 
@@ -361,7 +363,8 @@ pub fn library_tracks_for_feed(conn: &Connection, feed_id: i64) -> Result<Vec<Tr
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name,
                     t.album_title, t.album_artist_name, t.track_number, t.disc_number,
                     t.duration_seconds, t.enclosure_url, t.enclosure_type, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.pub_date,
+                    t.itunes_explicit, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              JOIN local_files lf ON lf.track_id = t.id
@@ -384,7 +387,8 @@ pub fn feed_tracks(conn: &Connection, feed_id: i64) -> Result<Vec<TrackRow>> {
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.enclosure_type, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.pub_date,
+                    t.itunes_explicit, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -408,7 +412,8 @@ pub fn track_row_by_id(conn: &Connection, track_id: i64) -> Result<Option<TrackR
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.enclosure_type, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.pub_date,
+                    t.itunes_explicit, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -431,7 +436,8 @@ pub fn library_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.enclosure_type, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.pub_date,
+                    t.itunes_explicit, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -465,7 +471,8 @@ pub fn search_library_tracks(
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.enclosure_type, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.pub_date,
+                    t.itunes_explicit, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -711,7 +718,8 @@ pub fn cached_tracks(conn: &Connection) -> Result<Vec<TrackRow>> {
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.enclosure_type, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.pub_date,
+                    t.itunes_explicit, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              JOIN local_files lf ON lf.track_id = t.id
@@ -881,7 +889,8 @@ pub fn tracks_by_ids(conn: &Connection, ids: &[i64]) -> Result<Vec<TrackRow>> {
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name, t.album_title,
                     t.album_artist_name, t.track_number, t.disc_number, t.duration_seconds,
                     t.enclosure_url, t.enclosure_type, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.pub_date,
+                    t.itunes_explicit, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -959,10 +968,30 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
         feed_title: row.get(15)?,
         album_image_href: row.get(16)?,
         local_path: row.get(17)?,
+        pub_date: parse_local_track_pub_date(row.get::<_, Option<String>>(18)?.as_deref()),
+        explicit: parse_itunes_explicit(row.get::<_, Option<String>>(19)?.as_deref()),
         transcript_url: transcript_url_from_extra_json(
-            row.get::<_, Option<String>>(18)?.as_deref(),
+            row.get::<_, Option<String>>(20)?.as_deref(),
         ),
     })
+}
+
+fn parse_local_track_pub_date(value: Option<&str>) -> Option<i64> {
+    let value = value?.trim();
+    if value.is_empty() {
+        return None;
+    }
+    chrono::DateTime::parse_from_rfc2822(value)
+        .ok()
+        .map(|date| date.timestamp())
+}
+
+fn parse_itunes_explicit(value: Option<&str>) -> Option<bool> {
+    match value?.trim().to_ascii_lowercase().as_str() {
+        "explicit" | "yes" | "true" => Some(true),
+        "clean" | "no" | "false" => Some(false),
+        _ => None,
+    }
 }
 
 fn like_contains_pattern(value: &str) -> String {
@@ -1827,7 +1856,8 @@ pub fn playlist_tracks(conn: &Connection, playlist_id: i64) -> Result<Vec<TrackR
             "SELECT t.id, t.feed_id, f.feed_guid, t.item_guid, t.track_title, t.artist_name,
                     t.album_title, t.album_artist_name, t.track_number, t.disc_number,
                     t.duration_seconds, t.enclosure_url, t.enclosure_type, t.track_image_href,
-                    t.is_in_library, f.title, f.album_image_href, lf.path, t.extra_json
+                    t.is_in_library, f.title, f.album_image_href, lf.path, t.pub_date,
+                    t.itunes_explicit, t.extra_json
              FROM tracks t
              JOIN feeds f ON f.id = t.feed_id
              LEFT JOIN local_files lf ON lf.track_id = t.id
@@ -2778,6 +2808,40 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn track_row_loads_local_pubdate_and_explicit_columns() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+        conn.execute(
+            "UPDATE tracks
+             SET pub_date = ?1, itunes_explicit = ?2
+             WHERE id = ?3",
+            rusqlite::params!["Fri, 05 Apr 2024 00:00:00 +0000", "explicit", track_id],
+        )?;
+
+        let row = track_row_by_id(&conn, track_id)?.context("track row should load")?;
+
+        assert_eq!(row.pub_date, Some(1_712_275_200));
+        assert_eq!(row.explicit, Some(true));
+
+        Ok(())
+    }
+
+    #[test]
+    fn local_itunes_explicit_parses_known_tokens_only() {
+        for token in ["explicit", "yes", "true", " EXPLICIT "] {
+            assert_eq!(parse_itunes_explicit(Some(token)), Some(true));
+        }
+        for token in ["clean", "no", "false", " CLEAN "] {
+            assert_eq!(parse_itunes_explicit(Some(token)), Some(false));
+        }
+        for token in ["", "unknown", "maybe"] {
+            assert_eq!(parse_itunes_explicit(Some(token)), None);
+        }
+        assert_eq!(parse_itunes_explicit(None), None);
     }
 
     fn create_test_track(conn: &Connection, feed_id: i64) -> Result<i64> {
