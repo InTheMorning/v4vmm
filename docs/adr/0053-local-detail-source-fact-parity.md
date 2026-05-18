@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed - 2026-05-17. Drafted by ADR 0052 triage.
+Accepted - 2026-05-18. Drafted by ADR 0052 triage as the parent
+source-fact parity contract. ADR 0054 implements the first concrete slice for
+feed and track metadata source facts; artist biography, track language,
+track lyrics / annotation, and playlist source-like metadata remain outside
+that implemented slice.
 
 ## Context
 
@@ -26,8 +30,8 @@ temporary fetch-only state. Any Library field that should remain visible after
 navigation, restart, or offline use must first have a source-fact persistence
 contract.
 
-This ADR draft reserves the source-fact parity route for the gaps identified
-by ADR 0052:
+This ADR reserves the source-fact parity route for the gaps identified by ADR
+0052:
 
 - Feed/release publisher.
 - Feed/release kind.
@@ -35,17 +39,20 @@ by ADR 0052:
 - Feed/release explicit state.
 - Track publisher.
 - Track description.
-- Track language, if product scope requires track-level language.
-- Track lyrics / annotation, if product scope requires them.
-- Artist description / biography / annotation.
+- Track language, if product scope requires track-level language. Not covered
+  by ADR 0054.
+- Track lyrics / annotation, if product scope requires them. Not covered by
+  ADR 0054.
+- Artist description / biography / annotation. Not covered by ADR 0054.
 - Playlist language and playlist explicit state, if playlists become
   source-like entities rather than local-only lists.
 
-Before implementation, a follow-up task must decide whether these fields belong
-in existing entity tables, source-fact tables, or a new release/track metadata
-fact table. The implementation must preserve provenance and must not collapse
-remote MusicIndex facts, RSS facts, tag facts, and user-authored local facts
-into one untraceable scalar.
+ADR 0054 decided the first implementation route for feed and track metadata:
+a dedicated local metadata source-fact table family. Any remaining reserved
+scope still needs its own product semantics and ADR/task packet before schema
+or runtime changes. Implementations must preserve provenance and must not
+collapse remote MusicIndex facts, RSS facts, tag facts, and user-authored local
+facts into one untraceable scalar.
 
 ## Invariants
 
@@ -63,7 +70,7 @@ into one untraceable scalar.
 
 ## Non-Goals
 
-- No schema migration in this ADR draft.
+- No schema migration in this parent ADR.
 - No renderer changes.
 - No remote Index fetch behavior changes.
 - No artist/person merge policy.
@@ -93,16 +100,17 @@ Positive:
 
 Negative / risks:
 
-- User-visible parity remains incomplete until source-fact design lands.
+- User-visible parity remains incomplete for reserved fields that ADR 0054 did
+  not cover.
 - Some gaps may resolve as intentional non-goals after product semantics are
   clarified.
 
 ## Follow-Up Work
 
 - ADR 0054 owns the concrete first schema route for feed and track metadata
-  source facts.
-- Draft a concrete source-fact schema / migration ADR if any of the reserved
-  fields become required product behavior.
+  source facts and has implemented that route.
+- Draft a concrete source-fact schema / migration ADR if any remaining
+  reserved fields become required product behavior.
 - Decide `podcast_medium` versus MusicIndex `release_kind` mapping.
 - Decide feed/release date derivation policy.
 - Decide track language and track annotation product scope.

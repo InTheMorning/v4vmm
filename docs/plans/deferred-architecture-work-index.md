@@ -2,7 +2,7 @@
 
 ## Status
 
-Active index - 2026-05-08.
+Active index - 2026-05-18.
 
 ## Purpose
 
@@ -65,11 +65,10 @@ prioritized, and routed to the right governance artifact.
   deferred item: track-to-artist binding for name-derived Library artist
   views. Tasks 001-004 completed on 2026-05-11; name-derived Library artist
   views now enrich from explicit bindings without name-only merging.
-- Library/Discover data parity triage completed on 2026-05-17 under ADR 0052.
-  Runtime fixes remain routed, not implemented: loading-shape gaps go to
-  `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`, and
-  persistence/source-fact gaps go to
-  `docs/adr/0053-local-detail-source-fact-parity.md`.
+- Library/Discover data parity triage and runtime delivery completed on
+  2026-05-18. ADR 0052 routed the work; the ADR 0024 follow-up implemented
+  loading-shape gaps; ADR 0053 accepted the parent source-fact parity contract;
+  ADR 0054 implemented the concrete feed/track metadata source-fact slice.
 
 ## Execution Rule
 
