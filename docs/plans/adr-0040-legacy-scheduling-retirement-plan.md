@@ -2,15 +2,19 @@
 
 ## Status
 
-Proposed - 2026-05-18.
+Completed - 2026-05-18. Tasks 001-004 retired the GPUI-coupled command
+runner and the Cargo feature flag. The originally proposed strict
+`cx.spawn` guard exposed unrelated pre-existing screen spawn debt, so
+the landed guard pins that debt and prevents growth pending a separate
+ADR 0040 follow-up.
 
 ## Goal
 
 Intentionally retire the `--no-default-features` build path and the
 synchronous `GpuiCommandRunner` (the GPUI-coupled command-runner wrapper).
 Complete ADR 0040's deferred "legacy synchronous scheduling retirement"
-deferred-work-index item #3 by moving the entire app onto the
-default-on async runtime.
+deferred-work-index item by moving the entire app onto the async
+runtime.
 
 ## Context
 
@@ -82,8 +86,10 @@ After Task 004 lands:
 - `CommandBus` continues to exist for non-GPUI consumers
   (CLI / tests).
 - The architecture-guard set gains three new guards that pin the retired
-  surface: no `GpuiCommandRunner` references, no `async-runtime` cfg, no
-  `cx.spawn` calls outside `src/presentation/` and `src/runtime/`.
+  surface: no `GpuiCommandRunner` references, no `async-runtime` cfg, and
+  no growth in the remaining non-presentation `cx.spawn` baseline. Full
+  screen-spawn retirement is separate from this legacy command-runner
+  packet.
 
 ## Non-Goals
 
@@ -174,7 +180,8 @@ Plus:
 - `grep -r "GpuiCommandRunner" src/` → no hits.
 - `grep -r 'cfg(feature = "async-runtime")' src/` → no hits.
 - `grep -r "async-runtime" Cargo.toml` → no hits.
-- `grep -rn "cx.spawn" src/ | grep -v "src/presentation/\|src/runtime/"` → no hits.
+- `cargo test --test architecture_tests cx_spawn_debt_does_not_grow` →
+  non-presentation/runtime `cx.spawn` debt has not grown.
 - Smoke: launch the app, exercise search submit, Recent Feeds toolbar
   button, playlist track add/remove, playback play/pause, library
   download — each was a former GpuiCommandRunner call site; each

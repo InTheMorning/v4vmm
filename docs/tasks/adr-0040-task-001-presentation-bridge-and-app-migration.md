@@ -1,5 +1,7 @@
 # ADR 0040 Task 001 — Presentation Bridge + `src/app/` Migration
 
+Status: Completed - 2026-05-18.
+
 ## Goal
 
 Build the presentation-layer bridge that maps

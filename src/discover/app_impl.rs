@@ -66,9 +66,7 @@ impl SearchApp {
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
         application_services: Arc<ApplicationServices>,
-        #[cfg(feature = "async-runtime")] runtime_host: Option<
-            Arc<crate::presentation::RuntimeHost>,
-        >,
+        runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -98,7 +96,6 @@ impl SearchApp {
             list_focus: cx.focus_handle(),
             results_scroll: ScrollHandle::new(),
             recents_scroll: ScrollHandle::new(),
-            #[cfg(feature = "async-runtime")]
             runtime_host,
         };
         this.load_playlists();

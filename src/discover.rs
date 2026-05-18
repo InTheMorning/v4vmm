@@ -151,7 +151,6 @@ pub struct SearchApp {
     /// feeds list (`load_recent_feeds(true, _)`) on near-bottom scroll.
     pub(crate) recents_scroll: ScrollHandle,
     /// Reserved for paged search results (ADR 0040 follow-up).
-    #[cfg(feature = "async-runtime")]
     #[allow(dead_code)]
     pub(crate) runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
 }
@@ -228,8 +227,8 @@ pub fn run_search_app() {
             ApplicationServices::local_with_service_adapters()
                 .expect("application services are fully wired"),
         );
-        #[cfg(feature = "async-runtime")]
-        let runtime_host = crate::presentation::RuntimeHost::new().ok();
+        let runtime_host =
+            crate::presentation::RuntimeHost::new().expect("start ADR 0040 tokio runtime");
 
         cx.open_window(
             WindowOptions {
@@ -247,8 +246,7 @@ pub fn run_search_app() {
                         image_cache,
                         musicindex_endpoint,
                         application_services,
-                        #[cfg(feature = "async-runtime")]
-                        runtime_host,
+                        Some(runtime_host),
                         window,
                         cx,
                     )

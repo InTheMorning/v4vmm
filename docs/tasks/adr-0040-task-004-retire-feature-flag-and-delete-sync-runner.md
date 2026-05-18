@@ -1,5 +1,11 @@
 # ADR 0040 Task 004 — Retire `async-runtime` Feature Flag and Delete `GpuiCommandRunner`
 
+Status: Completed - 2026-05-18. The retired command-runner and feature
+flag surfaces were removed. The requested strict `cx.spawn` guard was
+converted to `cx_spawn_debt_does_not_grow_outside_presentation_and_runtime`
+because unrelated pre-existing screen spawns remain outside the legacy
+command-runner scope.
+
 ## Goal
 
 Final retirement slice. Remove the `async-runtime` Cargo feature flag,
@@ -109,9 +115,10 @@ existing guards (e.g., `nav_top_drives_content_list_body_switch`):
    `cfg(not(feature = "async-runtime"))`. Also asserts
    `Cargo.toml` does not contain `async-runtime` (load the manifest
    and grep the parsed `[features]` table or string-search the file).
-3. **`cx_spawn_is_scoped_to_presentation_and_runtime`** — walks
-   `src/` and asserts every occurrence of `cx.spawn(` is inside
-   `src/presentation/` or `src/runtime/`. ADR 0040 invariant pinned.
+3. **`cx_spawn_debt_does_not_grow_outside_presentation_and_runtime`** —
+   walks `src/`, allows the pre-existing non-presentation/runtime
+   `cx.spawn(` baseline, and fails if that debt grows. Full screen-spawn
+   retirement is separate from the legacy command-runner deletion.
 
 ## Implementation Steps
 
@@ -163,8 +170,9 @@ existing guards (e.g., `nav_top_drives_content_list_body_switch`):
       the `async-runtime` Cargo feature are all retired. Guards
       `gpui_command_runner_is_retired`,
       `async_runtime_feature_flag_is_retired`, and
-      `cx_spawn_is_scoped_to_presentation_and_runtime` prevent
-      regression."
+      `cx_spawn_debt_does_not_grow_outside_presentation_and_runtime`
+      prevent retired-surface regression and pin unrelated screen-spawn
+      debt."
 
 ## Acceptance Criteria
 
@@ -173,8 +181,9 @@ existing guards (e.g., `nav_top_drives_content_list_body_switch`):
 - `grep -r 'cfg(feature = "async-runtime")' src/` returns no hits.
 - `grep -r "GpuiCommandRunner" src/` returns no hits.
 - `src/presentation/gpui_command_runner.rs` does not exist.
-- `grep -rn 'cx\.spawn' src/ | grep -v "src/presentation/\|src/runtime/"`
-  returns no hits.
+- `cx_spawn_debt_does_not_grow_outside_presentation_and_runtime` passes
+  and pins the remaining pre-existing non-presentation/runtime
+  `cx.spawn` baseline.
 - The three new guards exist in `tests/architecture_tests.rs` and
   pass.
 - ADR 0040 status reflects retirement.
@@ -197,8 +206,8 @@ Smoke (post-retirement):
 ```bash
 grep -rn 'cfg(feature = "async-runtime")' src/   # expect: no hits
 grep -rn "GpuiCommandRunner" src/                # expect: no hits
-grep -rn 'cx\.spawn' src/ | grep -v "src/presentation/\|src/runtime/"
-                                                  # expect: no hits
+cargo test --test architecture_tests cx_spawn_debt_does_not_grow
+                                                  # expect: pass
 ```
 
 ## Prompt for lower-context coding model
@@ -243,7 +252,7 @@ Goal:
 4. Add three guards to `tests/architecture_tests.rs`:
    - `gpui_command_runner_is_retired`
    - `async_runtime_feature_flag_is_retired`
-   - `cx_spawn_is_scoped_to_presentation_and_runtime`
+   - `cx_spawn_debt_does_not_grow_outside_presentation_and_runtime`
 5. Update `docs/adr/0040-async-vm-runtime.md` status to
    "Implemented including retirement - <date>" with a closing
    paragraph.

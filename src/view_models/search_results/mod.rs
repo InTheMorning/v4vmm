@@ -4,8 +4,6 @@
 //! This module owns tab state, local content-filter state, display-ready result
 //! rows, empty-state copy, and windowed result lists backed by ADR 0041
 //! [`PagedListVm`] instances.
-
-#![cfg(feature = "async-runtime")]
 #![warn(clippy::pedantic)]
 #![cfg_attr(
     not(test),

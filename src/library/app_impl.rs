@@ -2,16 +2,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use gpui::{
-    div, prelude::*, px, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
-    InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render,
-    SharedString, Styled, Window,
-};
-use gpui_component::input::{Input, InputEvent, InputState};
-use gpui_component::Size;
-use rusqlite::Connection;
-
-#[cfg(feature = "async-runtime")]
 use super::PlaylistActorState;
 use super::{
     InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, LibraryTrackCompare,
@@ -76,6 +66,14 @@ use crate::view_models::workspace::{
     FrameNavigationState, WorkspaceFrameId, WorkspaceLayout, WorkspaceModelError,
 };
 use crate::views::{EntityIdentityLinks, FeedMetadataFacts, FeedView, LocalIdentityFacts};
+use gpui::{
+    div, prelude::*, px, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
+    InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render,
+    SharedString, Styled, Window,
+};
+use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::Size;
+use rusqlite::Connection;
 
 impl InspectorFrame {
     fn for_track(track: TrackRow, image: Option<Arc<Image>>) -> Self {
@@ -352,9 +350,7 @@ impl LibraryApp {
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
         application_services: Arc<ApplicationServices>,
-        #[cfg(feature = "async-runtime")] runtime_host: Option<
-            Arc<crate::presentation::RuntimeHost>,
-        >,
+        runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -393,9 +389,7 @@ impl LibraryApp {
             new_playlist_input,
             rename_playlist_input,
             _rename_playlist_sub: rename_playlist_sub,
-            #[cfg(feature = "async-runtime")]
             runtime_host,
-            #[cfg(feature = "async-runtime")]
             playlist_actor: None,
         };
         app.start_async_reload(cx);
@@ -659,7 +653,6 @@ impl LibraryApp {
                 playlist,
                 tracks: tracks.clone(),
             });
-            #[cfg(feature = "async-runtime")]
             self.spawn_playlist_actor(id, &tracks, cx);
             self.vm.replace_playlist_tracks(tracks);
         }
@@ -672,7 +665,6 @@ impl LibraryApp {
     /// exits gracefully. The new handle is bridged via
     /// [`crate::presentation::bridge_watch`] so snapshot publishes
     /// trigger a re-render automatically.
-    #[cfg(feature = "async-runtime")]
     fn spawn_playlist_actor(
         &mut self,
         playlist_id: i64,
@@ -744,7 +736,6 @@ impl LibraryApp {
         );
     }
 
-    #[cfg(feature = "async-runtime")]
     fn refresh_origin_playlist_actor(&mut self) {
         use crate::application::paged_track_list::PagedTrackListMsg;
 
@@ -773,9 +764,6 @@ impl LibraryApp {
         let _ = state.handle.try_send(PagedTrackListMsg::PrimeRows(tracks));
         let _ = state.handle.try_send(PagedTrackListMsg::Refresh);
     }
-
-    #[cfg(not(feature = "async-runtime"))]
-    fn refresh_origin_playlist_actor(&mut self) {}
 
     fn create_playlist(&mut self, cx: &mut Context<Self>) {
         let name = self.new_playlist_input.read(cx).value().to_string();
@@ -3005,7 +2993,6 @@ impl Render for LibraryApp {
             &chrome,
             self.rename_playlist_input.clone(),
             self.vm.renaming_playlist_id(),
-            #[cfg(feature = "async-runtime")]
             self.playlist_actor.as_ref(),
             cx,
         );

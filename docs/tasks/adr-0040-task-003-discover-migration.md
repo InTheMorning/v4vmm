@@ -1,5 +1,7 @@
 # ADR 0040 Task 003 — `src/discover/app_impl.rs` Migration
 
+Status: Completed - 2026-05-18.
+
 ## Goal
 
 Migrate the eight `GpuiCommandRunner::run(...)` call sites inside the

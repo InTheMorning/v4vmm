@@ -1,5 +1,9 @@
 # ADR 0040 Task 002 — `src/library/app_impl.rs` Migration
 
+Status: Completed - 2026-05-18. The current tree had 17 library
+command-runner call sites rather than the 18 counted when this packet
+was drafted; all 17 were migrated.
+
 ## Goal
 
 Migrate the eighteen `GpuiCommandRunner::run(...)` call sites in

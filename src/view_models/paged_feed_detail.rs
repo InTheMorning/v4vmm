@@ -9,9 +9,7 @@
 //! is **read-only** and never mutates the underlying [`PagedListVm`].
 //!
 //! Same layer rules as the rest of `view_models/`: no GPUI, no service
-//! mutation, constructed fresh each render. Behind `async-runtime`.
-
-#![cfg(feature = "async-runtime")]
+//! mutation, constructed fresh each render.
 #![warn(clippy::pedantic)]
 // Scaffold for `library-track-list-paged-vm`: the screen layer
 // (`ui/shells/library/feed_detail.rs`) will consume these items in

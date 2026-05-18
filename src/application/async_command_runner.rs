@@ -17,7 +17,7 @@
 //! * Only `src/presentation/` glue may map a [`CommandResult`] back to a
 //!   GPUI entity update.
 //!
-//! Gated behind the `async-runtime` Cargo feature.
+//! The async runtime is always available in the desktop build.
 
 #![warn(clippy::pedantic)]
 

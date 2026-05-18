@@ -20,7 +20,7 @@
 //! ### Layer rules
 //!
 //! Lives under `src/runtime/`. No GPUI imports. Gated behind the
-//! `async-runtime` Cargo feature only because it is part of the runtime
+//! ADR 0040 runtime module because it is part of the runtime
 //! module tree; it has no runtime-only dependencies otherwise.
 
 #![warn(clippy::pedantic)]

@@ -4,12 +4,12 @@
 //! shell owns the page hierarchy; this module wires Library-specific callbacks
 //! back to `LibraryApp`.
 //!
-//! When the async runtime is enabled and a [`PagedTrackListActor`] for the
-//! selected playlist has published a snapshot, the screen is rendered via
-//! [`render_paged_playlist_detail`]: rows the actor has fulfilled paint as
-//! `Ready`, the rest paint as `Pending` skeletons. The actor receives a
-//! single `ReportVisible` per render so its prefetch policy can stay ahead
-//! of scroll without the screen having to track the visible window directly.
+//! When a [`PagedTrackListActor`] for the selected playlist has published a
+//! snapshot, the screen is rendered via [`render_paged_playlist_detail`]: rows
+//! the actor has fulfilled paint as `Ready`, the rest paint as `Pending`
+//! skeletons. The actor receives a single `ReportVisible` per render so its
+//! prefetch policy can stay ahead of scroll without the screen having to track
+//! the visible window directly.
 //!
 //! [`PagedTrackListActor`]: crate::application::paged_track_list::PagedTrackListActor
 
@@ -21,7 +21,6 @@ use std::sync::Arc;
 use gpui::{AnyElement, Context, Entity, Image};
 use gpui_component::input::InputState;
 
-#[cfg(feature = "async-runtime")]
 use crate::library::PlaylistActorState;
 use crate::library::{LibraryApp, LibraryAppEvent, PlaylistDetail};
 use crate::ui::shells::library::thumbnail::render_album_thumb;
@@ -37,10 +36,9 @@ pub(crate) fn render_library_playlist_detail(
     chrome: &LibraryChromeDisplay,
     rename_playlist_input: Entity<InputState>,
     renaming_playlist_id: Option<i64>,
-    #[cfg(feature = "async-runtime")] playlist_actor: Option<&PlaylistActorState>,
+    playlist_actor: Option<&PlaylistActorState>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    #[cfg(feature = "async-runtime")]
     if let Some(state) = playlist_actor {
         if let Some(rendered) = try_render_paged(
             detail,
@@ -155,7 +153,6 @@ fn render_eager_playlist_detail(
     )
 }
 
-#[cfg(feature = "async-runtime")]
 fn try_render_paged(
     detail: &PlaylistDetail,
     state: &PlaylistActorState,
@@ -254,7 +251,6 @@ fn try_render_paged(
     ))
 }
 
-#[cfg(feature = "async-runtime")]
 fn render_ready_paged_playlist_row(
     playlist_id: i64,
     position: usize,

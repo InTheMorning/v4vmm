@@ -2791,13 +2791,6 @@ impl<'a> PlaylistTrackRowVm<'a> {
     /// and the paged screen path which materialises one row at a time
     /// from a [`super::paged_playlist_detail::PagedPlaylistDetailVm`].
     #[must_use]
-    #[cfg_attr(
-        not(feature = "async-runtime"),
-        expect(
-            dead_code,
-            reason = "constructor is consumed by the paged playlist screen which is gated on `async-runtime`"
-        )
-    )]
     pub(crate) const fn new(track: &'a TrackRow, position: usize, last_position: usize) -> Self {
         Self {
             track,

@@ -55,13 +55,6 @@ pub(crate) struct PlaylistDetailBehaviorSlots {
 /// been fetched: the shell paints a [`SkeletonTrackRow`] sized to match
 /// the real row footprint so the scroll position does not jump on
 /// hydration. Eager callers always emit `Ready`.
-#[cfg_attr(
-    not(feature = "async-runtime"),
-    expect(
-        dead_code,
-        reason = "Pending variant is consumed by the paged playlist screen which is gated on `async-runtime`"
-    )
-)]
 pub(crate) enum PlaylistShellRow {
     Pending {
         position: usize,

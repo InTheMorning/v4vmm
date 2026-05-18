@@ -1,7 +1,7 @@
 //! `PagedTrackListActor` (ADR 0040 + 0041): the application-layer bridge
 //! between `PagedListVm<i64, TrackRow>` and the synchronous `db` helpers.
 //!
-//! Behind the `async-runtime` Cargo feature.
+//! Runs on the ADR 0040 async runtime.
 //!
 //! Lifecycle:
 //!

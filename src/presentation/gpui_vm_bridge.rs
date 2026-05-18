@@ -28,7 +28,7 @@
 //!
 //! Lives under `src/presentation/` because it is the only layer
 //! permitted to bridge `gpui` to `runtime` (ADR 0040). Gated behind
-//! the `async-runtime` Cargo feature.
+//! the ADR 0040 runtime.
 //!
 //! [`Actor`]: crate::runtime::Actor
 

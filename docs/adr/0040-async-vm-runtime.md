@@ -2,22 +2,24 @@
 
 ## Status
 
-Accepted — 2026-05-06. Runtime foundation phases A-F have shipped
-through the default-on `async-runtime` feature flip. `PagedTrackListActor`
-is available behind the feature, `AsyncCommandRunner` publishes
-`VmEvent` invalidations onto the runtime `VmBus`, and the `Actor` trait
-subscribes every spawned actor to that bus via
-`tokio::select! { biased; ... }` so command latency stays predictable
-under bus traffic.
+Implemented including retirement — 2026-05-18. Runtime foundation
+phases A-F have shipped, the desktop build now requires the ADR 0040
+tokio runtime, and the legacy feature-gated `--no-default-features`
+desktop path is retired. `PagedTrackListActor` is always compiled,
+`AsyncCommandRunner` publishes `VmEvent` invalidations onto the runtime
+`VmBus`, and the `Actor` trait subscribes every spawned actor to that
+bus via `tokio::select! { biased; ... }` so command latency stays
+predictable under bus traffic.
 
-Remaining legacy synchronous scheduling call sites, including
-`GpuiCommandRunner` retirement and eventual `--no-default-features`
-cleanup, are tracked as ADR 0040 follow-up work in the deferred
-architecture index. They are not a blocker for ADR 0043 or ADR 0044.
-
-Supersedes the synchronous-`CommandBus` + `GpuiCommandRunner` scheduling
-model adopted in ADR 0024 for any new work. Existing call sites continue
-to work until Phase F of the migration plan.
+The GPUI-coupled command runner wrapper has been deleted. Production
+command presentation now goes through `presentation::present_command`
+plus `AsyncCommandRunner`; the synchronous `CommandBus` remains for CLI,
+tests, and domain-level command execution. Regression guards
+`gpui_command_runner_is_retired` and
+`async_runtime_feature_flag_is_retired` pin the retired surfaces, while
+`cx_spawn_debt_does_not_grow_outside_presentation_and_runtime` prevents
+existing screen-spawn debt from growing until a later ADR 0040 follow-up
+migrates those unrelated spawns.
 
 ## Context
 
@@ -149,11 +151,9 @@ Positive:
 
 Negative:
 
-- Adds `tokio` (`rt-multi-thread`, `sync`, `time`, `macros`) and
-  `tokio-util` (`sync`) deps. Default-on as of the Phase F flip — the
-  feature flag remains so the legacy synchronous code path is still
-  buildable with `--no-default-features` until the legacy paths are
-  retired (tracked alongside `retire-gpui-command-runner`).
+- Adds unconditional `tokio` (`rt-multi-thread`, `sync`, `time`,
+  `macros`) and `tokio-util` (`sync`) deps for the desktop build. The
+  previous feature-gated compatibility path is intentionally retired.
 - Two indirection layers added: `Actor → Snapshot → Bridge → Screen`.
   Acceptable cost for the determinism it buys.
 - Every screen with paged or long-lived state grows an actor module.

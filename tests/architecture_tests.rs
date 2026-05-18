@@ -10462,6 +10462,99 @@ fn runtime_layer_does_not_import_gpui_or_ui() {
 }
 
 #[test]
+fn gpui_command_runner_is_retired() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let source = read_source(&path);
+        if source.contains("GpuiCommandRunner") || source.contains("gpui_command_runner") {
+            violations.push(rel_path(&path));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0040 retired GpuiCommandRunner surface reintroduced:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn async_runtime_feature_flag_is_retired() {
+    let manifest = read_source(&manifest_path("Cargo.toml"));
+    assert!(
+        !manifest.contains("async-runtime"),
+        "ADR 0040 retired the async-runtime Cargo feature; Cargo.toml must not mention it"
+    );
+
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let source = read_source(&path);
+        for pattern in [
+            "cfg(feature = \"async-runtime\")",
+            "cfg(not(feature = \"async-runtime\"))",
+            "#![cfg(feature = \"async-runtime\")]",
+        ] {
+            if source.contains(pattern) {
+                violations.push(format!("{}: found `{pattern}`", rel_path(&path)));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0040 retired async-runtime cfg gates:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn cx_spawn_debt_does_not_grow_outside_presentation_and_runtime() {
+    let baseline = BTreeMap::from([
+        ("src/app.rs", 1_usize),
+        ("src/app/bootstrap.rs", 1),
+        ("src/app/search_dispatch.rs", 3),
+        ("src/discover/app_impl.rs", 15),
+        ("src/library/app_impl.rs", 8),
+    ]);
+    let mut actual = BTreeMap::<String, usize>::new();
+
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        if file.starts_with("src/presentation/") || file.starts_with("src/runtime/") {
+            continue;
+        }
+        let source = read_source(&path);
+        let count = source.matches("cx.spawn(").count();
+        if count > 0 {
+            actual.insert(file, count);
+        }
+    }
+
+    let mut violations = Vec::new();
+    for (file, count) in &actual {
+        let allowed = baseline.get(file.as_str()).copied().unwrap_or(0);
+        if *count > allowed {
+            violations.push(format!(
+                "{file}: {count} cx.spawn calls exceed ADR 0040 baseline {allowed}"
+            ));
+        }
+    }
+    for file in actual.keys() {
+        if !baseline.contains_key(file.as_str()) {
+            violations.push(format!(
+                "{file}: cx.spawn outside presentation/runtime is not approved"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0040 cx.spawn debt grew outside presentation/runtime:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn global_search_routes_to_content_list() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));

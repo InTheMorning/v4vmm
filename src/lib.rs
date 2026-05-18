@@ -24,7 +24,6 @@ pub mod playback_owner;
 pub mod playlist_service;
 pub mod presentation;
 pub mod rss;
-#[cfg(feature = "async-runtime")]
 pub mod runtime;
 pub mod sources;
 pub mod subscribe_service;

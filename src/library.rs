@@ -18,15 +18,12 @@ use rusqlite::Connection;
 use gpui::{Entity, Image};
 use gpui_component::input::InputState;
 
-#[cfg(feature = "async-runtime")]
 use crate::application::paged_track_list::{PagedTrackListMsg, PagedTrackListSnapshot};
 use crate::application::{ApplicationServices, AsyncCommandRunner};
 use crate::db::{self, TrackRow};
 use crate::media::ImageCache;
 use crate::metadata::{MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext};
-#[cfg(feature = "async-runtime")]
 use crate::presentation::RuntimeHost;
-#[cfg(feature = "async-runtime")]
 use crate::runtime::actor::ActorHandle;
 use crate::view_models::library::{
     description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
@@ -163,20 +160,17 @@ pub struct LibraryApp {
     new_playlist_input: Entity<InputState>,
     rename_playlist_input: Entity<InputState>,
     _rename_playlist_sub: gpui::Subscription,
-    /// Optional async-runtime host (ADR 0040). When present, screens
+    /// Optional async runtime host (ADR 0040). When present, screens
     /// can spawn paged-track-list actors that publish snapshots back
     /// via `presentation::bridge_watch`.
-    #[cfg(feature = "async-runtime")]
     pub(crate) runtime_host: Option<Arc<RuntimeHost>>,
     /// Currently spawned paged playlist actor for the active
     /// `LibraryDetail::Playlist`. Replaced on each `select_playlist`;
     /// dropping the previous handle closes the actor's inbox so it
     /// exits gracefully.
-    #[cfg(feature = "async-runtime")]
     pub(crate) playlist_actor: Option<PlaylistActorState>,
 }
 
-#[cfg(feature = "async-runtime")]
 pub(crate) struct PlaylistActorState {
     pub(crate) playlist_id: i64,
     pub(crate) snapshot: PagedTrackListSnapshot,
