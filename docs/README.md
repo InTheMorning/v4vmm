@@ -24,6 +24,7 @@ Start here:
 - [Inspector source ownership plan](plans/inspector-source-ownership-phase-plan.md): active follow-up plan for ContentList inspector ownership regressions
 - [Active-frame search dispatch plan](plans/active-frame-search-dispatch-plan.md): superseded focused-frame toolbar search routing plan
 - [Pre-UI and download manager preparation plan](plans/pre-ui-download-prep.md): service, schema, and CLI work to land before a UI/download revamp
+- [HIG product polish backlog](plans/hig-product-polish-backlog.md): separates remaining tactical structural mop-ups from HIG completeness items such as search suggestions, sidebar show/hide, Liquid Glass materials, and keyboard coverage
 
 Historical architecture decisions still live in [`docs/adr/`](adr/).
 Older roadmap notes live in [`docs/archive/roadmap-notes/`](archive/roadmap-notes/).

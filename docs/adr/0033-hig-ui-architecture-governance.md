@@ -93,6 +93,32 @@ Every UI change must name at least one structural contract it strengthens:
 If a UI change cannot satisfy one of these contracts, it must be reframed as a
 structural UI task before implementation.
 
+### Agent default choices
+
+Agents must assume that requests about visual music presentation, button
+functionality, button appearance, rows, cards, empty states, inspectors,
+filters, and user workflow are structural UI requests unless the task is
+explicitly documentation-only.
+
+The default implementation choices are:
+
+- Put display facts, fallback strings, availability, command intent, filter
+  state, and empty/error presentation in GPUI-free view models or `src/views.rs`.
+- Put reusable button mechanics, row/card chrome, popovers, menus, hit targets,
+  disclosure, and interaction geometry in primitives or composites.
+- Put raw colors, spacing, radii, typography, icon roles, and state roles in
+  tokens/theme/profile helpers, not in screens.
+- Keep screens as adapters: compose shared components, resolve loaded images,
+  hold focus/selection callbacks, and dispatch commands.
+- Add or strengthen a regression guard in the same change when a user-visible
+  behavior or previously fixed workflow is touched.
+
+The easy edit is not acceptable when it picks the wrong owner. A one-screen
+renderer patch for a repeated visual affordance is architectural drift even if
+the screenshot improves. If an existing owner is incomplete, extend it; if the
+same affordance appears in more than one place, create or extend a shared owner
+before changing call sites.
+
 For the playlist popover family, `AddToPlaylistPopover` (in
 `src/ui/composites/playlist_popover.rs`) accepts `PlaylistOption`, a
 display-ready type co-located with the composite, instead of `db::Playlist`.

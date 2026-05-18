@@ -34,6 +34,9 @@ prioritized, and routed to the right governance artifact.
 6. Visual-system polish and lower-priority product improvements.
    - Status: use bounded ADR 0025 tasks only when the change affects tokens,
      primitives, composites, or theme contracts.
+   - HIG product-completeness gaps are tracked separately in
+     `docs/plans/hig-product-polish-backlog.md`. They are not permission to
+     reopen completed search/sidebar restructuring.
 
 ## Recently Resolved
 

@@ -586,6 +586,9 @@ fn agent_guidelines_lock_user_confirmed_regression_ratchet() {
         "UI Regression Ratchet",
         "Every user-confirmed bug fix gets a guard",
         "Completed ADR behavior is locked",
+        "Visual presentation, button behavior, and user-workflow changes",
+        "isolated renderer tweaks for music presentation",
+        "Agent Acceptance Checklist",
         "No shell/layout change may land without scroll-chain verification",
         "Recent Feeds reachability is invariant",
         "Search type filters apply to every visible result section",
@@ -602,6 +605,174 @@ fn agent_guidelines_lock_user_confirmed_regression_ratchet() {
     assert!(
         violations.is_empty(),
         "Agent regression-ratchet guideline violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn agent_guidelines_require_structural_ui_change_ownership() {
+    let agent_source = read_source(&manifest_path("AGENTS.md"));
+    let boundary_source = read_source(&manifest_path("docs/architecture/ui-backend-boundary.md"));
+    let governance_source = read_source(&manifest_path(
+        "docs/adr/0033-hig-ui-architecture-governance.md",
+    ));
+
+    let mut violations = Vec::new();
+    for (file, source, required) in [
+        (
+            "AGENTS.md",
+            agent_source.as_str(),
+            "UI change acceptance gate",
+        ),
+        (
+            "AGENTS.md",
+            agent_source.as_str(),
+            "No isolated visual tweaks",
+        ),
+        (
+            "AGENTS.md",
+            agent_source.as_str(),
+            "Button and action discipline",
+        ),
+        (
+            "AGENTS.md",
+            agent_source.as_str(),
+            "Workflow-first requirement",
+        ),
+        (
+            "docs/architecture/ui-backend-boundary.md",
+            boundary_source.as_str(),
+            "Visual Workflow Ownership Gate",
+        ),
+        (
+            "docs/architecture/ui-backend-boundary.md",
+            boundary_source.as_str(),
+            "Forbidden Easy Fixes",
+        ),
+        (
+            "docs/architecture/ui-backend-boundary.md",
+            boundary_source.as_str(),
+            "the smallest change to the correct shared owner",
+        ),
+        (
+            "docs/adr/0033-hig-ui-architecture-governance.md",
+            governance_source.as_str(),
+            "Agent default choices",
+        ),
+        (
+            "docs/adr/0033-hig-ui-architecture-governance.md",
+            governance_source.as_str(),
+            "renderer patch for a repeated visual affordance is architectural drift",
+        ),
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "{file}: structural UI ownership guidance missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Agent structural UI governance violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn hig_product_polish_backlog_stays_separate_from_restructuring() {
+    let backlog_source = read_source(&manifest_path("docs/plans/hig-product-polish-backlog.md"));
+    let regression_source =
+        read_source(&manifest_path("docs/architecture/ui-regression-ratchet.md"));
+    let index_source = read_source(&manifest_path(
+        "docs/plans/deferred-architecture-work-index.md",
+    ));
+    let readme_source = read_source(&manifest_path("docs/README.md"));
+    let agent_source = read_source(&manifest_path("AGENTS.md"));
+
+    let mut violations = Vec::new();
+    for (file, source, required) in [
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "HIG Product Polish Backlog",
+        ),
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "strategic UI restructuring work that has already landed",
+        ),
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "Track A - Tactical Structural Mop-Ups",
+        ),
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "Track B - HIG Product-Completeness Gaps",
+        ),
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "Recent Searches and Search Suggestions",
+        ),
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "Sidebar Show/Hide and Customization",
+        ),
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "Liquid Glass Material Adoption",
+        ),
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "Keyboard Shortcut Coverage",
+        ),
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "Keep the global toolbar input as the single search entry",
+        ),
+        (
+            "docs/plans/hig-product-polish-backlog.md",
+            backlog_source.as_str(),
+            "non-conflicting in the target GPUI/macOS context",
+        ),
+        (
+            "docs/architecture/ui-regression-ratchet.md",
+            regression_source.as_str(),
+            "HIG product-completeness gaps are a separate polish backlog",
+        ),
+        (
+            "docs/plans/deferred-architecture-work-index.md",
+            index_source.as_str(),
+            "hig-product-polish-backlog.md",
+        ),
+        (
+            "docs/README.md",
+            readme_source.as_str(),
+            "HIG product polish backlog",
+        ),
+        (
+            "AGENTS.md",
+            agent_source.as_str(),
+            "HIG product polish is separate from restructuring",
+        ),
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "{file}: HIG product-polish backlog guidance missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "HIG product-polish backlog guidance violations:\n{}",
         violations.join("\n")
     );
 }
