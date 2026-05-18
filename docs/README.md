@@ -17,7 +17,10 @@ Start here:
 - [ADR 0047: Library and search unification](adr/0047-library-search-unification.md): shared content surface and inspector across Library and Search origins
 - [ADR 0048: ContentList frame breadcrumb search](adr/0048-content-list-frame-breadcrumb-search.md): toolbar search result surface in ContentList with breadcrumb navigation
 - [ADR 0049: Inspector source ownership](adr/0049-inspector-source-ownership.md): source-tree, inspector filter, remote drill-down, and same-view mutation ownership
+- [ADR 0052: Library / Index data parity triage](adr/0052-library-index-data-parity-triage.md): documentation-only triage for Library versus live Index detail fields
+- [ADR 0053: Local detail source-fact parity](adr/0053-local-detail-source-fact-parity.md): proposed source-fact route for parity gaps that are not locally durable yet
 - [UI backend boundary](architecture/ui-backend-boundary.md): practical guide for keeping services, projections, screens, and UI composites in their lanes
+- [Library / Index data parity follow-up plan](plans/adr-0024-library-index-data-parity-follow-up-plan.md): routed loading-shape slices from the ADR 0052 triage
 - [Inspector source ownership plan](plans/inspector-source-ownership-phase-plan.md): active follow-up plan for ContentList inspector ownership regressions
 - [Active-frame search dispatch plan](plans/active-frame-search-dispatch-plan.md): superseded focused-frame toolbar search routing plan
 - [Pre-UI and download manager preparation plan](plans/pre-ui-download-prep.md): service, schema, and CLI work to land before a UI/download revamp
