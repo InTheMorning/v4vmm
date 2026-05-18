@@ -22,6 +22,8 @@ pub mod queries;
 pub use application_event_bus::{ApplicationEventBus, ApplicationEventSubscriber};
 pub use application_query_service::ApplicationQueryService;
 pub use application_services::{ApplicationServices, ApplicationServicesBuildError};
+#[cfg(feature = "async-runtime")]
+pub use async_command_runner::AsyncCommandRunner;
 pub use command_bus::{ApplicationCommand, CommandBus, CommandOutcome, CommandResult};
 pub use command_context::{CancellationToken, CommandContext, OperationId, TraceId};
 pub use errors::command::CommandError;

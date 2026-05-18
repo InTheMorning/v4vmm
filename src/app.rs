@@ -14,13 +14,15 @@ use gpui_component::Size;
 use rusqlite::Connection;
 
 use crate::application::commands::download::RemoveCachedFiles;
-use crate::application::{ApplicationEventSubscriber, ApplicationServices, CommandContext};
+use crate::application::{
+    ApplicationEventSubscriber, ApplicationServices, AsyncCommandRunner, CommandContext,
+};
 use crate::config;
 use crate::library::{build_tree, LibraryApp, LibraryAppEvent};
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::{PlaybackOwner, PollOutcome};
-use crate::presentation::{GpuiCommandRunner, GpuiEventBridge};
+use crate::presentation::{present_command, GpuiEventBridge};
 use crate::theme_profile::ThemeProfile;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
@@ -136,7 +138,7 @@ pub struct TopApp {
     remote_detail_thumbnails: BTreeMap<String, RemoteDetailThumbnailState>,
     cached_tree: LibraryTree,
     application_services: Arc<ApplicationServices>,
-    command_runner: GpuiCommandRunner,
+    command_runner: AsyncCommandRunner,
     application_event_bridge: Arc<GpuiEventBridge>,
 }
 
@@ -188,10 +190,18 @@ impl TopApp {
         application_services
             .event_bus()
             .subscribe(application_event_subscriber);
-        let command_runner = GpuiCommandRunner::new(
-            application_services.command_bus(),
-            application_services.event_bus(),
-        );
+        let command_runner = match runtime_host.as_ref() {
+            Some(host) => AsyncCommandRunner::with_vm_bus_on_handle(
+                application_services.command_bus(),
+                application_services.event_bus(),
+                host.bus().clone(),
+                host.handle().clone(),
+            ),
+            None => AsyncCommandRunner::new(
+                application_services.command_bus(),
+                application_services.event_bus(),
+            ),
+        };
         let library_services = Arc::clone(&application_services);
         let global_search_display = AppToolbarVm::new().display().global_search;
         let global_search_input = cx.new(|cx: &mut Context<InputState>| {
@@ -789,7 +799,8 @@ impl TopApp {
             return;
         }
         let command = RemoveCachedFiles::new(Arc::clone(&self.conn), paths);
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,

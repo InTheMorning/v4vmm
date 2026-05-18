@@ -23,6 +23,7 @@
 
 use std::sync::Arc;
 
+use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
 use crate::application::application_event_bus::ApplicationEventBus;
@@ -38,6 +39,7 @@ pub struct AsyncCommandRunner {
     command_bus: Arc<CommandBus>,
     event_bus: Arc<ApplicationEventBus>,
     vm_bus: Option<VmBus>,
+    runtime_handle: Handle,
 }
 
 impl AsyncCommandRunner {
@@ -46,11 +48,31 @@ impl AsyncCommandRunner {
     /// Callers that want command outcomes to invalidate VM caches should
     /// use [`Self::with_vm_bus`] instead.
     #[must_use]
-    pub const fn new(command_bus: Arc<CommandBus>, event_bus: Arc<ApplicationEventBus>) -> Self {
+    ///
+    /// # Panics
+    ///
+    /// Panics if no tokio runtime is active on the calling thread. GPUI
+    /// composition roots should prefer [`Self::with_runtime_handle`] or
+    /// [`Self::with_vm_bus_on_handle`] using the process [`RuntimeHost`]
+    /// handle.
+    ///
+    /// [`RuntimeHost`]: crate::presentation::RuntimeHost
+    pub fn new(command_bus: Arc<CommandBus>, event_bus: Arc<ApplicationEventBus>) -> Self {
+        Self::with_runtime_handle(command_bus, event_bus, Handle::current())
+    }
+
+    /// Creates a runner on an explicit tokio runtime handle.
+    #[must_use]
+    pub fn with_runtime_handle(
+        command_bus: Arc<CommandBus>,
+        event_bus: Arc<ApplicationEventBus>,
+        runtime_handle: Handle,
+    ) -> Self {
         Self {
             command_bus,
             event_bus,
             vm_bus: None,
+            runtime_handle,
         }
     }
 
@@ -62,10 +84,22 @@ impl AsyncCommandRunner {
         event_bus: Arc<ApplicationEventBus>,
         vm_bus: VmBus,
     ) -> Self {
+        Self::with_vm_bus_on_handle(command_bus, event_bus, vm_bus, Handle::current())
+    }
+
+    /// Creates a VM-invalidating runner on an explicit tokio runtime handle.
+    #[must_use]
+    pub fn with_vm_bus_on_handle(
+        command_bus: Arc<CommandBus>,
+        event_bus: Arc<ApplicationEventBus>,
+        vm_bus: VmBus,
+        runtime_handle: Handle,
+    ) -> Self {
         Self {
             command_bus,
             event_bus,
             vm_bus: Some(vm_bus),
+            runtime_handle,
         }
     }
 
@@ -82,7 +116,7 @@ impl AsyncCommandRunner {
     ///
     /// # Panics
     ///
-    /// Panics if no tokio runtime is active on the calling thread.
+    /// Uses the runtime handle captured at construction time.
     pub fn dispatch<C>(
         &self,
         command: C,
@@ -95,8 +129,9 @@ impl AsyncCommandRunner {
         let command_bus = Arc::clone(&self.command_bus);
         let event_bus = Arc::clone(&self.event_bus);
         let vm_bus = self.vm_bus.clone();
+        let runtime_handle = self.runtime_handle.clone();
 
-        tokio::task::spawn_blocking(move || {
+        runtime_handle.spawn_blocking(move || {
             let result = command_bus.execute(command, &context);
             // Broadcast events on the same blocking thread so subscribers
             // observe state changes before the caller learns about them.

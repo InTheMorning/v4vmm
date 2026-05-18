@@ -15,6 +15,7 @@ use crate::feed_service;
 use crate::library::{playlist_options, LibraryApp};
 use crate::library_service;
 use crate::metadata::TrackContext;
+use crate::presentation::present_command;
 use crate::subscribe_service::{SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::{
     action_button, ActionButtonDisplay, AddToPlaylistDisplay, AddToPlaylistPopover,
@@ -744,7 +745,8 @@ impl TopApp {
                 musicindex_endpoint: self.endpoint_input.read(cx).value().to_string(),
             },
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -814,7 +816,8 @@ impl TopApp {
             },
             "Downloaded track".to_string(),
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -914,7 +917,8 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -935,7 +939,8 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         let command = CreatePlaylist::new(Arc::clone(&self.conn), name.to_string());
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
@@ -973,7 +978,8 @@ impl TopApp {
             playlist_id,
             track_ids,
         );
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,

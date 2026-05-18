@@ -12,6 +12,7 @@ use crate::application::commands::playback::{
 };
 use crate::application::{ApplicationCommand, CommandContext};
 use crate::playback;
+use crate::presentation::present_command;
 use crate::ui::composites::{EntityKind, Thumbnail, ThumbnailSize};
 use crate::ui::primitives::Label;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
@@ -165,7 +166,8 @@ impl TopApp {
             Output = crate::application::commands::playback::PlaybackCommandResult,
         >,
     {
-        self.command_runner.run(
+        present_command(
+            &self.command_runner,
             command,
             CommandContext::next(),
             cx,
