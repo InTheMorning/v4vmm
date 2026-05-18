@@ -45,6 +45,13 @@ pub(crate) struct LibraryTrackCompare {
     pub(crate) track_context: TrackContext,
 }
 
+/// Local track inspector payload plus an optional artwork URL.
+#[derive(Clone, Debug)]
+pub(crate) struct LocalTrackContextResult {
+    pub(crate) context: TrackContext,
+    pub(crate) image_url: Option<String>,
+}
+
 /// Loads local library tracks into the sidebar tree.
 #[derive(Clone, Debug)]
 pub(crate) struct LoadLibraryTracksTree {
@@ -115,6 +122,34 @@ impl ApplicationCommand for FetchLibraryTrackContext {
         )
         .map_err(|error| query_error(&error))
         .map(CommandOutcome::without_events)
+    }
+}
+
+/// Fetches local track context for a parked Discover inspector.
+#[derive(Clone, Debug)]
+pub(crate) struct FetchLocalTrackContext {
+    conn: SharedConnection,
+    track_id: i64,
+}
+
+impl FetchLocalTrackContext {
+    /// Creates a local track inspector query command.
+    #[must_use]
+    pub(crate) const fn new(conn: SharedConnection, track_id: i64) -> Self {
+        Self { conn, track_id }
+    }
+}
+
+impl ApplicationCommand for FetchLocalTrackContext {
+    type Output = LocalTrackContextResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        fetch_local_track_context(&self.conn, self.track_id)
+            .map_err(|error| query_error(&error))
+            .map(CommandOutcome::without_events)
     }
 }
 
@@ -425,6 +460,31 @@ fn compare_library_track(
         tag_compare,
         track_context: context,
     })
+}
+
+fn fetch_local_track_context(
+    conn: &SharedConnection,
+    track_id: i64,
+) -> anyhow::Result<LocalTrackContextResult> {
+    let db = conn
+        .lock()
+        .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
+    let Some(track) = library_service::track_row_by_id(&db, track_id)? else {
+        anyhow::bail!("local track not found: {track_id}");
+    };
+    let context = feed_service::track_row_to_track_context_with_local_identity(&db, &track)?;
+    let image_url = context
+        .track
+        .image_url
+        .as_deref()
+        .and_then(nonempty_url)
+        .map(str::to_string);
+    Ok(LocalTrackContextResult { context, image_url })
+}
+
+fn nonempty_url(url: &str) -> Option<&str> {
+    let trimmed = url.trim();
+    (!trimmed.is_empty()).then_some(trimmed)
 }
 
 fn poisoned_lock() -> CommandError {

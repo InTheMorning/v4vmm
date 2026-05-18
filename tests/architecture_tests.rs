@@ -12,6 +12,7 @@ const VIEW_MODEL_FORBIDDEN_PATTERNS: &[&str] = &[
     "crate::library::",
     "crate::search::",
     "crate::app::",
+    "crate::discover",
 ];
 
 const ENTITY_DETAIL_FORBIDDEN_PATTERNS: &[&str] = &[
@@ -4466,6 +4467,7 @@ fn global_search_replaces_screen_local_search_chrome() {
     let icon_source = read_source(&manifest_path("src/ui/icons.rs"));
     let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let search_app_source = read_source(&manifest_path("src/discover/app_impl.rs"));
+    let search_query_source = read_source(&manifest_path("src/application/queries/search.rs"));
     let search_shell_source = read_source(&manifest_path("src/ui/shells/discover/search_input.rs"));
     let search_vm_source = search_vm_source();
     let mut violations = Vec::new();
@@ -4576,13 +4578,23 @@ fn global_search_replaces_screen_local_search_chrome() {
 
     for required in [
         "pub(crate) fn run_global_search(",
-        "fetch_local_library_search_rows(",
         "SearchResultSource::Library",
         "load_local_track_inspector(",
     ] {
         if !search_app_source.contains(required) {
             violations.push(format!(
                 "src/discover/app_impl.rs: Search workspace global routing missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) struct FetchDiscoverSearchResults",
+        "fn fetch_local_library_search_rows(",
+    ] {
+        if !search_query_source.contains(required) {
+            violations.push(format!(
+                "src/application/queries/search.rs: Search workspace query ownership missing `{required}`"
             ));
         }
     }
@@ -9521,7 +9533,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         );
     }
 
-    let search_source = read_source(&manifest_path("src/discover/app_impl.rs"));
+    let search_source = read_source(&manifest_path("src/application/queries/feed.rs"));
     for required in [
         "sanitize_feed_source_text(&mut feed);",
         "let mut track_context = TrackContext { track, feed };",
@@ -9529,7 +9541,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
     ] {
         assert!(
             search_source.contains(required),
-            "Search inspector source facts must be sanitized before display: `{required}`"
+            "Search inspector query facts must be sanitized before display: `{required}`"
         );
     }
     for required in [
@@ -10538,7 +10550,7 @@ fn cx_spawn_debt_does_not_grow_outside_presentation_and_runtime() {
         ("src/app.rs", 1_usize),
         ("src/app/bootstrap.rs", 1),
         ("src/app/search_dispatch.rs", 1),
-        ("src/discover/app_impl.rs", 15),
+        ("src/discover/app_impl.rs", 2),
         ("src/library/app_impl.rs", 2),
     ]);
     let mut actual = BTreeMap::<String, usize>::new();

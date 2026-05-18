@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use crate::api::Client;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
@@ -38,6 +39,38 @@ impl ApplicationCommand for LookupMusicBrainzTrack {
             return Err(CommandError::Cancelled);
         }
         let result = feed_service::lookup_musicbrainz_library_track(&self.track)
+            .map_err(|error| metadata_command_error(&error))?;
+        Ok(CommandOutcome::without_events(result))
+    }
+}
+
+/// Looks up `MusicBrainz` candidates for one remote MusicIndex track.
+#[derive(Clone, Debug)]
+pub(crate) struct LookupRemoteMusicBrainzTrack {
+    endpoint: String,
+    entity_id: String,
+}
+
+impl LookupRemoteMusicBrainzTrack {
+    /// Creates a remote track `MusicBrainz` lookup command.
+    #[must_use]
+    pub(crate) fn new(endpoint: impl Into<String>, entity_id: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            entity_id: entity_id.into(),
+        }
+    }
+}
+
+impl ApplicationCommand for LookupRemoteMusicBrainzTrack {
+    type Output = MusicBrainzLookupResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let client = Client::new_with_base_url(self.endpoint);
+        let result = subscribe_service::lookup_musicbrainz_track(&client, &self.entity_id)
             .map_err(|error| metadata_command_error(&error))?;
         Ok(CommandOutcome::without_events(result))
     }
@@ -175,6 +208,48 @@ impl ApplicationCommand for ApplyTrackId3Edits {
         let comparison =
             subscribe_service::compare_downloaded_track_path(&self.path, &self.track_context)
                 .map_err(|error| metadata_command_error(&error))?;
+        Ok(CommandOutcome::without_events(comparison))
+    }
+}
+
+/// Downloads or rereads a remote track and compares its ID3 metadata.
+#[derive(Clone, Debug)]
+pub(crate) struct DownloadAndCompareTrack {
+    endpoint: String,
+    entity_id: String,
+    force_download: bool,
+}
+
+impl DownloadAndCompareTrack {
+    /// Creates a remote track tag-comparison command.
+    #[must_use]
+    pub(crate) fn new(
+        endpoint: impl Into<String>,
+        entity_id: impl Into<String>,
+        force_download: bool,
+    ) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            entity_id: entity_id.into(),
+            force_download,
+        }
+    }
+}
+
+impl ApplicationCommand for DownloadAndCompareTrack {
+    type Output = TagCompareResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let client = Client::new_with_base_url(self.endpoint);
+        let comparison = subscribe_service::download_and_compare_track(
+            &client,
+            &self.entity_id,
+            self.force_download,
+        )
+        .map_err(|error| metadata_command_error(&error))?;
         Ok(CommandOutcome::without_events(comparison))
     }
 }

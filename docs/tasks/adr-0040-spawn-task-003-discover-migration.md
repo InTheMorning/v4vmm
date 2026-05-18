@@ -1,6 +1,6 @@
 # ADR 0040 Spawn Task 003 — `src/discover/app_impl.rs` Migration
 
-Status: Proposed - 2026-05-18.
+Status: Completed - 2026-05-18.
 
 ## Goal
 

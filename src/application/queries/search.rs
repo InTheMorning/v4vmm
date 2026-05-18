@@ -1,22 +1,97 @@
 //! Search local query family.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
 use rusqlite::Connection;
 
+use crate::api::{Client, EntityDetail, SearchResult, PAGE_LIMIT};
 use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
+use crate::feed_service;
+use crate::view_models::search::{
+    artist_rows_from_result_rows, search_result_type_is_visible, ResultRow, SearchBatch,
+    SearchViewModel,
+};
 use crate::view_models::search_results::{
     ArtistResultDisplay, FeedResultDisplay, IndexSearchResultRows, SearchResultItemId,
     SearchResultOrigin, TrackResultDisplay,
 };
+use crate::view_models::workspace::ContentFilter;
 use crate::views::TrackView;
 use crate::{db, library_service};
 
 pub const DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT: usize = 50;
+
+type SharedConnection = Arc<Mutex<Connection>>;
+
+/// Neutral output for one Discover global search load.
+#[derive(Clone, Debug)]
+pub(crate) struct DiscoverSearchResults {
+    pub(crate) library_rows: Vec<ResultRow>,
+    pub(crate) index_batch: Option<SearchBatch>,
+}
+
+/// Fetches Discover global search rows without binding to GPUI or Discover.
+#[derive(Clone, Debug)]
+pub(crate) struct FetchDiscoverSearchResults {
+    conn: SharedConnection,
+    query_service: Arc<ApplicationQueryService>,
+    endpoint: String,
+    query: String,
+    filter: ContentFilter,
+    append: bool,
+    type_filter: usize,
+    cursor: Option<String>,
+    fuzzy: bool,
+}
+
+impl FetchDiscoverSearchResults {
+    /// Creates a Discover global search query command.
+    #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "captures the existing SearchViewModel load intent without inventing a new app-layer intent type"
+    )]
+    pub(crate) fn new(
+        conn: SharedConnection,
+        query_service: Arc<ApplicationQueryService>,
+        endpoint: impl Into<String>,
+        query: impl Into<String>,
+        filter: ContentFilter,
+        append: bool,
+        type_filter: usize,
+        cursor: Option<String>,
+        fuzzy: bool,
+    ) -> Self {
+        Self {
+            conn,
+            query_service,
+            endpoint: endpoint.into(),
+            query: query.into(),
+            filter,
+            append,
+            type_filter,
+            cursor,
+            fuzzy,
+        }
+    }
+}
+
+impl ApplicationCommand for FetchDiscoverSearchResults {
+    type Output = DiscoverSearchResults;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let result = fetch_discover_search_results(self).map_err(|error| query_error(&error))?;
+        Ok(CommandOutcome::without_events(result))
+    }
+}
 
 /// Fetches remote Index search result rows for presentation.
 #[derive(Clone, Debug)]
@@ -127,6 +202,342 @@ fn fetch_index_search_result_rows(endpoint: &str, query: &str) -> Result<IndexSe
         })
         .collect();
     Ok(rows)
+}
+
+fn fetch_discover_search_results(
+    command: FetchDiscoverSearchResults,
+) -> Result<DiscoverSearchResults> {
+    let entity_type = if command.filter == ContentFilter::Library {
+        None
+    } else {
+        SearchViewModel::type_filter_value(command.type_filter).map(str::to_string)
+    };
+    let client = Client::new_with_base_url(command.endpoint);
+    let library_rows = if !command.append
+        && matches!(command.filter, ContentFilter::All | ContentFilter::Library)
+    {
+        fetch_local_library_search_rows(&command.conn, &command.query_service, &command.query)?
+    } else {
+        Vec::new()
+    };
+    let index_batch = if matches!(command.filter, ContentFilter::All | ContentFilter::Index) {
+        Some(fetch_search_batch(
+            &client,
+            &command.query,
+            entity_type.as_deref(),
+            command.cursor.as_deref(),
+            command.fuzzy,
+        )?)
+    } else {
+        None
+    };
+
+    Ok(DiscoverSearchResults {
+        library_rows,
+        index_batch,
+    })
+}
+
+fn fetch_search_batch(
+    client: &Client,
+    query: &str,
+    entity_type: Option<&str>,
+    cursor: Option<&str>,
+    fuzzy: bool,
+) -> Result<SearchBatch> {
+    if entity_type == Some("artist") {
+        return fetch_artist_search_batch(client, query, cursor, fuzzy);
+    }
+
+    if entity_type.is_none() {
+        return fetch_partitioned_search_batch(client, query, cursor, fuzzy);
+    }
+
+    if entity_type.is_some_and(|kind| !search_result_type_is_visible(kind)) {
+        return Ok(SearchBatch {
+            rows: Vec::new(),
+            has_more: false,
+            cursor: None,
+        });
+    }
+
+    let response = client.search(query, entity_type, Some(PAGE_LIMIT), cursor, fuzzy)?;
+    let mut rows = response
+        .data
+        .iter()
+        .map(|hit| search_hit_to_result_row(client, hit))
+        .filter(|row| search_result_type_is_visible(&row.entity_type))
+        .collect::<Vec<_>>();
+    if entity_type.is_none() {
+        let mut artist_rows = artist_rows_from_result_rows(&rows, Some(query));
+        enrich_artist_rows(client, &mut artist_rows);
+        rows.splice(0..0, artist_rows);
+    }
+
+    Ok(SearchBatch {
+        rows,
+        has_more: response.pagination.has_more,
+        cursor: response.pagination.cursor,
+    })
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+struct PartitionedSearchCursor {
+    feed: Option<String>,
+    track: Option<String>,
+}
+
+fn fetch_partitioned_search_batch(
+    client: &Client,
+    query: &str,
+    cursor: Option<&str>,
+    fuzzy: bool,
+) -> Result<SearchBatch> {
+    let parsed_cursor = cursor.and_then(decode_partitioned_search_cursor);
+    let feed_cursor = parsed_cursor
+        .as_ref()
+        .and_then(|cursor| cursor.feed.as_deref());
+    let track_cursor = parsed_cursor
+        .as_ref()
+        .and_then(|cursor| cursor.track.as_deref());
+
+    let feed_batch = if cursor.is_some() && feed_cursor.is_none() {
+        Ok(SearchBatch {
+            rows: Vec::new(),
+            has_more: false,
+            cursor: None,
+        })
+    } else {
+        fetch_typed_search_batch(client, query, "feed", feed_cursor, fuzzy)
+    };
+    let track_batch = if cursor.is_some() && track_cursor.is_none() {
+        Ok(SearchBatch {
+            rows: Vec::new(),
+            has_more: false,
+            cursor: None,
+        })
+    } else {
+        fetch_typed_search_batch(client, query, "track", track_cursor, fuzzy)
+    };
+
+    match (feed_batch, track_batch) {
+        (Ok(mut feeds), Ok(tracks)) => {
+            feeds.rows.extend(tracks.rows);
+            let mut rows = artist_rows_from_result_rows(&feeds.rows, Some(query));
+            enrich_artist_rows(client, &mut rows);
+            rows.extend(feeds.rows);
+            Ok(SearchBatch {
+                rows,
+                has_more: feeds.has_more || tracks.has_more,
+                cursor: encode_partitioned_search_cursor(
+                    feeds.cursor.as_deref(),
+                    tracks.cursor.as_deref(),
+                ),
+            })
+        }
+        (Ok(mut feeds), Err(_track_error)) => {
+            let mut rows = artist_rows_from_result_rows(&feeds.rows, Some(query));
+            enrich_artist_rows(client, &mut rows);
+            rows.append(&mut feeds.rows);
+            Ok(SearchBatch {
+                rows,
+                has_more: feeds.has_more,
+                cursor: encode_partitioned_search_cursor(feeds.cursor.as_deref(), None),
+            })
+        }
+        (Err(_feed_error), Ok(mut tracks)) => {
+            let mut rows = artist_rows_from_result_rows(&tracks.rows, Some(query));
+            enrich_artist_rows(client, &mut rows);
+            rows.append(&mut tracks.rows);
+            Ok(SearchBatch {
+                rows,
+                has_more: tracks.has_more,
+                cursor: encode_partitioned_search_cursor(None, tracks.cursor.as_deref()),
+            })
+        }
+        (Err(feed_error), Err(track_error)) => Err(anyhow!(
+            "feed search failed: {feed_error}; track search failed: {track_error}"
+        )),
+    }
+}
+
+fn fetch_typed_search_batch(
+    client: &Client,
+    query: &str,
+    entity_type: &str,
+    cursor: Option<&str>,
+    fuzzy: bool,
+) -> Result<SearchBatch> {
+    let response = client.search(query, Some(entity_type), Some(PAGE_LIMIT), cursor, fuzzy)?;
+    Ok(SearchBatch {
+        rows: response
+            .data
+            .iter()
+            .map(|hit| search_hit_to_result_row(client, hit))
+            .filter(|row| search_result_type_is_visible(&row.entity_type))
+            .collect(),
+        has_more: response.pagination.has_more,
+        cursor: response.pagination.cursor,
+    })
+}
+
+fn encode_partitioned_search_cursor(feed: Option<&str>, track: Option<&str>) -> Option<String> {
+    if feed.is_none() && track.is_none() {
+        return None;
+    }
+    serde_json::to_string(&PartitionedSearchCursor {
+        feed: feed.map(str::to_string),
+        track: track.map(str::to_string),
+    })
+    .ok()
+    .map(|cursor| format!("partitioned:{cursor}"))
+}
+
+fn decode_partitioned_search_cursor(cursor: &str) -> Option<PartitionedSearchCursor> {
+    cursor
+        .strip_prefix("partitioned:")
+        .and_then(|value| serde_json::from_str(value).ok())
+}
+
+fn fetch_local_library_search_rows(
+    conn: &SharedConnection,
+    query_service: &ApplicationQueryService,
+    query: &str,
+) -> Result<Vec<ResultRow>> {
+    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
+    let tracks = query_service
+        .search_local_library_tracks(&db, query, None)
+        .map_err(|error| anyhow!("{error}"))?;
+    tracks
+        .into_iter()
+        .map(|track| {
+            let track_id = track.id;
+            let context =
+                feed_service::track_row_to_track_context_with_local_identity(&db, &track)?;
+            Ok(ResultRow::local_library_track(
+                track_id,
+                EntityDetail::Track(context.track),
+            ))
+        })
+        .collect()
+}
+
+fn fetch_artist_search_batch(
+    client: &Client,
+    query: &str,
+    cursor: Option<&str>,
+    fuzzy: bool,
+) -> Result<SearchBatch> {
+    let batch = fetch_partitioned_search_batch(client, query, cursor, fuzzy)?;
+
+    Ok(SearchBatch {
+        rows: {
+            let mut artist_rows = artist_rows_from_result_rows(&batch.rows, Some(query));
+            enrich_artist_rows(client, &mut artist_rows);
+            artist_rows
+        },
+        has_more: batch.has_more,
+        cursor: batch.cursor,
+    })
+}
+
+fn search_hit_to_result_row(client: &Client, hit: &SearchResult) -> ResultRow {
+    let detail = fetch_scoped_detail(
+        client,
+        &hit.entity_type,
+        &hit.entity_id,
+        hit.feed_guid.as_deref(),
+        None,
+    )
+    .ok()
+    .filter(|detail| {
+        matches!(
+            detail,
+            EntityDetail::Artist(_) | EntityDetail::Feed(_) | EntityDetail::Track(_)
+        )
+    });
+    if hit.entity_type == "track" {
+        ResultRow::musicindex_track(hit.entity_id.clone(), hit.feed_guid.clone(), detail)
+    } else {
+        ResultRow::new(hit.entity_type.clone(), hit.entity_id.clone(), detail)
+    }
+}
+
+fn enrich_artist_rows(client: &Client, rows: &mut [ResultRow]) {
+    for row in rows.iter_mut() {
+        if row.entity_type != "artist" {
+            continue;
+        }
+        let artist_name = match row.detail.as_ref() {
+            Some(EntityDetail::Artist(artist)) => artist
+                .name
+                .clone()
+                .or_else(|| artist.artist_id.clone())
+                .unwrap_or_else(|| row.entity_id.clone()),
+            _ => row.entity_id.clone(),
+        };
+        if artist_name.is_empty() {
+            continue;
+        }
+        let Ok(response) = client.fetch_tracks_by_artist(&artist_name, Some(PAGE_LIMIT * 2), None)
+        else {
+            continue;
+        };
+        let tracks = response.data;
+        let distinct_feeds: BTreeSet<String> = tracks
+            .iter()
+            .filter_map(|track| {
+                track
+                    .feed_guid
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|guid| !guid.is_empty())
+                    .map(str::to_string)
+            })
+            .collect();
+        let track_total = bounded_i32_count(tracks.len());
+        let feed_total = bounded_i32_count(distinct_feeds.len());
+        let first_feed_image = distinct_feeds
+            .iter()
+            .next()
+            .and_then(|guid| client.fetch_feed(guid, None).ok())
+            .and_then(|feed| feed.image_url);
+
+        if let Some(EntityDetail::Artist(artist)) = row.detail.as_mut() {
+            artist.track_count = Some(track_total);
+            artist.feed_count = Some(feed_total);
+            if artist.image_url.is_none() {
+                artist.image_url = first_feed_image;
+            }
+        }
+    }
+}
+
+fn fetch_scoped_detail(
+    client: &Client,
+    entity_type: &str,
+    entity_id: &str,
+    feed_guid: Option<&str>,
+    include: Option<&str>,
+) -> Result<EntityDetail> {
+    match entity_type {
+        "track" => Ok(EntityDetail::Track(fetch_scoped_track(
+            client, entity_id, feed_guid, include,
+        )?)),
+        _ => client.fetch_detail(entity_type, entity_id),
+    }
+}
+
+fn fetch_scoped_track(
+    client: &Client,
+    track_guid: &str,
+    feed_guid: Option<&str>,
+    include: Option<&str>,
+) -> Result<crate::api::Track> {
+    match feed_guid.map(str::trim).filter(|guid| !guid.is_empty()) {
+        Some(feed_guid) => client.fetch_feed_track(feed_guid, track_guid, include),
+        None => client.fetch_track(track_guid, include),
+    }
 }
 
 struct IndexFeedSearchRows {
@@ -447,6 +858,10 @@ fn non_empty_string(value: Option<String>) -> Option<String> {
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     })
+}
+
+fn bounded_i32_count(len: usize) -> i32 {
+    i32::try_from(len).unwrap_or(i32::MAX)
 }
 
 #[cfg(test)]

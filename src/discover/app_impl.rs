@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -13,10 +13,19 @@ use crate::api::*;
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::SubscribeFeed;
 use crate::application::commands::library_removal::RemoveFromLibrary;
+use crate::application::commands::metadata::{
+    ApplyTrackId3Edits, DownloadAndCompareTrack, LookupRemoteMusicBrainzTrack,
+};
 use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
+use crate::application::queries::feed::{
+    FetchContributors, FetchDiscoverRecentFeeds, FetchInspectorDetail, FetchValueRoutes,
+    InspectorDetailData, ResolvePodrollFeeds,
+};
+use crate::application::queries::library::FetchLocalTrackContext;
+use crate::application::queries::search::FetchDiscoverSearchResults;
 use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext};
-use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
+use crate::audio_tags::Id3v24Edit;
 use crate::db;
 use crate::feed_service;
 use crate::identity_ingest;
@@ -24,11 +33,7 @@ use crate::library_service;
 use crate::media::{image_from_bytes, ImageCache};
 use crate::metadata::*;
 use crate::presentation::present_command;
-use crate::rss;
-use crate::subscribe_service::{
-    self, compare_downloaded_track_path, download_image, enrich_track_context_from_rss,
-    SubscribeTrackRequest,
-};
+use crate::subscribe_service::{self, download_image, SubscribeTrackRequest};
 use crate::ui::composites::{SplitPane, StatusRole};
 use crate::ui::detail_row::DetailRow;
 use crate::ui::layouts as layout;
@@ -47,12 +52,11 @@ use crate::ui::style::{color, typography};
 use crate::ui::tokens::FontSize;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::search::{
-    artist_rows_from_result_rows, normalized_search_query, search_result_type_is_visible,
-    DeferredPanelKind, LazyPanel, PlaylistAppendIntent, PlaylistAppendOutcome, ResultRow,
-    SearchBatch, SearchLibraryMembership, SearchLibraryMembershipDisplay, SearchRemovalOrigin,
-    SearchResultSource, SearchSubscriptionCommand, SearchViewModel, TrackRowActionVm,
+    normalized_search_query, DeferredPanelKind, LazyPanel, PlaylistAppendIntent,
+    PlaylistAppendOutcome, ResultRow, SearchBatch, SearchLibraryMembership,
+    SearchLibraryMembershipDisplay, SearchRemovalOrigin, SearchResultSource,
+    SearchSubscriptionCommand, SearchViewModel, TrackRowActionVm,
 };
-use crate::view_models::track::TrackVm;
 use crate::view_models::workspace::ContentFilter;
 use crate::views::ContributorView;
 
@@ -121,42 +125,31 @@ impl SearchApp {
         };
         cx.notify();
 
-        let client = self.api_client();
         let cursor = intent.into_cursor();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let result =
-                    cx.background_executor()
-                        .spawn(async move {
-                            client.fetch_recent_feeds(Some(PAGE_LIMIT), cursor.as_deref())
-                        })
-                        .await;
-                let _ = this.update(cx, move |this, cx| {
-                    let mut should_eager_prefetch = false;
-                    match result {
-                        Ok(response) => {
-                            this.vm.finish_recent_feed_load(response);
-                            // After the first page lands, eagerly request the
-                            // next one in the background so the user's first
-                            // scroll-to-bottom never pauses on a network round
-                            // trip. `begin_recent_feed_load(true)` is
-                            // idempotent against in-flight loads.
-                            if !append && this.vm.recent_has_more {
-                                should_eager_prefetch = true;
-                            }
-                        }
-                        Err(error) => {
-                            this.vm.fail_recent_feed_load(error);
-                        }
-                    }
-                    cx.notify();
-                    if should_eager_prefetch {
-                        this.load_recent_feeds(true, cx);
-                    }
-                });
+        let command = FetchDiscoverRecentFeeds::new(self.musicindex_endpoint.clone(), cursor);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, response, cx| {
+                this.vm.finish_recent_feed_load(response);
+                // After the first page lands, eagerly request the
+                // next one in the background so the user's first
+                // scroll-to-bottom never pauses on a network round
+                // trip. `begin_recent_feed_load(true)` is
+                // idempotent against in-flight loads.
+                let should_eager_prefetch = !append && this.vm.recent_has_more;
+                cx.notify();
+                if should_eager_prefetch {
+                    this.load_recent_feeds(true, cx);
+                }
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                this.vm.fail_recent_feed_load(error);
+                cx.notify();
+            },
+        );
     }
 
     fn api_client(&self) -> Arc<Client> {
@@ -236,75 +229,47 @@ impl SearchApp {
         }
         cx.notify();
 
-        let entity_type = if filter == ContentFilter::Library {
-            None
-        } else {
-            SearchViewModel::type_filter_value(intent.type_filter()).map(str::to_string)
-        };
+        let type_filter = intent.type_filter();
         let cursor = intent.cursor().map(str::to_string);
         let fuzzy = intent.fuzzy();
-        let client = self.api_client();
-        let conn = Arc::clone(&self.conn);
-        let query_service = self.application_services.query_service();
+        let command = FetchDiscoverSearchResults::new(
+            Arc::clone(&self.conn),
+            self.application_services.query_service(),
+            self.musicindex_endpoint.clone(),
+            query,
+            filter,
+            append,
+            type_filter,
+            cursor,
+            fuzzy,
+        );
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let search_result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let library_rows = if !append
-                            && matches!(filter, ContentFilter::All | ContentFilter::Library)
-                        {
-                            fetch_local_library_search_rows(&conn, &query_service, &query)?
-                        } else {
-                            Vec::new()
-                        };
-                        let index_batch =
-                            if matches!(filter, ContentFilter::All | ContentFilter::Index) {
-                                Some(fetch_search_batch(
-                                    &client,
-                                    &query,
-                                    entity_type.as_deref(),
-                                    cursor.as_deref(),
-                                    fuzzy,
-                                )?)
-                            } else {
-                                None
-                            };
-                        Ok::<_, anyhow::Error>((library_rows, index_batch))
-                    })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        match search_result {
-                            Ok((library_rows, index_batch)) => {
-                                if let Some(batch) = index_batch.as_ref() {
-                                    if let Err(error) =
-                                        persist_musicindex_artist_facts(&this.conn, batch)
-                                    {
-                                        this.vm.fail_search_load(error);
-                                        cx.notify();
-                                        return;
-                                    }
-                                }
-                                this.vm.finish_global_search_load(
-                                    library_rows,
-                                    index_batch,
-                                    filter,
-                                    append,
-                                );
-                            }
-                            Err(error) => this.vm.fail_search_load(error),
-                        }
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, results, cx| {
+                if let Some(batch) = results.index_batch.as_ref() {
+                    if let Err(error) = persist_musicindex_artist_facts(&this.conn, batch) {
+                        this.vm.fail_search_load(error);
                         cx.notify();
-                    },
-                )
-                .ok();
+                        return;
+                    }
+                }
+                this.vm.finish_global_search_load(
+                    results.library_rows,
+                    results.index_batch,
+                    filter,
+                    append,
+                );
+                cx.notify();
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                this.vm.fail_search_load(error);
+                cx.notify();
+            },
+        );
     }
 
     pub(crate) fn toggle_fuzzy_search(&mut self, cx: &mut Context<Self>) {
@@ -431,87 +396,83 @@ impl SearchApp {
         }
         cx.notify();
 
-        let client = self.api_client();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let request_type = entity_type.clone();
-                let request_id = entity_id.clone();
-                let request_feed_guid = feed_guid.clone();
-                let detail = cx
-                    .background_executor()
-                    .spawn(async move {
-                        fetch_inspector_detail(
-                            &client,
-                            &request_type,
-                            &request_id,
-                            request_feed_guid.as_deref(),
-                        )
-                    })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        let local_subscription = detail.as_ref().ok().and_then(|(detail, _)| {
-                            local_subscription_for_detail(&this.conn, detail)
-                                .ok()
-                                .flatten()
-                        });
-                        let mut image_url_to_fetch: Option<String> = None;
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
-                                match detail {
-                                    Ok((detail, image_url)) => {
-                                        if let InspectorDetail::Artist(ctx) = &detail {
-                                            this.vm.merge_artist_result_detail(
-                                                &entity_id,
-                                                &ctx.artist,
-                                            );
-                                        }
-                                        frame.detail = detail;
-                                        frame.image = None;
-                                        frame.local_subscription = local_subscription;
-                                        frame.subscription_message = None;
-                                        if let InspectorDetail::Feed(feed) = &frame.detail {
-                                            if let Some(feed_url) =
-                                                feed.feed_url.clone().filter(|s| !s.is_empty())
-                                            {
-                                                frame.podroll = LazyPanel::Loading;
-                                                this.load_podroll(entity_id.clone(), feed_url, cx);
-                                            }
-                                        }
-                                        image_url_to_fetch = image_url;
-                                    }
-                                    Err(error) => {
-                                        frame.detail = InspectorDetail::Error(error.to_string());
-                                    }
-                                }
+        let command = FetchInspectorDetail::new(
+            self.musicindex_endpoint.clone(),
+            entity_type.clone(),
+            entity_id.clone(),
+            feed_guid,
+        );
+        let success_entity_type = entity_type.clone();
+        let success_entity_id = entity_id.clone();
+        let error_entity_type = entity_type;
+        let error_entity_id = entity_id;
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                let detail = inspector_detail_from_data(result.detail);
+                let local_subscription = local_subscription_for_detail(&this.conn, &detail)
+                    .ok()
+                    .flatten();
+                let mut image_url_to_fetch: Option<String> = None;
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == success_entity_type
+                        && frame.entity_id == success_entity_id
+                    {
+                        if let InspectorDetail::Artist(ctx) = &detail {
+                            this.vm
+                                .merge_artist_result_detail(&success_entity_id, &ctx.artist);
+                        }
+                        frame.detail = detail;
+                        frame.image = None;
+                        frame.local_subscription = local_subscription;
+                        frame.subscription_message = None;
+                        if let InspectorDetail::Feed(feed) = &frame.detail {
+                            if let Some(feed_url) =
+                                feed.feed_url.clone().filter(|value| !value.is_empty())
+                            {
+                                frame.podroll = LazyPanel::Loading;
+                                this.load_podroll(success_entity_id.clone(), feed_url, cx);
                             }
                         }
-                        cx.notify();
-                        if let Some(url) = image_url_to_fetch {
-                            this.load_inspector_image(
-                                entity_type.clone(),
-                                entity_id.clone(),
-                                url,
-                                cx,
-                            );
-                        }
-                        // Eagerly prefetch the deferred panels in the
-                        // background. The user is consuming the populated
-                        // text content; by the time they reach for
-                        // contributors / value routes the data is already
-                        // resident. We do not flip the collapsed flags —
-                        // disclosures stay in their default closed state,
-                        // they just open instantly when the user clicks.
-                        this.prefetch_contributors(entity_type.clone(), entity_id.clone(), cx);
-                        this.prefetch_value_routes(entity_type, entity_id, cx);
-                    },
-                )
-                .ok();
+                        image_url_to_fetch = result.image_url;
+                    }
+                }
+                cx.notify();
+                if let Some(url) = image_url_to_fetch {
+                    this.load_inspector_image(
+                        success_entity_type.clone(),
+                        success_entity_id.clone(),
+                        url,
+                        cx,
+                    );
+                }
+                // Eagerly prefetch the deferred panels in the
+                // background. The user is consuming the populated
+                // text content; by the time they reach for
+                // contributors / value routes the data is already
+                // resident. We do not flip the collapsed flags —
+                // disclosures stay in their default closed state,
+                // they just open instantly when the user clicks.
+                this.prefetch_contributors(
+                    success_entity_type.clone(),
+                    success_entity_id.clone(),
+                    cx,
+                );
+                this.prefetch_value_routes(success_entity_type, success_entity_id, cx);
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == error_entity_type && frame.entity_id == error_entity_id
+                    {
+                        frame.detail = InspectorDetail::Error(error.to_string());
+                    }
+                }
+                cx.notify();
+            },
+        );
     }
 
     fn load_local_track_inspector(
@@ -540,73 +501,51 @@ impl SearchApp {
         }
         cx.notify();
 
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let detail = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-                        let Some(track) = library_service::track_row_by_id(&db, track_id)? else {
-                            return Err(anyhow!("local track not found: {track_id}"));
-                        };
-                        let context = feed_service::track_row_to_track_context_with_local_identity(
-                            &db, &track,
-                        )?;
-                        let image_url = context
-                            .track
-                            .image_url
-                            .as_deref()
-                            .and_then(|url| nonempty_url(Some(url)))
-                            .map(str::to_string);
-                        Ok::<_, anyhow::Error>((context, image_url))
-                    })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        let mut image_url_to_fetch = None;
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == "track" && frame.entity_id == frame_entity_id {
-                                match detail {
-                                    Ok((context, image_url)) => {
-                                        frame.detail = InspectorDetail::Track(Box::new(context));
-                                        frame.image = None;
-                                        frame.local_subscription = Some(true);
-                                        frame.subscription_message = None;
-                                        frame.contributors = LazyPanel::Empty(
-                                            SearchViewModel::deferred_panel_display(
-                                                DeferredPanelKind::Contributors,
-                                            )
-                                            .empty_label
-                                            .into(),
-                                        );
-                                        frame.value_routes = LazyPanel::Empty(
-                                            SearchViewModel::deferred_panel_display(
-                                                DeferredPanelKind::ValueRoutes,
-                                            )
-                                            .empty_label
-                                            .into(),
-                                        );
-                                        image_url_to_fetch = image_url;
-                                    }
-                                    Err(error) => {
-                                        frame.detail = InspectorDetail::Error(error.to_string());
-                                    }
-                                }
-                            }
-                        }
-                        cx.notify();
-                        if let Some(url) = image_url_to_fetch {
-                            this.load_inspector_image("track".into(), frame_entity_id, url, cx);
-                        }
-                    },
-                )
-                .ok();
+        let command = FetchLocalTrackContext::new(Arc::clone(&self.conn), track_id);
+        let success_frame_entity_id = frame_entity_id.clone();
+        let error_frame_entity_id = frame_entity_id;
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                let mut image_url_to_fetch = None;
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == "track" && frame.entity_id == success_frame_entity_id {
+                        frame.detail = InspectorDetail::Track(Box::new(result.context));
+                        frame.image = None;
+                        frame.local_subscription = Some(true);
+                        frame.subscription_message = None;
+                        frame.contributors = LazyPanel::Empty(
+                            SearchViewModel::deferred_panel_display(
+                                DeferredPanelKind::Contributors,
+                            )
+                            .empty_label
+                            .into(),
+                        );
+                        frame.value_routes = LazyPanel::Empty(
+                            SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes)
+                                .empty_label
+                                .into(),
+                        );
+                        image_url_to_fetch = result.image_url;
+                    }
+                }
+                cx.notify();
+                if let Some(url) = image_url_to_fetch {
+                    this.load_inspector_image("track".into(), success_frame_entity_id, url, cx);
+                }
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == "track" && frame.entity_id == error_frame_entity_id {
+                        frame.detail = InspectorDetail::Error(error.to_string());
+                    }
+                }
+                cx.notify();
+            },
+        );
     }
 
     /// Fetch + decode an inspector hero image as a follow-up to the
@@ -672,36 +611,50 @@ impl SearchApp {
             return;
         }
         frame.contributors = LazyPanel::Loading;
-        let client = self.api_client();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let req_type = entity_type.clone();
-                let req_id = entity_id.clone();
-                let contributors = cx
-                    .background_executor()
-                    .spawn(async move { client.fetch_contributors(&req_type, &req_id) })
-                    .await;
-                let _ = this.update(cx, move |this, cx| {
-                    if let Some(frame) = this.inspector_stack.last_mut() {
-                        if frame.entity_type == entity_type && frame.entity_id == entity_id {
-                            let contributors = contributors.map(|contributors| {
-                                contributors
-                                    .into_iter()
-                                    .map(ContributorView::from)
-                                    .collect()
-                            });
-                            let display = SearchViewModel::deferred_panel_display(
-                                DeferredPanelKind::Contributors,
-                            );
-                            frame.contributors =
-                                LazyPanel::from_items_result(contributors, display.empty_label);
-                            cx.notify();
-                        }
+        let command = FetchContributors::new(
+            self.musicindex_endpoint.clone(),
+            entity_type.clone(),
+            entity_id.clone(),
+        );
+        let success_entity_type = entity_type.clone();
+        let success_entity_id = entity_id.clone();
+        let error_entity_type = entity_type;
+        let error_entity_id = entity_id;
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, contributors, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == success_entity_type
+                        && frame.entity_id == success_entity_id
+                    {
+                        let contributors: Vec<ContributorView> = contributors
+                            .into_iter()
+                            .map(ContributorView::from)
+                            .collect();
+                        let display = SearchViewModel::deferred_panel_display(
+                            DeferredPanelKind::Contributors,
+                        );
+                        frame.contributors = LazyPanel::from_items_result(
+                            Ok::<Vec<ContributorView>, String>(contributors),
+                            display.empty_label,
+                        );
+                        cx.notify();
                     }
-                });
+                }
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == error_entity_type && frame.entity_id == error_entity_id
+                    {
+                        frame.contributors = LazyPanel::error(error);
+                        cx.notify();
+                    }
+                }
+            },
+        );
     }
 
     /// Background-prefetch the value-routes list. Same contract as
@@ -723,60 +676,76 @@ impl SearchApp {
             return;
         }
         frame.value_routes = LazyPanel::Loading;
-        let client = self.api_client();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let req_type = entity_type.clone();
-                let req_id = entity_id.clone();
-                let routes = cx
-                    .background_executor()
-                    .spawn(async move { client.fetch_value_routes(&req_type, &req_id) })
-                    .await;
-                let _ = this.update(cx, move |this, cx| {
-                    if let Some(frame) = this.inspector_stack.last_mut() {
-                        if frame.entity_type == entity_type && frame.entity_id == entity_id {
-                            let display = SearchViewModel::deferred_panel_display(
-                                DeferredPanelKind::ValueRoutes,
-                            );
-                            frame.value_routes =
-                                LazyPanel::from_items_result(routes, display.empty_label);
-                            cx.notify();
-                        }
+        let command = FetchValueRoutes::new(
+            self.musicindex_endpoint.clone(),
+            entity_type.clone(),
+            entity_id.clone(),
+        );
+        let success_entity_type = entity_type.clone();
+        let success_entity_id = entity_id.clone();
+        let error_entity_type = entity_type;
+        let error_entity_id = entity_id;
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, routes, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == success_entity_type
+                        && frame.entity_id == success_entity_id
+                    {
+                        let display =
+                            SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes);
+                        frame.value_routes = LazyPanel::from_items_result(
+                            Ok::<Vec<PaymentRoute>, String>(routes),
+                            display.empty_label,
+                        );
+                        cx.notify();
                     }
-                });
+                }
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == error_entity_type && frame.entity_id == error_entity_id
+                    {
+                        frame.value_routes = LazyPanel::error(error);
+                        cx.notify();
+                    }
+                }
+            },
+        );
     }
 
     fn load_podroll(&mut self, feed_guid: String, feed_url: String, cx: &mut Context<Self>) {
-        let client = self.api_client();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { resolve_podroll_feeds(&client, &feed_url) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == "feed" && frame.entity_id == feed_guid {
-                                frame.podroll = match result {
-                                    Ok(feeds) if feeds.is_empty() => LazyPanel::Hidden,
-                                    Ok(feeds) => LazyPanel::Loaded(feeds),
-                                    Err(_) => LazyPanel::Hidden,
-                                };
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = ResolvePodrollFeeds::new(self.musicindex_endpoint.clone(), feed_url);
+        let error_feed_guid = feed_guid.clone();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, feeds, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == "feed" && frame.entity_id == feed_guid {
+                        frame.podroll = if feeds.is_empty() {
+                            LazyPanel::Hidden
+                        } else {
+                            LazyPanel::Loaded(feeds)
+                        };
+                    }
+                }
+                cx.notify();
             },
-        )
-        .detach();
+            move |this, _error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == "feed" && frame.entity_id == error_feed_guid {
+                        frame.podroll = LazyPanel::Hidden;
+                    }
+                }
+                cx.notify();
+            },
+        );
     }
 
     pub(crate) fn inspector_back(&mut self, cx: &mut Context<Self>) {
@@ -816,39 +785,40 @@ impl SearchApp {
 
         let entity_type = frame.entity_type.clone();
         let entity_id = frame.entity_id.clone();
-        let client = self.api_client();
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let contributors = cx
-                    .background_executor()
-                    .spawn(async move { client.fetch_contributors(&entity_type, &entity_id) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            let contributors = contributors.map(|contributors| {
-                                contributors
-                                    .into_iter()
-                                    .map(ContributorView::from)
-                                    .collect()
-                            });
-                            let display = SearchViewModel::deferred_panel_display(
-                                DeferredPanelKind::Contributors,
-                            );
-                            frame.contributors =
-                                LazyPanel::from_items_result(contributors, display.empty_label);
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = FetchContributors::new(
+            self.musicindex_endpoint.clone(),
+            entity_type.clone(),
+            entity_id.clone(),
+        );
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, contributors, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    let contributors: Vec<ContributorView> = contributors
+                        .into_iter()
+                        .map(ContributorView::from)
+                        .collect();
+                    let display =
+                        SearchViewModel::deferred_panel_display(DeferredPanelKind::Contributors);
+                    frame.contributors = LazyPanel::from_items_result(
+                        Ok::<Vec<ContributorView>, String>(contributors),
+                        display.empty_label,
+                    );
+                }
+                cx.notify();
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    frame.contributors = LazyPanel::error(error);
+                }
+                cx.notify();
+            },
+        );
     }
 
     pub(crate) fn toggle_value_routes(&mut self, cx: &mut Context<Self>) {
@@ -876,33 +846,36 @@ impl SearchApp {
 
         let entity_type = frame.entity_type.clone();
         let entity_id = frame.entity_id.clone();
-        let client = self.api_client();
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let routes = cx
-                    .background_executor()
-                    .spawn(async move { client.fetch_value_routes(&entity_type, &entity_id) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            let display = SearchViewModel::deferred_panel_display(
-                                DeferredPanelKind::ValueRoutes,
-                            );
-                            frame.value_routes =
-                                LazyPanel::from_items_result(routes, display.empty_label);
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = FetchValueRoutes::new(
+            self.musicindex_endpoint.clone(),
+            entity_type.clone(),
+            entity_id.clone(),
+        );
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, routes, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    let display =
+                        SearchViewModel::deferred_panel_display(DeferredPanelKind::ValueRoutes);
+                    frame.value_routes = LazyPanel::from_items_result(
+                        Ok::<Vec<PaymentRoute>, String>(routes),
+                        display.empty_label,
+                    );
+                }
+                cx.notify();
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    frame.value_routes = LazyPanel::error(error);
+                }
+                cx.notify();
+            },
+        );
     }
 
     pub(crate) fn toggle_id3_frame_group(&mut self, group_key: String, cx: &mut Context<Self>) {
@@ -1013,46 +986,38 @@ impl SearchApp {
         frame.id3_apply_error = None;
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        write_id3v24_edits(&path, &edits)?;
-                        compare_downloaded_track_path(&path, &track_context)
-                    })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
-                                frame.applying_id3_edits = false;
-                                match result {
-                                    Ok(result) => {
-                                        frame.tag_compare = LazyPanel::Loaded(result);
-                                        frame.pending_id3_edits.clear();
-                                        frame.suppressed_auto_id3_edits.clear();
-                                        frame.id3_apply_error = None;
-                                    }
-                                    Err(error) => {
-                                        frame.id3_apply_error = Some(
-                                            TrackMetadataActionState::id3_apply_error_message(
-                                                error,
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = ApplyTrackId3Edits::new(path, edits, track_context);
+        let error_entity_type = entity_type.clone();
+        let error_entity_id = entity_id.clone();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                        frame.applying_id3_edits = false;
+                        frame.tag_compare = LazyPanel::Loaded(result);
+                        frame.pending_id3_edits.clear();
+                        frame.suppressed_auto_id3_edits.clear();
+                        frame.id3_apply_error = None;
+                    }
+                }
+                cx.notify();
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == error_entity_type && frame.entity_id == error_entity_id
+                    {
+                        frame.applying_id3_edits = false;
+                        frame.id3_apply_error =
+                            Some(TrackMetadataActionState::id3_apply_error_message(error));
+                    }
+                }
+                cx.notify();
+            },
+        );
     }
 
     pub(crate) fn clear_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
@@ -1811,35 +1776,38 @@ impl SearchApp {
 
         let entity_id = frame.entity_id.clone();
         let entity_type = frame.entity_type.clone();
-        let client = self.api_client();
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let request_id = entity_id.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { download_and_compare_track(&client, &request_id, false) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
-                                frame.tag_compare = match result {
-                                    Ok(result) => LazyPanel::Loaded(result),
-                                    Err(error) => LazyPanel::error(error),
-                                };
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = DownloadAndCompareTrack::new(
+            self.musicindex_endpoint.clone(),
+            entity_id.clone(),
+            false,
+        );
+        let error_entity_type = entity_type.clone();
+        let error_entity_id = entity_id.clone();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                        frame.tag_compare = LazyPanel::Loaded(result);
+                    }
+                }
+                cx.notify();
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == error_entity_type && frame.entity_id == error_entity_id
+                    {
+                        frame.tag_compare = LazyPanel::error(error);
+                    }
+                }
+                cx.notify();
+            },
+        );
     }
 
     pub(crate) fn redownload_tag_compare(&mut self, cx: &mut Context<Self>) {
@@ -1860,37 +1828,38 @@ impl SearchApp {
         frame.tag_compare = LazyPanel::Loading;
         let entity_id = frame.entity_id.clone();
         let entity_type = frame.entity_type.clone();
-        let client = self.api_client();
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let request_id = entity_id.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        download_and_compare_track(&client, &request_id, force_download)
-                    })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
-                                frame.tag_compare = match result {
-                                    Ok(result) => LazyPanel::Loaded(result),
-                                    Err(error) => LazyPanel::error(error),
-                                };
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = DownloadAndCompareTrack::new(
+            self.musicindex_endpoint.clone(),
+            entity_id.clone(),
+            force_download,
+        );
+        let error_entity_type = entity_type.clone();
+        let error_entity_id = entity_id.clone();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                        frame.tag_compare = LazyPanel::Loaded(result);
+                    }
+                }
+                cx.notify();
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == error_entity_type && frame.entity_id == error_entity_id
+                    {
+                        frame.tag_compare = LazyPanel::error(error);
+                    }
+                }
+                cx.notify();
+            },
+        );
     }
 
     fn toggle_musicbrainz_lookup(&mut self, cx: &mut Context<Self>) {
@@ -1916,38 +1885,36 @@ impl SearchApp {
 
         let entity_id = frame.entity_id.clone();
         let entity_type = frame.entity_type.clone();
-        let client = self.api_client();
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let request_id = entity_id.clone();
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { lookup_musicbrainz_track(&client, &request_id) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        if let Some(frame) = this.inspector_stack.last_mut() {
-                            if frame.entity_type == entity_type && frame.entity_id == entity_id {
-                                frame.musicbrainz_lookup = match result {
-                                    Ok(result) => {
-                                        frame.musicbrainz_selected = 0;
-                                        LazyPanel::Loaded(result)
-                                    }
-                                    Err(error) => LazyPanel::error(error),
-                                };
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command =
+            LookupRemoteMusicBrainzTrack::new(self.musicindex_endpoint.clone(), entity_id.clone());
+        let error_entity_type = entity_type.clone();
+        let error_entity_id = entity_id.clone();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == entity_type && frame.entity_id == entity_id {
+                        frame.musicbrainz_selected = 0;
+                        frame.musicbrainz_lookup = LazyPanel::Loaded(result);
+                    }
+                }
+                cx.notify();
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == error_entity_type && frame.entity_id == error_entity_id
+                    {
+                        frame.musicbrainz_lookup = LazyPanel::error(error);
+                    }
+                }
+                cx.notify();
+            },
+        );
     }
 
     pub(crate) fn select_musicbrainz_candidate(&mut self, idx: usize, cx: &mut Context<Self>) {
@@ -2144,499 +2111,21 @@ impl Render for SearchApp {
     }
 }
 
-fn fetch_search_batch(
-    client: &Client,
-    query: &str,
-    entity_type: Option<&str>,
-    cursor: Option<&str>,
-    fuzzy: bool,
-) -> Result<SearchBatch> {
-    if entity_type == Some("artist") {
-        return fetch_artist_search_batch(client, query, cursor, fuzzy);
-    }
-
-    if entity_type.is_none() {
-        return fetch_partitioned_search_batch(client, query, cursor, fuzzy);
-    }
-
-    if entity_type.is_some_and(|kind| !search_result_type_is_visible(kind)) {
-        return Ok(SearchBatch {
-            rows: Vec::new(),
-            has_more: false,
-            cursor: None,
-        });
-    }
-
-    let response = client.search(query, entity_type, Some(PAGE_LIMIT), cursor, fuzzy)?;
-    let mut rows: Vec<ResultRow> = response
-        .data
-        .iter()
-        .map(|hit| search_hit_to_result_row(client, hit))
-        .filter(|row| search_result_type_is_visible(&row.entity_type))
-        .collect();
-    if entity_type.is_none() {
-        let mut artist_rows = artist_rows_from_result_rows(&rows, Some(query));
-        enrich_artist_rows(client, &mut artist_rows);
-        rows.splice(0..0, artist_rows);
-    }
-
-    Ok(SearchBatch {
-        rows,
-        has_more: response.pagination.has_more,
-        cursor: response.pagination.cursor,
-    })
-}
-
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-struct PartitionedSearchCursor {
-    feed: Option<String>,
-    track: Option<String>,
-}
-
-fn fetch_partitioned_search_batch(
-    client: &Client,
-    query: &str,
-    cursor: Option<&str>,
-    fuzzy: bool,
-) -> Result<SearchBatch> {
-    let parsed_cursor = cursor.and_then(decode_partitioned_search_cursor);
-    let feed_cursor = parsed_cursor
-        .as_ref()
-        .and_then(|cursor| cursor.feed.as_deref());
-    let track_cursor = parsed_cursor
-        .as_ref()
-        .and_then(|cursor| cursor.track.as_deref());
-
-    let feed_batch = if cursor.is_some() && feed_cursor.is_none() {
-        Ok(SearchBatch {
-            rows: Vec::new(),
-            has_more: false,
-            cursor: None,
-        })
-    } else {
-        fetch_typed_search_batch(client, query, "feed", feed_cursor, fuzzy)
-    };
-    let track_batch = if cursor.is_some() && track_cursor.is_none() {
-        Ok(SearchBatch {
-            rows: Vec::new(),
-            has_more: false,
-            cursor: None,
-        })
-    } else {
-        fetch_typed_search_batch(client, query, "track", track_cursor, fuzzy)
-    };
-
-    match (feed_batch, track_batch) {
-        (Ok(mut feeds), Ok(tracks)) => {
-            feeds.rows.extend(tracks.rows);
-            let mut rows = artist_rows_from_result_rows(&feeds.rows, Some(query));
-            enrich_artist_rows(client, &mut rows);
-            rows.extend(feeds.rows);
-            Ok(SearchBatch {
-                rows,
-                has_more: feeds.has_more || tracks.has_more,
-                cursor: encode_partitioned_search_cursor(
-                    feeds.cursor.as_deref(),
-                    tracks.cursor.as_deref(),
-                ),
-            })
-        }
-        (Ok(mut feeds), Err(_track_error)) => {
-            let mut rows = artist_rows_from_result_rows(&feeds.rows, Some(query));
-            enrich_artist_rows(client, &mut rows);
-            rows.append(&mut feeds.rows);
-            Ok(SearchBatch {
-                rows,
-                has_more: feeds.has_more,
-                cursor: encode_partitioned_search_cursor(feeds.cursor.as_deref(), None),
-            })
-        }
-        (Err(_feed_error), Ok(mut tracks)) => {
-            let mut rows = artist_rows_from_result_rows(&tracks.rows, Some(query));
-            enrich_artist_rows(client, &mut rows);
-            rows.append(&mut tracks.rows);
-            Ok(SearchBatch {
-                rows,
-                has_more: tracks.has_more,
-                cursor: encode_partitioned_search_cursor(None, tracks.cursor.as_deref()),
-            })
-        }
-        (Err(feed_error), Err(track_error)) => Err(anyhow!(
-            "feed search failed: {feed_error}; track search failed: {track_error}"
-        )),
-    }
-}
-
-fn fetch_typed_search_batch(
-    client: &Client,
-    query: &str,
-    entity_type: &str,
-    cursor: Option<&str>,
-    fuzzy: bool,
-) -> Result<SearchBatch> {
-    let response = client.search(query, Some(entity_type), Some(PAGE_LIMIT), cursor, fuzzy)?;
-    Ok(SearchBatch {
-        rows: response
-            .data
-            .iter()
-            .map(|hit| search_hit_to_result_row(client, hit))
-            .filter(|row| search_result_type_is_visible(&row.entity_type))
-            .collect(),
-        has_more: response.pagination.has_more,
-        cursor: response.pagination.cursor,
-    })
-}
-
-fn encode_partitioned_search_cursor(feed: Option<&str>, track: Option<&str>) -> Option<String> {
-    if feed.is_none() && track.is_none() {
-        return None;
-    }
-    serde_json::to_string(&PartitionedSearchCursor {
-        feed: feed.map(str::to_string),
-        track: track.map(str::to_string),
-    })
-    .ok()
-    .map(|cursor| format!("partitioned:{cursor}"))
-}
-
-fn decode_partitioned_search_cursor(cursor: &str) -> Option<PartitionedSearchCursor> {
-    cursor
-        .strip_prefix("partitioned:")
-        .and_then(|value| serde_json::from_str(value).ok())
-}
-
-fn fetch_local_library_search_rows(
-    conn: &Arc<Mutex<Connection>>,
-    query_service: &crate::application::ApplicationQueryService,
-    query: &str,
-) -> Result<Vec<ResultRow>> {
-    let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-    let tracks = query_service
-        .search_local_library_tracks(&db, query, None)
-        .map_err(|error| anyhow!("{error}"))?;
-    tracks
-        .into_iter()
-        .map(|track| {
-            let track_id = track.id;
-            let context =
-                feed_service::track_row_to_track_context_with_local_identity(&db, &track)?;
-            Ok(ResultRow::local_library_track(
-                track_id,
-                EntityDetail::Track(context.track),
-            ))
-        })
-        .collect()
-}
-
-fn fetch_artist_search_batch(
-    client: &Client,
-    query: &str,
-    cursor: Option<&str>,
-    fuzzy: bool,
-) -> Result<SearchBatch> {
-    let batch = fetch_partitioned_search_batch(client, query, cursor, fuzzy)?;
-
-    Ok(SearchBatch {
-        rows: {
-            let mut artist_rows = artist_rows_from_result_rows(&batch.rows, Some(query));
-            enrich_artist_rows(client, &mut artist_rows);
-            artist_rows
-        },
-        has_more: batch.has_more,
-        cursor: batch.cursor,
-    })
-}
-
-fn search_hit_to_result_row(client: &Client, hit: &SearchResult) -> ResultRow {
-    let detail = fetch_scoped_detail(
-        client,
-        &hit.entity_type,
-        &hit.entity_id,
-        hit.feed_guid.as_deref(),
-        None,
-    )
-    .ok()
-    .filter(|detail| {
-        matches!(
-            detail,
-            EntityDetail::Artist(_) | EntityDetail::Feed(_) | EntityDetail::Track(_)
-        )
-    });
-    if hit.entity_type == "track" {
-        ResultRow::musicindex_track(hit.entity_id.clone(), hit.feed_guid.clone(), detail)
-    } else {
-        ResultRow::new(hit.entity_type.clone(), hit.entity_id.clone(), detail)
-    }
-}
-
-fn enrich_artist_rows(client: &Client, rows: &mut [ResultRow]) {
-    for row in rows.iter_mut() {
-        if row.entity_type != "artist" {
-            continue;
-        }
-        let artist_name = match row.detail.as_ref() {
-            Some(EntityDetail::Artist(a)) => a
-                .name
-                .clone()
-                .or_else(|| a.artist_id.clone())
-                .unwrap_or_else(|| row.entity_id.clone()),
-            _ => row.entity_id.clone(),
-        };
-        if artist_name.is_empty() {
-            continue;
-        }
-        let Ok(response) = client.fetch_tracks_by_artist(&artist_name, Some(PAGE_LIMIT * 2), None)
-        else {
-            continue;
-        };
-        let tracks = response.data;
-        let distinct_feeds: BTreeSet<String> = tracks
-            .iter()
-            .filter_map(|t| {
-                t.feed_guid
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string)
-            })
-            .collect();
-        let track_total = tracks.len() as i32;
-        let feed_total = distinct_feeds.len() as i32;
-        let first_feed_image = distinct_feeds
-            .iter()
-            .next()
-            .and_then(|g| client.fetch_feed(g, None).ok())
-            .and_then(|f| f.image_url);
-
-        if let Some(EntityDetail::Artist(artist)) = row.detail.as_mut() {
-            artist.track_count = Some(track_total);
-            artist.feed_count = Some(feed_total);
-            if artist.image_url.is_none() {
-                artist.image_url = first_feed_image;
-            }
-        }
-    }
-}
-
 pub(super) fn should_show_inspector_back(stack_len: usize) -> bool {
     stack_len > 0
 }
 
-fn fetch_inspector_detail(
-    client: &Client,
-    entity_type: &str,
-    entity_id: &str,
-    feed_guid: Option<&str>,
-) -> Result<(InspectorDetail, Option<String>)> {
-    match entity_type {
-        "artist" => {
-            let response = client.fetch_tracks_by_artist(entity_id, Some(PAGE_LIMIT * 2), None)?;
-            let tracks = response.data;
-            let has_more_tracks = response.pagination.has_more;
-
-            let mut feed_order: Vec<String> = Vec::new();
-            let mut artist_track_count_by_feed: BTreeMap<String, i32> = BTreeMap::new();
-            for track in &tracks {
-                let Some(guid) = track
-                    .feed_guid
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                else {
-                    continue;
-                };
-                let key = guid.to_string();
-                let entry = artist_track_count_by_feed.entry(key.clone()).or_insert(0);
-                if *entry == 0 {
-                    feed_order.push(key);
-                }
-                *entry += 1;
-            }
-
-            let mut feeds: Vec<Feed> = Vec::with_capacity(feed_order.len());
-            for guid in &feed_order {
-                let fetched = client.fetch_feed(guid, None).ok();
-                let artist_tracks_in_feed =
-                    artist_track_count_by_feed.get(guid).copied().unwrap_or(0);
-                let feed = match fetched {
-                    Some(mut f) => {
-                        f.episode_count = Some(artist_tracks_in_feed);
-                        f
-                    }
-                    None => {
-                        let fallback_title = tracks
-                            .iter()
-                            .find(|t| t.feed_guid.as_deref() == Some(guid.as_str()))
-                            .and_then(|t| t.feed_title.clone());
-                        Feed {
-                            feed_guid: Some(guid.clone()),
-                            title: fallback_title,
-                            episode_count: Some(artist_tracks_in_feed),
-                            ..Feed::default()
-                        }
-                    }
-                };
-                feeds.push(feed);
-            }
-
-            let image_url = feeds
-                .iter()
-                .find_map(|f| nonempty_url(f.image_url.as_deref()).map(str::to_string))
-                .or_else(|| {
-                    tracks.iter().find_map(|track| {
-                        nonempty_url(track.image_url.as_deref()).map(str::to_string)
-                    })
-                });
-            let artist = Artist {
-                name: Some(entity_id.to_string()),
-                image_url: image_url.clone(),
-                track_count: Some(tracks.len() as i32),
-                feed_count: Some(feeds.len() as i32),
-                ..Artist::default()
-            };
-            Ok((
-                InspectorDetail::Artist(Box::new(ArtistContext {
-                    artist,
-                    tracks,
-                    feeds,
-                    has_more_tracks,
-                })),
-                image_url,
-            ))
-        }
-        "feed" => {
-            let mut feed = client.fetch_feed(
-                entity_id,
-                Some(
-                    "tracks,source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
-                ),
-            )?;
-            hydrate_feed_track_play_urls(client, &mut feed);
-            sanitize_feed_source_text(&mut feed);
-            let image_url = feed
-                .image_url
-                .as_deref()
-                .and_then(|u| nonempty_url(Some(u)))
-                .map(str::to_string);
-            Ok((InspectorDetail::Feed(Box::new(feed)), image_url))
-        }
-        "track" => {
-            let mut track = fetch_scoped_track(
-                client,
-                entity_id,
-                feed_guid,
-                Some(
-                    "source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes",
-                ),
-            )?;
-            let mut feed = track.feed_guid.as_deref().and_then(|feed_guid| {
-                client
-                    .fetch_feed(
-                        feed_guid,
-                        Some(
-                            "tracks,source_enclosures,source_links,source_ids,source_release_claims,payment_routes",
-                        ),
-                    )
-                    .ok()
-            });
-            enrich_track_context_from_rss(&mut track, feed.as_mut());
-            let mut track_context = TrackContext { track, feed };
-            sanitize_track_context_source_text(&mut track_context);
-            let image_url = track_context
-                .track
-                .image_url
-                .as_deref()
-                .and_then(|u| nonempty_url(Some(u)))
-                .map(str::to_string);
-            Ok((InspectorDetail::Track(Box::new(track_context)), image_url))
-        }
-        "publisher" => Ok((
-            InspectorDetail::Publisher(client.fetch_publisher(entity_id)?),
-            None,
-        )),
-        _ => Err(anyhow!("unknown inspector entity type: {entity_type}")),
-    }
-}
-
-fn fetch_scoped_detail(
-    client: &Client,
-    entity_type: &str,
-    entity_id: &str,
-    feed_guid: Option<&str>,
-    include: Option<&str>,
-) -> Result<EntityDetail> {
-    match entity_type {
-        "track" => Ok(EntityDetail::Track(fetch_scoped_track(
-            client, entity_id, feed_guid, include,
-        )?)),
-        _ => client.fetch_detail(entity_type, entity_id),
-    }
-}
-
-fn fetch_scoped_track(
-    client: &Client,
-    track_guid: &str,
-    feed_guid: Option<&str>,
-    include: Option<&str>,
-) -> Result<Track> {
-    match feed_guid.map(str::trim).filter(|guid| !guid.is_empty()) {
-        Some(feed_guid) => client.fetch_feed_track(feed_guid, track_guid, include),
-        None => client.fetch_track(track_guid, include),
-    }
-}
-
-fn resolve_podroll_feeds(client: &Client, feed_url: &str) -> Result<Vec<Feed>> {
-    let entries = rss::fetch_feed_podroll(feed_url)?;
-    let mut feeds: Vec<Feed> = Vec::new();
-    let mut seen: BTreeSet<String> = BTreeSet::new();
-    for entry in entries {
-        let guid = entry
-            .feed_guid
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
-        let key = guid
-            .map(str::to_string)
-            .or_else(|| entry.feed_url.clone())
-            .unwrap_or_default();
-        if key.is_empty() || !seen.insert(key) {
-            continue;
-        }
-        let fetched = guid.and_then(|g| client.fetch_feed(g, None).ok());
-        let feed = match fetched {
-            Some(f) => f,
-            None => Feed {
-                feed_guid: entry.feed_guid.clone(),
-                feed_url: entry.feed_url.clone(),
-                ..Feed::default()
-            },
-        };
-        feeds.push(feed);
-    }
-    Ok(feeds)
-}
-
-fn hydrate_feed_track_play_urls(client: &Client, feed: &mut Feed) {
-    let Some(tracks) = feed.tracks.as_mut() else {
-        return;
-    };
-
-    for track in tracks
-        .iter_mut()
-        .filter(|track| TrackVm::new(track).play_url().is_none())
-    {
-        let Some(track_guid) = nonempty_url(track.track_guid.as_deref()).map(str::to_string) else {
-            continue;
-        };
-        let Ok(hydrated) = fetch_scoped_track(
-            client,
-            &track_guid,
-            track.feed_guid.as_deref(),
-            Some("source_enclosures"),
-        ) else {
-            continue;
-        };
-        merge_track_play_fields(track, hydrated);
+fn inspector_detail_from_data(detail: InspectorDetailData) -> InspectorDetail {
+    match detail {
+        InspectorDetailData::Artist(ctx) => InspectorDetail::Artist(Box::new(ArtistContext {
+            artist: ctx.artist,
+            tracks: ctx.tracks,
+            feeds: ctx.feeds,
+            has_more_tracks: ctx.has_more_tracks,
+        })),
+        InspectorDetailData::Feed(feed) => InspectorDetail::Feed(feed),
+        InspectorDetailData::Track(track) => InspectorDetail::Track(track),
+        InspectorDetailData::Publisher(publisher) => InspectorDetail::Publisher(publisher),
     }
 }
 
@@ -2674,14 +2163,6 @@ pub(crate) fn detail_rows_from_strings(rows: Vec<(String, String)>) -> Vec<Detai
                 .into_any_element(),
         })
         .collect()
-}
-
-fn download_and_compare_track(
-    client: &Client,
-    entity_id: &str,
-    force_download: bool,
-) -> Result<TagCompareResult> {
-    subscribe_service::download_and_compare_track(client, entity_id, force_download)
 }
 
 enum SearchSubscribeRequest {
@@ -2734,8 +2215,4 @@ pub(super) fn persist_musicindex_artist_facts(
         identity_ingest::persist_musicindex_artist(&mut db, artist)?;
     }
     Ok(())
-}
-
-fn lookup_musicbrainz_track(client: &Client, entity_id: &str) -> Result<MusicBrainzLookupResult> {
-    subscribe_service::lookup_musicbrainz_track(client, entity_id)
 }
