@@ -496,6 +496,27 @@ const SHARED_UI_UNSCALED_TOKEN_PX_ALLOWLIST: &[SharedUiUnscaledTokenPxAllowance]
         note: "base value for IconSize::scaled; render path uses the scaled helper",
     }];
 
+const ADR0054_METADATA_STORAGE_CALLER_ALLOWLIST: &[&str] = &[
+    "src/db.rs",
+    "src/identity_ingest.rs",
+    "src/local_metadata.rs",
+    "src/sources.rs",
+    "src/feed_service.rs",
+    "src/library/app_impl.rs",
+];
+
+const ADR0054_FEED_FACT_KEYS: &[&str] = &[
+    "publisher_text",
+    "musicindex_release_kind",
+    "release_date",
+    "language",
+    "explicit",
+    "description",
+    "rss_podcast_medium",
+];
+
+const ADR0054_TRACK_FACT_KEYS: &[&str] = &["publisher_text", "description", "pub_date", "explicit"];
+
 #[derive(Debug)]
 struct DeprecatedVisualHelperBaseline {
     file: &'static str,
@@ -4935,13 +4956,23 @@ fn ui_and_view_models_do_not_access_metadata_source_fact_storage() {
         "LocalMetadataValue",
         "local_metadata_facts(",
         "replace_local_metadata_facts(",
+        "crate::local_metadata",
+        "local_metadata::",
     ];
     let mut files = screen_enforcement_files();
+    files.push("src/views.rs".to_owned());
+    files.extend(
+        rust_files_under("src/ui")
+            .into_iter()
+            .map(|path| rel_path(&path)),
+    );
     files.extend(
         rust_files_under("src/view_models")
             .into_iter()
             .map(|path| rel_path(&path)),
     );
+    files.sort();
+    files.dedup();
 
     let mut violations = Vec::new();
     for file in files {
@@ -4963,6 +4994,151 @@ fn ui_and_view_models_do_not_access_metadata_source_fact_storage() {
         "ADR 0054 UI/view-model metadata source-fact storage violations:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn metadata_source_fact_table_access_is_owned_by_db() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("entity_metadata_facts") && file != "src/db.rs" {
+                violations.push(format!(
+                    "{file}:{line_number}: ADR 0054 raw metadata fact table access belongs in src/db.rs: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0054 raw metadata fact table ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn metadata_source_fact_storage_helpers_have_explicit_callers() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            let calls_storage_helper = line.contains("local_metadata_facts(")
+                || line.contains("replace_local_metadata_facts(");
+            if calls_storage_helper
+                && !ADR0054_METADATA_STORAGE_CALLER_ALLOWLIST.contains(&file.as_str())
+            {
+                violations.push(format!(
+                    "{file}:{line_number}: ADR 0054 metadata fact storage helpers must stay at approved DB/ingest/read-model/service boundaries: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0054 metadata storage helper caller violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn metadata_source_fact_release_kind_and_rss_medium_stay_distinct() {
+    let identity_ingest = read_source(&manifest_path("src/identity_ingest.rs"));
+    let local_metadata = read_source(&manifest_path("src/local_metadata.rs"));
+    let compact_identity_ingest = compact_source(&identity_ingest);
+
+    assert!(
+        identity_ingest.contains("\"musicindex_release_kind\"")
+            && identity_ingest.contains("\"rss_podcast_medium\""),
+        "ADR 0054 ingest must keep both musicindex_release_kind and rss_podcast_medium source facts visible"
+    );
+    assert!(
+        !compact_identity_ingest.contains(
+            "fact_key:\"musicindex_release_kind\".to_owned(),value:LocalMetadataValue::Text(\"rss_podcast_medium\""
+        ),
+        "ADR 0054 rss_podcast_medium must not be collapsed into musicindex_release_kind ingest facts"
+    );
+    assert!(
+        local_metadata.contains("\"musicindex_release_kind\" if facts.release_kind.is_none()")
+            && !local_metadata.contains("\"rss_podcast_medium\" if facts.release_kind.is_none()"),
+        "ADR 0054 read-model release_kind hydration must use musicindex_release_kind only"
+    );
+}
+
+#[test]
+fn metadata_source_fact_keys_stay_owner_scoped() {
+    let identity_ingest = read_source(&manifest_path("src/identity_ingest.rs"));
+    let local_metadata = read_source(&manifest_path("src/local_metadata.rs"));
+    let views = read_source(&manifest_path("src/views.rs"));
+
+    let feed_ingest = source_between(
+        &identity_ingest,
+        "fn feed_metadata_facts_by_source(",
+        "fn track_metadata_facts(",
+    );
+    let track_ingest = source_between(
+        &identity_ingest,
+        "fn track_metadata_facts(",
+        "fn push_grouped_text_metadata_fact(",
+    );
+    let feed_hydration = source_between(
+        &local_metadata,
+        "fn feed_facts_from_rows(",
+        "fn track_facts_from_rows(",
+    );
+    let track_hydration = source_between(
+        &local_metadata,
+        "fn track_facts_from_rows(",
+        "fn text_value(",
+    );
+
+    assert_fact_key_set(
+        "ADR 0054 feed ingest",
+        feed_ingest,
+        ADR0054_FEED_FACT_KEYS,
+        &ADR0054_FEED_FACT_KEYS[..ADR0054_FEED_FACT_KEYS.len() - 1],
+    );
+    assert_fact_key_set(
+        "ADR 0054 track ingest",
+        track_ingest,
+        ADR0054_TRACK_FACT_KEYS,
+        ADR0054_TRACK_FACT_KEYS,
+    );
+    assert_fact_key_set(
+        "ADR 0054 feed hydration",
+        feed_hydration,
+        &ADR0054_FEED_FACT_KEYS[..ADR0054_FEED_FACT_KEYS.len() - 1],
+        &ADR0054_FEED_FACT_KEYS[..ADR0054_FEED_FACT_KEYS.len() - 1],
+    );
+    assert_fact_key_set(
+        "ADR 0054 track hydration",
+        track_hydration,
+        ADR0054_TRACK_FACT_KEYS,
+        ADR0054_TRACK_FACT_KEYS,
+    );
+
+    for required in [
+        "pub struct FeedMetadataFacts",
+        "pub publisher_text: Option<String>",
+        "pub release_kind: Option<String>",
+        "pub release_date: Option<i64>",
+        "pub language: Option<String>",
+        "pub explicit: Option<bool>",
+        "pub description: Option<String>",
+        "pub struct TrackMetadataFacts",
+        "pub publisher_text: Option<String>",
+        "pub description: Option<String>",
+        "pub pub_date: Option<i64>",
+        "pub explicit: Option<bool>",
+    ] {
+        assert!(
+            views.contains(required),
+            "ADR 0054 metadata fact view projection missing `{required}`"
+        );
+    }
 }
 
 #[test]
@@ -9559,6 +9735,80 @@ fn strip_line_comment(line: &str) -> &str {
 
 fn compact_source(source: &str) -> String {
     source.chars().filter(|ch| !ch.is_whitespace()).collect()
+}
+
+fn source_between<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+    let start_index = source
+        .find(start)
+        .unwrap_or_else(|| panic!("source section missing start marker `{start}`"));
+    let rest = &source[start_index..];
+    let end_index = rest
+        .find(end)
+        .unwrap_or_else(|| panic!("source section missing end marker `{end}`"));
+    &rest[..end_index]
+}
+
+fn assert_fact_key_set(context: &str, source: &str, allowed_keys: &[&str], required_keys: &[&str]) {
+    let allowed = allowed_keys.iter().copied().collect::<BTreeSet<_>>();
+    let required = required_keys.iter().copied().collect::<BTreeSet<_>>();
+    let mut found = BTreeSet::new();
+    let mut violations = Vec::new();
+
+    for literal in string_literals(source) {
+        if literal.starts_with("$.") || literal == "musicindex" {
+            continue;
+        }
+        if allowed.contains(literal.as_str()) {
+            found.insert(literal);
+        } else {
+            violations.push(format!(
+                "{context}: unsupported ADR 0054 metadata fact key `{literal}`"
+            ));
+        }
+    }
+
+    for key in required {
+        if !found.contains(key) {
+            violations.push(format!(
+                "{context}: missing approved ADR 0054 metadata fact key `{key}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0054 metadata fact key violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+fn string_literals(source: &str) -> Vec<String> {
+    let mut literals = Vec::new();
+    let mut chars = source.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '"' {
+            continue;
+        }
+
+        let mut literal = String::new();
+        let mut escaped = false;
+        for next in chars.by_ref() {
+            if escaped {
+                literal.push(next);
+                escaped = false;
+                continue;
+            }
+            match next {
+                '\\' => escaped = true,
+                '"' => break,
+                _ => literal.push(next),
+            }
+        }
+        literals.push(literal);
+    }
+
+    literals
 }
 
 fn public_function_signatures(source: &str) -> Vec<(usize, String)> {
