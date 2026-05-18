@@ -128,12 +128,6 @@ impl InspectorFrame {
     }
 }
 
-#[derive(Clone, Debug)]
-struct LibraryTrackCompare {
-    tag_compare: TagCompareResult,
-    track_context: TrackContext,
-}
-
 #[derive(Clone)]
 enum ThumbnailState {
     Loading,

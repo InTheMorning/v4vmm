@@ -1,35 +1,36 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use super::PlaylistActorState;
 use super::{
-    InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, LibraryTrackCompare,
-    PlaylistDetail, ThumbnailState,
+    InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, PlaylistDetail,
+    ThumbnailState,
 };
-use crate::api::Client as MusicIndexClient;
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::{
     ApplyFeedUpdates, CheckFeedStaleness, CheckSubscribedFeeds, SubscribeFeed,
 };
 use crate::application::commands::library_removal::RemoveFromLibrary;
 use crate::application::commands::metadata::{
-    LookupMusicBrainzAlbumReleases, LookupMusicBrainzTrack, StageMusicBrainzCandidate,
-    StageMusicBrainzTrack,
+    ApplyTrackId3Edits, LookupMusicBrainzAlbumReleases, LookupMusicBrainzTrack,
+    StageMusicBrainzCandidate, StageMusicBrainzTrack,
 };
 use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
 };
 use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
+use crate::application::queries::library::{
+    CompareLibraryTrack, FetchLibraryTrackContext, HydrateAlbumIdentity, LoadLibraryTracksTree,
+};
 use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext};
-use crate::audio_tags::write_id3v24_edits;
 use crate::db::{self, TrackRow};
-use crate::feed_service::{self, track_row_to_track_context, StagedMusicBrainzLookup};
+use crate::feed_service::{track_row_to_track_context, StagedMusicBrainzLookup};
 use crate::library_service;
 use crate::media::ImageCache;
 use crate::metadata::{
     auto_populated_pending_id3_edits, pending_id3_conflict_descriptions,
-    pending_id3_edits_for_apply, source_text_missing, MusicBrainzLookupResult, TrackContext,
+    pending_id3_edits_for_apply, MusicBrainzLookupResult,
 };
 use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
 use crate::presentation::present_command;
@@ -53,7 +54,7 @@ use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
-    description_line_count, AlbumNode, ArtistNode, FeedUpdateActionDisplay, FeedUpdateActionKind,
+    description_line_count, AlbumNode, FeedUpdateActionDisplay, FeedUpdateActionKind,
     FeedUpdateDisplay, FeedUpdatePhase, InspectorPanelKind, LibraryTrackActionVm,
     LibraryTrackInspectorState, LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbTrackStatus,
     PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay,
@@ -65,7 +66,7 @@ use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FrameNavigationEntry,
     FrameNavigationState, WorkspaceFrameId, WorkspaceLayout, WorkspaceModelError,
 };
-use crate::views::{EntityIdentityLinks, FeedMetadataFacts, FeedView, LocalIdentityFacts};
+use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
     div, prelude::*, px, AnyElement, ClickEvent, Context, Entity, FontWeight, Image,
     InteractiveElement, IntoElement, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render,
@@ -520,33 +521,18 @@ impl LibraryApp {
             self.refresh_selected_detail(cx);
         }
 
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<Self>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let conn = conn.lock().expect("lock db");
-                        library_service::library_tracks(&conn).map(|rows| {
-                            let count = rows.len();
-                            let tree = build_tree(&rows, &conn);
-                            (count, tree)
-                        })
-                    })
-                    .await;
-                let _ = this.update(cx, |this, cx| {
-                    match result {
-                        Ok((count, tree)) => {
-                            this.vm.replace_tree(tree);
-                            this.vm.finish_library_reload(count);
-                        }
-                        Err(err) => this.vm.set_error_status(err),
-                    }
-                    cx.notify();
-                });
+        let command = LoadLibraryTracksTree::new(Arc::clone(&self.conn));
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            |this, result, _cx| {
+                this.vm.replace_tree(result.tree);
+                this.vm.finish_library_reload(result.count);
             },
-        )
-        .detach();
+            |this, err, _cx| this.vm.set_error_status(err),
+        );
     }
 
     fn reload_playlists(&mut self) {
@@ -1180,48 +1166,35 @@ impl LibraryApp {
             return;
         };
 
-        let conn = Arc::clone(&self.conn);
-        let musicindex_endpoint = self.musicindex_endpoint.clone();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        hydrate_album_identity_facts(
-                            conn,
-                            &musicindex_endpoint,
-                            feed_id,
-                            &feed_guid,
-                        )
-                    })
-                    .await;
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        if let Ok(hydration) = result {
-                            this.vm
-                                .update_album_identity_facts(feed_id, &hydration.identity_facts);
-                            this.vm
-                                .update_album_metadata_facts(feed_id, &hydration.metadata_facts);
-                            this.vm.update_album_description(
-                                feed_id,
-                                hydration.description.as_deref(),
-                            );
-                            if let LibraryDetail::Album(album) = &mut this.detail {
-                                if album.feed_id == Some(feed_id) {
-                                    album.identity_facts = hydration.identity_facts;
-                                    *album.metadata_facts = hydration.metadata_facts;
-                                    album.description = hydration.description;
-                                }
-                            }
-                            cx.notify();
-                        }
-                    },
-                )
-                .ok();
+        let command = HydrateAlbumIdentity::new(
+            Arc::clone(&self.conn),
+            self.musicindex_endpoint.clone(),
+            feed_id,
+            feed_guid,
+        );
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, hydration, cx| {
+                this.vm
+                    .update_album_identity_facts(feed_id, &hydration.identity_facts);
+                this.vm
+                    .update_album_metadata_facts(feed_id, &hydration.metadata_facts);
+                this.vm
+                    .update_album_description(feed_id, hydration.description.as_deref());
+                if let LibraryDetail::Album(album) = &mut this.detail {
+                    if album.feed_id == Some(feed_id) {
+                        album.identity_facts = hydration.identity_facts;
+                        *album.metadata_facts = hydration.metadata_facts;
+                        album.description = hydration.description;
+                    }
+                }
+                cx.notify();
             },
-        )
-        .detach();
+            |_, _, _| {},
+        );
     }
 
     pub(crate) fn select_artist(&mut self, name: &str, _cx: &mut Context<Self>) {
@@ -1462,60 +1435,25 @@ impl LibraryApp {
 
     fn load_track_source_context(&mut self, track: TrackRow, cx: &mut Context<Self>) {
         let entity_id = track.id;
-        let musicindex_endpoint = self.musicindex_endpoint.clone();
-        let conn = Arc::clone(&self.conn);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        Self::fetch_library_track_context_with_local_fallback(
-                            &conn,
-                            &track,
-                            &musicindex_endpoint,
-                        )
-                    })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        if let Some(frame) = this.selected_track_frame_mut() {
-                            if frame.entity_id == entity_id {
-                                if let Ok(context) = result {
-                                    frame.source_context = Some(context);
-                                }
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
-            },
-        )
-        .detach();
-    }
-
-    fn fetch_library_track_context_with_local_fallback(
-        conn: &Arc<Mutex<Connection>>,
-        track: &TrackRow,
-        musicindex_endpoint: &str,
-    ) -> anyhow::Result<TrackContext> {
-        let local_context = conn
-            .lock()
-            .map_err(|_| anyhow::anyhow!("database lock poisoned"))
-            .and_then(|db| {
-                feed_service::track_row_to_track_context_with_local_identity(&db, track)
-            });
-        match feed_service::fetch_library_track_context(track, musicindex_endpoint) {
-            Ok(mut remote_context) => {
-                if let Ok(local_context) = local_context {
-                    apply_local_track_metadata_defaults(&mut remote_context, &local_context);
+        let command = FetchLibraryTrackContext::new(
+            Arc::clone(&self.conn),
+            track,
+            self.musicindex_endpoint.clone(),
+        );
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, context, _cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == entity_id {
+                        frame.source_context = Some(context);
+                    }
                 }
-                Ok(remote_context)
-            }
-            Err(_) => local_context,
-        }
+            },
+            |_, _, _| {},
+        );
     }
 
     #[expect(
@@ -1872,46 +1810,33 @@ impl LibraryApp {
         frame.id3_apply_error = None;
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        write_id3v24_edits(&path, &edits)?;
-                        subscribe_service::compare_downloaded_track_path(&path, &track_context)
-                    })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        if let Some(frame) = this.selected_track_frame_mut() {
-                            if frame.entity_id == entity_id {
-                                frame.applying_id3_edits = false;
-                                match result {
-                                    Ok(result) => {
-                                        frame.tag_compare = LazyPanel::Loaded(result);
-                                        frame.pending_id3_edits.clear();
-                                        frame.suppressed_auto_id3_edits.clear();
-                                        frame.id3_apply_error = None;
-                                    }
-                                    Err(error) => {
-                                        frame.id3_apply_error = Some(
-                                            TrackMetadataActionState::id3_apply_error_message(
-                                                error,
-                                            ),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = ApplyTrackId3Edits::new(path, edits, track_context);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, _cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == entity_id {
+                        frame.applying_id3_edits = false;
+                        frame.tag_compare = LazyPanel::Loaded(result);
+                        frame.pending_id3_edits.clear();
+                        frame.suppressed_auto_id3_edits.clear();
+                        frame.id3_apply_error = None;
+                    }
+                }
             },
-        )
-        .detach();
+            move |this, error, _cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == entity_id {
+                        frame.applying_id3_edits = false;
+                        frame.id3_apply_error =
+                            Some(TrackMetadataActionState::id3_apply_error_message(error));
+                    }
+                }
+            },
+        );
     }
 
     pub(crate) fn clear_pending_id3_edits(&mut self, cx: &mut Context<Self>) {
@@ -2044,39 +1969,9 @@ impl LibraryApp {
 
         let entity_id = frame.entity_id;
         let track = frame.track.clone();
-        let musicindex_endpoint = self.musicindex_endpoint.clone();
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { compare_library_track(&track, &musicindex_endpoint) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        if let Some(frame) = this.selected_track_frame_mut() {
-                            if frame.entity_id == entity_id {
-                                frame.tag_compare = match result {
-                                    Ok(result) => {
-                                        frame.source_context = Some(result.track_context);
-                                        LazyPanel::Loaded(result.tag_compare)
-                                    }
-                                    Err(error) => LazyPanel::Empty(
-                                        LibraryViewModel::deferred_panel_error_message(error),
-                                    ),
-                                };
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
-            },
-        )
-        .detach();
+        self.start_compare_library_track(entity_id, track, cx);
     }
 
     pub(crate) fn redownload_tag_compare(&mut self, cx: &mut Context<Self>) {
@@ -2097,39 +1992,40 @@ impl LibraryApp {
         frame.tag_compare = LazyPanel::Loading;
         let entity_id = frame.entity_id;
         let track = frame.track.clone();
-        let musicindex_endpoint = self.musicindex_endpoint.clone();
         cx.notify();
 
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let result = cx
-                    .background_executor()
-                    .spawn(async move { compare_library_track(&track, &musicindex_endpoint) })
-                    .await;
+        self.start_compare_library_track(entity_id, track, cx);
+    }
 
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        if let Some(frame) = this.selected_track_frame_mut() {
-                            if frame.entity_id == entity_id {
-                                frame.tag_compare = match result {
-                                    Ok(result) => {
-                                        frame.source_context = Some(result.track_context);
-                                        LazyPanel::Loaded(result.tag_compare)
-                                    }
-                                    Err(error) => LazyPanel::Empty(
-                                        LibraryViewModel::deferred_panel_error_message(error),
-                                    ),
-                                };
-                            }
-                        }
-                        cx.notify();
-                    },
-                )
-                .ok();
+    fn start_compare_library_track(
+        &mut self,
+        entity_id: i64,
+        track: TrackRow,
+        cx: &mut Context<Self>,
+    ) {
+        let command = CompareLibraryTrack::new(track, self.musicindex_endpoint.clone());
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, result, _cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == entity_id {
+                        frame.source_context = Some(result.track_context);
+                        frame.tag_compare = LazyPanel::Loaded(result.tag_compare);
+                    }
+                }
             },
-        )
-        .detach();
+            move |this, error, _cx| {
+                if let Some(frame) = this.selected_track_frame_mut() {
+                    if frame.entity_id == entity_id {
+                        frame.tag_compare =
+                            LazyPanel::Empty(LibraryViewModel::deferred_panel_error_message(error));
+                    }
+                }
+            },
+        );
     }
 
     pub(crate) fn toggle_musicbrainz_lookup(&mut self, cx: &mut Context<Self>) {
@@ -2577,97 +2473,7 @@ async fn musicbrainz_feed_per_track(
 }
 
 pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree {
-    let mut artist_map: BTreeMap<String, BTreeMap<String, Vec<TrackRow>>> = BTreeMap::new();
-    for track in tracks {
-        let row_vm = LibraryTrackRowVm::new(track, None);
-        let artist = row_vm.display_artist();
-        let album = row_vm.display_album();
-        artist_map
-            .entry(artist)
-            .or_default()
-            .entry(album)
-            .or_default()
-            .push(track.clone());
-    }
-
-    let subscribed_feeds: BTreeMap<i64, db::FeedRow> = db::subscribed_feeds(conn)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|feed| (feed.id, feed))
-        .collect();
-    let mut feed_url_cache: BTreeMap<i64, Option<String>> = BTreeMap::new();
-    let mut feed_language_cache: BTreeMap<i64, Option<String>> = BTreeMap::new();
-    let artists = artist_map
-        .into_iter()
-        .map(|(artist_name, album_map)| {
-            let albums = album_map
-                .into_iter()
-                .map(|(album_name, mut tracks)| {
-                    tracks.sort_by_key(|track| track.track_number);
-                    let feed_id = tracks.first().map(|t| t.feed_id);
-                    let feed_guid = tracks.first().and_then(|t| t.feed_guid.clone());
-                    let feed_url = feed_id.and_then(|fid| {
-                        subscribed_feeds.get(&fid).map_or_else(
-                            || {
-                                feed_url_cache
-                                    .entry(fid)
-                                    .or_insert_with(|| db::feed_url_by_id(conn, fid).ok().flatten())
-                                    .clone()
-                            },
-                            |feed| Some(feed.feed_url.clone()),
-                        )
-                    });
-                    let description = feed_id.and_then(|fid| {
-                        subscribed_feeds.get(&fid).and_then(|feed| {
-                            LibraryViewModel::display_description_text(feed.description.as_deref())
-                                .map(str::to_owned)
-                        })
-                    });
-                    let language = feed_id.and_then(|fid| {
-                        subscribed_feeds.get(&fid).map_or_else(
-                            || {
-                                feed_language_cache
-                                    .entry(fid)
-                                    .or_insert_with(|| {
-                                        db::feed_language_by_id(conn, fid).ok().flatten()
-                                    })
-                                    .clone()
-                            },
-                            |feed| feed.language.clone(),
-                        )
-                    });
-                    let image_href = tracks
-                        .iter()
-                        .find_map(|t| t.album_image_href.clone())
-                        .or_else(|| tracks.iter().find_map(|t| t.track_image_href.clone()));
-                    AlbumNode {
-                        name: album_name,
-                        feed_id,
-                        feed_guid,
-                        feed_url,
-                        language,
-                        description,
-                        image_href,
-                        identity_facts: feed_id
-                            .and_then(|fid| crate::local_identity::feed_facts(conn, fid).ok())
-                            .unwrap_or_default(),
-                        metadata_facts: Box::new(
-                            feed_id
-                                .and_then(|fid| crate::local_metadata::feed_facts(conn, fid).ok())
-                                .unwrap_or_default(),
-                        ),
-                        tracks,
-                    }
-                })
-                .collect();
-            ArtistNode {
-                name: artist_name,
-                albums,
-            }
-        })
-        .collect();
-
-    LibraryTree { artists }
+    crate::application::queries::library::build_tree(tracks, conn)
 }
 
 fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
@@ -2677,62 +2483,6 @@ fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
         facts.source_ids.clone(),
     );
     identity.website_url.is_some() && identity.nostr_npub.is_some()
-}
-
-#[derive(Debug)]
-struct AlbumHydration {
-    identity_facts: LocalIdentityFacts,
-    metadata_facts: FeedMetadataFacts,
-    description: Option<String>,
-}
-
-fn hydrate_album_identity_facts(
-    conn: Arc<Mutex<Connection>>,
-    musicindex_endpoint: &str,
-    feed_id: i64,
-    feed_guid: &str,
-) -> anyhow::Result<AlbumHydration> {
-    let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
-    let feed = client.fetch_feed(
-        feed_guid,
-        Some("source_links,source_ids,source_release_claims,source_contributors"),
-    )?;
-    let description = FeedView::from_api(feed.clone()).description;
-    let mut db = conn
-        .lock()
-        .map_err(|_| anyhow::anyhow!("database lock poisoned"))?;
-    if description.is_some() {
-        db::set_feed_description(&db, feed_id, description.as_deref())?;
-    }
-    crate::identity_ingest::persist_musicindex_feed(&mut db, feed_id, &feed)?;
-    let identity_facts = crate::local_identity::feed_facts(&db, feed_id)?;
-    let metadata_facts = crate::local_metadata::feed_facts(&db, feed_id)?;
-    Ok(AlbumHydration {
-        identity_facts,
-        metadata_facts,
-        description,
-    })
-}
-
-fn apply_local_track_metadata_defaults(remote: &mut TrackContext, local: &TrackContext) {
-    if source_text_missing(remote.track.publisher_text.as_deref()) {
-        remote
-            .track
-            .publisher_text
-            .clone_from(&local.track.publisher_text);
-    }
-    if source_text_missing(remote.track.description.as_deref()) {
-        remote
-            .track
-            .description
-            .clone_from(&local.track.description);
-    }
-    if remote.track.pub_date.is_none() {
-        remote.track.pub_date = local.track.pub_date;
-    }
-    if remote.track.explicit.is_none() {
-        remote.track.explicit = local.track.explicit;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3149,6 +2899,10 @@ impl Render for LibraryApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::queries::library::{
+        apply_local_track_metadata_defaults, fetch_library_track_context_with_local_fallback,
+    };
+    use crate::metadata::TrackContext;
 
     fn test_track(id: i64, feed_id: i64, is_in_library: bool) -> TrackRow {
         TrackRow {
@@ -3288,11 +3042,8 @@ mod tests {
         };
         let conn = Arc::new(Mutex::new(conn));
 
-        let context = LibraryApp::fetch_library_track_context_with_local_fallback(
-            &conn,
-            &track,
-            "http://127.0.0.1:9",
-        )?;
+        let context =
+            fetch_library_track_context_with_local_fallback(&conn, &track, "http://127.0.0.1:9")?;
 
         assert_eq!(
             context.track.description.as_deref(),
@@ -3482,21 +3233,4 @@ pub(crate) fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption
             })
         })
         .collect()
-}
-
-fn compare_library_track(
-    track: &TrackRow,
-    musicindex_endpoint: &str,
-) -> anyhow::Result<LibraryTrackCompare> {
-    let path = track
-        .local_path
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
-    let context = feed_service::fetch_library_track_context(track, musicindex_endpoint)
-        .unwrap_or_else(|_| track_row_to_track_context(track));
-    let tag_compare = subscribe_service::compare_downloaded_track_path(Path::new(path), &context)?;
-    Ok(LibraryTrackCompare {
-        tag_compare,
-        track_context: context,
-    })
 }

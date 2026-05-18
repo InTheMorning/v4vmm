@@ -806,6 +806,7 @@ fn local_feed_language_parity_is_loaded_through_read_model_path() {
     let db_source = read_source(&manifest_path("src/db.rs"));
     let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let library_query_source = read_source(&manifest_path("src/application/queries/library.rs"));
     let feed_detail_source = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
     let views_source = read_source(&manifest_path("src/views.rs"));
 
@@ -831,13 +832,13 @@ fn local_feed_language_parity_is_loaded_through_read_model_path() {
             "pub(crate) language: Option<String>",
         ),
         (
-            "src/library/app_impl.rs",
-            library_app_source.as_str(),
+            "src/application/queries/library.rs",
+            library_query_source.as_str(),
             "feed_language_cache",
         ),
         (
-            "src/library/app_impl.rs",
-            library_app_source.as_str(),
+            "src/application/queries/library.rs",
+            library_query_source.as_str(),
             "db::feed_language_by_id(conn, fid)",
         ),
         (
@@ -1382,16 +1383,24 @@ fn adr_0047_multiline_text_wrap_policy_does_not_collapse_metadata_grid() {
 
 #[test]
 fn adr_0047_library_album_hydration_updates_feed_description_source_fact() {
-    let source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let library_query_source = read_source(&manifest_path("src/application/queries/library.rs"));
     let mut violations = Vec::new();
 
     for required in [
         "source_release_claims",
         "FeedView::from_api(feed.clone()).description",
         "db::set_feed_description",
-        "update_album_description",
     ] {
-        if !source.contains(required) {
+        if !library_query_source.contains(required) {
+            violations.push(format!(
+                "src/application/queries/library.rs: ADR 0047 library album hydration must preserve feed description source data via `{required}`"
+            ));
+        }
+    }
+
+    for required in ["update_album_description"] {
+        if !library_app_source.contains(required) {
             violations.push(format!(
                 "src/library/app_impl.rs: ADR 0047 library album hydration must preserve feed description source data via `{required}`"
             ));
@@ -2329,6 +2338,7 @@ fn adr_0047_task_010_content_list_filter_chips_are_frame_local() {
 fn adr_0049_inspector_source_ownership_is_guarded() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let search_query_source = read_source(&manifest_path("src/application/queries/search.rs"));
     let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
     let search_results_mod_source =
@@ -2356,7 +2366,6 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "FrameNavigationEntry::IndexTrackDetail {",
         "render_index_detail_display(",
         "SearchResultsHeaderMode::Scoped {",
-        "INDEX_FEED_DETAIL_INCLUDE",
         "content_list_breadcrumb_labeler(",
         "render_index_feed_detail(feed, slots)",
         "hero_image: self.index_feed_hero_image(feed, cx)",
@@ -2375,6 +2384,13 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
                 "src/app.rs or src/app/search_dispatch.rs: ADR 0049 ContentList dispatch/Index activation missing `{required}`"
             ));
         }
+    }
+
+    if !search_query_source.contains("INDEX_FEED_DETAIL_INCLUDE") {
+        violations.push(
+            "src/application/queries/search.rs: ADR 0049 Index fetch query must request rich feed detail includes"
+                .to_string(),
+        );
     }
 
     for required in [
@@ -2550,6 +2566,7 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
 fn adr_0024_index_track_detail_uses_rich_track_view_path() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let search_query_source = read_source(&manifest_path("src/application/queries/search.rs"));
     let results_source = read_source(&manifest_path("src/view_models/search_results/results.rs"));
     let index_detail_source = read_source(&manifest_path(
         "src/view_models/search_results/index_detail.rs",
@@ -2573,9 +2590,9 @@ fn adr_0024_index_track_detail_uses_rich_track_view_path() {
         "TrackView::from_api(track.clone())",
         "display = display.with_remote_track(remote_track)",
     ] {
-        if !search_dispatch_source.contains(required) {
+        if !search_query_source.contains(required) {
             violations.push(format!(
-                "src/app/search_dispatch.rs: ADR 0024 Index track detail fetch path must attach TrackView from fetched api::Track; missing `{required}`"
+                "src/application/queries/search.rs: ADR 0024 Index track detail fetch path must attach TrackView from fetched api::Track; missing `{required}`"
             ));
         }
     }
@@ -9527,6 +9544,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
     }
 
     let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let library_query_source = read_source(&manifest_path("src/application/queries/library.rs"));
     for required in [
         "fn track_breadcrumb_display(&self) -> Option<BreadcrumbDisplay>",
         "pub(crate) fn select_frame_breadcrumb(",
@@ -9535,6 +9553,13 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         "frame.track.local_path = Some(path);",
         "frame.source_context = None;",
         "fn load_track_source_context(&mut self, track: TrackRow",
+    ] {
+        assert!(
+            library_source.contains(required),
+            "Library track detail must preserve breadcrumb/download contracts: `{required}`"
+        );
+    }
+    for required in [
         // Album hydration must skip writes when MusicIndex feed description
         // is placeholder-only; otherwise an already-good RSS description gets
         // wiped to NULL and the metadata grid renders empty source facts.
@@ -9542,8 +9567,8 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         "db::set_feed_description(&db, feed_id, description.as_deref())?;",
     ] {
         assert!(
-            library_source.contains(required),
-            "Library track detail must preserve breadcrumb/download contracts: `{required}`"
+            library_query_source.contains(required),
+            "Library track detail hydration must preserve source-fact contracts: `{required}`"
         );
     }
     assert!(
@@ -10512,9 +10537,9 @@ fn cx_spawn_debt_does_not_grow_outside_presentation_and_runtime() {
     let baseline = BTreeMap::from([
         ("src/app.rs", 1_usize),
         ("src/app/bootstrap.rs", 1),
-        ("src/app/search_dispatch.rs", 3),
+        ("src/app/search_dispatch.rs", 1),
         ("src/discover/app_impl.rs", 15),
-        ("src/library/app_impl.rs", 8),
+        ("src/library/app_impl.rs", 2),
     ]);
     let mut actual = BTreeMap::<String, usize>::new();
 
@@ -10685,6 +10710,7 @@ fn recent_feeds_route_is_reachable_from_toolbar() {
     let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
     let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let feed_query_source = read_source(&manifest_path("src/application/queries/feed.rs"));
     let app_source = read_source(&manifest_path("src/app.rs"));
     let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
 
@@ -10726,14 +10752,26 @@ fn recent_feeds_route_is_reachable_from_toolbar() {
     for required in [
         "pub(super) fn open_recent_feeds_in_content_list(",
         "pub(super) fn start_recent_feeds_load(",
-        "fetch_recent_feed_result_rows(",
-        "fetch_recent_feeds(Some(crate::api::PAGE_LIMIT), cursor)",
+        "FetchRecentFeedsPage::new(",
+        "present_command(",
         "content_list_nav_is_recent_feeds",
         "handle_recent_feed_selected(",
     ] {
         assert!(
             search_dispatch_source.contains(required),
             "src/app/search_dispatch.rs: Recent Feeds dispatch missing `{required}`"
+        );
+    }
+
+    for required in [
+        "pub(crate) struct FetchRecentFeedsPage",
+        "impl ApplicationCommand for FetchRecentFeedsPage",
+        "fn fetch_recent_feed_result_rows(",
+        "fetch_recent_feeds(Some(crate::api::PAGE_LIMIT), cursor)",
+    ] {
+        assert!(
+            feed_query_source.contains(required),
+            "src/application/queries/feed.rs: Recent Feeds query command missing `{required}`"
         );
     }
 
@@ -10845,6 +10883,7 @@ fn recent_feeds_route_preserves_scroll_pagination() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let feed_query_source = read_source(&manifest_path("src/application/queries/feed.rs"));
     let pagination_source = read_source(&manifest_path("src/view_models/pagination.rs"));
     let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
     let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
@@ -10894,16 +10933,26 @@ fn recent_feeds_route_preserves_scroll_pagination() {
         "start_recent_feeds_load(&mut self, append: bool",
         "detail.begin_load(append)",
         "let cursor = intent.into_cursor()",
-        "fetch_recent_feed_result_rows(",
-        "cursor.as_deref()",
+        "FetchRecentFeedsPage::new(",
+        "if append { loaded_row_count } else { 0 }",
         "detail.finish_load(batch, append)",
         "!append && detail.has_more()",
         "detail.fail_load(",
-        "start_index + index",
     ] {
         assert!(
             search_dispatch_source.contains(required),
             "src/app/search_dispatch.rs: Recent Feeds loader must request and append cursor pages; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "fn fetch_recent_feed_result_rows(",
+        "self.cursor.as_deref()",
+        "start_index + index",
+    ] {
+        assert!(
+            feed_query_source.contains(required),
+            "src/application/queries/feed.rs: Recent Feeds page query must preserve cursor fetch and append offsets; missing `{required}`"
         );
     }
 
@@ -11080,6 +11129,7 @@ fn adr_0048_forbids_secondary_search_frame_path() {
 #[test]
 fn adr_0048_index_search_is_async_and_vm_owned() {
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let search_query_source = read_source(&manifest_path("src/application/queries/search.rs"));
     let search_results_vm_source =
         read_source(&manifest_path("src/view_models/search_results/mod.rs"));
     let inspector_source = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
@@ -11099,20 +11149,31 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
 
     for required in [
         "fn start_index_search_for_query(",
-        "fetch_index_search_result_rows(",
-        "fetch_index_feed_result_rows(",
-        "fetch_index_track_result_rows(",
-        "Some(\"feed\")",
-        "Some(\"track\")",
-        "index_artist_candidates_from_track(",
-        ".background_executor()",
+        "FetchIndexSearchResults::new(",
+        "present_command(",
         "content_list_nav_matches_search",
         "detail.replace_index_results(rows)",
         "set_index_error(",
     ] {
         assert!(
             search_dispatch_source.contains(required),
-            "TopApp must async-load Index results and race-guard ContentList nav; missing `{required}`"
+            "TopApp must present Index search results and race-guard ContentList nav; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "pub(crate) struct FetchIndexSearchResults",
+        "impl ApplicationCommand for FetchIndexSearchResults",
+        "fetch_index_search_result_rows(",
+        "fetch_index_feed_result_rows(",
+        "fetch_index_track_result_rows(",
+        "Some(\"feed\")",
+        "Some(\"track\")",
+        "index_artist_candidates_from_track(",
+    ] {
+        assert!(
+            search_query_source.contains(required),
+            "src/application/queries/search.rs: Index search query command missing `{required}`"
         );
     }
 

@@ -1,14 +1,16 @@
 //! Search dispatch, Index async wiring, and drill-down helpers.
 
-use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use gpui::{prelude::*, AnyElement, Context, Image, SharedString};
 
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::SubscribeFeed;
 use crate::application::commands::playlist::CreatePlaylist;
+use crate::application::errors::command::CommandError;
+use crate::application::queries::feed::FetchRecentFeedsPage;
+use crate::application::queries::search::FetchIndexSearchResults;
 use crate::application::CommandContext;
 use crate::db;
 use crate::feed_service;
@@ -31,13 +33,8 @@ use crate::ui::shells::search_results_inspector::{
 };
 use crate::ui::shells::track::TrackDetailBehaviorSlots;
 use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
-use crate::view_models::recent_feeds::{
-    RecentFeedsPageBatch, RecentFeedsPageVm, RecentFeedsViewMode,
-};
-use crate::view_models::search_results::{
-    ArtistResultDisplay, FeedResultDisplay, IndexSearchResultRows, SearchResultItemId,
-    SearchResultOrigin, SearchResultsInspectorPageVm, SearchResultsTab, TrackResultDisplay,
-};
+use crate::view_models::recent_feeds::{RecentFeedsPageVm, RecentFeedsViewMode};
+use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId};
 use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
 
@@ -138,54 +135,51 @@ impl TopApp {
 
         let endpoint = self.endpoint_input.read(cx).value().to_string();
         let cursor = intent.into_cursor();
+        let command =
+            FetchRecentFeedsPage::new(endpoint, cursor, if append { loaded_row_count } else { 0 });
         cx.notify();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<TopApp>, cx: &mut gpui::AsyncApp| {
-                let recent_feeds_result = cx
-                    .background_executor()
-                    .spawn(async move {
-                        fetch_recent_feed_result_rows(
-                            &endpoint,
-                            cursor.as_deref(),
-                            if append { loaded_row_count } else { 0 },
-                        )
-                    })
-                    .await;
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, batch, cx| {
+                if !this.content_list_nav_is_recent_feeds() {
+                    return;
+                }
 
-                this.update(cx, move |this: &mut TopApp, cx: &mut Context<TopApp>| {
-                    if !this.content_list_nav_is_recent_feeds() {
-                        return;
-                    }
+                if this.recent_feeds_detail.is_none() {
+                    this.recent_feeds_detail = Some(RecentFeedsPageVm::loading());
+                }
 
-                    if this.recent_feeds_detail.is_none() {
-                        this.recent_feeds_detail = Some(RecentFeedsPageVm::loading());
+                if let Some(detail) = this.recent_feeds_detail.as_mut() {
+                    detail.finish_load(batch, append);
+                    let should_eager_prefetch = !append && detail.has_more();
+                    cx.notify();
+                    if should_eager_prefetch {
+                        this.start_recent_feeds_load(true, cx);
                     }
-
-                    if let Some(detail) = this.recent_feeds_detail.as_mut() {
-                        let mut should_eager_prefetch = false;
-                        match recent_feeds_result {
-                            Ok(batch) => {
-                                detail.finish_load(batch, append);
-                                should_eager_prefetch = !append && detail.has_more();
-                            }
-                            Err(error) => {
-                                detail.fail_load(
-                                    "Recent Feeds unavailable",
-                                    format!("{error:#}"),
-                                    append,
-                                );
-                            }
-                        }
-                        cx.notify();
-                        if should_eager_prefetch {
-                            this.start_recent_feeds_load(true, cx);
-                        }
-                    }
-                })
-                .ok();
+                }
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if !this.content_list_nav_is_recent_feeds() {
+                    return;
+                }
+
+                if this.recent_feeds_detail.is_none() {
+                    this.recent_feeds_detail = Some(RecentFeedsPageVm::loading());
+                }
+
+                if let Some(detail) = this.recent_feeds_detail.as_mut() {
+                    detail.fail_load(
+                        "Recent Feeds unavailable",
+                        command_error_detail(error),
+                        append,
+                    );
+                    cx.notify();
+                }
+            },
+        );
     }
 
     fn search_results_detail_for_query(&self, query: &str) -> SearchResultsInspectorPageVm {
@@ -209,41 +203,53 @@ impl TopApp {
 
         let endpoint = self.endpoint_input.read(cx).value().to_string();
         let request_query = query.to_string();
-        let update_query = request_query.clone();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<TopApp>, cx: &mut gpui::AsyncApp| {
-                let search_result = cx
-                    .background_executor()
-                    .spawn(async move { fetch_index_search_result_rows(&endpoint, &request_query) })
-                    .await;
+        let success_query = request_query.clone();
+        let error_query = request_query.clone();
+        let command = FetchIndexSearchResults::new(endpoint, request_query);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, rows, cx| {
+                if !this.content_list_nav_matches_search(&success_query) {
+                    return;
+                }
 
-                this.update(cx, move |this: &mut TopApp, cx: &mut Context<TopApp>| {
-                    if !this.content_list_nav_matches_search(&update_query) {
-                        return;
-                    }
+                if this.search_results_detail.is_none() {
+                    this.search_results_detail =
+                        Some(this.search_results_detail_for_query(&success_query));
+                }
 
-                    if this.search_results_detail.is_none() {
-                        this.search_results_detail =
-                            Some(this.search_results_detail_for_query(&update_query));
-                    }
-
-                    if let Some(detail) = this
-                        .search_results_detail
-                        .as_mut()
-                        .filter(|detail| detail.query() == update_query)
-                    {
-                        match search_result {
-                            Ok(rows) => detail.replace_index_results(rows),
-                            Err(error) => detail
-                                .set_index_error("Index search unavailable", format!("{error:#}")),
-                        }
-                        cx.notify();
-                    }
-                })
-                .ok();
+                if let Some(detail) = this
+                    .search_results_detail
+                    .as_mut()
+                    .filter(|detail| detail.query() == success_query)
+                {
+                    detail.replace_index_results(rows);
+                    cx.notify();
+                }
             },
-        )
-        .detach();
+            move |this, error, cx| {
+                if !this.content_list_nav_matches_search(&error_query) {
+                    return;
+                }
+
+                if this.search_results_detail.is_none() {
+                    this.search_results_detail =
+                        Some(this.search_results_detail_for_query(&error_query));
+                }
+
+                if let Some(detail) = this
+                    .search_results_detail
+                    .as_mut()
+                    .filter(|detail| detail.query() == error_query)
+                {
+                    detail.set_index_error("Index search unavailable", command_error_detail(error));
+                    cx.notify();
+                }
+            },
+        );
     }
 
     fn content_list_nav_matches_search(&self, query: &str) -> bool {
@@ -1207,480 +1213,19 @@ mod remote_detail_thumbnail_tests {
     }
 }
 
-fn fetch_index_search_result_rows(endpoint: &str, query: &str) -> Result<IndexSearchResultRows> {
-    let client = crate::api::Client::new_with_base_url(endpoint.to_string());
-    let mut rows = IndexSearchResultRows::default();
-    let mut artists = BTreeMap::new();
-
-    let feed_rows = fetch_index_feed_result_rows(&client, query);
-    let track_rows = fetch_index_track_result_rows(&client, query);
-
-    match (feed_rows, track_rows) {
-        (Ok(feeds), Ok(tracks)) => {
-            rows.feeds = feeds.rows;
-            rows.tracks = tracks.rows;
-            merge_index_artist_candidates(&mut artists, feeds.artists);
-            merge_index_artist_candidates(&mut artists, tracks.artists);
-        }
-        (Ok(feeds), Err(_track_error)) => {
-            rows.feeds = feeds.rows;
-            merge_index_artist_candidates(&mut artists, feeds.artists);
-        }
-        (Err(_feed_error), Ok(tracks)) => {
-            rows.tracks = tracks.rows;
-            merge_index_artist_candidates(&mut artists, tracks.artists);
-        }
-        (Err(feed_error), Err(track_error)) => {
-            return Err(anyhow!(
-                "feed search failed: {feed_error}; track search failed: {track_error}"
-            ));
-        }
+fn command_error_detail(error: CommandError) -> String {
+    match error {
+        CommandError::Playlist(message)
+        | CommandError::Feed(message)
+        | CommandError::Download(message)
+        | CommandError::Metadata(message)
+        | CommandError::Playback(message)
+        | CommandError::Query(message)
+        | CommandError::Other(message) => message,
+        CommandError::Cancelled => "command cancelled".to_string(),
     }
-
-    rows.artists = artists
-        .into_values()
-        .enumerate()
-        .map(|(index, artist)| {
-            (
-                index_item_id(INDEX_ARTIST_ID_BASE, index),
-                artist.into_display(),
-            )
-        })
-        .collect();
-    Ok(rows)
-}
-
-fn fetch_recent_feed_result_rows(
-    endpoint: &str,
-    cursor: Option<&str>,
-    start_index: usize,
-) -> Result<RecentFeedsPageBatch> {
-    let client = crate::api::Client::new_with_base_url(endpoint.to_string());
-    let response = client.fetch_recent_feeds(Some(crate::api::PAGE_LIMIT), cursor)?;
-    let rows = response
-        .data
-        .into_iter()
-        .enumerate()
-        .map(|(index, feed)| {
-            let row_index = start_index + index;
-            let feed_guid = recent_feed_activation_id(&feed, row_index);
-            let detail = feed
-                .feed_guid
-                .as_deref()
-                .and_then(|guid| {
-                    client
-                        .fetch_feed(guid, Some(INDEX_FEED_DETAIL_INCLUDE))
-                        .ok()
-                })
-                .unwrap_or(feed);
-            (
-                index_item_id(INDEX_FEED_ID_BASE, row_index),
-                index_feed_display(&feed_guid, Some(crate::api::EntityDetail::Feed(detail))),
-            )
-        })
-        .collect();
-
-    Ok(RecentFeedsPageBatch {
-        rows,
-        cursor: response.pagination.cursor,
-        has_more: response.pagination.has_more,
-    })
-}
-
-fn recent_feed_activation_id(feed: &crate::api::Feed, index: usize) -> String {
-    [
-        feed.feed_guid.as_deref(),
-        feed.feed_url.as_deref(),
-        feed.title.as_deref(),
-        feed.name.as_deref(),
-    ]
-    .into_iter()
-    .find_map(non_empty_str)
-    .map_or_else(|| format!("recent-feed-{index}"), str::to_string)
-}
-
-struct IndexFeedSearchRows {
-    rows: Vec<(SearchResultItemId, FeedResultDisplay)>,
-    artists: Vec<IndexArtistCandidate>,
-}
-
-struct IndexTrackSearchRows {
-    rows: Vec<(SearchResultItemId, TrackResultDisplay)>,
-    artists: Vec<IndexArtistCandidate>,
-}
-
-#[derive(Clone, Debug)]
-struct IndexArtistCandidate {
-    name: String,
-    feed_count: i32,
-    track_count: i32,
-    thumbnail_href: Option<String>,
-}
-
-impl IndexArtistCandidate {
-    fn new(
-        name: impl Into<String>,
-        feed_count: i32,
-        track_count: i32,
-        thumbnail_href: Option<String>,
-    ) -> Self {
-        Self {
-            name: name.into(),
-            feed_count,
-            track_count,
-            thumbnail_href,
-        }
-    }
-
-    fn merge(&mut self, other: Self) {
-        self.feed_count = self.feed_count.saturating_add(other.feed_count);
-        self.track_count = self.track_count.saturating_add(other.track_count);
-        if self.thumbnail_href.is_none() {
-            self.thumbnail_href = other.thumbnail_href;
-        }
-    }
-
-    fn into_display(self) -> ArtistResultDisplay {
-        let mut display = ArtistResultDisplay::new(
-            format!("index-artist:{}", self.name),
-            self.name,
-            SearchResultOrigin::Index,
-        );
-        let secondary = count_parts([
-            positive_count_label(self.feed_count, "feed"),
-            positive_count_label(self.track_count, "track"),
-        ]);
-        if !secondary.is_empty() {
-            display = display.with_secondary_text(secondary);
-        }
-        if let Some(thumbnail_href) = self.thumbnail_href {
-            display = display.with_thumbnail_href(thumbnail_href);
-        }
-        display
-    }
-}
-
-fn fetch_index_feed_result_rows(
-    client: &crate::api::Client,
-    query: &str,
-) -> Result<IndexFeedSearchRows> {
-    let response = client.search(
-        query,
-        Some("feed"),
-        Some(crate::api::PAGE_LIMIT),
-        None,
-        true,
-    )?;
-    let mut rows = Vec::new();
-    let mut artists = Vec::new();
-
-    for (index, hit) in response.data.iter().enumerate() {
-        let feed_guid = hit.feed_guid.as_deref().unwrap_or(&hit.entity_id);
-        let detail = client
-            .fetch_feed(feed_guid, Some(INDEX_FEED_DETAIL_INCLUDE))
-            .ok();
-        if let Some(feed) = detail.as_ref() {
-            if let Some(candidate) = index_artist_candidate_from_feed(feed, query) {
-                artists.push(candidate);
-            }
-        }
-        rows.push((
-            index_item_id(INDEX_FEED_ID_BASE, index),
-            index_feed_display(feed_guid, detail.map(crate::api::EntityDetail::Feed)),
-        ));
-    }
-
-    Ok(IndexFeedSearchRows { rows, artists })
-}
-
-fn fetch_index_track_result_rows(
-    client: &crate::api::Client,
-    query: &str,
-) -> Result<IndexTrackSearchRows> {
-    let response = client.search(
-        query,
-        Some("track"),
-        Some(crate::api::PAGE_LIMIT),
-        None,
-        true,
-    )?;
-    let mut rows = Vec::new();
-    let mut artists = Vec::new();
-
-    for (index, hit) in response.data.iter().enumerate() {
-        let detail =
-            fetch_index_track_detail(client, &hit.entity_id, hit.feed_guid.as_deref()).ok();
-        if let Some(track) = detail.as_ref() {
-            artists.extend(index_artist_candidates_from_track(track, query));
-        }
-        let feed_guid = hit
-            .feed_guid
-            .as_deref()
-            .or_else(|| detail.as_ref().and_then(|track| track.feed_guid.as_deref()))
-            .map(str::to_string);
-        rows.push((
-            index_item_id(INDEX_TRACK_ID_BASE, index),
-            index_track_display(
-                &hit.entity_id,
-                feed_guid.as_deref(),
-                detail.map(crate::api::EntityDetail::Track),
-            ),
-        ));
-    }
-
-    Ok(IndexTrackSearchRows { rows, artists })
-}
-
-fn index_artist_candidate_from_feed(
-    feed: &crate::api::Feed,
-    query: &str,
-) -> Option<IndexArtistCandidate> {
-    let name = non_empty_str(feed.release_artist.as_deref())?;
-    index_artist_name_matches_query(name, query).then(|| {
-        IndexArtistCandidate::new(
-            name,
-            1,
-            feed.episode_count.unwrap_or_default().max(0),
-            non_empty_str(feed.image_url.as_deref()).map(str::to_string),
-        )
-    })
-}
-
-fn index_artist_candidates_from_track(
-    track: &crate::api::Track,
-    query: &str,
-) -> Vec<IndexArtistCandidate> {
-    [
-        track.track_artist.as_deref(),
-        track.release_artist.as_deref(),
-    ]
-    .into_iter()
-    .filter_map(non_empty_str)
-    .collect::<BTreeSet<_>>()
-    .into_iter()
-    .filter(|name| index_artist_name_matches_query(name, query))
-    .map(|name| {
-        IndexArtistCandidate::new(
-            name,
-            0,
-            1,
-            non_empty_str(track.image_url.as_deref()).map(str::to_string),
-        )
-    })
-    .collect()
-}
-
-fn merge_index_artist_candidates(
-    artists: &mut BTreeMap<String, IndexArtistCandidate>,
-    candidates: Vec<IndexArtistCandidate>,
-) {
-    for candidate in candidates {
-        let key = candidate.name.to_lowercase();
-        if let Some(existing) = artists.get_mut(&key) {
-            existing.merge(candidate);
-        } else {
-            artists.insert(key, candidate);
-        }
-    }
-}
-
-const INDEX_ARTIST_ID_BASE: SearchResultItemId = 1_000_000_000;
-const INDEX_FEED_ID_BASE: SearchResultItemId = 2_000_000_000;
-const INDEX_TRACK_ID_BASE: SearchResultItemId = 3_000_000_000;
-const INDEX_FEED_DETAIL_INCLUDE: &str = "tracks,source_enclosures,source_links,source_ids,source_release_claims,source_contributors,payment_routes";
-
-fn index_item_id(base: SearchResultItemId, index: usize) -> SearchResultItemId {
-    let offset = u64::try_from(index).unwrap_or(SearchResultItemId::MAX.saturating_sub(base));
-    base.saturating_add(offset)
-}
-
-fn fetch_index_track_detail(
-    client: &crate::api::Client,
-    track_guid: &str,
-    feed_guid: Option<&str>,
-) -> Result<crate::api::Track> {
-    match feed_guid {
-        Some(feed_guid) if !feed_guid.trim().is_empty() => {
-            client.fetch_feed_track(feed_guid, track_guid, None)
-        }
-        _ => client.fetch_track(track_guid, None),
-    }
-}
-
-fn index_feed_display(
-    feed_guid: &str,
-    detail: Option<crate::api::EntityDetail>,
-) -> FeedResultDisplay {
-    let mut display = FeedResultDisplay::new(
-        format!("index-feed:{feed_guid}"),
-        feed_guid,
-        SearchResultOrigin::Index,
-    );
-
-    if let Some(crate::api::EntityDetail::Feed(feed)) = detail {
-        let remote_feed = crate::views::FeedView::from_api(feed.clone());
-        let label = feed
-            .title
-            .or(feed.name)
-            .or(feed.feed_guid)
-            .unwrap_or_else(|| feed_guid.to_string());
-        display = FeedResultDisplay::new(
-            format!("index-feed:{feed_guid}"),
-            label,
-            SearchResultOrigin::Index,
-        );
-
-        let secondary = count_parts([
-            feed.release_artist,
-            feed.episode_count.map(|count| count_label(count, "track")),
-            feed.publisher_text,
-        ]);
-        if !secondary.is_empty() {
-            display = display.with_secondary_text(secondary);
-        }
-        if let Some(image_url) = non_empty_string(feed.image_url) {
-            display = display.with_thumbnail_href(image_url);
-        }
-        display = display.with_remote_feed(remote_feed);
-    }
-
-    display
-}
-
-fn index_track_display(
-    track_guid: &str,
-    feed_guid: Option<&str>,
-    detail: Option<crate::api::EntityDetail>,
-) -> TrackResultDisplay {
-    let activation_id = feed_guid.map_or_else(
-        || format!("index-track:{track_guid}"),
-        |feed_guid| format!("index-track:{feed_guid}:{track_guid}"),
-    );
-    let mut display =
-        TrackResultDisplay::new(activation_id.clone(), track_guid, SearchResultOrigin::Index);
-
-    if let Some(crate::api::EntityDetail::Track(track)) = detail {
-        let remote_track = TrackView::from_api(track.clone());
-        let label = track
-            .title
-            .or(track.name)
-            .unwrap_or_else(|| track_guid.to_string());
-        display = TrackResultDisplay::new(activation_id, label, SearchResultOrigin::Index);
-
-        let secondary = count_parts([track.track_artist, track.release_artist, track.feed_title]);
-        if !secondary.is_empty() {
-            display = display.with_secondary_text(secondary);
-        }
-        if let Some(image_url) = non_empty_string(track.image_url) {
-            display = display.with_thumbnail_href(image_url);
-        }
-        display = display.with_remote_track(remote_track);
-    }
-
-    display
-}
-
-fn count_label(count: i32, singular: &str) -> String {
-    if count == 1 {
-        format!("1 {singular}")
-    } else {
-        format!("{count} {singular}s")
-    }
-}
-
-fn positive_count_label(count: i32, singular: &str) -> Option<String> {
-    (count > 0).then(|| count_label(count, singular))
-}
-
-fn count_parts<const N: usize>(parts: [Option<String>; N]) -> String {
-    parts
-        .into_iter()
-        .filter_map(non_empty_string)
-        .collect::<Vec<_>>()
-        .join(" - ")
-}
-
-fn index_artist_name_matches_query(name: &str, query: &str) -> bool {
-    let normalized_name = name.to_lowercase();
-    query
-        .split_whitespace()
-        .map(str::to_lowercase)
-        .all(|term| normalized_name.contains(&term))
 }
 
 fn non_empty_str(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
-}
-
-fn non_empty_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim();
-        (!trimmed.is_empty()).then(|| trimmed.to_string())
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::api::{Contributor, EntityDetail, SourceEntityId, SourceEntityLink, Track};
-
-    #[test]
-    fn index_track_display_attaches_fetched_track_view() {
-        let display = index_track_display(
-            "track-guid",
-            Some("feed-guid"),
-            Some(EntityDetail::Track(Track {
-                track_guid: Some("track-guid".to_string()),
-                feed_guid: Some("feed-guid".to_string()),
-                feed_title: Some("Remote Release".to_string()),
-                title: Some("Remote Track".to_string()),
-                duration_secs: Some(125),
-                pub_date: Some(1_712_275_200),
-                track_number: Some(7),
-                explicit: Some(true),
-                image_url: Some("https://example.test/track.jpg".to_string()),
-                track_artist: Some("Track Artist".to_string()),
-                source_contributors: Some(vec![Contributor {
-                    name: Some("Contributor".to_string()),
-                    role: Some("producer".to_string()),
-                    ..Contributor::default()
-                }]),
-                source_links: Some(vec![SourceEntityLink {
-                    link_type: Some("transcript".to_string()),
-                    url: Some("https://example.test/transcript.srt".to_string()),
-                    ..SourceEntityLink::default()
-                }]),
-                source_ids: Some(vec![SourceEntityId {
-                    scheme: Some("nostr_npub".to_string()),
-                    value: Some("npub1track".to_string()),
-                    ..SourceEntityId::default()
-                }]),
-                ..Track::default()
-            })),
-        );
-
-        assert_eq!(display.label, "Remote Track");
-        assert_eq!(display.secondary_text, "Track Artist - Remote Release");
-        assert_eq!(
-            display.thumbnail_href.as_deref(),
-            Some("https://example.test/track.jpg")
-        );
-
-        let track = display
-            .remote_track
-            .as_ref()
-            .expect("fetched Index detail should attach a TrackView to the result row");
-        assert_eq!(track.title.as_deref(), Some("Remote Track"));
-        assert_eq!(track.feed_title.as_deref(), Some("Remote Release"));
-        assert_eq!(track.track_number, Some(7));
-        assert_eq!(track.duration_secs, Some(125));
-        assert_eq!(track.pub_date, Some(1_712_275_200));
-        assert_eq!(track.explicit, Some(true));
-        assert_eq!(track.identity.nostr_npub.as_deref(), Some("npub1track"));
-        assert_eq!(track.contributors.len(), 1);
-        assert_eq!(
-            track.transcript_url.as_deref(),
-            Some("https://example.test/transcript.srt")
-        );
-    }
 }

@@ -1,14 +1,18 @@
 //! Metadata command family.
 
+use std::path::PathBuf;
+
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
 use crate::application::events::metadata::MetadataEvent;
 use crate::application::events::ApplicationEvent;
+use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
 use crate::db::TrackRow;
 use crate::feed_service::{self, StagedMusicBrainzLookup};
-use crate::metadata::MusicBrainzLookupResult;
+use crate::metadata::{MusicBrainzLookupResult, TagCompareResult, TrackContext};
 use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
+use crate::subscribe_service;
 
 use reqwest::blocking::Client as ReqwestClient;
 
@@ -132,6 +136,46 @@ impl ApplicationCommand for StageMusicBrainzCandidate {
             staged,
             metadata_track_tagged_events(self.track.id),
         ))
+    }
+}
+
+/// Applies ID3 edits and returns a fresh tag comparison.
+#[derive(Clone, Debug)]
+pub(crate) struct ApplyTrackId3Edits {
+    path: PathBuf,
+    edits: Vec<Id3v24Edit>,
+    track_context: TrackContext,
+}
+
+impl ApplyTrackId3Edits {
+    /// Creates an ID3 edit application command.
+    #[must_use]
+    pub(crate) const fn new(
+        path: PathBuf,
+        edits: Vec<Id3v24Edit>,
+        track_context: TrackContext,
+    ) -> Self {
+        Self {
+            path,
+            edits,
+            track_context,
+        }
+    }
+}
+
+impl ApplicationCommand for ApplyTrackId3Edits {
+    type Output = TagCompareResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        write_id3v24_edits(&self.path, &self.edits)
+            .map_err(|error| metadata_command_error(&error))?;
+        let comparison =
+            subscribe_service::compare_downloaded_track_path(&self.path, &self.track_context)
+                .map_err(|error| metadata_command_error(&error))?;
+        Ok(CommandOutcome::without_events(comparison))
     }
 }
 
