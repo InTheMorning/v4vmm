@@ -4837,6 +4837,33 @@ fn screens_do_not_reintroduce_raw_color_or_numeric_px_literals() {
     );
 }
 
+#[test]
+fn composites_do_not_reintroduce_raw_color_or_numeric_px_literals() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src/ui/composites") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("rgb(") {
+                violations.push(format!(
+                    "{file}:{line_number}: raw `rgb(...)` must live in tokens/theme, not composites: `{line}`"
+                ));
+            }
+            if contains_numeric_px_literal(&line) {
+                violations.push(format!(
+                    "{file}:{line_number}: numeric `px(...)` literal must be named in theme/layout tokens: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0034 composite literal boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Renders run inside an active `entity.update`, so re-reading the owning
 /// entity (or any chain rooted at `cx.entity()`) panics with
 /// `cannot read X while it is already being updated`. Forbid that pattern in
