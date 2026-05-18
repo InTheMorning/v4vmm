@@ -10391,8 +10391,6 @@ fn recent_feeds_route_preserves_artwork_slots() {
     let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
     let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
     let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
-    let result_row_shell_source =
-        read_source(&manifest_path("src/ui/shells/search_result_rows.rs"));
 
     for required in [
         "feed_thumbnail_sources(",
@@ -10426,7 +10424,12 @@ fn recent_feeds_route_preserves_artwork_slots() {
             "src/ui/shells/recent_feeds.rs: Recent Feeds renderer must consume resolved artwork slots; missing `{required}`"
         );
     }
+}
 
+#[test]
+fn shared_search_result_rows_accept_resolved_artwork_thumbnails() {
+    let result_row_shell_source =
+        read_source(&manifest_path("src/ui/shells/search_result_rows.rs"));
     assert!(
         result_row_shell_source.contains(".image(thumbnail)"),
         "src/ui/shells/search_result_rows.rs: shared result rows must accept resolved artwork slots"
