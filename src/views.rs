@@ -553,7 +553,7 @@ impl FeedView {
             artwork: artwork_from_url(&image_url),
             identity,
             release_date: None,
-            language: None,
+            language: nonempty_owned(f.language),
             explicit: None,
             episode_count: Some(tracks.len() as i32),
             release_kind: None,
@@ -974,6 +974,40 @@ mod tests {
 
         assert_eq!(view.artist, Some("Mike Pietro".into()));
         assert_eq!(view.tracks.len(), 2);
+    }
+
+    #[test]
+    fn from_local_feed_hydrates_language_for_release_summary_facts() {
+        use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
+
+        let feed = db::FeedRow {
+            id: 1,
+            feed_url: "http://example.com".into(),
+            language: Some(" en ".into()),
+            ..Default::default()
+        };
+
+        let view = FeedView::from_local(feed, Vec::new());
+        let facts = ReleaseDetailVm::new(&view, EntitySurfaceContext::Library).summary_facts();
+
+        assert_eq!(view.language.as_deref(), Some("en"));
+        assert!(facts
+            .iter()
+            .any(|fact| fact.key == "Language" && fact.value == "en"));
+    }
+
+    #[test]
+    fn from_local_feed_filters_empty_language() {
+        let feed = db::FeedRow {
+            id: 1,
+            feed_url: "http://example.com".into(),
+            language: Some("   ".into()),
+            ..Default::default()
+        };
+
+        let view = FeedView::from_local(feed, Vec::new());
+
+        assert_eq!(view.language, None);
     }
 
     #[test]

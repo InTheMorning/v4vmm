@@ -12,6 +12,7 @@ pub struct FeedRow {
     pub feed_url: String,
     pub feed_guid: Option<String>,
     pub title: Option<String>,
+    pub language: Option<String>,
     pub description: Option<String>,
     pub album_image_href: Option<String>,
     pub is_subscribed: bool,
@@ -65,7 +66,7 @@ pub struct PlaybackSessionRow {
 pub fn subscribed_feeds(conn: &Connection) -> Result<Vec<FeedRow>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, feed_url, feed_guid, title, description, album_image_href, is_subscribed
+            "SELECT id, feed_url, feed_guid, title, language, description, album_image_href, is_subscribed
              FROM feeds WHERE is_subscribed = 1 ORDER BY title COLLATE NOCASE",
         )
         .context("prepare subscribed_feeds")?;
@@ -77,9 +78,10 @@ pub fn subscribed_feeds(conn: &Connection) -> Result<Vec<FeedRow>> {
                 feed_url: row.get(1)?,
                 feed_guid: row.get(2)?,
                 title: row.get(3)?,
-                description: row.get(4)?,
-                album_image_href: row.get(5)?,
-                is_subscribed: row.get::<_, i64>(6)? != 0,
+                language: row.get(4)?,
+                description: row.get(5)?,
+                album_image_href: row.get(6)?,
+                is_subscribed: row.get::<_, i64>(7)? != 0,
             })
         })
         .context("query subscribed_feeds")?
@@ -285,6 +287,17 @@ pub fn feed_url_by_id(conn: &Connection, feed_id: i64) -> Result<Option<String>>
     )
     .optional()
     .context("query feed_url_by_id")
+}
+
+pub fn feed_language_by_id(conn: &Connection, feed_id: i64) -> Result<Option<String>> {
+    conn.query_row(
+        "SELECT language FROM feeds WHERE id = ?1",
+        [feed_id],
+        |row| row.get::<_, Option<String>>(0),
+    )
+    .optional()
+    .map(Option::flatten)
+    .context("query feed_language_by_id")
 }
 
 pub fn feed_id_by_url(conn: &Connection, feed_url: &str) -> Result<Option<i64>> {
@@ -2744,6 +2757,27 @@ mod tests {
             rusqlite::params!["http://test.feed", "Test Feed"],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    #[test]
+    fn subscribed_feeds_loads_persisted_language() -> Result<()> {
+        let conn = setup_test_db()?;
+        conn.execute(
+            "INSERT INTO feeds (feed_url, title, language, is_subscribed)
+             VALUES (?1, ?2, ?3, 1)",
+            rusqlite::params!["http://language.test/feed.xml", "Language Feed", "en"],
+        )?;
+
+        let rows = subscribed_feeds(&conn)?;
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].language.as_deref(), Some("en"));
+        assert_eq!(
+            feed_language_by_id(&conn, rows[0].id)?.as_deref(),
+            Some("en")
+        );
+
+        Ok(())
     }
 
     fn create_test_track(conn: &Connection, feed_id: i64) -> Result<i64> {

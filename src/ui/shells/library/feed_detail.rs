@@ -55,6 +55,7 @@ pub(crate) fn render_library_feed_detail(
         feed_url: album.feed_url_for_detail(),
         feed_guid: album.feed_guid.clone(),
         title: Some(album.name.clone()),
+        language: album.language.clone(),
         description: LibraryViewModel::display_description_text(album.description.as_deref())
             .map(str::to_owned),
         album_image_href: album.image_href.clone(),

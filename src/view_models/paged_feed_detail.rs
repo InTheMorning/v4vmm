@@ -133,6 +133,7 @@ mod tests {
             feed_url: format!("https://example.test/{id}.xml"),
             feed_guid: None,
             title: Some(title.to_string()),
+            language: None,
             description: None,
             album_image_href: None,
             is_subscribed: true,

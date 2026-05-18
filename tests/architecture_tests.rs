@@ -608,6 +608,73 @@ fn view_models_do_not_import_gpui_or_screen_layers() {
 }
 
 #[test]
+fn local_feed_language_parity_is_loaded_through_read_model_path() {
+    let db_source = read_source(&manifest_path("src/db.rs"));
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let feed_detail_source = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    let views_source = read_source(&manifest_path("src/views.rs"));
+
+    for (source_name, source, required) in [
+        (
+            "src/db.rs",
+            db_source.as_str(),
+            "pub language: Option<String>",
+        ),
+        (
+            "src/db.rs",
+            db_source.as_str(),
+            "title, language, description",
+        ),
+        (
+            "src/db.rs",
+            db_source.as_str(),
+            "pub fn feed_language_by_id",
+        ),
+        (
+            "src/view_models/library.rs",
+            library_vm_source.as_str(),
+            "pub(crate) language: Option<String>",
+        ),
+        (
+            "src/library/app_impl.rs",
+            library_app_source.as_str(),
+            "feed_language_cache",
+        ),
+        (
+            "src/library/app_impl.rs",
+            library_app_source.as_str(),
+            "db::feed_language_by_id(conn, fid)",
+        ),
+        (
+            "src/library/app_impl.rs",
+            library_app_source.as_str(),
+            "db::feed_language_by_id(&conn, feed_id)",
+        ),
+        (
+            "src/ui/shells/library/feed_detail.rs",
+            feed_detail_source.as_str(),
+            "language: album.language.clone()",
+        ),
+        (
+            "src/views.rs",
+            views_source.as_str(),
+            "language: nonempty_owned(f.language)",
+        ),
+    ] {
+        assert!(
+            source.contains(required),
+            "{source_name}: local feed language parity must route through FeedRow, subscribed_feeds, AlbumNode, and FeedView; missing `{required}`"
+        );
+    }
+
+    assert!(
+        !feed_detail_source.contains("\"Language\""),
+        "src/ui/shells/library/feed_detail.rs must not infer or label feed language in the renderer"
+    );
+}
+
+#[test]
 fn workspace_view_model_contract_is_gpui_free() {
     let source = workspace_vm_source();
     let mut violations = Vec::new();

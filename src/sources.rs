@@ -172,7 +172,7 @@ impl MetadataSource for LocalSource {
         let tracks = db::feed_tracks(&conn, id)?;
         let feed_row: db::FeedRow = conn
             .query_row(
-                "SELECT id, feed_url, feed_guid, title, description, album_image_href, is_subscribed FROM feeds WHERE id = ?1",
+                "SELECT id, feed_url, feed_guid, title, language, description, album_image_href, is_subscribed FROM feeds WHERE id = ?1",
                 rusqlite::params![id],
                 |row| {
                     Ok(db::FeedRow {
@@ -180,9 +180,10 @@ impl MetadataSource for LocalSource {
                         feed_url: row.get(1)?,
                         feed_guid: row.get(2)?,
                         title: row.get(3)?,
-                        description: row.get(4)?,
-                        album_image_href: row.get(5)?,
-                        is_subscribed: row.get::<_, i64>(6)? != 0,
+                        language: row.get(4)?,
+                        description: row.get(5)?,
+                        album_image_href: row.get(6)?,
+                        is_subscribed: row.get::<_, i64>(7)? != 0,
                     })
                 },
             )
@@ -219,7 +220,7 @@ impl MetadataSource for LocalSource {
         for (_feed_id, tracks) in by_feed {
             let feed_row: Option<db::FeedRow> = conn
                 .query_row(
-                    "SELECT id, feed_url, feed_guid, title, description, album_image_href, is_subscribed FROM feeds WHERE id = ?1",
+                    "SELECT id, feed_url, feed_guid, title, language, description, album_image_href, is_subscribed FROM feeds WHERE id = ?1",
                     rusqlite::params![tracks.first().map(|t| t.feed_id)],
                     |row| {
                         Ok(db::FeedRow {
@@ -227,9 +228,10 @@ impl MetadataSource for LocalSource {
                             feed_url: row.get(1)?,
                             feed_guid: row.get(2)?,
                             title: row.get(3)?,
-                            description: row.get(4)?,
-                            album_image_href: row.get(5)?,
-                            is_subscribed: row.get::<_, i64>(6)? != 0,
+                            language: row.get(4)?,
+                            description: row.get(5)?,
+                            album_image_href: row.get(6)?,
+                            is_subscribed: row.get::<_, i64>(7)? != 0,
                         })
                     },
                 )

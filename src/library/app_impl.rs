@@ -1141,6 +1141,7 @@ impl LibraryApp {
         let conn = self.conn.lock().ok()?;
         let tracks = db::feed_tracks(&conn, feed_id).ok()?;
         let first = tracks.first()?;
+        let language = db::feed_language_by_id(&conn, feed_id).ok().flatten();
         Some(AlbumNode {
             name: first
                 .feed_title
@@ -1150,6 +1151,7 @@ impl LibraryApp {
             feed_id: Some(feed_id),
             feed_guid: first.feed_guid.clone(),
             feed_url: db::feed_url_by_id(&conn, feed_id).ok().flatten(),
+            language,
             description: None,
             image_href: first
                 .album_image_href
@@ -2543,6 +2545,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
         .map(|feed| (feed.id, feed))
         .collect();
     let mut feed_url_cache: BTreeMap<i64, Option<String>> = BTreeMap::new();
+    let mut feed_language_cache: BTreeMap<i64, Option<String>> = BTreeMap::new();
     let artists = artist_map
         .into_iter()
         .map(|(artist_name, album_map)| {
@@ -2569,6 +2572,19 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                                 .map(str::to_owned)
                         })
                     });
+                    let language = feed_id.and_then(|fid| {
+                        subscribed_feeds.get(&fid).map_or_else(
+                            || {
+                                feed_language_cache
+                                    .entry(fid)
+                                    .or_insert_with(|| {
+                                        db::feed_language_by_id(conn, fid).ok().flatten()
+                                    })
+                                    .clone()
+                            },
+                            |feed| feed.language.clone(),
+                        )
+                    });
                     let image_href = tracks
                         .iter()
                         .find_map(|t| t.album_image_href.clone())
@@ -2578,6 +2594,7 @@ pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree 
                         feed_id,
                         feed_guid,
                         feed_url,
+                        language,
                         description,
                         image_href,
                         identity_facts: feed_id
@@ -3072,11 +3089,42 @@ mod tests {
             feed_id: Some(feed_id),
             feed_guid: Some("feed-guid".into()),
             feed_url: Some("https://example.test/feed.xml".into()),
+            language: None,
             description: None,
             image_href: Some("https://example.test/art.png".into()),
             identity_facts: LocalIdentityFacts::default(),
             tracks,
         }
+    }
+
+    #[test]
+    fn build_tree_loads_feed_language_for_unsubscribed_local_feed() -> anyhow::Result<()> {
+        let conn = Connection::open_in_memory()?;
+        db::init_schema(&conn)?;
+        conn.execute(
+            "INSERT INTO feeds (feed_url, title, language, is_subscribed)
+             VALUES (?1, ?2, ?3, 0)",
+            rusqlite::params!["https://example.test/feed.xml", "Example Feed", "fr"],
+        )?;
+        let feed_id = conn.last_insert_rowid();
+        let track = TrackRow {
+            id: 1,
+            feed_id,
+            item_guid: "track-1".into(),
+            track_title: Some("Track 1".into()),
+            artist_name: Some("Example Artist".into()),
+            album_title: Some("Example Feed".into()),
+            is_in_library: true,
+            ..TrackRow::default()
+        };
+
+        let tree = build_tree(&[track], &conn);
+        let album = &tree.artists[0].albums[0];
+
+        assert_eq!(album.feed_id, Some(feed_id));
+        assert_eq!(album.language.as_deref(), Some("fr"));
+
+        Ok(())
     }
 
     fn test_inspector_frame(track: TrackRow) -> InspectorFrame {
