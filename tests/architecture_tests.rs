@@ -4279,7 +4279,7 @@ fn global_search_replaces_screen_local_search_chrome() {
     let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
     let search_app_source = read_source(&manifest_path("src/discover/app_impl.rs"));
     let search_shell_source = read_source(&manifest_path("src/ui/shells/discover/search_input.rs"));
-    let search_vm_source = read_source(&manifest_path("src/view_models/search.rs"));
+    let search_vm_source = search_vm_source();
     let mut violations = Vec::new();
 
     if !app_source.contains("fn on_global_search_event(") {
@@ -4411,7 +4411,7 @@ fn global_search_replaces_screen_local_search_chrome() {
     ] {
         if !search_vm_source.contains(required) {
             violations.push(format!(
-                "src/view_models/search.rs: grouped search VM contract missing `{required}`"
+                "src/view_models/search/: grouped search VM contract missing `{required}`"
             ));
         }
     }
@@ -4446,6 +4446,103 @@ fn global_search_replaces_screen_local_search_chrome() {
     assert!(
         violations.is_empty(),
         "ADR 0043 duplicate-search replacement violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
+fn adr_0055_search_view_model_is_decomposed_under_module_tree() {
+    let mut violations = Vec::new();
+    let legacy_path = manifest_path("src/view_models/search.rs");
+    if legacy_path.exists() {
+        violations.push(
+            "src/view_models/search.rs: ADR 0055 retired the single-file search VM".to_string(),
+        );
+    }
+
+    let mod_path = manifest_path("src/view_models/search/mod.rs");
+    if !mod_path.is_file() {
+        violations.push("src/view_models/search/mod.rs: ADR 0055 module root missing".to_string());
+    }
+
+    let mod_source = read_source(&mod_path);
+    for required in [
+        "mod actions;",
+        "mod controls;",
+        "mod feed_detail;",
+        "mod lazy;",
+        "mod recent;",
+        "mod results;",
+        "mod track;",
+        "mod tests;",
+    ] {
+        if !mod_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search/mod.rs: ADR 0055 module wiring missing `{required}`"
+            ));
+        }
+    }
+
+    for required_file in [
+        "src/view_models/search/actions.rs",
+        "src/view_models/search/controls.rs",
+        "src/view_models/search/feed_detail.rs",
+        "src/view_models/search/lazy.rs",
+        "src/view_models/search/recent.rs",
+        "src/view_models/search/results.rs",
+        "src/view_models/search/track.rs",
+        "src/view_models/search/tests.rs",
+    ] {
+        if !manifest_path(required_file).is_file() {
+            violations.push(format!("{required_file}: ADR 0055 expected module missing"));
+        }
+    }
+
+    for (file, source) in search_vm_sources() {
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in VIEW_MODEL_FORBIDDEN_PATTERNS {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{file}:{line_number}: search view-model modules must remain GPUI-free and renderer-free; found `{forbidden}` in `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    let private_modules = [
+        "actions",
+        "common",
+        "controls",
+        "feed_detail",
+        "lazy",
+        "recent",
+        "results",
+        "track",
+    ];
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        if file.starts_with("src/view_models/search/") {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for module in private_modules {
+                if line.contains(&format!("view_models::search::{module}::"))
+                    || (line.contains("view_models::search::{")
+                        && line.contains(&format!("{module}::")))
+                {
+                    violations.push(format!(
+                        "{file}:{line_number}: callers must import through `crate::view_models::search`, not deep private search module `{module}`: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0055 search VM decomposition violations:\n{}",
         violations.join("\n")
     );
 }
@@ -5407,7 +5504,6 @@ fn screens_do_not_call_migrated_playback_paths() {
 fn adr_0047_membership_buttons_use_download_remove_vocabulary() {
     let checked_files = [
         "src/view_models/library.rs",
-        "src/view_models/search.rs",
         "src/view_models/entity_detail.rs",
         "src/ui/shells/discover/actions.rs",
         "src/ui/shells/library/feed_detail.rs",
@@ -5430,6 +5526,15 @@ fn adr_0047_membership_buttons_use_download_remove_vocabulary() {
         let path = manifest_path(file);
         let contents = fs::read_to_string(&path)
             .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        for pattern in forbidden {
+            if contents.contains(pattern) {
+                violations.push(format!(
+                    "{file}: membership action buttons must use Download/Remove vocabulary; found `{pattern}`"
+                ));
+            }
+        }
+    }
+    for (file, contents) in search_vm_sources() {
         for pattern in forbidden {
             if contents.contains(pattern) {
                 violations.push(format!(
@@ -5716,7 +5821,7 @@ fn interactive_composites_carry_accessibility_labels() {
         ("ListRow", "src/ui/composites/list_row.rs", "a11y_label"),
         (
             "RecentFeedTileDisplay",
-            "src/view_models/search.rs",
+            "src/view_models/search/recent.rs",
             "a11y_label",
         ),
         (
@@ -10118,6 +10223,25 @@ fn workspace_vm_source() -> String {
     .join("\n")
 }
 
+fn search_vm_sources() -> Vec<(String, String)> {
+    rust_files_under("src/view_models/search")
+        .into_iter()
+        .map(|path| {
+            let file = rel_path(&path);
+            let source = read_source(&path);
+            (file, source)
+        })
+        .collect()
+}
+
+fn search_vm_source() -> String {
+    search_vm_sources()
+        .into_iter()
+        .map(|(_, source)| source)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn manifest_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
@@ -10460,7 +10584,7 @@ fn recent_feeds_route_preserves_scroll_pagination() {
     let pagination_source = read_source(&manifest_path("src/view_models/pagination.rs"));
     let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
     let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
-    let legacy_search_vm_source = read_source(&manifest_path("src/view_models/search.rs"));
+    let search_vm_source = search_vm_source();
 
     for required in [
         "pub(crate) struct RecentFeedsPageBatch",
@@ -10544,8 +10668,8 @@ fn recent_feeds_route_preserves_scroll_pagination() {
             "src/view_models/pagination.rs: shared pagination policy missing `{required}`"
         );
         assert!(
-            !legacy_search_vm_source.contains(required),
-            "src/view_models/search.rs must not own shared pagination policy `{required}`"
+            !search_vm_source.contains(required),
+            "src/view_models/search/ must not own shared pagination policy `{required}`"
         );
     }
 }
