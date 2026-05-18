@@ -391,6 +391,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/keyboard.rs",
     "src/app/menu.rs",
     "src/app/playback_bar.rs",
+    "src/app/recent_feeds.rs",
     "src/app/resize.rs",
     "src/app/search_dispatch.rs",
     "src/app/tab_bar.rs",
@@ -437,6 +438,7 @@ const PRESENTATION_GLUE_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/playback_bar.rs",
     "src/app/queue_now_playing.rs",
+    "src/app/recent_feeds.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
     "src/discover.rs",
@@ -2864,6 +2866,7 @@ fn adr_0047_breadcrumb_unification_guards_frame_shell_helpers_removed() {
 #[test]
 fn adr_0047_task_014_search_results_inspector_shell_contract() {
     let shell_source = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+    let row_shell_source = read_source(&manifest_path("src/ui/shells/search_result_rows.rs"));
     let shells_mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
     let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
     let search_results_source =
@@ -2884,13 +2887,24 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
         "window.peek_row(index)",
         "RowSlot::Ready(row)",
         "RowSlot::Pending(placeholder)",
-        "ListRow::new(",
-        "Thumbnail::new(kind, ThumbnailSize::Sm)",
-        "TagBadge::new(TagBadgeDisplay",
     ] {
         if !shell_source.contains(required) {
             violations.push(format!(
                 "src/ui/shells/search_results_inspector.rs: ADR 0047 Task 014 shell contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn render_result_row(",
+        "pub(crate) fn render_pending_result_row(",
+        "ListRow::new(",
+        "Thumbnail::new(kind, ThumbnailSize::Sm)",
+        "TagBadge::new(TagBadgeDisplay",
+    ] {
+        if !row_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/search_result_rows.rs: ADR 0047 Task 014 shared row shell contract missing `{required}`"
             ));
         }
     }
@@ -10250,6 +10264,7 @@ fn nav_top_drives_content_list_body_switch() {
         "FrameNavigationEntry::AlbumDetail(_)",
         "FrameNavigationEntry::ArtistDetail(_)",
         "FrameNavigationEntry::PlaylistDetail(_)",
+        "FrameNavigationEntry::RecentFeeds",
         "FrameNavigationEntry::IndexArtistFeedScope(_)",
         "FrameNavigationEntry::IndexFeedDetail { .. }",
         "FrameNavigationEntry::IndexTrackDetail { .. }",
@@ -10273,6 +10288,314 @@ fn nav_top_drives_content_list_body_switch() {
         !app_source.contains(".content_list(active_screen)"),
         "ContentList body must be selected from nav top, not the active toolbar tab mount"
     );
+}
+
+#[test]
+fn recent_feeds_route_is_reachable_from_toolbar() {
+    let nav_source = read_source(&manifest_path("src/view_models/workspace/nav.rs"));
+    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
+    let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
+    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
+
+    for required in ["RecentFeeds", "\"Recent Feeds\".to_string()"] {
+        assert!(
+            nav_source.contains(required),
+            "src/view_models/workspace/nav.rs: Recent Feeds route variant missing `{required}`"
+        );
+    }
+
+    for required in [
+        "pub(crate) struct RecentFeedsPageVm",
+        "pub(crate) enum RecentFeedsPageState",
+        "Loading",
+        "Loaded(Vec<RecentFeedResultRow>)",
+        "Error { message: String, detail: String }",
+        "index_feed_detail(",
+    ] {
+        assert!(
+            recent_vm_source.contains(required),
+            "src/view_models/recent_feeds.rs: Recent Feeds VM contract missing `{required}`"
+        );
+    }
+
+    for required in [
+        "recent_feeds_button_id",
+        "recent_feeds_button_label",
+        "Recent Feeds",
+        "render_recent_feeds_button",
+        "IconName::Rss",
+        "open_recent_feeds_in_content_list",
+    ] {
+        assert!(
+            toolbar_vm_source.contains(required) || toolbar_source.contains(required),
+            "toolbar Recent Feeds entry point missing `{required}`"
+        );
+    }
+
+    for required in [
+        "pub(super) fn open_recent_feeds_in_content_list(",
+        "pub(super) fn start_recent_feeds_load(",
+        "fetch_recent_feed_result_rows(",
+        "fetch_recent_feeds(Some(crate::api::PAGE_LIMIT), cursor)",
+        "content_list_nav_is_recent_feeds",
+        "handle_recent_feed_selected(",
+    ] {
+        assert!(
+            search_dispatch_source.contains(required),
+            "src/app/search_dispatch.rs: Recent Feeds dispatch missing `{required}`"
+        );
+    }
+
+    for required in [
+        "recent_feeds_detail: Option<RecentFeedsPageVm>",
+        "FrameNavigationEntry::RecentFeeds",
+        "mod recent_feeds",
+    ] {
+        assert!(
+            app_source.contains(required),
+            "src/app.rs: ContentList Recent Feeds body switch missing `{required}`"
+        );
+    }
+
+    for required in [
+        "render_recent_feeds_page",
+        "RecentFeedsPageSlots::new()",
+        "IndexFeedDetailOrigin::RecentFeeds",
+    ] {
+        assert!(
+            app_recent_source.contains(required),
+            "src/app/recent_feeds.rs: ContentList Recent Feeds integration missing `{required}`"
+        );
+    }
+
+    let submit_global_search_body = search_dispatch_source
+        .split("pub(super) fn submit_global_search(")
+        .nth(1)
+        .and_then(|body| {
+            body.split("pub(super) fn open_search_results_in_content_list(")
+                .next()
+        })
+        .unwrap_or_default();
+    assert!(
+        !submit_global_search_body.contains("RecentFeeds")
+            && !submit_global_search_body.contains("open_recent_feeds_in_content_list"),
+        "Recent Feeds must be a toolbar command, not a restored empty-query search branch"
+    );
+}
+
+#[test]
+fn recent_feeds_route_preserves_artwork_slots() {
+    let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
+    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
+    let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
+    let result_row_shell_source =
+        read_source(&manifest_path("src/ui/shells/search_result_rows.rs"));
+
+    for required in [
+        "feed_thumbnail_sources(",
+        "row.thumbnail_href",
+        "Vec<(String, String)>",
+    ] {
+        assert!(
+            recent_vm_source.contains(required),
+            "src/view_models/recent_feeds.rs: Recent Feeds rows must expose VM-owned thumbnail sources; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "RecentFeedsPageVm::feed_thumbnail_sources",
+        "index_remote_detail_hero_image(&url, cx)",
+        ".with_thumbnails(recent_thumbnails)",
+    ] {
+        assert!(
+            app_recent_source.contains(required),
+            "src/app/recent_feeds.rs: Recent Feeds render path must resolve row artwork through TopApp image cache; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "thumbnails: BTreeMap<String, Option<Arc<Image>>>",
+        "pub(crate) fn with_thumbnails(",
+        ".get(&row.id)",
+    ] {
+        assert!(
+            recent_shell_source.contains(required),
+            "src/ui/shells/recent_feeds.rs: Recent Feeds renderer must consume resolved artwork slots; missing `{required}`"
+        );
+    }
+
+    assert!(
+        result_row_shell_source.contains(".image(thumbnail)"),
+        "src/ui/shells/search_result_rows.rs: shared result rows must accept resolved artwork slots"
+    );
+}
+
+#[test]
+fn index_feed_detail_track_rows_preserve_artwork_fallbacks() {
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+
+    for required in [
+        "thumbnail: self.index_track_row_thumbnail(feed, track, cx)",
+        "fn index_track_row_artwork_url",
+        "index_track_artwork_url(track).or_else(|| index_feed_artwork_url(feed))",
+    ] {
+        assert!(
+            search_dispatch_source.contains(required),
+            "src/app/search_dispatch.rs: Index feed detail track rows must receive track/feed artwork thumbnails; missing `{required}`"
+        );
+    }
+}
+
+#[test]
+fn recent_feeds_route_preserves_scroll_pagination() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let pagination_source = read_source(&manifest_path("src/view_models/pagination.rs"));
+    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
+    let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
+    let legacy_search_vm_source = read_source(&manifest_path("src/view_models/search.rs"));
+
+    for required in [
+        "pub(crate) struct RecentFeedsPageBatch",
+        "pub(crate) struct RecentFeedsLoadIntent",
+        "cursor: Option<String>",
+        "has_more: bool",
+        "loading: bool",
+        "pub(crate) fn begin_load(",
+        "pub(crate) fn finish_load(",
+        "pub(crate) fn fail_load(",
+        "pub(crate) const fn is_loading(",
+        "pub(crate) const fn has_more(",
+        "pub(crate) fn row_count(",
+    ] {
+        assert!(
+            recent_vm_source.contains(required),
+            "src/view_models/recent_feeds.rs: Recent Feeds pagination must be VM-owned; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "recent_feeds_scroll: ScrollHandle",
+        "recent_feeds_scroll: ScrollHandle::new()",
+    ] {
+        assert!(
+            app_source.contains(required),
+            "src/app.rs: Recent Feeds route must own scroll state; missing `{required}`"
+        );
+    }
+
+    for required in [
+        ".with_scroll_handle(self.recent_feeds_scroll.clone())",
+        ".on_load_more(",
+        "this.start_recent_feeds_load(true, cx)",
+    ] {
+        assert!(
+            app_recent_source.contains(required),
+            "src/app/recent_feeds.rs: Recent Feeds route must wire scroll pagination; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "start_recent_feeds_load(&mut self, append: bool",
+        "detail.begin_load(append)",
+        "let cursor = intent.into_cursor()",
+        "fetch_recent_feed_result_rows(",
+        "cursor.as_deref()",
+        "detail.finish_load(batch, append)",
+        "!append && detail.has_more()",
+        "detail.fail_load(",
+        "start_index + index",
+    ] {
+        assert!(
+            search_dispatch_source.contains(required),
+            "src/app/search_dispatch.rs: Recent Feeds loader must request and append cursor pages; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "RecentFeedsLoadMoreHandler",
+        "on_load_more(",
+        "with_scroll_handle(",
+        "attach_recent_feeds_auto_pagination(",
+        ".track_scroll(scroll_handle)",
+        ".on_scroll_wheel(",
+        "render_recent_feeds_load_more_footer",
+        "recent-feeds-load-more",
+    ] {
+        assert!(
+            recent_shell_source.contains(required),
+            "src/ui/shells/recent_feeds.rs: Recent Feeds tiles/list must auto-load more on scroll; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "pub(crate) fn should_auto_load_more(",
+        "AUTO_PAGINATE_THRESHOLD_PX",
+    ] {
+        assert!(
+            pagination_source.contains(required),
+            "src/view_models/pagination.rs: shared pagination policy missing `{required}`"
+        );
+        assert!(
+            !legacy_search_vm_source.contains(required),
+            "src/view_models/search.rs must not own shared pagination policy `{required}`"
+        );
+    }
+}
+
+#[test]
+fn recent_feeds_route_has_vm_owned_tile_list_view_mode() {
+    let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
+    let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
+
+    for required in [
+        "pub(crate) enum RecentFeedsViewMode",
+        "#[default]",
+        "pub(crate) const fn view_mode(",
+        "pub(crate) fn set_view_mode(",
+        "pub(crate) const fn with_view_mode(",
+    ] {
+        assert!(
+            recent_vm_source.contains(required),
+            "src/view_models/recent_feeds.rs: Recent Feeds view mode must be VM-owned and default to tiles; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "set_recent_feeds_view_mode(",
+        ".on_view_mode_select(",
+        "this.set_recent_feeds_view_mode(view_mode, cx)",
+    ] {
+        assert!(
+            app_recent_source.contains(required),
+            "src/app/recent_feeds.rs: Recent Feeds view-mode command wiring missing `{required}`"
+        );
+    }
+
+    for required in ["RecentFeedsPageVm::view_mode", "with_view_mode(view_mode)"] {
+        assert!(
+            search_dispatch_source.contains(required),
+            "src/app/search_dispatch.rs: Recent Feeds refresh must preserve VM-owned view mode; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "render_recent_feeds_view_mode_control",
+        "render_recent_feed_tiles",
+        "render_recent_feed_rows",
+        "recent-feed-tile-",
+    ] {
+        assert!(
+            recent_shell_source.contains(required),
+            "src/ui/shells/recent_feeds.rs: Recent Feeds shell must expose the route view-mode presentations; missing `{required}`"
+        );
+    }
 }
 
 #[test]

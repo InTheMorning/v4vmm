@@ -22,9 +22,8 @@ use crate::ui::style::{color, spacing, typography};
 use crate::ui::tokens::{
     color as token_color, FontSize, Radius, SemanticColor, SkeletonBlock, Spacing,
 };
-use crate::view_models::search::{
-    pending_skeleton_count, RecentFeedTileDisplay, RecentFeedsDisplay,
-};
+use crate::view_models::pagination::pending_skeleton_count;
+use crate::view_models::search::{RecentFeedTileDisplay, RecentFeedsDisplay};
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 

@@ -25,9 +25,9 @@ use crate::ui::shells::discover::track_inspector::{
 use crate::ui::shells::feed;
 use crate::ui::style::{color, radius, spacing, typography};
 use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::view_models::pagination::{should_auto_load_more, AUTO_PAGINATE_THRESHOLD_PX};
 use crate::view_models::search::{
-    should_auto_load_more, InspectorChromeDisplay, LazyPanel, RecentFeedTileDisplay,
-    RecentFeedTileVm, SearchViewModel, AUTO_PAGINATE_THRESHOLD_PX,
+    InspectorChromeDisplay, LazyPanel, RecentFeedTileDisplay, RecentFeedTileVm, SearchViewModel,
 };
 
 pub(crate) fn render_inspector(

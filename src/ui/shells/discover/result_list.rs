@@ -21,10 +21,12 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label, SectionHeader};
 use crate::ui::style::{color, spacing};
 use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::view_models::pagination::{
+    pending_skeleton_count, should_auto_load_more, AUTO_PAGINATE_THRESHOLD_PX,
+};
 use crate::view_models::search::{
-    pending_skeleton_count, should_auto_load_more, ResultRowRenderItem,
-    SearchLibraryMembershipDisplay, SearchPaneDisplay, SearchResultSectionDisplay,
-    AUTO_PAGINATE_THRESHOLD_PX,
+    ResultRowRenderItem, SearchLibraryMembershipDisplay, SearchPaneDisplay,
+    SearchResultSectionDisplay,
 };
 
 pub(crate) struct DiscoverResultRow {

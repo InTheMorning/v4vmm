@@ -9,19 +9,23 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, AnyElement, App, ClickEvent, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window,
+    div, AnyElement, App, ClickEvent, InteractiveElement, IntoElement, ParentElement, SharedString,
+    StatefulInteractiveElement, Styled, Window,
 };
 
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
 use crate::ui::composites::{
-    EntityKind, ListRow, ListRowA11yLabel, Segment, SegmentDisplay, SegmentedControl, TagBadge,
-    TagBadgeDisplay, Thumbnail, ThumbnailSize,
+    EntityKind, Segment, SegmentDisplay, SegmentedControl, TagBadge, TagBadgeDisplay, Thumbnail,
+    ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::{Button as UiButton, Label, LabelVariant};
 use crate::ui::shells::entity::{
     render_feed_identity_actions, render_release_detail_shell, ReleaseDetailBehaviorSlots,
+};
+use crate::ui::shells::search_result_rows::{
+    artist_fields, feed_fields, origin_label, render_pending_result_row, render_result_row, tab_id,
+    track_fields, SearchResultRowFields, SearchResultSelectHandler,
 };
 use crate::ui::shells::track::{
     build_track_detail_surface, render_track_page_identity_actions, TrackDetailBehaviorSlots,
@@ -29,15 +33,14 @@ use crate::ui::shells::track::{
 use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 use crate::view_models::entity_detail::{EntitySurfaceContext, ReleaseDetailVm};
 use crate::view_models::search_results::{
-    ArtistResultDisplay, EmptyStateDisplay, FeedResultDisplay, IndexDetailDisplay, IndexDetailKind,
-    SearchResultItemId, SearchResultOrigin, SearchResultsInspectorPageVm, SearchResultsTab,
-    TrackResultDisplay,
+    EmptyStateDisplay, IndexDetailDisplay, IndexDetailKind, SearchResultItemId, SearchResultOrigin,
+    SearchResultsInspectorPageVm, SearchResultsTab,
 };
 use crate::view_models::track_detail::{TrackDetailSurfaceContext, TrackDetailVm};
 use crate::view_models::workspace::ContentFilter;
 
 type TabSelectHandler = Rc<dyn Fn(SearchResultsTab, &mut Window, &mut App) + 'static>;
-type ResultSelectHandler = Rc<dyn Fn(SearchResultsTab, String, &mut Window, &mut App) + 'static>;
+type ResultSelectHandler = SearchResultSelectHandler;
 type ClearFilterHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -399,7 +402,7 @@ fn render_result_window<Row>(
     kind: EntityKind,
     show_loading_placeholders: bool,
     on_result_select: Option<&ResultSelectHandler>,
-    fields_for: fn(&Row) -> ResultRowFields<'_>,
+    fields_for: fn(&Row) -> SearchResultRowFields<'_>,
     cx: &App,
 ) -> AnyElement {
     let show_loading_placeholders = show_loading_placeholders && window.total() == 0;
@@ -428,9 +431,13 @@ fn render_result_window<Row>(
                 render_pending_result_row(tab, kind, index)
             } else {
                 match window.peek_row(index) {
-                    RowSlot::Ready(row) => {
-                        render_result_row(tab, kind, fields_for(row.as_ref()), on_result_select)
-                    }
+                    RowSlot::Ready(row) => render_result_row(
+                        tab,
+                        kind,
+                        fields_for(row.as_ref()),
+                        None,
+                        on_result_select,
+                    ),
                     RowSlot::Pending(placeholder) => {
                         render_pending_result_row(tab, kind, placeholder.index)
                     }
@@ -483,147 +490,6 @@ fn render_empty_state(
         .into_any_element()
 }
 
-fn render_result_row(
-    tab: SearchResultsTab,
-    kind: EntityKind,
-    fields: ResultRowFields<'_>,
-    on_result_select: Option<&ResultSelectHandler>,
-) -> AnyElement {
-    let row_id = fields.id.to_string();
-    let element_id = SharedString::from(format!("search-results-{}-{row_id}", tab_id(tab)));
-    let mut row = ListRow::new(element_id)
-        .a11y_label(ListRowA11yLabel {
-            label: SharedString::from(fields.a11y_label.to_string()),
-        })
-        .child(Thumbnail::new(kind, ThumbnailSize::Sm))
-        .child(result_row_text(fields))
-        .child(origin_label(fields.origin))
-        .child(TagBadge::new(TagBadgeDisplay {
-            kind,
-            label: Some(SharedString::from(kind.label())),
-        }));
-
-    if let Some(handler) = on_result_select.cloned() {
-        row = row.on_click(move |_: &ClickEvent, window, cx| {
-            handler(tab, row_id.clone(), window, cx);
-        });
-    }
-
-    row.into_any_element()
-}
-
-fn result_row_text(fields: ResultRowFields<'_>) -> AnyElement {
-    let mut text = div().flex_1().min_w_0().child(
-        Label::new(fields.label.to_string())
-            .size(FontSize::Micro)
-            .weight(FontWeight::MEDIUM)
-            .truncated(),
-    );
-
-    if !fields.secondary_text.is_empty() {
-        text = text.child(
-            Label::new(fields.secondary_text.to_string())
-                .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel)
-                .truncated(),
-        );
-    }
-
-    text.into_any_element()
-}
-
-fn origin_label(origin: SearchResultOrigin) -> Label {
-    Label::new(origin_label_text(origin))
-        .size(FontSize::Micro)
-        .color(origin_label_color(origin))
-        .truncated()
-}
-
-fn render_pending_result_row(tab: SearchResultsTab, kind: EntityKind, index: usize) -> AnyElement {
-    ListRow::new(SharedString::from(format!(
-        "search-results-{}-pending-{index}",
-        tab_id(tab)
-    )))
-    .a11y_label(ListRowA11yLabel {
-        label: SharedString::from("Loading search result"),
-    })
-    .child(Thumbnail::new(kind, ThumbnailSize::Sm))
-    .child(
-        div().flex_1().min_w_0().child(
-            Label::new("Loading result")
-                .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel)
-                .truncated(),
-        ),
-    )
-    .child(TagBadge::new(TagBadgeDisplay {
-        kind,
-        label: Some(SharedString::from(kind.label())),
-    }))
-    .into_any_element()
-}
-
-#[derive(Clone, Copy)]
-struct ResultRowFields<'a> {
-    id: &'a str,
-    label: &'a str,
-    secondary_text: &'a str,
-    a11y_label: &'a str,
-    origin: SearchResultOrigin,
-}
-
-fn artist_fields(row: &ArtistResultDisplay) -> ResultRowFields<'_> {
-    ResultRowFields {
-        id: &row.id,
-        label: &row.label,
-        secondary_text: &row.secondary_text,
-        a11y_label: &row.a11y_label,
-        origin: row.origin,
-    }
-}
-
-fn feed_fields(row: &FeedResultDisplay) -> ResultRowFields<'_> {
-    ResultRowFields {
-        id: &row.id,
-        label: &row.label,
-        secondary_text: &row.secondary_text,
-        a11y_label: &row.a11y_label,
-        origin: row.origin,
-    }
-}
-
-fn track_fields(row: &TrackResultDisplay) -> ResultRowFields<'_> {
-    ResultRowFields {
-        id: &row.id,
-        label: &row.label,
-        secondary_text: &row.secondary_text,
-        a11y_label: &row.a11y_label,
-        origin: row.origin,
-    }
-}
-
-const fn tab_id(tab: SearchResultsTab) -> &'static str {
-    match tab {
-        SearchResultsTab::Artists => "artists",
-        SearchResultsTab::Feeds => "feeds",
-        SearchResultsTab::Tracks => "tracks",
-    }
-}
-
-const fn origin_label_text(origin: SearchResultOrigin) -> &'static str {
-    match origin {
-        SearchResultOrigin::Library => "In Library",
-        SearchResultOrigin::Index => "Index",
-    }
-}
-
-const fn origin_label_color(origin: SearchResultOrigin) -> SemanticColor {
-    match origin {
-        SearchResultOrigin::Library => SemanticColor::Accent,
-        SearchResultOrigin::Index => SemanticColor::TertiaryLabel,
-    }
-}
-
 const fn entity_kind_for_index_detail(kind: IndexDetailKind) -> EntityKind {
     match kind {
         IndexDetailKind::Feed => EntityKind::Feed,
@@ -641,23 +507,6 @@ const fn detail_id_suffix(kind: IndexDetailKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn tab_ids_are_stable() {
-        assert_eq!(tab_id(SearchResultsTab::Artists), "artists");
-        assert_eq!(tab_id(SearchResultsTab::Feeds), "feeds");
-        assert_eq!(tab_id(SearchResultsTab::Tracks), "tracks");
-    }
-
-    #[test]
-    fn origin_labels_use_membership_language() {
-        assert_eq!(origin_label_text(SearchResultOrigin::Library), "In Library");
-        assert_eq!(origin_label_text(SearchResultOrigin::Index), "Index");
-        assert_eq!(
-            origin_label_color(SearchResultOrigin::Library),
-            SemanticColor::Accent
-        );
-    }
 
     #[test]
     fn slots_accept_callbacks() {

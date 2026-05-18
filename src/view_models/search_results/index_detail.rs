@@ -92,4 +92,40 @@ impl IndexDetailDisplay {
         display.track.clone_from(&row.remote_track);
         display
     }
+
+    pub(crate) fn feed_or_fallback(
+        row: Option<&FeedResultDisplay>,
+        fallback_id: &str,
+        fallback_label: &str,
+    ) -> Self {
+        row.map_or_else(
+            || {
+                Self::new(
+                    IndexDetailKind::Feed,
+                    fallback_id,
+                    fallback_label,
+                    "MusicIndex feed",
+                )
+            },
+            |row| Self::feed(row, fallback_id),
+        )
+    }
+
+    pub(crate) fn track_or_fallback(
+        row: Option<&TrackResultDisplay>,
+        fallback_id: &str,
+        fallback_label: &str,
+    ) -> Self {
+        row.map_or_else(
+            || {
+                Self::new(
+                    IndexDetailKind::Track,
+                    fallback_id,
+                    fallback_label,
+                    "MusicIndex track",
+                )
+            },
+            |row| Self::track(row, fallback_id),
+        )
+    }
 }

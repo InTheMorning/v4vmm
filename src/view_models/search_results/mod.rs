@@ -221,19 +221,10 @@ impl SearchResultsInspectorPageVm {
         fallback_id: &str,
         fallback_label: &str,
     ) -> IndexDetailDisplay {
-        self.feeds
-            .cached_row_matching(ContentFilter::All, |row| row.id == activation_id)
-            .map_or_else(
-                || {
-                    IndexDetailDisplay::new(
-                        IndexDetailKind::Feed,
-                        fallback_id,
-                        fallback_label,
-                        "MusicIndex feed",
-                    )
-                },
-                |row| IndexDetailDisplay::feed(&row, fallback_id),
-            )
+        let row = self
+            .feeds
+            .cached_row_matching(ContentFilter::All, |row| row.id == activation_id);
+        IndexDetailDisplay::feed_or_fallback(row.as_ref(), fallback_id, fallback_label)
     }
 
     /// Projects a remote Index track detail page from a result row or fallback nav data.
@@ -244,19 +235,10 @@ impl SearchResultsInspectorPageVm {
         fallback_id: &str,
         fallback_label: &str,
     ) -> IndexDetailDisplay {
-        self.tracks
-            .cached_row_matching(ContentFilter::All, |row| row.id == activation_id)
-            .map_or_else(
-                || {
-                    IndexDetailDisplay::new(
-                        IndexDetailKind::Track,
-                        fallback_id,
-                        fallback_label,
-                        "MusicIndex track",
-                    )
-                },
-                |row| IndexDetailDisplay::track(&row, fallback_id),
-            )
+        let row = self
+            .tracks
+            .cached_row_matching(ContentFilter::All, |row| row.id == activation_id);
+        IndexDetailDisplay::track_or_fallback(row.as_ref(), fallback_id, fallback_label)
     }
 
     /// Returns whether a tab/filter combination has no rows.

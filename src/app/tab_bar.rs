@@ -164,14 +164,38 @@ fn render_global_search(
         .child(search_input);
 
     if use_compact_search {
+        toolbar_search = toolbar_search.child(render_recent_feeds_button(display, true, cx));
         toolbar_search =
             toolbar_search.child(render_global_search_submit_button(display, true, cx));
     } else {
+        toolbar_search = toolbar_search.child(render_recent_feeds_button(display, false, cx));
         toolbar_search =
             toolbar_search.child(render_global_search_submit_button(display, false, cx));
     }
 
     toolbar_search.into_any_element()
+}
+
+fn render_recent_feeds_button(
+    display: &GlobalSearchDisplay,
+    compact: bool,
+    cx: &mut Context<TopApp>,
+) -> UiButton {
+    let mut button = if compact {
+        UiButton::styled(display.recent_feeds_button_id, ControlStyle::ToolbarIcon)
+            .leading_icon(IconName::Rss)
+            .tooltip(display.recent_feeds_button_a11y_label)
+    } else {
+        UiButton::styled(display.recent_feeds_button_id, ControlStyle::Ghost)
+            .leading_icon(IconName::Rss)
+            .label(display.recent_feeds_button_label)
+    }
+    .a11y_label(display.recent_feeds_button_a11y_label);
+
+    button = button.on_click(cx.listener(|this, _, _, cx| {
+        this.open_recent_feeds_in_content_list(cx);
+    }));
+    button
 }
 
 fn render_global_search_submit_button(

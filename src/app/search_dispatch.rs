@@ -30,6 +30,9 @@ use crate::ui::shells::search_results_inspector::{
 };
 use crate::ui::shells::track::TrackDetailBehaviorSlots;
 use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
+use crate::view_models::recent_feeds::{
+    RecentFeedsPageBatch, RecentFeedsPageVm, RecentFeedsViewMode,
+};
 use crate::view_models::search_results::{
     ArtistResultDisplay, FeedResultDisplay, IndexSearchResultRows, SearchResultItemId,
     SearchResultOrigin, SearchResultsInspectorPageVm, SearchResultsTab, TrackResultDisplay,
@@ -75,6 +78,113 @@ impl TopApp {
                 cx.notify();
             }
         }
+    }
+
+    pub(super) fn open_recent_feeds_in_content_list(&mut self, cx: &mut Context<Self>) {
+        let Some(content_list_id) = self.content_list_frame_id() else {
+            self.settings_status = "ContentList frame not found".to_string();
+            cx.notify();
+            return;
+        };
+
+        let navigation_result = match self.workspace_layout.frame_nav_mut(content_list_id) {
+            Some(nav) if matches!(nav.current(), FrameNavigationEntry::RecentFeeds) => {
+                nav.replace_current(FrameNavigationEntry::RecentFeeds);
+                Ok(())
+            }
+            Some(_) => self
+                .workspace_layout
+                .push_nav(content_list_id, FrameNavigationEntry::RecentFeeds),
+            None => Err(
+                crate::view_models::workspace::WorkspaceModelError::FrameNotFound(content_list_id),
+            ),
+        };
+
+        match navigation_result.and_then(|()| self.workspace_layout.focus_frame(content_list_id)) {
+            Ok(()) => {
+                let view_mode = self
+                    .recent_feeds_detail
+                    .as_ref()
+                    .map_or(RecentFeedsViewMode::Tiles, RecentFeedsPageVm::view_mode);
+                self.recent_feeds_detail =
+                    Some(RecentFeedsPageVm::loading().with_view_mode(view_mode));
+                self.start_recent_feeds_load(false, cx);
+                cx.notify();
+            }
+            Err(error) => {
+                self.settings_status = format!("Error opening Recent Feeds: {error}");
+                cx.notify();
+            }
+        }
+    }
+
+    pub(super) fn start_recent_feeds_load(&mut self, append: bool, cx: &mut Context<Self>) {
+        if self.recent_feeds_detail.is_none() {
+            self.recent_feeds_detail = Some(RecentFeedsPageVm::loading());
+        }
+
+        let loaded_row_count = self
+            .recent_feeds_detail
+            .as_ref()
+            .map_or(0, RecentFeedsPageVm::row_count);
+        let Some(intent) = self
+            .recent_feeds_detail
+            .as_mut()
+            .and_then(|detail| detail.begin_load(append))
+        else {
+            return;
+        };
+
+        let endpoint = self.endpoint_input.read(cx).value().to_string();
+        let cursor = intent.into_cursor();
+        cx.notify();
+        cx.spawn(
+            async move |this: gpui::WeakEntity<TopApp>, cx: &mut gpui::AsyncApp| {
+                let recent_feeds_result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        fetch_recent_feed_result_rows(
+                            &endpoint,
+                            cursor.as_deref(),
+                            if append { loaded_row_count } else { 0 },
+                        )
+                    })
+                    .await;
+
+                this.update(cx, move |this: &mut TopApp, cx: &mut Context<TopApp>| {
+                    if !this.content_list_nav_is_recent_feeds() {
+                        return;
+                    }
+
+                    if this.recent_feeds_detail.is_none() {
+                        this.recent_feeds_detail = Some(RecentFeedsPageVm::loading());
+                    }
+
+                    if let Some(detail) = this.recent_feeds_detail.as_mut() {
+                        let mut should_eager_prefetch = false;
+                        match recent_feeds_result {
+                            Ok(batch) => {
+                                detail.finish_load(batch, append);
+                                should_eager_prefetch = !append && detail.has_more();
+                            }
+                            Err(error) => {
+                                detail.fail_load(
+                                    "Recent Feeds unavailable",
+                                    format!("{error:#}"),
+                                    append,
+                                );
+                            }
+                        }
+                        cx.notify();
+                        if should_eager_prefetch {
+                            this.start_recent_feeds_load(true, cx);
+                        }
+                    }
+                })
+                .ok();
+            },
+        )
+        .detach();
     }
 
     fn search_results_detail_for_query(&self, query: &str) -> SearchResultsInspectorPageVm {
@@ -140,6 +250,12 @@ impl TopApp {
             .and_then(|content_list_id| self.workspace_layout.frame_nav(content_list_id))
             .and_then(FrameNavigationState::active_search_query)
             .is_some_and(|current| current == query)
+    }
+
+    fn content_list_nav_is_recent_feeds(&self) -> bool {
+        self.content_list_frame_id()
+            .and_then(|content_list_id| self.workspace_layout.frame_nav(content_list_id))
+            .is_some_and(|nav| matches!(nav.current(), FrameNavigationEntry::RecentFeeds))
     }
 
     pub(super) fn sync_search_results_detail_with_nav(
@@ -265,6 +381,27 @@ impl TopApp {
         }
 
         self.sync_search_results_detail_with_nav(content_frame_id);
+    }
+
+    pub(super) fn handle_recent_feed_selected(&mut self, result_id: &str, cx: &mut Context<Self>) {
+        let Some(content_frame_id) = self.content_list_frame_id() else {
+            self.settings_status = "ContentList frame not found".to_string();
+            cx.notify();
+            return;
+        };
+
+        let Some(feed_guid) = result_id.strip_prefix("index-feed:") else {
+            self.settings_status = format!("Unexpected Recent Feeds id format: {result_id}");
+            cx.notify();
+            return;
+        };
+
+        let label = self
+            .recent_feeds_detail
+            .as_ref()
+            .and_then(|detail| detail.index_feed_label(result_id))
+            .unwrap_or_else(|| feed_guid.to_string());
+        self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
     }
 
     fn handle_index_artist_result_selected(
@@ -417,7 +554,7 @@ impl TopApp {
         self.index_remote_detail_hero_image(url, cx)
     }
 
-    fn index_remote_detail_hero_image(
+    pub(super) fn index_remote_detail_hero_image(
         &mut self,
         url: &str,
         cx: &mut Context<Self>,
@@ -526,12 +663,23 @@ impl TopApp {
                     SharedString::from(row_id),
                     row,
                     ReleaseTrackRowSlot {
+                        thumbnail: self.index_track_row_thumbnail(feed, track, cx),
                         actions: self.index_track_row_actions(feed, track, index, cx),
                         ..ReleaseTrackRowSlot::default()
                     },
                 )
             })
             .collect()
+    }
+
+    fn index_track_row_thumbnail(
+        &mut self,
+        feed: &FeedView,
+        track: &TrackView,
+        cx: &mut Context<Self>,
+    ) -> Option<Arc<Image>> {
+        let url = index_track_row_artwork_url(feed, track)?;
+        self.index_remote_detail_hero_image(url, cx)
     }
 
     fn index_track_row_actions(
@@ -880,6 +1028,10 @@ fn index_track_artwork_url(track: &TrackView) -> Option<&str> {
     non_empty_str(track.image_url.as_deref())
 }
 
+fn index_track_row_artwork_url<'a>(feed: &'a FeedView, track: &'a TrackView) -> Option<&'a str> {
+    index_track_artwork_url(track).or_else(|| index_feed_artwork_url(feed))
+}
+
 fn api_feed_from_view(feed: &FeedView) -> crate::api::Feed {
     crate::api::Feed {
         feed_guid: feed_guid_from_view(feed),
@@ -1013,6 +1165,40 @@ mod remote_detail_thumbnail_tests {
 
         assert_eq!(index_track_artwork_url(&track), None);
     }
+
+    #[test]
+    fn index_track_row_artwork_url_falls_back_to_feed_image() {
+        let feed = FeedView {
+            image_url: Some("https://example.test/feed.jpg".to_string()),
+            ..FeedView::default()
+        };
+        let track = TrackView {
+            image_url: None,
+            ..TrackView::default()
+        };
+
+        assert_eq!(
+            index_track_row_artwork_url(&feed, &track),
+            Some("https://example.test/feed.jpg")
+        );
+    }
+
+    #[test]
+    fn index_track_row_artwork_url_prefers_track_image() {
+        let feed = FeedView {
+            image_url: Some("https://example.test/feed.jpg".to_string()),
+            ..FeedView::default()
+        };
+        let track = TrackView {
+            image_url: Some("https://example.test/track.jpg".to_string()),
+            ..TrackView::default()
+        };
+
+        assert_eq!(
+            index_track_row_artwork_url(&feed, &track),
+            Some("https://example.test/track.jpg")
+        );
+    }
 }
 
 fn fetch_index_search_result_rows(endpoint: &str, query: &str) -> Result<IndexSearchResultRows> {
@@ -1056,6 +1242,55 @@ fn fetch_index_search_result_rows(endpoint: &str, query: &str) -> Result<IndexSe
         })
         .collect();
     Ok(rows)
+}
+
+fn fetch_recent_feed_result_rows(
+    endpoint: &str,
+    cursor: Option<&str>,
+    start_index: usize,
+) -> Result<RecentFeedsPageBatch> {
+    let client = crate::api::Client::new_with_base_url(endpoint.to_string());
+    let response = client.fetch_recent_feeds(Some(crate::api::PAGE_LIMIT), cursor)?;
+    let rows = response
+        .data
+        .into_iter()
+        .enumerate()
+        .map(|(index, feed)| {
+            let row_index = start_index + index;
+            let feed_guid = recent_feed_activation_id(&feed, row_index);
+            let detail = feed
+                .feed_guid
+                .as_deref()
+                .and_then(|guid| {
+                    client
+                        .fetch_feed(guid, Some(INDEX_FEED_DETAIL_INCLUDE))
+                        .ok()
+                })
+                .unwrap_or(feed);
+            (
+                index_item_id(INDEX_FEED_ID_BASE, row_index),
+                index_feed_display(&feed_guid, Some(crate::api::EntityDetail::Feed(detail))),
+            )
+        })
+        .collect();
+
+    Ok(RecentFeedsPageBatch {
+        rows,
+        cursor: response.pagination.cursor,
+        has_more: response.pagination.has_more,
+    })
+}
+
+fn recent_feed_activation_id(feed: &crate::api::Feed, index: usize) -> String {
+    [
+        feed.feed_guid.as_deref(),
+        feed.feed_url.as_deref(),
+        feed.title.as_deref(),
+        feed.name.as_deref(),
+    ]
+    .into_iter()
+    .find_map(non_empty_str)
+    .map_or_else(|| format!("recent-feed-{index}"), str::to_string)
 }
 
 struct IndexFeedSearchRows {

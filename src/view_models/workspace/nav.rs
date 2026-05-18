@@ -33,6 +33,8 @@ pub(crate) enum FrameNavigationEntry {
     ArtistDetail(String),
     /// Search results by submitted query.
     Search(String),
+    /// Recent remote Index feeds.
+    RecentFeeds,
     /// Remote Index feed results scoped by an artist result display name.
     IndexArtistFeedScope(String),
     /// Remote Index feed drill-down.
@@ -72,6 +74,7 @@ impl FrameNavigationEntry {
                     format!("Search: {query}")
                 }
             }
+            Self::RecentFeeds => "Recent Feeds".to_string(),
             Self::IndexFeedDetail { label, .. } | Self::IndexTrackDetail { label, .. } => {
                 label.clone()
             }

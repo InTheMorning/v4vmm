@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-05-18.
+Implemented - 2026-05-18.
 
 ## Goal
 
@@ -38,13 +38,19 @@ following the same shape ADR 0048 established for `FrameNavigationEntry::Search`
   feeds-only list backed by a new `RecentFeedsPageVm`.
 - A toolbar action — sibling to the existing global-search submit
   button in `src/app/tab_bar.rs` — opens the route.
+- The route defaults to an artwork-first tiled view and provides a
+  VM-owned view-mode selector to switch to the compact list view.
 - Async load follows the same pattern as `start_index_search_for_query`:
   spawn, run `fetch_recent_feeds` on the background executor, match the
   active nav entry against the in-flight request, write into the VM,
   `cx.notify()`.
+- `RecentFeedsPageVm` owns cursor pagination state (`cursor`,
+  `has_more`, and `loading`). The route appends cursor pages on scroll,
+  exposes a fallback "Load more" button, and eagerly prefetches page two
+  after the initial page when the Index reports more rows.
 - Result rows reuse the feed-result row rendering already used by
-  `SearchResultsInspector` for Index feed results so we do not duplicate
-  feed-row visual logic. Activation of a row pushes the existing
+  Index search results via the shared result-row shell helper so we do
+  not duplicate feed-row visual logic. Activation of a row pushes the existing
   `FrameNavigationEntry::IndexFeedDetail` so drill-down lands in the
   same Index feed inspector users already get from search.
 - Breadcrumb chrome works automatically: ContentList nav top of
@@ -84,6 +90,10 @@ following the same shape ADR 0048 established for `FrameNavigationEntry::Search`
   `src/view_models/recent_feeds.rs` (new) or `src/view_models/search_results/`
   if the implementer judges the recent-feeds surface to be a third
   branch alongside search and index detail.
+- Recent Feeds presentation state is VM-owned. The shell renders the
+  selected mode; it does not infer or store the current mode.
+- Recent Feeds cursor pagination is VM-owned. Shell scroll/listener
+  code dispatches a load-more intent but does not own cursor state.
 - Async completions are race-guarded against stale loads in the same
   way `start_index_search_for_query` guards search: if the active nav
   entry is no longer `RecentFeeds` when the response lands, drop the
@@ -97,12 +107,28 @@ following the same shape ADR 0048 established for `FrameNavigationEntry::Search`
 
 - No SourceList pseudo-source row.
 - No Discover module re-mount.
-- No pagination UI for the initial cut. Cursor-based pagination is
-  available on the API; render only the first `PAGE_LIMIT` page.
 - No persistent "last visited recent feeds at X" state.
 - No new ADR. This is a follow-up under ADR 0048's existing nav
   contract; the new variant is documented in this plan and an architecture
   guard pins its behavior.
+
+## Shipped Scope Notes
+
+The implemented route intentionally includes two pieces that were not in
+the first draft of this plan:
+
+- **Tile/list presentation mode.** User smoke confirmed the old Discover
+  default was an artwork-first tiled browser. The route now defaults to
+  tiles and keeps the list as a secondary view.
+- **Cursor pagination.** User smoke caught the loss of scroll-to-load-more
+  behavior from Discover. The route now preserves that workflow with
+  VM-owned cursor state, scroll auto-pagination, eager page-two prefetch,
+  and a fallback "Load more" control.
+- **Shared pagination helper.** Extracting the scroll pagination policy
+  from the legacy search VM required import-only retargets in parked
+  Discover shells that still compile. This does not re-mount Discover or
+  change its presentation behavior; it keeps pagination policy owned by
+  `src/view_models/pagination.rs`.
 
 ## Proposed Sequence
 

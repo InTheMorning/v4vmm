@@ -5,8 +5,10 @@
 Implement the new `FrameNavigationEntry::RecentFeeds` route under the
 ContentList frame so Recent Feeds is reachable again from the live UI.
 Add a toolbar command as the entry point. Reuse the existing
-MusicIndex feed-result row rendering and Index feed detail drill-down so
-there is no new visual surface to maintain.
+MusicIndex feed-result row rendering and Index feed detail drill-down.
+Preserve the old Discover browsing affordances by defaulting to an
+artwork-first tiled view, keeping a compact list view available, and
+loading additional cursor pages as the operator scrolls.
 
 Reachability bug recap: empty-query search no longer opens Recent Feeds
 (`src/app/search_dispatch.rs:60` short-circuits) and the legacy
@@ -38,6 +40,10 @@ Read first:
 - `src/ui/shells/search_results_inspector.rs` — current Index feed row
   rendering. Identify the smallest reusable rendering call site that
   takes a list of Index feed result rows and renders them.
+- `src/ui/shells/recent_feeds.rs` — Recent Feeds page shell, including
+  tile/list rendering and scroll pagination.
+- `src/ui/shells/search_result_rows.rs` — shared MusicIndex result-row
+  chrome used by search results and Recent Feeds.
 - `src/api.rs:426` — `fetch_recent_feeds(limit, cursor) -> Result<RecentFeedsResponse>`.
 - `src/app.rs` body-switch dispatch for the ContentList frame
   (search for the existing match on `FrameNavigationEntry::Search`).
@@ -61,9 +67,16 @@ Read first:
 - `src/app/search_dispatch.rs` — add `open_recent_feeds_in_content_list`
   and `start_recent_feeds_load`, both mirroring the shape of
   `open_search_results_in_content_list` and `start_index_search_for_query`.
+  The loader accepts a fresh/append flag and passes the stored cursor to
+  `fetch_recent_feeds`.
 - `src/app/tab_bar.rs` — add the toolbar Recent Feeds button.
 - `src/app.rs` — extend the ContentList body-switch dispatch with a
   `FrameNavigationEntry::RecentFeeds` arm that renders the new VM.
+- `src/app/recent_feeds.rs` — Recent Feeds ContentList integration:
+  body-switch helper, view-mode command, scroll handle wiring, and
+  Index feed-detail origin detection.
+- `src/view_models/pagination.rs` — shared auto-pagination and skeleton
+  count policy used outside the legacy search VM.
 - `tests/architecture_tests.rs` — new guard
   `recent_feeds_route_is_reachable_from_toolbar` (or similar name) that
   pins the variant existence, the toolbar entry-point function, and the
@@ -78,7 +91,9 @@ Probable touches but verify:
 ## Do Not Touch
 
 - `src/discover/**` (parked module — no revival).
-- `src/ui/shells/discover/**`.
+- `src/ui/shells/discover/**` behavior or rendering. Import-only
+  retargets are allowed when extracting shared helpers that parked
+  Discover shells still compile against.
 - Empty-query semantics in `submit_global_search`. The empty short-circuit
   stays; do not restore the empty-query → Recent Feeds path.
 - Public API of `SearchResultsInspectorPageVm`. Recent Feeds gets its own
@@ -104,6 +119,9 @@ Probable touches but verify:
 - Empty `RecentFeedsResponse.data` renders through the existing
   `render_empty_state` path. No raw transport text in the body.
 - `RecentFeedsPageVm` is GPUI-free. No `gpui::` imports.
+- Recent Feeds view mode, cursor, `has_more`, and loading state are
+  VM-owned. Shells render these facts and dispatch callbacks; they do
+  not own cursor or current-mode state.
 - No new `#[allow(...)]` directives.
 - Never skip hooks. Don't commit unless explicitly asked.
 
@@ -123,10 +141,10 @@ Probable touches but verify:
    - `Loaded(rows: Vec<IndexFeedResultRow>)` — reuse the existing
      Index feed result row type from `view_models/search_results`.
    - `Error(message: String, detail: String)`.
-   Constructor takes no arguments; an initial VM is `Loading`. Provide
-   methods `mark_loading()`, `replace_feeds(Vec<IndexFeedResultRow>)`,
-   `set_error(message, detail)`, and a getter for the current state
-   shape needed by rendering.
+   Constructor takes no arguments; an initial VM is `Loading`. The VM
+   also owns `RecentFeedsViewMode`, cursor pagination state, and
+   fresh/append load transitions (`begin_load`, `finish_load`,
+   `fail_load`).
 5. Add `open_recent_feeds_in_content_list(&mut self, cx)` on `TopApp`
    (in `search_dispatch.rs`) that:
    - If the active ContentList nav top is already `RecentFeeds`, calls
@@ -136,11 +154,11 @@ Probable touches but verify:
      the workspace layout.
    - Initializes `self.recent_feeds_detail = Some(RecentFeedsPageVm::loading())`.
    - Calls `start_recent_feeds_load(cx)`.
-6. Add `start_recent_feeds_load(&mut self, cx)` mirroring
+6. Add `start_recent_feeds_load(&mut self, append, cx)` mirroring
    `start_index_search_for_query`: spawn into the background executor
-   via `cx.spawn`, run `fetch_recent_feeds(None, None)` against the
-   active endpoint, write the result back through `this.update` after
-   confirming the active nav top is still `RecentFeeds`.
+   via `cx.spawn`, run `fetch_recent_feeds(PAGE_LIMIT, cursor)` against
+   the active endpoint, write the result back through `this.update`
+   after confirming the active nav top is still `RecentFeeds`.
 7. Add the toolbar button in `src/app/tab_bar.rs` next to the global
    search submit button. Use the same `IconName` family — pick the
    closest available SF Symbol (e.g., `IconName::Rss` if it exists, else
@@ -148,12 +166,11 @@ Probable touches but verify:
    Label: "Recent Feeds". Action: dispatch
    `open_recent_feeds_in_content_list`.
 8. Extend the ContentList body-switch dispatch in `src/app.rs` with a
-   `FrameNavigationEntry::RecentFeeds` arm that renders the new VM.
-   Reuse the Index feed result row rendering from
-   `search_results_inspector.rs` — either by factoring a shared helper
-   if the existing call site is non-trivial, or by inlining a small
-   loop that calls the same row composite. Empty state renders through
-   `render_empty_state`.
+   `FrameNavigationEntry::RecentFeeds` arm that delegates to
+   `src/app/recent_feeds.rs`. Render the route through
+   `src/ui/shells/recent_feeds.rs` and shared result-row chrome in
+   `src/ui/shells/search_result_rows.rs`. Empty state renders through
+   a VM-owned empty display.
 9. Wire row activation: a click on a feed row pushes
    `FrameNavigationEntry::IndexFeedDetail { id, label }` exactly as
    the search row activation does today.
@@ -177,6 +194,10 @@ Probable touches but verify:
   opens the route.
 - The route renders a feeds-only list using the same row composite as
   Index feed search results.
+- The route defaults to tiles and can switch to list without changing
+  the nav route.
+- Scrolling near the bottom appends additional cursor pages; the
+  fallback "Load more" control dispatches the same append path.
 - Row click pushes `IndexFeedDetail` and the existing detail surface
   renders; breadcrumb pop returns to the Recent Feeds list.
 - Refresh (toolbar action invoked while route is active) re-runs the
@@ -189,7 +210,9 @@ Probable touches but verify:
   its named anchors causes it to fail.
 - All five gates pass.
 - No new `#[allow(...)]` directives.
-- No code under `src/discover/` or `src/ui/shells/discover/` modified.
+- No code under `src/discover/` modified. No behavioral or rendering
+  changes under `src/ui/shells/discover/`; import-only retargets to
+  shared helpers are allowed and must remain documented.
 
 ## Test Commands
 
@@ -203,16 +226,36 @@ cargo clippy -- -D warnings 2>&1 | tail -5
 
 Operator-visible UI smoke (if running locally):
 
-1. Click the Recent Feeds toolbar button. ContentList renders a list of
+1. Click the Recent Feeds toolbar button. ContentList renders tiled
    feeds without typing a query.
-2. Click a feed row. Detail inspector for that Index feed renders;
+2. Toggle List, then toggle back to Tiles. The route stays on Recent
+   Feeds and loaded rows remain visible.
+3. Scroll near the bottom. Additional feeds append without replacing
+   the visible page. The fallback "Load more" button also appends.
+4. Click a feed row. Detail inspector for that Index feed renders;
    breadcrumb shows `Recent Feeds > <feed label>`.
-3. Click the breadcrumb root. List returns to Recent Feeds without a
+5. Click the breadcrumb root. List returns to Recent Feeds without a
    second fetch.
-4. Click the toolbar button while already on Recent Feeds. List
+6. Click the toolbar button while already on Recent Feeds. List
    re-fetches; nav stack does not grow.
-5. Submit an empty query in the search input. Nothing happens (no
+7. Submit an empty query in the search input. Nothing happens (no
    regression of empty-query → Recent Feeds behavior).
+
+## Shipped Deviations
+
+- The initial task expected a first-page-only list. User smoke confirmed
+  that the prior Discover workflow depended on tiled browsing and
+  scroll pagination, so the completed route includes VM-owned
+  tile/list mode and cursor pagination.
+- Recent Feeds rendering was moved out of
+  `search_results_inspector.rs` into `src/ui/shells/recent_feeds.rs`
+  during cleanup; shared row chrome lives in
+  `src/ui/shells/search_result_rows.rs`.
+- Shared pagination policy was extracted from the legacy
+  `src/view_models/search.rs` module into
+  `src/view_models/pagination.rs`. Parked Discover shells received
+  import-only retargets so they continue compiling against the shared
+  policy without reviving Discover.
 
 ## Prompt for lower-context coding model
 
@@ -246,7 +289,9 @@ Constraints:
 - Stale-response guarding mirrors `start_index_search_for_query`.
 - `RecentFeedsPageVm` is GPUI-free.
 - No empty-query branch added back to `submit_global_search`.
-- No edits to `src/discover/**` or `src/ui/shells/discover/**`.
+- No edits to `src/discover/**`. No behavioral or rendering edits to
+  `src/ui/shells/discover/**`; import-only retargets are allowed when
+  needed for shared helper extraction.
 - No new `#[allow(...)]`.
 - Never skip hooks. Don't commit unless explicitly asked.
 

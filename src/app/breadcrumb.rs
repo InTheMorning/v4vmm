@@ -66,6 +66,13 @@ impl TopApp {
             if let FrameNavigationEntry::Search(query) = &entry {
                 self.start_index_search_for_query(query, cx);
             }
+            if matches!(entry, FrameNavigationEntry::RecentFeeds)
+                && self.recent_feeds_detail.is_none()
+            {
+                self.recent_feeds_detail =
+                    Some(crate::view_models::recent_feeds::RecentFeedsPageVm::loading());
+                self.start_recent_feeds_load(false, cx);
+            }
 
             cx.notify();
         }

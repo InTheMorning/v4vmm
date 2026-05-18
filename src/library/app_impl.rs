@@ -69,8 +69,8 @@ use crate::view_models::library::{
     PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay,
     PlaylistSidebarRowVm, PlaylistSidebarVm, SavedSearchesSectionDisplay, TrackSubscribeOutcome,
 };
+use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_option_displays;
-use crate::view_models::search::pending_skeleton_count;
 use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FrameNavigationEntry,
     FrameNavigationState, WorkspaceFrameId, WorkspaceLayout, WorkspaceModelError,
@@ -1276,6 +1276,7 @@ impl LibraryApp {
                 self.select_artist(name, cx);
             }
             FrameNavigationEntry::Search(_)
+            | FrameNavigationEntry::RecentFeeds
             | FrameNavigationEntry::IndexArtistFeedScope(_)
             | FrameNavigationEntry::IndexFeedDetail { .. }
             | FrameNavigationEntry::IndexTrackDetail { .. }
@@ -1554,6 +1555,7 @@ impl LibraryApp {
             | FrameNavigationEntry::IndexArtistFeedScope(name) => name.clone(),
             FrameNavigationEntry::Search(query) if query.trim().is_empty() => "Search".to_string(),
             FrameNavigationEntry::Search(query) => query.clone(),
+            FrameNavigationEntry::RecentFeeds => "Recent Feeds".to_string(),
             FrameNavigationEntry::IndexFeedDetail { label, .. }
             | FrameNavigationEntry::IndexTrackDetail { label, .. } => label.clone(),
             FrameNavigationEntry::Settings => "Settings".to_string(),
