@@ -111,14 +111,25 @@ mod tests {
 
     #[test]
     fn playlist_detail_page_vm_wraps_existing_detail_contract() {
-        let playlist = playlist("Mix");
+        let mut playlist = playlist("Mix");
+        playlist.description = Some("  Local notes  ".into());
+        playlist.created_at = 1_712_275_200;
+        playlist.updated_at = 1_715_040_000;
         let detail = PlaylistDetailVm::new(&playlist, &[]);
         let page = PlaylistDetailPageVm::new(detail, "playlist-detail-scroll");
 
         assert_eq!(page.scroll_id(), "playlist-detail-scroll");
         assert_eq!(page.playlist_id(), 42);
         assert_eq!(page.header_display().title, "Mix");
-        assert_eq!(page.detail_rows(), vec![("Tracks".into(), "0".into())]);
+        assert_eq!(
+            page.detail_rows(),
+            vec![
+                ("Tracks".into(), "0".into()),
+                ("Created".into(), "Apr 5, 2024".into()),
+                ("Modified".into(), "May 7, 2024".into()),
+                ("Description".into(), "Local notes".into()),
+            ]
+        );
         assert!(page.is_empty());
         assert_eq!(
             page.actions_display().rename_button_id,

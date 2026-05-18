@@ -2461,6 +2461,58 @@ fn adr_0024_index_track_detail_uses_rich_track_view_path() {
 }
 
 #[test]
+fn adr_0024_playlist_local_detail_metadata_is_vm_owned_without_index_detail() {
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let playlist_page_vm_source = read_source(&manifest_path("src/view_models/playlist_detail.rs"));
+    let index_detail_source = read_source(&manifest_path(
+        "src/view_models/search_results/index_detail.rs",
+    ));
+    let mut violations = Vec::new();
+
+    for required in [
+        "if self.playlist.created_at > 0",
+        "fmt_date(self.playlist.created_at)",
+        "rows.push((\"Created\".to_string(), label));",
+        "if self.playlist.updated_at > 0",
+        "fmt_date(self.playlist.updated_at)",
+        "rows.push((\"Modified\".to_string(), label));",
+        "self.playlist.description.as_deref().map(str::trim)",
+        "rows.push((\"Description\".to_string(), description.to_string()));",
+    ] {
+        if !library_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: ADR 0024 playlist local detail metadata must be projected by PlaylistDetailVm::detail_rows; missing `{required}`"
+            ));
+        }
+    }
+
+    if !playlist_page_vm_source.contains("self.detail.detail_rows()") {
+        violations.push(
+            "src/view_models/playlist_detail.rs: PlaylistDetailPageVm::detail_rows must pass through PlaylistDetailVm rows"
+                .to_string(),
+        );
+    }
+
+    for forbidden in [
+        "IndexDetailKind::Playlist",
+        "IndexPlaylistDetail",
+        "PlaylistDetailDisplay",
+    ] {
+        if index_detail_source.contains(forbidden) {
+            violations.push(format!(
+                "src/view_models/search_results/index_detail.rs: ADR 0024 Task 005 must not introduce Index playlist detail behavior `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0024 playlist local-detail metadata ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn adr_0047_task_012_frame_navigation_is_workspace_vm_owned() {
     let workspace_source = workspace_vm_source();
     let library_struct_source = read_source(&manifest_path("src/library.rs"));

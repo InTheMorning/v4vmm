@@ -31,7 +31,7 @@ use crate::view_models::entity_detail::{
     EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseActionState,
     ReleaseMembershipState, TrackActionState, TrackMembershipState,
 };
-use crate::view_models::format::{fmt_total_runtime_clock, plural};
+use crate::view_models::format::{fmt_date, fmt_total_runtime_clock, plural};
 use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
@@ -2992,13 +2992,27 @@ impl<'a> PlaylistDetailVm<'a> {
         fmt_total_runtime_clock(self.total_duration_seconds())
     }
 
-    /// Detail-grid rows in display order: `Tracks` always, plus
-    /// `Duration` when there is a non-zero total runtime.
+    /// Detail-grid rows in display order.
     #[must_use]
     pub(crate) fn detail_rows(&self) -> Vec<(String, String)> {
         let mut rows = vec![("Tracks".to_string(), self.track_count().to_string())];
         if let Some(label) = self.total_duration_label() {
             rows.push(("Duration".to_string(), label));
+        }
+        if self.playlist.created_at > 0 {
+            if let Some(label) = fmt_date(self.playlist.created_at) {
+                rows.push(("Created".to_string(), label));
+            }
+        }
+        if self.playlist.updated_at > 0 {
+            if let Some(label) = fmt_date(self.playlist.updated_at) {
+                rows.push(("Modified".to_string(), label));
+            }
+        }
+        if let Some(description) = self.playlist.description.as_deref().map(str::trim) {
+            if !description.is_empty() {
+                rows.push(("Description".to_string(), description.to_string()));
+            }
         }
         rows
     }
@@ -4021,6 +4035,36 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0], ("Tracks".into(), "1".into()));
         assert_eq!(rows[1], ("Duration".into(), "1:00".into()));
+    }
+
+    #[test]
+    fn playlist_detail_vm_detail_rows_omit_sentinel_dates_and_blank_description() {
+        let mut pl = playlist("Mix");
+        pl.created_at = 0;
+        pl.updated_at = -1;
+        pl.description = Some("   ".into());
+        let vm = PlaylistDetailVm::new(&pl, &[]);
+
+        assert_eq!(vm.detail_rows(), vec![("Tracks".into(), "0".into())]);
+    }
+
+    #[test]
+    fn playlist_detail_vm_detail_rows_include_formatted_local_metadata() {
+        let mut pl = playlist("Mix");
+        pl.created_at = 1_712_275_200;
+        pl.updated_at = 1_715_040_000;
+        pl.description = Some("  Weekend listening  ".into());
+        let vm = PlaylistDetailVm::new(&pl, &[]);
+
+        assert_eq!(
+            vm.detail_rows(),
+            vec![
+                ("Tracks".into(), "0".into()),
+                ("Created".into(), "Apr 5, 2024".into()),
+                ("Modified".into(), "May 7, 2024".into()),
+                ("Description".into(), "Weekend listening".into()),
+            ]
+        );
     }
 
     #[test]
