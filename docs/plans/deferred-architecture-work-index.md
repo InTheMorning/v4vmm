@@ -14,17 +14,23 @@ prioritized, and routed to the right governance artifact.
 1. Person/global identity persistence.
    - Status: deferred from ADR 0029.
    - Route: future ADR only after durable person ids and merge policy exist.
-2. Staged metadata durability.
+2. Screen-local `cx.spawn` retirement.
+   - Status: pinned at current baseline by
+     `cx_spawn_debt_does_not_grow_outside_presentation_and_runtime`
+     (added by ADR 0040 Task 004).
+   - Route: ADR 0040 follow-up; migrate each remaining spawn to a
+     presentation-bridge.
+3. Staged metadata durability.
    - Status: product/storage decision required.
    - Route: future ADR before schema or command behavior changes.
-3. Non-URL artwork rendering.
+4. Non-URL artwork rendering.
    - Status: audit completed; no producer/resolver contract yet.
    - Route: future ADR only when cache, storage, or public artwork contracts
      change.
-4. Playback volume and playback-driver supervision.
+5. Playback volume and playback-driver supervision.
    - Status: isolated playback-boundary follow-up.
    - Route: ADR 0021/0024 follow-up after the driver contract is clear.
-5. Visual-system polish and lower-priority product improvements.
+6. Visual-system polish and lower-priority product improvements.
    - Status: use bounded ADR 0025 tasks only when the change affects tokens,
      primitives, composites, or theme contracts.
    - HIG product-completeness gaps are tracked separately in
