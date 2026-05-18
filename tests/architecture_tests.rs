@@ -2513,6 +2513,185 @@ fn adr_0024_playlist_local_detail_metadata_is_vm_owned_without_index_detail() {
 }
 
 #[test]
+fn adr_0024_loading_shape_readiness_gate_is_locked() {
+    let architecture_source = read_source(&manifest_path("tests/architecture_tests.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let workspace_nav_source = read_source(&manifest_path("src/view_models/workspace/nav.rs"));
+    let views_source = read_source(&manifest_path("src/views.rs"));
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let playlist_page_vm_source = read_source(&manifest_path("src/view_models/playlist_detail.rs"));
+    let search_results_shell_source =
+        read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+    let feed_detail_shell_source =
+        read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    let playlist_shell_source = read_source(&manifest_path("src/ui/shells/playlist.rs"));
+    let mut violations = Vec::new();
+
+    for guard_name in [
+        "local_feed_language_parity_is_loaded_through_read_model_path",
+        "adr_0024_index_track_detail_uses_rich_track_view_path",
+        "local_track_pubdate_and_explicit_projection_path_is_guarded",
+        "index_artist_activation_is_scoped_feed_route_not_detail_page",
+        "adr_0024_playlist_local_detail_metadata_is_vm_owned_without_index_detail",
+    ] {
+        let fn_signature = format!("fn {guard_name}(");
+        if architecture_source.matches(&fn_signature).count() != 1 {
+            violations.push(format!(
+                "tests/architecture_tests.rs: ADR 0024 readiness gate requires exactly one `{fn_signature}` guard"
+            ));
+        }
+    }
+
+    for live_path in [
+        "src/app/search_dispatch.rs",
+        "src/view_models/search_results/results.rs",
+        "src/view_models/search_results/index_detail.rs",
+        "src/ui/shells/search_results_inspector.rs",
+    ] {
+        let source = read_source(&manifest_path(live_path));
+        for forbidden in ["crate::discover", "SearchApp", "render_discover"] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{live_path}: live ADR 0024 Index parity path must not depend on parked Discover pattern `{forbidden}`"
+                ));
+            }
+        }
+    }
+
+    for (prefix, parse_pattern) in [
+        ("strip_prefix(\"index-track:\")", "parse::<i64>()"),
+        ("strip_prefix(\"index-feed:\")", "parse::<i64>()"),
+        (
+            "strip_prefix(\"index-artist:\")",
+            "strip_prefix(\"library-artist:\")",
+        ),
+    ] {
+        let Some(prefix_index) = search_dispatch_source.find(prefix) else {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: Index selection dispatch missing `{prefix}`"
+            ));
+            continue;
+        };
+        let Some(parse_index) = search_dispatch_source[prefix_index..].find(parse_pattern) else {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: Index selection dispatch missing local parsing boundary `{parse_pattern}` after `{prefix}`"
+            ));
+            continue;
+        };
+        if parse_index == 0 {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: Index prefix `{prefix}` must be handled before local id parsing"
+            ));
+        }
+    }
+
+    for required in [
+        "IndexFeedDetail {\n        /// Stable remote feed id.\n        id: String,",
+        "IndexTrackDetail {\n        /// Stable remote track activation id.\n        id: String,",
+        "FrameNavigationEntry::IndexFeedDetail {\n                id: feed_guid.to_string(),",
+        "FrameNavigationEntry::IndexTrackDetail {\n                id: target.to_string(),",
+    ] {
+        let (source_name, source) = if required.starts_with("Index") {
+            (
+                "src/view_models/workspace/nav.rs",
+                workspace_nav_source.as_str(),
+            )
+        } else {
+            (
+                "src/app/search_dispatch.rs",
+                search_dispatch_source.as_str(),
+            )
+        };
+        if !source.contains(required) {
+            violations.push(format!(
+                "{source_name}: ADR 0024 Index detail routes must store remote string ids; missing `{required}`"
+            ));
+        }
+    }
+
+    for (source_name, source, forbidden) in [
+        (
+            "src/ui/shells/library/feed_detail.rs",
+            feed_detail_shell_source.as_str(),
+            "\"Language\"",
+        ),
+        (
+            "src/ui/shells/playlist.rs",
+            playlist_shell_source.as_str(),
+            "\"Created\"",
+        ),
+        (
+            "src/ui/shells/playlist.rs",
+            playlist_shell_source.as_str(),
+            "\"Modified\"",
+        ),
+        (
+            "src/ui/shells/playlist.rs",
+            playlist_shell_source.as_str(),
+            "\"Description\"",
+        ),
+        (
+            "src/ui/shells/search_results_inspector.rs",
+            search_results_shell_source.as_str(),
+            "\"Explicit\"",
+        ),
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "{source_name}: ADR 0024 parity labels must be VM/query-owned, not renderer-only `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "language: nonempty_owned(f.language)",
+        "track_number: t.track_number",
+        "duration_secs: t.duration_secs",
+        "pub_date: t.pub_date",
+        "explicit: t.explicit",
+        "contributors: t\n                .source_contributors",
+        "payment_routes: t.payment_routes.unwrap_or_default()",
+        "transcript_url: nonempty_owned(transcript_url)",
+        "track_number: t.track_number.and_then(|v| v.try_into().ok())",
+        "duration_secs: t.duration_seconds.and_then(|v| v.try_into().ok())",
+        "pub_date: t.pub_date",
+        "explicit: t.explicit",
+        "transcript_url: t.transcript_url",
+    ] {
+        if !views_source.contains(required) {
+            violations.push(format!(
+                "src/views.rs: ADR 0024 surfaced parity fields must remain owned by FeedView/TrackView projection; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "rows.push((\"Created\".to_string(), label));",
+        "rows.push((\"Modified\".to_string(), label));",
+        "rows.push((\"Description\".to_string(), description.to_string()));",
+    ] {
+        if !library_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: ADR 0024 playlist surfaced parity fields must remain VM-owned; missing `{required}`"
+            ));
+        }
+    }
+
+    if !playlist_page_vm_source.contains("self.detail.detail_rows()") {
+        violations.push(
+            "src/view_models/playlist_detail.rs: PlaylistDetailPageVm must pass through PlaylistDetailVm::detail_rows"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0024 loading-shape readiness gate violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn adr_0047_task_012_frame_navigation_is_workspace_vm_owned() {
     let workspace_source = workspace_vm_source();
     let library_struct_source = read_source(&manifest_path("src/library.rs"));
