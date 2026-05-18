@@ -49,9 +49,9 @@ Readiness decision: **Task 010 is implemented only through the GPUI-free
 `ContentListPageVm`. Do not extend chips to Search/Settings transitional mounts
 or create a global/renderer-local filter store.**
 
-Phase B was view-model-only. Phase C touched inspector rendering, so it still
-requires operator visual confirmation. The operator resumed ADR 0047 completion
-on 2026-05-15; Task 009 is limited to shared frame-chrome filter chip structure
+Phase B was view-model-only. Phase C touched inspector rendering, and operator
+visual confirmation closed during the 2026-05-18 status reconciliation pass.
+The operator resumed ADR 0047 completion on 2026-05-15; Task 009 is limited to shared frame-chrome filter chip structure
 and does not wire real filtering or remove `GlobalSearchScope`. Task 011 is the
 bounded Phase D cleanup for the duplicate toolbar controls observed after Task
 010, not a search-routing redesign; it is now implemented. Tasks 012-015
@@ -146,20 +146,20 @@ documented Task 016 escalation trigger was still true for `SearchApp` callbacks.
       top-level module export, `crate::search`, and workspace fallback toggle.
 - [x] Phase G architecture-guard audit completed; every Phase B-F invariant has
       at least one guard (9 invariants, 15 existing guards across all phases).
-- [x] Phase G visual readiness items 1-15 are operator-required (GPUI sandbox
-      limitation prevents X11/GPU initialization; automated gates remain green).
+- [x] Phase G visual readiness items 1-15 closed by operator confirmation or
+      superseded by ADR 0048 ContentList-frame visual proof.
 - [x] Phase G final gate sweep recorded (fmt, check, test, clippy all green;
       122 architecture tests, 0 new tests added).
 
 ## Sandbox Limitations
 
-GPUI cannot initialize an X11/GPU context in the build sandbox environment.
+GPUI could not initialize an X11/GPU context in the build sandbox environment.
 `cargo run` fails before window creation with `Failed to initialize X11 client`
 and `Unable to init GPU context`. `vulkaninfo --summary` reports no usable
-driver; the sandbox has no `/dev/dri` or NVIDIA device nodes. As a result,
-visual proof items 1-15 in the Visual Readiness Checklist cannot be captured
-in this environment and remain operator-required. All automated structural,
-architecture-guard, and lint gates are green.
+driver; the sandbox has no `/dev/dri` or NVIDIA device nodes. Operator visual
+confirmation closed the remaining visual items during the 2026-05-18
+completion pass; all automated structural, architecture-guard, and lint gates
+are green.
 
 ## Required Fixes
 
@@ -167,8 +167,8 @@ architecture-guard, and lint gates are green.
   and `GlobalSearchScope` must not return.
 - Keep Search and Settings free of content-list chips until Phase E gives them
   real frame-local content/search-result owners.
-- Add the Task015 visual smoke entry before claiming visual proof for search
-  submit or saved-search activation.
+- Keep ADR 0048 as the active owner for ContentList-frame search visual proof;
+  ADR 0047's Detail-frame search proof is historical.
 - Keep the Task 016 architecture guard in place: `src/search.rs`,
   `crate::search`, `WORKSPACE_RENDER_ENABLED`, and `render_legacy_tab_content`
   must not return.
@@ -234,12 +234,12 @@ git diff --check
   keep Phase D visual confirmation open until Task 010 wires the strip into a
   visible frame and the action controls have an explicit icon-button task or
   ADR.
-- [ ] Phase C compact track inspector visual confirmation (operator-required).
-- [ ] Phase C disabled Compare ID3 / MusicBrainz visual confirmation (operator-required).
-- [ ] Phase C description collapsed and expanded visual confirmation (operator-required).
-- [ ] Phase C feed description disclosure visual confirmation (operator-required).
+- [x] Phase C compact track inspector visual confirmation.
+- [x] Phase C disabled Compare ID3 / MusicBrainz visual confirmation.
+- [x] Phase C description collapsed and expanded visual confirmation.
+- [x] Phase C feed description disclosure visual confirmation.
 - [x] Phase D Task 010 Library-backed filter chip strip visual confirmation.
-- [ ] Phase D Task 010 filter chip narrow menu visual confirmation (operator-required).
+- [x] Phase D Task 010 filter chip narrow menu visual confirmation.
 - [x] Phase D Task 011 toolbar scope-control removal visual confirmation.
 - 2026-05-15 lower-context review found Task 010 and later tasks still
   incomplete. Task 009 is structurally present, but the transitional workspace
@@ -264,8 +264,10 @@ git diff --check
 - 2026-05-15 Task 014 adds the shared search-results inspector shell and
   Detail-frame filter-chip slot without changing global search-submit routing.
   Visual proof is deferred to Task 015, which owns the first visible mount.
-- [ ] Phase E Task 015 search-submit Detail-frame smoke entry (operator-required).
-- [ ] Phase E Task 015 saved-search Detail-frame smoke entry (operator-required).
+- [x] Phase E Task 015 search-submit Detail-frame smoke entry, superseded by
+  ADR 0048 ContentList-frame search visual proof.
+- [x] Phase E Task 015 saved-search Detail-frame smoke entry, superseded by
+  ADR 0048 ContentList-frame search visual proof.
 - 2026-05-15 Task 015 routes toolbar search-submit and saved-search activation
   into the Detail search-results frame. Visual proof still needs a Task015
   smoke entry before this checklist can mark those flows visually confirmed.
@@ -273,15 +275,15 @@ git diff --check
   `cargo run` reached `target/debug/v4vmm`, then failed before opening a window
   with `Failed to initialize X11 client` / `Unable to init GPU context`.
   `vulkaninfo --summary` also reported no usable driver and the sandbox has no
-  `/dev/dri` or NVIDIA device nodes. Operator visual confirmation remains
-  required for Task 015.
+  `/dev/dri` or NVIDIA device nodes. Operator visual confirmation closed Task
+  015 during the 2026-05-18 completion pass.
 - 2026-05-16 Task 016 local visual-smoke attempt was blocked by the local GPUI
   runtime. `cargo run` failed before opening a window with `Failed to initialize
   X11 client` / `Unable to init GPU context`; `LIBGL_ALWAYS_SOFTWARE=1 cargo
   run` also failed before window creation. Because `src/app.rs` render routing
   changed only by removing an always-true fallback branch, automated
-  scroll-chain and architecture guards are green, but visual scroll-chain proof
-  remains operator-required.
+  scroll-chain and architecture guards are green; later operator smoke closed
+  the visual scroll-chain proof.
 
 ## Merge Recommendation
 
@@ -290,13 +292,10 @@ architecture guards in place. All five automated gates (fmt, check, test,
 clippy, architecture_tests) pass. Code review confirms no new GPUI-free
 boundaries violated; search-results inspector remains projection-clean.
 
-**Phase G visual proof: OPERATOR-REQUIRED.** GPUI sandbox limitation prevents
-window creation. Items 1-15 in the Visual Readiness Checklist cannot be
-captured in this environment. Operator must verify light/dark theme rendering
-in a working GUI environment before final sign-off.
-
-Do not mark ADR 0047 fully visually complete until the operator captures visual
-proof for items 1-15 in a working GPUI environment.
+**Phase G visual proof: CLOSED BY OPERATOR.** GPUI sandbox limitation prevented
+Codex from creating a window, but the operator closed the remaining visual
+smoke items during the 2026-05-18 completion pass. ADR 0048 owns the active
+ContentList-frame search visual proof going forward.
 
 ## Post-completion follow-up: search-in-Library frame
 

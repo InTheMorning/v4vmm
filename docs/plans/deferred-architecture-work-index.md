@@ -14,28 +14,24 @@ prioritized, and routed to the right governance artifact.
 1. Person/global identity persistence.
    - Status: deferred from ADR 0029.
    - Route: future ADR only after durable person ids and merge policy exist.
-2. ADR 0024 query/service thinning for remote-only Discover reads and remote
-   inspector lazy panels.
-   - Status: deferred from ADR 0024 final review.
-   - Route: new ADR 0024 follow-up plan and bounded vertical slices.
-3. ADR 0040 legacy synchronous scheduling retirement.
+2. ADR 0040 legacy synchronous scheduling retirement.
    - Status: Phase F default-on `async-runtime` flip has shipped, but
      `GpuiCommandRunner` and `--no-default-features` compatibility paths
      still exist.
    - Route: ADR 0040 follow-up after the remaining screen/runtime swaps
      are complete; do not remove legacy paths as part of unrelated UI
      feature work.
-4. Staged metadata durability.
+3. Staged metadata durability.
    - Status: product/storage decision required.
    - Route: future ADR before schema or command behavior changes.
-5. Non-URL artwork rendering.
+4. Non-URL artwork rendering.
    - Status: audit completed; no producer/resolver contract yet.
    - Route: future ADR only when cache, storage, or public artwork contracts
      change.
-6. Playback volume and playback-driver supervision.
+5. Playback volume and playback-driver supervision.
    - Status: isolated playback-boundary follow-up.
    - Route: ADR 0021/0024 follow-up after the driver contract is clear.
-7. Visual-system polish and lower-priority product improvements.
+6. Visual-system polish and lower-priority product improvements.
    - Status: use bounded ADR 0025 tasks only when the change affects tokens,
      primitives, composites, or theme contracts.
 
@@ -65,13 +61,31 @@ prioritized, and routed to the right governance artifact.
   deferred item: track-to-artist binding for name-derived Library artist
   views. Tasks 001-004 completed on 2026-05-11; name-derived Library artist
   views now enrich from explicit bindings without name-only merging.
-- Library/Discover data parity triage and runtime delivery completed on
-  2026-05-18. ADR 0052 routed the work; the ADR 0024 follow-up implemented
-  loading-shape gaps; ADR 0053 accepted the parent source-fact parity contract;
-  ADR 0054 implemented the concrete feed/track metadata source-fact slice.
+- Deferred item #2, Library/Discover data parity, completed on 2026-05-18.
+  ADR 0052 routed the work; ADR 0024 follow-up runtime delivery shipped the six
+  loading-shape slices (`6e61d4f`, `f9bff8d`, `d7d0220`, `e8c1aaa`,
+  `8f701d2`, `de934bb`); ADR 0053 accepted the parent source-fact parity
+  contract; ADR 0054 implemented the concrete feed/track metadata source-fact
+  slice.
 
 ## Execution Rule
 
 Execute one deferred item at a time. If the work changes schema, persistence,
 matching, application query ownership, or public projection contracts, create
 or revise an ADR before changing runtime code.
+
+## Status Hygiene Rule
+
+Any change that completes an ADR phase, task packet, review remediation, or
+deferred-index item must reconcile status in the same commit:
+
+- the governing ADR status,
+- the phase plan or task packet status,
+- the review checklist or smoke checklist,
+- the deferred-work index entry when applicable.
+
+Do not leave `Proposed`, `Implementation pending`, unchecked checklist boxes, or
+active deferred-index entries behind for work that has shipped and been
+verified. If a runtime slice ships but visual proof remains operator-owned, mark
+the runtime status complete and name the visual gate explicitly instead of
+leaving the whole artifact ambiguous.

@@ -1,6 +1,8 @@
 # ADR 0047 Phase Plan: Library + Search Unification
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-18. The active search surface is superseded by
+ADR 0048's ContentList-frame model, but ADR 0047's VM, filter, breadcrumb, and
+search-module retirement scope is complete.
 
 Companion to `docs/adr/0047-library-search-unification.md` and
 `docs/plans/library-search-unification-plan.md` (pre-ADR concept
@@ -77,8 +79,8 @@ windowed VM machinery.
 Goal: apply the new inspector VMs to the existing track inspector
 without changing search/library navigation.
 
-Status: Implemented - 2026-05-14. Awaiting operator visual
-confirmation before Phase D.
+Status: Implemented - 2026-05-14. Operator visual confirmation closed during
+the 2026-05-18 status reconciliation pass.
 
 Tasks:
 
@@ -228,6 +230,9 @@ alive.
 ## Phase G - Guards and Visual Proof
 
 Goal: lock invariants and capture L/D visual proof.
+
+Status: Implemented - 2026-05-18. Detail-frame visual items are historical;
+ADR 0048 owns the current ContentList-frame search visual proof.
 
 Tasks:
 

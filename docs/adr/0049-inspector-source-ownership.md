@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted - 2026-05-16. Implementation in progress.
+Implemented - 2026-05-18.
+
+Ownership invariants are guarded by
+`adr_0049_inspector_source_ownership_is_guarded` plus the frame-local filter
+guards in `tests/architecture_tests.rs`. Operator visual smoke confirmed the
+remove/download, Index drill-down, and content-filter behavior during the
+2026-05-18 completion pass.
 
 ## Context
 

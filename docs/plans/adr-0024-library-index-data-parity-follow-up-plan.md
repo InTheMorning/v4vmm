@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed - 2026-05-17. Produced by ADR 0052 triage.
+Implemented - 2026-05-18. Produced by ADR 0052 triage and completed through
+the six loading-shape/runtime slices ending in readiness guard commit
+`de934bb`.
 
 ## Goal
 
@@ -163,6 +165,18 @@ Source-fact / persistence gaps route to
    arriving through a VM/query contract.
 
 Each slice needs its own task packet before implementation.
+
+## Implemented Runtime Slices
+
+- `6e61d4f` - feed language loading and integration.
+- `f9bff8d` - rich Index track detail rendering and integration.
+- `d7d0220` - track `pub_date` and explicit projection.
+- `e8c1aaa` - Index artist route decision: `IndexArtistFeedScope`.
+- `8f701d2` - local playlist detail metadata rendering.
+- `de934bb` - final ADR 0024 loading-shape readiness guard.
+
+The persistence/source-fact gaps remain governed by ADR 0053/0054 or future
+source-fact ADRs; they are not active ADR 0024 loading-shape work.
 
 ## Open Questions Before Implementation
 

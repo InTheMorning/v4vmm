@@ -1,5 +1,10 @@
 # ADR 0050 — module decomposition phase plan
 
+## Status
+
+Implemented - 2026-05-18. The app handler, workspace VM, and search-results VM
+submodule directories exist and match ADR 0050's target boundaries.
+
 ## Goal
 
 Decompose three oversized modules into submodule directories without

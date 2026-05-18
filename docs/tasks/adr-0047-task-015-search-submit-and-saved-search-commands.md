@@ -90,10 +90,10 @@ with the same Detail-inspector path.
   the Detail frame `FrameNavigationEntry::Search` query.
 - [x] Source-list selection is unaffected by either command.
 - [x] Architecture guards record the contracts.
-- [ ] Task015 visual smoke entry still needs to be filled by the main
-  agent or operator before claiming visual proof. Codex attempted
+- [x] Task015 visual smoke entry closed by operator confirmation. Codex attempted
   `cargo run` on 2026-05-15, but GPUI failed to initialize the local
-  X11/GPU context before opening a window.
+  X11/GPU context before opening a window. ADR 0048 later moved the active
+  search path from Detail to ContentList.
 
 ## Test Commands
 

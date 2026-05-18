@@ -1,5 +1,9 @@
 # Post-ADR-0048 Task — Recent Feeds Route
 
+## Status
+
+Implemented - 2026-05-18.
+
 ## Goal
 
 Implement the new `FrameNavigationEntry::RecentFeeds` route under the
@@ -87,6 +91,35 @@ Probable touches but verify:
 - Any `match self.current` on `FrameNavigationEntry` outside the files
   above will need a new arm (compiler will flag).
 - Test fixtures that construct `FrameNavigationEntry` values.
+
+## Files Changed
+
+- `docs/plans/post-adr-0048-recent-feeds-route-plan.md`
+- `docs/tasks/post-adr-0048-task-recent-feeds-route.md`
+- `src/app.rs`
+- `src/app/breadcrumb.rs`
+- `src/app/recent_feeds.rs`
+- `src/app/search_dispatch.rs`
+- `src/app/tab_bar.rs`
+- `src/library/app_impl.rs`
+- `src/ui/shells/discover/feed_inspector.rs`
+- `src/ui/shells/discover/recent.rs`
+- `src/ui/shells/discover/result_list.rs`
+- `src/ui/shells/mod.rs`
+- `src/ui/shells/recent_feeds.rs`
+- `src/ui/shells/search_result_rows.rs`
+- `src/ui/shells/search_results_inspector.rs`
+- `src/view_models/app_toolbar.rs`
+- `src/view_models/mod.rs`
+- `src/view_models/pagination.rs`
+- `src/view_models/recent_feeds.rs`
+- `src/view_models/search.rs`
+- `src/view_models/search_results/index_detail.rs`
+- `src/view_models/search_results/mod.rs`
+- `src/view_models/workspace/breadcrumb.rs`
+- `src/view_models/workspace/mod.rs`
+- `src/view_models/workspace/nav.rs`
+- `tests/architecture_tests.rs`
 
 ## Do Not Touch
 
@@ -186,31 +219,51 @@ Probable touches but verify:
     Use the same source-walk style as the existing search-flow guards.
 11. Run the five gates.
 
+## Implementation Summary
+
+- Added singleton `FrameNavigationEntry::RecentFeeds` with breadcrumb and
+  display-label support.
+- Added a toolbar `Recent Feeds` command using `IconName::Rss` next to
+  global search submit.
+- Added GPUI-free `RecentFeedsPageVm` with loading / loaded / error state,
+  VM-owned tile/list mode, cursor, `has_more`, and loading state.
+- Added `TopApp::open_recent_feeds_in_content_list` and
+  `TopApp::start_recent_feeds_load`, backed by
+  `Client::fetch_recent_feeds` and guarded by
+  `content_list_nav_is_recent_feeds`.
+- Split Recent Feeds rendering into `src/ui/shells/recent_feeds.rs` and
+  shared Index result row chrome into `src/ui/shells/search_result_rows.rs`.
+- Added shared pagination policy in `src/view_models/pagination.rs`; parked
+  Discover shells received import-only retargets to keep compiling against
+  the shared helper.
+- Added architecture guards for route reachability, no empty-query revival,
+  artwork slots, scroll pagination, and VM-owned tile/list view mode.
+
 ## Acceptance Criteria
 
-- `FrameNavigationEntry::RecentFeeds` variant present; `display_label`
+- [x] `FrameNavigationEntry::RecentFeeds` variant present; `display_label`
   returns `"Recent Feeds"`.
-- Toolbar action visible next to the search submit button; clicking it
+- [x] Toolbar action visible next to the search submit button; clicking it
   opens the route.
-- The route renders a feeds-only list using the same row composite as
+- [x] The route renders a feeds-only list using the same row composite as
   Index feed search results.
-- The route defaults to tiles and can switch to list without changing
+- [x] The route defaults to tiles and can switch to list without changing
   the nav route.
-- Scrolling near the bottom appends additional cursor pages; the
+- [x] Scrolling near the bottom appends additional cursor pages; the
   fallback "Load more" control dispatches the same append path.
-- Row click pushes `IndexFeedDetail` and the existing detail surface
+- [x] Row click pushes `IndexFeedDetail` and the existing detail surface
   renders; breadcrumb pop returns to the Recent Feeds list.
-- Refresh (toolbar action invoked while route is active) re-runs the
+- [x] Refresh (toolbar action invoked while route is active) re-runs the
   async load without stacking nav entries.
-- Empty result set renders through `render_empty_state`.
-- Stale-response guarding prevents a late response from overwriting the
+- [x] Empty result set renders through `render_empty_state`.
+- [x] Stale-response guarding prevents a late response from overwriting the
   VM when the user has navigated away.
-- Architecture guard
+- [x] Architecture guard
   `recent_feeds_route_is_reachable_from_toolbar` passes; removing any of
   its named anchors causes it to fail.
-- All five gates pass.
-- No new `#[allow(...)]` directives.
-- No code under `src/discover/` modified. No behavioral or rendering
+- [x] All five gates pass.
+- [x] No new `#[allow(...)]` directives.
+- [x] No code under `src/discover/` modified. No behavioral or rendering
   changes under `src/ui/shells/discover/`; import-only retargets to
   shared helpers are allowed and must remain documented.
 
@@ -240,6 +293,10 @@ Operator-visible UI smoke (if running locally):
    re-fetches; nav stack does not grow.
 7. Submit an empty query in the search input. Nothing happens (no
    regression of empty-query → Recent Feeds behavior).
+
+Operator visual smoke passed on 2026-05-18. The operator confirmed the
+Recent Feeds button, tile/list mode, scroll pagination, feed detail drill-down,
+breadcrumbs, refresh behavior, empty-query behavior, and artwork behavior.
 
 ## Shipped Deviations
 

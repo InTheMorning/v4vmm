@@ -1,5 +1,9 @@
 # Inspector Source Ownership Task 001
 
+## Status
+
+Implemented - 2026-05-18.
+
 ## Goal
 
 Fix ContentList ownership regressions without redesigning the workspace:
@@ -75,23 +79,27 @@ Fix ContentList ownership regressions without redesigning the workspace:
 
 ## Acceptance Criteria
 
-- Selecting `Library / Index / All` in ContentList does not hide/show rows in
+- [x] Selecting `Library / Index / All` in ContentList does not hide/show rows in
   the left Library tree.
-- Index-only search results drill down without "invalid id" status.
-- Removing a track from a library album changes the mounted row action from
+- [x] Index-only search results drill down without "invalid id" status.
+- [x] Removing a track from a library album changes the mounted row action from
   `Remove` to `Download` when remote identity is available.
-- Downloading that row changes the mounted row action back from `Download` to
+- [x] Downloading that row changes the mounted row action back from `Download` to
   `Remove`.
-- Navigating away and back to the album does not permanently hide remote-known
+- [x] Navigating away and back to the album does not permanently hide remote-known
   removed tracks under `All`/`Index`.
-- Switching to Settings and back to Library restores the previous Library/Search
+- [x] Switching to Settings and back to Library restores the previous Library/Search
   state.
-- Clicking an uncached Index feed/track pushes `IndexFeedDetail` or
+- [x] Clicking an uncached Index feed/track pushes `IndexFeedDetail` or
   `IndexTrackDetail` and renders an Index detail surface with breadcrumb back to
   the search result.
-- Clicking an Index artist pushes `IndexArtistDetail` and shows Index feeds
+- [x] Clicking an Index artist pushes `IndexArtistDetail` and shows Index feeds
   with breadcrumb back to the search result.
-- Architecture tests guard against reintroducing the broken ownership.
+- [x] Architecture tests guard against reintroducing the broken ownership.
+
+Implementation notes: `IndexArtistDetail` was renamed to
+`IndexArtistFeedScope` during follow-up because the implemented UI is a scoped
+Index feed list, not a full remote artist detail page.
 
 ## Test Commands
 

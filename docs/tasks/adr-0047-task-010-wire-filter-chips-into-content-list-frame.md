@@ -1,6 +1,6 @@
 # ADR 0047 Task 010: Wire Filter Chips into ContentList Frame
 
-Status: Implemented - visual confirmation pending - 2026-05-15.
+Status: Implemented - visual confirmation closed - 2026-05-18.
 
 ## Goal
 
@@ -84,7 +84,7 @@ routing remains Phase E.
       `ContentListPageVm`.
 - [x] Empty filter result renders a VM-owned empty-state notice.
 - [x] Architecture guards record the contracts.
-- [ ] Operator visual confirmation: strip position, narrow collapse, and
+- [x] Operator visual confirmation: strip position, narrow collapse, and
       Library/Index empty-state behavior in the running UI.
 
 ## Implementation Notes

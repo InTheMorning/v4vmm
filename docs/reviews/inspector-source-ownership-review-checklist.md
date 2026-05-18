@@ -9,21 +9,25 @@
 
 ## Required Checks
 
-- [ ] Library source tree remains local-navigation only.
-- [ ] Content filter state belongs to the active inspector/detail VM.
-- [ ] `index-*` result IDs are not parsed as SQLite IDs.
-- [ ] Remote detail activation uses MusicIndex identity fields.
-- [ ] Index artist activation pushes `IndexArtistDetail`, shows Index feeds,
+- [x] Library source tree remains local-navigation only.
+- [x] Content filter state belongs to the active inspector/detail VM.
+- [x] `index-*` result IDs are not parsed as SQLite IDs.
+- [x] Remote detail activation uses MusicIndex identity fields.
+- [x] Index artist activation pushes `IndexArtistDetail`, shows Index feeds,
       and provides a breadcrumb back to the search result.
-- [ ] Uncached Index feed/track activation pushes `IndexFeedDetail` or
+- [x] Uncached Index feed/track activation pushes `IndexFeedDetail` or
       `IndexTrackDetail` and renders an Index detail surface.
-- [ ] Remove/download success refreshes or primes the currently mounted
+- [x] Remove/download success refreshes or primes the currently mounted
       inspector.
-- [ ] Removed local rows with remote identity remain visible under `All` and
+- [x] Removed local rows with remote identity remain visible under `All` and
       `Index` with `Download`.
-- [ ] Renderers bind VM-owned membership/action state without ad hoc
+- [x] Renderers bind VM-owned membership/action state without ad hoc
       inference.
-- [ ] Architecture tests guard the ownership rules.
+- [x] Architecture tests guard the ownership rules.
+
+Note: the implemented navigation variant is named `IndexArtistFeedScope`; it is
+the accepted realization of ADR 0049's `IndexArtistDetail` intent because the
+surface is a scoped Index feed list.
 
 ## Required Commands
 
@@ -43,7 +47,9 @@ cargo test
 - Toggle `All`, `Library`, and `Index`; verify only the inspector/detail row set
   changes, not the left Library tree.
 
+Operator visual smoke passed on 2026-05-18.
+
 ## Merge Recommendation
 
-Do not merge if any ownership invariant is enforced only by renderer conditionals
-or manual navigation away/back.
+Merge recommendation: complete. Do not reopen unless a new regression breaks an
+ADR 0049 invariant.

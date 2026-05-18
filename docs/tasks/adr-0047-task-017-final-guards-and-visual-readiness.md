@@ -1,6 +1,6 @@
 # ADR 0047 Task 017: Final Guards and Visual Readiness
 
-Status: Proposed - 2026-05-14.
+Status: Implemented - 2026-05-18.
 
 ## Goal
 
@@ -74,10 +74,17 @@ Capture screenshots or video evidence for:
 
 ## Acceptance Criteria
 
-- [ ] All Phase B-F invariants have at least one architecture guard.
-- [ ] Required checks (fmt, check, test, clippy) are green.
-- [ ] Visual proof captured in light and dark themes.
-- [ ] Review checklist records a clear `Proceed` / `Block` decision.
+- [x] All Phase B-F invariants have at least one architecture guard.
+- [x] Required checks (fmt, check, test, clippy) are green.
+- [x] Visual proof captured in light and dark themes or superseded by ADR 0048
+      ContentList-frame visual proof.
+- [x] Review checklist records a clear `Proceed` / `Block` decision.
+
+## Completion Notes
+
+ADR 0047's Detail-frame search visual checklist is historical after ADR 0048.
+The active search surface now lives in the ContentList frame, and the operator
+closed the remaining visual smoke items during the 2026-05-18 completion pass.
 
 ## Test Commands
 

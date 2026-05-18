@@ -2,7 +2,16 @@
 
 ## Status
 
-Accepted - 2026-05-16. Implementation pending.
+Implemented - 2026-05-18.
+
+Verified files:
+
+- `src/app/{search_dispatch,breadcrumb,resize}.rs`
+- `src/view_models/workspace/{breadcrumb,chrome,frame,nav,tests}.rs`
+- `src/view_models/search_results/{empty_state,index_detail,paged_tab,results,tabs,tests}.rs`
+
+Recent Feeds follow-up work added `src/app/recent_feeds.rs` without weakening
+the decomposition boundary.
 
 ## Context
 

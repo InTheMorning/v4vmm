@@ -1,5 +1,10 @@
 # Inspector Source Ownership Phase Plan
 
+## Status
+
+Implemented - 2026-05-18. Runtime ownership fixes, architecture guards, and
+operator visual smoke are complete under ADR 0049.
+
 ## Goal
 
 Fix the ContentList ownership regressions introduced during ADR 0048:
