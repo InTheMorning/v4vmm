@@ -10,7 +10,7 @@ use gpui::{div, prelude::*, App, ElementId, IntoElement, RenderOnce, Styled, Win
 
 use crate::ui::layouts as layout;
 use crate::ui::primitives::Skeleton;
-use crate::ui::tokens::{Radius, Spacing};
+use crate::ui::tokens::{Radius, SkeletonBlock, Spacing};
 
 /// Skeleton feed-tile sized to match the discover recent-feeds tile.
 #[derive(IntoElement)]
@@ -39,6 +39,7 @@ impl RenderOnce for SkeletonFeedTile {
         let gap = Spacing::SM.scaled(cx);
         let pad = Spacing::SM.scaled(cx);
         let radius_lg = Radius::LG.scaled(cx);
+        let (subtitle_w, subtitle_h) = SkeletonBlock::FeedTileSubtitle.scaled(cx);
 
         let mut tile = div()
             .id(self.id)
@@ -63,7 +64,7 @@ impl RenderOnce for SkeletonFeedTile {
             tile = tile.child(
                 div()
                     .w(layout::THUMBNAIL_XL)
-                    .child(Skeleton::block(gpui::px(96.0), gpui::px(12.0))),
+                    .child(Skeleton::block(subtitle_w, subtitle_h)),
             );
         }
 

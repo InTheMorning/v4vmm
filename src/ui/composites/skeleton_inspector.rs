@@ -11,11 +11,11 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{div, prelude::*, px, App, IntoElement, RenderOnce, Window};
+use gpui::{div, prelude::*, App, IntoElement, RenderOnce, Window};
 
 use crate::ui::layouts as layout;
 use crate::ui::primitives::Skeleton;
-use crate::ui::tokens::{Radius, Spacing};
+use crate::ui::tokens::{Radius, SkeletonBlock, Spacing};
 
 /// Skeleton placeholder for the inspector detail pane.
 ///
@@ -64,16 +64,20 @@ impl RenderOnce for SkeletonInspector {
                 Skeleton::block(layout::THUMBNAIL_XL, layout::THUMBNAIL_XL).radius(Radius::MD),
             );
 
+        let (title_w, title_h) = SkeletonBlock::InspectorTitle.scaled(cx);
+        let (subtitle_w, subtitle_h) = SkeletonBlock::InspectorSubtitle.scaled(cx);
+        let (caption_w, caption_h) = SkeletonBlock::InspectorCaption.scaled(cx);
+
         let mut title_block = div()
             .flex()
             .flex_col()
             .flex_1()
             .gap(gap)
-            .child(Skeleton::block(px(220.0), px(22.0)).radius(Radius::SM));
+            .child(Skeleton::block(title_w, title_h).radius(Radius::SM));
         if self.show_subtitle {
             title_block = title_block
-                .child(Skeleton::block(px(160.0), px(14.0)).radius(Radius::SM))
-                .child(Skeleton::block(px(120.0), px(12.0)).radius(Radius::SM));
+                .child(Skeleton::block(subtitle_w, subtitle_h).radius(Radius::SM))
+                .child(Skeleton::block(caption_w, caption_h).radius(Radius::SM));
         }
         header = header.child(title_block);
 

@@ -7,11 +7,11 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{div, prelude::*, px, App, ElementId, IntoElement, RenderOnce, SharedString, Window};
+use gpui::{div, prelude::*, App, ElementId, IntoElement, RenderOnce, SharedString, Window};
 
 use crate::ui::composites::{ListRow, ListRowA11yLabel, ThumbnailSize};
 use crate::ui::primitives::Skeleton;
-use crate::ui::tokens::{Radius, Spacing};
+use crate::ui::tokens::{Radius, SkeletonBlock, Spacing};
 
 /// Skeleton track row sized to match [`super::TrackRow`].
 ///
@@ -51,8 +51,8 @@ impl RenderOnce for SkeletonTrackRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let gap = Spacing::SM.scaled(cx);
         let thumb_size = ThumbnailSize::Sm.scaled(cx);
-        // Match the body-text micro line-height TrackRow uses.
-        let label_h = px(16.0);
+        let (track_number_w, track_number_h) = SkeletonBlock::TrackNumber.scaled(cx);
+        let (duration_w, duration_h) = SkeletonBlock::TrackDuration.scaled(cx);
 
         let mut body = div()
             .flex_1()
@@ -66,7 +66,7 @@ impl RenderOnce for SkeletonTrackRow {
                 div()
                     .w(crate::ui::layouts::TRACK_NUMBER_WIDTH)
                     .flex_shrink_0()
-                    .child(Skeleton::block(px(12.0), label_h)),
+                    .child(Skeleton::block(track_number_w, track_number_h)),
             );
 
         if self.show_thumbnail {
@@ -88,7 +88,7 @@ impl RenderOnce for SkeletonTrackRow {
             body = body.child(
                 div()
                     .flex_shrink_0()
-                    .child(Skeleton::block(px(32.0), label_h)),
+                    .child(Skeleton::block(duration_w, duration_h)),
             );
         }
 

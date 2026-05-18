@@ -509,6 +509,55 @@ impl Size {
 }
 
 // -----------------------------------------------------------------------------
+// SkeletonBlock — redacted placeholder dimensions.
+// -----------------------------------------------------------------------------
+
+/// Semantic dimensions for skeleton placeholder blocks.
+///
+/// These values mirror the populated controls they stand in for, keeping
+/// loading surfaces stable without scattering raw block sizes through
+/// composites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SkeletonBlock {
+    /// 220 x 22 px — inspector title line.
+    InspectorTitle,
+    /// 160 x 14 px — inspector subtitle line.
+    InspectorSubtitle,
+    /// 120 x 12 px — inspector caption line.
+    InspectorCaption,
+    /// 96 x 12 px — recent-feed tile subtitle line.
+    FeedTileSubtitle,
+    /// 12 x 16 px — compact track-number placeholder.
+    TrackNumber,
+    /// 32 x 16 px — compact track-duration placeholder.
+    TrackDuration,
+}
+
+impl SkeletonBlock {
+    #[must_use]
+    pub const fn px(self) -> (Pixels, Pixels) {
+        match self {
+            Self::InspectorTitle => (px(220.0), px(22.0)),
+            Self::InspectorSubtitle => (px(160.0), px(14.0)),
+            Self::InspectorCaption => (px(120.0), px(12.0)),
+            Self::FeedTileSubtitle => (px(96.0), px(12.0)),
+            Self::TrackNumber => (px(12.0), px(16.0)),
+            Self::TrackDuration => (px(32.0), px(16.0)),
+        }
+    }
+
+    #[must_use]
+    pub fn scaled(self, cx: &App) -> (Pixels, Pixels) {
+        let (width, height) = self.px();
+        let scale = ScaleFactor::current(cx);
+        (
+            scale_px(f32::from(width), scale),
+            scale_px(f32::from(height), scale),
+        )
+    }
+}
+
+// -----------------------------------------------------------------------------
 // ScaleFactor — Apple Dynamic Type-style runtime UI scale.
 // -----------------------------------------------------------------------------
 
@@ -684,6 +733,16 @@ mod tests {
         assert!(Radius::MD.px() < Radius::LG.px());
         assert!(Radius::LG.px() < Radius::XL.px());
         assert!(Radius::XL.px() < Radius::Full.px());
+    }
+
+    #[test]
+    fn skeleton_block_tokens_match_placeholder_footprints() {
+        assert_eq!(SkeletonBlock::InspectorTitle.px(), (px(220.0), px(22.0)));
+        assert_eq!(SkeletonBlock::InspectorSubtitle.px(), (px(160.0), px(14.0)));
+        assert_eq!(SkeletonBlock::InspectorCaption.px(), (px(120.0), px(12.0)));
+        assert_eq!(SkeletonBlock::FeedTileSubtitle.px(), (px(96.0), px(12.0)));
+        assert_eq!(SkeletonBlock::TrackNumber.px(), (px(12.0), px(16.0)));
+        assert_eq!(SkeletonBlock::TrackDuration.px(), (px(32.0), px(16.0)));
     }
 
     #[test]
