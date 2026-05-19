@@ -10545,42 +10545,29 @@ fn async_runtime_feature_flag_is_retired() {
 }
 
 #[test]
-fn cx_spawn_debt_does_not_grow_outside_presentation_and_runtime() {
-    let baseline = BTreeMap::from([("src/app/bootstrap.rs", 1_usize)]);
-    let mut actual = BTreeMap::<String, usize>::new();
-
+fn cx_spawn_is_restricted_to_presentation_runtime_and_bootstrap() {
+    let mut violations = Vec::new();
     for path in rust_files_under("src") {
         let file = rel_path(&path);
-        if file.starts_with("src/presentation/") || file.starts_with("src/runtime/") {
-            continue;
-        }
         let source = read_source(&path);
         let count = source.matches("cx.spawn(").count();
-        if count > 0 {
-            actual.insert(file, count);
+        if count == 0 {
+            continue;
         }
-    }
-
-    let mut violations = Vec::new();
-    for (file, count) in &actual {
-        let allowed = baseline.get(file.as_str()).copied().unwrap_or(0);
-        if *count > allowed {
-            violations.push(format!(
-                "{file}: {count} cx.spawn calls exceed ADR 0040 baseline {allowed}"
-            ));
+        if file.starts_with("src/presentation/")
+            || file.starts_with("src/runtime/")
+            || file == "src/app/bootstrap.rs"
+        {
+            continue;
         }
-    }
-    for file in actual.keys() {
-        if !baseline.contains_key(file.as_str()) {
-            violations.push(format!(
-                "{file}: cx.spawn outside presentation/runtime is not approved"
-            ));
-        }
+        violations.push(format!(
+            "{file}: {count} cx.spawn calls outside presentation/runtime/bootstrap"
+        ));
     }
 
     assert!(
         violations.is_empty(),
-        "ADR 0040 cx.spawn debt grew outside presentation/runtime:\n{}",
+        "ADR 0040 screen-local cx.spawn restriction failed:\n{}",
         violations.join("\n")
     );
 }

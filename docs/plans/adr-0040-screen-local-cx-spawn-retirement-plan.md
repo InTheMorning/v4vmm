@@ -2,11 +2,12 @@
 
 ## Status
 
-Proposed - 2026-05-18. Follow-up to the ADR 0040 legacy scheduling
-retirement (Tasks 001-004, completed 2026-05-18). Closes the residual
+Completed - 2026-05-18. Follow-up to the ADR 0040 legacy scheduling
+retirement (Tasks 001-004, completed 2026-05-18). The residual
 "screen-local `cx.spawn` retirement" item from
-`docs/plans/deferred-architecture-work-index.md` and removes the caveat
-in ADR 0040's Status block.
+`docs/plans/deferred-architecture-work-index.md` is closed, and
+ADR 0040's Status block now points to the strict
+`cx_spawn_is_restricted_to_presentation_runtime_and_bootstrap` guard.
 
 ## Goal
 

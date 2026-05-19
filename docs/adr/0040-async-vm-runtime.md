@@ -16,10 +16,12 @@ command presentation now goes through `presentation::present_command`
 plus `AsyncCommandRunner`; the synchronous `CommandBus` remains for CLI,
 tests, and domain-level command execution. Regression guards
 `gpui_command_runner_is_retired` and
-`async_runtime_feature_flag_is_retired` pin the retired surfaces, while
-`cx_spawn_debt_does_not_grow_outside_presentation_and_runtime` prevents
-existing screen-spawn debt from growing until a later ADR 0040 follow-up
-migrates those unrelated spawns.
+`async_runtime_feature_flag_is_retired` pin the retired surfaces. The
+screen-local `cx.spawn` retirement landed through the seven-task
+ADR 0040 follow-up, and
+`cx_spawn_is_restricted_to_presentation_runtime_and_bootstrap` now pins
+the presentation/runtime actor boundary with only the bootstrap
+window-activation defer allowlisted.
 
 ## Context
 

@@ -132,6 +132,7 @@ pub fn run_app() {
             cx.activate(true);
             cx.refresh_windows();
         });
+        // Window-activation nudge: GPUI needs this 16ms/100ms deferred refresh after creation; presentation lifecycle, not domain work, exempted by `cx_spawn_is_restricted_to_presentation_runtime_and_bootstrap`.
         cx.spawn(async move |cx: &mut gpui::AsyncApp| {
             cx.background_executor()
                 .timer(Duration::from_millis(16))
