@@ -10546,7 +10546,7 @@ fn async_runtime_feature_flag_is_retired() {
 
 #[test]
 fn cx_spawn_debt_does_not_grow_outside_presentation_and_runtime() {
-    let baseline = BTreeMap::from([("src/app.rs", 1_usize), ("src/app/bootstrap.rs", 1)]);
+    let baseline = BTreeMap::from([("src/app/bootstrap.rs", 1_usize)]);
     let mut actual = BTreeMap::<String, usize>::new();
 
     for path in rust_files_under("src") {
@@ -10643,6 +10643,53 @@ fn musicbrainz_feed_saga_is_runtime_owned() {
         library_struct_source.contains("musicbrainz_feed_saga: Option<MusicBrainzFeedSagaHandle>"),
         "src/library.rs: LibraryApp must retain the MusicBrainz feed saga handle"
     );
+}
+
+#[test]
+fn playback_polling_is_runtime_owned() {
+    let runtime_source = read_source(&manifest_path("src/runtime/playback_polling.rs"));
+    let runtime_mod_source = read_source(&manifest_path("src/runtime/mod.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+
+    for required in [
+        "pub struct PlaybackTickSnapshot",
+        "pub enum PlaybackTickOutcome",
+        "pub struct PlaybackPollingHandle",
+        "tokio::time::sleep(PLAYBACK_POLL_INTERVAL)",
+        "tokio::task::spawn_blocking",
+        "PlaybackOwner",
+        "PollOutcome",
+    ] {
+        assert!(
+            runtime_source.contains(required),
+            "src/runtime/playback_polling.rs: playback polling actor missing `{required}`"
+        );
+    }
+
+    assert!(
+        runtime_mod_source.contains("pub mod playback_polling"),
+        "src/runtime/mod.rs: playback polling module must be registered"
+    );
+
+    assert!(
+        !app_source.contains("cx.spawn(") && !app_source.contains("fn poll_playback_owner("),
+        "src/app.rs: playback polling must not remain screen-local"
+    );
+
+    for required in [
+        "playback_polling: Option<PlaybackPollingHandle>",
+        "runtime_host: Option<Arc<crate::presentation::RuntimeHost>>",
+        "crate::runtime::playback_polling::spawn(",
+        "bridge_watch(",
+        "fn apply_playback_tick(",
+        "PlaybackTickOutcome::Advanced => self.settings_status.clear()",
+        "PlaybackTickOutcome::Error(error)",
+    ] {
+        assert!(
+            app_source.contains(required),
+            "src/app.rs: TopApp must bridge playback polling snapshots through the reducer; missing `{required}`"
+        );
+    }
 }
 
 #[test]

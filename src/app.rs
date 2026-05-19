@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use anyhow::Result;
 use gpui::{
@@ -22,8 +21,9 @@ use crate::config;
 use crate::library::{build_tree, LibraryApp, LibraryAppEvent};
 use crate::media::ImageCache;
 use crate::playback_driver::ConfiguredPlaybackDriver;
-use crate::playback_owner::{PlaybackOwner, PollOutcome};
-use crate::presentation::{present_command, GpuiEventBridge};
+use crate::playback_owner::PlaybackOwner;
+use crate::presentation::{bridge_watch, present_command, GpuiEventBridge};
+use crate::runtime::playback_polling::{PlaybackPollingHandle, PlaybackTickOutcome};
 use crate::theme_profile::ThemeProfile;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
@@ -134,6 +134,7 @@ pub struct TopApp {
     _library_sub: gpui::Subscription,
     _appearance_sub: gpui::Subscription,
     playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
+    playback_polling: Option<PlaybackPollingHandle>,
     conn: Arc<Mutex<Connection>>,
     image_cache: Arc<ImageCache>,
     remote_detail_thumbnails: BTreeMap<String, RemoteDetailThumbnailState>,
@@ -141,6 +142,7 @@ pub struct TopApp {
     application_services: Arc<ApplicationServices>,
     command_runner: AsyncCommandRunner,
     application_event_bridge: Arc<GpuiEventBridge>,
+    runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
 }
 
 impl TopApp {
@@ -202,6 +204,7 @@ impl TopApp {
             ),
         };
         let library_services = Arc::clone(&application_services);
+        let library_runtime_host = runtime_host.clone();
         let global_search_display = AppToolbarVm::new().display().global_search;
         let global_search_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder(global_search_display.placeholder)
@@ -213,7 +216,7 @@ impl TopApp {
                 library_cache,
                 musicindex_endpoint.clone(),
                 library_services,
-                runtime_host.clone(),
+                library_runtime_host.clone(),
                 window,
                 cx,
             )
@@ -292,6 +295,7 @@ impl TopApp {
             _library_sub: library_sub,
             _appearance_sub: appearance_sub,
             playback_owner,
+            playback_polling: None,
             conn,
             image_cache,
             remote_detail_thumbnails: BTreeMap::new(),
@@ -299,10 +303,14 @@ impl TopApp {
             application_services,
             command_runner,
             application_event_bridge,
+            runtime_host,
         }
     }
 
     fn maybe_start_playback_polling(&mut self, cx: &mut Context<Self>) {
+        if self.playback_polling.is_some() {
+            return;
+        }
         if !self
             .playback_owner
             .lock()
@@ -319,21 +327,23 @@ impl TopApp {
                 self.settings_status = format!("Playback error: {error:#}");
             }
         }
-        cx.spawn(
-            async move |this: gpui::WeakEntity<TopApp>, cx: &mut gpui::AsyncApp| loop {
-                cx.background_executor().timer(Duration::from_secs(1)).await;
-                if this
-                    .update(cx, |this, cx| {
-                        this.poll_playback_owner();
-                        cx.notify();
-                    })
-                    .is_err()
-                {
-                    break;
-                }
+        let Some(host) = self.runtime_host.clone() else {
+            self.settings_status = "Playback error: runtime unavailable".to_string();
+            return;
+        };
+        let _enter = host.handle().enter();
+        let handle = crate::runtime::playback_polling::spawn(
+            Arc::clone(&self.playback_owner),
+            Arc::clone(&self.conn),
+        );
+        bridge_watch(
+            handle.subscribe(),
+            |this: &mut Self, snapshot, cx| {
+                this.apply_playback_tick(snapshot.outcome, cx);
             },
-        )
-        .detach();
+            cx,
+        );
+        self.playback_polling = Some(handle);
     }
 
     fn on_global_search_event(
@@ -506,16 +516,12 @@ impl TopApp {
         });
     }
 
-    fn poll_playback_owner(&mut self) {
-        let conn = self.conn.lock().expect("lock db");
-        let mut playback_owner = self.playback_owner.lock().expect("lock playback owner");
-        match playback_owner.poll(&conn) {
-            Ok(PollOutcome::NoSession | PollOutcome::Reconciled(None)) => {}
-            Ok(PollOutcome::Reconciled(Some(_)) | PollOutcome::Advanced(_)) => {
-                self.settings_status.clear();
-            }
-            Err(error) => {
-                self.settings_status = format!("Playback error: {error:#}");
+    fn apply_playback_tick(&mut self, outcome: PlaybackTickOutcome, _cx: &mut Context<Self>) {
+        match outcome {
+            PlaybackTickOutcome::Idle => {}
+            PlaybackTickOutcome::Advanced => self.settings_status.clear(),
+            PlaybackTickOutcome::Error(error) => {
+                self.settings_status = format!("Playback error: {error}");
             }
         }
     }
