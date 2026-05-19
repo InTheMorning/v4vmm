@@ -7,7 +7,8 @@ use std::time::Duration;
 
 use anyhow::Result;
 use gpui::{
-    div, prelude::*, relative, Context, Entity, Render, ScrollHandle, SharedString, Styled, Window,
+    div, prelude::*, relative, Context, Entity, Image, Render, ScrollHandle, SharedString, Styled,
+    Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
@@ -815,6 +816,22 @@ impl TopApp {
         self.tab.into()
     }
 
+    fn resolve_search_result_thumbnails(
+        &mut self,
+        thumbnail_hrefs: Vec<String>,
+        cx: &mut Context<Self>,
+    ) -> BTreeMap<String, Option<Arc<Image>>> {
+        let mut thumbnails = BTreeMap::new();
+        for href in thumbnail_hrefs {
+            if thumbnails.contains_key(&href) {
+                continue;
+            }
+            let thumbnail = self.index_remote_detail_hero_image(&href, cx);
+            thumbnails.insert(href, thumbnail);
+        }
+        thumbnails
+    }
+
     fn render_workspace_screen_mount(
         &mut self,
         mount: WorkspaceScreenMount,
@@ -853,8 +870,18 @@ impl TopApp {
         let mut workspace_slots = match &current_nav {
             // Search results: render search inspector in ContentList
             Some(FrameNavigationEntry::Search(_)) if self.search_results_detail.is_some() => {
+                let (filter_chip_strip, thumbnail_hrefs) = {
+                    let search_results = self.search_results_detail.as_ref().unwrap();
+                    (
+                        search_results.filter_chip_strip(),
+                        search_results.thumbnail_hrefs_for_scope(
+                            search_results.tab(),
+                            search_results.filter(),
+                        ),
+                    )
+                };
+                let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
                 let search_results = self.search_results_detail.as_ref().unwrap();
-                let filter_chip_strip = search_results.filter_chip_strip();
                 let filter_entity = entity.clone();
                 let tab_entity = entity.clone();
                 let clear_entity = entity.clone();
@@ -878,7 +905,8 @@ impl TopApp {
                         select_entity.update(cx, |this, cx| {
                             this.handle_search_result_selected(tab, &result_id, cx);
                         });
-                    });
+                    })
+                    .with_thumbnails(thumbnails);
                 let inspector_content = render_search_results_inspector(
                     search_results,
                     &inspector_slots,
@@ -901,15 +929,21 @@ impl TopApp {
             Some(FrameNavigationEntry::IndexArtistFeedScope(_))
                 if self.search_results_detail.is_some() =>
             {
+                let thumbnail_hrefs = self
+                    .search_results_detail
+                    .as_ref()
+                    .unwrap()
+                    .thumbnail_hrefs_for_scope(SearchResultsTab::Feeds, ContentFilter::Index);
+                let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
                 let search_results = self.search_results_detail.as_ref().unwrap();
                 let select_entity = entity.clone();
-                let inspector_slots = SearchResultsInspectorSlots::new().on_result_select(
-                    move |tab, result_id, _window, cx| {
+                let inspector_slots = SearchResultsInspectorSlots::new()
+                    .on_result_select(move |tab, result_id, _window, cx| {
                         select_entity.update(cx, |this, cx| {
                             this.handle_search_result_selected(tab, &result_id, cx);
                         });
-                    },
-                );
+                    })
+                    .with_thumbnails(thumbnails);
                 let inspector_content = render_search_results_inspector(
                     search_results,
                     &inspector_slots,

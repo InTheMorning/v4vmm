@@ -32,6 +32,7 @@ pub(crate) struct SearchResultRowFields<'a> {
     pub(crate) id: &'a str,
     pub(crate) label: &'a str,
     pub(crate) secondary_text: &'a str,
+    pub(crate) thumbnail_href: Option<&'a str>,
     pub(crate) a11y_label: &'a str,
     pub(crate) origin: SearchResultOrigin,
 }
@@ -41,6 +42,7 @@ pub(crate) fn artist_fields(row: &ArtistResultDisplay) -> SearchResultRowFields<
         id: &row.id,
         label: &row.label,
         secondary_text: &row.secondary_text,
+        thumbnail_href: row.thumbnail_href.as_deref(),
         a11y_label: &row.a11y_label,
         origin: row.origin,
     }
@@ -51,6 +53,7 @@ pub(crate) fn feed_fields(row: &FeedResultDisplay) -> SearchResultRowFields<'_> 
         id: &row.id,
         label: &row.label,
         secondary_text: &row.secondary_text,
+        thumbnail_href: row.thumbnail_href.as_deref(),
         a11y_label: &row.a11y_label,
         origin: row.origin,
     }
@@ -61,6 +64,7 @@ pub(crate) fn track_fields(row: &TrackResultDisplay) -> SearchResultRowFields<'_
         id: &row.id,
         label: &row.label,
         secondary_text: &row.secondary_text,
+        thumbnail_href: row.thumbnail_href.as_deref(),
         a11y_label: &row.a11y_label,
         origin: row.origin,
     }

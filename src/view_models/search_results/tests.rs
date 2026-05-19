@@ -151,6 +151,30 @@ fn result_display_builders_project_accessible_labels() {
 }
 
 #[test]
+fn visible_thumbnail_hrefs_include_index_feed_rows() {
+    let mut feeds = SearchResultsPagedTab::empty();
+    feeds.replace_index_rows(vec![
+        (
+            20,
+            feed(20, "deathdreams").with_thumbnail_href("https://example.test/deathdreams.jpg"),
+        ),
+        (
+            21,
+            feed(21, "Way to Go").with_thumbnail_href("https://example.test/way-to-go.jpg"),
+        ),
+    ]);
+    let vm = SearchResultsInspectorPageVm::new("survival guide").with_feeds(feeds);
+
+    assert_eq!(
+        vm.thumbnail_hrefs_for_scope(SearchResultsTab::Feeds, ContentFilter::Index),
+        vec![
+            "https://example.test/deathdreams.jpg".to_string(),
+            "https://example.test/way-to-go.jpg".to_string(),
+        ]
+    );
+}
+
+#[test]
 fn track_result_display_can_carry_remote_track_view() {
     let display = track(9, "Theme").with_remote_track(remote_track());
     let remote = display

@@ -6,11 +6,13 @@
 //! breadcrumbs, and source filters remain owned by `frame_shell`.
 
 #![warn(clippy::pedantic)]
+use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui::{
-    div, AnyElement, App, ClickEvent, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window,
+    div, AnyElement, App, ClickEvent, Image, InteractiveElement, IntoElement, ParentElement,
+    SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
@@ -59,6 +61,7 @@ pub(crate) struct SearchResultsInspectorSlots {
     tab_select: Option<TabSelectHandler>,
     result_select: Option<ResultSelectHandler>,
     clear_filter: Option<ClearFilterHandler>,
+    thumbnails: BTreeMap<String, Option<Arc<Image>>>,
 }
 
 impl SearchResultsInspectorSlots {
@@ -92,6 +95,19 @@ impl SearchResultsInspectorSlots {
     ) -> Self {
         self.clear_filter = Some(Rc::new(handler));
         self
+    }
+
+    /// Supplies resolved row thumbnails keyed by row thumbnail href.
+    pub(crate) fn with_thumbnails(
+        mut self,
+        thumbnails: BTreeMap<String, Option<Arc<Image>>>,
+    ) -> Self {
+        self.thumbnails = thumbnails;
+        self
+    }
+
+    fn thumbnail_for_href(&self, href: &str) -> Option<Arc<Image>> {
+        self.thumbnails.get(href).cloned().flatten()
     }
 }
 
@@ -133,7 +149,7 @@ fn render_search_results_inspector_with_scope(
     let body = if let Some(empty) = empty_state {
         render_empty_state(empty, slots.clear_filter.as_ref(), cx)
     } else {
-        render_active_result_list(vm, tab, filter, on_result_select, cx)
+        render_active_result_list(vm, tab, filter, slots, on_result_select, cx)
     };
 
     let inspector = div()
@@ -360,6 +376,7 @@ fn render_active_result_list(
     vm: &SearchResultsInspectorPageVm,
     tab: SearchResultsTab,
     filter: ContentFilter,
+    slots: &SearchResultsInspectorSlots,
     on_result_select: Option<&ResultSelectHandler>,
     cx: &App,
 ) -> AnyElement {
@@ -369,8 +386,8 @@ fn render_active_result_list(
         SearchResultsTab::Artists => render_result_window(
             vm.artists().window(filter),
             SearchResultsTab::Artists,
-            EntityKind::Artist,
             show_loading_placeholders,
+            slots,
             on_result_select,
             artist_fields,
             cx,
@@ -378,8 +395,8 @@ fn render_active_result_list(
         SearchResultsTab::Feeds => render_result_window(
             vm.feeds().window(filter),
             SearchResultsTab::Feeds,
-            EntityKind::Feed,
             show_loading_placeholders,
+            slots,
             on_result_select,
             feed_fields,
             cx,
@@ -387,8 +404,8 @@ fn render_active_result_list(
         SearchResultsTab::Tracks => render_result_window(
             vm.tracks().window(filter),
             SearchResultsTab::Tracks,
-            EntityKind::Track,
             show_loading_placeholders,
+            slots,
             on_result_select,
             track_fields,
             cx,
@@ -399,12 +416,13 @@ fn render_active_result_list(
 fn render_result_window<Row>(
     window: &PagedListVm<SearchResultItemId, Row>,
     tab: SearchResultsTab,
-    kind: EntityKind,
     show_loading_placeholders: bool,
+    slots: &SearchResultsInspectorSlots,
     on_result_select: Option<&ResultSelectHandler>,
     fields_for: fn(&Row) -> SearchResultRowFields<'_>,
     cx: &App,
 ) -> AnyElement {
+    let kind = entity_kind_for_tab(tab);
     let show_loading_placeholders = show_loading_placeholders && window.total() == 0;
     let visible_rows = if show_loading_placeholders {
         3
@@ -431,13 +449,13 @@ fn render_result_window<Row>(
                 render_pending_result_row(tab, kind, index)
             } else {
                 match window.peek_row(index) {
-                    RowSlot::Ready(row) => render_result_row(
-                        tab,
-                        kind,
-                        fields_for(row.as_ref()),
-                        None,
-                        on_result_select,
-                    ),
+                    RowSlot::Ready(row) => {
+                        let fields = fields_for(row.as_ref());
+                        let thumbnail = fields
+                            .thumbnail_href
+                            .and_then(|href| slots.thumbnail_for_href(href));
+                        render_result_row(tab, kind, fields, thumbnail, on_result_select)
+                    }
                     RowSlot::Pending(placeholder) => {
                         render_pending_result_row(tab, kind, placeholder.index)
                     }
@@ -445,6 +463,14 @@ fn render_result_window<Row>(
             }
         }))
         .into_any_element()
+}
+
+const fn entity_kind_for_tab(tab: SearchResultsTab) -> EntityKind {
+    match tab {
+        SearchResultsTab::Artists => EntityKind::Artist,
+        SearchResultsTab::Feeds => EntityKind::Feed,
+        SearchResultsTab::Tracks => EntityKind::Track,
+    }
 }
 
 fn render_empty_state(

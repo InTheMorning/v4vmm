@@ -14,6 +14,7 @@
 )]
 
 use crate::db::TrackRow;
+use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
 use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};
 
 mod empty_state;
@@ -280,6 +281,30 @@ impl SearchResultsInspectorPageVm {
             .then(|| empty_state_for(tab, filter, &self.query))
     }
 
+    /// Returns visible row thumbnail hrefs for the requested tab/filter scope.
+    #[must_use]
+    pub(crate) fn thumbnail_hrefs_for_scope(
+        &self,
+        tab: SearchResultsTab,
+        filter: ContentFilter,
+    ) -> Vec<String> {
+        match tab {
+            SearchResultsTab::Artists => {
+                visible_thumbnail_hrefs(self.artists.window(filter), |row| {
+                    row.thumbnail_href.as_deref()
+                })
+            }
+            SearchResultsTab::Feeds => visible_thumbnail_hrefs(self.feeds.window(filter), |row| {
+                row.thumbnail_href.as_deref()
+            }),
+            SearchResultsTab::Tracks => {
+                visible_thumbnail_hrefs(self.tracks.window(filter), |row| {
+                    row.thumbnail_href.as_deref()
+                })
+            }
+        }
+    }
+
     /// Returns artist result windows.
     #[must_use]
     pub(crate) const fn artists(&self) -> &SearchResultsPagedTab<ArtistResultDisplay> {
@@ -352,4 +377,16 @@ impl SearchResultsInspectorPageVm {
             self.tab = tab;
         }
     }
+}
+
+fn visible_thumbnail_hrefs<Row>(
+    window: &PagedListVm<SearchResultItemId, Row>,
+    thumbnail_href: impl Fn(&Row) -> Option<&str>,
+) -> Vec<String> {
+    (0..window.total().min(window.page_size()))
+        .filter_map(|index| match window.peek_row(index) {
+            RowSlot::Ready(row) => thumbnail_href(row.as_ref()).map(str::to_string),
+            RowSlot::Pending(_) => None,
+        })
+        .collect()
 }

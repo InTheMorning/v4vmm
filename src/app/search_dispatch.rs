@@ -10,6 +10,7 @@ use crate::application::commands::feed::SubscribeFeed;
 use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::errors::command::CommandError;
 use crate::application::queries::feed::FetchRecentFeedsPage;
+use crate::application::queries::images::FetchThumbnail;
 use crate::application::queries::search::FetchIndexSearchResults;
 use crate::application::CommandContext;
 use crate::db;
@@ -579,23 +580,19 @@ impl TopApp {
         let url = url.to_string();
         self.remote_detail_thumbnails
             .insert(url.clone(), RemoteDetailThumbnailState::Loading);
-        let cache = Arc::clone(&self.image_cache);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<TopApp>, cx: &mut gpui::AsyncApp| {
-                let fetch_url = url.clone();
-                let image = cx
-                    .background_executor()
-                    .spawn(async move { cache.fetch_static_blocking(&fetch_url) })
-                    .await;
-                this.update(cx, move |this: &mut TopApp, cx: &mut Context<TopApp>| {
-                    this.remote_detail_thumbnails
-                        .insert(url, RemoteDetailThumbnailState::Loaded(image));
-                    cx.notify();
-                })
-                .ok();
+        let command = FetchThumbnail::new(Arc::clone(&self.image_cache), url.clone(), false);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, image, cx| {
+                this.remote_detail_thumbnails
+                    .insert(url, RemoteDetailThumbnailState::Loaded(image));
+                cx.notify();
             },
-        )
-        .detach();
+            |_, _, _| {},
+        );
 
         None
     }

@@ -20,6 +20,11 @@ prioritized, and routed to the right governance artifact.
      (added by ADR 0040 Task 004).
    - Route: ADR 0040 follow-up; migrate each remaining spawn to a
      presentation-bridge.
+   - Image-cache note: ADR 0040 Spawn Task 004 chose explicit
+     `FetchThumbnail` / `DownloadInspectorImage` query commands. Do not add
+     an `ImageCacheActor`, cross-screen coalescing, or backpressure policy
+     unless image-cache pressure becomes measurable and a fresh ADR approves
+     the runtime contract.
 3. Staged metadata durability.
    - Status: product/storage decision required.
    - Route: future ADR before schema or command behavior changes.

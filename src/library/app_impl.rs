@@ -20,6 +20,7 @@ use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
 };
 use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
+use crate::application::queries::images::FetchThumbnail;
 use crate::application::queries::library::{
     CompareLibraryTrack, FetchLibraryTrackContext, HydrateAlbumIdentity, LoadLibraryTracksTree,
 };
@@ -1034,32 +1035,18 @@ impl LibraryApp {
             None => {}
         }
         self.thumbnails.insert(key.clone(), ThumbnailState::Loading);
-        let cache = Arc::clone(&self.cache);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                let cache_url = key.0.clone();
-                let cache_clone = Arc::clone(&cache);
-                let image = cx
-                    .background_executor()
-                    .spawn(async move {
-                        if animated {
-                            cache_clone.fetch_blocking(&cache_url)
-                        } else {
-                            cache_clone.fetch_static_blocking(&cache_url)
-                        }
-                    })
-                    .await;
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        this.thumbnails.insert(key, ThumbnailState::Loaded(image));
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = FetchThumbnail::new(Arc::clone(&self.cache), key.0.clone(), animated);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, image, cx| {
+                this.thumbnails.insert(key, ThumbnailState::Loaded(image));
+                cx.notify();
             },
-        )
-        .detach();
+            |_, _, _| {},
+        );
         None
     }
 

@@ -22,6 +22,7 @@ use crate::application::queries::feed::{
     FetchContributors, FetchDiscoverRecentFeeds, FetchInspectorDetail, FetchValueRoutes,
     InspectorDetailData, ResolvePodrollFeeds,
 };
+use crate::application::queries::images::{DownloadInspectorImage, FetchThumbnail};
 use crate::application::queries::library::FetchLocalTrackContext;
 use crate::application::queries::search::FetchDiscoverSearchResults;
 use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext};
@@ -30,10 +31,10 @@ use crate::db;
 use crate::feed_service;
 use crate::identity_ingest;
 use crate::library_service;
-use crate::media::{image_from_bytes, ImageCache};
+use crate::media::ImageCache;
 use crate::metadata::*;
 use crate::presentation::present_command;
-use crate::subscribe_service::{self, download_image, SubscribeTrackRequest};
+use crate::subscribe_service::{self, SubscribeTrackRequest};
 use crate::ui::composites::{SplitPane, StatusRole};
 use crate::ui::detail_row::DetailRow;
 use crate::ui::layouts as layout;
@@ -150,10 +151,6 @@ impl SearchApp {
                 cx.notify();
             },
         );
-    }
-
-    fn api_client(&self) -> Arc<Client> {
-        Arc::new(Client::new_with_base_url(self.musicindex_endpoint.clone()))
     }
 
     pub fn pop_inspector(&mut self, cx: &mut Context<Self>) {
@@ -315,27 +312,18 @@ impl SearchApp {
         self.thumbnails
             .insert(url.to_string(), ThumbnailState::Loading);
         let url = url.to_string();
-        let cache = Arc::clone(&self.cache);
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let cache_url = url.clone();
-                let cache_clone = Arc::clone(&cache);
-                let image = cx
-                    .background_executor()
-                    .spawn(async move { cache_clone.fetch_blocking(&cache_url) })
-                    .await;
-
-                this.update(
-                    cx,
-                    move |this: &mut SearchApp, cx: &mut Context<SearchApp>| {
-                        this.thumbnails.insert(url, ThumbnailState::Loaded(image));
-                        cx.notify();
-                    },
-                )
-                .ok();
+        let command = FetchThumbnail::new(Arc::clone(&self.cache), url.clone(), true);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, image, cx| {
+                this.thumbnails.insert(url, ThumbnailState::Loaded(image));
+                cx.notify();
             },
-        )
-        .detach();
+            |_, _, _| {},
+        );
 
         None
     }
@@ -562,32 +550,28 @@ impl SearchApp {
         image_url: String,
         cx: &mut Context<Self>,
     ) {
-        let client = self.api_client();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<SearchApp>, cx: &mut gpui::AsyncApp| {
-                let image = cx
-                    .background_executor()
-                    .spawn(async move {
-                        download_image(&client.client, &image_url).map(image_from_bytes)
-                    })
-                    .await;
+        let command = DownloadInspectorImage::new(self.musicindex_endpoint.clone(), image_url);
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, image, cx| {
                 if image.is_none() {
                     return;
                 }
-                let _ = this.update(cx, move |this, cx| {
-                    if let Some(frame) = this.inspector_stack.last_mut() {
-                        if frame.entity_type == entity_type
-                            && frame.entity_id == entity_id
-                            && frame.image.is_none()
-                        {
-                            frame.image = image;
-                            cx.notify();
-                        }
+                if let Some(frame) = this.inspector_stack.last_mut() {
+                    if frame.entity_type == entity_type
+                        && frame.entity_id == entity_id
+                        && frame.image.is_none()
+                    {
+                        frame.image = image;
+                        cx.notify();
                     }
-                });
+                }
             },
-        )
-        .detach();
+            |_, _, _| {},
+        );
     }
 
     /// Background-prefetch the contributor list for the inspector frame

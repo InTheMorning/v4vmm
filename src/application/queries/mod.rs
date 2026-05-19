@@ -1,6 +1,7 @@
 //! Local read-model query families.
 
 pub mod feed;
+pub mod images;
 pub mod library;
 pub mod metadata;
 pub mod playback;

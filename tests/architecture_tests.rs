@@ -10549,9 +10549,7 @@ fn cx_spawn_debt_does_not_grow_outside_presentation_and_runtime() {
     let baseline = BTreeMap::from([
         ("src/app.rs", 1_usize),
         ("src/app/bootstrap.rs", 1),
-        ("src/app/search_dispatch.rs", 1),
-        ("src/discover/app_impl.rs", 2),
-        ("src/library/app_impl.rs", 2),
+        ("src/library/app_impl.rs", 1),
     ]);
     let mut actual = BTreeMap::<String, usize>::new();
 
@@ -10868,10 +10866,57 @@ fn recent_feeds_route_preserves_artwork_slots() {
 fn shared_search_result_rows_accept_resolved_artwork_thumbnails() {
     let result_row_shell_source =
         read_source(&manifest_path("src/ui/shells/search_result_rows.rs"));
+    let search_inspector_source =
+        read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
+    let search_vm_source = read_source(&manifest_path("src/view_models/search_results/mod.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+
     assert!(
         result_row_shell_source.contains(".image(thumbnail)"),
         "src/ui/shells/search_result_rows.rs: shared result rows must accept resolved artwork slots"
     );
+
+    for required in [
+        "thumbnail_href: Option<&'a str>",
+        "row.thumbnail_href.as_deref()",
+    ] {
+        assert!(
+            result_row_shell_source.contains(required),
+            "src/ui/shells/search_result_rows.rs: shared result row fields must expose row artwork hrefs; missing `{required}`"
+        );
+    }
+
+    for required in ["thumbnail_hrefs_for_scope(", "visible_thumbnail_hrefs("] {
+        assert!(
+            search_vm_source.contains(required),
+            "src/view_models/search_results/mod.rs: search-results VM must expose visible thumbnail hrefs; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "thumbnails: BTreeMap<String, Option<Arc<Image>>>",
+        "pub(crate) fn with_thumbnails(",
+        "fn thumbnail_for_href(&self, href: &str) -> Option<Arc<Image>>",
+        ".thumbnail_href",
+        "thumbnail_for_href(href)",
+    ] {
+        assert!(
+            search_inspector_source.contains(required),
+            "src/ui/shells/search_results_inspector.rs: search result rows must consume resolved artwork slots; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "resolve_search_result_thumbnails(",
+        "thumbnail_hrefs_for_scope(",
+        "index_remote_detail_hero_image(&href, cx)",
+        ".with_thumbnails(thumbnails)",
+    ] {
+        assert!(
+            app_source.contains(required),
+            "src/app.rs: search result rows must resolve artwork through TopApp image cache; missing `{required}`"
+        );
+    }
 }
 
 #[test]
