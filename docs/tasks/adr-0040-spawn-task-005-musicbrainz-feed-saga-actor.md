@@ -1,6 +1,6 @@
 # ADR 0040 Spawn Task 005 — MusicBrainz Feed Saga Actor
 
-Status: Proposed - 2026-05-18.
+Status: Completed - 2026-05-18.
 
 ## Goal
 

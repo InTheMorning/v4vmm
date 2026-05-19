@@ -1,6 +1,5 @@
 #![warn(clippy::pedantic)]
 #![expect(
-    clippy::cast_possible_truncation,
     clippy::doc_markdown,
     clippy::manual_let_else,
     clippy::needless_pass_by_value,
@@ -25,6 +24,7 @@ use crate::media::ImageCache;
 use crate::metadata::{MusicBrainzLookupResult, PendingId3Edit, TagCompareResult, TrackContext};
 use crate::presentation::RuntimeHost;
 use crate::runtime::actor::ActorHandle;
+use crate::runtime::musicbrainz_feed_saga::MusicBrainzFeedSagaHandle;
 use crate::view_models::library::{
     description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
     LibraryTrackInspectorState, LibraryViewModel,
@@ -163,6 +163,9 @@ pub struct LibraryApp {
     /// dropping the previous handle closes the actor's inbox so it
     /// exits gracefully.
     pub(crate) playlist_actor: Option<PlaylistActorState>,
+    /// Feed-level MusicBrainz lookup saga actor. Dropping the handle
+    /// closes the inbox and lets the runtime task exit.
+    musicbrainz_feed_saga: Option<MusicBrainzFeedSagaHandle>,
 }
 
 pub(crate) struct PlaylistActorState {

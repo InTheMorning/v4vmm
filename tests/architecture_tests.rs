@@ -10546,11 +10546,7 @@ fn async_runtime_feature_flag_is_retired() {
 
 #[test]
 fn cx_spawn_debt_does_not_grow_outside_presentation_and_runtime() {
-    let baseline = BTreeMap::from([
-        ("src/app.rs", 1_usize),
-        ("src/app/bootstrap.rs", 1),
-        ("src/library/app_impl.rs", 1),
-    ]);
+    let baseline = BTreeMap::from([("src/app.rs", 1_usize), ("src/app/bootstrap.rs", 1)]);
     let mut actual = BTreeMap::<String, usize>::new();
 
     for path in rust_files_under("src") {
@@ -10586,6 +10582,66 @@ fn cx_spawn_debt_does_not_grow_outside_presentation_and_runtime() {
         violations.is_empty(),
         "ADR 0040 cx.spawn debt grew outside presentation/runtime:\n{}",
         violations.join("\n")
+    );
+}
+
+#[test]
+fn musicbrainz_feed_saga_is_runtime_owned() {
+    let runtime_source = read_source(&manifest_path("src/runtime/musicbrainz_feed_saga.rs"));
+    let runtime_mod_source = read_source(&manifest_path("src/runtime/mod.rs"));
+    let library_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let library_struct_source = read_source(&manifest_path("src/library.rs"));
+
+    for required in [
+        "pub enum MusicBrainzFeedSagaState",
+        "pub struct StartFeedLookup",
+        "pub struct MusicBrainzFeedSagaHandle",
+        "tokio::sync::{mpsc, watch}",
+        "LookupMusicBrainzAlbumReleases",
+        "StageMusicBrainzTrack",
+        "StageMusicBrainzCandidate",
+        "fn match_candidate_to_track",
+    ] {
+        assert!(
+            runtime_source.contains(required),
+            "src/runtime/musicbrainz_feed_saga.rs: MusicBrainz feed saga actor missing `{required}`"
+        );
+    }
+
+    assert!(
+        runtime_mod_source.contains("pub mod musicbrainz_feed_saga"),
+        "src/runtime/mod.rs: MusicBrainz feed saga module must be registered"
+    );
+
+    for forbidden in [
+        "cx.spawn(",
+        "musicbrainz_feed_per_track(",
+        "fn lookup_musicbrainz_stage_for_track(",
+        "fn match_candidate_to_track(",
+        "fn stage_candidate_for_track(",
+    ] {
+        assert!(
+            !library_source.contains(forbidden),
+            "src/library/app_impl.rs: MusicBrainz feed saga must not remain screen-local; found `{forbidden}`"
+        );
+    }
+
+    for required in [
+        "bridge_watch(",
+        "StartFeedLookup::new(",
+        "apply_musicbrainz_feed_saga_state(",
+        "MusicBrainzFeedSagaState::TrackDone",
+        "stage_musicbrainz_lookup_for_track(track_id, lookup)",
+    ] {
+        assert!(
+            library_source.contains(required),
+            "src/library/app_impl.rs: Library must reduce saga snapshots through existing VM/screen methods; missing `{required}`"
+        );
+    }
+
+    assert!(
+        library_struct_source.contains("musicbrainz_feed_saga: Option<MusicBrainzFeedSagaHandle>"),
+        "src/library.rs: LibraryApp must retain the MusicBrainz feed saga handle"
     );
 }
 

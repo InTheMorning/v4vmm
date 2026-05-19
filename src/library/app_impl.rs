@@ -13,8 +13,7 @@ use crate::application::commands::feed::{
 };
 use crate::application::commands::library_removal::RemoveFromLibrary;
 use crate::application::commands::metadata::{
-    ApplyTrackId3Edits, LookupMusicBrainzAlbumReleases, LookupMusicBrainzTrack,
-    StageMusicBrainzCandidate, StageMusicBrainzTrack,
+    ApplyTrackId3Edits, LookupMusicBrainzTrack, StageMusicBrainzTrack,
 };
 use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
@@ -26,15 +25,15 @@ use crate::application::queries::library::{
 };
 use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext};
 use crate::db::{self, TrackRow};
-use crate::feed_service::{track_row_to_track_context, StagedMusicBrainzLookup};
+use crate::feed_service::track_row_to_track_context;
 use crate::library_service;
 use crate::media::ImageCache;
 use crate::metadata::{
     auto_populated_pending_id3_edits, pending_id3_conflict_descriptions,
     pending_id3_edits_for_apply, MusicBrainzLookupResult,
 };
-use crate::musicbrainz::{LookupMetadata, MusicBrainzCandidate};
-use crate::presentation::present_command;
+use crate::presentation::{bridge_watch, present_command};
+use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedLookup};
 use crate::sources;
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::{
@@ -378,6 +377,19 @@ impl LibraryApp {
                 application_services.event_bus(),
             ),
         };
+        let musicbrainz_feed_saga = runtime_host.as_ref().map(|host| {
+            let _enter = host.handle().enter();
+            let handle =
+                crate::runtime::musicbrainz_feed_saga::spawn(application_services.command_bus());
+            bridge_watch(
+                handle.subscribe(),
+                |this: &mut Self, state, cx| {
+                    this.apply_musicbrainz_feed_saga_state(state, cx);
+                },
+                cx,
+            );
+            handle
+        });
         let mut app = Self {
             conn,
             application_services,
@@ -393,6 +405,7 @@ impl LibraryApp {
             _rename_playlist_sub: rename_playlist_sub,
             runtime_host,
             playlist_actor: None,
+            musicbrainz_feed_saga,
         };
         app.start_async_reload(cx);
         app
@@ -660,7 +673,6 @@ impl LibraryApp {
     ) {
         use crate::application::paged_track_list::{PagedTrackListActor, PagedTrackListMsg};
         use crate::db::{open_db, TrackListing};
-        use crate::presentation::bridge_watch;
 
         let Some(host) = self.runtime_host.clone() else {
             return;
@@ -2154,309 +2166,83 @@ impl LibraryApp {
         }
         cx.notify();
 
-        let conn = Arc::clone(&self.conn);
         let feed_id = album.feed_id.unwrap_or(0);
         let feed_title = Some(album.name.clone());
-        let total_count = downloadable.len();
-        let command_bus = self.application_services.command_bus();
-        cx.spawn(
-            async move |this: gpui::WeakEntity<LibraryApp>, cx: &mut gpui::AsyncApp| {
-                // Build album-level metadata from feed + first track.
-                let first_artist = downloadable.iter().find_map(|t| t.artist_name.clone());
-                let album_metadata = LookupMetadata {
-                    title: None,
-                    artist: first_artist,
-                    album: feed_title,
-                    track_number: None,
-                    total_tracks: Some(total_count.to_string()),
-                    duration_secs: None,
-                    isrc: None,
-                };
-
-                // Do album-level release search (blocking, on background thread).
-                let meta_clone = album_metadata.clone();
-                let release_candidates = cx
-                    .background_executor()
-                    .spawn(async move {
-                        let outcome = command_bus.execute(
-                            LookupMusicBrainzAlbumReleases::new(meta_clone, 3),
-                            &CommandContext::next(),
-                        )?;
-                        Ok::<_, crate::application::CommandError>(outcome.into_parts().0)
-                    })
-                    .await;
-
-                let candidates = match release_candidates {
-                    Ok(c) => c,
-                    Err(err) => {
-                        // Fall back to per-track recording search.
-                        this.update(
-                            cx,
-                            move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                                this.vm.fail_musicbrainz_album_lookup_with_fallback(err);
-                                cx.notify();
-                            },
-                        )
-                        .ok();
-                        musicbrainz_feed_per_track(
-                            this,
-                            cx,
-                            &conn,
-                            &downloadable,
-                            feed_id,
-                            total_count,
-                        )
-                        .await;
-                        return;
-                    }
-                };
-
-                if candidates.is_empty() {
-                    this.update(
-                        cx,
-                        move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                            this.vm.fallback_empty_musicbrainz_album_lookup();
-                            cx.notify();
-                        },
-                    )
-                    .ok();
-                    musicbrainz_feed_per_track(
-                        this,
-                        cx,
-                        &conn,
-                        &downloadable,
-                        feed_id,
-                        total_count,
-                    )
-                    .await;
-                    return;
-                }
-
-                // Match each local track to best candidate by track position then title.
-                let mut total_edits = 0usize;
-                let mut processed = 0usize;
-                for track in &downloadable {
-                    let track_id = track.id;
-                    let progress = processed + 1;
-                    this.update(
-                        cx,
-                        move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                            this.vm.begin_musicbrainz_album_track_stage(
-                                track_id,
-                                progress,
-                                total_count,
-                            );
-                            cx.notify();
-                        },
-                    )
-                    .ok();
-
-                    let matched = match_candidate_to_track(&candidates, track);
-                    let track2 = track.clone();
-                    let result = match matched {
-                        Some(candidate) => {
-                            let candidate = candidate.clone();
-                            cx.background_executor()
-                                .spawn(async move { stage_candidate_for_track(&track2, &candidate) })
-                                .await
-                        }
-                        None => {
-                            // No matching candidate — fall back to recording search for this track.
-                            let conn2 = Arc::clone(&conn);
-                            cx.background_executor()
-                                .spawn(async move { lookup_musicbrainz_stage_for_track(conn2, &track2) })
-                                .await
-                        }
-                    };
-
-                    let status = match result {
-                        Ok(staged) => {
-                            let n = staged.edit_count;
-                            total_edits += n;
-                            let lookup = staged.lookup;
-                            this.update(
-                                cx,
-                                move |this: &mut LibraryApp, _cx: &mut Context<LibraryApp>| {
-                                    this.stage_musicbrainz_lookup_for_track(track_id, lookup);
-                                },
-                            )
-                            .ok();
-                            MbTrackStatus::Done(n)
-                        }
-                        Err(err) => MbTrackStatus::Skipped(format!("{err:#}")),
-                    };
-                    processed += 1;
-
-                    let status_clone = status.clone();
-                    this.update(
-                        cx,
-                        move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                            this.vm
-                                .finish_musicbrainz_album_track_stage(track_id, status_clone);
-                            cx.notify();
-                        },
-                    )
-                    .ok();
-                }
-
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                        this.vm
-                            .finish_musicbrainz_album_lookup(total_edits, processed);
-                        cx.notify();
-                    },
-                )
-                .ok();
-            },
-        )
-        .detach();
-    }
-}
-
-#[allow(dead_code)]
-fn lookup_musicbrainz_stage_for_track(
-    _conn: Arc<Mutex<Connection>>,
-    track: &TrackRow,
-) -> anyhow::Result<StagedMusicBrainzLookup> {
-    let outcome = crate::application::CommandBus::new()
-        .execute(
-            StageMusicBrainzTrack::new(track.clone()),
-            &CommandContext::next(),
-        )
-        .map_err(|error| anyhow::anyhow!("{error:#}"))?;
-    Ok(outcome.into_parts().0)
-}
-
-#[allow(dead_code)]
-fn match_candidate_to_track<'a>(
-    candidates: &'a [MusicBrainzCandidate],
-    track: &TrackRow,
-) -> Option<&'a MusicBrainzCandidate> {
-    // Try exact track number match first.
-    if let Some(track_num) = track.track_number {
-        if let Some(c) = candidates
-            .iter()
-            .find(|c| c.track_position == Some(track_num as i32))
-        {
-            return Some(c);
-        }
-    }
-    // Fall back to title similarity.
-    let track_title = track.track_title.as_deref()?;
-    let normalized_title = track_title.to_lowercase();
-    candidates.iter().max_by_key(|c| {
-        let ct = c
-            .track_title
-            .as_deref()
-            .or(Some(&c.title))
-            .unwrap_or("")
-            .to_lowercase();
-        if ct == normalized_title {
-            return 1000;
-        }
-        // Simple word overlap score.
-        let title_words: Vec<&str> = normalized_title.split_whitespace().collect();
-        let cand_words: Vec<&str> = ct.split_whitespace().collect();
-        title_words
-            .iter()
-            .filter(|w| cand_words.contains(w))
-            .count()
-            * 100
-            / title_words.len().max(1)
-    })
-}
-
-#[allow(dead_code)]
-fn stage_candidate_for_track(
-    track: &TrackRow,
-    candidate: &MusicBrainzCandidate,
-) -> anyhow::Result<StagedMusicBrainzLookup> {
-    let outcome = crate::application::CommandBus::new()
-        .execute(
-            StageMusicBrainzCandidate::new(track.clone(), candidate.clone()),
-            &CommandContext::next(),
-        )
-        .map_err(|error| anyhow::anyhow!("{error:#}"))?;
-    Ok(outcome.into_parts().0)
-}
-
-#[allow(dead_code)]
-async fn musicbrainz_feed_per_track(
-    this: gpui::WeakEntity<LibraryApp>,
-    cx: &mut gpui::AsyncApp,
-    conn: &Arc<Mutex<Connection>>,
-    downloadable: &[TrackRow],
-    _feed_id: i64,
-    total_count: usize,
-) {
-    let mut total_edits = 0usize;
-    let mut processed = 0usize;
-    for track in downloadable {
-        let track_id = track.id;
-        let progress = processed + 1;
-        this.update(
-            cx,
-            move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                this.vm
-                    .begin_musicbrainz_album_track_stage(track_id, progress, total_count);
-                cx.notify();
-            },
-        )
-        .ok();
-
-        let conn2 = Arc::clone(conn);
-        let track2 = track.clone();
-        let result = cx
-            .background_executor()
-            .spawn(async move { lookup_musicbrainz_stage_for_track(conn2, &track2) })
-            .await;
-
-        let status = match result {
-            Ok(staged) => {
-                let n = staged.edit_count;
-                total_edits += n;
-                let lookup = staged.lookup;
-                this.update(
-                    cx,
-                    move |this: &mut LibraryApp, _cx: &mut Context<LibraryApp>| {
-                        this.stage_musicbrainz_lookup_for_track(track_id, lookup);
-                    },
-                )
-                .ok();
-                MbTrackStatus::Done(n)
-            }
-            Err(err) => MbTrackStatus::Skipped(format!("{err:#}")),
-        };
-        processed += 1;
-
-        let status_clone = status.clone();
-        this.update(
-            cx,
-            move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-                this.vm
-                    .finish_musicbrainz_album_track_stage(track_id, status_clone);
-                cx.notify();
-            },
-        )
-        .ok();
-
-        if processed < total_count {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(1100))
-                .await;
-        }
-    }
-
-    this.update(
-        cx,
-        move |this: &mut LibraryApp, cx: &mut Context<LibraryApp>| {
-            this.vm
-                .finish_musicbrainz_album_lookup(total_edits, processed);
+        let request = StartFeedLookup::new(feed_id, feed_title, downloadable);
+        let Some(saga) = self.musicbrainz_feed_saga.as_ref() else {
+            self.vm
+                .fail_musicbrainz_album_lookup_with_fallback("runtime unavailable");
             cx.notify();
-        },
-    )
-    .ok();
+            return;
+        };
+        if !saga.try_start(request) {
+            self.vm
+                .fail_musicbrainz_album_lookup_with_fallback("lookup actor unavailable");
+            cx.notify();
+        }
+    }
+
+    fn apply_musicbrainz_feed_saga_state(
+        &mut self,
+        state: MusicBrainzFeedSagaState,
+        _cx: &mut Context<Self>,
+    ) {
+        match state {
+            MusicBrainzFeedSagaState::Idle
+            | MusicBrainzFeedSagaState::AlbumSearchInFlight { .. } => {}
+            MusicBrainzFeedSagaState::AlbumSearchFailed { error, .. } => {
+                self.vm.fail_musicbrainz_album_lookup_with_fallback(error);
+            }
+            MusicBrainzFeedSagaState::AlbumSearchEmpty { .. } => {
+                self.vm.fallback_empty_musicbrainz_album_lookup();
+            }
+            MusicBrainzFeedSagaState::PerTrackInFlight {
+                track_id,
+                progress,
+                total,
+                ..
+            } => {
+                self.vm
+                    .begin_musicbrainz_album_track_stage(track_id, progress, total);
+            }
+            MusicBrainzFeedSagaState::TrackDone {
+                track_id,
+                progress,
+                total,
+                edit_count,
+                lookup,
+                ..
+            } => {
+                self.vm
+                    .begin_musicbrainz_album_track_stage(track_id, progress, total);
+                self.stage_musicbrainz_lookup_for_track(track_id, lookup);
+                self.vm.finish_musicbrainz_album_track_stage(
+                    track_id,
+                    MbTrackStatus::Done(edit_count),
+                );
+            }
+            MusicBrainzFeedSagaState::TrackSkipped {
+                track_id,
+                progress,
+                total,
+                reason,
+                ..
+            } => {
+                self.vm
+                    .begin_musicbrainz_album_track_stage(track_id, progress, total);
+                self.vm
+                    .finish_musicbrainz_album_track_stage(track_id, MbTrackStatus::Skipped(reason));
+            }
+            MusicBrainzFeedSagaState::Completed {
+                total_edits,
+                processed,
+                ..
+            } => {
+                self.vm
+                    .finish_musicbrainz_album_lookup(total_edits, processed);
+            }
+        }
+    }
 }
 
 pub(crate) fn build_tree(tracks: &[TrackRow], conn: &Connection) -> LibraryTree {
