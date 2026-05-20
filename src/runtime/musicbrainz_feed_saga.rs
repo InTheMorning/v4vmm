@@ -398,6 +398,7 @@ fn match_candidate_to_track<'a>(
 
     let track_title = track.track_title.as_deref()?;
     let normalized_title = track_title.to_lowercase();
+    let title_word_count = normalized_title.split_whitespace().count().max(1);
     candidates.iter().max_by_key(|candidate| {
         let candidate_title = candidate
             .track_title
@@ -408,14 +409,16 @@ fn match_candidate_to_track<'a>(
         if candidate_title == normalized_title {
             return 1000;
         }
-        let title_words: Vec<&str> = normalized_title.split_whitespace().collect();
-        let candidate_words: Vec<&str> = candidate_title.split_whitespace().collect();
-        title_words
-            .iter()
-            .filter(|word| candidate_words.contains(word))
+        normalized_title
+            .split_whitespace()
+            .filter(|word| {
+                candidate_title
+                    .split_whitespace()
+                    .any(|candidate_word| candidate_word == *word)
+            })
             .count()
             * 100
-            / title_words.len().max(1)
+            / title_word_count
     })
 }
 
@@ -595,6 +598,32 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn candidate_matcher_falls_back_to_title_word_overlap() {
+        let candidates = vec![
+            MusicBrainzCandidate {
+                recording_id: "other".into(),
+                title: "Unrelated Track".into(),
+                track_title: Some("Unrelated Track".into()),
+                track_position: None,
+                ..MusicBrainzCandidate::default()
+            },
+            MusicBrainzCandidate {
+                recording_id: "matched".into(),
+                title: "Survival Guide".into(),
+                track_title: Some("Survival Guide".into()),
+                track_position: None,
+                ..MusicBrainzCandidate::default()
+            },
+        ];
+        let mut track = track(15, "Survival Guide Finale", 99);
+        track.track_number = None;
+
+        let matched = match_candidate_to_track(&candidates, &track).expect("match candidate");
+
+        assert_eq!(matched.recording_id, "matched");
     }
 
     #[tokio::test]
