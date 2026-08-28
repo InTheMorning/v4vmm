@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use reqwest;
 use rss::extension::{Extension, ExtensionMap};
 use rss::Channel;
 use rusqlite::Connection;
@@ -17,7 +16,7 @@ pub fn subscribe_feed(
     musicindex_endpoint: &str,
 ) -> Result<()> {
     // --- fetch ---
-    let body = reqwest::blocking::Client::new()
+    let body = crate::http_client::document()
         .get(feed_url)
         .send()
         .with_context(|| format!("GET {feed_url}"))?

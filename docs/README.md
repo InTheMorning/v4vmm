@@ -27,6 +27,7 @@ Start here:
 - [HIG product polish backlog](plans/hig-product-polish-backlog.md): separates remaining tactical structural mop-ups from HIG completeness items such as search suggestions, sidebar show/hide, Liquid Glass materials, and keyboard coverage
 
 - [ADR 0057: ADR status vocabulary and amendment policy](adr/0057-adr-status-vocabulary-and-amendment-policy.md): the four status values, partial-implementation format, and when an ADR may be amended in place
+- [ADR 0058: Outbound HTTP client policy](adr/0058-outbound-http-client-policy.md): one owner for blocking HTTP client construction and timeout constants
 - [Documentation and architecture audit](reviews/documentation-and-architecture-audit.md): 2026-08-28 findings on ADR status drift, recurring defect classes, parked code, and missing HTTP timeouts
 
 Historical architecture decisions still live in [`docs/adr/`](adr/).

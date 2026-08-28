@@ -2,7 +2,7 @@
 
 ## Status
 
-Active index - 2026-05-18. Reconciled 2026-08-28 for ADR 0056 and ADR 0057.
+Active index - 2026-05-18. Reconciled 2026-08-28 for ADR 0056, ADR 0057, and ADR 0058.
 
 ## Purpose
 
@@ -37,6 +37,15 @@ prioritized, and routed to the right governance artifact.
      reopen completed search/sidebar restructuring.
 
 ## Recently Resolved
+
+- ADR 0058 outbound HTTP client policy accepted on 2026-08-28. All ten blocking
+  client construction sites now build through `src/http_client.rs`, which owns
+  the connect and operation timeout constants. The audit finding that prompted
+  it was partly wrong and was corrected in place: `reqwest`'s blocking default
+  already supplied a 30 second timeout, so the application was not hanging. The
+  real defect was ten unowned constructions inheriting an invisible default,
+  with `connect_timeout` unset. Guard
+  `adr_0058_http_clients_are_built_by_one_owner` pins the ownership.
 
 - ADR 0057 status vocabulary accepted on 2026-08-28 after
   `docs/reviews/documentation-and-architecture-audit.md` found eleven ADRs at

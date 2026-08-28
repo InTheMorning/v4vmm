@@ -17,7 +17,7 @@ pub struct PodrollEntry {
 }
 
 pub fn fetch_feed_podroll(feed_url: &str) -> Result<Vec<PodrollEntry>> {
-    let body = reqwest::blocking::Client::new()
+    let body = crate::http_client::document()
         .get(feed_url)
         .send()
         .with_context(|| format!("GET {feed_url}"))?
@@ -110,7 +110,7 @@ pub fn fetch_track_enrichment_from_feed(
     track_guid: Option<&str>,
     enclosure_url: Option<&str>,
 ) -> Result<Option<RssTrackEnrichment>> {
-    let body = reqwest::blocking::Client::new()
+    let body = crate::http_client::document()
         .get(feed_url)
         .send()
         .with_context(|| format!("GET {feed_url}"))?

@@ -11612,3 +11612,45 @@ fn adr_0056_apic_does_not_accept_declared_type_alone() {
         violations.join("\n")
     );
 }
+
+/// ADR 0058: HTTP client construction has one owner.
+///
+/// The risk is not a missing timeout today -- `reqwest`'s blocking default
+/// supplies one -- but an unowned value that a dependency bump can move, and
+/// per-site builders drifting apart the way the media fetch policy did before
+/// ADR 0056.
+#[test]
+fn adr_0058_http_clients_are_built_by_one_owner() {
+    const OWNER: &str = "src/http_client.rs";
+    const CONSTRUCTORS: &[&str] = &[
+        "blocking::Client::new()",
+        "ReqwestClient::new()",
+        "blocking::Client::builder()",
+        "ReqwestClient::builder()",
+    ];
+
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let relative = rel_path(&path);
+        if relative.ends_with(OWNER) {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for constructor in CONSTRUCTORS {
+                if line.contains(constructor) {
+                    violations.push(format!(
+                        "{relative}:{line_number}: build HTTP clients through {OWNER} so the \
+                         timeout policy is owned in one place: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0058 HTTP client ownership violations:\n{}",
+        violations.join("\n")
+    );
+}

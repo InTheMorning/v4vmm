@@ -35,7 +35,7 @@ fn client() -> &'static Client {
         // No fallback client. A default `Client::new()` follows redirects, which
         // is the behavior this module exists to take ownership of; silently
         // substituting it would reintroduce the defect under a different name.
-        Client::builder()
+        crate::http_client::media_builder()
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("build redirect-disabled media client")

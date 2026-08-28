@@ -15,8 +15,6 @@ use crate::metadata::{MusicBrainzLookupResult, TagCompareResult, TrackContext};
 use crate::musicbrainz::{lookup_releases, LookupMetadata, MusicBrainzCandidate};
 use crate::subscribe_service;
 
-use reqwest::blocking::Client as ReqwestClient;
-
 /// Looks up `MusicBrainz` candidates for one local library track.
 #[derive(Clone, Debug)]
 pub struct LookupMusicBrainzTrack {
@@ -98,7 +96,7 @@ impl ApplicationCommand for LookupMusicBrainzAlbumReleases {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        let musicbrainz_client = ReqwestClient::builder()
+        let musicbrainz_client = crate::http_client::document_builder()
             .user_agent(format!(
                 "v4vmm/{} (MusicBrainz metadata lookup)",
                 env!("CARGO_PKG_VERSION")

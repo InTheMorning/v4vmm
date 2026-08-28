@@ -9,6 +9,7 @@ pub mod db;
 pub mod debug_contracts;
 pub mod discover;
 pub mod feed_service;
+pub mod http_client;
 pub mod identity_ingest;
 pub mod library;
 pub mod library_service;

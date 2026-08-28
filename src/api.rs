@@ -370,14 +370,14 @@ pub struct Client {
 impl Client {
     pub fn new() -> Self {
         Self {
-            client: ReqwestClient::new(),
+            client: crate::http_client::document(),
             base_url: DEFAULT_BASE_URL.to_string(),
         }
     }
 
     pub fn new_with_base_url(base_url: String) -> Self {
         Self {
-            client: ReqwestClient::new(),
+            client: crate::http_client::document(),
             base_url,
         }
     }

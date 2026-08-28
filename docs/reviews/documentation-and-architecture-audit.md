@@ -16,8 +16,8 @@ that status is not maintained, so the artifacts cannot be trusted without
 reading the code they describe.
 
 The code has two recurring defect classes the repository has already named, one
-large block of deliberately dead code, four oversized modules, and no HTTP
-timeouts anywhere.
+large block of deliberately dead code, four oversized modules, and HTTP client
+construction with no owner.
 
 Findings are ordered by how much they cost a reader or maintainer who is trying
 to make a correct change.
@@ -126,21 +126,37 @@ compiling.
 Every cross-cutting change pays this tax, and the note records no scheduled
 return date.
 
-## P2: No HTTP Timeouts Anywhere
+## P2: HTTP Client Construction Is Unowned
 
-No `reqwest` client in `src/` sets a connect or read timeout. Roughly ten sites
-construct clients independently: `rss/enrich.rs`, `rss/subscribe.rs`,
-`musicbrainz.rs`, `api.rs`, `discover.rs`, `feed_service.rs`,
-`application/commands/metadata.rs`, and others.
+> **Correction, 2026-08-28.** This finding was originally filed as "No HTTP
+> Timeouts Anywhere", claiming a silent host would stall a blocking fetch
+> indefinitely. That was wrong. `reqwest`'s blocking `ClientBuilder::timeout`
+> defaults to 30 seconds, and that default was already in force at every
+> construction site. The finding is retained in corrected form because the
+> ownership problem below is real; the hang was not.
 
-A feed host that accepts a connection and never responds stalls a blocking fetch
-indefinitely. On the subscribe and refresh paths that is a hung operation with no
-operator-visible cause.
+Ten sites construct blocking HTTP clients independently: `rss/enrich.rs`,
+`rss/subscribe.rs`, `api.rs` (x2), `feed_service.rs` (x2),
+`subscribe_service.rs`, `application/commands/metadata.rs`, and
+`remote_media.rs`.
 
-This includes `src/remote_media.rs`, added on 2026-08-28. It centralized scheme,
-redirect, and status policy for media fetches and did not add a timeout, so the
-new module inherited the gap rather than closing it. It is now the natural place
-to fix it for media; document fetches still have no shared owner.
+None stated a timeout, so all ten inherited the dependency default. The value
+was invisible in this repository, unowned, and free to move under a dependency
+bump. `connect_timeout` was genuinely unset, so a host that was simply down
+consumed the full 30 second operation budget before failing.
+
+The default itself is sound, and applies more carefully than the original
+finding assumed: it bounds connect and response head once, bounds streaming
+reads per `read` call (so large enclosure downloads are safe), and bounds
+whole-body `bytes`/`text`/`json` calls in total.
+
+This is the ADR 0056 shape at smaller scale: a policy with no owner and ten
+places to drift.
+
+> Resolved 2026-08-28 by ADR 0058. `src/http_client.rs` owns two named
+> constants, all ten sites build through it, `connect_timeout` is set for the
+> first time, and guard `adr_0058_http_clients_are_built_by_one_owner` fails the
+> build if a client is constructed elsewhere.
 
 ## P3: Architecture Guards Cover 7 ADRs Of 56
 
@@ -215,8 +231,8 @@ Worth recording so they are not re-investigated:
 
 1. Reconcile the eleven `Proposed` ADR statuses and define the status vocabulary.
    Cheap, and everything else in this list is read through those headers.
-2. Add HTTP timeouts, starting with `remote_media` and then deciding whether
-   document fetches get a shared owner.
+2. ~~Add HTTP timeouts~~ - done 2026-08-28 via ADR 0058, after correcting the
+   finding: the timeouts existed as a dependency default, the ownership did not.
 3. Decide the ADR amendment rule, so ADR 0001 and practice agree.
 4. Take a position on the parked discover module: schedule a decision date or
    accept the tax explicitly in the note.

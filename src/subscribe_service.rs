@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
-use reqwest::blocking::Client as ReqwestClient;
 use rusqlite::Connection;
 
 use crate::api::{track_with_feed_defaults, Client, Feed, SourceEntityLink, Track};
@@ -634,7 +633,7 @@ pub fn lookup_musicbrainz_track(
     let downloaded = download_track(&cfg, &track)?;
     let tags = read_audio_tags(&downloaded.path)?;
     let metadata = musicbrainz_lookup_metadata(&track, &tags);
-    let musicbrainz_client = ReqwestClient::builder()
+    let musicbrainz_client = crate::http_client::document_builder()
         .user_agent(format!(
             "v4vmm/{} (MusicBrainz metadata lookup)",
             env!("CARGO_PKG_VERSION")
