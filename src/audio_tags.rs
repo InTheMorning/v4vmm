@@ -9,7 +9,11 @@ use id3::frame::{
     UniqueFileIdentifier,
 };
 use id3::{no_tag_ok, Content, Frame, Tag, TagLike, Version};
+use reqwest::blocking::Response;
+use reqwest::header::LOCATION;
+use reqwest::Url;
 
+const MAX_APIC_IMAGE_REDIRECTS: usize = 10;
 const WRITABLE_TEXT_FRAMES: &[&str] = &[
     "TALB", "TBPM", "TCOM", "TCON", "TCOP", "TDEN", "TDLY", "TDOR", "TDRC", "TDRL", "TDTG", "TENC",
     "TEXT", "TFLT", "TIT1", "TIT2", "TIT3", "TKEY", "TLAN", "TLEN", "TMED", "TMOO", "TOAL", "TOFN",
@@ -905,10 +909,7 @@ fn strip_timecode_data(text: &str) -> String {
 
 fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
     if reference.starts_with("http://") || reference.starts_with("https://") {
-        let response = reqwest::blocking::get(reference)
-            .with_context(|| format!("download APIC image {reference}"))?
-            .error_for_status()
-            .with_context(|| format!("download APIC image {reference}"))?;
+        let response = download_apic_image(reference)?;
         let declared_mime_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -921,9 +922,8 @@ fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
         if data.is_empty() {
             return Err(anyhow!("APIC image is empty"));
         }
-        let mime_type = declared_mime_type
-            .or_else(|| image_mime_type_for_reference(reference))
-            .or_else(|| image_mime_type_for_bytes(&data))
+        let mime_type = image_mime_type_for_bytes(&data)
+            .or(declared_mime_type)
             .ok_or_else(|| anyhow!("APIC image response missing image type"))?;
         return Ok((mime_type, data));
     }
@@ -939,6 +939,52 @@ fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
     Ok((mime_type, data))
 }
 
+fn download_apic_image(reference: &str) -> Result<Response> {
+    let mut parsed = parse_apic_image_url(reference)?;
+    let mut redirects_remaining = MAX_APIC_IMAGE_REDIRECTS;
+    loop {
+        let response = reqwest::blocking::get(parsed.clone())
+            .with_context(|| format!("download APIC image {parsed}"))?;
+        if response.status().is_redirection() {
+            if redirects_remaining == 0 {
+                return Err(anyhow!("too many APIC image redirects for {reference}"));
+            }
+            redirects_remaining -= 1;
+            parsed = redirect_apic_image_url(&parsed, &response)
+                .with_context(|| format!("follow APIC image redirect from {parsed}"))?;
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err(anyhow!(
+                "download APIC image {parsed} failed with HTTP {}",
+                response.status()
+            ));
+        }
+        return Ok(response);
+    }
+}
+
+fn parse_apic_image_url(reference: &str) -> Result<Url> {
+    let parsed =
+        Url::parse(reference).with_context(|| format!("parse APIC image URL {reference}"))?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(parsed),
+        scheme => Err(anyhow!("unsupported APIC image URL scheme: {scheme}")),
+    }
+}
+
+fn redirect_apic_image_url(base: &Url, response: &Response) -> Result<Url> {
+    let location = response
+        .headers()
+        .get(LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| anyhow!("APIC image redirect missing Location header"))?;
+    base.join(location)
+        .or_else(|_| base.join(&location.replace(' ', "%20")))
+        .with_context(|| format!("parse APIC image redirect Location {location:?}"))
+        .and_then(|url| parse_apic_image_url(url.as_str()))
+}
+
 fn image_mime_type(value: &str) -> Option<String> {
     let mime_type = value.split(';').next()?.trim().to_ascii_lowercase();
     mime_type.starts_with("image/").then_some(mime_type)
@@ -952,14 +998,6 @@ fn image_mime_type_for_path(path: &Path) -> Option<String> {
         "webp" => Some("image/webp".into()),
         _ => None,
     }
-}
-
-fn image_mime_type_for_reference(reference: &str) -> Option<String> {
-    let path = reference
-        .split(['?', '#'])
-        .next()
-        .filter(|path| !path.is_empty())?;
-    image_mime_type_for_path(Path::new(path))
 }
 
 fn image_mime_type_for_bytes(data: &[u8]) -> Option<String> {
@@ -987,9 +1025,9 @@ mod tests {
 
     use super::{
         add_lofty_compare_aliases, audio_tags_from_id3, id3v24_edit_label_is_writable,
-        image_mime_type, image_mime_type_for_bytes, image_mime_type_for_reference,
-        lofty_item_label, normalize_frame_descriptor, read_audio_tags, write_id3v24_edits,
-        AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
+        image_mime_type, image_mime_type_for_bytes, lofty_item_label, normalize_frame_descriptor,
+        read_audio_tags, read_picture_reference, write_id3v24_edits, AudioTags, EmbeddedArtwork,
+        Id3Field, Id3v24Edit,
     };
 
     #[test]
@@ -1131,10 +1169,6 @@ mod tests {
             Some("image/jpeg".into())
         );
         assert_eq!(
-            image_mime_type_for_reference("https://cdn.example.test/covers/front.PNG?size=600"),
-            Some("image/png".into())
-        );
-        assert_eq!(
             image_mime_type_for_bytes(b"\x89PNG\r\n\x1a\nimage bytes"),
             Some("image/png".into())
         );
@@ -1151,6 +1185,62 @@ mod tests {
             Some("image/webp".into())
         );
         assert_eq!(image_mime_type_for_bytes(b"not an image"), None);
+    }
+
+    #[test]
+    fn apic_image_download_follows_redirect_with_spaces() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        std::thread::spawn(move || {
+            let (mut redirect_stream, _) = listener.accept().expect("accept redirect request");
+            let mut buf = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut redirect_stream, &mut buf);
+            let location = format!("http://{addr}/Assets/front cover.jpg");
+            let response = format!(
+                "HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Type: text/html\r\nContent-Length: 8\r\nConnection: close\r\n\r\nredirect"
+            );
+            std::io::Write::write_all(&mut redirect_stream, response.as_bytes())
+                .expect("write redirect response");
+
+            let (mut image_stream, _) = listener.accept().expect("accept image request");
+            let mut buf = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut image_stream, &mut buf);
+            std::io::Write::write_all(
+                &mut image_stream,
+                b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: 13\r\nConnection: close\r\n\r\n\xff\xd8\xffjpeg bytes",
+            )
+            .expect("write image response");
+        });
+
+        let (mime_type, data) =
+            read_picture_reference(&format!("http://{addr}/cover.jpg")).expect("read APIC image");
+
+        assert_eq!(mime_type, "image/jpeg");
+        assert_eq!(data, b"\xff\xd8\xffjpeg bytes");
+    }
+
+    #[test]
+    fn apic_image_download_rejects_non_image_redirect_body() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut buf = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut buf);
+            std::io::Write::write_all(
+                &mut stream,
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 17\r\nConnection: close\r\n\r\n<html>moved</html>",
+            )
+            .expect("write response");
+        });
+
+        let error = read_picture_reference(&format!("http://{addr}/cover.jpg"))
+            .expect_err("non-image response should not become APIC artwork");
+
+        assert!(
+            error.to_string().contains("missing image type"),
+            "error should explain image type validation: {error}"
+        );
     }
 
     #[test]
