@@ -550,7 +550,7 @@ impl SearchApp {
         image_url: String,
         cx: &mut Context<Self>,
     ) {
-        let command = DownloadInspectorImage::new(self.musicindex_endpoint.clone(), image_url);
+        let command = DownloadInspectorImage::new(image_url);
         present_command(
             &self.command_runner,
             command,

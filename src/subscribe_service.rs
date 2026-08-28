@@ -346,12 +346,8 @@ fn subscribe_library_track_internal(
 ) -> Result<SubscribeTrackOutcome> {
     let api_track = track_row_to_api_track(&track);
 
-    let prepared = prepare_track_for_subscription_internal(
-        cfg,
-        &ReqwestClient::new(),
-        &api_track,
-        track.local_path.as_deref(),
-    )?;
+    let prepared =
+        prepare_track_for_subscription_internal(cfg, &api_track, track.local_path.as_deref())?;
 
     let track_context = TrackContext {
         track: api_track,
@@ -437,9 +433,8 @@ fn subscribe_track_from_search_internal(
         }
     }
 
-    let client = ReqwestClient::new();
-    let prepared = prepare_track_for_subscription_internal(cfg, &client, &track, None)
-        .inspect_err(|_| {
+    let prepared =
+        prepare_track_for_subscription_internal(cfg, &track, None).inspect_err(|_| {
             if mark_feed_subscribed && !prior_subscribed {
                 if let Ok(db) = conn.lock() {
                     let _ = db::set_feed_subscribed_by_url(&db, &feed_url, false);
@@ -562,7 +557,6 @@ pub fn enrich_track_context_from_rss(track: &mut Track, feed: Option<&mut Feed>)
 
 pub(crate) fn prepare_track_for_subscription_internal(
     cfg: &config::Config,
-    client: &ReqwestClient,
     track: &Track,
     local_path: Option<&str>,
 ) -> Result<PreparedTrack> {
@@ -583,9 +577,7 @@ pub(crate) fn prepare_track_for_subscription_internal(
         }
     }
 
-    Ok(PreparedTrack::Downloaded(download_track(
-        cfg, client, track,
-    )?))
+    Ok(PreparedTrack::Downloaded(download_track(cfg, track)?))
 }
 
 pub fn download_and_compare_track(
@@ -627,7 +619,7 @@ pub fn download_and_compare_track(
             }
         }
     }
-    let downloaded = download_track(&cfg, &client.client, &track_context.track)?;
+    let downloaded = download_track(&cfg, &track_context.track)?;
     compare_downloaded_track_path(&downloaded.path, &track_context)
 }
 
@@ -639,7 +631,7 @@ pub fn lookup_musicbrainz_track(
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
-    let downloaded = download_track(&cfg, &client.client, &track)?;
+    let downloaded = download_track(&cfg, &track)?;
     let tags = read_audio_tags(&downloaded.path)?;
     let metadata = musicbrainz_lookup_metadata(&track, &tags);
     let musicbrainz_client = ReqwestClient::builder()
@@ -655,26 +647,24 @@ pub fn lookup_musicbrainz_track(
         .and_then(|candidate| candidate.release_id.as_deref())
         .and_then(|release_id| {
             let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
-            download_image(&musicbrainz_client, &url)
+            download_image(&url)
         });
     Ok(MusicBrainzLookupResult { lookup, image })
 }
 
-pub fn download_image(client: &ReqwestClient, url: &str) -> Option<crate::metadata::ImageBytes> {
-    let response = client.get(url).send().ok()?.error_for_status().ok()?;
-    let content_type = response
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
+pub fn download_image(url: &str) -> Option<crate::metadata::ImageBytes> {
+    let response = crate::remote_media::fetch(url, "cover art").ok()?;
+    let declared = crate::remote_media::declared_content_type(&response);
     let bytes = response.bytes().ok()?.to_vec();
     if bytes.is_empty() {
         return None;
     }
+    // Bytes first, declared type second. A non-image response is no image, not
+    // an image with a bad label (ADR 0056).
+    let mime_type = crate::media::image_type::classify(&bytes, declared.as_deref())?;
     Some(crate::metadata::ImageBytes {
         data: bytes,
-        mime_type: content_type,
+        mime_type,
     })
 }
 
@@ -898,13 +888,8 @@ mod tests {
         let cfg = cfg(temp.path());
         let track = track_with_enclosure("https://nowhere.invalid/song.mp3");
 
-        let prepared = prepare_track_for_subscription_internal(
-            &cfg,
-            &ReqwestClient::new(),
-            &track,
-            local.to_str(),
-        )
-        .expect("prepared");
+        let prepared = prepare_track_for_subscription_internal(&cfg, &track, local.to_str())
+            .expect("prepared");
         assert!(matches!(prepared, PreparedTrack::Existing { .. }));
     }
 
@@ -918,8 +903,7 @@ mod tests {
         std::fs::write(&candidate, b"data").expect("write");
 
         let prepared =
-            prepare_track_for_subscription_internal(&cfg, &ReqwestClient::new(), &track, None)
-                .expect("prepared");
+            prepare_track_for_subscription_internal(&cfg, &track, None).expect("prepared");
         assert!(matches!(prepared, PreparedTrack::Existing { .. }));
     }
 

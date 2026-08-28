@@ -221,8 +221,7 @@ pub fn run_search_app() {
             .parent()
             .expect("config path has parent")
             .join("thumbnail-cache");
-        let http = reqwest::blocking::Client::new();
-        let image_cache = ImageCache::new(http, thumbnail_cache_dir);
+        let image_cache = ImageCache::new(thumbnail_cache_dir);
         let application_services = Arc::new(
             ApplicationServices::local_with_service_adapters()
                 .expect("application services are fully wired"),

@@ -9,11 +9,10 @@ use id3::frame::{
     UniqueFileIdentifier,
 };
 use id3::{no_tag_ok, Content, Frame, Tag, TagLike, Version};
-use reqwest::blocking::Response;
-use reqwest::header::LOCATION;
-use reqwest::Url;
 
-const MAX_APIC_IMAGE_REDIRECTS: usize = 10;
+use crate::media::image_type;
+use crate::remote_media;
+
 const WRITABLE_TEXT_FRAMES: &[&str] = &[
     "TALB", "TBPM", "TCOM", "TCON", "TCOP", "TDEN", "TDLY", "TDOR", "TDRC", "TDRL", "TDTG", "TENC",
     "TEXT", "TFLT", "TIT1", "TIT2", "TIT3", "TKEY", "TLAN", "TLEN", "TMED", "TMOO", "TOAL", "TOFN",
@@ -725,10 +724,17 @@ fn parse_transcript_reference(reference: &str) -> Result<ParsedTranscript> {
 
 fn read_text_reference(reference: &str) -> Result<String> {
     if reference.starts_with("http://") || reference.starts_with("https://") {
-        return reqwest::blocking::get(reference)
-            .with_context(|| format!("download transcript {reference}"))?
-            .error_for_status()
-            .with_context(|| format!("download transcript {reference}"))?
+        let response = remote_media::fetch(reference, "transcript")?;
+        // A redirect landing page answers with 200 and markup. Without this the
+        // page body is embedded into the file's tags as transcript text.
+        if let Some(content_type) = remote_media::declared_content_type(&response) {
+            if content_type.starts_with("text/html") || content_type.contains("xhtml") {
+                return Err(anyhow!(
+                    "transcript {reference} returned markup ({content_type}), not transcript text"
+                ));
+            }
+        }
+        return response
             .text()
             .with_context(|| format!("read transcript {reference}"));
     }
@@ -909,12 +915,8 @@ fn strip_timecode_data(text: &str) -> String {
 
 fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
     if reference.starts_with("http://") || reference.starts_with("https://") {
-        let response = download_apic_image(reference)?;
-        let declared_mime_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .and_then(image_mime_type);
+        let response = remote_media::fetch(reference, "APIC image")?;
+        let declared_mime_type = remote_media::declared_content_type(&response);
         let data = response
             .bytes()
             .with_context(|| format!("read APIC image {reference}"))?
@@ -922,9 +924,16 @@ fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
         if data.is_empty() {
             return Err(anyhow!("APIC image is empty"));
         }
-        let mime_type = image_mime_type_for_bytes(&data)
-            .or(declared_mime_type)
-            .ok_or_else(|| anyhow!("APIC image response missing image type"))?;
+        // Bytes only, no declared-type fallback. APIC writes an artifact, so a
+        // 200 response carrying markup under `Content-Type: image/jpeg` must not
+        // become the picture frame. Display paths may fall back to the declared
+        // type because their worst case is a broken thumbnail (ADR 0056).
+        let mime_type = image_type::from_bytes(&data).ok_or_else(|| {
+            anyhow!(
+                "APIC image response missing image type (declared {})",
+                declared_mime_type.as_deref().unwrap_or("nothing")
+            )
+        })?;
         return Ok((mime_type, data));
     }
 
@@ -933,85 +942,10 @@ fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
     if data.is_empty() {
         return Err(anyhow!("APIC image is empty"));
     }
-    let mime_type = image_mime_type_for_path(path)
-        .or_else(|| image_mime_type_for_bytes(&data))
+    let mime_type = image_type::from_path(path)
+        .or_else(|| image_type::from_bytes(&data))
         .ok_or_else(|| anyhow!("unsupported APIC image type for {}", path.display()))?;
     Ok((mime_type, data))
-}
-
-fn download_apic_image(reference: &str) -> Result<Response> {
-    let mut parsed = parse_apic_image_url(reference)?;
-    let mut redirects_remaining = MAX_APIC_IMAGE_REDIRECTS;
-    loop {
-        let response = reqwest::blocking::get(parsed.clone())
-            .with_context(|| format!("download APIC image {parsed}"))?;
-        if response.status().is_redirection() {
-            if redirects_remaining == 0 {
-                return Err(anyhow!("too many APIC image redirects for {reference}"));
-            }
-            redirects_remaining -= 1;
-            parsed = redirect_apic_image_url(&parsed, &response)
-                .with_context(|| format!("follow APIC image redirect from {parsed}"))?;
-            continue;
-        }
-        if !response.status().is_success() {
-            return Err(anyhow!(
-                "download APIC image {parsed} failed with HTTP {}",
-                response.status()
-            ));
-        }
-        return Ok(response);
-    }
-}
-
-fn parse_apic_image_url(reference: &str) -> Result<Url> {
-    let parsed =
-        Url::parse(reference).with_context(|| format!("parse APIC image URL {reference}"))?;
-    match parsed.scheme() {
-        "http" | "https" => Ok(parsed),
-        scheme => Err(anyhow!("unsupported APIC image URL scheme: {scheme}")),
-    }
-}
-
-fn redirect_apic_image_url(base: &Url, response: &Response) -> Result<Url> {
-    let location = response
-        .headers()
-        .get(LOCATION)
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| anyhow!("APIC image redirect missing Location header"))?;
-    base.join(location)
-        .or_else(|_| base.join(&location.replace(' ', "%20")))
-        .with_context(|| format!("parse APIC image redirect Location {location:?}"))
-        .and_then(|url| parse_apic_image_url(url.as_str()))
-}
-
-fn image_mime_type(value: &str) -> Option<String> {
-    let mime_type = value.split(';').next()?.trim().to_ascii_lowercase();
-    mime_type.starts_with("image/").then_some(mime_type)
-}
-
-fn image_mime_type_for_path(path: &Path) -> Option<String> {
-    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
-        "jpg" | "jpeg" => Some("image/jpeg".into()),
-        "png" => Some("image/png".into()),
-        "gif" => Some("image/gif".into()),
-        "webp" => Some("image/webp".into()),
-        _ => None,
-    }
-}
-
-fn image_mime_type_for_bytes(data: &[u8]) -> Option<String> {
-    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Some("image/png".into())
-    } else if data.starts_with(b"\xff\xd8\xff") {
-        Some("image/jpeg".into())
-    } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
-        Some("image/gif".into())
-    } else if data.len() >= 12 && data.starts_with(b"RIFF") && data[8..12] == *b"WEBP" {
-        Some("image/webp".into())
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]
@@ -1025,9 +959,8 @@ mod tests {
 
     use super::{
         add_lofty_compare_aliases, audio_tags_from_id3, id3v24_edit_label_is_writable,
-        image_mime_type, image_mime_type_for_bytes, lofty_item_label, normalize_frame_descriptor,
-        read_audio_tags, read_picture_reference, write_id3v24_edits, AudioTags, EmbeddedArtwork,
-        Id3Field, Id3v24Edit,
+        lofty_item_label, normalize_frame_descriptor, read_audio_tags, read_picture_reference,
+        read_text_reference, write_id3v24_edits, AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
     };
 
     #[test]
@@ -1162,29 +1095,31 @@ mod tests {
         assert!(fields.iter().any(|field| field.frame_id == "APIC"));
     }
 
+    /// A redirect landing page answers with 200 and markup. Without the
+    /// content-type rule it is embedded into the file's tags as transcript
+    /// text (ADR 0056).
     #[test]
-    fn apic_image_mime_type_accepts_declared_extension_and_magic_bytes() {
-        assert_eq!(
-            image_mime_type("image/jpeg; charset=binary"),
-            Some("image/jpeg".into())
+    fn transcript_download_rejects_markup_body() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut buf = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut buf);
+            std::io::Write::write_all(
+                &mut stream,
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 18\r\nConnection: close\r\n\r\n<html>moved</html>",
+            )
+            .expect("write response");
+        });
+
+        let error = read_text_reference(&format!("http://{addr}/transcript.txt"))
+            .expect_err("markup must not become transcript text");
+
+        assert!(
+            error.to_string().contains("returned markup"),
+            "error should explain the markup rejection: {error}"
         );
-        assert_eq!(
-            image_mime_type_for_bytes(b"\x89PNG\r\n\x1a\nimage bytes"),
-            Some("image/png".into())
-        );
-        assert_eq!(
-            image_mime_type_for_bytes(b"\xff\xd8\xff\xe0image bytes"),
-            Some("image/jpeg".into())
-        );
-        assert_eq!(
-            image_mime_type_for_bytes(b"GIF89aimage bytes"),
-            Some("image/gif".into())
-        );
-        assert_eq!(
-            image_mime_type_for_bytes(b"RIFFxxxxWEBPimage bytes"),
-            Some("image/webp".into())
-        );
-        assert_eq!(image_mime_type_for_bytes(b"not an image"), None);
     }
 
     #[test]
@@ -1217,6 +1152,33 @@ mod tests {
 
         assert_eq!(mime_type, "image/jpeg");
         assert_eq!(data, b"\xff\xd8\xffjpeg bytes");
+    }
+
+    /// APIC is stricter than the display paths: a declared image type on a 200
+    /// response is not enough to embed artwork. Before this rule a lying server
+    /// could put markup into the picture frame (ADR 0056).
+    #[test]
+    fn apic_image_download_rejects_markup_declared_as_an_image() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut buf = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut buf);
+            std::io::Write::write_all(
+                &mut stream,
+                b"HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: 18\r\nConnection: close\r\n\r\n<html>moved</html>",
+            )
+            .expect("write response");
+        });
+
+        let error = read_picture_reference(&format!("http://{addr}/cover.jpg"))
+            .expect_err("a declared image type must not be enough to embed artwork");
+
+        assert!(
+            error.to_string().contains("missing image type"),
+            "error should explain the byte-recognition failure: {error}"
+        );
     }
 
     #[test]

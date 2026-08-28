@@ -6,7 +6,7 @@ Accepted - 2026-08-28. Amended 2026-08-28 after implementation review. The
 amendment reverses this ADR's deferral of a shared fetch module, states the
 three-layer ownership explicitly, adds the remote transcript path the original
 version missed, and requires container validation on enclosures and byte-derived
-image typing on every path. Tasks 001-004 track the code work, in order.
+image typing on every path. Tasks 001-004 are implemented.
 
 ## Context
 
@@ -53,7 +53,7 @@ The distinction is validation, not transport. Those paths are outside the
 artifact validation rules below, because there is no artifact to corrupt. They
 are not outside the redirect and scheme rules: they fetch the same feed-owned
 URLs and fail on the same redirects, and their symptom is silently missing
-artwork rather than a bad file. Task 004 brings them onto the shared transport
+artwork rather than a bad file. Task 001 brings them onto the shared transport
 policy while leaving content validation caller-specific.
 
 ## Decision
@@ -63,8 +63,8 @@ bytes enter local artifacts, and it is organized in three layers with one owner
 each.
 
 **Transport** is owned by a single remote media fetch module. Scheme allowlist,
-bounded redirect resolution, `Location` repair, non-success rejection, and client
-redirect configuration live there and nowhere else. Every media fetch in the
+bounded redirect resolution, non-success rejection, and client redirect
+configuration live there and nowhere else. Every media fetch in the
 application routes through it.
 
 **Classification** answers "what are these bytes?" and has one owner per media
@@ -91,10 +91,15 @@ Audio enclosure downloads must:
 Remote APIC artwork downloads must:
 
 - reject empty image responses
-- derive image MIME from the actual image bytes before trusting the declared
-  response content type
+- derive image MIME from the actual image bytes, with no declared-type fallback
 - never accept a remote URL extension as proof that the response body is image
   data
+
+APIC is deliberately stricter than the display paths. Both derive type from
+bytes first, but only the display paths may fall back to a declared `image/*`
+type. A lying server that returns markup under `Content-Type: image/jpeg` costs
+a display path one broken thumbnail; it would cost the APIC path a corrupted
+file that outlives the session.
 
 Remote transcript references must:
 
@@ -105,7 +110,7 @@ Remote transcript references must:
 Display-only image fetches (thumbnails, cover-art lookup) must:
 
 - derive image MIME from the actual image bytes before trusting the declared
-  response content type
+  response content type, which may serve as a fallback
 - treat an unrecognized type as no image, never as an assumed format
 - write no cache entry for a failed fetch
 
@@ -113,19 +118,21 @@ Every path above shares one transport contract, owned by the transport module:
 resolve HTTP redirects before the response body is used, reject unsupported URL
 schemes, and reject non-success final HTTP statuses.
 
-Redirect resolution may repair invalid but common feed/server `Location` values
-by percent-encoding raw spaces before resolving relative to the previous URL.
-This repair is defensive: the WHATWG URL parser already percent-encodes raw
-spaces in a path, so the repair only covers `Location` values the parser rejects
-outright. It must be kept only if a regression test fails without it.
+The raw-space `Location` repair is removed. It was written to handle the
+`http://host/Music/song file.mp3` values the White Triangles feed returned, but
+the WHATWG URL parser already percent-encodes raw spaces in a path, so the
+fallback never executed. `remote_media` pins that parser behavior in a test
+instead of carrying dead defensive code. The real defect was never the spaces; it
+was that nothing rejected a 3xx response body.
 
-Redirect depth must be bounded by one named constant in the transport module,
-not by per-caller literals.
+Redirect depth is bounded by one named constant in the transport module, not by
+per-caller literals.
 
-Boundary fetches must not depend on the calling HTTP client's implicit redirect
-policy. Regression tests for this boundary must exercise the same client
-configuration production uses, so that a passing test proves the production path
-resolves the redirect.
+The transport module owns the HTTP client, built with redirect following
+disabled. Callers no longer pass a client to media fetches. A client that follows
+redirects itself would resolve most of them invisibly and hand back the 3xx only
+in the failing case, leaving the boundary's own loop untested against the
+configuration production actually uses.
 
 Artifact owners keep their content rules: `track_compare` for downloaded track
 files, `audio_tags` for embedded artwork and transcripts, `media` and
@@ -166,8 +173,8 @@ decision.
   and rejects unsupported schemes through the same transport policy. No caller
   relies on the HTTP client's implicit redirect behavior.
 - Remote image type is derived from response bytes first on every path. A
-  declared `image/*` type is a fallback, never a substitute, and no path
-  silently assumes JPEG for an unrecognized type.
+  declared `image/*` type is a fallback for display paths only, never for an
+  artifact write, and no path silently assumes JPEG for an unrecognized type.
 - Local APIC image files may still use path extension as a MIME hint because the
   operator controls the file path; remote APIC image responses may not.
 - Remote media URL schemes are limited to HTTP and HTTPS until a later ADR
@@ -212,8 +219,7 @@ real cost is divergence. Duplication is visible in review; divergence is not,
 which is how the commit that added redirect handling twice left the third path in
 the same file untouched, and nothing reported a gap.
 
-The extraction covers transport only: scheme, bounded redirects, `Location`
-repair, status. Enclosure size and container rules stay in `track_compare`,
+The extraction covers transport only: scheme, bounded redirects, status. Enclosure size and container rules stay in `track_compare`,
 APIC and transcript rules stay in `audio_tags`, and the display paths keep their
 own content policy. Those four callers genuinely disagree about what a valid
 response body is, and that disagreement is the reason to keep artifact policy
@@ -239,7 +245,8 @@ Positive:
 - Pre-download artwork appears for redirecting feeds and for servers that send a
   wrong `Content-Type`, because classification stops depending on the header.
 - Missing artwork caused by redirect bodies is fixed at the tagging boundary.
-- Regression tests capture the real redirect-with-spaces failure mode.
+- Regression tests capture the real redirect-with-spaces failure mode, on the
+  enclosure, APIC, transcript, and thumbnail paths.
 - Metadata and UI layers remain source-preserving and do not need compensating
   display logic.
 
@@ -259,38 +266,37 @@ Negative / risks:
   enclosure in an unsupported container now fails at download instead of being
   promoted under its declared format. That is intended: an unsupported container
   is not playable by this application either way.
-- The boundary loop and the client's own redirect policy both count redirects, so
-  the effective redirect budget for a default client is the product of the two,
-  not the shared constant alone.
+- Media fetches no longer accept a caller-supplied client, so a future need for
+  per-caller headers or timeouts on a media fetch means extending the transport
+  module rather than passing a client through.
 
 ## Follow-Up Work
 
-Open task packets, in order. Each depends on the one before it.
+Task packets 001-004 are implemented together in one change. The packets remain
+as the record of what each layer was responsible for.
 
-1. `docs/tasks/adr-0056-task-001-remote-media-transport-module.md` - create the
-   transport module and migrate all five media fetch sites, including the missed
-   transcript path.
-2. `docs/tasks/adr-0056-task-002-image-classification-owner.md` - move image
-   classification to `src/media/`, apply one MIME precedence rule everywhere, and
-   remove the silent JPEG fallbacks.
-3. `docs/tasks/adr-0056-task-003-artifact-content-policy.md` - enclosure
+1. `docs/tasks/adr-0056-task-001-remote-media-transport-module.md` - done.
+   `src/remote_media.rs` owns transport; all five media fetch sites migrated,
+   including the previously missed transcript path.
+2. `docs/tasks/adr-0056-task-002-image-classification-owner.md` - done.
+   `src/media/image_type.rs` owns image classification; all four silent JPEG
+   fallbacks removed.
+3. `docs/tasks/adr-0056-task-003-artifact-content-policy.md` - done. Enclosure
    container validation and transcript markup rejection.
-4. `docs/tasks/adr-0056-task-004-remote-fetch-boundary-guard.md` - guard the
-   layering last, once it exists.
+4. `docs/tasks/adr-0056-task-004-remote-fetch-boundary-guard.md` - done. Seven
+   guards in `tests/architecture_tests.rs`.
 
-The order matters. Applying content policy before the extraction would edit code
-that the extraction then moves, and guarding before both would lock in the
-current shape.
+Reviewed in `docs/reviews/adr-0056-implementation-review.md`. That one document
+replaces the four per-task review docs the packets specify, because the work
+landed as a single change.
 
-Task 002 is the one that restores missing album art on pre-download surfaces.
-Task 001 is a prerequisite but fixes only the redirect half.
+Remaining work is conditional, not scheduled, and is tracked in
+`docs/plans/deferred-architecture-work-index.md` under Conditional Follow-Ups so
+there is one register rather than a per-ADR copy:
 
-Later:
-
-- Add operator-facing diagnostics if repeated size mismatches indicate a feed
-  publisher has stale enclosure byte counts.
-- Revisit the sniffer's format coverage if real feed artwork appears in formats
-  outside PNG, JPEG, GIF, and WebP.
+- operator-facing diagnostics for repeated enclosure size mismatches
+- image sniffer format coverage beyond PNG, JPEG, GIF, and WebP
+- feed and API fetch consolidation, which this ADR deliberately excluded
 
 ## References
 

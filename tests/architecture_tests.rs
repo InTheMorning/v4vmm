@@ -11373,3 +11373,242 @@ fn search_results_detail_syncs_with_search_nav_flow() {
 fn count_matches(source: &str, pattern: &str) -> usize {
     source.matches(pattern).count()
 }
+
+/// ADR 0056: transport policy has exactly one owner.
+///
+/// The rules used to live at each call site, which is how one of five media
+/// fetches shipped with no redirect handling while two others were being fixed
+/// in the same file. A second implementation anywhere is a defect even if it
+/// currently behaves correctly.
+#[test]
+fn adr_0056_media_transport_has_one_owner() {
+    const TRANSPORT_OWNER: &str = "src/remote_media.rs";
+    const TRANSPORT_MARKERS: &[(&str, &str)] = &[
+        ("is_redirection()", "redirect handling"),
+        ("header::LOCATION", "redirect Location parsing"),
+        ("redirect::Policy", "client redirect policy"),
+        ("reqwest::blocking::get(", "ad-hoc media fetch"),
+    ];
+
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let relative = rel_path(&path);
+        if relative.ends_with(TRANSPORT_OWNER) {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for (marker, what) in TRANSPORT_MARKERS {
+                if line.contains(marker) {
+                    violations.push(format!(
+                        "{relative}:{line_number}: {what} belongs in {TRANSPORT_OWNER}, found `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0056 transport ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// ADR 0056: modules that write media artifacts state content rules only. They
+/// call the transport module for bytes rather than speaking HTTP themselves.
+#[test]
+fn adr_0056_artifact_owners_do_not_speak_http() {
+    const ARTIFACT_OWNERS: &[&str] = &[
+        "src/track_compare.rs",
+        "src/audio_tags.rs",
+        "src/media/image_cache.rs",
+        "src/media/image_type.rs",
+    ];
+
+    let mut violations = Vec::new();
+    for owner in ARTIFACT_OWNERS {
+        let source = read_source(&manifest_path(owner));
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("reqwest") {
+                violations.push(format!(
+                    "{owner}:{line_number}: artifact owners fetch through `remote_media`, found `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0056 artifact owner HTTP violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// ADR 0056: image classification has one owner, and it is not the tag writer.
+///
+/// While the sniffer was private to `audio_tags`, the thumbnail cache could not
+/// reach it and trusted the response `Content-Type` instead, so a real JPEG
+/// served as `application/octet-stream` produced no artwork at all.
+#[test]
+fn adr_0056_image_classification_has_one_owner() {
+    const CLASSIFIER: &str = "src/media/image_type.rs";
+    // Unambiguous markers only: the full PNG signature, and the old helper
+    // names. `RIFF` is shared with WAV (owned by `audio_format`) and `WEBP`
+    // collides with ID3 `ARTISTWEBPAGE` frame labels.
+    const MAGIC_BYTE_MARKERS: &[&str] = &["\\x89PNG\\r\\n\\x1a\\n", "image_mime_type"];
+
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let relative = rel_path(&path);
+        if relative.ends_with(CLASSIFIER) {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for marker in MAGIC_BYTE_MARKERS {
+                if line.contains(marker) {
+                    violations.push(format!(
+                        "{relative}:{line_number}: image classification belongs in {CLASSIFIER}, found `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0056 image classification ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// ADR 0056: no path guesses a format for unrecognized bytes.
+///
+/// Both fallbacks below shipped in the original implementation. Guessing turns
+/// a clear failure into a mystery: `unwrap_or(declared_format)` relabeled a
+/// redirect body as the expected audio format, and `unwrap_or(ImageFormat::Jpeg)`
+/// handed markup to the JPEG decoder.
+#[test]
+fn adr_0056_no_silent_format_fallbacks() {
+    const FORBIDDEN_FALLBACKS: &[&str] = &[
+        "unwrap_or(ImageFormat::Jpeg)",
+        "unwrap_or(declared_format)",
+        "unwrap_or_else(|| ImageFormat::Jpeg)",
+    ];
+
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for fallback in FORBIDDEN_FALLBACKS {
+                if line.contains(fallback) {
+                    violations.push(format!(
+                        "{}:{line_number}: silent format fallback `{fallback}` reintroduced",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0056 silent format fallback violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// ADR 0056 with ADR 0015: media fetching stays out of the UI layers.
+#[test]
+fn adr_0056_ui_layers_do_not_fetch_media() {
+    let mut violations = Vec::new();
+    for dir in ["src/ui", "src/view_models"] {
+        for path in rust_files_under(dir) {
+            let source = read_source(&path);
+            for (line_number, line) in code_lines(&source) {
+                if line.contains("reqwest") || line.contains("remote_media") {
+                    violations.push(format!(
+                        "{}:{line_number}: media fetching belongs in non-UI services, found `{line}`",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0056 UI media fetch violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// ADR 0056: the cover-art fetch stays on the transport module.
+///
+/// `subscribe_service` cannot be banned from `reqwest` wholesale -- it builds
+/// the MusicBrainz client, which is a document fetch and deliberately outside
+/// this boundary. So the guard scopes to `download_image` itself, which is the
+/// media fetch in that module.
+#[test]
+fn adr_0056_cover_art_fetch_uses_the_transport_module() {
+    const OWNER: &str = "src/subscribe_service.rs";
+    const FN_SIGNATURE: &str = "pub fn download_image(";
+
+    let source = read_source(&manifest_path(OWNER));
+    let start = source
+        .find(FN_SIGNATURE)
+        .unwrap_or_else(|| panic!("{OWNER} no longer defines `{FN_SIGNATURE}`"));
+    // The function body ends at the first closing brace in column zero.
+    let body_end = source[start..]
+        .find("\n}")
+        .map(|offset| start + offset)
+        .unwrap_or(source.len());
+    let body = &source[start..body_end];
+
+    assert!(
+        body.contains("remote_media::fetch"),
+        "{OWNER}: `download_image` must fetch through the transport module"
+    );
+
+    let mut violations = Vec::new();
+    for marker in [".send()", "error_for_status", "reqwest::blocking::get"] {
+        if body.contains(marker) {
+            violations.push(format!(
+                "{OWNER}: `download_image` performs its own HTTP (`{marker}`)"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0056 cover-art transport violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// ADR 0056: APIC artwork is accepted on recognized bytes alone.
+///
+/// The invariant is stricter than the display paths on purpose: APIC writes an
+/// artifact, so a declared `image/*` type on a 200 response is not sufficient.
+#[test]
+fn adr_0056_apic_does_not_accept_declared_type_alone() {
+    const OWNER: &str = "src/audio_tags.rs";
+
+    let source = read_source(&manifest_path(OWNER));
+    let mut violations = Vec::new();
+    for (line_number, line) in code_lines(&source) {
+        if line.contains("image_type::classify") {
+            violations.push(format!(
+                "{OWNER}:{line_number}: APIC must use byte recognition only, not the \
+                 declared-type fallback in `classify`: `{line}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0056 APIC classification violations:\n{}",
+        violations.join("\n")
+    );
+}

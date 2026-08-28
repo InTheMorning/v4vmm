@@ -82,7 +82,7 @@ pub(crate) fn render_library_track_detail_metadata(
                     result
                         .file_image
                         .as_ref()
-                        .map(|image| image_from_bytes(image.clone()))
+                        .and_then(|image| image_from_bytes(image.clone()))
                 }),
                 tag_column_label,
                 cx,
@@ -319,7 +319,7 @@ fn render_track_compare_panel(
                     result
                         .file_image
                         .as_ref()
-                        .map(|image| image_from_bytes(image.clone())),
+                        .and_then(|image| image_from_bytes(image.clone())),
                 )
                 .action(
                     action_button(
@@ -363,7 +363,7 @@ fn library_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<LibraryApp
             let image = result
                 .image
                 .as_ref()
-                .map(|image| image_from_bytes(image.clone()));
+                .and_then(|image| image_from_bytes(image.clone()));
             let select_candidate = cx.listener(|this, idx: &usize, _window, cx| {
                 this.select_musicbrainz_candidate(*idx, cx);
             });

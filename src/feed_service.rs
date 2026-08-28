@@ -489,7 +489,7 @@ pub fn lookup_musicbrainz_library_track(track: &TrackRow) -> Result<MusicBrainzL
         .and_then(|candidate| candidate.release_id.as_deref())
         .and_then(|release_id| {
             let url = format!("https://coverartarchive.org/release/{release_id}/front-250");
-            crate::subscribe_service::download_image(&musicbrainz_client, &url)
+            crate::subscribe_service::download_image(&url)
         });
     Ok(MusicBrainzLookupResult { lookup, image })
 }

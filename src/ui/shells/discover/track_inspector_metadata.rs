@@ -91,7 +91,7 @@ pub(crate) fn render_discover_track_inspector_metadata(
                 result
                     .file_image
                     .as_ref()
-                    .map(|image| image_from_bytes(image.clone()))
+                    .and_then(|image| image_from_bytes(image.clone()))
             }),
             tag_column_label,
             cx,
@@ -155,7 +155,7 @@ fn render_tag_compare_panel(
                     result
                         .file_image
                         .as_ref()
-                        .map(|image| image_from_bytes(image.clone())),
+                        .and_then(|image| image_from_bytes(image.clone())),
                 )
                 .action(
                     action_button(
@@ -199,7 +199,7 @@ fn render_musicbrainz_panel(frame: &InspectorFrame, cx: &mut Context<SearchApp>)
             let image = result
                 .image
                 .as_ref()
-                .map(|image| image_from_bytes(image.clone()));
+                .and_then(|image| image_from_bytes(image.clone()));
             let select_candidate = cx.listener(|this, idx: &usize, _window, cx| {
                 this.select_musicbrainz_candidate(*idx, cx);
             });

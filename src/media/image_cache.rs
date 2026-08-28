@@ -9,8 +9,10 @@ use gpui::{Image, ImageFormat};
 use image::codecs::gif::GifDecoder;
 use image::AnimationDecoder;
 use lru::LruCache;
-use reqwest::blocking::Client as ReqwestClient;
 use sha2::{Digest, Sha256};
+
+use crate::media::image_type;
+use crate::remote_media;
 
 const DEFAULT_HOT_CAPACITY: usize = 128;
 const DEFAULT_MAX_DIM: u32 = 512;
@@ -18,7 +20,6 @@ const DEFAULT_MAX_DISK_BYTES: u64 = 500 * 1024 * 1024;
 
 /// Shared image cache. Clone the `Arc` cheaply across entities.
 pub struct ImageCache {
-    http: ReqwestClient,
     cache_dir: PathBuf,
     hot: Mutex<LruCache<String, Arc<Image>>>,
     /// Static first-frame cache for animated formats (GIFs). Keyed by URL.
@@ -30,9 +31,8 @@ pub struct ImageCache {
 }
 
 impl ImageCache {
-    pub fn new(http: ReqwestClient, cache_dir: PathBuf) -> Arc<Self> {
+    pub fn new(cache_dir: PathBuf) -> Arc<Self> {
         Self::with_capacity(
-            http,
             cache_dir,
             DEFAULT_HOT_CAPACITY,
             DEFAULT_MAX_DIM,
@@ -41,7 +41,6 @@ impl ImageCache {
     }
 
     pub fn with_capacity(
-        http: ReqwestClient,
         cache_dir: PathBuf,
         hot_capacity: usize,
         max_dimension: u32,
@@ -49,7 +48,6 @@ impl ImageCache {
     ) -> Arc<Self> {
         let capacity = NonZeroUsize::new(hot_capacity.max(1)).unwrap();
         let cache = Arc::new(Self {
-            http,
             cache_dir: cache_dir.clone(),
             hot: Mutex::new(LruCache::new(capacity)),
             static_hot: Mutex::new(LruCache::new(capacity)),
@@ -89,7 +87,7 @@ impl ImageCache {
         }
 
         let (bytes, mime) = self.read_or_download(url).ok().flatten()?;
-        let format = ImageFormat::from_mime_type(&mime).unwrap_or(ImageFormat::Jpeg);
+        let format = ImageFormat::from_mime_type(&mime)?;
         let image = Arc::new(Image::from_bytes(format, bytes));
 
         if let Ok(mut hot) = self.hot.lock() {
@@ -125,7 +123,7 @@ impl ImageCache {
             }
             Some(image)
         } else {
-            let format = ImageFormat::from_mime_type(&mime).unwrap_or(ImageFormat::Jpeg);
+            let format = ImageFormat::from_mime_type(&mime)?;
             let image = Arc::new(Image::from_bytes(format, bytes));
             if let Ok(mut hot) = self.hot.lock() {
                 hot.put(url.to_string(), image.clone());
@@ -142,22 +140,17 @@ impl ImageCache {
             return Ok(Some(entry));
         }
 
-        let response = self.http.get(url).send()?.error_for_status()?;
-        let mime_type = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.split(';').next())
-            .map(str::trim)
-            .filter(|v| v.starts_with("image/"))
-            .map(str::to_string);
-        let Some(mime_type) = mime_type else {
-            return Ok(None);
-        };
+        let response = remote_media::fetch(url, "thumbnail")?;
+        let declared = remote_media::declared_content_type(&response);
         let bytes = response.bytes()?.to_vec();
         if bytes.is_empty() {
             return Ok(None);
         }
+        // Bytes first, declared type second. A thumbnail served as
+        // application/octet-stream is still a thumbnail.
+        let Some(mime_type) = image_type::classify(&bytes, declared.as_deref()) else {
+            return Ok(None);
+        };
 
         // Pre-scale static images. Leave GIFs alone to preserve animation.
         let (final_bytes, final_mime) = if mime_type == "image/gif" {
@@ -307,4 +300,109 @@ fn downscale(bytes: &[u8], max_dim: u32) -> Result<Option<Vec<u8>>> {
     let mut buf = Vec::new();
     resized.write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Jpeg)?;
     Ok(Some(buf))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+
+    const TEST_IMAGE_BYTES: &[u8] = include_bytes!("../assets/music_network_logo.png");
+
+    fn serve_once(content_type: &'static str, body: &'static [u8]) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(headers.as_bytes()).expect("write headers");
+            stream.write_all(body).expect("write body");
+        });
+        format!("http://{addr}/cover.png")
+    }
+
+    fn serve_redirect_then_image() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        std::thread::spawn(move || {
+            let (mut redirect_stream, _) = listener.accept().expect("accept redirect request");
+            let mut request = [0_u8; 1024];
+            let _ = redirect_stream.read(&mut request);
+            // The real feed case: a Location containing raw spaces.
+            let location = format!("http://{addr}/Assets/front cover.png");
+            let response = format!(
+                "HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Type: text/html\r\nContent-Length: 8\r\nConnection: close\r\n\r\nredirect"
+            );
+            redirect_stream
+                .write_all(response.as_bytes())
+                .expect("write redirect response");
+
+            let (mut image_stream, _) = listener.accept().expect("accept image request");
+            let mut request = [0_u8; 1024];
+            let _ = image_stream.read(&mut request);
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                TEST_IMAGE_BYTES.len()
+            );
+            image_stream
+                .write_all(headers.as_bytes())
+                .expect("write headers");
+            image_stream
+                .write_all(TEST_IMAGE_BYTES)
+                .expect("write body");
+        });
+        format!("http://{addr}/cover.png")
+    }
+
+    fn cache(dir: &Path) -> Arc<ImageCache> {
+        ImageCache::with_capacity(dir.join("thumbnails"), 2, 512, 1024 * 1024)
+    }
+
+    /// Pre-download artwork for a redirecting feed. This is the White Triangles
+    /// case: without redirect resolution the thumbnail silently never appears.
+    #[test]
+    fn thumbnail_survives_a_redirect_with_spaces_in_location() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cache = cache(temp.path());
+
+        let image = cache.fetch_blocking(&serve_redirect_then_image());
+
+        assert!(image.is_some(), "redirected artwork should still resolve");
+    }
+
+    /// Independent of redirects: plenty of hosts serve real images under a
+    /// generic content type. The bytes decide, not the header.
+    #[test]
+    fn thumbnail_resolves_image_served_under_a_non_image_content_type() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cache = cache(temp.path());
+
+        let image = cache.fetch_blocking(&serve_once("application/octet-stream", TEST_IMAGE_BYTES));
+
+        assert!(
+            image.is_some(),
+            "a real PNG is a PNG regardless of its declared type"
+        );
+    }
+
+    #[test]
+    fn markup_body_yields_no_image_and_no_cache_entry() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cache_dir = temp.path().join("thumbnails");
+        let cache = ImageCache::with_capacity(cache_dir.clone(), 2, 512, 1024 * 1024);
+
+        let image = cache.fetch_blocking(&serve_once("text/html", b"<html>moved</html>"));
+
+        assert!(image.is_none(), "markup must not decode as artwork");
+        let cached_entries = fs::read_dir(&cache_dir)
+            .map(|entries| entries.count())
+            .unwrap_or(0);
+        assert_eq!(cached_entries, 0, "a failed fetch must not be cached");
+    }
 }

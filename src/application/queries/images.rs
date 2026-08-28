@@ -3,7 +3,6 @@
 use std::fmt;
 use std::sync::Arc;
 
-use crate::api::Client;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
@@ -59,18 +58,14 @@ impl ApplicationCommand for FetchThumbnail {
 /// Downloads and decodes one uncached inspector image.
 #[derive(Clone, Debug)]
 pub(crate) struct DownloadInspectorImage {
-    endpoint: String,
     url: String,
 }
 
 impl DownloadInspectorImage {
     /// Creates an inspector image download query command.
     #[must_use]
-    pub(crate) fn new(endpoint: impl Into<String>, url: impl Into<String>) -> Self {
-        Self {
-            endpoint: endpoint.into(),
-            url: url.into(),
-        }
+    pub(crate) fn new(url: impl Into<String>) -> Self {
+        Self { url: url.into() }
     }
 }
 
@@ -81,8 +76,7 @@ impl ApplicationCommand for DownloadInspectorImage {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        let client = Client::new_with_base_url(self.endpoint);
-        let image = download_image(&client.client, &self.url).map(image_from_bytes);
+        let image = download_image(&self.url).and_then(image_from_bytes);
         Ok(CommandOutcome::without_events(image))
     }
 }
@@ -92,8 +86,6 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-
-    use reqwest::blocking::Client as ReqwestClient;
 
     use crate::application::command_bus::CommandBus;
     use crate::application::command_context::{CancellationToken, OperationId, TraceId};
@@ -126,13 +118,7 @@ mod tests {
     #[test]
     fn fetch_thumbnail_fetches_image_through_cache() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let cache = ImageCache::with_capacity(
-            ReqwestClient::new(),
-            temp.path().join("thumbnails"),
-            2,
-            512,
-            1024 * 1024,
-        );
+        let cache = ImageCache::with_capacity(temp.path().join("thumbnails"), 2, 512, 1024 * 1024);
         let url = serve_image_once("image/png", TEST_IMAGE_BYTES);
 
         let outcome = CommandBus::new()
@@ -155,10 +141,7 @@ mod tests {
         let url = serve_image_once("image/png", TEST_IMAGE_BYTES);
 
         let outcome = CommandBus::new()
-            .execute(
-                DownloadInspectorImage::new("http://example.test", url),
-                &CommandContext::next(),
-            )
+            .execute(DownloadInspectorImage::new(url), &CommandContext::next())
             .expect("inspector image download succeeds");
 
         assert!(
@@ -171,13 +154,7 @@ mod tests {
     #[test]
     fn image_queries_honor_cancelled_context() {
         let temp = tempfile::tempdir().expect("tempdir");
-        let cache = ImageCache::with_capacity(
-            ReqwestClient::new(),
-            temp.path().join("thumbnails"),
-            1,
-            512,
-            1024 * 1024,
-        );
+        let cache = ImageCache::with_capacity(temp.path().join("thumbnails"), 1, 512, 1024 * 1024);
         let bus = CommandBus::new();
 
         let fetch_error = match bus.execute(
@@ -188,7 +165,7 @@ mod tests {
             Err(error) => error,
         };
         let download_error = match bus.execute(
-            DownloadInspectorImage::new("http://example.test", "http://127.0.0.1:1/inspector.png"),
+            DownloadInspectorImage::new("http://127.0.0.1:1/inspector.png"),
             &cancelled_context(),
         ) {
             Ok(_) => panic!("cancelled inspector query should fail"),

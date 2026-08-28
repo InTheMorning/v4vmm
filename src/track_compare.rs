@@ -5,14 +5,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
-use reqwest::blocking::Client as ReqwestClient;
-use reqwest::header::LOCATION;
-use reqwest::Url;
 
 use crate::api::{SourceEnclosure, Track};
 use crate::audio_format::AudioFormat;
 use crate::audio_tags::AudioTags;
 use crate::config::Config;
+use crate::remote_media;
 
 const PUBLISHER_TAG_KEY: &str = "V4V_PUBLISHER";
 const MAX_PATH_PART_CHARS: usize = 120;
@@ -182,11 +180,7 @@ pub fn ensure_taggable_local_path(cfg: &Config, path: &Path) -> PathBuf {
     }
 }
 
-pub fn download_track(
-    cfg: &Config,
-    client: &ReqwestClient,
-    track: &Track,
-) -> Result<DownloadedTrack> {
+pub fn download_track(cfg: &Config, track: &Track) -> Result<DownloadedTrack> {
     let enclosure =
         select_audio_enclosure(track).ok_or_else(|| anyhow!("no supported audio enclosure"))?;
     let declared_format = enclosure.format;
@@ -208,14 +202,25 @@ pub fn download_track(
         err
     };
 
-    if let Err(err) = download_enclosure(client, &enclosure.url, &staged) {
+    if let Err(err) = download_enclosure(&enclosure.url, &staged) {
         return Err(cleanup_on_err(err));
     }
     if let Err(err) = validate_downloaded_size(&staged, enclosure.bytes) {
         return Err(cleanup_on_err(err));
     }
 
-    let detected_format = AudioFormat::detect_from_file(&staged).unwrap_or(declared_format);
+    // The bytes must be a container we support. Falling back to the declared
+    // format here would relabel a redirect landing page as the expected audio
+    // format, and the mismatch warning below would never fire (ADR 0056).
+    let detected_format = match AudioFormat::detect_from_file(&staged) {
+        Ok(format) => format,
+        Err(err) => {
+            return Err(cleanup_on_err(err.context(format!(
+                "downloaded enclosure for {} is not a supported audio container",
+                enclosure.url
+            ))))
+        }
+    };
 
     let mut warnings: Vec<String> = Vec::new();
     if detected_format != declared_format {
@@ -307,65 +312,19 @@ fn create_staging_dir(cfg: &Config) -> Result<PathBuf> {
     Ok(dir)
 }
 
-pub fn download_enclosure(client: &ReqwestClient, url: &str, path: &Path) -> Result<()> {
-    let mut parsed = parse_enclosure_url(url)?;
-
+pub fn download_enclosure(url: &str, path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create download directory {}", parent.display()))?;
     }
 
-    let mut response = {
-        let mut redirects_remaining = 10;
-        loop {
-            let response = client
-                .get(parsed.clone())
-                .send()
-                .with_context(|| format!("download enclosure {parsed}"))?;
-            if response.status().is_redirection() {
-                if redirects_remaining == 0 {
-                    return Err(anyhow!("too many enclosure redirects for {url}"));
-                }
-                redirects_remaining -= 1;
-                parsed = redirect_enclosure_url(&parsed, &response)
-                    .with_context(|| format!("follow enclosure redirect from {parsed}"))?;
-                continue;
-            }
-            if !response.status().is_success() {
-                return Err(anyhow!(
-                    "download enclosure {parsed} failed with HTTP {}",
-                    response.status()
-                ));
-            }
-            break response;
-        }
-    };
+    let mut response = remote_media::fetch(url, "enclosure")?;
     let mut output =
         File::create(path).with_context(|| format!("create download {}", path.display()))?;
     copy(&mut response, &mut output)
         .with_context(|| format!("write download {}", path.display()))?;
 
     Ok(())
-}
-
-fn parse_enclosure_url(url: &str) -> Result<Url> {
-    let parsed = Url::parse(url).with_context(|| format!("parse enclosure URL {url}"))?;
-    match parsed.scheme() {
-        "http" | "https" => Ok(parsed),
-        scheme => Err(anyhow!("unsupported enclosure URL scheme: {scheme}")),
-    }
-}
-
-fn redirect_enclosure_url(base: &Url, response: &reqwest::blocking::Response) -> Result<Url> {
-    let location = response
-        .headers()
-        .get(LOCATION)
-        .and_then(|value| value.to_str().ok())
-        .ok_or_else(|| anyhow!("enclosure redirect missing Location header"))?;
-    base.join(location)
-        .or_else(|_| base.join(&location.replace(' ', "%20")))
-        .with_context(|| format!("parse enclosure redirect Location {location:?}"))
-        .and_then(|url| parse_enclosure_url(url.as_str()))
 }
 
 fn validate_downloaded_size(path: &Path, expected_bytes: Option<i64>) -> Result<()> {
@@ -581,8 +540,6 @@ mod tests {
     use std::collections::BTreeMap;
     use std::fs;
     use std::path::PathBuf;
-
-    use reqwest::blocking::Client as ReqwestClient;
 
     use super::{
         compare_track_tags, download_track, local_track_path, select_audio_enclosure,
@@ -815,7 +772,7 @@ mod tests {
             let _ = std::io::Read::read(&mut stream, &mut buf);
             std::io::Write::write_all(
                 &mut stream,
-                b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 7\r\nConnection: close\r\n\r\nmp3data",
+                b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 17\r\nConnection: close\r\n\r\nID3\x04\x00\x00\x00\x00\x00\x00mp3data",
             )
             .expect("write response");
         });
@@ -833,7 +790,7 @@ mod tests {
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
-        let downloaded = download_track(&cfg, &ReqwestClient::new(), &track).expect("download");
+        let downloaded = download_track(&cfg, &track).expect("download");
 
         let expected_final = temp
             .path()
@@ -847,10 +804,16 @@ mod tests {
             downloaded.path, expected_final,
             "staged path should differ from final until finalize()"
         );
-        assert_eq!(fs::read(&downloaded.path).expect("read staged"), b"mp3data");
+        assert_eq!(
+            fs::read(&downloaded.path).expect("read staged"),
+            b"ID3\x04\x00\x00\x00\x00\x00\x00mp3data"
+        );
         let final_path = downloaded.finalize().expect("finalize");
         assert_eq!(final_path, expected_final);
-        assert_eq!(fs::read(&final_path).expect("read final"), b"mp3data");
+        assert_eq!(
+            fs::read(&final_path).expect("read final"),
+            b"ID3\x04\x00\x00\x00\x00\x00\x00mp3data"
+        );
     }
 
     #[test]
@@ -873,7 +836,7 @@ mod tests {
             let _ = std::io::Read::read(&mut audio_stream, &mut buf);
             std::io::Write::write_all(
                 &mut audio_stream,
-                b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 7\r\nConnection: close\r\n\r\nmp3data",
+                b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 17\r\nConnection: close\r\n\r\nID3\x04\x00\x00\x00\x00\x00\x00mp3data",
             )
             .expect("write audio response");
         });
@@ -891,15 +854,64 @@ mod tests {
         };
         let mut track = track();
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
-        track.enclosure_bytes = Some(7);
-        let client = ReqwestClient::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("build client");
+        track.enclosure_bytes = Some(17);
+        let downloaded = download_track(&cfg, &track).expect("download");
 
-        let downloaded = download_track(&cfg, &client, &track).expect("download");
+        assert_eq!(
+            fs::read(&downloaded.path).expect("read staged"),
+            b"ID3\x04\x00\x00\x00\x00\x00\x00mp3data"
+        );
+    }
 
-        assert_eq!(fs::read(&downloaded.path).expect("read staged"), b"mp3data");
+    /// A feed that declares no byte count still cannot promote a redirect
+    /// landing page as a playable track: the staged bytes have to be a
+    /// container we support (ADR 0056).
+    #[test]
+    fn rejects_downloaded_enclosure_that_is_not_a_supported_container() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut buf = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut buf);
+            std::io::Write::write_all(
+                &mut stream,
+                b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 18\r\nConnection: close\r\n\r\n<html>moved</html>",
+            )
+            .expect("write response");
+        });
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg = Config {
+            music_dir: temp.path().join("music"),
+            db_path: temp.path().join("db.sqlite"),
+            flac_path: None,
+            playback: PlaybackConfig::default(),
+            ui_scale: Default::default(),
+            theme_profile: ThemeProfile::default(),
+            workspace: None,
+            workspace_layout: None,
+        };
+        let mut track = track();
+        track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
+        track.enclosure_bytes = None;
+
+        let error = download_track(&cfg, &track)
+            .expect_err("a non-audio body must not be promoted as a track");
+
+        assert!(
+            error
+                .to_string()
+                .contains("not a supported audio container"),
+            "error should explain the container rejection: {error}"
+        );
+        assert!(
+            fs::read_dir(cfg.music_dir.join(".v4vmm-staging"))
+                .expect("read staging root")
+                .next()
+                .is_none(),
+            "staging must be cleaned after a rejected download"
+        );
     }
 
     #[test]
@@ -932,7 +944,7 @@ mod tests {
         track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
         track.enclosure_bytes = Some(8);
 
-        let error = download_track(&cfg, &ReqwestClient::new(), &track)
+        let error = download_track(&cfg, &track)
             .expect_err("size mismatch should reject partial downloads");
 
         assert!(

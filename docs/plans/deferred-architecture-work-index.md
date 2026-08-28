@@ -2,7 +2,7 @@
 
 ## Status
 
-Active index - 2026-05-18.
+Active index - 2026-05-18. Reconciled 2026-08-28 for ADR 0056.
 
 ## Purpose
 
@@ -19,6 +19,11 @@ prioritized, and routed to the right governance artifact.
    - Route: future ADR before schema or command behavior changes.
 3. Non-URL artwork rendering.
    - Status: audit completed; no producer/resolver contract yet.
+   - Note: ADR 0056 moved image type classification to
+     `src/media/image_type.rs` and made `media::image_from_bytes` return
+     `Option`. Supported artwork variants are unchanged, so this item is not
+     reopened, but a future resolver builds on that decode path rather than the
+     retired `audio_tags` helpers.
    - Route: future ADR only when cache, storage, or public artwork contracts
      change.
 4. Playback volume and playback-driver supervision.
@@ -32,6 +37,20 @@ prioritized, and routed to the right governance artifact.
      reopen completed search/sidebar restructuring.
 
 ## Recently Resolved
+
+- ADR 0056 remote media fetch validation completed on 2026-08-28 via Tasks
+  001-004, implemented as one change and reviewed in
+  `docs/reviews/adr-0056-implementation-review.md`. Transport policy moved to
+  `src/remote_media.rs`, image classification to `src/media/image_type.rs`, and
+  per-artifact content rules stayed with their owners. The defect that motivated
+  the ADR was a missed call site: one of five media fetches shipped with no
+  redirect handling while two others were fixed in the same file. Guards
+  `adr_0056_media_transport_has_one_owner`,
+  `adr_0056_image_classification_has_one_owner`, and
+  `adr_0056_no_silent_format_fallbacks` now fail the build if a sixth fetch,
+  a second classifier, or a silent format fallback appears outside its owner.
+  ADR 0056 added no priority-list items; its remaining work is conditional and
+  is listed under Conditional Follow-Ups below.
 
 - ADR 0038 presentation-contract enforcement closed on 2026-05-04 with
   readiness gate `Proceed`. Layer relocation, composite display
@@ -77,6 +96,23 @@ prioritized, and routed to the right governance artifact.
   `8f701d2`, `de934bb`); ADR 0053 accepted the parent source-fact parity
   contract; ADR 0054 implemented the concrete feed/track metadata source-fact
   slice.
+
+## Conditional Follow-Ups
+
+Not priority-list items. Each is triggered by an observation rather than
+scheduled, and none blocks another item.
+
+- Enclosure size-mismatch diagnostics. Trigger: repeated download failures
+  indicating a publisher ships stale enclosure byte counts. Route: ADR 0056
+  follow-up task; no new ADR unless it changes persistence.
+- Image sniffer format coverage. Trigger: real feed artwork outside PNG, JPEG,
+  GIF, and WebP. Route: extend `src/media/image_type.rs`; ADR only if it changes
+  artwork contracts, which also implicates priority item 3.
+- Feed and API fetch consolidation. `src/rss/**`, `src/musicbrainz.rs`,
+  `src/api.rs`, and `src/discover.rs` each build their own HTTP client. ADR 0056
+  deliberately left them out: they fetch documents, not media bytes, and want
+  retry and timeout policy the media transport does not carry. Route: future ADR
+  before any consolidation.
 
 ## Execution Rule
 

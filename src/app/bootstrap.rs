@@ -73,8 +73,7 @@ pub fn run_app() {
             .parent()
             .expect("config path has parent")
             .join("thumbnail-cache");
-        let http = reqwest::blocking::Client::new();
-        let image_cache = ImageCache::new(http, thumbnail_cache_dir);
+        let image_cache = ImageCache::new(thumbnail_cache_dir);
 
         let window_handle = cx
             .open_window(

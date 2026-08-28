@@ -23,6 +23,7 @@ pub mod playback_driver;
 pub mod playback_owner;
 pub mod playlist_service;
 pub mod presentation;
+pub mod remote_media;
 pub mod rss;
 pub mod runtime;
 pub mod sources;
