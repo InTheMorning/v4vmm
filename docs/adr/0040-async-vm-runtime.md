@@ -2,26 +2,8 @@
 
 ## Status
 
-Implemented including retirement — 2026-05-18. Runtime foundation
-phases A-F have shipped, the desktop build now requires the ADR 0040
-tokio runtime, and the legacy feature-gated `--no-default-features`
-desktop path is retired. `PagedTrackListActor` is always compiled,
-`AsyncCommandRunner` publishes `VmEvent` invalidations onto the runtime
-`VmBus`, and the `Actor` trait subscribes every spawned actor to that
-bus via `tokio::select! { biased; ... }` so command latency stays
-predictable under bus traffic.
-
-The GPUI-coupled command runner wrapper has been deleted. Production
-command presentation now goes through `presentation::present_command`
-plus `AsyncCommandRunner`; the synchronous `CommandBus` remains for CLI,
-tests, and domain-level command execution. Regression guards
-`gpui_command_runner_is_retired` and
-`async_runtime_feature_flag_is_retired` pin the retired surfaces. The
-screen-local `cx.spawn` retirement landed through the seven-task
-ADR 0040 follow-up, and
-`cx_spawn_is_restricted_to_presentation_runtime_and_bootstrap` now pins
-the presentation/runtime actor boundary with only the bootstrap
-window-activation defer allowlisted.
+Implemented - 2026-05-18. Runtime foundation and legacy scheduling
+retirement complete, including the screen-local `cx.spawn` retirement.
 
 ## Context
 

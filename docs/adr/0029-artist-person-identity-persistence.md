@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted - 2026-05-01. Tasks 001-005 complete. ADR runtime scope closed;
-follow-up ADRs remain for name-derived artist binding and person identity.
+Implemented - 2026-05-01. Tasks 001-005 complete; ADR runtime scope
+closed. Person/global identity persistence is deferred; see
+`docs/plans/deferred-architecture-work-index.md` priority item 1.
 
 ## Context
 

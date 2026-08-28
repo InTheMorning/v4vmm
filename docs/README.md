@@ -26,5 +26,8 @@ Start here:
 - [Pre-UI and download manager preparation plan](plans/pre-ui-download-prep.md): service, schema, and CLI work to land before a UI/download revamp
 - [HIG product polish backlog](plans/hig-product-polish-backlog.md): separates remaining tactical structural mop-ups from HIG completeness items such as search suggestions, sidebar show/hide, Liquid Glass materials, and keyboard coverage
 
+- [ADR 0057: ADR status vocabulary and amendment policy](adr/0057-adr-status-vocabulary-and-amendment-policy.md): the four status values, partial-implementation format, and when an ADR may be amended in place
+- [Documentation and architecture audit](reviews/documentation-and-architecture-audit.md): 2026-08-28 findings on ADR status drift, recurring defect classes, parked code, and missing HTTP timeouts
+
 Historical architecture decisions still live in [`docs/adr/`](adr/).
 Older roadmap notes live in [`docs/archive/roadmap-notes/`](archive/roadmap-notes/).

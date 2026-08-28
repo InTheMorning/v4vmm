@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed - 2026-05-02.
+Accepted - 2026-05-02. Implementation partial: Tasks 001 and 002
+implemented with automated evidence green; Library hydration follow-up and
+track-detail operator visual smoke outstanding. See
+`docs/reviews/adr-0037-review-checklist.md`.
 
 ## Context
 

@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed
+Implemented - 2026-05-01. The mpv driver ships in
+`src/playback_driver/mpv.rs`. Playback volume and driver supervision remain
+deferred; see `docs/plans/deferred-architecture-work-index.md` priority item 4.
 
 ## Context
 

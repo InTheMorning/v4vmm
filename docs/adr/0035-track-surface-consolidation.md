@@ -2,10 +2,9 @@
 
 ## Status
 
-Proposed - 2026-05-02. Amended 2026-05-02 to widen scope per
-`docs/plans/one-owner-per-surface-plan.md`: track row, inspector pane,
-artwork handoff, label policy, and named architecture tests are now in
-scope so the contract migrates once instead of twice.
+Implemented - 2026-05-02. Verified by
+`docs/reviews/adr-0035-review-checklist.md` (readiness `Proceed`). Amended
+2026-05-02 to widen scope per the phase plan.
 
 ## Context
 

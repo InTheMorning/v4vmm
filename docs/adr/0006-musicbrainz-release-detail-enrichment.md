@@ -1,7 +1,7 @@
 # ADR 0006: MusicBrainz Release Detail Enrichment
 
 ## Status
-Accepted
+Accepted - 2026-04-13.
 
 ## Context
 ADR 0005 added metadata-based MusicBrainz recording lookup for the MusicIndex comparison workflow. That first pass intentionally stored a compact candidate model from recording search results. Operators now need more MusicBrainz provenance fields beside RSS and embedded metadata, such as label, barcode, release status, packaging, release-group type, ISRC, and URL relationships.

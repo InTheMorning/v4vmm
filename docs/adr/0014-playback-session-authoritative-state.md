@@ -1,7 +1,7 @@
 # ADR 0014: PlaybackSession Authoritative State
 
 ## Status
-Accepted
+Accepted - 2026-04-26.
 
 ## Context
 `v4vmm` needs a stable Phase 2 boundary before adding player adapters, relay

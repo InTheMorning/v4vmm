@@ -1,7 +1,7 @@
 # ADR 0002: Rust CLI With Local SQLite State
 
 ## Status
-Accepted
+Accepted - 2026-04-11.
 
 ## Context
 `v4vmm` is currently an early-stage tool focused on ingesting feed metadata, inspecting local MP3 tags, and tracking which feed items exist in a local library. The codebase is small, Linux-first, and currently has no GUI runtime or background service boundary.

@@ -2,11 +2,13 @@
 
 ## Status
 
-Proposed - 2026-05-03. Supersedes
-`docs/plans/one-owner-per-surface-plan.md` and
+Implemented - 2026-05-04. Verified by
+`docs/reviews/adr-0038-review-checklist.md` (Task 008 readiness gate `Proceed`)
+and recorded as closed in `docs/plans/deferred-architecture-work-index.md`.
+Supersedes `docs/plans/one-owner-per-surface-plan.md` and
 `docs/plans/post-adr-0033-ui-consolidation-plan.md`. Both are retained as
-historical artifacts; their invariants and surface inventory are absorbed
-into this ADR and its phase plan.
+historical artifacts; their invariants and surface inventory are absorbed into
+this ADR and its phase plan.
 
 ## Context
 

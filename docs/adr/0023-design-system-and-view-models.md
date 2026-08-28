@@ -2,16 +2,7 @@
 
 ## Status
 
-Accepted — finalized 2026-04-30.
-
-The design-system foundation, token audit, shared Library/Discover shell,
-shared release detail surface, stateful screen VMs, and automated architecture
-gates are implemented for the ADR 0023 scope. ADR 0023 does not make the
-whole app GPUI-independent; it makes the non-GPUI view-model and projection
-boundary explicit, tested, and reusable for later architecture work.
-
-A broad CommandBus, QueryService, or EventBus remains outside this ADR unless
-a later ADR scopes it.
+Implemented - 2026-04-30.
 
 ## Context
 

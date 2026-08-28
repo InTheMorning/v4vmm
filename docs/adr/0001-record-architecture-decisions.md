@@ -1,7 +1,7 @@
 # ADR 0001: Record Architecture Decisions
 
 ## Status
-Accepted
+Accepted - 2026-04-11.
 
 ## Context
 We need a durable way to track significant architectural choices made during the development of `v4vmm`. Without a record, the rationale behind decisions disappears quickly and later changes become harder to evaluate on their merits.

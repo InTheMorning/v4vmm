@@ -2,12 +2,7 @@
 
 ## Status
 
-Implemented — 2026-05-08.
-
-Refines ADR 0023 (Design System), ADR 0033 (HIG UI Architecture
-Governance), and ADR 0038 (Presentation Contract Enforcement) by
-codifying when something belongs in `ui/primitives/`,
-`ui/composites/`, or `ui/shells/`.
+Implemented - 2026-05-08.
 
 ## Context
 

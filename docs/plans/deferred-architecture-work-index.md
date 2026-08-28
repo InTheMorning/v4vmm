@@ -2,7 +2,7 @@
 
 ## Status
 
-Active index - 2026-05-18. Reconciled 2026-08-28 for ADR 0056.
+Active index - 2026-05-18. Reconciled 2026-08-28 for ADR 0056 and ADR 0057.
 
 ## Purpose
 
@@ -37,6 +37,15 @@ prioritized, and routed to the right governance artifact.
      reopen completed search/sidebar restructuring.
 
 ## Recently Resolved
+
+- ADR 0057 status vocabulary accepted on 2026-08-28 after
+  `docs/reviews/documentation-and-architecture-audit.md` found eleven ADRs at
+  `Proposed` whose own review checklists recorded completion, and seven competing
+  status phrasings across the corpus. All 57 ADR headers were normalized to
+  `Proposed` / `Accepted` / `Implemented` / `Superseded by ADR NNNN`, each with a
+  date. ADR 0057 also supersedes ADR 0001's immutability clause, making the
+  in-place amendment practice explicit and bounded. ADR 0039 could not be
+  verified in either direction and stays `Proposed` pending an owner decision.
 
 - ADR 0056 remote media fetch validation completed on 2026-08-28 via Tasks
   001-004, implemented as one change and reviewed in

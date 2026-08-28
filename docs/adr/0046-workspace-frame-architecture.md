@@ -2,10 +2,8 @@
 
 ## Status
 
-Accepted - v1 implemented 2026-05-15. Supersedes
-`docs/plans/workspace-frame-architecture-plan.md`, which is retained as a
-historical pre-ADR artifact. Visible multi-frame open/close and detach/dock
-commands remain deferred until real per-frame content owners exist.
+Implemented - 2026-05-15. v1 shipped. Supersedes the earlier workspace
+frame planning artifacts.
 
 ## Context
 

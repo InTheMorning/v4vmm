@@ -2,11 +2,9 @@
 
 ## Status
 
-Proposed - 2026-05-08.
-
-Refines ADR 0033 (HIG UI Architecture Governance), ADR 0038
-(Presentation Contract Enforcement), and ADR 0042 (Layer
-Consolidation).
+Accepted - 2026-05-08. Implementation partial: follow-up fixes landed;
+operator visual recheck outstanding. See
+`docs/reviews/adr-0044-review-checklist.md`.
 
 ## Context
 

@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed - 2026-05-01.
+Accepted - 2026-05-01. Implementation partial: the phase plan records
+seven of eleven phases implemented by task packets. This ADR remains the live
+theme, icon, and style boundary; changes affecting tokens, primitives,
+composites, or theme contracts route through bounded ADR 0025 tasks per
+`docs/plans/deferred-architecture-work-index.md` priority item 5.
 
 ## Context
 

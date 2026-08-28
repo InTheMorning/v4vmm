@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed.
+Proposed - 2026-05-04. No phase plan, task packets, or review checklist
+exist for this ADR, so implementation cannot be verified either way. Needs an
+owner decision: execute, supersede, or archive.
 
 ## Context
 

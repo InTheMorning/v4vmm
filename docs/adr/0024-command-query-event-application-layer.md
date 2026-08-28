@@ -2,19 +2,7 @@
 
 ## Status
 
-Accepted and implemented - 2026-05-01.
-
-Partially superseded for scheduling concerns by ADR 0040 (Async
-View-Model Runtime) on 2026-05-06: the synchronous `CommandBus`
-and `GpuiCommandRunner` remain valid for CLI / tests / one-shot
-flows, but new screen-side dispatch goes through ADR 0040's
-`AsyncCommandRunner`. The typed `ApplicationCommand` /
-`CommandOutcome` / `ApplicationEvent` surface is unchanged.
-
-Implementation completed through the phase plan in
-`docs/plans/adr-0024-application-layer-phase-plan.md` and task packets
-`docs/tasks/adr-0024-task-001-*.md` through
-`docs/tasks/adr-0024-task-007-*.md`.
+Implemented - 2026-05-01.
 
 ## Context
 

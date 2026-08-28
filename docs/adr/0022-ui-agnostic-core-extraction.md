@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed
+Implemented - 2026-05-01. Green criteria met: `subscribe_service`,
+`feed_service`, and `metadata_service` own their domains, and `src/metadata.rs`
+has no GPUI imports.
 
 ## Context
 

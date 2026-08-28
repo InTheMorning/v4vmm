@@ -1,7 +1,7 @@
 # ADR 0003: MusicIndex Search UI Module
 
 ## Status
-Accepted
+Accepted - 2026-04-11.
 
 ## Context
 The Stophammer search page in `../stophammer/dist/search.html` defines the current operator workflow for searching feeds, tracks, and publishers. The Rust project already had a `musicindex` client module and a local GPUI search binary, but the UI behavior and data model had drifted from the Stophammer page.

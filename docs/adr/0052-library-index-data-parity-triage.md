@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted - 2026-05-17. Triage complete.
+Implemented - 2026-05-17. Documentation-only triage; triage complete.
 
 ## Context
 

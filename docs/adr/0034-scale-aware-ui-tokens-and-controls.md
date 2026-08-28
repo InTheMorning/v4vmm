@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed - 2026-05-02.
+Implemented - 2026-05-02. Verified by
+`docs/reviews/adr-0034-review-checklist.md` (readiness `Proceed`, no open gates).
 
 ## Context
 

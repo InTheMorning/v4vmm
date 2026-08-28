@@ -1,7 +1,7 @@
 # ADR 0005: MusicBrainz Metadata Lookup
 
 ## Status
-Accepted
+Accepted - 2026-04-12.
 
 ## Context
 The MusicIndex tag comparison workflow can now download a track and read embedded MP3 tags. Operators also need a way to ask MusicBrainz for a likely recording match using the same metadata-driven approach documented for Picard's Lookup action.

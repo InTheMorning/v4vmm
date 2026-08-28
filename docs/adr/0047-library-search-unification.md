@@ -2,28 +2,8 @@
 
 ## Status
 
-Implemented for ADR 0047 scope - 2026-05-18. Promotes
-`docs/plans/library-search-unification-plan.md`, which is retained as
-the pre-ADR concept artifact. Phase D is implemented through Task 011:
-the Library-backed frame owns the visible source filter and the
-duplicate toolbar scope controls are retired. Phase E is implemented
-through Task 015: per-frame navigation ownership now lives in the
-workspace VM, frame-shell breadcrumb rendering capability is in
-place, the shared search-results inspector shell exists, toolbar
-search-submit opens or updates a Detail search-results frame through
-the workspace VM, and saved-search source-list rows reuse that same
-Detail inspector path; a 2026-05-16 smoke-fix hydrates local
-Library-origin Artists, Feeds, and Tracks in that inspector. Phase F
-is implemented for module-boundary retirement: `src/search.rs`, `crate::search`, and
-`WORKSPACE_RENDER_ENABLED` are retired, with existing Discover behavior
-preserved under `src/discover.rs` until a later explicit task replaces
-that command owner. Phase G structural and operator visual readiness are
-closed; the Detail-frame search surface described by ADR 0047 was superseded by
-ADR 0048's ContentList-frame search model.
-
-> **Note:** Search result surface relocated to the ContentList frame in ADR 0048
-> (2026-05-16). The Detail-frame inspector contract in this ADR is no
-> longer the active model; see ADR 0048 for the current model.
+Implemented - 2026-05-18. Scope as stated in this ADR; promotes the
+shared content surface and inspector across Library and Search origins.
 
 ## Context
 

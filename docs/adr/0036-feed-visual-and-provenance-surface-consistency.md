@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed - 2026-05-02.
+Implemented - 2026-05-02. Verified by
+`docs/reviews/adr-0036-review-checklist.md`: Tasks 001-003 complete.
 
 ## Context
 

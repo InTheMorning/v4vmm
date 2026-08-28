@@ -1,7 +1,7 @@
 # ADR 0004: Format-Neutral Audio Tag Boundary
 
 ## Status
-Accepted
+Accepted - 2026-04-12.
 
 ## Context
 The download-and-compare workflow needs to read embedded metadata from downloaded audio files and compare it with MusicIndex/Stophammer source facts. The first supported file format is MP3, using the existing `id3` crate. The workflow should still avoid exposing ID3-specific names to the GUI and comparison layers, so later FLAC/MP4/OGG support does not require rewriting the feature.
