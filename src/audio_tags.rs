@@ -909,12 +909,11 @@ fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
             .with_context(|| format!("download APIC image {reference}"))?
             .error_for_status()
             .with_context(|| format!("download APIC image {reference}"))?;
-        let mime_type = response
+        let declared_mime_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
-            .and_then(image_mime_type)
-            .ok_or_else(|| anyhow!("APIC image response missing image content type"))?;
+            .and_then(image_mime_type);
         let data = response
             .bytes()
             .with_context(|| format!("read APIC image {reference}"))?
@@ -922,6 +921,10 @@ fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
         if data.is_empty() {
             return Err(anyhow!("APIC image is empty"));
         }
+        let mime_type = declared_mime_type
+            .or_else(|| image_mime_type_for_reference(reference))
+            .or_else(|| image_mime_type_for_bytes(&data))
+            .ok_or_else(|| anyhow!("APIC image response missing image type"))?;
         return Ok((mime_type, data));
     }
 
@@ -931,6 +934,7 @@ fn read_picture_reference(reference: &str) -> Result<(String, Vec<u8>)> {
         return Err(anyhow!("APIC image is empty"));
     }
     let mime_type = image_mime_type_for_path(path)
+        .or_else(|| image_mime_type_for_bytes(&data))
         .ok_or_else(|| anyhow!("unsupported APIC image type for {}", path.display()))?;
     Ok((mime_type, data))
 }
@@ -950,6 +954,28 @@ fn image_mime_type_for_path(path: &Path) -> Option<String> {
     }
 }
 
+fn image_mime_type_for_reference(reference: &str) -> Option<String> {
+    let path = reference
+        .split(['?', '#'])
+        .next()
+        .filter(|path| !path.is_empty())?;
+    image_mime_type_for_path(Path::new(path))
+}
+
+fn image_mime_type_for_bytes(data: &[u8]) -> Option<String> {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png".into())
+    } else if data.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg".into())
+    } else if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        Some("image/gif".into())
+    } else if data.len() >= 12 && data.starts_with(b"RIFF") && data[8..12] == *b"WEBP" {
+        Some("image/webp".into())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -961,6 +987,7 @@ mod tests {
 
     use super::{
         add_lofty_compare_aliases, audio_tags_from_id3, id3v24_edit_label_is_writable,
+        image_mime_type, image_mime_type_for_bytes, image_mime_type_for_reference,
         lofty_item_label, normalize_frame_descriptor, read_audio_tags, write_id3v24_edits,
         AudioTags, EmbeddedArtwork, Id3Field, Id3v24Edit,
     };
@@ -1095,6 +1122,35 @@ mod tests {
             .iter()
             .any(|field| field.frame_id == "SYLT:MusicIndex Transcript"));
         assert!(fields.iter().any(|field| field.frame_id == "APIC"));
+    }
+
+    #[test]
+    fn apic_image_mime_type_accepts_declared_extension_and_magic_bytes() {
+        assert_eq!(
+            image_mime_type("image/jpeg; charset=binary"),
+            Some("image/jpeg".into())
+        );
+        assert_eq!(
+            image_mime_type_for_reference("https://cdn.example.test/covers/front.PNG?size=600"),
+            Some("image/png".into())
+        );
+        assert_eq!(
+            image_mime_type_for_bytes(b"\x89PNG\r\n\x1a\nimage bytes"),
+            Some("image/png".into())
+        );
+        assert_eq!(
+            image_mime_type_for_bytes(b"\xff\xd8\xff\xe0image bytes"),
+            Some("image/jpeg".into())
+        );
+        assert_eq!(
+            image_mime_type_for_bytes(b"GIF89aimage bytes"),
+            Some("image/gif".into())
+        );
+        assert_eq!(
+            image_mime_type_for_bytes(b"RIFFxxxxWEBPimage bytes"),
+            Some("image/webp".into())
+        );
+        assert_eq!(image_mime_type_for_bytes(b"not an image"), None);
     }
 
     #[test]

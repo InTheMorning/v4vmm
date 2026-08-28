@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::Client as ReqwestClient;
+use reqwest::header::LOCATION;
 use reqwest::Url;
 
 use crate::api::{SourceEnclosure, Track};
@@ -210,6 +211,9 @@ pub fn download_track(
     if let Err(err) = download_enclosure(client, &enclosure.url, &staged) {
         return Err(cleanup_on_err(err));
     }
+    if let Err(err) = validate_downloaded_size(&staged, enclosure.bytes) {
+        return Err(cleanup_on_err(err));
+    }
 
     let detected_format = AudioFormat::detect_from_file(&staged).unwrap_or(declared_format);
 
@@ -304,28 +308,82 @@ fn create_staging_dir(cfg: &Config) -> Result<PathBuf> {
 }
 
 pub fn download_enclosure(client: &ReqwestClient, url: &str, path: &Path) -> Result<()> {
-    let parsed = Url::parse(url).with_context(|| format!("parse enclosure URL {url}"))?;
-    match parsed.scheme() {
-        "http" | "https" => {}
-        scheme => return Err(anyhow!("unsupported enclosure URL scheme: {scheme}")),
-    }
+    let mut parsed = parse_enclosure_url(url)?;
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create download directory {}", parent.display()))?;
     }
 
-    let mut response = client
-        .get(parsed)
-        .send()
-        .with_context(|| format!("download enclosure {url}"))?
-        .error_for_status()
-        .with_context(|| format!("download enclosure {url}"))?;
+    let mut response = {
+        let mut redirects_remaining = 10;
+        loop {
+            let response = client
+                .get(parsed.clone())
+                .send()
+                .with_context(|| format!("download enclosure {parsed}"))?;
+            if response.status().is_redirection() {
+                if redirects_remaining == 0 {
+                    return Err(anyhow!("too many enclosure redirects for {url}"));
+                }
+                redirects_remaining -= 1;
+                parsed = redirect_enclosure_url(&parsed, &response)
+                    .with_context(|| format!("follow enclosure redirect from {parsed}"))?;
+                continue;
+            }
+            if !response.status().is_success() {
+                return Err(anyhow!(
+                    "download enclosure {parsed} failed with HTTP {}",
+                    response.status()
+                ));
+            }
+            break response;
+        }
+    };
     let mut output =
         File::create(path).with_context(|| format!("create download {}", path.display()))?;
     copy(&mut response, &mut output)
         .with_context(|| format!("write download {}", path.display()))?;
 
+    Ok(())
+}
+
+fn parse_enclosure_url(url: &str) -> Result<Url> {
+    let parsed = Url::parse(url).with_context(|| format!("parse enclosure URL {url}"))?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(parsed),
+        scheme => Err(anyhow!("unsupported enclosure URL scheme: {scheme}")),
+    }
+}
+
+fn redirect_enclosure_url(base: &Url, response: &reqwest::blocking::Response) -> Result<Url> {
+    let location = response
+        .headers()
+        .get(LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| anyhow!("enclosure redirect missing Location header"))?;
+    base.join(location)
+        .or_else(|_| base.join(&location.replace(' ', "%20")))
+        .with_context(|| format!("parse enclosure redirect Location {location:?}"))
+        .and_then(|url| parse_enclosure_url(url.as_str()))
+}
+
+fn validate_downloaded_size(path: &Path, expected_bytes: Option<i64>) -> Result<()> {
+    let Some(expected_bytes) = expected_bytes.filter(|bytes| *bytes > 0) else {
+        return Ok(());
+    };
+    let expected_bytes =
+        u64::try_from(expected_bytes).context("convert expected enclosure bytes")?;
+    let actual_bytes = fs::metadata(path)
+        .with_context(|| format!("stat downloaded enclosure {}", path.display()))?
+        .len();
+    anyhow::ensure!(
+        actual_bytes == expected_bytes,
+        "downloaded enclosure size mismatch for {}: expected {} bytes, got {} bytes",
+        path.display(),
+        expected_bytes,
+        actual_bytes
+    );
     Ok(())
 }
 
@@ -793,5 +851,100 @@ mod tests {
         let final_path = downloaded.finalize().expect("finalize");
         assert_eq!(final_path, expected_final);
         assert_eq!(fs::read(&final_path).expect("read final"), b"mp3data");
+    }
+
+    #[test]
+    fn follows_enclosure_redirect_instead_of_saving_redirect_body() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        std::thread::spawn(move || {
+            let (mut redirect_stream, _) = listener.accept().expect("accept redirect request");
+            let mut buf = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut redirect_stream, &mut buf);
+            let location = format!("http://{addr}/Music/song file.mp3");
+            let response = format!(
+                "HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Type: text/html\r\nContent-Length: 8\r\nConnection: close\r\n\r\nredirect"
+            );
+            std::io::Write::write_all(&mut redirect_stream, response.as_bytes())
+                .expect("write redirect response");
+
+            let (mut audio_stream, _) = listener.accept().expect("accept audio request");
+            let mut buf = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut audio_stream, &mut buf);
+            std::io::Write::write_all(
+                &mut audio_stream,
+                b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 7\r\nConnection: close\r\n\r\nmp3data",
+            )
+            .expect("write audio response");
+        });
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg = Config {
+            music_dir: temp.path().join("music"),
+            db_path: temp.path().join("db.sqlite"),
+            flac_path: None,
+            playback: PlaybackConfig::default(),
+            ui_scale: Default::default(),
+            theme_profile: ThemeProfile::default(),
+            workspace: None,
+            workspace_layout: None,
+        };
+        let mut track = track();
+        track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
+        track.enclosure_bytes = Some(7);
+        let client = ReqwestClient::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("build client");
+
+        let downloaded = download_track(&cfg, &client, &track).expect("download");
+
+        assert_eq!(fs::read(&downloaded.path).expect("read staged"), b"mp3data");
+    }
+
+    #[test]
+    fn rejects_downloaded_enclosure_when_advertised_size_does_not_match() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept request");
+            let mut buf = [0_u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut buf);
+            std::io::Write::write_all(
+                &mut stream,
+                b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nContent-Length: 7\r\nConnection: close\r\n\r\nmp3data",
+            )
+            .expect("write response");
+        });
+
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg = Config {
+            music_dir: temp.path().join("music"),
+            db_path: temp.path().join("db.sqlite"),
+            flac_path: None,
+            playback: PlaybackConfig::default(),
+            ui_scale: Default::default(),
+            theme_profile: ThemeProfile::default(),
+            workspace: None,
+            workspace_layout: None,
+        };
+        let mut track = track();
+        track.enclosure_url = Some(format!("http://{addr}/song.mp3"));
+        track.enclosure_bytes = Some(8);
+
+        let error = download_track(&cfg, &ReqwestClient::new(), &track)
+            .expect_err("size mismatch should reject partial downloads");
+
+        assert!(
+            error.to_string().contains("size mismatch"),
+            "error should explain the byte-count mismatch: {error}"
+        );
+        assert!(
+            fs::read_dir(cfg.music_dir.join(".v4vmm-staging"))
+                .expect("read staging root")
+                .next()
+                .is_none(),
+            "rejected downloads should clean up per-download staging files"
+        );
     }
 }
