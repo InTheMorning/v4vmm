@@ -1,5 +1,10 @@
 # ADR 0056 Task 002: Image Classification Owner
 
+## Status
+
+Implemented - 2026-08-28. Do not execute this task again. See
+`docs/reviews/adr-0056-implementation-review.md`.
+
 ## Goal
 
 Give "what image is this?" one owner, in the module that already owns images.
@@ -27,7 +32,7 @@ Four sites independently guess when the type is unknown, each assuming JPEG:
 - `src/media/image_cache.rs:92` `fetch_blocking`
 - `src/media/image_cache.rs:128` `fetch_static_blocking`
 - `src/subscribe_service.rs:663` `download_image` stores the raw `Content-Type`,
-  so `text/html` reaches those fallbacks and is decoded as JPEG
+  so `text/html` reaches those JPEG default paths and is decoded as JPEG
 
 Task 001 must land first: redirect resolution is not this task's job.
 
@@ -47,7 +52,7 @@ Task 001 must land first: redirect resolution is not this task's job.
 - `src/media/image_cache.rs`
 - `src/audio_tags.rs`
 - `src/subscribe_service.rs`
-- `docs/reviews/adr-0056-task-002-review.md`
+- `docs/reviews/adr-0056-implementation-review.md`
 
 ## Do Not Touch
 
@@ -64,19 +69,22 @@ Task 001 must land first: redirect resolution is not this task's job.
   re-export in `audio_tags` that keeps the tag module looking like the owner.
 - Keep the current format coverage: PNG, JPEG, GIF, WebP. Do not add formats to
   make a test pass. If real feed artwork needs more, that is a separate decision.
-- One precedence rule everywhere: sniff bytes first, fall back to a declared
-  `image/*` type, otherwise reject. This is the rule the APIC path already uses
-  after ADR 0056; the display paths adopt it.
+- Use two remote image rules:
+  - APIC artifact writes accept only image types recognized from bytes.
+  - Display paths sniff bytes first.
+  - If display-path bytes are not recognized, the display path may use a
+    declared `image/*` type.
+  - Display paths reject every other response.
 - Rejection means no image. Remove all four `unwrap_or(ImageFormat::Jpeg)`
-  fallbacks. Guessing JPEG re-hides exactly the failures this task surfaces.
+  default paths. Guessing JPEG hides exactly the failures this task surfaces.
 - `download_image` must stop returning a non-image MIME string. `None` is the
   correct result for a non-image response.
 - Preserve the `image/gif` branches exactly. Animated GIFs must not collapse to
   static previews.
 - Preserve the downscale path's rewrite of MIME to `image/jpeg`, and keep GIFs
   out of downscaling.
-- Do not cache failed fetches. Current code returns before `write_cache_entry`;
-  keep that ordering.
+- Do not cache failed fetches. Current code returns before `write_cache_entry`.
+  Keep that ordering.
 - Cached entries already require an `image/` prefix on read
   (`image_cache.rs:221`). Sniffed types must stay compatible with that.
 
@@ -88,28 +96,30 @@ Task 001 must land first: redirect resolution is not this task's job.
    replacing the `Content-Type`-only filter.
 3. Apply the same rule in `subscribe_service::download_image`, returning `None`
    for non-image responses.
-4. Point the APIC path at the moved helpers with no change to its rules.
-5. Replace the four JPEG fallbacks with rejection. `image_from_bytes` returns no
-   image for an unclassifiable type; adjust its signature and callers if needed.
+4. Point the APIC path at the moved byte sniffer only. Do not use declared MIME
+   as an APIC backup type.
+5. Replace the four JPEG default paths with rejection. `image_from_bytes` returns no
+   image for an unclassifiable type. Adjust its signature and callers if needed.
 6. Add a regression test: a valid JPEG served as `application/octet-stream`
    produces a thumbnail.
 7. Add a regression test: an HTML body produces no image and no cache entry on
    both display paths.
 8. Add a regression test: a GIF still animates and a downscaled image still
    reports `image/jpeg`.
-9. Add `docs/reviews/adr-0056-task-002-review.md` noting which surfaces gain
-   artwork and any caller signature changes from step 5.
+9. Record the result in `docs/reviews/adr-0056-implementation-review.md`, which
+   replaces the per-task review docs because Tasks 001-004 landed together.
 
 ## Acceptance Criteria
 
 - One image classification implementation in `src/`, owned by `src/media/`.
 - `audio_tags` no longer defines image MIME helpers.
 - A valid image under a non-image `Content-Type` yields a thumbnail.
-- An HTML body yields no image and no cache entry.
+- An HTML body yields no image and no cache entry on display paths.
+- APIC rejects unrecognized bytes even when the declared type is `image/jpeg`.
 - No `unwrap_or(ImageFormat::Jpeg)` remains in `src/`.
 - `download_image` never returns a non-image MIME type.
 - GIF animation, static preview, downscale, and cache format behavior unchanged.
-- APIC behavior unchanged.
+- APIC uses byte recognition only for remote artwork.
 
 ## Test Commands
 
@@ -135,11 +145,11 @@ Task 001 must land first: redirect resolution is not this task's job.
 
 ## Escalation Triggers
 
-- Removing the JPEG fallback changes a public signature used across many UI call
+- Removing the JPEG default path changes a public signature used across many UI call
   sites in a way this task cannot contain.
 - A real feed serves artwork whose bytes match none of the four formats and whose
   `Content-Type` is absent or wrong.
-- `image_cache` has no `mod tests` today; its coverage lives in
+- `image_cache` has no `mod tests` today. Its coverage lives in
   `src/application/queries/images.rs` via `ImageCache::with_capacity`. If adding
   tests requires restructuring that, escalate rather than moving existing tests.
 
@@ -147,8 +157,8 @@ Task 001 must land first: redirect resolution is not this task's job.
 
 You are implementing one bounded task from a larger plan.
 
-Implement only this task. Do not redesign the architecture. Task 001 has landed;
-redirect handling is already centralized and is not your concern.
+Implement only this task. Do not redesign the architecture. Task 001 has landed.
+Redirect handling is already centralized and is not your concern.
 
 Read:
 - `docs/adr/0056-remote-media-fetch-validation-boundary.md`
@@ -159,17 +169,22 @@ Read:
 - `src/subscribe_service.rs`
 
 Goal:
-- Move image type classification from `audio_tags` into `src/media/`, apply one
-  precedence rule on every path, and remove every silent JPEG fallback.
+- Move image type classification from `audio_tags` into `src/media/`.
+- Apply separate APIC and display-image rules.
+- Remove every silent JPEG default path.
 
 Constraints:
 - Move, do not copy. No re-export left in `audio_tags`.
 - Keep coverage at PNG, JPEG, GIF, WebP. Do not add formats.
-- Rule everywhere: sniff bytes, then declared `image/*`, else reject.
-- Remove all four `unwrap_or(ImageFormat::Jpeg)` fallbacks.
+- APIC artifact writes accept only image types recognized from bytes.
+- Display paths sniff bytes first.
+- If display-path bytes are not recognized, the display path may use a declared
+  `image/*` type.
+- Display paths reject every other response.
+- Remove all four `unwrap_or(ImageFormat::Jpeg)` default paths.
 - `download_image` returns `None` for non-image responses.
 - Do not change GIF handling, downscale behavior, cache file format, or APIC
-  rules.
+  artifact policy.
 - Do not cache failed fetches.
 
 Do not touch:
@@ -181,9 +196,10 @@ Do not touch:
 Acceptance criteria:
 - One classifier, owned by `src/media/`.
 - Valid image under a wrong content type yields a thumbnail.
-- HTML body yields no image and no cache entry.
+- HTML body yields no image and no cache entry on display paths.
+- APIC rejects unrecognized bytes even when the declared type is `image/jpeg`.
 - No `unwrap_or(ImageFormat::Jpeg)` in `src/`.
-- GIF, downscale, cache, and APIC tests pass unmodified.
+- GIF, downscale, cache, and APIC tests pass.
 
 Test commands:
 - `cargo fmt -- --check`

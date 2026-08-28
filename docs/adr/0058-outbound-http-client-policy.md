@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted - 2026-08-28.
+Implemented - 2026-08-28. Verified by
+`docs/reviews/adr-0058-implementation-review.md`.
 
 ## Context
 
@@ -66,7 +67,7 @@ Callers do not construct `reqwest` clients directly.
 
 Rejected. Ten sites with duplicated literals is the exact condition that let one
 of five media fetches ship without redirect handling under ADR 0056. Duplication
-is visible in review; drift between duplicates is not.
+is visible in review. Drift between duplicates is not.
 
 ### Rely On The Dependency Default
 
@@ -87,7 +88,7 @@ the former is decided here.
 
 Rejected as unnecessary. The first draft of this work assumed the blocking API
 offered a read-inactivity timeout distinct from a total budget, and modeled two
-policies around that. The blocking builder has no `read_timeout`; its single
+policies around that. The blocking builder has no `read_timeout`. Its single
 `timeout` already behaves as per-read inactivity when the body is streamed. The
 two-policy design was solving a problem the API does not have.
 
@@ -105,7 +106,7 @@ Negative / risks:
 - Callers needing a genuinely different budget must extend the module rather
   than configure locally, which is friction by design.
 - The 30 second operation timeout means different things for streamed and
-  whole-body reads. The module documents this; a future reader changing the
+  whole-body reads. The module documents this. A future reader changing the
   number has to understand both.
 - Retry, backoff, and per-host policy remain unowned. This ADR does not
   introduce them.

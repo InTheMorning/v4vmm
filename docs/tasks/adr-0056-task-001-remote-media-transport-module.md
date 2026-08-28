@@ -1,5 +1,10 @@
 # ADR 0056 Task 001: Remote Media Transport Module
 
+## Status
+
+Implemented - 2026-08-28. Do not execute this task again. See
+`docs/reviews/adr-0056-implementation-review.md`.
+
 ## Goal
 
 Give remote media fetching one owner. Today the transport policy is copied per
@@ -58,7 +63,7 @@ is for media bytes.
 - `src/audio_tags.rs`
 - `src/media/image_cache.rs`
 - `src/subscribe_service.rs`
-- `docs/reviews/adr-0056-task-001-review.md`
+- `docs/reviews/adr-0056-implementation-review.md`
 
 ## Do Not Touch
 
@@ -74,15 +79,15 @@ is for media bytes.
 - Module placement must satisfy ADR 0015. Do not place it under `src/ui/**` or
   `src/view_models/**`.
 - The module exposes transport only. If a signature needs an artifact-specific
-  parameter to work, the split is wrong; escalate rather than widening it.
+  parameter to work, the split is wrong. Escalate rather than widening it.
 - Redirect depth is one named constant in this module. The
   `MAX_APIC_IMAGE_REDIRECTS` constant and the bare `10` literal in
   `track_compare.rs:319` both go away.
 - Callers must not construct their own redirect handling afterwards. Remove both
-  existing loops; do not leave one behind as a fallback.
+  existing loops. Do not leave one loop as a backup path.
 - Boundary tests must use the client configuration production passes in. The
   current enclosure test builds a `Policy::none()` client that no production
-  caller uses; that is the defect, not the fix.
+  caller uses. That is the defect, not the fix.
 - Keep the explicit redirect loop even though clients follow redirects by
   default. A default client stops following and returns the 3xx when `Location`
   will not parse, and 3xx passes `error_for_status`.
@@ -91,7 +96,7 @@ is for media bytes.
   the test fails. Keep it only if it does. If it is removed, delete the matching
   ADR paragraphs in the same change.
 - Streaming must stay streaming. `download_enclosure` copies the response body to
-  a file without buffering it in memory; the module must not force callers to
+  a file without buffering it in memory. The module must not force callers to
   materialize bytes.
 
 ## Behavior Changes Expected
@@ -123,9 +128,9 @@ No other behavior may change in this task.
    constraint above.
 8. Add a regression test that the transcript path no longer returns a redirect
    body.
-9. Add `docs/reviews/adr-0056-task-001-review.md` with the client policy
-   decision, the empirical result for the space repair, and verification
-   commands.
+9. Record the result in `docs/reviews/adr-0056-implementation-review.md`, with
+   the client policy decision, the empirical result for the space repair, and
+   verification commands.
 
 ## Acceptance Criteria
 
@@ -195,10 +200,10 @@ Constraints:
   in the module.
 - One redirect depth constant. Delete the duplicated loops and the old constant.
 - Tests use the production client configuration.
-- Keep the explicit redirect loop; default clients return the 3xx when Location
+- Keep the explicit redirect loop. Default clients return the 3xx when Location
   will not parse, and 3xx passes error_for_status.
-- Keep the space repair only if a test fails without it; if removed, update the
-  ADR in the same change.
+- Keep the space repair only if a test fails without it. If you remove it,
+  update the ADR in the same change.
 - `download_enclosure` must keep streaming to file, not buffer in memory.
 - Do not touch rss, musicbrainz, or api fetch paths.
 

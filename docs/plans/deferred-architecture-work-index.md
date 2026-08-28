@@ -2,7 +2,8 @@
 
 ## Status
 
-Active index - 2026-05-18. Reconciled 2026-08-28 for ADR 0056, ADR 0057, and ADR 0058.
+Active index - 2026-05-18. Reconciled 2026-08-28 for ADR 0056, ADR 0057, and
+ADR 0058.
 
 ## Purpose
 
@@ -18,7 +19,7 @@ prioritized, and routed to the right governance artifact.
    - Status: product/storage decision required.
    - Route: future ADR before schema or command behavior changes.
 3. Non-URL artwork rendering.
-   - Status: audit completed; no producer/resolver contract yet.
+   - Status: audit completed. No producer/resolver contract yet.
    - Note: ADR 0056 moved image type classification to
      `src/media/image_type.rs` and made `media::image_from_bytes` return
      `Option`. Supported artwork variants are unchanged, so this item is not
@@ -38,14 +39,14 @@ prioritized, and routed to the right governance artifact.
 
 ## Recently Resolved
 
-- ADR 0058 outbound HTTP client policy accepted on 2026-08-28. All ten blocking
-  client construction sites now build through `src/http_client.rs`, which owns
-  the connect and operation timeout constants. The audit finding that prompted
-  it was partly wrong and was corrected in place: `reqwest`'s blocking default
-  already supplied a 30 second timeout, so the application was not hanging. The
-  real defect was ten unowned constructions inheriting an invisible default,
-  with `connect_timeout` unset. Guard
-  `adr_0058_http_clients_are_built_by_one_owner` pins the ownership.
+- ADR 0058 outbound HTTP client policy was implemented on 2026-08-28. Review
+  `docs/reviews/adr-0058-implementation-review.md` verifies it. All ten blocking
+  client construction sites now build through `src/http_client.rs`. That module
+  owns the connect and operation timeout constants. The audit finding that
+  prompted it was partly wrong. `reqwest` already supplied a 30 second blocking
+  timeout, so the application was not hanging. The real defect was ten unowned
+  constructions that inherited an invisible default, with `connect_timeout`
+  unset. Guard `adr_0058_http_clients_are_built_by_one_owner` pins the ownership.
 
 - ADR 0057 status vocabulary accepted on 2026-08-28 after
   `docs/reviews/documentation-and-architecture-audit.md` found eleven ADRs at
@@ -66,8 +67,8 @@ prioritized, and routed to the right governance artifact.
   `adr_0056_media_transport_has_one_owner`,
   `adr_0056_image_classification_has_one_owner`, and
   `adr_0056_no_silent_format_fallbacks` now fail the build if a sixth fetch,
-  a second classifier, or a silent format fallback appears outside its owner.
-  ADR 0056 added no priority-list items; its remaining work is conditional and
+  a second classifier, or a silent format guess appears outside its owner.
+  ADR 0056 added no priority-list items. Its remaining work is conditional and
   is listed under Conditional Follow-Ups below.
 
 - ADR 0038 presentation-contract enforcement closed on 2026-05-04 with
@@ -83,7 +84,7 @@ prioritized, and routed to the right governance artifact.
 - ADR 0027 action-state parity is implemented and should not be reopened for
   unrelated data or service-boundary work.
 - ADR 0040 and ADR 0041 status text was reconciled on 2026-05-08. The
-  default-on async-runtime flip has landed; remaining legacy scheduling
+  default-on async-runtime flip has landed. Remaining legacy scheduling
   cleanup is now explicit deferred follow-up work instead of an ambiguous
   phase blocker.
 - ADR 0040 legacy synchronous scheduling retirement completed on
@@ -106,13 +107,13 @@ prioritized, and routed to the right governance artifact.
   below still require their named future ADR routes.
 - ADR 0045 planning artifacts were created on 2026-05-08 for the top
   deferred item: track-to-artist binding for name-derived Library artist
-  views. Tasks 001-004 completed on 2026-05-11; name-derived Library artist
+  views. Tasks 001-004 completed on 2026-05-11. Name-derived Library artist
   views now enrich from explicit bindings without name-only merging.
 - Deferred item #2, Library/Discover data parity, completed on 2026-05-18.
-  ADR 0052 routed the work; ADR 0024 follow-up runtime delivery shipped the six
+  ADR 0052 routed the work. ADR 0024 follow-up runtime delivery shipped the six
   loading-shape slices (`6e61d4f`, `f9bff8d`, `d7d0220`, `e8c1aaa`,
-  `8f701d2`, `de934bb`); ADR 0053 accepted the parent source-fact parity
-  contract; ADR 0054 implemented the concrete feed/track metadata source-fact
+  `8f701d2`, `de934bb`). ADR 0053 accepted the parent source-fact parity
+  contract. ADR 0054 implemented the concrete feed/track metadata source-fact
   slice.
 
 ## Conditional Follow-Ups
@@ -122,10 +123,10 @@ scheduled, and none blocks another item.
 
 - Enclosure size-mismatch diagnostics. Trigger: repeated download failures
   indicating a publisher ships stale enclosure byte counts. Route: ADR 0056
-  follow-up task; no new ADR unless it changes persistence.
+  follow-up task. Do not create a new ADR unless the change affects persistence.
 - Image sniffer format coverage. Trigger: real feed artwork outside PNG, JPEG,
-  GIF, and WebP. Route: extend `src/media/image_type.rs`; ADR only if it changes
-  artwork contracts, which also implicates priority item 3.
+  GIF, and WebP. Route: extend `src/media/image_type.rs`. Create an ADR only if
+  the change affects artwork contracts, which also implicates priority item 3.
 - Feed and API fetch consolidation. `src/rss/**`, `src/musicbrainz.rs`,
   `src/api.rs`, and `src/discover.rs` each build their own HTTP client. ADR 0056
   deliberately left them out: they fetch documents, not media bytes, and want

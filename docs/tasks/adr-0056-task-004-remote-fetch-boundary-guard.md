@@ -1,5 +1,10 @@
 # ADR 0056 Task 004: Remote Fetch Boundary Guard
 
+## Status
+
+Implemented - 2026-08-28. Do not execute this task again. See
+`docs/reviews/adr-0056-implementation-review.md`.
+
 ## Goal
 
 Make the ownership established by Tasks 001-003 structurally enforced, so the
@@ -39,7 +44,7 @@ implementation, and shipped with no redirect handling, no scheme check, and only
 ## Files Likely To Change
 
 - `tests/architecture_tests.rs`
-- `docs/reviews/adr-0056-task-004-review.md`
+- `docs/reviews/adr-0056-implementation-review.md`
 
 ## Do Not Touch
 
@@ -59,7 +64,7 @@ implementation, and shipped with no redirect handling, no scheme check, and only
 - Guard the layering, not the line-by-line implementation. A guard that breaks on
   ordinary refactoring inside a module is too tight.
 - Keep the allowed-owner lists explicit and short. Adding an owner should require
-  editing the guard; that visibility is the point.
+  editing the guard. That visibility is the point.
 - Do not duplicate module tests. Redirect, size, container, MIME, GIF, and cache
   behavior belong to their modules.
 - Feed and API fetches (`src/rss/**`, `src/musicbrainz.rs`, `src/api.rs`,
@@ -74,8 +79,8 @@ implementation, and shipped with no redirect handling, no scheme check, and only
 2. Guard that no media fetch appears in `src/ui/**` or `src/view_models/**`.
 3. Guard that image MIME classification exists only in `src/media/`, so the
    sniffer cannot migrate back into `audio_tags` or get re-copied.
-4. Guard that no `unwrap_or(ImageFormat::Jpeg)` or equivalent silent
-   format-guessing fallback returns to `src/`.
+4. Guard that no `unwrap_or(ImageFormat::Jpeg)` or equivalent silent format
+   guess returns to `src/`.
 5. Guard that the enclosure path retains container validation, so
    `unwrap_or(declared_format)` cannot come back.
 6. Guard that display-only fetch results are not routed into APIC writes or local
@@ -83,15 +88,15 @@ implementation, and shipped with no redirect handling, no scheme check, and only
 7. Record in the review doc which ADR 0056 rules are structurally guarded and
    which remain unit-test-only, so the coverage shape is legible to the next
    reader.
-8. Add `docs/reviews/adr-0056-task-004-review.md` with the final result,
-   verification commands, and merge recommendation.
+8. Record the final result in `docs/reviews/adr-0056-implementation-review.md`,
+   with verification commands and merge recommendation.
 
 ## Acceptance Criteria
 
 - Guards fail if a new media fetch bypasses the transport module.
 - Guards fail if a media fetch appears in UI or view-model layers.
 - Guards fail if image classification appears outside `src/media/`.
-- Guards fail if a silent image-format or audio-format fallback returns.
+- Guards fail if a silent image-format or audio-format guess returns.
 - Guards fail if a display-only fetch result reaches an artifact write.
 - Feed and API fetch paths are untouched by the guards.
 - Existing module tests remain the source of truth for behavior.
@@ -160,7 +165,7 @@ Do not touch:
 
 Acceptance criteria:
 - Guards cover transport bypass, UI/view-model fetches, classifier placement,
-  silent format fallbacks, enclosure container validation, and display-only fetch
+  silent format guesses, enclosure container validation, and display-only fetch
   isolation.
 - Feed and API paths untouched.
 - Task review doc added.

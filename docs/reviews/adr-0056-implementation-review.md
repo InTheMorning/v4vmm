@@ -1,9 +1,9 @@
 # ADR 0056 Implementation Review
 
 Covers task packets 001-004, implemented as one change rather than four
-sequential ones. The packets each specify a per-task review doc; this
-consolidated review replaces those four, because the work landed as a single
-change and per-task provenance would be fabricated after the fact.
+sequential ones. The packets each specify a per-task review doc. This
+consolidated review replaces those four. The work landed as a single change, so
+per-task provenance would be fabricated after the fact.
 
 ## Result
 
@@ -24,7 +24,7 @@ Modified:
 - `src/audio_tags.rs` - transport migration for APIC and transcript, classifier
   moved out, transcript markup rejection, APIC byte-only typing
 - `src/media/image_cache.rs` - transport migration, classification, client field
-  removed, JPEG fallbacks removed
+  removed, JPEG default paths removed
 - `src/media/mod.rs` - `image_from_bytes` returns `Option`
 - `src/subscribe_service.rs` - `download_image` transport and classification,
   unused client parameters removed
@@ -40,15 +40,15 @@ Modified:
 ## Decisions Made During Implementation
 
 **Client ownership.** The transport module owns its client, built with
-`Policy::none()`. Callers no longer pass one. Task 001 left this open; the
-alternative (callers keep passing clients) leaves the boundary's redirect loop
+`Policy::none()`. Callers no longer pass one. Task 001 left this open. The
+alternative, where callers keep passing clients, leaves the boundary redirect loop
 unexercised under the configuration production uses, which was the original
 defect in the test suite.
 
 **Space repair removed.** Task 001 required an empirical decision. A test
 established that `Url::join` percent-encodes raw spaces in a path, so
 `base.join(location).or_else(|_| base.join(&location.replace(' ', "%20")))` never
-reached its fallback. Removed; parser behavior pinned by
+reached the repair path. Removed. Parser behavior is pinned by
 `remote_media::tests::location_with_raw_spaces_resolves_without_repair`. The ADR
 paragraphs describing the repair were removed in the same change.
 
@@ -61,14 +61,15 @@ because it writes an artifact. See the post-review fixes below.
 Three findings from a review pass after the first implementation:
 
 1. **APIC accepted a declared type alone.** `read_picture_reference` used
-   `classify`, whose declared-`image/*` fallback contradicted the ADR invariant
+   `classify`, whose declared-`image/*` backup type contradicted the ADR invariant
    that no artifact is promoted on declared type alone. A 200 response carrying
-   markup under `Content-Type: image/jpeg` would have been embedded. Fixed to
-   byte-recognition only; ADR Decision bullet tightened to match the invariant it
-   contradicted; regression test added.
-2. **Transport client had a silent fallback.** `unwrap_or_else(|_| Client::new())`
-   would have substituted a redirect-following client on builder failure - the
-   same silent-substitution pattern this ADR removes elsewhere. Now `expect`.
+   markup under `Content-Type: image/jpeg` would have been embedded. The fix uses
+   byte recognition only. The ADR Decision bullet now matches the invariant.
+   A regression test covers the rule.
+2. **Transport client had a silent backup path.** `unwrap_or_else(|_| Client::new())`
+   would have substituted a redirect-following client on builder failure. That
+   is the same silent-substitution pattern this ADR removes elsewhere. The code
+   now uses `expect`.
 3. **Guards had two gaps.** `subscribe_service` was absent from the artifact
    owner guard (it cannot be banned from `reqwest` wholesale, since it builds the
    MusicBrainz client), and nothing pinned APIC's byte-only rule. Added
@@ -124,7 +125,7 @@ Per the status hygiene rule in
 
 - ADR 0056 status updated to record the amendment and that Tasks 001-004 are
   implemented.
-- Task packets 001-004 remain as the record of per-layer responsibility; this
+- Task packets 001-004 remain as the record of per-layer responsibility. This
   document replaces their four per-task review docs.
 - Deferred-work index reconciled: ADR 0056 added to Recently Resolved, its three
   conditional follow-ups routed to a new Conditional Follow-Ups section, and
@@ -135,4 +136,4 @@ Per the status hygiene rule in
 
 Merge. The guards are the durable part: the defect this ADR exists to fix was a
 missed call site, and seven structural guards now fail the build if a media fetch,
-image classification, or silent format fallback reappears outside its owner.
+image classification, or silent format guess reappears outside its owner.

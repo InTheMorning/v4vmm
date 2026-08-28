@@ -2,11 +2,12 @@
 
 ## Status
 
-Accepted - 2026-08-28. Amended 2026-08-28 after implementation review. The
-amendment reverses this ADR's deferral of a shared fetch module, states the
-three-layer ownership explicitly, adds the remote transcript path the original
-version missed, and requires container validation on enclosures and byte-derived
-image typing on every path. Tasks 001-004 are implemented.
+Implemented - 2026-08-28. Amended 2026-08-28 after implementation review. The
+amendment replaces a deferred implementation note with the shared fetch module.
+Implementation showed that the deferral threshold was already met. The amendment
+also states the three-layer ownership model, adds the remote transcript path, and
+requires byte-derived image typing on every artifact path. Tasks 001-004 are
+complete.
 
 ## Context
 
@@ -42,7 +43,7 @@ handles itself rather than as something the HTTP client has already resolved.
 
 This is a source-boundary problem. The bad artifact is created before playback,
 tag comparison, metadata display, or UI rendering sees the local file. Renderer
-fallbacks must not hide or reinterpret the problem after the fact.
+default values must not hide or reinterpret the problem after the fact.
 
 Not every remote image fetch is part of this boundary. The `download_image`
 helper in `subscribe_service` and the fetch path in `media::image_cache` fetch
@@ -85,21 +86,21 @@ Audio enclosure downloads must:
   enclosure length
 - fail before promotion when the staged bytes do not resolve to a supported
   audio container, independent of any declared byte count
-- never fall back to the RSS-declared format when container detection fails,
-  because that fallback relabels unrecognized bytes as the expected format
+- never use the RSS-declared format when container detection fails, because that
+  rule relabels unrecognized bytes as the expected format
 
 Remote APIC artwork downloads must:
 
 - reject empty image responses
-- derive image MIME from the actual image bytes, with no declared-type fallback
+- derive image MIME from the actual image bytes, without using the declared type
 - never accept a remote URL extension as proof that the response body is image
   data
 
 APIC is deliberately stricter than the display paths. Both derive type from
-bytes first, but only the display paths may fall back to a declared `image/*`
-type. A lying server that returns markup under `Content-Type: image/jpeg` costs
-a display path one broken thumbnail; it would cost the APIC path a corrupted
-file that outlives the session.
+bytes first. Only display paths may use a declared `image/*` type when byte
+sniffing fails. A lying server that returns markup under
+`Content-Type: image/jpeg` costs a display path one broken thumbnail. It would
+cost the APIC path a corrupted file that outlives the session.
 
 Remote transcript references must:
 
@@ -109,8 +110,8 @@ Remote transcript references must:
 
 Display-only image fetches (thumbnails, cover-art lookup) must:
 
-- derive image MIME from the actual image bytes before trusting the declared
-  response content type, which may serve as a fallback
+- derive image MIME from the actual image bytes first
+- use the declared response content type only when byte sniffing fails
 - treat an unrecognized type as no image, never as an assumed format
 - write no cache entry for a failed fetch
 
@@ -121,9 +122,9 @@ schemes, and reject non-success final HTTP statuses.
 The raw-space `Location` repair is removed. It was written to handle the
 `http://host/Music/song file.mp3` values the White Triangles feed returned, but
 the WHATWG URL parser already percent-encodes raw spaces in a path, so the
-fallback never executed. `remote_media` pins that parser behavior in a test
-instead of carrying dead defensive code. The real defect was never the spaces; it
-was that nothing rejected a 3xx response body.
+repair path never executed. `remote_media` pins that parser behavior in a test
+instead of carrying dead defensive code. The real defect was not the spaces. The
+defect was that nothing rejected a 3xx response body.
 
 Redirect depth is bounded by one named constant in the transport module, not by
 per-caller literals.
@@ -172,11 +173,12 @@ decision.
 - Every remote media fetch, artifact-writing or display-only, resolves redirects
   and rejects unsupported schemes through the same transport policy. No caller
   relies on the HTTP client's implicit redirect behavior.
-- Remote image type is derived from response bytes first on every path. A
-  declared `image/*` type is a fallback for display paths only, never for an
-  artifact write, and no path silently assumes JPEG for an unrecognized type.
+- Remote image type is derived from response bytes first on every path. Display
+  paths only may use a declared `image/*` type when byte sniffing fails. Artifact
+  writes must not use the declared type. No path silently assumes JPEG for an
+  unrecognized type.
 - Local APIC image files may still use path extension as a MIME hint because the
-  operator controls the file path; remote APIC image responses may not.
+  operator controls the file path. Remote APIC image responses may not.
 - Remote media URL schemes are limited to HTTP and HTTPS until a later ADR
   expands the supported transport set.
 - Redirect behavior is covered by regression tests for both enclosure downloads
@@ -215,15 +217,16 @@ The deferral said a shared helper was justified once a third call site needed th
 same policy. That test was already met when the ADR was written and nobody
 counted: five media fetch sites existed, two had the policy and three did not.
 The deferral also mis-framed the threshold as a duplication concern, when the
-real cost is divergence. Duplication is visible in review; divergence is not,
-which is how the commit that added redirect handling twice left the third path in
+real cost is divergence. Duplication is visible in review. Divergence is not.
+That is how the commit that added redirect handling twice left the third path in
 the same file untouched, and nothing reported a gap.
 
-The extraction covers transport only: scheme, bounded redirects, status. Enclosure size and container rules stay in `track_compare`,
-APIC and transcript rules stay in `audio_tags`, and the display paths keep their
-own content policy. Those four callers genuinely disagree about what a valid
-response body is, and that disagreement is the reason to keep artifact policy
-separate rather than to keep transport scattered.
+The extraction covers transport only: scheme, bounded redirects, and status.
+Enclosure size and container rules stay in `track_compare`. APIC and transcript
+rules stay in `audio_tags`. The display paths keep their own content policy.
+Those four callers genuinely disagree about what a valid response body is. That
+disagreement is the reason to keep artifact policy separate rather than to keep
+transport scattered.
 
 ### Keep Image Classification In `audio_tags`
 
@@ -276,11 +279,11 @@ Task packets 001-004 are implemented together in one change. The packets remain
 as the record of what each layer was responsible for.
 
 1. `docs/tasks/adr-0056-task-001-remote-media-transport-module.md` - done.
-   `src/remote_media.rs` owns transport; all five media fetch sites migrated,
+   `src/remote_media.rs` owns transport. All five media fetch sites migrated,
    including the previously missed transcript path.
 2. `docs/tasks/adr-0056-task-002-image-classification-owner.md` - done.
-   `src/media/image_type.rs` owns image classification; all four silent JPEG
-   fallbacks removed.
+   `src/media/image_type.rs` owns image classification. All four silent JPEG
+   default paths removed.
 3. `docs/tasks/adr-0056-task-003-artifact-content-policy.md` - done. Enclosure
    container validation and transcript markup rejection.
 4. `docs/tasks/adr-0056-task-004-remote-fetch-boundary-guard.md` - done. Seven

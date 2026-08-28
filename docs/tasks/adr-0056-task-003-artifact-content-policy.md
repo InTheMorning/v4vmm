@@ -1,5 +1,10 @@
 # ADR 0056 Task 003: Artifact Content Policy
 
+## Status
+
+Implemented - 2026-08-28. Do not execute this task again. See
+`docs/reviews/adr-0056-implementation-review.md`.
+
 ## Goal
 
 With transport centralized (Task 001) and image classification centralized
@@ -9,7 +14,7 @@ artifacts genuinely differ.
 
 Two gaps remain.
 
-**Enclosure container fallback.** `download_track` validates size only when
+**Enclosure container default.** `download_track` validates size only when
 `enclosure.bytes` is present and positive, then calls:
 
 ```
@@ -29,14 +34,14 @@ because markup is non-empty text.
 ## Policy Table
 
 The end state this task locks in. Transport rules are identical everywhere and
-live in the Task 001 module; only this column varies.
+live in the Task 001 module. Only this column varies.
 
 | Artifact | Owner | Content policy |
 | --- | --- | --- |
-| Enclosure track file | `track_compare` | supported audio container required; declared byte count must match when positive |
+| Enclosure track file | `track_compare` | supported audio container required. Declared byte count must match when positive |
 | APIC artwork | `audio_tags` | image type required, byte-derived first |
-| Transcript text | `audio_tags` | non-empty after parse; markup responses rejected |
-| Thumbnail / cover art | `media`, `subscribe_service` | image type required, byte-derived first; no artifact written |
+| Transcript text | `audio_tags` | non-empty after parse. Markup responses rejected |
+| Thumbnail / cover art | `media`, `subscribe_service` | image type required. Byte-derived first. No artifact written |
 
 ## Files To Inspect
 
@@ -49,7 +54,7 @@ live in the Task 001 module; only this column varies.
 
 - `src/track_compare.rs`
 - `src/audio_tags.rs`
-- `docs/reviews/adr-0056-task-003-review.md`
+- `docs/reviews/adr-0056-implementation-review.md`
 
 ## Do Not Touch
 
@@ -71,17 +76,17 @@ live in the Task 001 module; only this column varies.
 - Keep the existing declared-vs-detected mismatch warning for the case where
   detection succeeds and disagrees with the RSS declaration. That warning is
   useful precisely because it now only fires on real audio.
-- Keep `validate_downloaded_size`. Both checks stay; neither replaces the other.
+- Keep `validate_downloaded_size`. Both checks stay. Neither replaces the other.
 - Preserve staging cleanup through `cleanup_on_err`. A rejected download leaves
   nothing under the staging root.
 - Error messages must distinguish container rejection from size mismatch.
 - Transcript rejection should key on the declared response type rather than
-  sniffing text heuristically. `text/html` is the case that occurs in practice;
-  do not build a general markup detector.
+  sniffing text heuristically. `text/html` is the case that occurs in practice.
+  Do not build a general markup detector.
 
 ## Implementation Steps
 
-1. Replace the `unwrap_or(declared_format)` fallback with a failing path routed
+1. Replace the `unwrap_or(declared_format)` default with a failing path routed
    through `cleanup_on_err`.
 2. Keep the ordering explicit: download, size validation, container validation,
    then rename and promotion.
@@ -92,8 +97,8 @@ live in the Task 001 module; only this column varies.
    the declared format still succeeds and still reports the mismatch warning.
 6. Add a regression test: an HTML body served with 200 does not become transcript
    text.
-7. Add `docs/reviews/adr-0056-task-003-review.md` with the result and
-   verification commands.
+7. Record the result in `docs/reviews/adr-0056-implementation-review.md`, with
+   the result and verification commands.
 
 ## Acceptance Criteria
 
@@ -131,7 +136,7 @@ live in the Task 001 module; only this column varies.
   not recognize, making rejection too strict.
 - Container validation cannot run before promotion without restructuring the
   staging flow.
-- An existing test depends on the declared-format fallback.
+- An existing test depends on the declared-format default.
 - A real feed serves legitimate transcripts under a markup content type.
 
 ## Prompt for lower-context coding model
@@ -139,7 +144,7 @@ live in the Task 001 module; only this column varies.
 You are implementing one bounded task from a larger plan.
 
 Implement only this task. Do not redesign the architecture. Tasks 001 and 002
-have landed; transport and image classification are centralized and are not your
+have landed. Transport and image classification are centralized and are not your
 concern.
 
 Read:
@@ -158,7 +163,7 @@ Constraints:
 - Do not add cases to `AudioFormat::detect_from_bytes`.
 - Keep `validate_downloaded_size` and the declared-vs-detected mismatch warning.
 - Error text must distinguish container rejection from size mismatch.
-- Transcript rejection keys on the declared response type; do not build a markup
+- Transcript rejection keys on the declared response type. Do not build a markup
   detector.
 
 Do not touch:
