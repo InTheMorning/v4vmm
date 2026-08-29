@@ -33,7 +33,7 @@ view model, primitive, composite, token, or architecture guard.
 
 Default ownership:
 
-- Music presentation facts, fallback labels, availability, empty states,
+- Music presentation facts, default labels, availability, empty states,
   summaries, filter state, and command intent belong in GPUI-free view models
   or `src/views.rs`.
 - Button/action vocabulary, disabled/enabled state, destructive or primary
@@ -59,15 +59,15 @@ the smallest edit to the visible renderer.
 Do not:
 
 - adjust button color, label, icon, disabled state, or command copy in one
-  screen when the button family appears elsewhere;
-- add a renderer-local fallback for music titles, artists, publishers,
-  metadata rows, empty states, or transport/error text;
+  screen when the button family appears elsewhere
+- add a renderer-local default for music titles, artists, publishers,
+  metadata rows, empty states, or transport/error text
 - fork row/card/panel spacing or hit targets in a shell to satisfy one
-  screenshot;
+  screenshot
 - bypass an existing primitive/composite because the direct GPUI chain is
-  shorter;
+  shorter
 - remove a workflow path, filter behavior, inspector empty state, or scroll
-  constraint to make a layout fix easier;
+  constraint to make a layout fix easier
 - add a new duplicate `render_*` helper instead of extending the shared
   component or proving with an ADR/task why consolidation is not yet possible.
 

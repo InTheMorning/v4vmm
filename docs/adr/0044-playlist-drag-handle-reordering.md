@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted - 2026-05-08. Implementation partial: follow-up fixes landed;
-operator visual recheck outstanding. See
+Accepted - 2026-05-08. Implementation partial: follow-up fixes landed.
+Operator visual recheck outstanding. See
 `docs/reviews/adr-0044-review-checklist.md`.
 
 ## Context
@@ -17,9 +17,9 @@ That shape is functional but not aligned with the app's current
 human-interface direction:
 
 - playlist rows are list items, and reordering list items is more direct
-  when the item itself can be moved;
+  when the item itself can be moved.
 - visible arrow pairs add repeated row chrome and compete with play and
-  remove actions;
+  remove actions.
 - the row display contract already owns reorder ids and labels, so this
   should be a structural VM/shell change, not a local button swap.
 
@@ -37,14 +37,14 @@ The playlist shell shows an insertion line between rows while dragging a
 playlist row over a valid target. It does not live-shift rows before
 drop in v1.
 
-Accessible fallback remains available through row Actions menu items:
+Accessible alternatives remain available through row Actions menu items:
 
 - Move Up
 - Move Down
 - Remove
 
 Move Up and Move Down are disabled at the first and last positions. The
-fallback commands use the existing reorder command path.
+alternative commands use the existing reorder command path.
 
 The data flow stays the same:
 
@@ -58,7 +58,7 @@ The data flow stays the same:
 - Keep arrow buttons and add drag as an extra feature. Rejected because
   it keeps duplicated reorder chrome in every row.
 - Whole-row dragging. Rejected because the row body already owns
-  selection/open behavior; a handle avoids gesture conflict.
+  selection/open behavior. A handle avoids gesture conflict.
 - Drag-only reordering. Rejected because HIG drag-and-drop guidance asks
   for alternate ways to complete tasks.
 - Live row shifting during drag. Deferred because insertion-line
@@ -71,7 +71,7 @@ Positive:
 - Reordering becomes direct and visually quieter.
 - Reorder display policy remains in playlist row view models.
 - Existing backend/application reorder code is reused.
-- Accessibility is stronger than drag-only because menu fallback remains.
+- Accessibility is stronger than drag-only because menu alternatives remain.
 
 Negative:
 

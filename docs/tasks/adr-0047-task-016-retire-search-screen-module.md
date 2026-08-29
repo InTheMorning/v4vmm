@@ -1,12 +1,12 @@
 # ADR 0047 Task 016: Retire src/search.rs Screen Module
 
-Status: Implemented for module-boundary retirement - 2026-05-16.
+Status: Implemented - 2026-05-16. Scope: module-boundary retirement.
 
 Implementation note: the lower-context audit found the documented escalation
 trigger: `SearchApp` and related Discover command/state types are still
 referenced by live app, keyboard, event, and shell paths. This task therefore
 retired the top-level `src/search.rs` / `crate::search` module boundary and the
-workspace fallback toggle, while preserving the existing Discover behavior under
+workspace render backup toggle, while preserving the existing Discover behavior under
 `src/discover.rs` until a later explicit task removes or replaces that command
 owner.
 
@@ -113,11 +113,12 @@ Read:
 - `tests/architecture_tests.rs`
 
 Goal:
-- Delete `src/search.rs`; retire `WORKSPACE_RENDER_ENABLED`. Lift
-  any remaining unique render blocks into shared composites first.
+- Delete `src/search.rs`.
+- Retire `WORKSPACE_RENDER_ENABLED`.
+- Lift any remaining unique render blocks into shared composites first.
 
 Constraints:
-- No render path may be lost; every block has a shared-composite
+- No render path may be lost. Every block has a shared-composite
   replacement before deletion.
 - Architecture guards forbid re-introduction.
 
@@ -127,7 +128,10 @@ Do not touch:
 - `src/db.rs`
 
 Acceptance criteria:
-- search.rs gone; toggle gone; tests green; guards lock absence.
+- `src/search.rs` is gone.
+- The toggle is gone.
+- Tests are green.
+- Guards lock absence.
 
 Test commands:
 - `cargo fmt -- --check`
@@ -146,8 +150,8 @@ At the end, report:
 ## Escalation Triggers
 
 - Unique render blocks in `src/search.rs` exist that no shared
-  composite covers (escalate; this task should not implement large
-  new composites — that work belongs to the entity-render
-  unification plan).
+  composite covers. Escalate. This task should not implement large
+  new composites. That work belongs to the entity-render
+  unification plan.
 - `SearchApp` or related types are referenced by services or
   command paths (escalate before keeping vestigial types).

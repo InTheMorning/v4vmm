@@ -12,10 +12,16 @@ Manual review focus:
 
 - `AGENTS.md`
 - ADR 0056, ADR 0057, and ADR 0058
+- ADR 0043 and ADR 0044 status lines
+- ADR 0046 and ADR 0047 phase plans
+- ADR 0047 Task 016
 - ADR 0056 task packets
 - ADR 0056 implementation review
+- documentation and architecture audit
 - deferred-work index
+- active UI guidance docs
 - `docs/README.md`
+- `README.md`
 
 The corpus contains 444 Markdown files. The scan used STE-flavored mode for ADRs,
 plans, reviews, and explanatory prose. It used Strict mode for agent instructions,
@@ -103,10 +109,28 @@ Applied rewrite:
 
 - ADR 0056, ADR 0058, the deferred-work index, and ADR 0056 Tasks 001-004 now
   split the highest-risk compound sentences.
+- ADR 0057 and the documentation audit now describe the ADR 0056 amendment with
+  the same "deferred implementation note" wording.
+- ADR 0043 and ADR 0044 partial-status text now names each open gate in a
+  separate sentence.
+- ADR 0046 and ADR 0047 phase plans now separate status, scope, acceptance
+  conditions, and mitigation steps.
+- ADR 0047 Task 016 now uses one command per sentence in the lower-context
+  prompt.
 - The ADR 0056 implementation review now uses the same terms as the amended ADR
   and task packets.
 - `docs/README.md` now links to the new STE review and ADR 0058 implementation
   review.
+
+### Current Index And Overview Text
+
+Problem: `README.md` and `docs/README.md` had long scan lines and dense index
+entries.
+
+Applied rewrite:
+
+- `README.md` now splits long overview and metadata sentences.
+- `docs/README.md` now groups entries and wraps descriptions.
 
 ## Optional Improvements
 
@@ -117,6 +141,9 @@ Applied rewrite:
   instructions.
 - Archive or annotate older task packets whose instructions were superseded by
   later review fixes. Task 002 is the current example.
+- Consider a separate pass for completed task-packet inventories where legacy UI
+  default-value terms are part of historical text or test names. Do not rename
+  test identifiers only to satisfy prose style.
 
 ## Corpus Notes
 

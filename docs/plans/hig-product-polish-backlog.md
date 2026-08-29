@@ -63,7 +63,7 @@ Acceptance direction:
 
 - Keep the global toolbar input as the single search entry.
 - Add a GPUI-free suggestion/recent-search projection before rendering UI.
-- Distinguish saved searches from recent searches; do not move Library saved
+- Distinguish saved searches from recent searches. Do not move Library saved
   searches into toolbar state by accident.
 - Provide a clear way to clear recent search history if it is displayed.
 - Add unit coverage for suggestion/recent projection and an architecture guard
@@ -96,11 +96,11 @@ materials for toolbar, sidebar, search field, menus, or popovers.
 
 Acceptance direction:
 
-- Route material adoption through tokens/theme/profile/environment roles; do
+- Route material adoption through tokens/theme/profile/environment roles. Do
   not add raw alpha, blur, color, or material literals in screens.
 - Preserve contrast and readable text in light, dark, and high-contrast modes.
-- Respect transparency-reduction fallbacks where GPUI/platform support exists;
-  otherwise document the fallback explicitly.
+- Respect transparency-reduction behavior where GPUI/platform support exists.
+  Otherwise document the default behavior explicitly.
 - Start with toolbar/sidebar/search-field surfaces before lower-priority cards.
 - Add architecture guards that keep material roles out of screen renderers.
 - Capture visual proof in light and dark themes.
@@ -112,8 +112,8 @@ focus, back navigation, sidebar reveal, and settings.
 
 Acceptance direction:
 
-- Audit desired shortcuts against `inputs/keyboards.md` before binding them;
-  do not repurpose standard shortcuts when the app action does not match.
+- Audit desired shortcuts against `inputs/keyboards.md` before binding them.
+  Do not repurpose standard shortcuts when the app action does not match.
 - Prefer Command-based shortcuts for frequent app commands and descriptive
   command titles.
 - Route shortcuts through the app command/keyboard layer, not one-off screen
@@ -150,10 +150,10 @@ Each HIG product-polish task must include:
 
 - Search suggestions/recent searches: ADR 0043/0048 follow-up task unless the
   projection contract changes enough to require a new ADR.
-- Sidebar show/hide/customization: ADR 0046 follow-up task; new ADR only if
+- Sidebar show/hide/customization: ADR 0046 follow-up task. New ADR only if
   persistence, menu architecture, or source-list customization contracts
   change broadly.
 - Liquid Glass: ADR 0025/0034 follow-up, likely ADR-backed if token/material
   roles change.
-- Keyboard shortcuts: ADR 0046/app-command follow-up task; ADR-backed only if
+- Keyboard shortcuts: ADR 0046/app-command follow-up task. ADR-backed only if
   command architecture changes.

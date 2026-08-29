@@ -1,8 +1,10 @@
 # V4V Music Manager
 
-`v4vmm` is a Linux-first GPUI desktop app for working with MusicIndex-backed music feeds and a local managed audio library.
+`v4vmm` is a Linux-first GPUI desktop app for working with
+MusicIndex-backed music feeds and a local managed audio library.
 
-The current tool is not a generic roadmap project or a future media player shell. It is a desktop operator app that already does four concrete jobs:
+The current tool is not a generic roadmap project or a future media player
+shell. It is a desktop operator app that already does four concrete jobs:
 
 - discover artists, feeds, and tracks from MusicIndex
 - subscribe feeds by pulling their RSS into a local SQLite database
@@ -14,12 +16,17 @@ The current tool is not a generic roadmap project or a future media player shell
 - `Discover` searches MusicIndex and shows recent feeds when the search box is empty.
 - Feed and track inspectors can subscribe or unsubscribe content against the local database.
 - Subscribing a feed stores its RSS metadata locally and attempts to download each track.
-- Subscribing a track stores the parent feed if needed, downloads the file, and marks that track as part of the managed library.
+- Subscribing a track stores the parent feed if needed, downloads the file, and
+  marks that track as part of the managed library.
 - `Library` shows subscribed tracks grouped by artist and release/feed.
-- `Cached` shows downloaded files that exist locally but are not currently marked as subscribed library tracks.
-- Local track inspectors can compare embedded ID3 data against RSS-derived metadata and stage explicit ID3v2.4 edits.
-- Local track and album inspectors can run metadata-based MusicBrainz lookups and use the results to stage more ID3 edits.
-- The library can check subscribed feeds for newer `updated_at` values from MusicIndex and apply tag refreshes to downloaded files.
+- `Cached` shows downloaded files that exist locally but are not currently
+  marked as subscribed library tracks.
+- Local track inspectors can compare embedded ID3 data against RSS-derived
+  metadata and stage explicit ID3v2.4 edits.
+- Local track and album inspectors can run metadata-based MusicBrainz lookups.
+  They can use the results to stage more ID3 edits.
+- The library can check subscribed feeds for newer `updated_at` values from
+  MusicIndex and apply tag refreshes to downloaded files.
 
 ## Current Scope
 
@@ -82,7 +89,7 @@ The `Settings` tab lets you update:
 
 - `musicindex_endpoint`
 - `music_dir`
-- `flac_path` (optional override; blank means use `flac` from `$PATH`)
+- `flac_path` (optional override. Blank means use `flac` from `$PATH`)
 
 Downloads are organized under:
 
@@ -107,12 +114,15 @@ That gives the UI two useful views:
 
 ## Metadata Behavior
 
-The app is provenance-first. It keeps RSS, MusicIndex, embedded tags, and MusicBrainz values separate instead of silently collapsing them into one inferred truth.
+The app is provenance-first. It keeps RSS, MusicIndex, embedded tags, and
+MusicBrainz values separate. It does not silently collapse them into one
+inferred truth.
 
 Current behavior:
 
 - RSS import stores source feed and item metadata locally.
-- RSS enrichment can pull transcript URLs and nostr handles directly from feed XML when MusicIndex detail data is missing them.
+- RSS enrichment can pull transcript URLs and nostr handles directly from feed
+  XML when MusicIndex detail data is missing them.
 - Local compare views line up RSS, ID3, and optionally MusicBrainz values side by side.
 - Applying tag changes writes explicit ID3v2.4 frames only.
 - MusicBrainz lookup is metadata-based. There is no acoustic fingerprinting flow in this app.
@@ -120,7 +130,8 @@ Current behavior:
 Current limitations:
 
 - embedded metadata inspection and editing are centered on ID3-backed files
-- the library download layer recognizes more than MP3, but the richest compare/edit flows are still MP3/ID3-first
+- the library download layer recognizes more than MP3, but the richest
+  compare/edit flows are still MP3/ID3-first
 - search-side download/compare code still follows an MP3-oriented path
 
 ## Keyboard Shortcuts

@@ -13,7 +13,7 @@ artifact). Builds on ADR 0046 (Workspace Frame Architecture).
 No blocking conflicts. Three integration points handled in this plan:
 
 1. **Frame chrome ownership (ADR 0046 invariant 5).** Breadcrumbs and
-   filter chips render through `frame_shell` composite only; this
+   filter chips render through `frame_shell` composite only. This
    plan extends `FrameShellDisplay` rather than adding a sibling
    chrome composite.
 2. **Transitional whole-screen mount (ADR 0046 task 007).** Phase F
@@ -98,18 +98,18 @@ Deliverables:
 - Description section gains disclosure with auto-collapse threshold
 - Architecture guards for each invariant
 
-Acceptance: Library track inspector compact by default; expansion is
-explicit; non-downloaded items cannot reveal extra-field groups.
+Acceptance: Library track inspector compact by default. Expansion is
+explicit. Non-downloaded items cannot reveal extra-field groups.
 
 Risks: visible regressions in Library workflow. Mitigation: keep
-existing fields visible to expanded state; default to expanded for
+existing fields visible to expanded state. Default to expanded for
 backward parity until D ships filter chips.
 
 ## Phase D - Per-Frame Filter Chips
 
-Status: Implemented for Phase E sequencing - Task 010 Library-backed visible
-wiring and Task 011 toolbar scope retirement are implemented and visually
-confirmed - 2026-05-15.
+Status: Implemented - 2026-05-15. Scope: Phase E sequencing.
+Task 010 Library-backed visible wiring and Task 011 toolbar scope retirement are
+implemented and visually confirmed.
 
 Goal: relocate the All/Library/Index control from toolbar scope chips
 to per-frame chrome chips.
@@ -133,18 +133,18 @@ Deliverables:
   the Library-backed `ContentList` frame VM without introducing a
   global filter store
 - `GlobalSearchScope` and the toolbar segmented control removed
-- Architecture guards: no toolbar filter control; no global filter
+- Architecture guards: no toolbar filter control. No global filter
   store
 
 Current acceptance: the Library-backed `ContentList` frame renders its
 own chip strip, filter changes apply only to that frame, empty filter
 results use VM-owned copy, and the toolbar no longer duplicates the
 per-frame source filter. No explicit narrow-menu proof was requested before
-Phase E began; narrow pull-down visual proof remains in the Phase G visual
+Phase E began. Narrow pull-down visual proof remains in the Phase G visual
 inventory.
 
 Risks: HIG drift in narrow-mode pull-down. Mitigation: reuse existing
-pull-down primitive; visual proof in Phase G.
+pull-down primitive. Visual proof is in Phase G.
 
 ## Phase E - Search-Results Inspector and Breadcrumbs
 
@@ -169,33 +169,33 @@ Deliverables:
 - Per-frame breadcrumb projection from generalized
   `FrameNavigationState` (workspace-VM-owned, multi-frame keyed)
 - `frame_shell` composite renders breadcrumbs with middle-ellipsis
-  truncation; back chevron remains
+  truncation. Back chevron remains.
 - Tabbed search-results inspector shell rendering Artists / Feeds /
   Tracks tabs through existing track/feed/artist composites
 - `SubmitGlobalSearch` opens or updates a `Detail` search-results frame through
-  `open_search_results_frame`; saved-search activation dispatches
+  `open_search_results_frame`. Saved-search activation dispatches
   `OpenSavedSearch(saved_search_id, query)` and reuses the same Detail
   inspector path
 - The Search Results inspector hydrates local Library-origin Artists,
   Feeds, and Tracks from `search_local_library_tracks`
 
-Acceptance: search submit produces an inspector with breadcrumbs;
-re-submitting updates the existing Detail search-results frame instead of
-switching to the Search tab; saved searches in source list open the same
+Acceptance: search submit produces an inspector with breadcrumbs.
+Re-submitting updates the existing Detail search-results frame instead of
+switching to the Search tab. Saved searches in source list open the same
 inspector without disturbing source-list selection. Local Library result
-loading was completed by the 2026-05-16 smoke-fix; remote Index loading
+loading was completed by the 2026-05-16 smoke-fix. Remote Index loading
 remains separate.
 
 Risks: nav state generalization cascades into Library callers.
 Mitigation: ship the workspace-VM ownership move as a discrete prior
-step inside task 012; do not change observable behavior until task
+step inside task 012. Do not change observable behavior until task
 015 wires the new command.
 
 ## Phase F - Retire `src/search.rs`
 
-Status: Implemented for module-boundary retirement - 2026-05-16.
+Status: Implemented - 2026-05-16. Scope: module-boundary retirement.
 
-Goal: delete the standalone Search screen module; route all
+Goal: delete the standalone Search screen module. Route all
 artist/feed/track render through shared composites consumed by
 content-list and inspector shells.
 
@@ -205,33 +205,33 @@ Tasks:
 
 Deliverables:
 
-- `src/search.rs` deleted; shared composites (`ui_artist`, `ui_feed`,
+- `src/search.rs` deleted. Shared composites (`ui_artist`, `ui_feed`,
   `ui_track`) host all entity render
 - Existing Discover command/state behavior preserved under `src/discover.rs`
-  because `SearchApp` still owns live keyboard, event, and shell callbacks;
+  because `SearchApp` still owns live keyboard, event, and shell callbacks.
   deleting it outright hit the Task 016 escalation trigger.
 - Library and search-result inspectors call the same composites
 - Feed and track membership controls are a single shared
   Download/Remove action vocabulary. UI labels must not expose
-  subscribe/unsubscribe wording; feed removal must leave any visible
+  subscribe/unsubscribe wording. Feed removal must leave any visible
   remote feed detail showing the `Download Feed` action state.
-- `WORKSPACE_RENDER_ENABLED` toggle removed; workspace render is the
+- `WORKSPACE_RENDER_ENABLED` toggle removed. Workspace render is the
   only path
-- Architecture guards: search.rs absent; no `crate::search::*` import
+- Architecture guards: search.rs absent. No `crate::search::*` import
 
-Acceptance: app builds and runs without `src/search.rs`; all entity
+Acceptance: app builds and runs without `src/search.rs`. All entity
 inspectors render through the existing shared shells/composites. The
-`crate::search` boundary and workspace fallback toggle are guarded absent.
+`crate::search` boundary and workspace render backup toggle are guarded absent.
 
 Risks: hidden call-site coupling. Mitigation: search-screen retirement
-is the last code-deletion step; preceding phases keep parallel paths
+is the last code-deletion step. Preceding phases keep parallel paths
 alive.
 
 ## Phase G - Guards and Visual Proof
 
-Goal: lock invariants and capture L/D visual proof.
+Goal: lock invariants and capture light/dark visual proof.
 
-Status: Implemented - 2026-05-18. Detail-frame visual items are historical;
+Status: Implemented - 2026-05-18. Detail-frame visual items are historical.
 ADR 0048 owns the current ContentList-frame search visual proof.
 
 Tasks:

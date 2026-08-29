@@ -28,9 +28,9 @@ index, which records it as closed on the same date.
 Separately, ADR 0001 states that an accepted ADR "is immutable except for status
 updates such as `Superseded`", but amendment in place is the actual practice.
 ADR 0035 records a scope amendment. ADR 0056 was amended substantially on
-2026-08-28, including reversing one of its own rejected alternatives after
-implementation disproved it. The rule and the practice have disagreed for
-months, which means neither is enforced.
+2026-08-28. That amendment replaced a deferred implementation note after
+implementation showed that the deferral threshold was already met. The rule and
+the practice have disagreed for months, which means neither is enforced.
 
 A status line nobody can trust costs more than no status line. A reader who
 cannot rely on the header has to verify every ADR against the code, which is the

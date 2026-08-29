@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted - 2026-05-08. Implementation partial: follow-up fixes landed;
-operator visual recheck outstanding. See
+Accepted - 2026-05-08. Implementation partial: follow-up fixes landed.
+Operator visual recheck outstanding. See
 `docs/reviews/adr-0043-review-checklist.md`.
 
 ## Context

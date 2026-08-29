@@ -46,8 +46,8 @@ these with evidence in the diff, tests, or final report:
 - Which regression guard blocks the same failure class?
 - Which visual surface was inspected, or what residual visual risk remains?
 
-If any answer is missing, the change is not complete. A small tweak is allowed;
-a small screen-local shortcut that weakens ownership is not.
+If any answer is missing, the change is not complete. A small tweak is allowed.
+A small screen-local shortcut that weakens ownership is not.
 
 ## Current Guards
 

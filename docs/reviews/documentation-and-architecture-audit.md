@@ -77,8 +77,8 @@ such as `Superseded`."
 
 In practice ADRs are amended in place. ADR 0035 records "Amended 2026-05-02 to
 widen scope". ADR 0056 was amended substantially on 2026-08-28, including
-reversing one of its own rejected alternatives. That amendment was mine, and it
-broke this rule.
+replacing a deferred implementation note after implementation disproved the
+deferral threshold. That amendment was mine, and it broke this rule.
 
 Either the immutability rule should be superseded to permit dated amendments, or
 amendments should become new ADRs. The current state gives no guidance on which
@@ -133,7 +133,7 @@ return date.
 > indefinitely. That was wrong. `reqwest`'s blocking `ClientBuilder::timeout`
 > defaults to 30 seconds, and that default was already in force at every
 > construction site. The finding is retained in corrected form because the
-> ownership problem below is real; the hang was not.
+> ownership problem below is real. The hang was not.
 
 Ten sites construct blocking HTTP clients independently: `rss/enrich.rs`,
 `rss/subscribe.rs`, `api.rs` (x2), `feed_service.rs` (x2),
@@ -184,7 +184,7 @@ troubleshooting documents above describe.
 
 ADR 0055 established module decomposition for the search view model. The same
 treatment has not reached these four. `db.rs` in particular is the single owner
-of all persistence, which several ADRs rely on as a boundary; its size makes
+of all persistence, which several ADRs rely on as a boundary. Its size makes
 that boundary hard to audit.
 
 ## P3: Documentation Volume Outpaces Its Index
@@ -207,7 +207,7 @@ an index.
   #2, Library/Discover data parity", but current item #2 is "Staged metadata
   durability". The priority list was renumbered and the historical reference now
   points at the wrong item. Numbered lists referenced by number will keep
-  drifting; referring to items by name would not.
+  drifting. Referring to items by name would not.
 
 ## Not Problems
 
@@ -242,6 +242,6 @@ Worth recording so they are not re-investigated:
 
 ## Merge Recommendation
 
-Not a code change; no merge. Findings P1 and P2 should be routed to
+Not a code change. No merge. Findings P1 and P2 should be routed to
 `docs/plans/deferred-architecture-work-index.md` if they are not being acted on
 immediately, per that document's own purpose.

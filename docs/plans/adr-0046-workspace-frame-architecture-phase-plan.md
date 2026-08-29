@@ -1,6 +1,6 @@
 # ADR 0046 Phase Plan: Workspace Frame Architecture
 
-Status: Implemented for v1 scope - 2026-05-15.
+Status: Implemented - 2026-05-15. Scope: v1.
 
 Visible multi-frame open/close commands remain explicitly deferred until real
 per-frame content owners exist. The implemented v1 scope includes the
@@ -8,7 +8,7 @@ workspace model, frame shell, queue frame, layout persistence, command-deferral
 guards, and model-only detach/dock readiness.
 
 Companion to `docs/adr/0046-workspace-frame-architecture.md`. Each phase
-is additive; the prior visible UI keeps rendering until the
+is additive. The prior visible UI keeps rendering until the
 workspace-frame path is validated.
 
 ## Phase 1 - ADR and Frame Contract
@@ -48,7 +48,7 @@ Deliverables:
 
 - `src/view_models/workspace.rs` with workspace types and unit tests
 - Frame history wired under the existing UI
-- Inspector "Back to Playlist" removed; `InspectorFrame.origin` /
+- Inspector "Back to Playlist" removed. `InspectorFrame.origin` /
   `InspectorOrigin` retired from playlist-return navigation
 - Architecture guards for GPUI-free frame state and no inspector-owned
   back controls
@@ -62,7 +62,7 @@ Acceptance:
 
 Risks: subtle behavior gaps if inspector-local refresh path is removed
 together with the back button. Mitigation: keep refresh-preserving path
-in `LibraryApp`; only the visible inspector button goes away.
+in `LibraryApp`. Only the visible inspector button goes away.
 
 Verification: `cargo test workspace`, `cargo test --test
 architecture_tests`, no new visible UI.
@@ -97,7 +97,7 @@ Acceptance:
   nav/search.
 
 Risks: regressing existing screen layouts. Mitigation: keep prior tab
-rendering reachable behind a feature flag or fallback until the
+rendering reachable behind a feature flag or backup path until the
 workspace render is verified.
 
 Verification: `cargo test --test architecture_tests`, manual L/D visual
@@ -105,7 +105,7 @@ review captured in the review checklist.
 
 ## Phase 4 - QueueNowPlaying Frame
 
-Goal: move queue/liveValue/transport into a dedicated frame; reduce
+Goal: move queue/liveValue/transport into a dedicated frame. Reduce
 toolbar Now Playing card to compact status and minimal transport.
 
 Tasks:
@@ -163,7 +163,7 @@ Acceptance:
 - Layout persistence does not require schema migration.
 
 Risks: config-shape churn. Mitigation: workspace layout serializes
-additively; missing fields fall back to default.
+additively. Missing fields use default values.
 
 Verification: unit tests for add/remove/focus, architecture guard for deferred
 fake-frame commands, and operator confirmation that no duplicate
