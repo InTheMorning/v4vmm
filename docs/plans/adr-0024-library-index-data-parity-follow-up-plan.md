@@ -23,7 +23,7 @@ Source-fact / persistence gaps route to
 
 - No implementation in this plan commit.
 - No schema migration.
-- No new renderer-only fallback labels.
+- No new renderer-only default labels.
 - No artist/person identity reconciliation.
 - No revival of `src/discover/`.
 
@@ -60,7 +60,7 @@ Source-fact / persistence gaps route to
 | ------ | ----- | ---------------- |
 | Loading-shape | 25 | ADR 0024 follow-up tasks from this plan |
 | Persistence / source facts | 12 | ADR 0053 source-fact parity |
-| Intentional asymmetry | 10 | Documented; no implementation packet |
+| Intentional asymmetry | 10 | Documented. No implementation packet |
 | Open questions | 13 | Resolve before implementation packets that depend on them |
 
 ## Gap Routing Matrix
@@ -70,11 +70,11 @@ Source-fact / persistence gaps route to
 | Gap | Triage route | Downstream route |
 | --- | ------------ | ---------------- |
 | Publisher | persistence | ADR 0053 feed/release source facts |
-| Release kind | persistence | ADR 0053 feed/release source facts; decide `podcast_medium` mapping |
+| Release kind | persistence | ADR 0053 feed/release source facts. Decide `podcast_medium` mapping |
 | Release date | persistence | ADR 0053 feed/release source facts |
 | Explicit state | persistence | ADR 0053 feed/release source facts |
 | Language | loading-shape | ADR 0024 feed query / `FeedRow` / `AlbumNode` projection |
-| Fallback source metadata | intentional asymmetry | Keep Index-only fallback provenance chrome |
+| Default source metadata | intentional asymmetry | Keep Index-only provenance chrome |
 
 ### Track Detail
 
@@ -124,7 +124,7 @@ Source-fact / persistence gaps route to
 | Gap | Triage route | Downstream route |
 | --- | ------------ | ---------------- |
 | Playlist header and local actions | loading-shape | No Index packet until MusicIndex playlist entity exists |
-| Playlist summary facts | loading-shape | Local VM surfacing only; Index blocked on playlist entity |
+| Playlist summary facts | loading-shape | Local VM surfacing only. Index blocked on playlist entity |
 | Playlist track list rows | loading-shape | No Index packet until MusicIndex playlist entity exists |
 | Created / modified dates | loading-shape | Optional local playlist detail VM rows |
 | Description / annotation | loading-shape | Optional local playlist detail VM row |
@@ -140,7 +140,7 @@ Source-fact / persistence gaps route to
    album detail can render the shared language summary fact without touching
    renderer conditionals.
 2. **Track detail loading-shape slice.**
-   Replace compact Index track fallback with a richer GPUI-free detail VM shape
+   Replace compact Index track detail with a richer GPUI-free detail VM shape
    that preserves fetched title, artist, release context, thumbnail, track
    number, duration, pubdate, explicit state, identity facts, contributors,
    transcript links, and value routes when product scope allows them. Keep
@@ -176,7 +176,7 @@ Each slice needs its own task packet before implementation.
 - `de934bb` - final ADR 0024 loading-shape readiness guard.
 
 The persistence/source-fact gaps remain governed by ADR 0053/0054 or future
-source-fact ADRs; they are not active ADR 0024 loading-shape work.
+source-fact ADRs. They are not active ADR 0024 loading-shape work.
 
 ## Open Questions Before Implementation
 

@@ -32,7 +32,7 @@ metadata, view-model data, and GPUI rendering.
 
 Library and Discovery should both project feed, album, and release-like data
 into the same presentation shape before rendering. The renderer should render
-that shape; it should not decide which raw metadata fields deserve hero
+that shape. It should not decide which raw metadata fields deserve hero
 placement.
 
 The contract lives in the GPUI-free projection layer,
@@ -174,7 +174,7 @@ Library:
 - Long machine identifiers are never first-viewport hero content.
 - A release description appears exactly once.
 - Library and Discovery share the same page skeleton.
-- No nested vertical scroll views are introduced; one vertical scroll view per
+- No nested vertical scroll views are introduced. One vertical scroll view per
   detail surface, as defined by ADR 0030.
 
 ## Alternatives Considered
@@ -215,7 +215,7 @@ Library:
 ## Implementation Plan
 
 Tasks must be executed in order. Task 002 depends on Task 001. Task 003 covers
-only the visual row template that Task 002 deliberately leaves abstract; if
+only the visual row template that Task 002 deliberately leaves abstract. If
 Task 002 absorbs row-template parity in practice, Task 003 collapses into it.
 
 ### Task 001: Contract Types, Action Projection, and Projection Tests
@@ -239,7 +239,7 @@ Acceptance criteria:
 - Website, Nostr, and RSS affordances land in `identity_actions` and never in
   `primary_actions`, asserted per surface.
 - Discovery and Library produce the same structural zones for equivalent
-  release data; surface-specific differences appear only in action lists.
+  release data. Surface-specific differences appear only in action lists.
 - All projection tests are GPUI-free.
 
 ### Task 002: Renderer Adoption and Slot Retirement
@@ -247,7 +247,7 @@ Acceptance criteria:
 Update the shared release detail shell (`render_release_detail_shell` in
 `src/ui_entity.rs`) to consume the contract directly and migrate every caller
 (`src/ui_feed.rs` and any Library equivalent) in lock-step. The shell
-signature changes from `ReleaseDetailSlots` to `&ReleaseDetailPageVm`; treat
+signature changes from `ReleaseDetailSlots` to `&ReleaseDetailPageVm`. Treat
 this as a breaking change and update all construction sites in the same task.
 Retire or narrow `ReleaseDetailSlots` so it cannot reintroduce the
 screen-local-decision failure mode described in the Context section.
@@ -256,7 +256,7 @@ Acceptance criteria:
 
 - Library album/feed and Discovery feed details render through the same page
   contract.
-- The shell reads only from the contract; it does not access `FeedView` or
+- The shell reads only from the contract. It does not access `FeedView` or
   source-fact fields directly.
 - `ReleaseDetailSlots` is either deleted or reduced to slots that cannot carry
   hero, description, or summary content.
@@ -267,7 +267,7 @@ Acceptance criteria:
 ### Task 003: Track Row Visual Template
 
 Normalize the visual row template of the track section across Library and
-Discovery. Scope is limited to row geometry; the section structure itself is
+Discovery. Scope is limited to row geometry. The section structure itself is
 expected to already come from Task 002.
 
 Acceptance criteria:
@@ -276,7 +276,7 @@ Acceptance criteria:
   metadata, duration, surface action slot.
 - Number column width and row height are constants in one place, applied to
   both surfaces.
-- The surface action slot lives at one named position on the row; surfaces
+- The surface action slot lives at one named position on the row. Surfaces
   populate it but cannot reorder it.
 - Empty and loading states are owned by `ReleaseTrackSectionVm` (or the
   renamed equivalent) and rendered by one shared component on both surfaces.

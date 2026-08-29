@@ -45,7 +45,7 @@ stack.
 
 The top toolbar exposes only Library and Settings as app-section tabs. Search
 is a toolbar command, not a tab or screen mount. Library tab activation resets
-the ContentList nav stack to `SourceList`; Settings tab activation resets it to
+the ContentList nav stack to `SourceList`. Settings tab activation resets it to
 `Settings`.
 
 Frame chrome breadcrumb visible whenever the ContentList stack has depth.
@@ -63,7 +63,7 @@ Search results are seeded synchronously from local Library rows, then the app
 starts background MusicIndex feed and track searches. Artist rows are derived
 from those Index results so the default Artists tab can show non-library Index
 matches. `SearchResultsInspectorPageVm` owns the Index loading, result, and
-error states; async completions merge only when ContentList still points at the
+error states. Async completions merge only when ContentList still points at the
 same `Search(query)`.
 
 The Discover/Search module remains compiled but unmounted. Retiring it is a
@@ -78,7 +78,7 @@ follow-up cleanup after the operator verifies the ContentList search path.
   toolbar tab title.
 - Toolbar Search submit is workspace-VM-owned: it pushes from non-search
   content and replaces the active search flow from an existing search.
-- Search-result row activation only pushes; it never directly mutates
+- Search-result row activation only pushes. It never directly mutates
   `LibraryApp.detail` without also pushing nav.
 - No "secondary" or "new frame" search action. Toolbar Search is the single
   entry point.
@@ -97,7 +97,7 @@ follow-up cleanup after the operator verifies the ContentList search path.
 - Settings switches to a Settings body through the same navigation source of
   truth, avoiding a title-only transition.
 - Breadcrumb chrome follows path-bar pattern.
-- Single search action; no "open in new window" affordance contradicting HIG
+- Single search action. No "open in new window" affordance contradicting HIG
   default-behavior guidance.
 
 ## Alternatives Considered
@@ -115,7 +115,7 @@ follow-up cleanup after the operator verifies the ContentList search path.
 
 Positive:
 
-- Single visible content pane for search; Queue stays in its trailing position.
+- Single visible content pane for search. Queue stays in its trailing position.
 - Breadcrumb chrome makes back-navigation discoverable and clears the path bar's
   role.
 - Library / Settings tab switching and frame back navigation now mutate the

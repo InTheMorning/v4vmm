@@ -125,7 +125,7 @@ The status line reports:
 ## Playback Session Workflow
 
 `PlaybackSession` is the authoritative now-playing state. Player adapters report
-transport facts such as position and pause state into this model; they do not
+transport facts such as position and pause state into this model. They do not
 define metadata identity.
 
 ### Session-Only CLI Mode
@@ -186,7 +186,7 @@ v4vmm now-playing --json
 `set-track` validates the same source facts as dry-run, then persists the
 default playback session. `position` updates the current position in
 milliseconds. `pause` and `resume` set `playback_sessions.state` to `paused` or
-`playing`. `stop` marks the session stopped; after stop,
+`playing`. `stop` marks the session stopped. After stop,
 `now-playing --json` reports no current playback session.
 
 Every persisted state change increments the session `sequence`.
@@ -208,7 +208,7 @@ When `playback.driver = "mpv"` is enabled for the long-running owner:
 - commands routed to the owner call the driver, then reconcile observed state
   back into `playback_sessions`
 - `playback position <ms>` seeks the driver and persists the accepted target
-  immediately; later polls may correct drift
+  immediately. Later polls may correct drift
 - `playback next` and EOF use the same playlist advancement service
 - `playback stop` stops the driver when live, then marks the session stopped
 - pause is persisted as session state: `playing`, `paused`, or `stopped`
@@ -216,7 +216,7 @@ When `playback.driver = "mpv"` is enabled for the long-running owner:
 The mpv IPC socket is private to the current user, uses a process-specific or
 randomized path, waits for readiness with a bounded timeout, and is removed on
 normal shutdown. The owner should shut mpv down gracefully before killing it
-after timeout; `Drop` is only best-effort cleanup.
+after timeout. `Drop` is only best-effort cleanup.
 
 Use the player ping debug command to validate the configured backend:
 
@@ -252,7 +252,7 @@ v4vmm liveitem latest <event-id> --json
 
 Publish commands also accept `MUSICINDEX_LIVEITEM_TOKEN` instead of `--token`.
 `publish-now-playing` sends the current canonical `NowPlayingUpdate` as the
-relay metadata payload; it does not infer source identity from strings.
+relay metadata payload. It does not infer source identity from strings.
 
 ## CLI Debug Workflow
 

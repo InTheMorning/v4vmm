@@ -13,6 +13,7 @@ Manual review focus:
 - `AGENTS.md`
 - ADR 0056, ADR 0057, and ADR 0058
 - ADR 0043 and ADR 0044 status lines
+- ADR 0031, ADR 0032, and ADRs 0046-0053 from the current docs index
 - ADR 0046 and ADR 0047 phase plans
 - ADR 0047 Task 016
 - ADR 0056 task packets
@@ -20,6 +21,7 @@ Manual review focus:
 - documentation and architecture audit
 - deferred-work index
 - active UI guidance docs
+- current runbook and schema overview docs
 - `docs/README.md`
 - `README.md`
 
@@ -132,6 +134,25 @@ Applied rewrite:
 - `README.md` now splits long overview and metadata sentences.
 - `docs/README.md` now groups entries and wraps descriptions.
 
+### Current Docs Index Slice
+
+Problem: the current docs index still linked to ADRs, plans, runbooks, and
+schema notes with semicolon-joined requirements.
+
+Applied rewrite:
+
+- ADR 0031, ADR 0032, and ADRs 0046-0053 now split the current-docs semicolon
+  clauses outside ADR 0057's deliberate governance-term definition.
+- `docs/runbooks/workflows.md` now separates playback state changes from their
+  effects.
+- `docs/schema/storage-and-metadata.md` now states the enclosure selection order
+  with one verb form.
+- `docs/plans/adr-0023-design-system-migration.md`,
+  `docs/plans/adr-0024-library-index-data-parity-follow-up-plan.md`,
+  `docs/plans/discovery-library-ui-fixes.md`, and
+  `docs/plans/inspector-source-ownership-phase-plan.md` now split the flagged
+  implementation constraints.
+
 ## Optional Improvements
 
 - Add a documentation style guide for agent-facing files. Use Strict mode for
@@ -149,11 +170,13 @@ Applied rewrite:
 
 Mechanical scan results:
 
-- 444 Markdown files scanned.
-- 623 sentence-like blocks exceed 30 words.
-- 1,627 lines contain semicolons.
-- 1,219 lines contain en dashes or em dashes.
-- 18 lines contain common soft phrasal verbs from the STE scan list.
+- 446 Markdown files scanned, including `README.md`, `AGENTS.md`, and
+  `docs/**/*.md`.
+- 64 sentence-like blocks exceed 30 words outside fenced code blocks.
+- 1,327 lines contain semicolons outside fenced code blocks.
+- 1,171 lines contain en dashes or em dashes outside fenced code blocks.
+- 321 lines contain common soft terms from the STE scan list outside fenced
+  code blocks.
 
 These counts are not defects by themselves. They identify where to spend manual
 review effort. The applied fixes above are the cases where wording can change

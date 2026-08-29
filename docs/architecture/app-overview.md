@@ -8,7 +8,7 @@
 - local file download plus embedded metadata inspection
 
 It also exposes a small non-UI CLI for Phase 2 playback-session work. The CLI
-does not play audio yet; it assembles and updates canonical now-playing state
+does not play audio yet. It assembles and updates canonical now-playing state
 from local database facts.
 
 ## Main Tabs
@@ -24,7 +24,8 @@ This is the managed-library view.
 - Can run MusicBrainz lookups against downloaded files.
 - Can check subscribed feeds for newer MusicIndex updates and apply tag refreshes.
 
-There is also a `Cached` sub-view for downloaded files that still exist locally but are no longer marked as subscribed library tracks.
+There is also a `Cached` sub-view for downloaded files that still exist locally.
+Those files are no longer marked as subscribed library tracks.
 
 ### Discover
 

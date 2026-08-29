@@ -13,7 +13,7 @@ Fix the ContentList ownership regressions introduced during ADR 0048:
   parsing.
 - The ContentList filter controls the visible inspector/detail surface, not the
   Library source tree.
-- Removing a track from a library album updates the mounted inspector in place;
+- Removing a track from a library album updates the mounted inspector in place.
   removed tracks remain visible as Index-origin rows under `All`/`Index` with a
   `Download` action when MusicIndex identity is available.
 - Settings tab visits preserve the prior Library/Search ContentList state.
@@ -46,7 +46,7 @@ Fix the ContentList ownership regressions introduced during ADR 0048:
   row IDs need stronger origin typing.
 - `src/view_models/entity_detail.rs`: membership/action projections if
   remote-only rows need additional state.
-- `src/ui/shells/workspace.rs` and inspector shells: binding only; no ownership
+- `src/ui/shells/workspace.rs` and inspector shells: binding only. No ownership
   inference in renderers.
 - `tests/architecture_tests.rs`: ownership guards.
 

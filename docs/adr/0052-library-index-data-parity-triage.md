@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented - 2026-05-17. Documentation-only triage; triage complete.
+Implemented - 2026-05-17. Documentation-only triage complete.
 
 ## Context
 
@@ -53,7 +53,7 @@ Runtime implementation is out of scope for this ADR.
 
 ## Invariants
 
-- `src/discover/` is reference-only for this work; it is not the live parity
+- `src/discover/` is reference-only for this work. It is not the live parity
   target and is not edited.
 - Triage reports must include file:line evidence for rendered fields, VM
   sources, persistence, and hydration paths.
@@ -79,7 +79,7 @@ Runtime implementation is out of scope for this ADR.
   needs triage because the right route depends on whether a field is missing
   from persistence, projection, or only presentation.
 - **Compare against `src/discover/`.** Rejected. ADR 0048 retired Discover as
-  the active top-level surface; live parity now belongs to Index-source
+  the active top-level surface. Live parity now belongs to Index-source
   inspector details.
 - **Create a single broad implementation task.** Rejected. Album, track,
   artist, and playlist surfaces have different persistence and identity

@@ -62,7 +62,7 @@ Apple HIG review notes for the macOS desktop surface:
 Rust review notes:
 
 - Extend existing helpers instead of duplicating query normalization, feed title
-  fallback, entity action gating, contributor grouping, or release detail shells.
+  defaulting, entity action gating, contributor grouping, or release detail shells.
 - Add focused tests around every changed pure helper or projection.
 - Keep UI-specific formatting out of metadata persistence. A display helper may
   format contributor data, but source-fact storage and single-line summaries
@@ -103,7 +103,7 @@ The six user-visible problems are:
 
 - Discovery search forwards a backslash to the remote search endpoint because
   `sanitize_api_query_value` strips control and null characters but not `\`.
-- Recents tiles use feed title and artist fallback chains, but current API
+- Recents tiles use feed title and artist default chains, but current API
   payload aliases may no longer populate the fields those chains read.
 - Library and Discovery feed details both use shared release-detail machinery,
   but `DetailHeader` only carries a narrow title/subtitle/image shape, so
@@ -171,9 +171,9 @@ Implementation:
 - Add or update a deserialization test using the shape returned by
   `/v1/feeds/recent`.
 - Confirm which response fields populate `Feed` title and artist data.
-- Restore missing `serde` aliases or update the existing fallback chain to read
+- Restore missing `serde` aliases or update the existing title chain to read
   the current field names.
-- Reuse the existing `feed_title()` fallback instead of adding another title
+- Reuse the existing `feed_title()` helper instead of adding another title
   helper.
 
 Acceptance criteria:
@@ -326,7 +326,7 @@ current code before editing because line numbers may drift.
   accepts that tradeoff because the character is unsafe for the remote query
   parser.
 - Recents labels may involve an API payload change rather than a local alias
-  regression. Confirm with a fixture before editing render fallbacks.
+  regression. Confirm with a fixture before editing renderer default behavior.
 - Scroll fixes may require parent-chain changes. Leaf-only edits may appear to
   work in one pane while leaving another broken.
 - Contributor display formatting can accidentally conflate provenance if the
@@ -369,7 +369,7 @@ Focused test coverage to add:
 Manual smoke:
 
 - Discovery: type `\`, press Enter, then run another search in the same session.
-- Discovery: type `john\doe`; verify a sanitized search runs and renders
+- Discovery: type `john\doe`. Verify a sanitized search runs and renders
   results or a normal empty state.
 - Discovery default view: verify recents tiles show title and artist/publisher
   labels.

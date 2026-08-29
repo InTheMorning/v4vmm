@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented - 2026-05-18. Scope as stated in this ADR; promotes the
+Implemented - 2026-05-18. Scope is stated in this ADR. Promotes the
 shared content surface and inspector across Library and Search origins.
 
 ## Context
@@ -42,7 +42,7 @@ Unify Library and Search around ADR 0046 frames.
    `Library`, `Index`) rendered by `frame_shell` chrome, not global
    toolbar scope chips.
 6. Breadcrumbs are frame chrome, projected from frame navigation state,
-   and are rendered by `frame_shell`; entity inspectors do not own
+   and are rendered by `frame_shell`. Entity inspectors do not own
    return controls.
 7. Track inspector advanced panels are explicit disclosure state:
    Compare ID3 and MusicBrainz are disabled for non-downloaded tracks,
@@ -62,11 +62,11 @@ Unify Library and Search around ADR 0046 frames.
 - Search results must not disturb the current library/source-list
   selection.
 - Recent Feeds must remain reachable after any search attempt.
-- Content filters apply to the visible frame that owns them; there is
+- Content filters apply to the visible frame that owns them. There is
   no global content-filter store.
 - Search, library, and playlist result rows expose library membership
   state consistently.
-- Frame breadcrumbs and filter chips extend `FrameShellDisplay`; no
+- Frame breadcrumbs and filter chips extend `FrameShellDisplay`. No
   sibling frame-chrome composite is introduced.
 - `SearchResultsInspector` tab, filter, and breadcrumb state are
   GPUI-free view-model state.
@@ -125,7 +125,7 @@ second refactor.
   chips hide which frame they affect once multiple content surfaces
   exist.
 - **Introduce a second breadcrumb composite.** Rejected. ADR 0046 makes
-  `frame_shell` the owner of frame chrome; breadcrumbs and filter chips
+  `frame_shell` the owner of frame chrome. Breadcrumbs and filter chips
   extend that display contract.
 - **Retire `src/search.rs` first.** Rejected. Code deletion comes after
   shared VMs and inspector shells are in place.

@@ -28,7 +28,7 @@ regressions:
   the current inspector/detail surface.
 - Settings tab navigation destroys the Library/Search content state. Operator
   smoke testing confirmed that tab switches should preserve the current Library
-  or Search navigation state; breadcrumbs are the user's way to back out.
+  or Search navigation state. Breadcrumbs are the user's way to go back.
 
 This violates the ADR 0047 and ADR 0048 goal that content-source filtering is a
 frame/inspector concern, not a global source-list concern. It also breaks the
@@ -66,9 +66,9 @@ Content ownership is split by surface:
   track pushes `IndexFeedDetail` or `IndexTrackDetail` and renders an Index
   detail surface. It must not rely on a Settings-only status string.
 
-The view-model layer owns fallback labels, membership/action projection, filter
+The view-model layer owns default labels, membership/action projection, filter
 state, and origin-aware row membership. GPUI renderers bind those contracts and
-dispatch commands; they do not infer missing membership or hide stale rows.
+dispatch commands. They do not infer missing membership or hide stale rows.
 
 ## Invariants
 

@@ -48,7 +48,7 @@ deliverables. Implementation proceeds in additive phases.
    `gpui::*` imports in that module.
 2. **Frame chrome owns navigation.** Back, forward, close, and history
    live in the frame shell composite. Entity inspectors do not own
-   cross-frame navigation; "Back to Playlist" and equivalent
+   cross-frame navigation. "Back to Playlist" and equivalent
    inspector-local return controls are removed.
 3. **Top toolbar stays global.** Toolbar carries global command,
    search, and compact status only. Detailed queue, liveValue output,
@@ -63,9 +63,9 @@ deliverables. Implementation proceeds in additive phases.
    Settings page VMs and shell helpers move inside frames without
    becoming frame owners.
 7. **Layout persistence is additive.** Workspace layout serializes to
-   `config.toml`; old configs still load with a default layout.
+   `config.toml`. Old configs still load with a default layout.
 8. **Detach/dock is model-only in v1.** Detach/dock metadata exists on
-   `WorkspaceFrameKind`; commands return a deferred-error variant. No
+   `WorkspaceFrameKind`. Commands return a deferred-error variant. No
    second OS window in this ADR.
 
 ### Frame Kinds and Default Layout
@@ -87,13 +87,13 @@ Narrow widths collapse optional frames before primary nav/search.
 ### Resolved Open Questions
 
 The pre-ADR plan recorded five open questions. ADR 0046 resolves them
-as follows; rationale captured for downstream review:
+as follows. Rationale is captured for downstream review:
 
 1. **Settings becomes a source-list item.** Top-level Settings tab
    retires once `SourceList` ships. Settings has the same shape as
    playlists/saved searches: an entry that opens a `Detail` frame.
 2. **Search becomes a global command opening a Search frame.** Toolbar
-   search (per ADR 0043) stays as the always-visible entry point; the
+   search (per ADR 0043) stays as the always-visible entry point. The
    submit action opens a `ContentList` frame configured for search
    results.
 3. **First-slice QueueNowPlaying control set.** Queue list, transport
@@ -112,10 +112,10 @@ as follows; rationale captured for downstream review:
 
 - Frame chrome uses a standard back chevron glyph, not a "Back" text
   label (per HIG toolbars and navigation guidance).
-- Close button uses a standard close symbol; placement consistent with
+- Close button uses a standard close symbol. Placement consistent with
   macOS frame conventions.
 - Toolbar primary actions (search submit) stay visible at all window
-  sizes; collapse rule applies to frames, not to global commands.
+  sizes. Collapse rule applies to frames, not to global commands.
 - Disclosure controls in `SourceList` follow ADR 0033 click-target
   rules: chevron + label only, not the surrounding row chrome.
 - Drag-and-drop into frames follows ADR 0044 conventions: insertion
@@ -138,7 +138,7 @@ Positive:
 
 - Inspectors stop carrying navigation state.
 - Queue, liveValue, and transport controls have a persistent home.
-- Workspace layout becomes the unit of persistence; future frame work
+- Workspace layout becomes the unit of persistence. Future frame work
   (additional content, secondary detail) plugs into the model without
   rewriting screens.
 - Architecture tests gain a clear surface to guard: frame model
@@ -146,16 +146,16 @@ Positive:
 
 Negative / risks:
 
-- Six-phase rollout is large. Mitigation: each phase is additive; the
+- Six-phase rollout is large. Mitigation: each phase is additive. The
   old tab rendering coexists until the workspace path is validated.
 - Frame history may overlap with existing inspector origin state.
   Mitigation: ADR 0046 retires inspector-owned origin navigation
   (`InspectorFrame.origin` / `InspectorOrigin`) in Phase 2.
 - Detach/dock metadata can overpromise. Mitigation: commands return a
-  deferred-error variant; no UI exposes detach in v1.
+  deferred-error variant. No UI exposes detach in v1.
 - QueueNowPlaying frame can crowd the workspace at narrow widths.
-  Mitigation: explicit collapse breakpoints with HIG-compliant fallback
-  access via toolbar menu or keybinding.
+  Mitigation: explicit collapse breakpoints with HIG-compliant access
+  through a toolbar menu or keybinding.
 
 ## Alternatives Considered
 
@@ -163,11 +163,11 @@ Negative / risks:
   QueueNowPlaying surface and continues to push navigation state into
   inspectors.
 - **Foobar-style full customization.** Rejected as v1. Out of scope per
-  plan Non-Goals; revisit after the disciplined default ships.
-- **Bottom playback bar.** Rejected as the queue/liveValue home; bottom
+  plan Non-Goals. Revisit after the disciplined default ships.
+- **Bottom playback bar.** Rejected as the queue/liveValue home. Bottom
   bar can stay as compact transport status only.
 - **OS-window detach now.** Rejected. Requires a separate ADR on window
-  semantics; model-only readiness lets the visible UX ship first.
+  semantics. Model-only readiness lets the visible UX ship first.
 
 ## References
 

@@ -84,7 +84,7 @@ The library download path uses a simple selection policy:
 
 1. prefer a primary source enclosure when present
 2. otherwise use the first supported source enclosure
-3. otherwise fall back to the track's direct enclosure URL
+3. otherwise use the track's direct enclosure URL
 4. infer format from MIME type or URL extension, then verify from file bytes after download
 
 Supported format classification today:
@@ -154,4 +154,5 @@ In practice that means:
 - embedded metadata editing is ID3v2.4-only
 - playback session commands prepare now-playing state but do not play audio
 - there is no fingerprint lookup or automatic recording identification from audio content
-- file deletion is explicit from the library UI; unsubscribe alone does not remove files from disk
+- file deletion is explicit from the library UI
+- unsubscribe alone does not remove files from disk

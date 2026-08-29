@@ -4,7 +4,7 @@
 
 Accepted - 2026-05-18. Drafted by ADR 0052 triage as the parent
 source-fact parity contract. ADR 0054 implements the first concrete slice for
-feed and track metadata source facts; artist biography, track language,
+feed and track metadata source facts. Artist biography, track language,
 track lyrics / annotation, and playlist source-like metadata remain outside
 that implemented slice.
 

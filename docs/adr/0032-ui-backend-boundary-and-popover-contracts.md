@@ -38,7 +38,7 @@ For playlist popovers specifically, screens may decide which playlists are
 available and what command runs after selection, but the trigger, floating
 surface, width, arrow, dismissal, list row treatment, and empty state belong to
 `AddToPlaylistPopover` and the underlying `Popover` primitive. Every playlist
-popover must expose `+ New Playlist`; screens own the create-then-append
+popover must expose `+ New Playlist`. Screens own the create-then-append
 callback via `.on_create(...)`.
 
 ## Invariants
@@ -48,7 +48,7 @@ callback via `.on_create(...)`.
   modules except for inert data types explicitly accepted by an ADR.
 - Screen behavior slots may carry handlers, images, overlays, and already
   resolved data, but not alternate chrome for contract-owned zones.
-- Raw source facts are preserved and projected; UI layers do not infer or
+- Raw source facts are preserved and projected. UI layers do not infer or
   discard them to make screens easier to render.
 - A screen-local visual implementation is allowed only when no shared primitive
   or composite exists, and it must be routed into a follow-up task if it becomes
@@ -69,7 +69,7 @@ callback via `.on_create(...)`.
 
 - Keep fixing screen-local panels as they regress. Rejected because it leaves
   visual ownership implicit and lets equivalent screens drift.
-- Move popover state into view models. Rejected for visual open/close chrome;
+- Move popover state into view models. Rejected for visual open/close chrome.
   view models should describe action availability, not own floating UI state.
 - Let release detail slots carry arbitrary popover elements. Rejected as the
   default pattern because it can bypass canonical chrome. Slots may carry

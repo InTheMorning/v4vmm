@@ -16,7 +16,7 @@ The ADR 0023 design-system foundation is in place:
 - `Config.ui_scale` is persisted and the Settings scale picker is built on
   `SegmentedControl`.
 - `ui::sizable_bridge::SizableScaled` is the only remaining
-  `.with_size(...)` adapter in app code; screen call sites use
+  `.with_size(...)` adapter in app code. Screen call sites use
   `.scaled(Size::*, cx)`.
 
 The primitive/composite layer is also in place:
@@ -32,7 +32,7 @@ The primitive/composite layer is also in place:
   click affordances.
 - `ui_common.rs` has been removed. Its surviving responsibilities live in
   `ui/detail_row.rs`, `ui/composites/*`, and `view_models::format`.
-- `theme::badges` remains the legacy badge compatibility surface; newer
+- `theme::badges` remains the legacy badge compatibility surface. Newer
   badge rendering should prefer `TagBadge` / `EntityKind`.
 
 The projection view-model layer is implemented for ADR 0023 scope:
@@ -40,7 +40,7 @@ The projection view-model layer is implemented for ADR 0023 scope:
 - `view_models::artist::ArtistVm` backs `ui_artist.rs`.
 - `view_models::feed::FeedVm` backs `ui_feed.rs`.
 - `view_models::track::TrackVm` backs the discover row, several search
-  track projections, and library track title fallback.
+  track projections, and library track title default behavior.
 - `view_models::search::{ResultRow, ResultRowVm}` backs Discover result-row
   data, display strings, image selection, visible-type filtering, and pure
   derived-artist aggregation.
@@ -48,7 +48,7 @@ The projection view-model layer is implemented for ADR 0023 scope:
   scalars and snapshots (`results`, `recent_feeds`, `playlists`). `search.rs`
   is still mid-migration while it owns service dispatch, inspector stack,
   GPUI handles, thumbnails, and layout pixels. Endpoint-reset and recent-feed
-  loading transitions now go through VM methods and pure load intents; main
+  loading transitions now go through VM methods and pure load intents. Main
   search loading/results now use the same VM-owned transition shape. Playlist
   snapshots, playlist append progress/completion, add-to-playlist preflight
   status text, track download/remove in-flight status transitions, and the
@@ -56,11 +56,11 @@ The projection view-model layer is implemented for ADR 0023 scope:
   projection and keyboard navigation targets now live with the result snapshot
   in the VM layer, as does artist-result enrichment after inspector loads.
   Search and recent-feed render snapshots now group the remaining read-only
-  render flags instead of having `search.rs` recompute them field by field;
+  render flags instead of having `search.rs` recompute them field by field.
   playlist popover rendering also reads playlists through a VM snapshot
   accessor. The reusable `LazyPanel<T>` state for deferred inspector panels
   now lives in `view_models::search`, along with the collapsible
-  fetch/toggle transition used by contributors and value routes;
+  fetch/toggle transition used by contributors and value routes.
   GPUI-bound inspector frames remain in `search.rs`.
 - `view_models::library::MbTrackStatus` is now screen-independent.
 - `view_models::library::LibraryTrackRowVm` backs album detail track rows.
@@ -84,13 +84,13 @@ The projection view-model layer is implemented for ADR 0023 scope:
   thumbnail transitions through accessors / mutators. It now also owns
   library reload summaries, playlist CRUD failure text, and album-track-load
   empty/error state.
-- The migrated `LibraryViewModel` state is private to the VM; `library.rs`
+- The migrated `LibraryViewModel` state is private to the VM. `library.rs`
   now reads it through accessors/projections and writes it through typed
   transition methods.
 - `PlaylistAppendIntent` / `PlaylistAppendOutcome` are the first small
   command-intent/result values for the library screen. The VM prepares the
   playlist id, track ids, playlist name, progress status, success summary,
-  and failure text; the screen still performs the DB/service dispatch.
+  and failure text. The screen still performs the DB/service dispatch.
 - `TrackSubscribeOutcome` moves library track subscribe completion state
   into the VM: busy-track clearing plus success/failure status text now live
   outside `library.rs`.
@@ -165,14 +165,14 @@ Deferred detail:
   detail share one structural surface with mode-specific slots.
 - `screen-library-album`: move album-detail header rows, duration/downloaded
   counts, button labels, and add-to-playlist panel state into library
-  view-model projections. ADR 0023 moved row labels and picker state; further
+  view-model projections. ADR 0023 moved row labels and picker state. Further
   album-detail projection thinning is deferred.
 - `library-row-semantics`: remove the redundant per-row `dl'd` marker from
   Library album rows. Membership is already represented by the `Remove`
-  action; aggregate downloaded counts can remain in detail grids until a
+  action. Aggregate downloaded counts can remain in detail grids until a
   product decision removes them. Completed 2026-04-30.
 - `screen-library-playlists`: playlist sidebar rows now use `ListRow` /
-  `Label`; keep the `PlaylistDetailVm` path and replace the remaining
+  `Label`. Keep the `PlaylistDetailVm` path and replace the remaining
   playlist detail row actions with `ActionButton` where it preserves
   behavior. Deferred.
 - `screen-library-metadata`: migrate the ID3 / MusicBrainz metadata panels
@@ -180,11 +180,11 @@ Deferred detail:
 - `screen-search-results`: Discover result rows now read labels, image URLs,
   visible type filtering, and derived artist rows through
   `view_models::search`, and render through `ListRow` / `Thumbnail` /
-  `Label` / `TagBadge`; next move section headers / empty states and
+  `Label` / `TagBadge`. Next move section headers / empty states and
   result-row interaction command intent out of `search.rs`.
 - `screen-search-inspector`: migrate track/feed/publisher inspector sections
   to projections and existing composites. Feed / track inspector identity
-  labels now render through `TagBadge`; keep direct GPUI event wiring in the
+  labels now render through `TagBadge`. Keep direct GPUI event wiring in the
   screen until command intent is available. Deferred.
 
 ### Track D — Token And Literal Audit
@@ -192,7 +192,7 @@ Deferred detail:
 - `audit-color-usage`: remove remaining screen-level `rgb(...)` literals in
   `app.rs`, `library.rs`, and `search.rs`. Use semantic tokens or a
   deliberately named compatibility helper in `theme.rs`. Completed
-  2026-04-30: screen-level `rgb(...)` literals are gone; ID3 frame colours
+  2026-04-30: screen-level `rgb(...)` literals are gone. ID3 frame colours
   now resolve through named `theme::color` helpers.
 - `audit-layout-usage`: reduce raw `px(...)` literals in screens. Preserve
   legitimate fixed geometry such as split-pane clamps and image pixel sizes,
@@ -203,7 +203,7 @@ Deferred detail:
 - `theme-badge-migration`: replace remaining direct `theme::badges` calls in
   screens with `TagBadge` or `EntityKind` where the UI is rendering an entity
   badge rather than deriving compatibility color data. `search.rs` now uses
-  `TagBadge` for Discover rows and feed / track inspector labels; the
+  `TagBadge` for Discover rows and feed / track inspector labels. The
   remaining Search usage is MusicBrainz release-picker button styling.
 - `release-detail-parity`: align Discover feed detail and Library album detail
   by wiring both through shared header / row composites and fixing
@@ -244,12 +244,12 @@ Deferred detail:
 ### Deferred Architecture Work
 
 - A broad CommandBus / QueryService / EventBus architecture remains an ideal
-  target in `docs/architecture/architecture-diagrams.md`; it is not part of this ADR 0023
-  cleanup unless a new ADR scopes it.
+  target in `docs/architecture/architecture-diagrams.md`. It is not part of
+  this ADR 0023 cleanup unless a new ADR scopes it.
 - Splitting `library.rs` or `search.rs` into directories remains out of
   scope for this plan. Do that only under a separate ADR.
 - Service-side formatting in `metadata.rs` must not depend on
-  `view_models`; duplicate duration helpers may remain there until a
+  `view_models`. Duplicate duration helpers may remain there until a
   domain-safe formatting module exists.
 
 ## Conventions In Force
@@ -263,7 +263,7 @@ Deferred detail:
   state only for stateful screen VMs.
 - New public display contracts need focused unit tests in the same module.
 - Verify documentation-only changes with `cargo check` and
-  `cargo fmt -- --check`. For Rust code changes, run the relevant test slice;
-  broaden to `cargo test` / `cargo clippy -- -D warnings` when shared behavior
+  `cargo fmt -- --check`. For Rust code changes, run the relevant test slice.
+  Broaden to `cargo test` / `cargo clippy -- -D warnings` when shared behavior
   changes.
 - No automatic push, PR, or local commit without explicit direction.
