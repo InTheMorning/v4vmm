@@ -127,8 +127,8 @@ Update this table when a packet lands.
 
 | Repository | Packet | State |
 |---|---|---|
-| `musicindex-live-publisher` | control surface 001 | not started |
-| `musicindex-live-publisher` | control surface 002 | not started |
+| `musicindex-live-publisher` | control surface 001 | complete - 2026-09-07 (`a5b434e`) |
+| `musicindex-live-publisher` | control surface 002 | complete - 2026-09-07 (`459854c`) |
 | `musicindex-live-publisher` | show log 001 | not started |
 | `musicindex-live-publisher` | show log 002 | not started |
 | `v4vmm` | 001 live surface reduction | not started |
