@@ -9,6 +9,7 @@ and reconcile the document statuses.
 
 - `docs/adr/0059-broadcast-control-surface.md`
 - `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `docs/architecture/broadcast-chain.md`
 - All task packets `adr-0059-task-001` through `adr-0059-task-012`
 - `tests/architecture_tests.rs`
@@ -115,6 +116,7 @@ Implement only this task. Do not redesign the architecture. Add no behavior.
 Read:
 - `docs/adr/0059-broadcast-control-surface.md`
 - `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `docs/adr/0057-adr-status-vocabulary-and-amendment-policy.md`
 - `tests/architecture_tests.rs`
 

@@ -46,6 +46,14 @@ operate when this app is closed.
 - A drop-file producer for the `mpv` source only.
 - A library readiness report for payment route coverage.
 
+ADR 0060 replaced the surface design of this plan. `Show` is a screen mount and
+the `Broadcast` workspace frame is removed, so packets 005, 006, and 007 are
+superseded and the remaining UI packets need revision before implementation
+resumes.
+
+ADR 0059 remains the technical control-surface contract. ADR 0060 binds the
+surface that presents it.
+
 ## Affected Modules
 
 - `src/api.rs`
@@ -196,5 +204,6 @@ panel fails, the publisher and the relay continue without it.
 ## References
 
 - `docs/adr/0059-broadcast-control-surface.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - ADR 0016, ADR 0017, ADR 0040, ADR 0046, ADR 0057, ADR 0058
 - `musicindex-live-publisher` ADR 0002 and its deployment runbook

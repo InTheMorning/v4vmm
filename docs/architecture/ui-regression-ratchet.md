@@ -15,6 +15,9 @@ must not rely on memory or visual intent alone after a bug is fixed.
 - Visual presentation, button behavior, and user-workflow changes must pass the
   UI change acceptance gate in `AGENTS.md` and the ownership gate in
   `docs/architecture/ui-backend-boundary.md`.
+- Curator-facing UI changes to `Music`, `Show`, mode-aware readiness,
+  auditioning, live monitoring, recovery, or post-show packaging must preserve
+  or strengthen a rule from ADR 0060.
 - Agents must not land isolated renderer tweaks for music presentation,
   buttons, rows, empty states, filters, inspectors, or workflow reachability
   when the same rule belongs in a shared view model, primitive, composite,
@@ -40,6 +43,8 @@ these with evidence in the diff, tests, or final report:
 
 - Which shared owner changed: GPUI-free view model/projection, primitive,
   composite, token/theme role, screen wiring, or guard?
+- Which ADR 0060 rule was preserved or strengthened, when the change is
+  curator-facing?
 - What existing duplication or drift was reduced or explicitly kept from
   growing?
 - Which user workflow remains reachable after the change?

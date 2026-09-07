@@ -31,6 +31,13 @@ Agents must not treat visual polish, button behavior, or workflow fixes as
 permission to patch a single renderer when the affordance already belongs to a
 view model, primitive, composite, token, or architecture guard.
 
+Curator-facing changes to `Music`, `Show`, mode-aware readiness, auditioning,
+live monitoring, recovery, or post-show packaging are bound by ADR 0060. Name
+the ADR 0060 rule the change preserves or strengthens.
+
+`docs/plans/curator-workflow-ui-design-brief.md` records product intent behind
+those decisions. It is advisory context, not a binding rule.
+
 Default ownership:
 
 - Music presentation facts, default labels, availability, empty states,

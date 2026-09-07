@@ -8,6 +8,7 @@ dead payload before a show instead of after it.
 ## Files To Inspect
 
 - `docs/adr/0059-broadcast-control-surface.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `docs/architecture/broadcast-chain.md`
 - `src/metadata.rs` (the `TXXX:MusicIndex Value Routes` writer)
 - `src/audio_tags.rs`
@@ -106,6 +107,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - `docs/adr/0059-broadcast-control-surface.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `src/audio_tags.rs`, `src/application/queries/library.rs`
 - `src/view_models/broadcast.rs`
 

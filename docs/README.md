@@ -5,6 +5,9 @@ purpose-built folders.
 
 Start here with the current operating docs.
 
+- [Current decisions](adr/README.md): every ADR that still binds a change, with
+  its status and scope. Superseded decisions live in [`adr/archive/`](adr/archive/)
+
 Core:
 
 - [App overview](architecture/app-overview.md): tabs, dependencies, config,
@@ -60,6 +63,10 @@ Current plans:
   superseded focused-frame toolbar search routing plan
 - [Pre-UI and download manager preparation plan](plans/pre-ui-download-prep.md):
   service, schema, and CLI work before a UI/download revamp
+- [Curator workflow UI design brief](plans/curator-workflow-ui-design-brief.md):
+  advisory product intent for `Music`, `Show`, mode-aware readiness, live
+  monitoring, recovery, and post-show packaging. ADR 0060 carries the binding
+  decisions
 - [HIG product polish backlog](plans/hig-product-polish-backlog.md):
   HIG completeness work such as search suggestions, sidebar show/hide, Liquid
   Glass materials, and keyboard coverage

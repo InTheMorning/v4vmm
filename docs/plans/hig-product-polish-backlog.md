@@ -9,6 +9,13 @@ Active backlog - 2026-05-18.
 Keep Apple HIG product-completeness work visible without reopening the
 strategic UI restructuring work that has already landed.
 
+ADR 0060 binds the workflow surface structure: `Music`, `Show`, and `Settings`,
+and `Show` as a screen mount. A HIG polish packet that touches those surfaces
+follows ADR 0060.
+
+`docs/plans/curator-workflow-ui-design-brief.md` holds the product intent behind
+that ADR. It is advisory context, not a binding rule.
+
 The HIG review does not change the structural verdict: toolbar search,
 sidebar/source list, split-view layout, breadcrumb/path-bar chrome, SF Symbol
 usage, one global search entry, one visible content pane for search, and
@@ -134,6 +141,8 @@ Acceptance direction:
   effects, or keyboard handlers.
 - No broad visual redesign of music rows, buttons, or layout density.
 - No Liquid Glass simulation that weakens contrast or bypasses token roles.
+- No curator-facing UI packet that skips ADR 0060 when it affects the surfaces
+  that ADR defines.
 
 ## Test Strategy
 

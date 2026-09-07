@@ -8,6 +8,7 @@ publisher on another machine. Use `ssh`. Add reachability as its own state.
 ## Files To Inspect
 
 - `docs/adr/0059-broadcast-control-surface.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `docs/architecture/broadcast-chain.md`
 - `src/broadcast/control.rs`
 - `src/config.rs`

@@ -8,6 +8,7 @@ and add a log panel that opens from a button.
 ## Files To Inspect
 
 - `docs/adr/0059-broadcast-control-surface.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `docs/adr/0040-async-vm-runtime.md`
 - `src/broadcast/control.rs`
 - `src/runtime/broadcast_observation.rs`
@@ -108,6 +109,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - `docs/adr/0059-broadcast-control-surface.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `docs/adr/0040-async-vm-runtime.md`
 - `src/broadcast/control.rs`
 - `src/runtime/broadcast_observation.rs`

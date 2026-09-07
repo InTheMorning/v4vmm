@@ -9,6 +9,7 @@ the event registry and the publisher.
 ## Files To Inspect
 
 - `docs/adr/0059-broadcast-control-surface.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `docs/architecture/broadcast-chain.md`
 - `docs/tasks/adr-0059-task-003-event-registry-service-and-cli.md`
 - `docs/tasks/adr-0059-task-010-remote-hosts-over-ssh.md`
