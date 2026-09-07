@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-09-07. Change this status to `Accepted` after review.
+Accepted - 2026-09-07.
 
 Amends ADR 0048 for the app-section tab set. Supersedes the `Broadcast`
 workspace frame introduced under ADR 0059 and retains everything else in that

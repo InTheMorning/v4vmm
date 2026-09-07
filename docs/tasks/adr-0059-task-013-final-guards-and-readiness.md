@@ -1,5 +1,7 @@
 # ADR 0059 Task 013: Final Guards And Readiness Gate
 
+Status: Blocked - 2026-09-07. Gate task. Revise after every other packet is reconciled.
+
 ## Goal
 
 Close ADR 0059. Prove every invariant with a guard, record the visual evidence,

@@ -1,5 +1,7 @@
 # ADR 0059 Task 002: Event Registry Schema And Token Files
 
+Status: Implemented - 2026-09-07.
+
 ## Goal
 
 Add additive SQLite storage for broadcast events, and a token file writer with

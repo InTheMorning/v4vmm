@@ -135,22 +135,37 @@ Update this table when a packet lands.
 | `v4vmm` | 002 event registry schema | complete - 2026-09-07 |
 | `v4vmm` | 003 event registry service | complete - 2026-09-07 |
 | `v4vmm` | 004 relay observation actor | complete - 2026-09-07 |
-| `v4vmm` | 005 broadcast page VM | complete - 2026-09-07 |
-| `v4vmm` | 006 broadcast frame kind | complete - 2026-09-07 |
-| `v4vmm` | 007 broadcast shell | complete - 2026-09-07 |
-| `v4vmm` | 008 service control | not started |
-| `v4vmm` | 009 publisher section | not started |
-| `v4vmm` | 010 remote hosts | not started |
-| `v4vmm` | 014 attach event | not started |
-| `v4vmm` | 011 mpv producer | not started |
-| `v4vmm` | 012 readiness report | not started |
-| `v4vmm` | 015 stream encoder | not started |
-| `v4vmm` | 013 final guards | not started |
+| `v4vmm` | 005 broadcast page VM | superseded by ADR 0060 |
+| `v4vmm` | 006 broadcast frame kind | superseded by ADR 0060 |
+| `v4vmm` | 007 broadcast shell | superseded by ADR 0060 |
+| `v4vmm` | 008 service control | blocked - ADR 0060 |
+| `v4vmm` | 009 publisher section | blocked - ADR 0060 |
+| `v4vmm` | 010 remote hosts | blocked - ADR 0060 |
+| `v4vmm` | 014 attach event | blocked - ADR 0060 |
+| `v4vmm` | 011 mpv producer | blocked - ADR 0060 |
+| `v4vmm` | 012 readiness report | blocked - ADR 0060 |
+| `v4vmm` | 015 stream encoder | blocked - ADR 0060 |
+| `v4vmm` | 013 final guards | blocked - ADR 0060 |
 | `splitkit` | reserved 001 store boundary | not started |
 | `splitkit` | reserved 002 reserved class | not started |
 | `splitkit` | reserved 003 restore and TTL | not started |
 | `splitkit` | reserved 004 list and delete | not started |
 | `splitkit` | reserved 005 guards and review | not started |
+
+## Current Blocker
+
+ADR 0060 replaced the surface design on 2026-09-07. Every UI packet of ADR 0059
+is superseded or blocked until it is reconciled with that ADR.
+
+Before any blocked packet starts:
+
+1. Write ADR 0062, cache and dump policy. The `Music` surface needs it.
+2. Revise the blocked packets against ADR 0060.
+3. Add packets for the restructure itself: the `Music` surface, the `Show`
+   screen mount, and the removal of the `Broadcast` frame with its guards.
+
+`v4vmm` packets 001 through 004 shipped and are unaffected. They are backend
+work that ADR 0060 does not touch.
 
 ## Later Work
 

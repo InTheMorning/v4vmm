@@ -1,5 +1,8 @@
 # ADR 0059 Task 015: Stream Encoder Section
 
+Status: Blocked - 2026-09-07. The encoder service is unaffected. The `Stream` section needs
+revision against ADR 0060.
+
 ## Goal
 
 Add the `Stream` section for the `butt` encoder. Report the connection state

@@ -1,5 +1,7 @@
 # ADR 0059 Task 004: Relay Observation Actor
 
+Status: Implemented - 2026-09-07.
+
 ## Goal
 
 Add a runtime actor that reads the relay snapshot for the selected event once

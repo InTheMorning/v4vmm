@@ -1,5 +1,7 @@
 # ADR 0059 Task 003: Event Registry Service And CLI
 
+Status: Implemented - 2026-09-07.
+
 ## Goal
 
 Add a GPUI-free registry service for create, list, forget, and a liveness check.
@@ -126,7 +128,7 @@ Goal:
 
 Constraints:
 - No `gpui` import and no direct `reqwest` client. Use `api::Client`.
-- Write the token file before the row; clean up the file if the insert fails.
+- Write the token file before the row. Clean up the file if the insert fails.
 - `404` means dead. A transport error changes no stored status.
 - Never replace a dead event automatically. Never print a token.
 

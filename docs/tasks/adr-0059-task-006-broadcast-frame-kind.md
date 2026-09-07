@@ -1,5 +1,7 @@
 # ADR 0059 Task 006: Broadcast Workspace Frame Kind
 
+Status: Superseded by ADR 0060 - 2026-09-07. `WorkspaceFrameKind::Broadcast` is removed.
+
 ## Goal
 
 Add the fifth workspace frame kind and its search scope. Wire the workspace

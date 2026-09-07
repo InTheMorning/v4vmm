@@ -1,5 +1,8 @@
 # ADR 0059 Task 010: Remote Hosts Over SSH
 
+Status: Blocked - 2026-09-07. The transport is unaffected. The view-model and shell steps
+need revision against ADR 0060.
+
 ## Goal
 
 Let the control service and the source reader reach a host that runs the

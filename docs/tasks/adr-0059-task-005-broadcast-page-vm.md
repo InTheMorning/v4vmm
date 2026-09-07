@@ -1,5 +1,7 @@
 # ADR 0059 Task 005: Broadcast Page View Model
 
+Status: Superseded by ADR 0060 - 2026-09-07. The Broadcast page view model is replaced.
+
 ## Goal
 
 Define the GPUI-free `BroadcastPageVm` display contract for the three sections:
@@ -136,7 +138,7 @@ Goal:
 Constraints:
 - GPUI-free. Display-ready fields only.
 - Enums for service state and event state. `Failed` is its own variant.
-- Every action has typed availability and an accessibility label.
+- Every action carries typed availability and an accessibility label.
 - Empty state for a publisher that is missing or not reachable.
 - Token path only, never token text.
 

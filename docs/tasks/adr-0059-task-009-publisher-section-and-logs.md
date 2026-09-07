@@ -1,5 +1,8 @@
 # ADR 0059 Task 009: Publisher Section Wiring And Log Panel
 
+Status: Blocked - 2026-09-07. Needs revision against ADR 0060. The Publisher section is
+replaced.
+
 ## Goal
 
 Connect the control service to the `Publisher` section through a runtime actor,

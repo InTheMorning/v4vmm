@@ -1,5 +1,8 @@
 # ADR 0059 Task 011: mpv Drop-File Producer
 
+Status: Blocked - 2026-09-07. Backend only. Expected to need no change. Confirm against
+ADR 0060 before starting.
+
 ## Goal
 
 Write `musicindex.nowplaying/1` drop files for local `mpv` playback, so the

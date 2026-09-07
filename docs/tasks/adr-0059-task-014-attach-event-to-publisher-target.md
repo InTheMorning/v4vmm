@@ -1,5 +1,8 @@
 # ADR 0059 Task 014: Attach An Event To A Publisher Target
 
+Status: Blocked - 2026-09-07. The service layer is unaffected. The `Event` section wiring
+needs revision against ADR 0060.
+
 ## Goal
 
 Connect a registered event to a publisher target, so the publisher sends

@@ -1,5 +1,8 @@
 # ADR 0059 Task 012: Library Broadcast Readiness Report
 
+Status: Blocked - 2026-09-07. The query is unaffected. The `Source` section wiring needs
+revision against ADR 0060.
+
 ## Goal
 
 Report the library tracks that carry no payment routes, so the operator finds a

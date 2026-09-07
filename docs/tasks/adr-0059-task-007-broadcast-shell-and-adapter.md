@@ -1,5 +1,8 @@
 # ADR 0059 Task 007: Broadcast Shell And Frame Adapter
 
+Status: Superseded by ADR 0060 - 2026-09-07. Built, then replaced. Mine `render_feed_tag`
+and the section composition before deleting.
+
 ## Goal
 
 Render the `Broadcast` frame from `BroadcastPageVm` with shared primitives, and

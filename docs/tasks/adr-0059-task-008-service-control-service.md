@@ -1,5 +1,8 @@
 # ADR 0059 Task 008: Publisher Service Control
 
+Status: Blocked - 2026-09-07. Backend only. Expected to need no change. Confirm against
+ADR 0060 before starting.
+
 ## Goal
 
 Add a GPUI-free service that reads and changes the state of the publisher unit
@@ -116,7 +119,7 @@ Constraints:
 - Parse `systemctl show --property=...`, never the human status text.
 - `Failed` is its own state and needs `reset-failed` before a start works.
 - Unit names are inputs, not constants in shared logic.
-- No secret in a command line. No real `systemctl` in tests; use a stub runner.
+- No secret in a command line. Use a stub runner. No real `systemctl` in tests.
 
 Do not touch:
 - UI, view models, `src/app/**`, API, database, the registry service

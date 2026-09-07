@@ -1,5 +1,7 @@
 # ADR 0059 Task 001: Live Surface Reduction
 
+Status: Implemented - 2026-09-07.
+
 ## Goal
 
 Remove the relay publish path from `src/api.rs` and `src/cli.rs`. Keep live item
@@ -119,7 +121,7 @@ Goal:
 
 Constraints:
 - Removal only. No new behavior.
-- Keep `validate_live_metadata_event_id`; the read paths call it.
+- Keep `validate_live_metadata_event_id`. The read paths call it.
 - Delete a helper only when no caller remains.
 
 Do not touch:
