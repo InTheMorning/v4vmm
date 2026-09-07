@@ -11702,3 +11702,49 @@ fn adr_0059_v4vmm_does_not_publish_live_metadata() {
         violations.join("\n")
     );
 }
+
+/// ADR 0059: broadcast tokens stay in files, not UI or database text columns.
+#[test]
+fn adr_0059_broadcast_event_schema_keeps_tokens_out_of_storage_and_ui() {
+    let mut violations = Vec::new();
+    let db_source = read_source(&manifest_path("src/db.rs"));
+    let schema_start = db_source
+        .find("CREATE TABLE IF NOT EXISTS broadcast_events")
+        .expect("broadcast_events schema should exist");
+    let schema_end = db_source[schema_start..]
+        .find("CREATE INDEX IF NOT EXISTS idx_broadcast_events_created_at")
+        .map(|offset| schema_start + offset)
+        .expect("broadcast_events schema should include its first index");
+    let schema_line_start = db_source[..schema_start].lines().count() + 1;
+    let schema = &db_source[schema_start..schema_end];
+    for (offset, line) in schema.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("token ") || trimmed.starts_with("token\t") {
+            violations.push(format!(
+                "src/db.rs:{}: ADR 0059 stores token_path only, not token text: `{}`",
+                schema_line_start + offset,
+                trimmed.trim_end()
+            ));
+        }
+    }
+
+    for dir in ["src/ui", "src/view_models"] {
+        for path in rust_files_under(dir) {
+            let source = read_source(&path);
+            for (line_number, line) in code_lines(&source) {
+                if line.contains("broadcast_events") {
+                    violations.push(format!(
+                        "{}:{line_number}: ADR 0059 broadcast event table access belongs outside UI/view-model layers: `{line}`",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 broadcast event storage violations:\n{}",
+        violations.join("\n")
+    );
+}

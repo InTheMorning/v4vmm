@@ -287,6 +287,59 @@ pub struct TrackArtistSourceBindingRow {
     pub observed_at: Option<i64>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BroadcastEventStatus {
+    Unknown,
+    Live,
+    Dead,
+}
+
+impl BroadcastEventStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Live => "live",
+            Self::Dead => "dead",
+        }
+    }
+
+    fn from_sql(value: &str, column: usize) -> rusqlite::Result<Self> {
+        match value {
+            "unknown" => Ok(Self::Unknown),
+            "live" => Ok(Self::Live),
+            "dead" => Ok(Self::Dead),
+            _ => Err(rusqlite::Error::InvalidColumnType(
+                column,
+                "last_status".to_owned(),
+                rusqlite::types::Type::Text,
+            )),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BroadcastEventInput {
+    pub event_id: String,
+    pub label: Option<String>,
+    pub endpoint: String,
+    pub token_path: String,
+    pub created_at: i64,
+    pub last_checked_at: Option<i64>,
+    pub last_status: Option<BroadcastEventStatus>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BroadcastEventRow {
+    pub id: i64,
+    pub event_id: String,
+    pub label: Option<String>,
+    pub endpoint: String,
+    pub token_path: String,
+    pub created_at: i64,
+    pub last_checked_at: Option<i64>,
+    pub last_status: Option<BroadcastEventStatus>,
+}
+
 pub fn subscribed_feeds_for_stale_check(conn: &Connection) -> Result<Vec<FeedStaleCheckRow>> {
     let mut stmt = conn
         .prepare(
@@ -1722,6 +1775,134 @@ pub fn track_artist_source_bindings_for_track(
     Ok(rows)
 }
 
+pub fn insert_broadcast_event(conn: &Connection, event: &BroadcastEventInput) -> Result<i64> {
+    let event_id = explicit_broadcast_event_id(&event.event_id)?;
+    let endpoint = explicit_broadcast_endpoint(&event.endpoint)?;
+    let token_path = explicit_broadcast_token_path(&event.token_path)?;
+    let last_status = event.last_status.map(BroadcastEventStatus::as_str);
+
+    conn.execute(
+        "INSERT INTO broadcast_events (
+             event_id, label, endpoint, token_path, created_at,
+             last_checked_at, last_status
+         )
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            event_id,
+            event.label.as_deref(),
+            endpoint,
+            token_path,
+            event.created_at,
+            event.last_checked_at,
+            last_status,
+        ],
+    )
+    .context("insert broadcast event")?;
+
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn broadcast_events(conn: &Connection) -> Result<Vec<BroadcastEventRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, event_id, label, endpoint, token_path, created_at,
+                    last_checked_at, last_status
+             FROM broadcast_events
+             ORDER BY created_at DESC, id DESC",
+        )
+        .context("prepare broadcast_events")?;
+
+    let rows = stmt
+        .query_map([], broadcast_event_row_from_sql)
+        .context("query broadcast_events")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect broadcast_events")?;
+    Ok(rows)
+}
+
+pub fn broadcast_event_by_id(
+    conn: &Connection,
+    event_record_id: i64,
+) -> Result<Option<BroadcastEventRow>> {
+    conn.query_row(
+        "SELECT id, event_id, label, endpoint, token_path, created_at,
+                last_checked_at, last_status
+         FROM broadcast_events
+         WHERE id = ?1",
+        [event_record_id],
+        broadcast_event_row_from_sql,
+    )
+    .optional()
+    .context("query broadcast_event_by_id")
+}
+
+pub fn delete_broadcast_event(conn: &Connection, event_record_id: i64) -> Result<bool> {
+    let removed = conn
+        .execute(
+            "DELETE FROM broadcast_events WHERE id = ?1",
+            [event_record_id],
+        )
+        .context("delete broadcast event")?;
+    Ok(removed > 0)
+}
+
+pub fn update_broadcast_event_status(
+    conn: &Connection,
+    event_record_id: i64,
+    last_status: BroadcastEventStatus,
+    last_checked_at: Option<i64>,
+) -> Result<bool> {
+    let updated = conn
+        .execute(
+            "UPDATE broadcast_events
+             SET last_status = ?1, last_checked_at = ?2
+             WHERE id = ?3",
+            rusqlite::params![last_status.as_str(), last_checked_at, event_record_id],
+        )
+        .context("update broadcast event status")?;
+    Ok(updated > 0)
+}
+
+fn explicit_broadcast_event_id(event_id: &str) -> Result<&str> {
+    let event_id = event_id.trim();
+    anyhow::ensure!(!event_id.is_empty(), "broadcast event_id cannot be empty");
+    Ok(event_id)
+}
+
+fn explicit_broadcast_endpoint(endpoint: &str) -> Result<&str> {
+    let endpoint = endpoint.trim();
+    anyhow::ensure!(!endpoint.is_empty(), "broadcast endpoint cannot be empty");
+    Ok(endpoint)
+}
+
+fn explicit_broadcast_token_path(token_path: &str) -> Result<&str> {
+    let token_path = token_path.trim();
+    anyhow::ensure!(
+        !token_path.is_empty(),
+        "broadcast token_path cannot be empty"
+    );
+    Ok(token_path)
+}
+
+fn broadcast_event_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<BroadcastEventRow> {
+    let last_status = row
+        .get::<_, Option<String>>(7)?
+        .as_deref()
+        .map(|value| BroadcastEventStatus::from_sql(value, 7))
+        .transpose()?;
+
+    Ok(BroadcastEventRow {
+        id: row.get(0)?,
+        event_id: row.get(1)?,
+        label: row.get(2)?,
+        endpoint: row.get(3)?,
+        token_path: row.get(4)?,
+        created_at: row.get(5)?,
+        last_checked_at: row.get(6)?,
+        last_status,
+    })
+}
+
 fn local_identity_link_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<LocalIdentityLinkRow> {
     Ok(LocalIdentityLinkRow {
         entity_type: row.get(0)?,
@@ -2372,6 +2553,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "metadata_source_facts",
         apply: migration_metadata_source_facts,
     },
+    Migration {
+        version: 9,
+        name: "broadcast_events",
+        apply: migration_broadcast_events,
+    },
 ];
 
 pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
@@ -2450,6 +2636,10 @@ fn migration_cleanup_markup_placeholder_source_text(conn: &Connection) -> Result
 
 fn migration_metadata_source_facts(conn: &Connection) -> Result<()> {
     create_metadata_source_fact_tables(conn)
+}
+
+fn migration_broadcast_events(conn: &Connection) -> Result<()> {
+    create_broadcast_event_tables(conn)
 }
 
 fn cleanup_placeholder_source_text_columns(
@@ -2666,6 +2856,7 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<()> {
     create_artist_source_fact_tables(conn)?;
     create_track_artist_source_binding_tables(conn)?;
     create_metadata_source_fact_tables(conn)?;
+    create_broadcast_event_tables(conn)?;
 
     Ok(())
 }
@@ -2944,6 +3135,33 @@ fn create_track_artist_source_binding_tables(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn create_broadcast_event_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS broadcast_events (
+            id INTEGER PRIMARY KEY,
+            event_id TEXT NOT NULL UNIQUE CHECK (event_id != ''),
+            label TEXT NULL,
+            endpoint TEXT NOT NULL CHECK (endpoint != ''),
+            token_path TEXT NOT NULL CHECK (token_path != ''),
+            created_at INTEGER NOT NULL,
+            last_checked_at INTEGER NULL,
+            last_status TEXT NULL CHECK (
+                last_status IS NULL
+                    OR last_status IN ('unknown', 'live', 'dead')
+            )
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_broadcast_events_created_at
+            ON broadcast_events(created_at);
+        CREATE INDEX IF NOT EXISTS idx_broadcast_events_status
+            ON broadcast_events(last_status);
+        "#,
+    )
+    .context("create broadcast event tables")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2996,6 +3214,18 @@ mod tests {
             .collect::<std::result::Result<Vec<_>, _>>()
             .context("collect applied_migration_versions")?;
         Ok(versions)
+    }
+
+    fn test_broadcast_event(event_id: &str) -> BroadcastEventInput {
+        BroadcastEventInput {
+            event_id: event_id.to_owned(),
+            label: Some("Sunday set".to_owned()),
+            endpoint: "https://relay.example.test".to_owned(),
+            token_path: "/tmp/v4vmm-test-token".to_owned(),
+            created_at: 1_778_284_800,
+            last_checked_at: Some(1_778_284_801),
+            last_status: Some(BroadcastEventStatus::Unknown),
+        }
     }
 
     fn create_test_feed(conn: &Connection) -> Result<i64> {
@@ -3424,7 +3654,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
             "fresh schema should record all registry migrations"
         );
 
@@ -3466,10 +3696,148 @@ mod tests {
             table_has_column(&conn, "tracks", "enclosure_type")?,
             "migration should add tracks.enclosure_type"
         );
+        assert!(
+            table_exists(&conn, "broadcast_events")?,
+            "migration should add broadcast_events"
+        );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
             "migration registry should be idempotent"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_broadcast_event_schema_creates_table_on_fresh_database() -> Result<()> {
+        let conn = setup_test_db()?;
+
+        assert!(
+            table_exists(&conn, "broadcast_events")?,
+            "schema should include broadcast_events"
+        );
+        assert!(
+            table_has_column(&conn, "broadcast_events", "token_path")?,
+            "broadcast_events should store only the token file path"
+        );
+        assert!(
+            !table_has_column(&conn, "broadcast_events", "token")?,
+            "broadcast_events must not store token text"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_broadcast_event_round_trip() -> Result<()> {
+        let conn = setup_test_db()?;
+        let input = test_broadcast_event("event-one");
+
+        let id = insert_broadcast_event(&conn, &input)?;
+        let row = broadcast_event_by_id(&conn, id)?.context("broadcast event should exist")?;
+
+        assert_eq!(row.id, id, "row id should match inserted id");
+        assert_eq!(row.event_id, input.event_id);
+        assert_eq!(row.label, input.label);
+        assert_eq!(row.endpoint, input.endpoint);
+        assert_eq!(row.token_path, input.token_path);
+        assert_eq!(row.created_at, input.created_at);
+        assert_eq!(row.last_checked_at, input.last_checked_at);
+        assert_eq!(row.last_status, input.last_status);
+        assert_eq!(
+            broadcast_events(&conn)?,
+            vec![row],
+            "broadcast_events should return the persisted row"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_broadcast_event_requires_unique_event_id() -> Result<()> {
+        let conn = setup_test_db()?;
+        let input = test_broadcast_event("event-one");
+
+        insert_broadcast_event(&conn, &input)?;
+        let duplicate = insert_broadcast_event(&conn, &input);
+
+        assert!(
+            duplicate.is_err(),
+            "broadcast_events should reject duplicate event_id values"
+        );
+        assert_eq!(
+            table_row_count(&conn, "broadcast_events")?,
+            1,
+            "duplicate event_id should not add a second row"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_broadcast_event_rejects_empty_event_id_endpoint_and_token_path() -> Result<()> {
+        let conn = setup_test_db()?;
+
+        let mut missing_event_id = test_broadcast_event("");
+        assert!(
+            insert_broadcast_event(&conn, &missing_event_id).is_err(),
+            "broadcast event_id cannot be empty"
+        );
+
+        let mut missing_endpoint = test_broadcast_event("event-one");
+        missing_endpoint.endpoint = " \t ".to_owned();
+        assert!(
+            insert_broadcast_event(&conn, &missing_endpoint).is_err(),
+            "broadcast endpoint cannot be empty"
+        );
+
+        missing_event_id.event_id = "event-two".to_owned();
+        missing_event_id.token_path.clear();
+        assert!(
+            insert_broadcast_event(&conn, &missing_event_id).is_err(),
+            "broadcast token_path cannot be empty"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_broadcast_event_delete_removes_record() -> Result<()> {
+        let conn = setup_test_db()?;
+        let id = insert_broadcast_event(&conn, &test_broadcast_event("event-one"))?;
+
+        assert!(
+            delete_broadcast_event(&conn, id)?,
+            "delete should report an existing row was removed"
+        );
+        assert!(
+            broadcast_event_by_id(&conn, id)?.is_none(),
+            "deleted broadcast event should not load by id"
+        );
+        assert!(
+            !delete_broadcast_event(&conn, id)?,
+            "delete should report false for a missing row"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_broadcast_event_status_update_changes_status_and_timestamp() -> Result<()> {
+        let conn = setup_test_db()?;
+        let id = insert_broadcast_event(&conn, &test_broadcast_event("event-one"))?;
+
+        assert!(
+            update_broadcast_event_status(&conn, id, BroadcastEventStatus::Live, Some(42))?,
+            "status update should report an existing row changed"
+        );
+        let row = broadcast_event_by_id(&conn, id)?.context("broadcast event should exist")?;
+        assert_eq!(row.last_status, Some(BroadcastEventStatus::Live));
+        assert_eq!(row.last_checked_at, Some(42));
+        assert!(
+            !update_broadcast_event_status(&conn, id + 1, BroadcastEventStatus::Dead, Some(43))?,
+            "status update should report false for a missing row"
         );
 
         Ok(())
@@ -3620,7 +3988,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
             "cleanup migration should be recorded exactly once"
         );
 

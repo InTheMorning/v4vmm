@@ -3,6 +3,7 @@ pub mod app;
 pub mod application;
 pub mod audio_format;
 pub mod audio_tags;
+pub mod broadcast;
 pub mod cli;
 pub mod config;
 pub mod db;
