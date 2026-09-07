@@ -46,7 +46,6 @@ use crate::view_models::workspace::{
 
 mod bootstrap;
 mod breadcrumb;
-mod broadcast;
 mod events;
 mod keyboard;
 mod menu;
@@ -59,7 +58,6 @@ mod tab_bar;
 
 pub use bootstrap::run_app;
 
-use broadcast::build_broadcast_frame;
 use playback_bar::build_playback_bar;
 use queue_now_playing::build_queue_now_playing_frame;
 use recent_feeds::IndexFeedDetailOrigin;
@@ -68,7 +66,6 @@ use tab_bar::render_tab_bar;
 
 const WORKSPACE_CONTENT_FRAME_ID: WorkspaceFrameId = WorkspaceFrameId::new(2);
 const WORKSPACE_QUEUE_FRAME_ID: WorkspaceFrameId = WorkspaceFrameId::new(4);
-const WORKSPACE_BROADCAST_FRAME_ID: WorkspaceFrameId = WorkspaceFrameId::new(5);
 
 // ---------------------------------------------------------------------------
 // AppTab
@@ -597,7 +594,7 @@ impl TopApp {
                         Some(WorkspaceFrameState::new(frame.id(), frame.kind(), title))
                     }
                 }
-                WorkspaceFrameKind::QueueNowPlaying | WorkspaceFrameKind::Broadcast => Some(
+                WorkspaceFrameKind::QueueNowPlaying => Some(
                     WorkspaceFrameState::with_default_title(frame.id(), frame.kind()),
                 ),
                 // Stage 5: Drop Detail frame from visible layout entirely.
@@ -627,18 +624,6 @@ impl TopApp {
             frames.push(WorkspaceFrameState::with_default_title(
                 queue_id,
                 WorkspaceFrameKind::QueueNowPlaying,
-            ));
-        }
-
-        if !frames
-            .iter()
-            .any(|frame| matches!(frame.kind(), WorkspaceFrameKind::Broadcast))
-        {
-            let broadcast_id =
-                Self::unused_workspace_frame_id(&frames, WORKSPACE_BROADCAST_FRAME_ID);
-            frames.push(WorkspaceFrameState::with_default_title(
-                broadcast_id,
-                WorkspaceFrameKind::Broadcast,
             ));
         }
 
@@ -691,7 +676,6 @@ impl TopApp {
             FrameNavigationEntry::ArtistDetail(_)
             | FrameNavigationEntry::IndexArtistFeedScope(_) => "Artist".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
-            FrameNavigationEntry::Broadcast => "Broadcast".to_string(),
         }
     }
 
@@ -876,7 +860,6 @@ impl TopApp {
     ) -> gpui::AnyElement {
         let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
         let queue_frame = build_queue_now_playing_frame(self, cx);
-        let broadcast_frame = build_broadcast_frame(self, cx);
         let content_frame_id = layout
             .frames()
             .iter()
@@ -939,7 +922,6 @@ impl TopApp {
                 WorkspaceSlots::new()
                     .content_list(inspector_content)
                     .queue_now_playing(queue_frame)
-                    .broadcast(broadcast_frame)
                     .content_list_filter_chip_strip(filter_chip_strip)
                     .on_content_list_filter_select(move |filter, _window, cx| {
                         filter_entity.update(cx, |this, cx| {
@@ -948,7 +930,7 @@ impl TopApp {
                     })
             }
             Some(FrameNavigationEntry::RecentFeeds) => {
-                self.render_recent_feeds_content(&entity, queue_frame, broadcast_frame, cx)
+                self.render_recent_feeds_content(&entity, queue_frame, cx)
             }
             Some(FrameNavigationEntry::IndexArtistFeedScope(_))
                 if self.search_results_detail.is_some() =>
@@ -980,7 +962,6 @@ impl TopApp {
                 WorkspaceSlots::new()
                     .content_list(inspector_content)
                     .queue_now_playing(queue_frame)
-                    .broadcast(broadcast_frame)
             }
             Some(FrameNavigationEntry::IndexFeedDetail { id, label }) => {
                 let activation_id = format!("index-feed:{id}");
@@ -993,14 +974,12 @@ impl TopApp {
                         WorkspaceSlots::new()
                             .content_list(detail_content)
                             .queue_now_playing(queue_frame)
-                            .broadcast(broadcast_frame)
                     } else {
                         let library_screen =
                             self.render_workspace_screen_mount(WorkspaceScreenMount::Library, cx);
                         WorkspaceSlots::new()
                             .content_list(library_screen)
                             .queue_now_playing(queue_frame)
-                            .broadcast(broadcast_frame)
                     }
                 } else if let Some(search_results) = self.search_results_detail.as_ref() {
                     let detail = search_results.index_feed_detail(&activation_id, id, label);
@@ -1008,14 +987,12 @@ impl TopApp {
                     WorkspaceSlots::new()
                         .content_list(detail_content)
                         .queue_now_playing(queue_frame)
-                        .broadcast(broadcast_frame)
                 } else {
                     let library_screen =
                         self.render_workspace_screen_mount(WorkspaceScreenMount::Library, cx);
                     WorkspaceSlots::new()
                         .content_list(library_screen)
                         .queue_now_playing(queue_frame)
-                        .broadcast(broadcast_frame)
                 }
             }
             Some(FrameNavigationEntry::IndexTrackDetail { id, label })
@@ -1031,7 +1008,6 @@ impl TopApp {
                 WorkspaceSlots::new()
                     .content_list(detail_content)
                     .queue_now_playing(queue_frame)
-                    .broadcast(broadcast_frame)
             }
             Some(FrameNavigationEntry::Settings) => {
                 let settings_screen =
@@ -1039,7 +1015,6 @@ impl TopApp {
                 WorkspaceSlots::new()
                     .content_list(settings_screen)
                     .queue_now_playing(queue_frame)
-                    .broadcast(broadcast_frame)
             }
             // Entity details or default: render the Library-backed content surface.
             Some(
@@ -1056,8 +1031,7 @@ impl TopApp {
                     self.render_workspace_screen_mount(WorkspaceScreenMount::Library, cx);
                 let mut slots = WorkspaceSlots::new()
                     .content_list(library_screen)
-                    .queue_now_playing(queue_frame)
-                    .broadcast(broadcast_frame);
+                    .queue_now_playing(queue_frame);
 
                 if self.library.read(cx).has_filterable_content_detail()
                     || !matches!(
@@ -1084,8 +1058,7 @@ impl TopApp {
                     self.render_workspace_screen_mount(WorkspaceScreenMount::Library, cx);
                 let mut slots = WorkspaceSlots::new()
                     .content_list(library_screen)
-                    .queue_now_playing(queue_frame)
-                    .broadcast(broadcast_frame);
+                    .queue_now_playing(queue_frame);
 
                 if self.library.read(cx).has_filterable_content_detail()
                     || !matches!(

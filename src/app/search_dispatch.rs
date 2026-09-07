@@ -36,9 +36,7 @@ use crate::ui::shells::track::TrackDetailBehaviorSlots;
 use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
 use crate::view_models::recent_feeds::{RecentFeedsPageVm, RecentFeedsViewMode};
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
-use crate::view_models::workspace::{
-    FrameNavigationEntry, FrameNavigationState, FrameSearchScope, WorkspaceFrameId,
-};
+use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId};
 use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
 
 use super::TopApp;
@@ -52,23 +50,7 @@ pub(super) enum RemoteDetailThumbnailState {
 impl TopApp {
     pub(super) fn submit_global_search(&mut self, cx: &mut Context<Self>) {
         let query = self.global_search_input.read(cx).value().to_string();
-        match self
-            .workspace_layout
-            .focused_search_descriptor()
-            .map(|descriptor| descriptor.scope)
-        {
-            Some(FrameSearchScope::BroadcastRows) => self.submit_broadcast_rows_search(&query, cx),
-            _ => self.open_search_results_in_content_list(&query, cx),
-        }
-    }
-
-    fn submit_broadcast_rows_search(&mut self, query: &str, cx: &mut Context<Self>) {
-        if query.trim().is_empty() {
-            return;
-        }
-
-        self.settings_status = "Broadcast search unavailable".to_string();
-        cx.notify();
+        self.open_search_results_in_content_list(&query, cx);
     }
 
     pub(super) fn open_search_results_in_content_list(

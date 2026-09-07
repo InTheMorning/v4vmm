@@ -55,8 +55,6 @@ pub(crate) enum FrameNavigationEntry {
     Settings,
     /// Queue and Now Playing frame root.
     QueueNowPlaying,
-    /// Broadcast control frame root.
-    Broadcast,
 }
 
 impl FrameNavigationEntry {
@@ -82,7 +80,6 @@ impl FrameNavigationEntry {
             }
             Self::Settings => "Settings".to_string(),
             Self::QueueNowPlaying => "Queue".to_string(),
-            Self::Broadcast => "Broadcast".to_string(),
         }
     }
 }

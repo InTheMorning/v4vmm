@@ -38,8 +38,7 @@ a toolbar command, never a section. ADR 0060.
 cannot act is absent, not disabled.
 
 **Provenance first.** RSS, MusicIndex, embedded tags, and MusicBrainz stay
-separate. Never collapse them into one inferred truth. Placeholder-looking
-source text is a source-boundary problem, never a renderer problem.
+separate. Never collapse them into one inferred truth. Placeholder-looking source text is a source-boundary problem, never a renderer problem.
 
 **The broadcast chain runs when this app is closed.** This app is a control
 surface and a status display, never a required part of the chain. The built-in
@@ -49,7 +48,7 @@ player is the one exception.
 present real time. Delivery delay serves the live path only and never reaches a
 recording or an interface.
 
-**Current-view state updates in place.** A mutation refreshes the mounted view.
+**Current-view state must update in place.** A mutation refreshes the mounted view.
 Never require navigating away and back to reveal a result.
 
 ## The Durable Set
@@ -83,6 +82,26 @@ on color alone.
 **Typed action state.** Every action carries typed availability and an
 accessibility label before it renders. No renderer decides whether a control is
 enabled.
+
+**UI change acceptance gate.** A user-visible UI change is accepted only when
+the shared owner, view model, token path, and verification path are all clear.
+ADR 0033 and ADR 0061.
+
+**No isolated visual tweaks.** Fix repeated visual affordances at their shared
+primitive, composite, shell, or view-model owner. A renderer patch is only for
+screen-local composition.
+
+**Button and action discipline.** Buttons render from typed action state,
+named icons, accessibility labels, and named control styles. A renderer does
+not invent action availability.
+
+**Workflow-first requirement.** UI structure follows the curator workflow
+surface first, then the component hierarchy. Component availability does not
+earn screen space by itself.
+
+**HIG product polish is separate from restructuring.** HIG product-completeness
+gaps live in the product polish backlog. Do not mix them into structural
+rework unless the active ADR says to do so.
 
 ## Working Rules
 

@@ -1504,7 +1504,6 @@ impl LibraryApp {
             | FrameNavigationEntry::IndexTrackDetail { label, .. } => label.clone(),
             FrameNavigationEntry::Settings => "Settings".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
-            FrameNavigationEntry::Broadcast => "Broadcast".to_string(),
         }
     }
 

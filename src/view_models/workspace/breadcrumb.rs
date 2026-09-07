@@ -134,7 +134,6 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
         }
         FrameNavigationEntry::Settings => "settings".to_string(),
         FrameNavigationEntry::QueueNowPlaying => "queue-now-playing".to_string(),
-        FrameNavigationEntry::Broadcast => "broadcast".to_string(),
     }
 }
 

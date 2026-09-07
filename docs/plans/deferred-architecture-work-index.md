@@ -42,7 +42,34 @@ prioritized, and routed to the right governance artifact.
      two, because a post-icecast recording drifts and needs edits to repair.
    - Route: future ADR after the ADR 0059 control surface ships. See
      `docs/research/broadcast-recording-and-feed-publishing.md`.
-6. Visual-system polish and lower-priority product improvements.
+6. Configuration failure behavior.
+   - Status: incident recorded 2026-09-07. A structurally invalid
+     `config.toml` panics at `src/app/bootstrap.rs:47` and the app does not
+     start. Recovery needs hand-editing TOML.
+   - Note: a malformed layout *value* already falls back with a warning. This
+     item is the level above that, where the file does not parse at all.
+     Settings manages only a few keys, so operators hand-edit this file.
+   - Decision needed: start with defaults and warn, back the broken file up and
+     start with defaults, or refuse to start but report the error in the
+     interface rather than a panic.
+   - Route: future ADR. **Settle this before any config format change**, since
+     a format change is exactly what puts more operators in this state.
+7. Workspace configuration section naming.
+   - Status: decided 2026-09-07, not scheduled. `[workspace.layout]` holds pane
+     width under ADR 0051. `[workspace_layout]` holds frames and focus under
+     ADR 0046. The two names differ by one character and mean the same words.
+   - Note: `src/config.rs` has a test carrying `[workspace]`,
+     `[workspace.layout]`, and `[workspace_layout]` in one file.
+   - Decision: merge both into one `[workspace]` table, with frames as
+     `[[workspace.frames]]` and pane width as a sibling key. One section owns
+     workspace state persistence.
+   - Sequence: after item 6, and after ADR 0060 tasks 002 and 003. The frame
+     list changes anyway when the queue moves to `Show`, so one migration
+     covers both changes. Writing the ADR earlier means guessing at the final
+     frame set.
+   - Route: an ADR 0060 series packet with its own ADR, written when the layout
+     model has settled.
+8. Visual-system polish and lower-priority product improvements.
    - Status: use bounded ADR 0025 tasks only when the change affects tokens,
      primitives, composites, or theme contracts.
    - HIG product-completeness gaps are tracked separately in

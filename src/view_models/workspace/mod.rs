@@ -419,9 +419,6 @@ impl WorkspaceLayout {
             (WorkspaceFrameKind::QueueNowPlaying, _) => {
                 (FrameSearchScope::QueueRows, "Filter queue...")
             }
-            (WorkspaceFrameKind::Broadcast, _) => {
-                (FrameSearchScope::BroadcastRows, "Filter broadcast...")
-            }
         };
 
         Some(FrameSearchDescriptor {
@@ -658,6 +655,5 @@ fn default_navigation_entry(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
         }
         WorkspaceFrameKind::Detail => FrameNavigationEntry::TrackDetail(0),
         WorkspaceFrameKind::QueueNowPlaying => FrameNavigationEntry::QueueNowPlaying,
-        WorkspaceFrameKind::Broadcast => FrameNavigationEntry::Broadcast,
     }
 }

@@ -44,7 +44,6 @@ pub(crate) struct WorkspaceSlots {
     content_list: Option<AnyElement>,
     detail: Option<AnyElement>,
     queue_now_playing: Option<AnyElement>,
-    broadcast: Option<AnyElement>,
     content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
     detail_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
@@ -90,12 +89,6 @@ impl WorkspaceSlots {
     /// Supplies content for the queue/now-playing frame.
     pub(crate) fn queue_now_playing(mut self, content: impl IntoElement) -> Self {
         self.queue_now_playing = Some(content.into_any_element());
-        self
-    }
-
-    /// Supplies content for the broadcast frame.
-    pub(crate) fn broadcast(mut self, content: impl IntoElement) -> Self {
-        self.broadcast = Some(content.into_any_element());
         self
     }
 
@@ -211,7 +204,6 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.content_list.take(),
             WorkspaceFrameKind::Detail => self.detail.take(),
             WorkspaceFrameKind::QueueNowPlaying => self.queue_now_playing.take(),
-            WorkspaceFrameKind::Broadcast => self.broadcast.take(),
         }
         .unwrap_or_else(|| placeholder(frame, cx))
     }
@@ -220,9 +212,7 @@ impl WorkspaceSlots {
         match kind {
             WorkspaceFrameKind::ContentList => self.content_list_filter_chip_strip.clone(),
             WorkspaceFrameKind::Detail => self.detail_filter_chip_strip.clone(),
-            WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::QueueNowPlaying
-            | WorkspaceFrameKind::Broadcast => None,
+            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -233,9 +223,7 @@ impl WorkspaceSlots {
         match kind {
             WorkspaceFrameKind::ContentList => self.on_content_list_filter_select.clone(),
             WorkspaceFrameKind::Detail => self.on_detail_filter_select.clone(),
-            WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::QueueNowPlaying
-            | WorkspaceFrameKind::Broadcast => None,
+            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -247,8 +235,7 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.on_content_list_breadcrumb_select.clone(),
             WorkspaceFrameKind::Detail
             | WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::QueueNowPlaying
-            | WorkspaceFrameKind::Broadcast => None,
+            | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -260,8 +247,7 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.content_list_breadcrumb_labeler.clone(),
             WorkspaceFrameKind::Detail
             | WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::QueueNowPlaying
-            | WorkspaceFrameKind::Broadcast => None,
+            | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -273,8 +259,7 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.on_content_list_back_select.clone(),
             WorkspaceFrameKind::Detail
             | WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::QueueNowPlaying
-            | WorkspaceFrameKind::Broadcast => None,
+            | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 }
@@ -305,7 +290,6 @@ impl RenderOnce for WorkspaceShell {
         let mut collapsed_frames = Vec::new();
         let mut content_list_element: Option<AnyElement> = None;
         let mut queue_element: Option<AnyElement> = None;
-        let mut broadcast_element: Option<AnyElement> = None;
 
         for frame in self.layout.frames() {
             let frame_kind = frame.kind();
@@ -380,9 +364,6 @@ impl RenderOnce for WorkspaceShell {
                 WorkspaceFrameKind::QueueNowPlaying => {
                     queue_element = Some(frame_container.into_any_element());
                 }
-                WorkspaceFrameKind::Broadcast => {
-                    broadcast_element = Some(frame_container.into_any_element());
-                }
                 _ => {}
             }
         }
@@ -392,17 +373,15 @@ impl RenderOnce for WorkspaceShell {
             .content_pane_width
             .unwrap_or(CONTENT_PANE_DEFAULT_WIDTH);
 
-        let has_secondary_frames = queue_element.is_some() || broadcast_element.is_some();
+        let has_secondary_frames = queue_element.is_some();
 
         let layout_element: AnyElement = match content_list_element {
             Some(content) if has_secondary_frames => {
-                let secondary = secondary_workspace_frames(queue_element, broadcast_element, cx);
-
                 let mut split = SplitPane::new("workspace-split")
                     .leading_width(content_pane_width)
                     .leading_min_width(CONTENT_PANE_MIN_WIDTH)
                     .leading(content)
-                    .trailing(secondary);
+                    .trailing(queue_element.expect("secondary frame exists"));
 
                 if let Some(handler) = self.slots.on_content_pane_resize_start {
                     split =
@@ -454,9 +433,6 @@ impl RenderOnce for WorkspaceShell {
                 if let Some(queue) = queue_element {
                     fallback_row = fallback_row.child(queue);
                 }
-                if let Some(broadcast) = broadcast_element {
-                    fallback_row = fallback_row.child(broadcast);
-                }
 
                 fallback_row.into_any_element()
             }
@@ -485,37 +461,13 @@ fn should_render_breadcrumb(kind: WorkspaceFrameKind, nav: &FrameNavigationState
 
 fn should_collapse_frame(kind: WorkspaceFrameKind, workspace_width: Pixels) -> bool {
     match kind {
-        WorkspaceFrameKind::QueueNowPlaying | WorkspaceFrameKind::Broadcast => {
+        WorkspaceFrameKind::QueueNowPlaying => {
             workspace_width < WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT
         }
         WorkspaceFrameKind::Detail => {
             workspace_width < WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT
         }
         WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => false,
-    }
-}
-
-fn secondary_workspace_frames(
-    queue: Option<AnyElement>,
-    broadcast: Option<AnyElement>,
-    cx: &App,
-) -> AnyElement {
-    match (queue, broadcast) {
-        (Some(queue), Some(broadcast)) => div()
-            .size_full()
-            .flex()
-            .flex_row()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .gap(Spacing::SM.scaled(cx))
-            .overflow_hidden()
-            .child(queue)
-            .child(broadcast)
-            .into_any_element(),
-        (Some(queue), None) => queue,
-        (None, Some(broadcast)) => broadcast,
-        (None, None) => div().into_any_element(),
     }
 }
 
@@ -540,7 +492,6 @@ fn navigation_entry_for(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
         }
         WorkspaceFrameKind::Detail => FrameNavigationEntry::TrackDetail(0),
         WorkspaceFrameKind::QueueNowPlaying => FrameNavigationEntry::QueueNowPlaying,
-        WorkspaceFrameKind::Broadcast => FrameNavigationEntry::Broadcast,
     }
 }
 

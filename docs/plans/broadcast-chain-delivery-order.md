@@ -135,9 +135,9 @@ Update this table when a packet lands.
 | `v4vmm` | 002 event registry schema | complete - 2026-09-07 |
 | `v4vmm` | 003 event registry service | complete - 2026-09-07 |
 | `v4vmm` | 004 relay observation actor | complete - 2026-09-07 |
-| `v4vmm` | 005 broadcast page VM | superseded by ADR 0060 |
-| `v4vmm` | 006 broadcast frame kind | superseded by ADR 0060 |
-| `v4vmm` | 007 broadcast shell | superseded by ADR 0060 |
+| `v4vmm` | 005 broadcast page VM | removed by ADR 0060 / task 001 |
+| `v4vmm` | 006 broadcast frame kind | removed by ADR 0060 / task 001 |
+| `v4vmm` | 007 broadcast shell | removed by ADR 0060 / task 001 |
 | `v4vmm` | 008 service control | blocked - ADR 0060 |
 | `v4vmm` | 009 publisher section | blocked - ADR 0060 |
 | `v4vmm` | 010 remote hosts | blocked - ADR 0060 |

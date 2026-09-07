@@ -51,7 +51,6 @@ impl TopApp {
         &mut self,
         entity: &Entity<Self>,
         queue_frame: impl IntoElement,
-        broadcast_frame: impl IntoElement,
         cx: &mut Context<Self>,
     ) -> WorkspaceSlots {
         if self.recent_feeds_detail.is_none() {
@@ -96,6 +95,5 @@ impl TopApp {
         WorkspaceSlots::new()
             .content_list(recent_content)
             .queue_now_playing(queue_frame)
-            .broadcast(broadcast_frame)
     }
 }

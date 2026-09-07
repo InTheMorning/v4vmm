@@ -707,10 +707,14 @@ db_path = "/tmp/v4vmm.sqlite"
 
 [workspace_layout]
 focused_frame_id = 8
-frames = [
-  { id = 1, kind = "source_list" },
-  { id = 8, kind = "detail" },
-]
+
+[[workspace_layout.frames]]
+id = 1
+kind = "source_list"
+
+[[workspace_layout.frames]]
+id = 8
+kind = "detail"
 "#,
         )
         .expect("write config");
@@ -821,10 +825,14 @@ db_path = "/tmp/v4vmm.sqlite"
 
 [workspace_layout]
 focused_frame_id = 2
-frames = [
-  { id = 1, kind = "source_list" },
-  { id = 2, kind = "future_frame" },
-]
+
+[[workspace_layout.frames]]
+id = 1
+kind = "source_list"
+
+[[workspace_layout.frames]]
+id = 2
+kind = "future_frame"
 "#,
         )
         .expect("write config");
@@ -834,6 +842,38 @@ frames = [
         assert_eq!(
             cfg.workspace_layout, None,
             "unknown workspace frame kinds should fall back instead of failing config load"
+        );
+    }
+
+    #[test]
+    fn load_config_ignores_workspace_layout_with_removed_broadcast_frame() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[workspace_layout]
+focused_frame_id = 5
+
+[[workspace_layout.frames]]
+id = 2
+kind = "content_list"
+
+[[workspace_layout.frames]]
+id = 5
+kind = "broadcast"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(
+            cfg.workspace_layout, None,
+            "configs written with the removed ADR 0059 Broadcast frame should fall back"
         );
     }
 
@@ -1094,10 +1134,14 @@ layout_extra = "keep"
 
 [workspace_layout]
 focused_frame_id = 8
-frames = [
-  { id = 1, kind = "source_list" },
-  { id = 8, kind = "detail" },
-]
+
+[[workspace_layout.frames]]
+id = 1
+kind = "source_list"
+
+[[workspace_layout.frames]]
+id = 8
+kind = "detail"
 "#,
         )
         .expect("write config");
