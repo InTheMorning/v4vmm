@@ -157,12 +157,22 @@ Update this table when a packet lands.
 ADR 0060 replaced the surface design on 2026-09-07. Every UI packet of ADR 0059
 is superseded or blocked until it is reconciled with that ADR.
 
-Before any blocked packet starts:
+The restructure runs first. It needs ADR 0060 only. Cache, audition, and play
+history are features inside `Music`, not the structure of it, so their ADRs do
+not gate the structural work.
 
-1. Write ADR 0062, cache and dump policy. The `Music` surface needs it.
-2. Revise the blocked packets against ADR 0060.
-3. Add packets for the restructure itself: the `Music` surface, the `Show`
-   screen mount, and the removal of the `Broadcast` frame with its guards.
+| Step | Packet | State |
+|---|---|---|
+| 1 | `docs/tasks/adr-0060-task-001-remove-broadcast-frame.md` | ready |
+| 2 | `Music` surface | not written |
+| 3 | `Show` screen mount | not written |
+| 4 | Live status strip | not written |
+
+After the restructure:
+
+1. Write ADR 0062, cache and dump policy. `Dump` needs it.
+2. Write ADR 0063, audition, and ADR 0064, play history.
+3. Revise the blocked ADR 0059 packets against ADR 0060.
 
 `v4vmm` packets 001 through 004 shipped and are unaffected. They are backend
 work that ADR 0060 does not touch.
