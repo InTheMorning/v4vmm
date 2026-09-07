@@ -730,6 +730,53 @@ kind = "detail"
     }
 
     #[test]
+    fn load_config_accepts_workspace_layout_with_queue_from_before_show_mount() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[workspace_layout]
+focused_frame_id = 4
+
+[[workspace_layout.frames]]
+id = 2
+kind = "content_list"
+
+[[workspace_layout.frames]]
+id = 4
+kind = "queue_now_playing"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let layout = WorkspaceLayout::from_config(cfg.workspace_layout.as_ref());
+        let kinds: Vec<_> = layout
+            .frames()
+            .iter()
+            .map(WorkspaceFrameState::kind)
+            .collect();
+
+        assert_eq!(
+            kinds,
+            [
+                WorkspaceFrameKind::ContentList,
+                WorkspaceFrameKind::QueueNowPlaying
+            ],
+            "configs written before ADR 0060 task 002 should still deserialize"
+        );
+        assert_eq!(
+            layout.focused_frame().map(WorkspaceFrameState::kind),
+            Some(WorkspaceFrameKind::QueueNowPlaying),
+            "old queue-focused layouts should preserve focus in the stored model"
+        );
+    }
+
+    #[test]
     fn load_config_parses_workspace_layout_prefs() {
         let temp = tempfile::tempdir().expect("tempdir");
         let cfg_path = temp.path().join("config.toml");

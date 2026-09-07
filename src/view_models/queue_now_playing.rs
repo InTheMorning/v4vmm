@@ -1,9 +1,10 @@
 //! Queue and now-playing frame display contracts.
 //!
 //! ADR 0046 Phase 4 moves detailed playback controls out of the global toolbar
-//! and into the Queue workspace frame. This module keeps those display
-//! contracts GPUI-free so the shell can bind them to primitives without owning
-//! playback state.
+//! and into the Queue workspace frame. ADR 0060 moves that queue into Show and
+//! removes output controls that have no command path. This module keeps those
+//! display contracts GPUI-free so the shell can bind them to primitives without
+//! owning playback state.
 
 #![warn(clippy::pedantic)]
 #![cfg_attr(
@@ -178,129 +179,10 @@ impl TransportDisplay {
     }
 }
 
-/// Display-ready liveValue output option.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LiveValueDeviceOption {
-    /// Stable option identifier.
-    pub(crate) id: String,
-    /// Visible output label.
-    pub(crate) label: String,
-    /// Accessibility label for the output option.
-    pub(crate) a11y_label: String,
-    /// Whether this option is informational instead of selectable.
-    pub(crate) disabled: bool,
-}
-
-impl LiveValueDeviceOption {
-    /// Creates a liveValue output option.
-    #[must_use]
-    pub(crate) fn new(
-        id: impl Into<String>,
-        label: impl Into<String>,
-        a11y_label: impl Into<String>,
-        disabled: bool,
-    ) -> Self {
-        Self {
-            id: id.into(),
-            label: label.into(),
-            a11y_label: a11y_label.into(),
-            disabled,
-        }
-    }
-}
-
-/// Display-ready liveValue output picker.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LiveValueDeviceDisplay {
-    /// Stable picker identifier.
-    pub(crate) picker_id: String,
-    /// Ordered output options.
-    pub(crate) options: Vec<LiveValueDeviceOption>,
-    /// Currently selected output identifier.
-    pub(crate) selected_id: Option<String>,
-    /// Accessibility label for the picker.
-    pub(crate) a11y_label: &'static str,
-    /// Whether the picker should render as unavailable.
-    pub(crate) disabled: bool,
-}
-
-impl LiveValueDeviceDisplay {
-    /// Creates a liveValue output display.
-    #[must_use]
-    pub(crate) fn new(
-        options: Vec<LiveValueDeviceOption>,
-        selected_id: Option<String>,
-        disabled: bool,
-    ) -> Self {
-        Self {
-            picker_id: "queue-livevalue-output".to_string(),
-            options,
-            selected_id,
-            a11y_label: "Choose liveValue output",
-            disabled,
-        }
-    }
-
-    /// Returns an informational display when output routing is unavailable.
-    #[must_use]
-    pub(crate) fn unavailable() -> Self {
-        Self::new(
-            vec![LiveValueDeviceOption::new(
-                "livevalue-output-unavailable",
-                "No liveValue output",
-                "No liveValue output is available",
-                true,
-            )],
-            None,
-            true,
-        )
-    }
-
-    /// Returns the selected output label for the picker trigger.
-    #[must_use]
-    pub(crate) fn selected_label(&self) -> &str {
-        self.selected_id
-            .as_deref()
-            .and_then(|selected| {
-                self.options
-                    .iter()
-                    .find(|option| option.id == selected)
-                    .map(|option| option.label.as_str())
-            })
-            .unwrap_or("Output")
-    }
-}
-
-/// Display-ready output volume state.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct VolumeDisplay {
-    /// Stable slider identifier.
-    pub(crate) slider_id: String,
-    /// Normalized volume level from `0.0` through `1.0`.
-    pub(crate) level: f32,
-    /// Accessibility label for the slider.
-    pub(crate) a11y_label: &'static str,
-    /// Whether the slider should render unavailable.
-    pub(crate) disabled: bool,
-}
-
-impl VolumeDisplay {
-    /// Creates a volume display with clamped level.
-    #[must_use]
-    pub(crate) fn new(level: f32, disabled: bool) -> Self {
-        Self {
-            slider_id: "queue-output-volume".to_string(),
-            level: level.clamp(0.0, 1.0),
-            a11y_label: "Output volume",
-            disabled,
-        }
-    }
-}
-
 /// Display-ready Queue/Now Playing page.
 ///
-/// The page groups the queue rows with transport and output controls. It
-/// contains no GPUI values and no playback engine handles.
+/// The page groups the queue rows with transport controls. It contains no GPUI
+/// values and no playback engine handles.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct QueueNowPlayingPageVm {
     /// Ordered queue rows.
@@ -309,10 +191,6 @@ pub(crate) struct QueueNowPlayingPageVm {
     text_filter: Option<String>,
     /// Transport control display state.
     pub(crate) transport: TransportDisplay,
-    /// liveValue output picker display state.
-    pub(crate) live_value: LiveValueDeviceDisplay,
-    /// Output volume slider display state.
-    pub(crate) volume: VolumeDisplay,
     /// Empty-state label for the queue list.
     pub(crate) empty_label: &'static str,
 }
@@ -352,8 +230,6 @@ pub(crate) struct QueueNowPlayingPageVmBuilder {
     transport_state: TransportState,
     can_skip_previous: bool,
     can_skip_next: bool,
-    live_value: LiveValueDeviceDisplay,
-    volume: VolumeDisplay,
 }
 
 impl Default for QueueNowPlayingPageVmBuilder {
@@ -363,8 +239,6 @@ impl Default for QueueNowPlayingPageVmBuilder {
             transport_state: TransportState::Stopped,
             can_skip_previous: false,
             can_skip_next: false,
-            live_value: LiveValueDeviceDisplay::unavailable(),
-            volume: VolumeDisplay::new(1.0, true),
         }
     }
 }
@@ -393,18 +267,6 @@ impl QueueNowPlayingPageVmBuilder {
         self
     }
 
-    /// Supplies liveValue output display state.
-    pub(crate) fn live_value(mut self, display: LiveValueDeviceDisplay) -> Self {
-        self.live_value = display;
-        self
-    }
-
-    /// Supplies output volume display state.
-    pub(crate) fn volume(mut self, display: VolumeDisplay) -> Self {
-        self.volume = display;
-        self
-    }
-
     /// Projects the builder input into a display-ready page.
     #[must_use]
     pub(crate) fn build(self) -> QueueNowPlayingPageVm {
@@ -422,8 +284,6 @@ impl QueueNowPlayingPageVmBuilder {
                 self.can_skip_previous,
                 self.can_skip_next,
             ),
-            live_value: self.live_value,
-            volume: self.volume,
             empty_label: "Queue is empty",
         }
     }
@@ -479,15 +339,13 @@ mod tests {
     }
 
     #[test]
-    fn empty_queue_disables_transport_and_output_controls() {
+    fn empty_queue_disables_transport_controls() {
         let vm = QueueNowPlayingPageVm::builder().build();
 
         assert!(vm.rows.is_empty());
         assert!(vm.transport.disabled);
         assert!(vm.transport.skip_previous.disabled);
         assert!(vm.transport.skip_next.disabled);
-        assert!(vm.live_value.disabled);
-        assert!(vm.volume.disabled);
         assert_eq!(vm.empty_label, "Queue is empty");
     }
 
@@ -530,22 +388,6 @@ mod tests {
         assert!(!vm.transport.skip_next.disabled);
         assert!(vm.rows[0].now_playing);
         assert!(!vm.rows[1].now_playing);
-    }
-
-    #[test]
-    fn no_device_picker_selection_uses_output_label() {
-        let picker = LiveValueDeviceDisplay::unavailable();
-
-        assert_eq!(picker.selected_label(), "Output");
-        assert!(picker.selected_id.is_none());
-        assert_eq!(picker.options.len(), 1);
-        assert!(picker.options[0].disabled);
-    }
-
-    #[test]
-    fn volume_level_is_clamped() {
-        assert_eq!(VolumeDisplay::new(1.5, false).level, 1.0);
-        assert_eq!(VolumeDisplay::new(-0.5, false).level, 0.0);
     }
 
     #[test]

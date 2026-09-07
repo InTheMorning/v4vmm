@@ -1,44 +1,21 @@
-//! Queue/Now Playing frame adapter.
+//! Queue/Now Playing projection adapter.
 //!
-//! This module bridges application playback/session state into the ADR 0046
-//! Queue frame display contract. Toolbar rendering stays in `playback_bar.rs`;
-//! the detailed queue and output controls are projected here.
+//! This module bridges application playback/session state into the queue
+//! display contract. ADR 0060 renders that projection inside `Show`; the
+//! detailed queue and transport controls are still projected here.
 
 use gpui::{App, ClickEvent, Context, Entity, Window};
 
-use crate::ui::shells::queue_now_playing::{
-    render_queue_now_playing, QueueNowPlayingShell, QueueNowPlayingSlots,
-};
 use crate::view_models::queue_now_playing::{
-    LiveValueDeviceDisplay, QueueNowPlayingPageVm, QueueTrackInput, TransportState, VolumeDisplay,
+    QueueNowPlayingPageVm, QueueTrackInput, TransportState,
 };
 use crate::{db, playback};
 
 use super::TopApp;
 
-pub(super) fn build_queue_now_playing_frame(
-    app: &TopApp,
-    cx: &mut Context<TopApp>,
-) -> QueueNowPlayingShell {
-    let entity = cx.entity();
-    render_queue_now_playing(
-        queue_now_playing_vm(app),
-        QueueNowPlayingSlots::new()
-            .on_skip_previous(queue_transport_action(
-                entity.clone(),
-                TopApp::skip_playback_previous,
-            ))
-            .on_play_pause(queue_transport_action(
-                entity.clone(),
-                TopApp::toggle_playback_paused,
-            ))
-            .on_skip_next(queue_transport_action(entity, TopApp::skip_playback_next)),
-    )
-}
+pub(super) type QueueTransportAction = fn(&mut TopApp, &mut Context<TopApp>);
 
-type QueueTransportAction = fn(&mut TopApp, &mut Context<TopApp>);
-
-fn queue_transport_action(
+pub(super) fn queue_transport_action(
     entity: Entity<TopApp>,
     action: QueueTransportAction,
 ) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
@@ -47,7 +24,7 @@ fn queue_transport_action(
     }
 }
 
-fn queue_now_playing_vm(app: &TopApp) -> QueueNowPlayingPageVm {
+pub(super) fn queue_now_playing_vm(app: &TopApp) -> QueueNowPlayingPageVm {
     let conn = app.conn.lock().expect("lock db");
     let session = db::playback_session(&conn, playback::DEFAULT_SESSION_ID)
         .ok()
@@ -70,8 +47,6 @@ fn queue_now_playing_vm(app: &TopApp) -> QueueNowPlayingPageVm {
         .tracks(queue.tracks)
         .transport_state(transport_state)
         .skip_availability(queue.can_skip_previous, queue.can_skip_next)
-        .live_value(LiveValueDeviceDisplay::unavailable())
-        .volume(VolumeDisplay::new(1.0, true))
         .build();
 
     if let Some(filter) = app.queue_text_filter.clone() {

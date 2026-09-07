@@ -1,8 +1,7 @@
 //! Queue/Now Playing workspace-frame shell.
 //!
-//! ADR 0046 Phase 4 gives playback status, transport, liveValue output, and
-//! volume controls their own frame-owned surface. The global toolbar remains a
-//! compact status affordance.
+//! ADR 0046 Phase 4 gives playback status and transport controls their own
+//! surface. The global toolbar remains a compact status affordance.
 
 #![warn(clippy::pedantic)]
 
@@ -12,17 +11,13 @@ use gpui::{
     div, prelude::*, App, ClickEvent, FontWeight, IntoElement, ParentElement, RenderOnce,
     SharedString, Styled, Window,
 };
-use gpui_component::slider::{Slider, SliderState};
 
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
-use crate::ui::primitives::{
-    Button, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope, Tooltip,
-};
+use crate::ui::primitives::{Button, Tooltip};
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size, Spacing};
 use crate::view_models::queue_now_playing::{
-    LiveValueDeviceDisplay, QueueNowPlayingPageVm, QueueRowDisplay, TransportDisplay,
-    TransportState, VolumeDisplay,
+    QueueNowPlayingPageVm, QueueRowDisplay, TransportDisplay, TransportState,
 };
 use crate::view_models::workspace::FrameChromeButtonDisplay;
 
@@ -88,12 +83,10 @@ pub(crate) fn render_queue_now_playing(
 }
 
 impl RenderOnce for QueueNowPlayingShell {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let QueueNowPlayingPageVm {
             rows,
             transport,
-            live_value,
-            volume,
             empty_label,
             ..
         } = self.vm;
@@ -107,9 +100,7 @@ impl RenderOnce for QueueNowPlayingShell {
             .min_w_0()
             .overflow_hidden()
             .child(render_queue_list(rows, empty_label, cx))
-            .child(render_control_deck(
-                transport, live_value, volume, slots, window, cx,
-            ))
+            .child(render_control_deck(transport, slots, cx))
     }
 }
 
@@ -223,14 +214,10 @@ fn render_queue_row(row: QueueRowDisplay, cx: &App) -> impl IntoElement {
 
 fn render_control_deck(
     transport: TransportDisplay,
-    live_value: LiveValueDeviceDisplay,
-    volume: VolumeDisplay,
     slots: QueueNowPlayingSlots,
-    window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
     let border = color(cx, SemanticColor::Separator);
-    let secondary_label = color(cx, SemanticColor::SecondaryLabel);
 
     div()
         .flex()
@@ -241,20 +228,6 @@ fn render_control_deck(
         .border_color(border)
         .p(Spacing::MD.scaled(cx))
         .child(render_transport(transport, slots, cx))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(Spacing::SM.scaled(cx))
-                .child(
-                    div()
-                        .text_size(FontSize::Micro.scaled(cx))
-                        .text_color(secondary_label)
-                        .child("Output"),
-                )
-                .child(render_output_picker(live_value))
-                .child(render_volume(volume, window, cx)),
-        )
 }
 
 fn render_transport(
@@ -315,65 +288,4 @@ fn transport_button(
     }
 
     button
-}
-
-fn render_output_picker(display: LiveValueDeviceDisplay) -> impl IntoElement {
-    let selected_label = display.selected_label().to_string();
-    let disabled = display.disabled;
-    let mut menu = ContextMenu::new(
-        display.picker_id,
-        ContextMenuScope::WorkspaceFrame,
-        display.a11y_label,
-    )
-    .trigger_label(selected_label);
-
-    for option in display.options {
-        let option_id = SharedString::from(option.id);
-        menu = menu.item(ContextMenuItem::new(ContextMenuItemDisplay {
-            id: option_id,
-            label: SharedString::from(option.label),
-            a11y_label: SharedString::from(option.a11y_label),
-            destructive: false,
-            disabled: option.disabled,
-        }));
-    }
-
-    div().when(disabled, |el| el.opacity(0.6)).child(menu)
-}
-
-fn render_volume(display: VolumeDisplay, window: &mut Window, cx: &mut App) -> impl IntoElement {
-    let VolumeDisplay {
-        slider_id,
-        level,
-        a11y_label,
-        disabled,
-    } = display;
-    let secondary_label = color(cx, SemanticColor::SecondaryLabel);
-    let slider_key = SharedString::from(format!("{slider_id}-state"));
-    let level = level.mul_add(100.0, 0.0);
-    let state = window.use_keyed_state(slider_key, cx, |_window, _cx| {
-        SliderState::new()
-            .min(0.0)
-            .max(100.0)
-            .step(1.0)
-            .default_value(level)
-    });
-
-    div()
-        .flex()
-        .flex_col()
-        .gap(Spacing::XS.scaled(cx))
-        .when(disabled, |el| el.opacity(0.6))
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .text_size(FontSize::Micro.scaled(cx))
-                .text_color(secondary_label)
-                .child(SharedString::from(a11y_label))
-                .child(SharedString::from(format!("{level:.0}%"))),
-        )
-        .child(Slider::new(&state).horizontal().disabled(disabled))
 }

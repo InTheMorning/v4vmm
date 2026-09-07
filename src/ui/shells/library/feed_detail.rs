@@ -305,6 +305,7 @@ fn render_library_track_row(
     let LibraryTrackRowDisplay {
         row_id,
         toggle_button_id,
+        state_label,
     } = vm.row_display();
     let in_library = kind == EntityActionKind::Remove;
     let mb_text = vm.mb_status_text();
@@ -345,6 +346,15 @@ fn render_library_track_row(
                 .text_size(typography::SIZE_MICRO)
                 .text_color(status_color)
                 .child(SharedString::from(text))
+                .into_any_element(),
+        );
+    }
+    if let Some(label) = state_label {
+        actions.push(
+            div()
+                .text_size(typography::SIZE_MICRO)
+                .text_color(color::text_muted())
+                .child(SharedString::from(label))
                 .into_any_element(),
         );
     }

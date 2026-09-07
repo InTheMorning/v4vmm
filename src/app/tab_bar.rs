@@ -273,14 +273,16 @@ fn render_app_tab(
 
 const fn app_tab_for_key(key: AppToolbarTabKey) -> AppTab {
     match key {
-        AppToolbarTabKey::Library => AppTab::Library,
+        AppToolbarTabKey::Music => AppTab::Music,
+        AppToolbarTabKey::Show => AppTab::Show,
         AppToolbarTabKey::Settings => AppTab::Settings,
     }
 }
 
 fn focus_handle_for_key(key: AppToolbarTabKey, app: &TopApp) -> &gpui::FocusHandle {
     match key {
-        AppToolbarTabKey::Library => &app.library_tab_focus,
+        AppToolbarTabKey::Music => &app.music_tab_focus,
+        AppToolbarTabKey::Show => &app.show_tab_focus,
         AppToolbarTabKey::Settings => &app.settings_tab_focus,
     }
 }

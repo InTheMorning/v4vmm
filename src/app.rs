@@ -54,18 +54,18 @@ mod queue_now_playing;
 mod recent_feeds;
 mod resize;
 mod search_dispatch;
+mod show;
 mod tab_bar;
 
 pub use bootstrap::run_app;
 
 use playback_bar::build_playback_bar;
-use queue_now_playing::build_queue_now_playing_frame;
 use recent_feeds::IndexFeedDetailOrigin;
 use search_dispatch::RemoteDetailThumbnailState;
+use show::build_show_screen;
 use tab_bar::render_tab_bar;
 
 const WORKSPACE_CONTENT_FRAME_ID: WorkspaceFrameId = WorkspaceFrameId::new(2);
-const WORKSPACE_QUEUE_FRAME_ID: WorkspaceFrameId = WorkspaceFrameId::new(4);
 
 // ---------------------------------------------------------------------------
 // AppTab
@@ -73,24 +73,27 @@ const WORKSPACE_QUEUE_FRAME_ID: WorkspaceFrameId = WorkspaceFrameId::new(4);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AppTab {
-    Library,
+    Music,
+    Show,
     Settings,
 }
 
-/// ADR 0046 Phase 3 transitional mount boundary.
+/// ADR 0060 app-section mount boundary.
 ///
-/// The workspace shell wraps existing screens whole until a later task extracts
-/// Library/Search internals into independent source/content/detail frame slots.
+/// Music and Settings render through the workspace shell. Show is a
+/// whole-screen mount because it does not use frame history or breadcrumbs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WorkspaceScreenMount {
-    Library,
+    Music,
+    Show,
     Settings,
 }
 
 impl WorkspaceScreenMount {
     const fn frame_title(self) -> &'static str {
         match self {
-            Self::Library => "Library",
+            Self::Music => "Music",
+            Self::Show => "Show",
             Self::Settings => "Settings",
         }
     }
@@ -99,7 +102,8 @@ impl WorkspaceScreenMount {
 impl From<AppTab> for WorkspaceScreenMount {
     fn from(tab: AppTab) -> Self {
         match tab {
-            AppTab::Library => Self::Library,
+            AppTab::Music => Self::Music,
+            AppTab::Show => Self::Show,
             AppTab::Settings => Self::Settings,
         }
     }
@@ -117,7 +121,7 @@ pub struct TopApp {
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
     workspace_layout: WorkspaceLayout,
-    last_library_content_nav: Option<FrameNavigationState>,
+    last_music_content_nav: Option<FrameNavigationState>,
     search_results_detail: Option<SearchResultsInspectorPageVm>,
     recent_feeds_detail: Option<RecentFeedsPageVm>,
     recent_feeds_scroll: ScrollHandle,
@@ -128,7 +132,8 @@ pub struct TopApp {
     theme_profile: ThemeProfile,
     cfg_path: PathBuf,
     settings_status: String,
-    library_tab_focus: gpui::FocusHandle,
+    music_tab_focus: gpui::FocusHandle,
+    show_tab_focus: gpui::FocusHandle,
     settings_tab_focus: gpui::FocusHandle,
     _global_search_sub: gpui::Subscription,
     _library_sub: gpui::Subscription,
@@ -268,7 +273,7 @@ impl TopApp {
         });
 
         Self {
-            tab: AppTab::Library,
+            tab: AppTab::Music,
             library,
             global_search_input,
             endpoint_input,
@@ -276,9 +281,9 @@ impl TopApp {
             flac_path_input,
             workspace_layout: Self::initial_workspace_layout(
                 workspace_layout_config.as_ref(),
-                WorkspaceScreenMount::Library,
+                WorkspaceScreenMount::Music,
             ),
-            last_library_content_nav: None,
+            last_music_content_nav: None,
             search_results_detail: None,
             recent_feeds_detail: None,
             recent_feeds_scroll: ScrollHandle::new(),
@@ -289,7 +294,8 @@ impl TopApp {
             theme_profile,
             cfg_path,
             settings_status: String::new(),
-            library_tab_focus: cx.focus_handle(),
+            music_tab_focus: cx.focus_handle(),
+            show_tab_focus: cx.focus_handle(),
             settings_tab_focus: cx.focus_handle(),
             _global_search_sub: global_search_sub,
             _library_sub: library_sub,
@@ -364,6 +370,12 @@ impl TopApp {
     fn select_tab(&mut self, tab: AppTab, cx: &mut Context<Self>) {
         self.tab = tab;
 
+        if matches!(tab, AppTab::Show) {
+            self.queue_text_filter = None;
+            cx.notify();
+            return;
+        }
+
         let Some(content_list_id) = self.content_list_frame_id() else {
             cx.notify();
             return;
@@ -373,7 +385,7 @@ impl TopApp {
             AppTab::Settings => {
                 if let Some(nav) = self.workspace_layout.frame_nav(content_list_id).cloned() {
                     if !matches!(nav.current(), FrameNavigationEntry::Settings) {
-                        self.last_library_content_nav = Some(nav);
+                        self.last_music_content_nav = Some(nav);
                     }
                 }
                 if let Err(error) = self
@@ -384,13 +396,13 @@ impl TopApp {
                 }
                 self.sync_search_results_detail_with_nav(content_list_id);
             }
-            AppTab::Library => {
+            AppTab::Music => {
                 let restoring_from_settings = self
                     .workspace_layout
                     .frame_nav(content_list_id)
                     .is_some_and(|nav| matches!(nav.current(), FrameNavigationEntry::Settings));
                 if restoring_from_settings {
-                    let nav = self.last_library_content_nav.clone().unwrap_or_else(|| {
+                    let nav = self.last_music_content_nav.clone().unwrap_or_else(|| {
                         FrameNavigationState::new(FrameNavigationEntry::SourceList)
                     });
                     if let Err(error) = self.workspace_layout.replace_nav(content_list_id, nav) {
@@ -418,6 +430,7 @@ impl TopApp {
                     library.refresh(cx);
                 });
             }
+            AppTab::Show => {}
         }
 
         cx.notify();
@@ -439,15 +452,7 @@ impl TopApp {
             return;
         }
 
-        let current_nav = self
-            .workspace_layout
-            .frame_nav(frame_id)
-            .map(|nav| nav.current().clone());
-        let library_has_filterable_detail = self.library.read(cx).has_filterable_content_detail();
-        if matches!(mount, WorkspaceScreenMount::Library)
-            && (library_has_filterable_detail
-                || !matches!(current_nav, Some(FrameNavigationEntry::SourceList) | None))
-        {
+        if matches!(mount, WorkspaceScreenMount::Music) {
             self.library.update(cx, |library, cx| {
                 library.set_content_filter(filter, cx);
             });
@@ -594,11 +599,10 @@ impl TopApp {
                         Some(WorkspaceFrameState::new(frame.id(), frame.kind(), title))
                     }
                 }
-                WorkspaceFrameKind::QueueNowPlaying => Some(
-                    WorkspaceFrameState::with_default_title(frame.id(), frame.kind()),
-                ),
-                // Stage 5: Drop Detail frame from visible layout entirely.
-                WorkspaceFrameKind::Detail | WorkspaceFrameKind::SourceList => None,
+                // ADR 0060 task 002: Queue lives in Show, not curation.
+                WorkspaceFrameKind::QueueNowPlaying
+                | WorkspaceFrameKind::Detail
+                | WorkspaceFrameKind::SourceList => None,
             })
             .collect();
 
@@ -614,17 +618,6 @@ impl TopApp {
                     mount.frame_title(),
                 ),
             );
-        }
-
-        if !frames
-            .iter()
-            .any(|frame| matches!(frame.kind(), WorkspaceFrameKind::QueueNowPlaying))
-        {
-            let queue_id = Self::unused_workspace_frame_id(&frames, WORKSPACE_QUEUE_FRAME_ID);
-            frames.push(WorkspaceFrameState::with_default_title(
-                queue_id,
-                WorkspaceFrameKind::QueueNowPlaying,
-            ));
         }
 
         let focused_frame_id = layout
@@ -664,7 +657,7 @@ impl TopApp {
         };
 
         match nav.current() {
-            FrameNavigationEntry::SourceList => "Library".to_string(),
+            FrameNavigationEntry::SourceList => mount.frame_title().to_string(),
             FrameNavigationEntry::Search(_) => "Search Results".to_string(),
             FrameNavigationEntry::RecentFeeds => "Recent Feeds".to_string(),
             FrameNavigationEntry::IndexFeedDetail { .. } => "Feed".to_string(),
@@ -844,7 +837,8 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         match mount {
-            WorkspaceScreenMount::Library => self.library.clone().into_any_element(),
+            WorkspaceScreenMount::Music => self.library.clone().into_any_element(),
+            WorkspaceScreenMount::Show => build_show_screen(self, cx).into_any_element(),
             WorkspaceScreenMount::Settings => render_settings(self, cx),
         }
     }
@@ -858,8 +852,11 @@ impl TopApp {
         mount: WorkspaceScreenMount,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
+        if matches!(mount, WorkspaceScreenMount::Show) {
+            return self.render_workspace_screen_mount(mount, cx);
+        }
+
         let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
-        let queue_frame = build_queue_now_playing_frame(self, cx);
         let content_frame_id = layout
             .frames()
             .iter()
@@ -921,7 +918,6 @@ impl TopApp {
                 );
                 WorkspaceSlots::new()
                     .content_list(inspector_content)
-                    .queue_now_playing(queue_frame)
                     .content_list_filter_chip_strip(filter_chip_strip)
                     .on_content_list_filter_select(move |filter, _window, cx| {
                         filter_entity.update(cx, |this, cx| {
@@ -930,7 +926,7 @@ impl TopApp {
                     })
             }
             Some(FrameNavigationEntry::RecentFeeds) => {
-                self.render_recent_feeds_content(&entity, queue_frame, cx)
+                self.render_recent_feeds_content(&entity, cx)
             }
             Some(FrameNavigationEntry::IndexArtistFeedScope(_))
                 if self.search_results_detail.is_some() =>
@@ -959,9 +955,7 @@ impl TopApp {
                     },
                     cx,
                 );
-                WorkspaceSlots::new()
-                    .content_list(inspector_content)
-                    .queue_now_playing(queue_frame)
+                WorkspaceSlots::new().content_list(inspector_content)
             }
             Some(FrameNavigationEntry::IndexFeedDetail { id, label }) => {
                 let activation_id = format!("index-feed:{id}");
@@ -971,28 +965,20 @@ impl TopApp {
                     if let Some(recent_feeds) = self.recent_feeds_detail.as_ref() {
                         let detail = recent_feeds.index_feed_detail(&activation_id, id, label);
                         let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
-                        WorkspaceSlots::new()
-                            .content_list(detail_content)
-                            .queue_now_playing(queue_frame)
+                        WorkspaceSlots::new().content_list(detail_content)
                     } else {
                         let library_screen =
-                            self.render_workspace_screen_mount(WorkspaceScreenMount::Library, cx);
-                        WorkspaceSlots::new()
-                            .content_list(library_screen)
-                            .queue_now_playing(queue_frame)
+                            self.render_workspace_screen_mount(WorkspaceScreenMount::Music, cx);
+                        WorkspaceSlots::new().content_list(library_screen)
                     }
                 } else if let Some(search_results) = self.search_results_detail.as_ref() {
                     let detail = search_results.index_feed_detail(&activation_id, id, label);
                     let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
-                    WorkspaceSlots::new()
-                        .content_list(detail_content)
-                        .queue_now_playing(queue_frame)
+                    WorkspaceSlots::new().content_list(detail_content)
                 } else {
                     let library_screen =
-                        self.render_workspace_screen_mount(WorkspaceScreenMount::Library, cx);
-                    WorkspaceSlots::new()
-                        .content_list(library_screen)
-                        .queue_now_playing(queue_frame)
+                        self.render_workspace_screen_mount(WorkspaceScreenMount::Music, cx);
+                    WorkspaceSlots::new().content_list(library_screen)
                 }
             }
             Some(FrameNavigationEntry::IndexTrackDetail { id, label })
@@ -1005,18 +991,14 @@ impl TopApp {
                     .unwrap()
                     .index_track_detail(&activation_id, id, label);
                 let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
-                WorkspaceSlots::new()
-                    .content_list(detail_content)
-                    .queue_now_playing(queue_frame)
+                WorkspaceSlots::new().content_list(detail_content)
             }
             Some(FrameNavigationEntry::Settings) => {
                 let settings_screen =
                     self.render_workspace_screen_mount(WorkspaceScreenMount::Settings, cx);
-                WorkspaceSlots::new()
-                    .content_list(settings_screen)
-                    .queue_now_playing(queue_frame)
+                WorkspaceSlots::new().content_list(settings_screen)
             }
-            // Entity details or default: render the Library-backed content surface.
+            // Entity details or default: render the Library-backed Music surface.
             Some(
                 FrameNavigationEntry::TrackDetail(_)
                 | FrameNavigationEntry::AlbumDetail(_)
@@ -1028,17 +1010,10 @@ impl TopApp {
             )
             | None => {
                 let library_screen =
-                    self.render_workspace_screen_mount(WorkspaceScreenMount::Library, cx);
-                let mut slots = WorkspaceSlots::new()
-                    .content_list(library_screen)
-                    .queue_now_playing(queue_frame);
+                    self.render_workspace_screen_mount(WorkspaceScreenMount::Music, cx);
+                let mut slots = WorkspaceSlots::new().content_list(library_screen);
 
-                if self.library.read(cx).has_filterable_content_detail()
-                    || !matches!(
-                        current_nav.as_ref(),
-                        Some(FrameNavigationEntry::SourceList) | None
-                    )
-                {
+                if matches!(mount, WorkspaceScreenMount::Music) {
                     let filter_chip_strip = self.library.read(cx).content_filter_chip_strip();
                     let content_filter_entity = entity.clone();
                     slots = slots
@@ -1055,17 +1030,10 @@ impl TopApp {
             // Unhandled nav variants: render active screen mount as fallback
             _ => {
                 let library_screen =
-                    self.render_workspace_screen_mount(WorkspaceScreenMount::Library, cx);
-                let mut slots = WorkspaceSlots::new()
-                    .content_list(library_screen)
-                    .queue_now_playing(queue_frame);
+                    self.render_workspace_screen_mount(WorkspaceScreenMount::Music, cx);
+                let mut slots = WorkspaceSlots::new().content_list(library_screen);
 
-                if self.library.read(cx).has_filterable_content_detail()
-                    || !matches!(
-                        current_nav.as_ref(),
-                        Some(FrameNavigationEntry::SourceList) | None
-                    )
-                {
+                if matches!(mount, WorkspaceScreenMount::Music) {
                     let filter_chip_strip = self.library.read(cx).content_filter_chip_strip();
                     let content_filter_entity = entity.clone();
                     slots = slots
@@ -1145,17 +1113,11 @@ impl TopApp {
     )]
     fn transitional_workspace_layout(mount: WorkspaceScreenMount) -> WorkspaceLayout {
         WorkspaceLayout::new(
-            vec![
-                WorkspaceFrameState::new(
-                    WORKSPACE_CONTENT_FRAME_ID,
-                    WorkspaceFrameKind::ContentList,
-                    mount.frame_title(),
-                ),
-                WorkspaceFrameState::with_default_title(
-                    WORKSPACE_QUEUE_FRAME_ID,
-                    WorkspaceFrameKind::QueueNowPlaying,
-                ),
-            ],
+            vec![WorkspaceFrameState::new(
+                WORKSPACE_CONTENT_FRAME_ID,
+                WorkspaceFrameKind::ContentList,
+                mount.frame_title(),
+            )],
             Some(WORKSPACE_CONTENT_FRAME_ID),
         )
         .expect("transitional workspace layout has stable unique frame ids")
@@ -1190,7 +1152,8 @@ impl Render for TopApp {
             .on_action(cx.listener(TopApp::handle_open_preferences))
             .on_action(cx.listener(TopApp::handle_focus_search))
             .on_action(cx.listener(TopApp::handle_new_playlist))
-            .on_action(cx.listener(TopApp::handle_select_library_tab))
+            .on_action(cx.listener(TopApp::handle_select_music_tab))
+            .on_action(cx.listener(TopApp::handle_select_show_tab))
             .on_action(cx.listener(TopApp::handle_select_settings_tab))
             .on_action(cx.listener(TopApp::handle_refresh_library))
             .on_action(cx.listener(TopApp::handle_cancel_active_pane))
@@ -1207,7 +1170,7 @@ impl Render for TopApp {
                     .min_h_0()
                     .min_w_0()
                     .overflow_hidden()
-                    // ADR 0046 Task 007: workspace render wraps the active whole-screen mount.
+                    // ADR 0060: workspace render delegates to the active app-section mount.
                     .child({
                         let mount = self.active_workspace_screen_mount();
                         self.render_workspace_content(mount, cx)

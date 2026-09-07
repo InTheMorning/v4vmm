@@ -44,6 +44,8 @@ use crate::views::{
 };
 
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
+const UPDATE_AVAILABLE_LABEL: &str = "Update available";
+const NEW_RELEASE_LABEL: &str = "New";
 
 /// Rendered-line threshold before descriptions start collapsed.
 pub(crate) const DESCRIPTION_AUTO_COLLAPSE_LINES: usize = 5;
@@ -543,6 +545,7 @@ pub(crate) struct FeedUpdateActionDisplay {
 /// Display contract for the feed-update toolbar row.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FeedUpdateDisplay {
+    pub(crate) state_label: Option<&'static str>,
     pub(crate) status_message: Option<String>,
     pub(crate) action: FeedUpdateActionDisplay,
 }
@@ -612,6 +615,7 @@ pub(crate) struct LibraryTrackPlaylistDisplay {
 pub(crate) struct LibraryTrackRowDisplay {
     pub(crate) row_id: String,
     pub(crate) toggle_button_id: String,
+    pub(crate) state_label: Option<&'static str>,
 }
 
 /// Source bucket for a row in the future workspace content-list frame.
@@ -637,6 +641,13 @@ impl ContentListRowSource {
     }
 }
 
+const fn row_state_label_for_source(source: ContentListRowSource) -> Option<&'static str> {
+    match source {
+        ContentListRowSource::Library => None,
+        ContentListRowSource::Index => Some(NEW_RELEASE_LABEL),
+    }
+}
+
 /// Display row cached by the GPUI-free content-list page VM.
 #[allow(dead_code)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -649,6 +660,8 @@ pub(crate) struct ContentListRowDisplay {
     pub(crate) secondary_text: String,
     /// Local-vs-index provenance used by per-frame filtering.
     pub(crate) source: ContentListRowSource,
+    /// Optional curator-facing state label for the row.
+    pub(crate) state_label: Option<&'static str>,
 }
 
 #[allow(dead_code)]
@@ -666,6 +679,7 @@ impl ContentListRowDisplay {
             title: title.into(),
             secondary_text: secondary_text.into(),
             source,
+            state_label: row_state_label_for_source(source),
         }
     }
 
@@ -1441,6 +1455,7 @@ impl LibraryViewModel {
             }
         };
         FeedUpdateDisplay {
+            state_label: has_stale.then_some(UPDATE_AVAILABLE_LABEL),
             status_message: state.status_message.clone(),
             action,
         }
@@ -1968,11 +1983,7 @@ impl LibraryViewModel {
             Some(if self.snapshot.feed_update_state.stale.is_empty() {
                 "All feeds up to date".into()
             } else {
-                format!(
-                    "{} feed update{} available",
-                    self.snapshot.feed_update_state.stale.len(),
-                    plural(self.snapshot.feed_update_state.stale.len())
-                )
+                feed_change_count_label(self.snapshot.feed_update_state.stale.len())
             });
     }
 
@@ -2080,7 +2091,7 @@ impl LibraryViewModel {
     }
 
     fn pending_feed_update_label(count: usize) -> String {
-        format!("{count} feed update{} pending", plural(count))
+        feed_change_count_label(count)
     }
 
     // Both lookups are exercised by the unit tests below but not yet
@@ -2114,6 +2125,10 @@ impl LibraryViewModel {
     pub(crate) fn playlist_sort_label(&self) -> &'static str {
         self.playlist_sort.label()
     }
+}
+
+fn feed_change_count_label(count: usize) -> String {
+    format!("{count} feed{} changed", plural(count))
 }
 
 fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
@@ -2300,6 +2315,7 @@ impl<'a> LibraryTrackRowVm<'a> {
         LibraryTrackRowDisplay {
             row_id: format!("album-track-{track_id}"),
             toggle_button_id: format!("lib-toggle-{track_id}"),
+            state_label: (!self.track.is_in_library).then_some(NEW_RELEASE_LABEL),
         }
     }
 
@@ -3152,10 +3168,10 @@ mod tests {
         assert_eq!(
             page.visible_rows()
                 .iter()
-                .map(|row| row.id.as_str())
+                .map(|row| (row.id.as_str(), row.state_label))
                 .collect::<Vec<_>>(),
-            ["library", "index"],
-            "all filter should show library and index rows"
+            [("library", None), ("index", Some("New"))],
+            "all filter should show library and index rows with VM-owned state labels"
         );
         assert_eq!(
             page.empty_state(),
@@ -3618,7 +3634,14 @@ mod tests {
             LibraryTrackRowDisplay {
                 row_id: "album-track-42".into(),
                 toggle_button_id: "lib-toggle-42".into(),
+                state_label: Some("New"),
             }
+        );
+
+        r.is_in_library = true;
+        assert_eq!(
+            LibraryTrackRowVm::new(&r, None).row_display().state_label,
+            None
         );
     }
 
@@ -5054,6 +5077,7 @@ mod tests {
     fn feed_update_display_projects_toolbar_action_labels() {
         let mut vm = LibraryViewModel::new();
         let display = vm.feed_update_display();
+        assert_eq!(display.state_label, None);
         assert_eq!(display.status_message, None);
         assert_eq!(display.action.kind, FeedUpdateActionKind::CheckAllFeeds);
         assert_eq!(display.action.button_id, "check-all-feeds");
@@ -5062,6 +5086,7 @@ mod tests {
 
         vm.begin_all_feed_check(3);
         let display = vm.feed_update_display();
+        assert_eq!(display.state_label, None);
         assert_eq!(
             display.status_message.as_deref(),
             Some("Checking 3 feeds...")
@@ -5078,6 +5103,8 @@ mod tests {
             new_updated_at: 10,
         }]);
         let display = vm.feed_update_display();
+        assert_eq!(display.state_label, Some("Update available"));
+        assert_eq!(display.status_message.as_deref(), Some("1 feed changed"));
         assert_eq!(display.action.kind, FeedUpdateActionKind::ApplyUpdates);
         assert_eq!(display.action.button_id, "apply-feed-updates");
         assert_eq!(display.action.label, "Apply updates (1)");
@@ -5646,7 +5673,7 @@ mod tests {
         assert_eq!(vm.feed_update_state().stale.len(), 1);
         assert_eq!(
             vm.feed_update_state().status_message.as_deref(),
-            Some("1 feed update pending")
+            Some("1 feed changed")
         );
     }
 
@@ -5669,7 +5696,7 @@ mod tests {
         assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Idle);
         assert_eq!(
             vm.feed_update_state().status_message.as_deref(),
-            Some("1 feed update available")
+            Some("1 feed changed")
         );
 
         let stale = vm

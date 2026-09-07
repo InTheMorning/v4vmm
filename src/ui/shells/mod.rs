@@ -33,6 +33,7 @@ pub mod queue_now_playing;
 pub mod recent_feeds;
 pub mod search_result_rows;
 pub mod search_results_inspector;
+pub mod show;
 pub mod track;
 pub mod window_layers;
 pub mod workspace;

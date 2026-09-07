@@ -5,7 +5,8 @@ Status: Ready - 2026-09-07. Do after task 002.
 ## Goal
 
 Rename the curation section to `Music`, promote the content filter to a primary
-control, and give the surface the whole window.
+control, give the surface the whole window, and delete two controls that cannot
+act.
 
 This is the packet that answers the visual inspection in ADR 0060. The largest
 region of the window shows music instead of an empty prompt.
@@ -28,6 +29,9 @@ region of the window shows music instead of an empty prompt.
 - `src/app.rs`
 - `src/ui/shells/workspace.rs`
 - `src/ui/composites/` for the filter control
+- `src/view_models/queue_now_playing.rs`
+- `src/ui/shells/queue_now_playing.rs`
+- `src/app/queue_now_playing.rs`
 - `tests/architecture_tests.rs`
 
 ## Do Not Touch
@@ -54,6 +58,18 @@ region of the window shows music instead of an empty prompt.
   it. An empty detail region must not hold the largest share of the window.
 - Two labels replace internal terms: `Update available` for changed upstream
   source data, and `New` for an unreviewed release. Both belong in a view model.
+- **Delete the volume slider and the liveValue output picker.** Neither can act.
+  Traced on 2026-09-07:
+  - `VolumeDisplay::new(1.0, true)` is hardcoded. No playback driver,
+    playback owner, or command implements volume. ADR 0021 deferred volume and
+    the deferred index holds it as item 4.
+  - `LiveValueDeviceDisplay::unavailable()` is hardcoded in the adapter. The
+    picker has only ever rendered one disabled option reading
+    `No liveValue output`. No output routing exists anywhere.
+
+  ADR 0060 says a surface that cannot act is absent, not disabled. A control
+  reporting `100%` when the app cannot read or set volume is worse than absent,
+  because it answers a question it does not know.
 
 ## Implementation Steps
 
@@ -74,12 +90,27 @@ region of the window shows music instead of an empty prompt.
    002 the queue lives in `Show`, so this step confirms nothing else remains.
 6. Add `Update available` and `New` as view-model owned labels on the row
    display contract. Do not render either from a renderer conditional.
-7. Add guards, marked situational and citing ADR 0060:
-   - the curation surface renders no queue, transport, or broadcast status
-   - no user-facing string says `collection`
-   - the filter control is reachable from the default state
-8. Capture screenshots: the default state with content, a `Library` filter, an
-   `Index` filter, and a selected detail.
+7. Delete the volume slider and the liveValue picker:
+   - `VolumeDisplay`, `LiveValueDeviceDisplay`, `LiveValueDeviceOption`, and
+     their builder methods, fields, and tests in
+     `src/view_models/queue_now_playing.rs`
+   - `render_volume` and the picker renderer in
+     `src/ui/shells/queue_now_playing.rs`
+   - the hardcoded constructions in `src/app/queue_now_playing.rs`
+8. **Delete the guards that require them.** `tests/architecture_tests.rs` has
+   ADR 0046 Phase 4 guards asserting the queue view model contains
+   `LiveValueDeviceDisplay` and `VolumeDisplay`, and that the adapter contains
+   `LiveValueDeviceDisplay::unavailable()` and `VolumeDisplay::new(1.0, true)`.
+   Those guards enforce decoration and block this deletion. Remove them.
+9. Review the toolbar-ownership guard that names queue, liveValue, and volume.
+   The queue half stays meaningful. Narrow it rather than deleting it whole.
+10. Add guards, marked situational and citing ADR 0060:
+    - the curation surface renders no queue, transport, or broadcast status
+    - no user-facing string says `collection`
+    - the filter control is reachable from the default state
+    - no view model carries a volume or output-picker display
+11. Capture screenshots: the default state with content, a `Library` filter, an
+    `Index` filter, and a selected detail.
 
 ## Acceptance Criteria
 
@@ -90,6 +121,8 @@ region of the window shows music instead of an empty prompt.
 - The filter reaches `Library` and `Index` in one action.
 - No operational surface renders during curation.
 - `Update available` and `New` come from a view model.
+- No volume control and no output picker render anywhere.
+- The guards that required them are gone, and the guard suite is smaller.
 - Four screenshots exist.
 
 ## Test Commands
@@ -119,6 +152,9 @@ region of the window shows music instead of an empty prompt.
   are not part of this task.
 - Renaming an internal variant reaches a public CLI or database name. Stop.
   That boundary is the point of the vocabulary rule.
+- Deleting the volume or picker types breaks a caller outside the queue view
+  model, its shell, and its adapter. Report the caller. Nothing else should
+  depend on a control that never acted.
 
 ## Prompt for lower-context coding model
 
@@ -141,6 +177,8 @@ Constraints:
 - Promote the existing `ContentFilter`. Do not add a second scope model.
 - No queue, transport, or broadcast status during curation.
 - An empty detail region must not hold the largest share.
+- Delete the volume slider and the liveValue picker. Neither can act. Delete the
+  ADR 0046 Phase 4 guards that require them to exist.
 
 Acceptance criteria:
 - Section reads `Music`, subset reads `Library`, filter reachable in one action.

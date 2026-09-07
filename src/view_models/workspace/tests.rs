@@ -592,9 +592,8 @@ fn default_layout_has_expected_workspace_shape() {
             WorkspaceFrameKind::SourceList,
             WorkspaceFrameKind::ContentList,
             WorkspaceFrameKind::Detail,
-            WorkspaceFrameKind::QueueNowPlaying,
         ],
-        "default workspace should expose the ADR 0046 frame order"
+        "default workspace should expose the ADR 0060 curation frame order"
     );
     assert_eq!(
         layout.focused_frame().map(WorkspaceFrameState::kind),
@@ -931,7 +930,10 @@ fn workspace_frame_kind_projects_detach_eligibility() {
 
 #[test]
 fn detach_and_dock_requests_defer_for_detachable_frames() {
-    let layout = WorkspaceLayout::default_layout();
+    let mut layout = WorkspaceLayout::default_layout();
+    let queue = layout
+        .add_frame(WorkspaceFrameKind::QueueNowPlaying)
+        .expect("queue frame kind should remain addable during ADR 0060 transition");
 
     assert_eq!(
         layout.request_detach(WorkspaceFrameId::new(2)),
@@ -949,9 +951,9 @@ fn detach_and_dock_requests_defer_for_detachable_frames() {
         "detail dock should be recognized but deferred"
     );
     assert_eq!(
-        layout.request_dock(WorkspaceFrameId::new(4), FrameDockTarget::Trailing),
+        layout.request_dock(queue, FrameDockTarget::Trailing),
         Err(WorkspaceModelError::DockDeferred {
-            frame_id: WorkspaceFrameId::new(4),
+            frame_id: queue,
             target: FrameDockTarget::Trailing,
         }),
         "queue dock should be recognized but deferred"

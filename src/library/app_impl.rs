@@ -254,10 +254,6 @@ impl LibraryApp {
         self.vm.content_filter_chip_strip()
     }
 
-    pub(crate) fn has_filterable_content_detail(&self) -> bool {
-        matches!(self.detail, LibraryDetail::Album(_))
-    }
-
     pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>) {
         self.vm.set_content_filter(filter);
         cx.notify();
@@ -2505,21 +2501,6 @@ impl Render for LibraryApp {
             left_items.extend(tree_items);
         }
 
-        let detail_pane = render_library_detail(
-            &self.detail,
-            self.track_breadcrumb_display(),
-            self.vm.busy_track(),
-            self.vm.mb_status(),
-            &self.vm,
-            &album_thumbs,
-            self.vm.playlists(),
-            &chrome,
-            self.rename_playlist_input.clone(),
-            self.vm.renaming_playlist_id(),
-            self.playlist_actor.as_ref(),
-            cx,
-        );
-
         let leading_pane = div()
             .flex()
             .flex_col()
@@ -2528,6 +2509,7 @@ impl Render for LibraryApp {
             .overflow_hidden()
             .child({
                 let FeedUpdateDisplay {
+                    state_label: feed_state_label,
                     status_message: feed_status,
                     action,
                 } = self.vm.feed_update_display();
@@ -2558,6 +2540,15 @@ impl Render for LibraryApp {
                                     .text_color(status_color)
                                     .child(SharedString::from(status_text)),
                             )
+                            .when_some(feed_state_label, |el, label| {
+                                el.child(
+                                    div()
+                                        .text_xs()
+                                        .font_weight(FontWeight::MEDIUM)
+                                        .text_color(color::accent())
+                                        .child(SharedString::from(label)),
+                                )
+                            })
                             .when_some(feed_status, |el, msg| {
                                 el.child(
                                     div()
@@ -2621,41 +2612,60 @@ impl Render for LibraryApp {
             )
             .into_any_element();
 
-        let trailing_pane = div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h_0()
-            .min_w_0()
-            .overflow_hidden()
-            .child(detail_pane)
-            .into_any_element();
-        let split_pane = SplitPane::new(chrome.split_pane_id)
-            .resize_handle_id(chrome.resize_handle_id)
-            .leading_width(px(self.vm.split_pane_width()))
-            .leading_min_width(layout::INSPECTOR_MIN_WIDTH)
-            .leading(leading_pane)
-            .trailing(trailing_pane)
-            .on_resize_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
-                if this.vm.is_resizing() {
-                    this.vm.resize_split_pane(
-                        f32::from(event.position.x),
-                        f32::from(layout::INSPECTOR_MIN_WIDTH),
-                        f32::from(layout::INSPECTOR_MAX_WIDTH),
-                    );
+        let content = if matches!(self.detail, LibraryDetail::None) {
+            leading_pane
+        } else {
+            let detail_pane = render_library_detail(
+                &self.detail,
+                self.track_breadcrumb_display(),
+                self.vm.busy_track(),
+                self.vm.mb_status(),
+                &self.vm,
+                &album_thumbs,
+                self.vm.playlists(),
+                &chrome,
+                self.rename_playlist_input.clone(),
+                self.vm.renaming_playlist_id(),
+                self.playlist_actor.as_ref(),
+                cx,
+            );
+            let trailing_pane = div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .overflow_hidden()
+                .child(detail_pane)
+                .into_any_element();
+            SplitPane::new(chrome.split_pane_id)
+                .resize_handle_id(chrome.resize_handle_id)
+                .leading_width(px(self.vm.split_pane_width()))
+                .leading_min_width(layout::INSPECTOR_MIN_WIDTH)
+                .leading(leading_pane)
+                .trailing(trailing_pane)
+                .on_resize_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                    if this.vm.is_resizing() {
+                        this.vm.resize_split_pane(
+                            f32::from(event.position.x),
+                            f32::from(layout::INSPECTOR_MIN_WIDTH),
+                            f32::from(layout::INSPECTOR_MAX_WIDTH),
+                        );
+                        cx.notify();
+                    }
+                }))
+                .on_resize_end(cx.listener(|this, _: &MouseUpEvent, _window, cx| {
+                    if this.vm.is_resizing() {
+                        this.vm.end_resize();
+                        cx.notify();
+                    }
+                }))
+                .on_resize_start(cx.listener(|this, _: &MouseDownEvent, _window, cx| {
+                    this.vm.begin_resize();
                     cx.notify();
-                }
-            }))
-            .on_resize_end(cx.listener(|this, _: &MouseUpEvent, _window, cx| {
-                if this.vm.is_resizing() {
-                    this.vm.end_resize();
-                    cx.notify();
-                }
-            }))
-            .on_resize_start(cx.listener(|this, _: &MouseDownEvent, _window, cx| {
-                this.vm.begin_resize();
-                cx.notify();
-            }));
+                }))
+                .into_any_element()
+        };
 
         div()
             .size_full()
@@ -2665,7 +2675,7 @@ impl Render for LibraryApp {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .child(split_pane)
+            .child(content)
     }
 }
 

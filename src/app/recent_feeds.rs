@@ -1,6 +1,6 @@
 //! Recent Feeds workspace integration.
 
-use gpui::{Context, Entity, IntoElement};
+use gpui::{Context, Entity};
 
 use crate::ui::shells::recent_feeds::{render_recent_feeds_page, RecentFeedsPageSlots};
 use crate::ui::shells::workspace::WorkspaceSlots;
@@ -50,7 +50,6 @@ impl TopApp {
     pub(super) fn render_recent_feeds_content(
         &mut self,
         entity: &Entity<Self>,
-        queue_frame: impl IntoElement,
         cx: &mut Context<Self>,
     ) -> WorkspaceSlots {
         if self.recent_feeds_detail.is_none() {
@@ -92,8 +91,6 @@ impl TopApp {
                 });
             });
         let recent_content = render_recent_feeds_page(recent_feeds, &recent_slots, cx);
-        WorkspaceSlots::new()
-            .content_list(recent_content)
-            .queue_now_playing(queue_frame)
+        WorkspaceSlots::new().content_list(recent_content)
     }
 }

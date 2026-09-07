@@ -440,6 +440,7 @@ const PRESENTATION_GLUE_FILES: &[&str] = &[
     "src/app/playback_bar.rs",
     "src/app/queue_now_playing.rs",
     "src/app/recent_feeds.rs",
+    "src/app/show.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
     "src/discover.rs",
@@ -1499,9 +1500,10 @@ fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
         "enum WorkspaceScreenMount",
         "fn active_workspace_screen_mount(&self) -> WorkspaceScreenMount",
         "fn render_workspace_screen_mount(",
-        "WorkspaceScreenMount::Library => self.library.clone().into_any_element()",
+        "WorkspaceScreenMount::Music => self.library.clone().into_any_element()",
+        "WorkspaceScreenMount::Show => build_show_screen(self, cx).into_any_element()",
         "WorkspaceScreenMount::Settings => render_settings(self, cx)",
-        "workspace render wraps the active whole-screen",
+        "workspace render delegates to the active app-section mount",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
@@ -1580,7 +1582,6 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
         "match &current_nav",
         "FrameNavigationEntry::Settings",
         "WorkspaceFrameKind::QueueNowPlaying",
-        "WorkspaceFrameState::with_default_title",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
@@ -2354,8 +2355,6 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     let mut violations = Vec::new();
 
     for required in [
-        "!matches!(current_nav, Some(FrameNavigationEntry::SourceList) | None)",
-        "has_filterable_content_detail()",
         "handle_index_feed_result_selected(",
         "handle_index_track_result_selected(",
         "handle_index_artist_result_selected(",
@@ -3645,8 +3644,6 @@ fn workspace_frame_phase_4_guards_queue_now_playing_vm_contract() {
         "pub(crate) struct QueueNowPlayingPageVm",
         "pub(crate) struct QueueRowDisplay",
         "pub(crate) struct TransportDisplay",
-        "pub(crate) struct LiveValueDeviceDisplay",
-        "pub(crate) struct VolumeDisplay",
         "pub(crate) enum TransportState",
         "pub(crate) struct QueueTrackInput",
         "FrameChromeButtonDisplay",
@@ -3677,6 +3674,7 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
     let shell_source = read_source(&manifest_path("src/ui/shells/queue_now_playing.rs"));
     let workspace_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
     let app_source = read_source(&manifest_path("src/app.rs"));
+    let show_source = read_source(&manifest_path("src/app/show.rs"));
     let adapter_source = read_source(&manifest_path("src/app/queue_now_playing.rs"));
     let mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
     let mut violations = Vec::new();
@@ -3685,8 +3683,6 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
         "pub(crate) fn render_queue_now_playing(",
         "QueueNowPlayingPageVm",
         "QueueNowPlayingSlots",
-        "ContextMenuScope::WorkspaceFrame",
-        "Slider::new(&state)",
         "IconName::Previous",
         "IconName::Pause",
         "IconName::Next",
@@ -3712,13 +3708,41 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
         }
     }
 
-    for required in [
+    for forbidden in [
         ".queue_now_playing(queue_frame)",
         "build_queue_now_playing_frame(self, cx)",
     ] {
+        if app_source.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 moves queue rendering into Show; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "mod queue_now_playing;",
+        "mod show;",
+        "WorkspaceScreenMount::Show => build_show_screen(self, cx).into_any_element()",
+        "if matches!(mount, WorkspaceScreenMount::Show)",
+    ] {
         if !app_source.contains(required) {
             violations.push(format!(
-                "src/app.rs: ADR 0046 Phase 4 queue frame app wiring missing `{required}`"
+                "src/app.rs: ADR 0060 Show mount must own queue rendering; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "ShowPageVm::from_queue(queue_now_playing_vm(app))",
+        "ShowSlots::new()",
+        "queue_transport_action(",
+        "TopApp::skip_playback_previous",
+        "TopApp::toggle_playback_paused",
+        "TopApp::skip_playback_next",
+    ] {
+        if !show_source.contains(required) {
+            violations.push(format!(
+                "src/app/show.rs: ADR 0060 Show adapter queue wiring missing `{required}`"
             ));
         }
     }
@@ -3728,9 +3752,6 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
         "queue_tracks_for_session(",
         "playlist_queue_projection(",
         ".skip_availability(",
-        "LiveValueDeviceDisplay::unavailable()",
-        "VolumeDisplay::new(1.0, true)",
-        "QueueNowPlayingSlots::new()",
         "queue_transport_action(",
         "entity.update(cx",
     ] {
@@ -3751,7 +3772,7 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
     for required in ["FrameShellSlots::new().content(content)", "QueueNowPlaying"] {
         if !workspace_source.contains(required) {
             violations.push(format!(
-                "src/ui/shells/workspace.rs: ADR 0046 Phase 4 queue frame must remain inside shared frame shell; missing `{required}`"
+                "src/ui/shells/workspace.rs: ADR 0046 legacy queue frame support must remain behind shared frame shell; missing `{required}`"
             ));
         }
     }
@@ -3799,8 +3820,6 @@ fn workspace_frame_phase_4_guards_toolbar_now_playing_is_compact() {
         "IconName::Previous",
         "IconName::Next",
         "IconName::Stop",
-        "VolumeDisplay",
-        "LiveValueDeviceDisplay",
     ] {
         if playback_source.contains(forbidden) {
             violations.push(format!(
@@ -3809,16 +3828,10 @@ fn workspace_frame_phase_4_guards_toolbar_now_playing_is_compact() {
         }
     }
 
-    for forbidden in [
-        "QueueNowPlayingPageVm",
-        "VolumeDisplay",
-        "LiveValueDeviceDisplay",
-        "Slider::",
-        "ContextMenuScope::WorkspaceFrame",
-    ] {
+    for forbidden in ["QueueNowPlayingPageVm", "ContextMenuScope::WorkspaceFrame"] {
         if toolbar_source.contains(forbidden) {
             violations.push(format!(
-                "src/app/tab_bar.rs: ADR 0046 Phase 4 toolbar must not own queue/liveValue/volume controls; found `{forbidden}`"
+                "src/app/tab_bar.rs: ADR 0046 Phase 4 toolbar must not own queue controls; found `{forbidden}`"
             ));
         }
     }
@@ -4182,7 +4195,7 @@ fn top_level_keyboard_shortcuts_route_through_key_binding_taxonomy() {
         "SkipPlaybackPrevious",
         "FocusSearch",
         "NewPlaylist",
-        "SelectLibraryTab",
+        "SelectMusicTab",
         "SelectSettingsTab",
         "MoveSelectionUp",
         "MoveSelectionDown",
@@ -11265,7 +11278,6 @@ fn adr_0048_removes_search_tab_and_workspace_mount() {
         "AppToolbarTabKey::Search",
         "search_tab_focus",
         "SelectDiscoverTab",
-        "tabs: [AppToolbarTabDisplay; 3]",
     ] {
         assert!(
             !app_source.contains(forbidden)
@@ -11277,10 +11289,11 @@ fn adr_0048_removes_search_tab_and_workspace_mount() {
     }
 
     assert!(
-        toolbar_vm_source.contains("tabs: [AppToolbarTabDisplay; 2]")
-            && toolbar_vm_source.contains("label: \"Library\"")
+        toolbar_vm_source.contains("tabs: [AppToolbarTabDisplay; 3]")
+            && toolbar_vm_source.contains("label: \"Music\"")
+            && toolbar_vm_source.contains("label: \"Show\"")
             && toolbar_vm_source.contains("label: \"Settings\""),
-        "toolbar VM must expose exactly Library and Settings tabs"
+        "toolbar VM must expose the ADR 0060 app sections while keeping Search out of tabs"
     );
 }
 
@@ -11293,8 +11306,8 @@ fn adr_0048_library_settings_tabs_drive_content_list_nav() {
         "fn select_tab(&mut self, tab: AppTab",
         "AppTab::Settings =>",
         ".reset_nav(content_list_id, FrameNavigationEntry::Settings)",
-        "last_library_content_nav: Option<FrameNavigationState>",
-        "self.last_library_content_nav = Some(nav)",
+        "last_music_content_nav: Option<FrameNavigationState>",
+        "self.last_music_content_nav = Some(nav)",
         "replace_nav(content_list_id, nav)",
         "WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList",
         "FrameNavigationEntry::Settings",
@@ -11917,4 +11930,677 @@ fn adr_0060_workspace_has_no_broadcast_frame_kind() {
         "ADR 0060 Broadcast frame removal violations:\n{}",
         violations.join("\n")
     );
+}
+
+/// Situational ADR 0060: Show is a screen mount, not a workspace frame.
+#[test]
+fn adr_0060_show_is_screen_mount_not_frame_kind() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
+    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
+    let workspace_source = workspace_vm_source();
+    let mut violations = Vec::new();
+
+    for required in [
+        "AppTab::Show",
+        "WorkspaceScreenMount::Show",
+        "show_tab_focus: gpui::FocusHandle",
+        "WorkspaceScreenMount::Show => build_show_screen(self, cx).into_any_element()",
+        "if matches!(mount, WorkspaceScreenMount::Show)",
+        "self.queue_text_filter = None;",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 002 Show screen mount missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "AppToolbarTabKey::Show",
+        "label: \"Show\"",
+        "a11y_label: \"Open Show\"",
+        "tabs: [AppToolbarTabDisplay; 3]",
+    ] {
+        if !toolbar_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/app_toolbar.rs: ADR 0060 task 002 toolbar tab missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "AppToolbarTabKey::Show => AppTab::Show",
+        "AppToolbarTabKey::Show => &app.show_tab_focus",
+    ] {
+        if !toolbar_source.contains(required) {
+            violations.push(format!(
+                "src/app/tab_bar.rs: ADR 0060 task 002 Show tab renderer missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "SelectShowTab",
+        "AppKeyCommand::SelectShowTab",
+        "keystroke: \"cmd-2\"",
+        "keystroke: \"cmd-3\"",
+        "self.select_tab(AppTab::Show, cx)",
+        "TopApp::handle_select_show_tab",
+    ] {
+        if !keyboard_source.contains(required) && !app_source.contains(required) {
+            violations.push(format!(
+                "src/app/keyboard.rs: ADR 0060 task 002 Show keyboard routing missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "WorkspaceFrameKind::Show",
+        "FrameNavigationEntry::Show",
+        "FrameSearchScope::Show",
+    ] {
+        if workspace_source.contains(forbidden) || app_source.contains(forbidden) {
+            violations.push(format!(
+                "ADR 0060 task 002 forbids modeling Show as a workspace frame; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 Show screen-mount violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0060: queue and transport render inside Show only.
+#[test]
+fn adr_0060_queue_is_not_mounted_in_curation_workspace() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let show_adapter_source = read_source(&manifest_path("src/app/show.rs"));
+    let show_shell_source = read_source(&manifest_path("src/ui/shells/show.rs"));
+    let workspace_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let layout_source = workspace_vm_source();
+    let render_workspace_content = source_between(
+        &app_source,
+        "fn render_workspace_content(",
+        "fn transitional_workspace_layout(",
+    );
+    let visible_workspace_layout = source_between(
+        &app_source,
+        "fn visible_workspace_layout(",
+        "fn content_list_frame_title(",
+    );
+    let default_layout = source_between(
+        &layout_source,
+        "pub(crate) fn default_layout() -> Self",
+        "pub(crate) fn empty() -> Self",
+    );
+    let mut violations = Vec::new();
+
+    for forbidden in [
+        ".queue_now_playing(",
+        "build_queue_now_playing_frame",
+        "queue_frame",
+    ] {
+        if render_workspace_content.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 002 curation workspace must not mount queue content; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "WorkspaceFrameState::with_default_title(\n                Self::QUEUE_NOW_PLAYING_ID",
+        "WorkspaceFrameKind::QueueNowPlaying,",
+        "QUEUE_NOW_PLAYING_ID",
+    ] {
+        if default_layout.contains(forbidden) {
+            violations.push(format!(
+                "src/view_models/workspace/mod.rs: ADR 0060 task 002 default layout must not include QueueNowPlaying; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "WorkspaceFrameKind::QueueNowPlaying",
+        "WorkspaceFrameKind::Detail",
+        "WorkspaceFrameKind::SourceList => None",
+    ] {
+        if !visible_workspace_layout.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 002 visible curation layout must filter operational frames; missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "ShowPageVm::from_queue(queue_now_playing_vm(app))",
+        "ShowSlots::new()",
+        "queue_transport_action(",
+        "render_queue_now_playing(queue, self.slots.queue)",
+    ] {
+        if !show_adapter_source.contains(required) && !show_shell_source.contains(required) {
+            violations.push(format!(
+                "src/app/show.rs or src/ui/shells/show.rs: ADR 0060 task 002 Show must render queue and transport; missing `{required}`"
+            ));
+        }
+    }
+
+    if !workspace_source.contains("pub(crate) fn queue_now_playing(") {
+        violations.push(
+            "src/ui/shells/workspace.rs: ADR 0060 task 002 keeps legacy QueueNowPlaying slot until the frame kind is removed"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 queue relocation violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0060: Show VM and shell keep their layer boundaries.
+#[test]
+fn adr_0060_show_vm_and_shell_layer_boundaries() {
+    let vm_source = read_source(&manifest_path("src/view_models/show.rs"));
+    let shell_source = read_source(&manifest_path("src/ui/shells/show.rs"));
+    let app_source = read_source(&manifest_path("src/app/show.rs"));
+    let view_models_mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
+    let shells_mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&vm_source) {
+        for pattern in VIEW_MODEL_FORBIDDEN_PATTERNS {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/view_models/show.rs:{line_number}: ADR 0060 task 002 Show VM must stay renderer-free; found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+        for pattern in [
+            "crate::db",
+            "rusqlite",
+            "PlaybackOwner",
+            "ConfiguredPlaybackDriver",
+        ] {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/view_models/show.rs:{line_number}: ADR 0060 task 002 Show VM must not read backend/playback handles; found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    for required in [
+        "pub(crate) struct ShowPageVm",
+        "pub(crate) struct ShowEmptyStateDisplay",
+        "pub(crate) struct ShowNowPlayingDisplay",
+        "QueueNowPlayingPageVm",
+        "pub(crate) fn from_queue(",
+        "pub(crate) const fn is_active(",
+        "show-empty-state",
+    ] {
+        if !vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/show.rs: ADR 0060 task 002 Show VM contract missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "crate::app",
+        "crate::library",
+        "crate::db",
+        "crate::playback",
+        "crate::broadcast",
+        "FrameShell",
+        "FrameNavigation",
+        "WorkspaceFrameKind",
+        "Breadcrumb",
+    ] {
+        if shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/show.rs: ADR 0060 task 002 Show shell must not import screen/backend/frame chrome `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn render_show(",
+        "pub(crate) struct ShowSlots",
+        "on_skip_previous(",
+        "on_play_pause(",
+        "on_skip_next(",
+        "render_queue_now_playing(queue, self.slots.queue)",
+    ] {
+        if !shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/show.rs: ADR 0060 task 002 Show shell missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) mod show;",
+        "pub mod show;",
+        "pub(super) fn build_show_screen(",
+    ] {
+        if !view_models_mod_source.contains(required)
+            && !shells_mod_source.contains(required)
+            && !app_source.contains(required)
+        {
+            violations.push(format!(
+                "ADR 0060 task 002 Show module export or adapter missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 Show layer-boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0060: Music is the curation surface and owns its filter.
+#[test]
+fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
+    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
+    let workspace_chrome_source =
+        read_source(&manifest_path("src/view_models/workspace/chrome.rs"));
+    let db_source = read_source(&manifest_path("src/db.rs"));
+    let cli_source = read_source(&manifest_path("src/cli.rs"));
+    let render_workspace_content = source_between(
+        &app_source,
+        "fn render_workspace_content(",
+        "fn transitional_workspace_layout(",
+    );
+    let set_frame_filter = source_between(
+        &app_source,
+        "fn set_frame_filter(",
+        "fn set_search_results_filter(",
+    );
+    let mut violations = Vec::new();
+
+    for required in [
+        "AppTab::Music",
+        "WorkspaceScreenMount::Music",
+        "WorkspaceScreenMount::Music => self.library.clone().into_any_element()",
+        "last_music_content_nav: Option<FrameNavigationState>",
+        "music_tab_focus: gpui::FocusHandle",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 003 Music app-section vocabulary missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "AppToolbarTabKey::Music",
+        "id: \"app-tab-music\"",
+        "label: \"Music\"",
+        "a11y_label: \"Open Music\"",
+        "label: \"Library\"",
+        "ContentFilter::Library",
+        "label: \"Index\"",
+    ] {
+        if !toolbar_vm_source.contains(required) && !workspace_chrome_source.contains(required) {
+            violations.push(format!(
+                "ADR 0060 task 003 Music/Library/Index display vocabulary missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "AppToolbarTabKey::Music => AppTab::Music",
+        "AppToolbarTabKey::Music => &app.music_tab_focus",
+    ] {
+        if !toolbar_source.contains(required) {
+            violations.push(format!(
+                "src/app/tab_bar.rs: ADR 0060 task 003 Music tab renderer missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "SelectMusicTab",
+        "AppKeyCommand::SelectMusicTab",
+        "keystroke: \"cmd-1\"",
+        "label: \"Music\"",
+        "self.select_tab(AppTab::Music, cx)",
+        "TopApp::handle_select_music_tab",
+    ] {
+        if !keyboard_source.contains(required) && !app_source.contains(required) {
+            violations.push(format!(
+                "src/app/keyboard.rs: ADR 0060 task 003 Music keyboard routing missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "AppTab::Library",
+        "WorkspaceScreenMount::Library",
+        "AppToolbarTabKey::Library",
+        "SelectLibraryTab",
+        "handle_select_library_tab",
+        "library_tab_focus",
+        "last_library_content_nav",
+        "id: \"app-tab-library\"",
+        "a11y_label: \"Show Library\"",
+    ] {
+        if app_source.contains(forbidden)
+            || toolbar_vm_source.contains(forbidden)
+            || toolbar_source.contains(forbidden)
+            || keyboard_source.contains(forbidden)
+        {
+            violations.push(format!(
+                "ADR 0060 task 003 app-section internals must use Music, found `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "if matches!(mount, WorkspaceScreenMount::Music)",
+        ".content_list_filter_chip_strip(filter_chip_strip)",
+        "this.set_frame_filter(content_frame_id, filter, cx)",
+    ] {
+        if !render_workspace_content.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 003 Music default state must expose the content filter; missing `{required}`"
+            ));
+        }
+    }
+
+    if !set_frame_filter.contains("matches!(mount, WorkspaceScreenMount::Music)") {
+        violations.push(
+            "src/app.rs: ADR 0060 task 003 Music filter selection must route from the default state"
+                .to_string(),
+        );
+    }
+    for forbidden in [
+        "has_filterable_content_detail",
+        "FrameNavigationEntry::SourceList",
+    ] {
+        if set_frame_filter.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 003 Music filter selection must not depend on prior detail/navigation state; found `{forbidden}`"
+            ));
+        }
+    }
+
+    if !db_source.contains("is_in_library") {
+        violations.push(
+            "src/db.rs: ADR 0060 task 003 must not rename the `is_in_library` database column"
+                .to_string(),
+        );
+    }
+    if !cli_source.contains("v4vmm library tracks --json") {
+        violations.push(
+            "src/cli.rs: ADR 0060 task 003 must not rename the `v4vmm library tracks` CLI contract"
+                .to_string(),
+        );
+    }
+    for required_path in ["src/library.rs", "src/library/app_impl.rs"] {
+        if !manifest_path(required_path).is_file() {
+            violations.push(format!(
+                "{required_path}: ADR 0060 task 003 must not rename library modules"
+            ));
+        }
+    }
+
+    for file in display_surface_files() {
+        let source = read_source(&manifest_path(&file));
+        for literal in string_literals(&source) {
+            if literal.to_ascii_lowercase().contains("collection") {
+                violations.push(format!(
+                    "{file}: ADR 0060 task 003 forbids user-facing `collection` display text: `{literal}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 Music vocabulary/filter violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0060: Music shows curation content, not operational panes.
+#[test]
+fn adr_0060_music_surface_is_dominant_content_without_operational_panes() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let render_workspace_content = source_between(
+        &app_source,
+        "fn render_workspace_content(",
+        "fn transitional_workspace_layout(",
+    );
+    let visible_workspace_layout = source_between(
+        &app_source,
+        "fn visible_workspace_layout(",
+        "fn content_list_frame_title(",
+    );
+    let library_render = source_between(
+        &library_app_source,
+        "impl Render for LibraryApp",
+        "#[cfg(test)]",
+    );
+    let content_marker = "let content = if matches!(self.detail, LibraryDetail::None)";
+    let mut violations = Vec::new();
+
+    for required in [
+        "WorkspaceFrameKind::QueueNowPlaying",
+        "WorkspaceFrameKind::Detail",
+        "WorkspaceFrameKind::SourceList => None",
+    ] {
+        if !visible_workspace_layout.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 003 Music visible layout must filter non-content panes; missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        ".queue_now_playing(",
+        "build_queue_now_playing_frame",
+        "queue_transport_action(",
+        "build_show_screen(self, cx)",
+    ] {
+        if render_workspace_content.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 003 Music workspace content must not mount operational Show controls; found `{forbidden}`"
+            ));
+        }
+    }
+
+    let Some(content_index) = library_render.find(content_marker) else {
+        violations.push(format!(
+            "src/library/app_impl.rs: ADR 0060 task 003 no-selection Music body missing `{content_marker}`"
+        ));
+        assert!(
+            violations.is_empty(),
+            "ADR 0060 Music dominant-content violations:\n{}",
+            violations.join("\n")
+        );
+        return;
+    };
+    let before_content_branch = &library_render[..content_index];
+    let content_branch = &library_render[content_index..];
+    if before_content_branch.contains("render_library_detail(") {
+        violations.push(
+            "src/library/app_impl.rs: ADR 0060 task 003 must not build the empty detail pane before the no-selection branch"
+                .to_string(),
+        );
+    }
+    for required in [
+        "leading_pane",
+        "SplitPane::new(chrome.split_pane_id)",
+        "render_library_detail(",
+    ] {
+        if !content_branch.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: ADR 0060 task 003 selected detail must still open inside the Music surface; missing `{required}`"
+            ));
+        }
+    }
+
+    for (file, source) in [
+        (
+            "src/library.rs",
+            read_source(&manifest_path("src/library.rs")),
+        ),
+        ("src/library/app_impl.rs render", library_render.to_string()),
+    ] {
+        for forbidden in [
+            "QueueNowPlaying",
+            "render_queue_now_playing",
+            "TransportDisplay",
+            "BroadcastObservation",
+            "BroadcastStatus",
+            "broadcast_status",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{file}: ADR 0060 task 003 curation surface must not carry operational pane/status `{forbidden}`"
+                ));
+            }
+        }
+    }
+    for path in rust_files_under("src/ui/shells/library") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for forbidden in [
+            "QueueNowPlaying",
+            "render_queue_now_playing",
+            "TransportDisplay",
+            "BroadcastObservation",
+            "BroadcastStatus",
+            "broadcast_status",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{file}: ADR 0060 task 003 curation shell must not render operational pane/status `{forbidden}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 Music dominant-content violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0060: curation labels are VM-owned display facts.
+#[test]
+fn adr_0060_music_row_state_labels_are_vm_owned() {
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let feed_detail_source = read_source(&manifest_path("src/ui/shells/library/feed_detail.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "const UPDATE_AVAILABLE_LABEL: &str = \"Update available\"",
+        "const NEW_RELEASE_LABEL: &str = \"New\"",
+        "pub(crate) state_label: Option<&'static str>",
+        "state_label: has_stale.then_some(UPDATE_AVAILABLE_LABEL)",
+        "state_label: row_state_label_for_source(source)",
+        "state_label: (!self.track.is_in_library).then_some(NEW_RELEASE_LABEL)",
+    ] {
+        if !library_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: ADR 0060 task 003 row state label contract missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "feed update available",
+        "feed update pending",
+        "\"Update available\"",
+    ] {
+        if library_app_source.contains(forbidden) || feed_detail_source.contains(forbidden) {
+            violations.push(format!(
+                "ADR 0060 task 003 renderers must consume VM-owned update labels, found `{forbidden}`"
+            ));
+        }
+    }
+    if feed_detail_source.contains("\"New\"") {
+        violations.push(
+            "src/ui/shells/library/feed_detail.rs: ADR 0060 task 003 renderer must consume VM-owned `New` row labels"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 Music row-label ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0060: unacted output controls stay deleted.
+#[test]
+fn adr_0060_queue_has_no_volume_or_output_picker_display() {
+    let mut violations = Vec::new();
+
+    for file in [
+        "src/view_models/queue_now_playing.rs",
+        "src/ui/shells/queue_now_playing.rs",
+        "src/app/queue_now_playing.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        for forbidden in [
+            "LiveValueDeviceDisplay",
+            "LiveValueDeviceOption",
+            "VolumeDisplay",
+            "queue-livevalue-output",
+            "livevalue-output-unavailable",
+            "No liveValue output",
+            "queue-output-volume",
+            "Output volume",
+            "render_output_picker",
+            "render_volume",
+            ".live_value(",
+            ".volume(",
+            "Slider::new(&state)",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{file}: ADR 0060 task 003 removes unacted output controls; found `{forbidden}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 queue output-control deletion violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+fn display_surface_files() -> Vec<String> {
+    let mut files = Vec::new();
+    files.push("src/app.rs".to_string());
+    for dir in ["src/app", "src/ui", "src/view_models"] {
+        files.extend(
+            rust_files_under(dir)
+                .into_iter()
+                .map(|path| rel_path(&path)),
+        );
+    }
+    files.sort();
+    files.dedup();
+    files
 }

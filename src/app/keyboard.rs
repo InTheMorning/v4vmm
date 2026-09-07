@@ -17,7 +17,8 @@ actions!(
         SkipPlaybackPrevious,
         FocusSearch,
         NewPlaylist,
-        SelectLibraryTab,
+        SelectMusicTab,
+        SelectShowTab,
         SelectSettingsTab,
         RefreshLibrary,
         CancelActivePane,
@@ -34,7 +35,8 @@ pub(super) enum AppKeyCommand {
     SkipPlaybackPrevious,
     FocusSearch,
     NewPlaylist,
-    SelectLibraryTab,
+    SelectMusicTab,
+    SelectShowTab,
     SelectSettingsTab,
     RefreshLibrary,
     CancelActivePane,
@@ -95,14 +97,20 @@ pub(super) const APP_KEY_BINDING_SPECS: &[AppKeyBindingSpec] = &[
         scope: AppKeyScope::Global,
     },
     AppKeyBindingSpec {
-        command: AppKeyCommand::SelectLibraryTab,
+        command: AppKeyCommand::SelectMusicTab,
         keystroke: "cmd-1",
-        label: "Library",
+        label: "Music",
+        scope: AppKeyScope::Global,
+    },
+    AppKeyBindingSpec {
+        command: AppKeyCommand::SelectShowTab,
+        keystroke: "cmd-2",
+        label: "Show",
         scope: AppKeyScope::Global,
     },
     AppKeyBindingSpec {
         command: AppKeyCommand::SelectSettingsTab,
-        keystroke: "cmd-2",
+        keystroke: "cmd-3",
         label: "Settings",
         scope: AppKeyScope::Global,
     },
@@ -165,9 +173,10 @@ impl AppKeyBindingSpec {
             }
             AppKeyCommand::FocusSearch => KeyBinding::new(self.keystroke, FocusSearch, context),
             AppKeyCommand::NewPlaylist => KeyBinding::new(self.keystroke, NewPlaylist, context),
-            AppKeyCommand::SelectLibraryTab => {
-                KeyBinding::new(self.keystroke, SelectLibraryTab, context)
+            AppKeyCommand::SelectMusicTab => {
+                KeyBinding::new(self.keystroke, SelectMusicTab, context)
             }
+            AppKeyCommand::SelectShowTab => KeyBinding::new(self.keystroke, SelectShowTab, context),
             AppKeyCommand::SelectSettingsTab => {
                 KeyBinding::new(self.keystroke, SelectSettingsTab, context)
             }
@@ -240,18 +249,18 @@ impl TopApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_tab(AppTab::Library, cx);
+        self.select_tab(AppTab::Music, cx);
         self.library
             .update(cx, |library, cx| library.begin_new_playlist(window, cx));
     }
 
-    pub(super) fn handle_select_library_tab(
+    pub(super) fn handle_select_music_tab(
         &mut self,
-        _: &SelectLibraryTab,
+        _: &SelectMusicTab,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.select_tab(AppTab::Library, cx);
+        self.select_tab(AppTab::Music, cx);
     }
 
     pub(super) fn handle_select_settings_tab(
@@ -263,13 +272,22 @@ impl TopApp {
         self.select_tab(AppTab::Settings, cx);
     }
 
+    pub(super) fn handle_select_show_tab(
+        &mut self,
+        _: &SelectShowTab,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_tab(AppTab::Show, cx);
+    }
+
     pub(super) fn handle_refresh_library(
         &mut self,
         _: &RefreshLibrary,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.tab == AppTab::Library {
+        if self.tab == AppTab::Music {
             self.library.update(cx, LibraryApp::refresh);
         }
     }
@@ -281,10 +299,10 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Library => {
+            AppTab::Music => {
                 self.library.update(cx, LibraryApp::pop_inspector);
             }
-            AppTab::Settings => {}
+            AppTab::Show | AppTab::Settings => {}
         }
     }
 
@@ -295,8 +313,8 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Library => self.library.update(cx, LibraryApp::move_up),
-            AppTab::Settings => {}
+            AppTab::Music => self.library.update(cx, LibraryApp::move_up),
+            AppTab::Show | AppTab::Settings => {}
         }
     }
 
@@ -307,8 +325,8 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Library => self.library.update(cx, LibraryApp::move_down),
-            AppTab::Settings => {}
+            AppTab::Music => self.library.update(cx, LibraryApp::move_down),
+            AppTab::Show | AppTab::Settings => {}
         }
     }
 
@@ -319,8 +337,8 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         match self.tab {
-            AppTab::Library => self.library.update(cx, LibraryApp::confirm),
-            AppTab::Settings => {}
+            AppTab::Music => self.library.update(cx, LibraryApp::confirm),
+            AppTab::Show | AppTab::Settings => {}
         }
     }
 }
@@ -346,7 +364,8 @@ mod tests {
             AppKeyCommand::SkipPlaybackPrevious,
             AppKeyCommand::FocusSearch,
             AppKeyCommand::NewPlaylist,
-            AppKeyCommand::SelectLibraryTab,
+            AppKeyCommand::SelectMusicTab,
+            AppKeyCommand::SelectShowTab,
             AppKeyCommand::SelectSettingsTab,
             AppKeyCommand::CancelActivePane,
             AppKeyCommand::MoveSelectionUp,

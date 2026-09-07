@@ -163,9 +163,9 @@ not gate the structural work.
 
 | Step | Packet | State |
 |---|---|---|
-| 1 | `docs/tasks/adr-0060-task-001-remove-broadcast-frame.md` | ready |
-| 2 | `docs/tasks/adr-0060-task-002-show-screen-mount.md` | ready |
-| 3 | `docs/tasks/adr-0060-task-003-music-surface.md` | ready |
+| 1 | `docs/tasks/adr-0060-task-001-remove-broadcast-frame.md` | complete - 2026-09-07 |
+| 2 | `docs/tasks/adr-0060-task-002-show-screen-mount.md` | implementation complete - 2026-09-07; visual proof blocked by GPUI X11 initialization |
+| 3 | `docs/tasks/adr-0060-task-003-music-surface.md` | implementation complete - 2026-09-07; visual proof blocked by GPUI X11 initialization |
 | 4 | `docs/tasks/adr-0060-task-004-live-status-strip.md` | ready |
 
 `Show` comes before `Music`. The queue moves into `Show`, so `Show` must exist

@@ -87,6 +87,10 @@ impl WorkspaceSlots {
     }
 
     /// Supplies content for the queue/now-playing frame.
+    #[expect(
+        dead_code,
+        reason = "ADR 0060 task 002 keeps the QueueNowPlaying frame slot until the frame kind is removed"
+    )]
     pub(crate) fn queue_now_playing(mut self, content: impl IntoElement) -> Self {
         self.queue_now_playing = Some(content.into_any_element());
         self

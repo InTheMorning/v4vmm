@@ -151,7 +151,6 @@ impl WorkspaceLayout {
     const SOURCE_LIST_ID: WorkspaceFrameId = WorkspaceFrameId::new(1);
     const CONTENT_LIST_ID: WorkspaceFrameId = WorkspaceFrameId::new(2);
     const DETAIL_ID: WorkspaceFrameId = WorkspaceFrameId::new(3);
-    const QUEUE_NOW_PLAYING_ID: WorkspaceFrameId = WorkspaceFrameId::new(4);
 
     /// Returns the default primary content frame identifier.
     #[must_use]
@@ -165,7 +164,7 @@ impl WorkspaceLayout {
         Self::DETAIL_ID
     }
 
-    /// Creates the ADR 0046 default workspace layout.
+    /// Creates the ADR 0060 default curation workspace layout.
     #[must_use]
     pub(crate) fn default_layout() -> Self {
         let frames = vec![
@@ -178,10 +177,6 @@ impl WorkspaceLayout {
                 WorkspaceFrameKind::ContentList,
             ),
             WorkspaceFrameState::with_default_title(Self::DETAIL_ID, WorkspaceFrameKind::Detail),
-            WorkspaceFrameState::with_default_title(
-                Self::QUEUE_NOW_PLAYING_ID,
-                WorkspaceFrameKind::QueueNowPlaying,
-            ),
         ];
         let mut layout = Self {
             frames,

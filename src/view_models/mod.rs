@@ -78,6 +78,7 @@ pub(crate) mod queue_now_playing;
 pub(crate) mod recent_feeds;
 pub mod search;
 pub mod search_results;
+pub(crate) mod show;
 pub(crate) mod text_filter;
 pub mod track;
 pub mod track_detail;
