@@ -17,6 +17,8 @@ Core:
   file layout, metadata sources, and current limits
 - [UI backend boundary](architecture/ui-backend-boundary.md): how to keep
   services, projections, screens, and UI composites in their lanes
+- [Broadcast chain](architecture/broadcast-chain.md): the four components of
+  the live payment chain, the contract at each boundary, and who owns what
 
 Current governance:
 
@@ -40,6 +42,9 @@ Current governance:
   status values, partial-implementation format, and amendment rules
 - [ADR 0058: Outbound HTTP client policy](adr/0058-outbound-http-client-policy.md):
   one owner for blocking HTTP client construction and timeout constants
+- [ADR 0059: Broadcast control surface](adr/0059-broadcast-control-surface.md):
+  external publisher control, selectable now-playing sources, event registry,
+  and token storage
 
 Current plans:
 
@@ -58,6 +63,9 @@ Current plans:
 - [HIG product polish backlog](plans/hig-product-polish-backlog.md):
   HIG completeness work such as search suggestions, sidebar show/hide, Liquid
   Glass materials, and keyboard coverage
+- [ADR 0059 broadcast control surface phase plan](plans/adr-0059-broadcast-control-surface-phase-plan.md):
+  phased delivery for the `Broadcast` frame, the event registry, service
+  control, and the `mpv` drop-file producer
 
 Current reviews:
 

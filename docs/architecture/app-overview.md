@@ -7,9 +7,10 @@
 - direct RSS fetch and parse for subscriptions and enrichment
 - local file download plus embedded metadata inspection
 
-It also exposes a small non-UI CLI for Phase 2 playback-session work. The CLI
-does not play audio yet. It assembles and updates canonical now-playing state
-from local database facts.
+It also exposes a non-UI CLI for playback-session work. The CLI assembles and
+updates canonical now-playing state from local database facts. The app plays
+audio through the mpv driver of ADR 0021. One-shot CLI commands stay in
+session-only mode and start no player.
 
 ## Main Tabs
 
@@ -27,15 +28,20 @@ This is the managed-library view.
 There is also a `Cached` sub-view for downloaded files that still exist locally.
 Those files are no longer marked as subscribed library tracks.
 
-### Discover
+### Index Browsing
 
-This is the MusicIndex browser.
+`Discover` is no longer a separate tab. ADR 0047 and ADR 0048 moved MusicIndex
+browsing into the toolbar search and the `ContentList` frame of the Library
+workspace. The toolbar search covers Library rows and Index rows together.
 
 - Searches across artists, feeds, and tracks.
 - Shows recent feeds when there is no active query.
 - Opens inspectors for artists, feeds, tracks, and linked publishers.
-- Can subscribe or unsubscribe feeds and tracks from the search side.
+- Can subscribe or unsubscribe feeds and tracks from the Index side.
 - Uses MusicIndex detail responses for contributors, value routes, source links, source ids, release claims, and enclosure choices.
+
+The former dedicated Discover modules stay in the tree but the composition root
+does not reach them. See `docs/notes/2026-05-discover-module-parked.md`.
 
 ### Settings
 
@@ -111,11 +117,22 @@ The metadata workflows are narrower than the download layer:
 - WAV is detected for download purposes but is not treated as a taggable target
 - the richest local compare and editing workflows are therefore best on MP3/ID3 files
 
+## Broadcast
+
+The app does not send live metadata to the MusicIndex relay.
+`musicindex-live-publisher` does that, as a separate package that can run on a
+different machine. ADR 0059 makes this app the control surface and the status
+display for that chain.
+
+See `docs/architecture/broadcast-chain.md` for the components and the contract
+at each boundary.
+
 ## Current Non-Goals
 
 These are outside the current tool boundary:
 
-- full audio playback, player adapters, and queue automation
+- live metadata sends to the relay
 - acoustic fingerprinting or Picard-style scan workflows
 - broad multi-format embedded tag editing parity
+- audio routing, mixer control, and stream encoding
 - hidden metadata inference from filenames or guessed album structure

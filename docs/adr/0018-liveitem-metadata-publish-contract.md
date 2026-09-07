@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted - 2026-04-27.
+Superseded by ADR 0059 - 2026-09-06.
+
+Amended 2026-09-06: this ADR defines the wrapped `{event_id, metadata}` publish
+body. The relay accepts that body, but listener apps read the direct live value
+payload and find no payment splits in the wrapped form. No show used this path.
+ADR 0059 moves metadata publication to `musicindex-live-publisher` and keeps
+only the live item create and read operations for event registration.
 
 ## Context
 

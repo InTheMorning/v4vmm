@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted - 2026-04-27.
+Superseded by ADR 0059 - 2026-09-06.
+
+Amended 2026-09-06: the `publish` and `publish-now-playing` commands send the
+wrapped body that ADR 0018 defines, which listener apps cannot read for payment
+splits. ADR 0059 removes those two commands. The `health`, `create`, and
+`latest` commands continue as the debug surface for event registration.
 
 ## Context
 

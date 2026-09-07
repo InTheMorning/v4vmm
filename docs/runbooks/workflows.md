@@ -238,21 +238,27 @@ validation. mpv availability is checked when live playback starts.
 ### Test The Live Relay
 
 The live item commands use the configured `musicindex_endpoint`, defaulting to
-`https://api.musicindex.org`. Add `--endpoint <url>` to any command when testing
-a local relay.
+`https://api.musicindex.org`. Add `--endpoint <url>` to any command when you
+test a local relay.
 
 ```bash
 v4vmm liveitem health
 v4vmm liveitem create --json
-v4vmm liveitem publish-now-playing <event-id> --dry-run
-v4vmm liveitem publish-now-playing <event-id> --token <broadcaster-token>
-v4vmm liveitem publish <event-id> --metadata-json '{"title":"Test"}' --token <broadcaster-token>
 v4vmm liveitem latest <event-id> --json
 ```
 
-Publish commands also accept `MUSICINDEX_LIVEITEM_TOKEN` instead of `--token`.
-`publish-now-playing` sends the current canonical `NowPlayingUpdate` as the
-relay metadata payload. It does not infer source identity from strings.
+`create` returns the event identifier and the broadcaster token. The relay
+returns the token one time only. Keep the token in a file with mode `0600`.
+
+Give the event identifier and the token file to `musicindex-live-publisher`.
+That service sends the live payloads. See
+`docs/architecture/broadcast-chain.md`.
+
+The publish commands `v4vmm liveitem publish` and
+`v4vmm liveitem publish-now-playing` still exist in the code, but do not use
+them. They send the wrapped body form. Listener apps read the direct live value
+payload and find no payment splits in the wrapped body. Phase 1 of the ADR 0059
+plan removes both commands.
 
 ## CLI Debug Workflow
 
