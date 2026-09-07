@@ -111,6 +111,27 @@ session.
    Report the tracks that carry no payment routes. Show the count in the
    `Source` section and the list in the content frame.
 
+## Task Packets
+
+| Phase | Task |
+|---|---|
+| 1 | `docs/tasks/adr-0059-task-001-live-surface-reduction.md` |
+| 2 | `docs/tasks/adr-0059-task-002-event-registry-schema.md` |
+| 2 | `docs/tasks/adr-0059-task-003-event-registry-service-and-cli.md` |
+| 3 | `docs/tasks/adr-0059-task-004-relay-observation-actor.md` |
+| 4 | `docs/tasks/adr-0059-task-005-broadcast-page-vm.md` |
+| 4 | `docs/tasks/adr-0059-task-006-broadcast-frame-kind.md` |
+| 4 | `docs/tasks/adr-0059-task-007-broadcast-shell-and-adapter.md` |
+| 5 | `docs/tasks/adr-0059-task-008-service-control-service.md` |
+| 5 | `docs/tasks/adr-0059-task-009-publisher-section-and-logs.md` |
+| 6 | `docs/tasks/adr-0059-task-010-remote-hosts-over-ssh.md` |
+| 7 | `docs/tasks/adr-0059-task-011-mpv-drop-file-producer.md` |
+| 8 | `docs/tasks/adr-0059-task-012-library-readiness-report.md` |
+| Gate | `docs/tasks/adr-0059-task-013-final-guards-and-readiness.md` |
+
+Do the tasks in order. Task 005 and task 006 do not depend on each other and can
+run in either order inside phase 4.
+
 ## Risks
 
 | Risk | Mitigation |
