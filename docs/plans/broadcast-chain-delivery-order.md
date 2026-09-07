@@ -164,9 +164,13 @@ not gate the structural work.
 | Step | Packet | State |
 |---|---|---|
 | 1 | `docs/tasks/adr-0060-task-001-remove-broadcast-frame.md` | ready |
-| 2 | `Music` surface | not written |
-| 3 | `Show` screen mount | not written |
-| 4 | Live status strip | not written |
+| 2 | `docs/tasks/adr-0060-task-002-show-screen-mount.md` | ready |
+| 3 | `docs/tasks/adr-0060-task-003-music-surface.md` | ready |
+| 4 | `docs/tasks/adr-0060-task-004-live-status-strip.md` | ready |
+
+`Show` comes before `Music`. The queue moves into `Show`, so `Show` must exist
+before the curation surface gives it up. The reverse order leaves playback with
+no home.
 
 After the restructure:
 
