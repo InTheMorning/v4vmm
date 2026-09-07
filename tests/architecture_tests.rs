@@ -10680,6 +10680,73 @@ fn playback_polling_is_runtime_owned() {
 }
 
 #[test]
+fn adr_0059_broadcast_observation_actor_is_runtime_owned() {
+    let runtime_source = read_source(&manifest_path("src/runtime/broadcast_observation.rs"));
+    let runtime_mod_source = read_source(&manifest_path("src/runtime/mod.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "const BROADCAST_POLL_INTERVAL: Duration = Duration::from_secs(1)",
+        "pub struct BroadcastObservationSnapshot",
+        "pub enum BroadcastObservationOutcome",
+        "pub struct BroadcastObservationHandle",
+        "tokio::sync::{oneshot, watch}",
+        "tokio::time::sleep(interval)",
+        "tokio::task::spawn_blocking",
+        "fetch_live_metadata_optional",
+        "BroadcastObservationOutcome::NoEvent",
+        "BroadcastObservationOutcome::Live",
+        "BroadcastObservationOutcome::Empty",
+        "BroadcastObservationOutcome::Dead",
+        "BroadcastObservationOutcome::Error",
+    ] {
+        if !runtime_source.contains(required) {
+            violations.push(format!(
+                "src/runtime/broadcast_observation.rs: ADR 0059 broadcast observation actor missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "use gpui",
+        "gpui::",
+        "use gpui_component",
+        "gpui_component::",
+        "crate::db",
+        "crate::ui",
+        "crate::library",
+        "crate::search",
+        "crate::app",
+    ] {
+        if runtime_source.contains(forbidden) {
+            violations.push(format!(
+                "src/runtime/broadcast_observation.rs: ADR 0059 observation actor must stay GPUI-free and DB-free; found `{forbidden}`"
+            ));
+        }
+    }
+
+    if !runtime_mod_source.contains("pub mod broadcast_observation") {
+        violations
+            .push("src/runtime/mod.rs: broadcast observation module must be registered".to_owned());
+    }
+    if !runtime_mod_source.contains("BroadcastObservationHandle")
+        || !runtime_mod_source.contains("BroadcastObservationOutcome")
+        || !runtime_mod_source.contains("BroadcastObservationSnapshot")
+    {
+        violations.push(
+            "src/runtime/mod.rs: broadcast observation runtime types must be re-exported"
+                .to_owned(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 broadcast observation actor violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+#[test]
 fn global_search_routes_to_content_list() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
