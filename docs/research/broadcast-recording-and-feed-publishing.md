@@ -179,7 +179,7 @@ the whole design rests on one timeline that the log and the audio share.
 
 | Piece | State |
 |---|---|
-| Audio capture | `butt` records today. The app can start and stop it. Backup recorders are later work. |
+| Audio capture | `butt` records today. The app can start and stop it, and `butt -S` reports `record path`, `record seconds`, and `record kBytes`. Backup recorders are later work. |
 | Timeline capture | Specified. `musicindex-live-publisher` ADR 0003, the show log contract. Two task packets written. |
 | Chapter generation | Not built. Derives from the timeline. |
 | Value time split generation | Not built. Derives from the same timeline plus the route set for each track. |
@@ -263,7 +263,9 @@ today. Support what works there first.
 - Does an operator route override need a reason field for the listener, or is
   the changed split enough?
 - How does the timeline find the matching audio file when the encoder runs on
-  another host?
+  another host? For a local encoder this is answered: `butt -S` reports
+  `record path`, verified on 2026-09-07. A remote encoder needs the path and a
+  transfer.
 - Does a backup recorder belong in the publisher repository, or in a third
   component?
 - Does the recorded episode reuse the live event identifier, or is it separate?

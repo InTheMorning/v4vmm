@@ -8,6 +8,7 @@ and the recording state, and offer connect and disconnect.
 ## Files To Inspect
 
 - `docs/adr/0059-broadcast-control-surface.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `docs/architecture/broadcast-chain.md`
 - `src/broadcast/control.rs` (the command runner and the state pattern)
 - `src/broadcast/transport.rs`
@@ -43,6 +44,28 @@ and the recording state, and offer connect and disconnect.
   - `-d` disconnects
   - `-r` starts recording and `-t` stops recording
   - `-a <addr>` and `-p <port>` address a running instance over the network
+- **Verified `-S` output**, captured from `butt` on 2026-09-07. Parse these keys
+  and ignore an unknown key:
+
+  ```text
+  connected: 1
+  connecting: 0
+  recording: 0
+  signal present: 1
+  signal absent: 0
+  stream seconds: 129883
+  stream kBytes: 2029310
+  record seconds: 0
+  record kBytes: 0
+  volume left: -4.6
+  volume right: -6.3
+  song: Mr. Bungle - Sweet Charity
+  record path:
+  listeners: 0
+  ```
+
+  The format is `key: value` on one line each. A value can be empty, as
+  `record path` shows. Parse by key, never by line position.
 - **A local encoder and a remote encoder use one code path.** The only
   difference is whether the address and port options are present. This is why
   the section does not need the `ssh` transport of task 010.
@@ -64,12 +87,28 @@ and the recording state, and offer connect and disconnect.
 2. Add `status()`, `connect(server)`, `disconnect()`, `start_recording()`, and
    `stop_recording()`, each through the existing command runner.
 3. Define `EncoderState`:
-   - `Connected`, with the server name when the status reports one
-   - `Disconnected`
+   - `Connected` when `connected` is `1`
+   - `Connecting` when `connecting` is `1`. This is its own state and the
+     verified output proves it exists
+   - `Disconnected` when both are `0`
    - `NotInstalled` when the binary is absent
    - `NotReachable` when an addressed instance does not answer
    - `Unknown` when the output does not parse
-4. Define `RecordingState` with `Recording`, `Stopped`, and `Unknown`.
+4. Define `RecordingState` with `Recording`, `Stopped`, and `Unknown`. Carry
+   `record seconds` as the recording timer and `record path` as the file
+   location.
+   `record path` answers where the episode audio is. Keep it, even though
+   episode packaging is future work.
+5. Report `signal present` and `signal absent` as an audio state separate from
+   the connection state. **Connected with no signal is dead air**, which looks
+   healthy on every other indicator. It is the most valuable field in this
+   output.
+6. Report `listeners`. The field exists at the command line, and it is
+   confirmed present. It only carries a real count for original Icecast and
+   Shoutcast servers, so treat `0` as unknown rather than as proof of no
+   audience.
+7. Carry `song` for a cross-check. When the encoder song and the publisher
+   block disagree, the chain is desynchronized and the operator needs to know.
 5. Add an `[broadcast.encoder]` config group with the binary path, an optional
    address, an optional port, and a default server name. A missing group means
    the section reports `NotInstalled` and offers nothing.
@@ -80,9 +119,11 @@ and the recording state, and offer connect and disconnect.
    disconnect actions.
 8. Render the fourth section in the shell, after `Event`, with the shared
    section composite and the shared button primitive.
-9. Add unit tests with recorded `butt -S` output for connected, disconnected,
-   recording, and an unparsable line. Add a test for a missing binary and for
-   an addressed instance that does not answer.
+9. Add unit tests against the verified output above, plus variants for
+   disconnected, connecting, recording with a non-empty `record path`, signal
+   absent, and an unparsable line. Add a test for a missing binary and for an
+   addressed instance that does not answer. Add a test that an unknown key does
+   not fail the parse.
 10. Add a guard: only `src/broadcast/encoder.rs` runs the encoder binary, and
     no file passes the `-u` option.
 11. Capture a screenshot of the section connected, disconnected, and with the
@@ -90,7 +131,9 @@ and the recording state, and offer connect and disconnect.
 
 ## Acceptance Criteria
 
-- The section reports the connection state and the recording state.
+- The section reports the connection state, the connecting state, the audio
+  signal state, and the recording state.
+- Connected with no audio signal is visibly distinct from connected with audio.
 - Connect and disconnect work for a local instance and for an addressed
   instance.
 - A missing binary shows an empty state and no error text.
@@ -134,6 +177,7 @@ Implement only this task. Do not redesign the architecture.
 
 Read:
 - `docs/adr/0059-broadcast-control-surface.md`
+- `docs/plans/curator-workflow-ui-design-brief.md`
 - `src/broadcast/control.rs`, `src/view_models/broadcast.rs`,
   `src/ui/shells/broadcast.rs`
 
