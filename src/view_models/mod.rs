@@ -63,6 +63,7 @@
 pub(crate) mod app_toolbar;
 pub mod artist;
 pub mod artist_detail;
+pub(crate) mod broadcast;
 pub mod entity_detail;
 pub mod feed;
 pub mod format;

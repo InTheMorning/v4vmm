@@ -11852,3 +11852,74 @@ fn adr_0059_broadcast_services_stay_gpui_free_and_use_api_client() {
         violations.join("\n")
     );
 }
+
+/// ADR 0059: the Broadcast page VM owns display-ready section contracts.
+#[test]
+fn adr_0059_broadcast_page_vm_is_gpui_free_and_token_path_only() {
+    let broadcast_source = read_source(&manifest_path("src/view_models/broadcast.rs"));
+    let view_models_mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) struct BroadcastPageVm",
+        "pub(crate) struct SourceSectionDisplay",
+        "pub(crate) struct PublisherSectionDisplay",
+        "pub(crate) struct EventSectionDisplay",
+        "pub(crate) enum SourceState",
+        "pub(crate) enum ServiceState",
+        "pub(crate) enum EventState",
+        "pub(crate) enum ActionAvailability",
+        "FrameChromeButtonDisplay",
+        "feed_tag_for_event",
+        r#"<podcast:liveValue uri="{}" protocol="socket.io"/>"#,
+        "token_path",
+        "Failed",
+    ] {
+        if !broadcast_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/broadcast.rs: ADR 0059 BroadcastPageVm contract missing `{required}`"
+            ));
+        }
+    }
+
+    if !view_models_mod_source.contains("pub(crate) mod broadcast") {
+        violations.push(
+            "src/view_models/mod.rs: ADR 0059 BroadcastPageVm module must be registered".to_owned(),
+        );
+    }
+
+    for (line_number, line) in code_lines(&broadcast_source) {
+        for forbidden in [
+            "use gpui",
+            "gpui::",
+            "use gpui_component",
+            "gpui_component::",
+            "anyhow::Error",
+            "crate::db",
+            "BroadcastEventRow",
+            "std::time::Duration",
+            "Duration",
+            "service_handle",
+        ] {
+            if line.contains(forbidden) {
+                violations.push(format!(
+                    "src/view_models/broadcast.rs:{line_number}: ADR 0059 BroadcastPageVm must stay display-only and GPUI-free; found `{forbidden}` in `{line}`"
+                ));
+            }
+        }
+
+        if line.contains("pub(crate)") && line.contains(':') && line.contains("token") {
+            if !line.contains("token_path") {
+                violations.push(format!(
+                    "src/view_models/broadcast.rs:{line_number}: ADR 0059 BroadcastPageVm may expose token_path only, not token text: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 BroadcastPageVm violations:\n{}",
+        violations.join("\n")
+    );
+}
