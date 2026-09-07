@@ -254,12 +254,6 @@ Give the event identifier and the token file to `musicindex-live-publisher`.
 That service sends the live payloads. See
 `docs/architecture/broadcast-chain.md`.
 
-The publish commands `v4vmm liveitem publish` and
-`v4vmm liveitem publish-now-playing` still exist in the code, but do not use
-them. They send the wrapped body form. Listener apps read the direct live value
-payload and find no payment splits in the wrapped body. Phase 1 of the ADR 0059
-plan removes both commands.
-
 ## CLI Debug Workflow
 
 The CLI exposes structured JSON inspection commands for backend state. These

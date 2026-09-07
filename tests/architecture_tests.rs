@@ -11654,3 +11654,51 @@ fn adr_0058_http_clients_are_built_by_one_owner() {
         violations.join("\n")
     );
 }
+
+/// ADR 0059: v4vmm reads live metadata but does not publish it.
+#[test]
+fn adr_0059_v4vmm_does_not_publish_live_metadata() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("publish_live_metadata") {
+                violations.push(format!(
+                    "{}:{line_number}: ADR 0059 removes the v4vmm live metadata publish path: `{line}`",
+                    rel_path(&path)
+                ));
+            }
+        }
+    }
+
+    let api_source = read_source(&manifest_path("src/api.rs"));
+    let api_compact = api_source
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<String>();
+    for call in [
+        "post_json(&[\"v1\",\"liveitems\",event_id,\"metadata\"]",
+        "post_json_with_bearer(&[\"v1\",\"liveitems\",event_id,\"metadata\"]",
+    ] {
+        if api_compact.contains(call) {
+            violations.push(format!(
+                "src/api.rs: ADR 0059 keeps metadata relay access read-only; found `{call}`"
+            ));
+        }
+    }
+
+    let cli_source = read_source(&manifest_path("src/cli.rs"));
+    for (line_number, line) in code_lines(&cli_source) {
+        if line.contains("--token") || line.contains("MUSICINDEX_LIVEITEM_TOKEN") {
+            violations.push(format!(
+                "src/cli.rs:{line_number}: ADR 0059 forbids broadcaster tokens in v4vmm CLI commands: `{line}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 live metadata publish violations:\n{}",
+        violations.join("\n")
+    );
+}

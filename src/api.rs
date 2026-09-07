@@ -331,19 +331,6 @@ pub struct LiveItemCreateResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LiveMetadataPublishRequest {
-    pub event_id: String,
-    pub metadata: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LiveMetadataPublishResponse {
-    pub event_id: String,
-    pub accepted: bool,
-    pub seq: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveMetadataSnapshot {
     pub event_id: String,
     pub seq: u64,
@@ -578,30 +565,6 @@ impl Client {
         response_json(response, "GET").map(Some)
     }
 
-    pub fn publish_live_metadata(
-        &self,
-        event_id: &str,
-        request: &LiveMetadataPublishRequest,
-    ) -> Result<LiveMetadataPublishResponse> {
-        validate_live_metadata_request(event_id, request)?;
-        self.post_json(&["v1", "liveitems", event_id, "metadata"], request)
-    }
-
-    pub fn publish_live_metadata_with_token(
-        &self,
-        event_id: &str,
-        token: &str,
-        request: &LiveMetadataPublishRequest,
-    ) -> Result<LiveMetadataPublishResponse> {
-        validate_live_metadata_request(event_id, request)?;
-        validate_bearer_token(token)?;
-        self.post_json_with_bearer(
-            &["v1", "liveitems", event_id, "metadata"],
-            request,
-            Some(token),
-        )
-    }
-
     fn fetch_wrapped<T>(&self, path_segments: &[&str]) -> Result<T>
     where
         T: DeserializeOwned,
@@ -641,25 +604,8 @@ impl Client {
         T: DeserializeOwned,
         B: Serialize,
     {
-        self.post_json_with_bearer(path_segments, body, None)
-    }
-
-    fn post_json_with_bearer<T, B>(
-        &self,
-        path_segments: &[&str],
-        body: &B,
-        bearer_token: Option<&str>,
-    ) -> Result<T>
-    where
-        T: DeserializeOwned,
-        B: Serialize,
-    {
         let url = self.build_url(path_segments, &[])?;
-        let mut request = self.client.post(url).json(body);
-        if let Some(token) = bearer_token {
-            request = request.bearer_auth(token);
-        }
-        let response = request.send()?;
+        let response = self.client.post(url).json(body).send()?;
         response_json(response, "POST")
     }
 
@@ -713,31 +659,6 @@ fn sanitize_api_query_value(value: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-fn validate_live_metadata_request(
-    event_id: &str,
-    request: &LiveMetadataPublishRequest,
-) -> Result<()> {
-    validate_live_metadata_event_id("path event_id", event_id)?;
-    validate_live_metadata_event_id("request event_id", &request.event_id)?;
-    if event_id != request.event_id {
-        return Err(anyhow!(
-            "live metadata event_id mismatch: path {event_id:?}, body {:?}",
-            request.event_id
-        ));
-    }
-    Ok(())
-}
-
-fn validate_bearer_token(token: &str) -> Result<()> {
-    if token.trim().is_empty() {
-        return Err(anyhow!("live metadata bearer token is empty"));
-    }
-    if token.chars().any(|ch| ch == '\0' || ch.is_control()) {
-        return Err(anyhow!("live metadata bearer token contains control bytes"));
-    }
-    Ok(())
 }
 
 fn validate_live_metadata_event_id(label: &str, value: &str) -> Result<()> {
@@ -797,9 +718,7 @@ fn response_error_matches(body: &str, expected: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Client, Contributor, Feed, LiveMetadataPublishRequest, PaymentRoute, SourceEntityId, Track,
-    };
+    use super::{Client, Contributor, Feed, PaymentRoute, SourceEntityId, Track};
 
     #[test]
     fn build_url_sanitizes_metadata_path_segments_and_query_values() {
@@ -964,7 +883,7 @@ mod tests {
     }
 
     #[test]
-    fn live_metadata_publish_url_uses_event_id_as_routing_key() {
+    fn live_metadata_read_url_uses_event_id_as_routing_key() {
         let client = Client::new();
         let url = client
             .build_url(&["v1", "liveitems", "event/one", "metadata"], &[])
@@ -975,35 +894,5 @@ mod tests {
             .expect("path segments")
             .collect::<Vec<_>>();
         assert_eq!(segments, vec!["v1", "liveitems", "event%2Fone", "metadata"]);
-    }
-
-    #[test]
-    fn live_metadata_request_requires_matching_event_id() {
-        let request = LiveMetadataPublishRequest {
-            event_id: "event-two".into(),
-            metadata: serde_json::json!({"title": "Song"}),
-        };
-
-        let error = super::validate_live_metadata_request("event-one", &request)
-            .expect_err("mismatched event ids should fail");
-        assert!(
-            error.to_string().contains("event_id mismatch"),
-            "unexpected error: {error}"
-        );
-    }
-
-    #[test]
-    fn live_metadata_request_rejects_collapsed_event_id() {
-        let request = LiveMetadataPublishRequest {
-            event_id: "event one".into(),
-            metadata: serde_json::json!({"title": "Song"}),
-        };
-
-        let error = super::validate_live_metadata_request("event\none", &request)
-            .expect_err("collapsed path event id should fail");
-        assert!(
-            error.to_string().contains("invalid whitespace"),
-            "unexpected error: {error}"
-        );
     }
 }
