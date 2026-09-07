@@ -44,6 +44,7 @@ pub(crate) struct WorkspaceSlots {
     content_list: Option<AnyElement>,
     detail: Option<AnyElement>,
     queue_now_playing: Option<AnyElement>,
+    broadcast: Option<AnyElement>,
     content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
     detail_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
@@ -89,6 +90,12 @@ impl WorkspaceSlots {
     /// Supplies content for the queue/now-playing frame.
     pub(crate) fn queue_now_playing(mut self, content: impl IntoElement) -> Self {
         self.queue_now_playing = Some(content.into_any_element());
+        self
+    }
+
+    /// Supplies content for the broadcast frame.
+    pub(crate) fn broadcast(mut self, content: impl IntoElement) -> Self {
+        self.broadcast = Some(content.into_any_element());
         self
     }
 
@@ -204,7 +211,7 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.content_list.take(),
             WorkspaceFrameKind::Detail => self.detail.take(),
             WorkspaceFrameKind::QueueNowPlaying => self.queue_now_playing.take(),
-            WorkspaceFrameKind::Broadcast => None,
+            WorkspaceFrameKind::Broadcast => self.broadcast.take(),
         }
         .unwrap_or_else(|| placeholder(frame, cx))
     }
@@ -298,6 +305,7 @@ impl RenderOnce for WorkspaceShell {
         let mut collapsed_frames = Vec::new();
         let mut content_list_element: Option<AnyElement> = None;
         let mut queue_element: Option<AnyElement> = None;
+        let mut broadcast_element: Option<AnyElement> = None;
 
         for frame in self.layout.frames() {
             let frame_kind = frame.kind();
@@ -372,6 +380,9 @@ impl RenderOnce for WorkspaceShell {
                 WorkspaceFrameKind::QueueNowPlaying => {
                     queue_element = Some(frame_container.into_any_element());
                 }
+                WorkspaceFrameKind::Broadcast => {
+                    broadcast_element = Some(frame_container.into_any_element());
+                }
                 _ => {}
             }
         }
@@ -381,67 +392,74 @@ impl RenderOnce for WorkspaceShell {
             .content_pane_width
             .unwrap_or(CONTENT_PANE_DEFAULT_WIDTH);
 
-        let has_both_frames = content_list_element.is_some() && queue_element.is_some();
+        let has_secondary_frames = queue_element.is_some() || broadcast_element.is_some();
 
-        let layout_element: AnyElement = if has_both_frames {
-            let content = content_list_element.unwrap();
-            let queue = queue_element.unwrap();
+        let layout_element: AnyElement = match content_list_element {
+            Some(content) if has_secondary_frames => {
+                let secondary = secondary_workspace_frames(queue_element, broadcast_element, cx);
 
-            let mut split = SplitPane::new("workspace-split")
-                .leading_width(content_pane_width)
-                .leading_min_width(CONTENT_PANE_MIN_WIDTH)
-                .leading(content)
-                .trailing(queue);
+                let mut split = SplitPane::new("workspace-split")
+                    .leading_width(content_pane_width)
+                    .leading_min_width(CONTENT_PANE_MIN_WIDTH)
+                    .leading(content)
+                    .trailing(secondary);
 
-            if let Some(handler) = self.slots.on_content_pane_resize_start {
-                split = split.on_resize_start(move |_event: &gpui::MouseDownEvent, window, cx| {
-                    handler(window, cx);
-                });
+                if let Some(handler) = self.slots.on_content_pane_resize_start {
+                    split =
+                        split.on_resize_start(move |_event: &gpui::MouseDownEvent, window, cx| {
+                            handler(window, cx);
+                        });
+                }
+
+                if let Some(handler) = self.slots.on_content_pane_resize_move {
+                    split =
+                        split.on_resize_move(move |event: &gpui::MouseMoveEvent, window, cx| {
+                            let x = f32::from(event.position.x);
+                            handler(x, window, cx);
+                        });
+                }
+
+                if let Some(handler) = self.slots.on_content_pane_resize_end {
+                    split = split.on_resize_end(move |_event: &gpui::MouseUpEvent, window, cx| {
+                        handler(content_pane_width, window, cx);
+                    });
+                }
+
+                div()
+                    .size_full()
+                    .flex()
+                    .flex_col()
+                    .min_h_0()
+                    .min_w_0()
+                    .p(Spacing::SM.scaled(cx))
+                    .overflow_hidden()
+                    .child(split)
+                    .into_any_element()
             }
+            content_list_element => {
+                let mut fallback_row = div()
+                    .size_full()
+                    .flex()
+                    .flex_row()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .gap(Spacing::SM.scaled(cx))
+                    .p(Spacing::SM.scaled(cx))
+                    .overflow_hidden();
 
-            if let Some(handler) = self.slots.on_content_pane_resize_move {
-                split = split.on_resize_move(move |event: &gpui::MouseMoveEvent, window, cx| {
-                    let x = f32::from(event.position.x);
-                    handler(x, window, cx);
-                });
+                if let Some(content) = content_list_element {
+                    fallback_row = fallback_row.child(content);
+                }
+                if let Some(queue) = queue_element {
+                    fallback_row = fallback_row.child(queue);
+                }
+                if let Some(broadcast) = broadcast_element {
+                    fallback_row = fallback_row.child(broadcast);
+                }
+
+                fallback_row.into_any_element()
             }
-
-            if let Some(handler) = self.slots.on_content_pane_resize_end {
-                split = split.on_resize_end(move |_event: &gpui::MouseUpEvent, window, cx| {
-                    handler(content_pane_width, window, cx);
-                });
-            }
-
-            div()
-                .size_full()
-                .flex()
-                .flex_col()
-                .min_h_0()
-                .min_w_0()
-                .p(Spacing::SM.scaled(cx))
-                .overflow_hidden()
-                .child(split)
-                .into_any_element()
-        } else {
-            let mut fallback_row = div()
-                .size_full()
-                .flex()
-                .flex_row()
-                .flex_1()
-                .min_h_0()
-                .min_w_0()
-                .gap(Spacing::SM.scaled(cx))
-                .p(Spacing::SM.scaled(cx))
-                .overflow_hidden();
-
-            if let Some(content) = content_list_element {
-                fallback_row = fallback_row.child(content);
-            }
-            if let Some(queue) = queue_element {
-                fallback_row = fallback_row.child(queue);
-            }
-
-            fallback_row.into_any_element()
         };
 
         div()
@@ -467,15 +485,37 @@ fn should_render_breadcrumb(kind: WorkspaceFrameKind, nav: &FrameNavigationState
 
 fn should_collapse_frame(kind: WorkspaceFrameKind, workspace_width: Pixels) -> bool {
     match kind {
-        WorkspaceFrameKind::QueueNowPlaying => {
+        WorkspaceFrameKind::QueueNowPlaying | WorkspaceFrameKind::Broadcast => {
             workspace_width < WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT
         }
         WorkspaceFrameKind::Detail => {
             workspace_width < WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT
         }
-        WorkspaceFrameKind::Broadcast
-        | WorkspaceFrameKind::SourceList
-        | WorkspaceFrameKind::ContentList => false,
+        WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => false,
+    }
+}
+
+fn secondary_workspace_frames(
+    queue: Option<AnyElement>,
+    broadcast: Option<AnyElement>,
+    cx: &App,
+) -> AnyElement {
+    match (queue, broadcast) {
+        (Some(queue), Some(broadcast)) => div()
+            .size_full()
+            .flex()
+            .flex_row()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .gap(Spacing::SM.scaled(cx))
+            .overflow_hidden()
+            .child(queue)
+            .child(broadcast)
+            .into_any_element(),
+        (Some(queue), None) => queue,
+        (None, Some(broadcast)) => broadcast,
+        (None, None) => div().into_any_element(),
     }
 }
 

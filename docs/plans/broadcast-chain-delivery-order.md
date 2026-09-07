@@ -137,7 +137,7 @@ Update this table when a packet lands.
 | `v4vmm` | 004 relay observation actor | complete - 2026-09-07 |
 | `v4vmm` | 005 broadcast page VM | complete - 2026-09-07 |
 | `v4vmm` | 006 broadcast frame kind | complete - 2026-09-07 |
-| `v4vmm` | 007 broadcast shell | not started |
+| `v4vmm` | 007 broadcast shell | complete - 2026-09-07 |
 | `v4vmm` | 008 service control | not started |
 | `v4vmm` | 009 publisher section | not started |
 | `v4vmm` | 010 remote hosts | not started |

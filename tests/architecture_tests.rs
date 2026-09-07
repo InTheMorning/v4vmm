@@ -437,6 +437,7 @@ const DISCOVER_SCREEN_SURFACE_FILES: &[&str] = &[
 
 const PRESENTATION_GLUE_FILES: &[&str] = &[
     "src/app.rs",
+    "src/app/broadcast.rs",
     "src/app/playback_bar.rs",
     "src/app/queue_now_playing.rs",
     "src/app/recent_feeds.rs",
@@ -1625,10 +1626,9 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
         "WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT",
         "WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT",
         "fn should_collapse_frame(",
-        "WorkspaceFrameKind::QueueNowPlaying =>",
+        "WorkspaceFrameKind::QueueNowPlaying | WorkspaceFrameKind::Broadcast =>",
         "WorkspaceFrameKind::Detail =>",
-        "WorkspaceFrameKind::Broadcast",
-        "| WorkspaceFrameKind::SourceList\n        | WorkspaceFrameKind::ContentList => false",
+        "WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => false",
     ] {
         if !source.contains(required) {
             violations.push(format!(
@@ -6271,6 +6271,7 @@ fn shared_top_level_ui_shells_do_not_import_screen_modules() {
     let forbidden = ["crate::search", "crate::library", "SearchApp", "LibraryApp"];
     let screen_free_shells = [
         "src/ui/shells/artist.rs",
+        "src/ui/shells/broadcast.rs",
         "src/ui/shells/entity.rs",
         "src/ui/shells/playlist.rs",
     ];
@@ -12015,6 +12016,114 @@ fn adr_0059_broadcast_workspace_frame_kind_is_distinct_from_queue() {
     assert!(
         violations.is_empty(),
         "ADR 0059 Broadcast workspace frame violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// ADR 0059: the Broadcast shell is shared UI and the app adapter mounts it.
+#[test]
+fn adr_0059_broadcast_shell_and_adapter_are_shared_frame_owned() {
+    let shell_source = read_source(&manifest_path("src/ui/shells/broadcast.rs"));
+    let shells_mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
+    let adapter_source = read_source(&manifest_path("src/app/broadcast.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) struct BroadcastSlots",
+        "pub(crate) fn render_broadcast(",
+        "fn render_source_section(",
+        "fn render_publisher_section(",
+        "fn render_event_section(",
+        "fn render_feed_tag(",
+        "on_create_event",
+        "on_resume_event",
+        "on_forget_event",
+        "on_copy_feed_tag",
+        "on_start_service",
+        "on_stop_service",
+        "on_reset_service",
+        "on_open_logs",
+        "on_select_source",
+        "Button::styled",
+        "Surface::new(SurfaceElevation::Sunken)",
+        "overflow_y_scroll()",
+        "render_section(\"Source\"",
+        "render_section(\"Publisher\"",
+        "render_section(\"Event\"",
+    ] {
+        if !shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/broadcast.rs: ADR 0059 Broadcast shell missing `{required}`"
+            ));
+        }
+    }
+
+    for (line_number, line) in code_lines(&shell_source) {
+        for forbidden in [
+            "crate::app",
+            "crate::api",
+            "crate::db",
+            "crate::application",
+            "crate::broadcast::",
+            "std::fs",
+            "std::process",
+            "Command",
+            "systemctl",
+        ] {
+            if line.contains(forbidden) {
+                violations.push(format!(
+                    "src/ui/shells/broadcast.rs:{line_number}: ADR 0059 Broadcast shell must stay screen/backend-free; found `{forbidden}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    for required in [
+        "pub(super) fn build_broadcast_frame(",
+        "BroadcastPageVm::builder()",
+        "BroadcastSlots::new()",
+        ".on_create_event(",
+        ".on_copy_feed_tag(",
+        "ClipboardItem::new_string",
+        "ServiceState::NotInstalled",
+    ] {
+        if !adapter_source.contains(required) {
+            violations.push(format!(
+                "src/app/broadcast.rs: ADR 0059 Broadcast adapter missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub mod broadcast;",
+        "mod broadcast;",
+        "use broadcast::build_broadcast_frame;",
+        "WORKSPACE_BROADCAST_FRAME_ID",
+        "build_broadcast_frame(self, cx)",
+        ".broadcast(broadcast_frame)",
+        "WorkspaceFrameKind::QueueNowPlaying | WorkspaceFrameKind::Broadcast => Some(",
+        "WorkspaceFrameKind::Broadcast,",
+        "broadcast: Option<AnyElement>",
+        "pub(crate) fn broadcast(",
+        "WorkspaceFrameKind::Broadcast => self.broadcast.take()",
+        "secondary_workspace_frames(",
+        "WorkspaceFrameKind::QueueNowPlaying | WorkspaceFrameKind::Broadcast",
+    ] {
+        let found = shells_mod_source.contains(required)
+            || app_source.contains(required)
+            || workspace_shell_source.contains(required);
+        if !found {
+            violations.push(format!(
+                "ADR 0059 Broadcast workspace mount missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 Broadcast shell/adapter violations:\n{}",
         violations.join("\n")
     );
 }

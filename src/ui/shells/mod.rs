@@ -23,6 +23,7 @@
 #![warn(clippy::pedantic)]
 
 pub mod artist;
+pub mod broadcast;
 pub mod discover;
 pub mod entity;
 pub mod feed;
