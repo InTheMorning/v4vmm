@@ -39,6 +39,15 @@ pub fn default_token_directory() -> Result<PathBuf> {
 /// Returns an error if the event identifier is empty or the config directory
 /// cannot be resolved.
 pub fn token_path_for_event(event_id: &str) -> Result<PathBuf> {
+    token_path_in_directory(&default_token_directory()?, event_id)
+}
+
+/// Return the token file path for one event in a specific directory.
+///
+/// # Errors
+///
+/// Returns an error if the event identifier is empty.
+pub fn token_path_in_directory(directory: &Path, event_id: &str) -> Result<PathBuf> {
     let event_id = event_id.trim();
     anyhow::ensure!(!event_id.is_empty(), "broadcast event_id cannot be empty");
 
@@ -46,7 +55,7 @@ pub fn token_path_for_event(event_id: &str) -> Result<PathBuf> {
     hasher.update(event_id.as_bytes());
     let digest = hasher.finalize();
     let file_name = format!("{digest:x}.token");
-    Ok(default_token_directory()?.join(file_name))
+    Ok(directory.join(file_name))
 }
 
 /// Write a broadcaster token to a mode-restricted file.

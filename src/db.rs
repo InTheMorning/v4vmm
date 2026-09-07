@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension};
+use serde::Serialize;
 
 use crate::config::Config;
 
@@ -287,7 +288,8 @@ pub struct TrackArtistSourceBindingRow {
     pub observed_at: Option<i64>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BroadcastEventStatus {
     Unknown,
     Live,
@@ -328,7 +330,7 @@ pub struct BroadcastEventInput {
     pub last_status: Option<BroadcastEventStatus>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct BroadcastEventRow {
     pub id: i64,
     pub event_id: String,
@@ -1834,6 +1836,23 @@ pub fn broadcast_event_by_id(
     )
     .optional()
     .context("query broadcast_event_by_id")
+}
+
+pub fn broadcast_event_by_event_id(
+    conn: &Connection,
+    event_id: &str,
+) -> Result<Option<BroadcastEventRow>> {
+    let event_id = explicit_broadcast_event_id(event_id)?;
+    conn.query_row(
+        "SELECT id, event_id, label, endpoint, token_path, created_at,
+                last_checked_at, last_status
+         FROM broadcast_events
+         WHERE event_id = ?1",
+        [event_id],
+        broadcast_event_row_from_sql,
+    )
+    .optional()
+    .context("query broadcast_event_by_event_id")
 }
 
 pub fn delete_broadcast_event(conn: &Connection, event_record_id: i64) -> Result<bool> {

@@ -556,11 +556,7 @@ impl Client {
         let url = self.build_url(&["v1", "liveitems", event_id, "metadata"], &[])?;
         let response = self.client.get(url).send()?;
         if response.status() == StatusCode::NOT_FOUND {
-            let body = response.text()?;
-            if response_error_matches(&body, "metadata_not_found") {
-                return Ok(None);
-            }
-            return Err(anyhow!("GET failed with HTTP 404 Not Found: {body}"));
+            return Ok(None);
         }
         response_json(response, "GET").map(Some)
     }
@@ -701,19 +697,6 @@ fn response_text_with_status(
         return Err(anyhow!("{method} failed with HTTP {status}: {body}"));
     }
     Ok(body)
-}
-
-fn response_error_matches(body: &str, expected: &str) -> bool {
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("error")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-        })
-        .as_deref()
-        == Some(expected)
 }
 
 #[cfg(test)]

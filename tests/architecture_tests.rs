@@ -11689,7 +11689,11 @@ fn adr_0059_v4vmm_does_not_publish_live_metadata() {
 
     let cli_source = read_source(&manifest_path("src/cli.rs"));
     for (line_number, line) in code_lines(&cli_source) {
-        if line.contains("--token") || line.contains("MUSICINDEX_LIVEITEM_TOKEN") {
+        if line.contains("--token")
+            || line.contains("MUSICINDEX_LIVEITEM_TOKEN")
+            || line.contains("broadcaster_token")
+            || line.contains("create_live_item")
+        {
             violations.push(format!(
                 "src/cli.rs:{line_number}: ADR 0059 forbids broadcaster tokens in v4vmm CLI commands: `{line}`"
             ));
@@ -11745,6 +11749,39 @@ fn adr_0059_broadcast_event_schema_keeps_tokens_out_of_storage_and_ui() {
     assert!(
         violations.is_empty(),
         "ADR 0059 broadcast event storage violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// ADR 0059: broadcast services are GPUI-free and use the shared API client.
+#[test]
+fn adr_0059_broadcast_services_stay_gpui_free_and_use_api_client() {
+    let mut violations = Vec::new();
+    for path in rust_files_under("src/broadcast") {
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in [
+                "use gpui",
+                "gpui::",
+                "use gpui_component",
+                "gpui_component::",
+                "reqwest::",
+                "crate::http_client",
+                "http_client::",
+            ] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{}:{line_number}: ADR 0059 broadcast services must stay GPUI-free and build relay clients through api::Client; found `{forbidden}` in `{line}`",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 broadcast service boundary violations:\n{}",
         violations.join("\n")
     );
 }

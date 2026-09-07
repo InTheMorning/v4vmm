@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use rusqlite::Connection;
 use serde::Serialize;
 
+use crate::broadcast::registry::BroadcastRegistry;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::{api, config, db, debug_contracts, playback};
 
@@ -17,11 +18,31 @@ pub fn run(args: &[String]) -> Result<()> {
         [section, command, rest @ ..] if section == "liveitem" && command == "health" => {
             check_liveitem_health(rest)
         }
-        [section, command, rest @ ..] if section == "liveitem" && command == "create" => {
-            create_liveitem(rest)
-        }
+        [section, command, ..] if section == "liveitem" && command == "create" => Err(anyhow!(
+            "liveitem create is retired; use `v4vmm broadcast events create --json`"
+        )),
         [section, command, event_id, rest @ ..] if section == "liveitem" && command == "latest" => {
             print_liveitem_latest(event_id, rest)
+        }
+        [section, area, command, rest @ ..]
+            if section == "broadcast" && area == "events" && command == "list" =>
+        {
+            print_broadcast_events(rest)
+        }
+        [section, area, command, rest @ ..]
+            if section == "broadcast" && area == "events" && command == "create" =>
+        {
+            create_broadcast_event(rest)
+        }
+        [section, area, command, event_id, rest @ ..]
+            if section == "broadcast" && area == "events" && command == "forget" =>
+        {
+            forget_broadcast_event(event_id, rest)
+        }
+        [section, area, command, event_id, rest @ ..]
+            if section == "broadcast" && area == "events" && command == "check" =>
+        {
+            check_broadcast_event(event_id, rest)
         }
         [section, command, flag]
             if section == "playlists" && command == "list" && flag == "--json" =>
@@ -80,6 +101,12 @@ fn configured_musicindex_client(endpoint: Option<&str>) -> Result<api::Client> {
     Ok(api::Client::new_with_base_url(base_url))
 }
 
+fn configured_broadcast_registry(conn: &Connection) -> Result<BroadcastRegistry<'_>> {
+    let cfg_path = config::config_path()?;
+    let endpoint = config::load_musicindex_endpoint(&cfg_path)?;
+    BroadcastRegistry::new(conn, &endpoint)
+}
+
 fn print_now_playing(args: &[String]) -> Result<()> {
     parse_now_playing_options(args)?;
     let conn = open_configured_db()?;
@@ -97,15 +124,6 @@ fn check_liveitem_health(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn create_liveitem(args: &[String]) -> Result<()> {
-    let options = parse_live_options(args)?;
-    anyhow::ensure!(options.json, "liveitem create requires --json");
-
-    let client = configured_musicindex_client(options.endpoint.as_deref())?;
-    let response = client.create_live_item()?;
-    print_json(&response)
-}
-
 fn print_liveitem_latest(event_id: &str, args: &[String]) -> Result<()> {
     let options = parse_live_options(args)?;
     anyhow::ensure!(options.json, "liveitem latest requires --json");
@@ -121,6 +139,45 @@ fn print_liveitem_latest(event_id: &str, args: &[String]) -> Result<()> {
         error: "metadata_not_found",
         message: "no metadata has been published for this live item yet",
     })
+}
+
+fn print_broadcast_events(args: &[String]) -> Result<()> {
+    parse_json_only_options("broadcast events list", args)?;
+    let conn = open_configured_db()?;
+    let registry = configured_broadcast_registry(&conn)?;
+    print_json(&registry.list_events()?)
+}
+
+fn create_broadcast_event(args: &[String]) -> Result<()> {
+    let options = parse_broadcast_event_create_options(args)?;
+    anyhow::ensure!(options.json, "broadcast events create requires --json");
+
+    let conn = open_configured_db()?;
+    let registry = configured_broadcast_registry(&conn)?;
+    let created = registry.create_event(options.label.as_deref())?;
+    print_json(&created)
+}
+
+fn forget_broadcast_event(event_id: &str, args: &[String]) -> Result<()> {
+    anyhow::ensure!(
+        args.is_empty(),
+        "broadcast events forget does not accept extra arguments"
+    );
+    let conn = open_configured_db()?;
+    let registry = configured_broadcast_registry(&conn)?;
+    let forgotten = registry
+        .forget_event(event_id)?
+        .with_context(|| format!("broadcast event not found: {event_id}"))?;
+    println!("forgot broadcast event {}", forgotten.event_id);
+    Ok(())
+}
+
+fn check_broadcast_event(event_id: &str, args: &[String]) -> Result<()> {
+    parse_json_only_options("broadcast events check", args)?;
+    let conn = open_configured_db()?;
+    let registry = configured_broadcast_registry(&conn)?;
+    let checked = registry.check_event(event_id)?;
+    print_json(&checked)
 }
 
 fn print_playlists() -> Result<()> {
@@ -242,6 +299,12 @@ struct LiveOptions {
 }
 
 #[derive(Debug, Default)]
+struct BroadcastEventCreateOptions {
+    json: bool,
+    label: Option<String>,
+}
+
+#[derive(Debug, Default)]
 struct NowPlayingOptions {
     json: bool,
 }
@@ -281,6 +344,47 @@ fn parse_live_options(args: &[String]) -> Result<LiveOptions> {
         }
     }
     Ok(options)
+}
+
+fn parse_broadcast_event_create_options(args: &[String]) -> Result<BroadcastEventCreateOptions> {
+    let mut options = BroadcastEventCreateOptions::default();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" => {
+                anyhow::ensure!(!options.json, "duplicate --json");
+                options.json = true;
+                index += 1;
+            }
+            "--label" => {
+                let value = option_value(args, index, "--label")?;
+                anyhow::ensure!(options.label.is_none(), "duplicate --label");
+                options.label = Some(value.to_string());
+                index += 2;
+            }
+            flag => {
+                return Err(anyhow!(
+                    "unsupported broadcast events create option {flag:?}"
+                ))
+            }
+        }
+    }
+    Ok(options)
+}
+
+fn parse_json_only_options(command: &str, args: &[String]) -> Result<()> {
+    let mut json = false;
+    for arg in args {
+        match arg.as_str() {
+            "--json" => {
+                anyhow::ensure!(!json, "duplicate --json");
+                json = true;
+            }
+            flag => return Err(anyhow!("unsupported {command} option {flag:?}")),
+        }
+    }
+    anyhow::ensure!(json, "{command} requires --json");
+    Ok(())
 }
 
 fn parse_now_playing_options(args: &[String]) -> Result<NowPlayingOptions> {
@@ -354,8 +458,11 @@ fn help_text() -> &'static str {
   v4vmm
   v4vmm now-playing --json
   v4vmm liveitem health [--endpoint <url>]
-  v4vmm liveitem create --json [--endpoint <url>]
   v4vmm liveitem latest <event-id> --json [--endpoint <url>]
+  v4vmm broadcast events list --json
+  v4vmm broadcast events create --json [--label <text>]
+  v4vmm broadcast events forget <event-id>
+  v4vmm broadcast events check <event-id> --json
   v4vmm playlists list --json
   v4vmm playlist tracks <playlist-id> --json
   v4vmm library tracks --json

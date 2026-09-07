@@ -133,7 +133,7 @@ Update this table when a packet lands.
 | `musicindex-live-publisher` | show log 002 | not started |
 | `v4vmm` | 001 live surface reduction | complete - 2026-09-07 |
 | `v4vmm` | 002 event registry schema | complete - 2026-09-07 |
-| `v4vmm` | 003 event registry service | not started |
+| `v4vmm` | 003 event registry service | complete - 2026-09-07 |
 | `v4vmm` | 004 relay observation actor | not started |
 | `v4vmm` | 005 broadcast page VM | not started |
 | `v4vmm` | 006 broadcast frame kind | not started |

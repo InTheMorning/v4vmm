@@ -235,24 +235,34 @@ mpv_path = "mpv" # optional; defaults to PATH
 Missing `[playback]` uses `driver = "null"`. Unknown drivers fail config
 validation. mpv availability is checked when live playback starts.
 
-### Test The Live Relay
+### Manage Broadcast Events
 
-The live item commands use the configured `musicindex_endpoint`, defaulting to
-`https://api.musicindex.org`. Add `--endpoint <url>` to any command when you
-test a local relay.
+Broadcast event commands use the configured `musicindex_endpoint`, defaulting
+to `https://api.musicindex.org`. Configure that endpoint before creating a
+local test event.
 
 ```bash
-v4vmm liveitem health
-v4vmm liveitem create --json
-v4vmm liveitem latest <event-id> --json
+v4vmm broadcast events list --json
+v4vmm broadcast events create --json --label "Sunday set"
+v4vmm broadcast events check <event-id> --json
+v4vmm broadcast events forget <event-id>
 ```
 
-`create` returns the event identifier and the broadcaster token. The relay
-returns the token one time only. Keep the token in a file with mode `0600`.
+`create` calls the relay, writes the broadcaster token to a local file with mode
+`0600`, stores only the file path in SQLite, and prints the event row plus
+`token_path`. It does not print the token text.
 
 Give the event identifier and the token file to `musicindex-live-publisher`.
 That service sends the live payloads. See
 `docs/architecture/broadcast-chain.md`.
+
+Use the live item probes when you need to test relay health or inspect the
+latest listener-visible metadata for a known event:
+
+```bash
+v4vmm liveitem health [--endpoint <url>]
+v4vmm liveitem latest <event-id> --json [--endpoint <url>]
+```
 
 ## CLI Debug Workflow
 
