@@ -51,6 +51,8 @@ pub(crate) enum WorkspaceFrameKind {
     Detail,
     /// Queue, playback status, liveValue output, and output controls.
     QueueNowPlaying,
+    /// Broadcast chain source, publisher, event, and stream controls.
+    Broadcast,
 }
 
 /// Detach availability for a workspace frame kind.
@@ -84,6 +86,8 @@ pub(crate) enum FrameSearchScope {
     SettingsRows,
     /// Filter queue rows.
     QueueRows,
+    /// Filter broadcast section rows.
+    BroadcastRows,
     /// Refine a search-results inspector query.
     InspectorQuery,
     /// Filter track rows in an entity detail inspector.
@@ -125,6 +129,7 @@ impl WorkspaceFrameKind {
             Self::ContentList => "Content",
             Self::Detail => "Detail",
             Self::QueueNowPlaying => "Queue",
+            Self::Broadcast => "Broadcast",
         }
     }
 
@@ -133,7 +138,7 @@ impl WorkspaceFrameKind {
     pub(crate) const fn detach_eligibility(self) -> FrameDetachEligibility {
         match self {
             Self::SourceList => FrameDetachEligibility::NotDetachable,
-            Self::ContentList | Self::Detail | Self::QueueNowPlaying => {
+            Self::ContentList | Self::Detail | Self::QueueNowPlaying | Self::Broadcast => {
                 FrameDetachEligibility::Detachable
             }
         }

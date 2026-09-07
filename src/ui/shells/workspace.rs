@@ -204,6 +204,7 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.content_list.take(),
             WorkspaceFrameKind::Detail => self.detail.take(),
             WorkspaceFrameKind::QueueNowPlaying => self.queue_now_playing.take(),
+            WorkspaceFrameKind::Broadcast => None,
         }
         .unwrap_or_else(|| placeholder(frame, cx))
     }
@@ -212,7 +213,9 @@ impl WorkspaceSlots {
         match kind {
             WorkspaceFrameKind::ContentList => self.content_list_filter_chip_strip.clone(),
             WorkspaceFrameKind::Detail => self.detail_filter_chip_strip.clone(),
-            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::QueueNowPlaying
+            | WorkspaceFrameKind::Broadcast => None,
         }
     }
 
@@ -223,7 +226,9 @@ impl WorkspaceSlots {
         match kind {
             WorkspaceFrameKind::ContentList => self.on_content_list_filter_select.clone(),
             WorkspaceFrameKind::Detail => self.on_detail_filter_select.clone(),
-            WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::QueueNowPlaying
+            | WorkspaceFrameKind::Broadcast => None,
         }
     }
 
@@ -235,7 +240,8 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.on_content_list_breadcrumb_select.clone(),
             WorkspaceFrameKind::Detail
             | WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::QueueNowPlaying => None,
+            | WorkspaceFrameKind::QueueNowPlaying
+            | WorkspaceFrameKind::Broadcast => None,
         }
     }
 
@@ -247,7 +253,8 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.content_list_breadcrumb_labeler.clone(),
             WorkspaceFrameKind::Detail
             | WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::QueueNowPlaying => None,
+            | WorkspaceFrameKind::QueueNowPlaying
+            | WorkspaceFrameKind::Broadcast => None,
         }
     }
 
@@ -259,7 +266,8 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.on_content_list_back_select.clone(),
             WorkspaceFrameKind::Detail
             | WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::QueueNowPlaying => None,
+            | WorkspaceFrameKind::QueueNowPlaying
+            | WorkspaceFrameKind::Broadcast => None,
         }
     }
 }
@@ -465,7 +473,9 @@ fn should_collapse_frame(kind: WorkspaceFrameKind, workspace_width: Pixels) -> b
         WorkspaceFrameKind::Detail => {
             workspace_width < WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT
         }
-        WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => false,
+        WorkspaceFrameKind::Broadcast
+        | WorkspaceFrameKind::SourceList
+        | WorkspaceFrameKind::ContentList => false,
     }
 }
 
@@ -490,6 +500,7 @@ fn navigation_entry_for(kind: WorkspaceFrameKind) -> FrameNavigationEntry {
         }
         WorkspaceFrameKind::Detail => FrameNavigationEntry::TrackDetail(0),
         WorkspaceFrameKind::QueueNowPlaying => FrameNavigationEntry::QueueNowPlaying,
+        WorkspaceFrameKind::Broadcast => FrameNavigationEntry::Broadcast,
     }
 }
 

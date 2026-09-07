@@ -597,8 +597,11 @@ impl TopApp {
                 WorkspaceFrameKind::QueueNowPlaying => Some(
                     WorkspaceFrameState::with_default_title(frame.id(), frame.kind()),
                 ),
-                // Stage 5: Drop Detail frame from visible layout entirely
-                WorkspaceFrameKind::Detail | WorkspaceFrameKind::SourceList => None,
+                // Stage 5: Drop Detail frame from visible layout entirely.
+                // ADR 0059 Task 007 owns mounting the Broadcast frame body.
+                WorkspaceFrameKind::Broadcast
+                | WorkspaceFrameKind::Detail
+                | WorkspaceFrameKind::SourceList => None,
             })
             .collect();
 
@@ -676,6 +679,7 @@ impl TopApp {
             FrameNavigationEntry::ArtistDetail(_)
             | FrameNavigationEntry::IndexArtistFeedScope(_) => "Artist".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
+            FrameNavigationEntry::Broadcast => "Broadcast".to_string(),
         }
     }
 

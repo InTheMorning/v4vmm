@@ -165,6 +165,21 @@ fn focused_search_descriptor_projects_queue_rows() {
 }
 
 #[test]
+fn focused_search_descriptor_projects_broadcast_rows() {
+    let descriptor = descriptor_for(
+        18,
+        WorkspaceFrameKind::Broadcast,
+        FrameNavigationEntry::Broadcast,
+    );
+
+    assert_eq!(descriptor.frame_id, WorkspaceFrameId::new(18));
+    assert_eq!(descriptor.kind, WorkspaceFrameKind::Broadcast);
+    assert_eq!(descriptor.nav, FrameNavigationEntry::Broadcast);
+    assert_eq!(descriptor.scope, FrameSearchScope::BroadcastRows);
+    assert_eq!(descriptor.placeholder, "Filter broadcast...");
+}
+
+#[test]
 fn filter_chip_strip_defaults_use_standard_option_order() {
     let content_list = FilterChipStripDisplay::default_for_content_list(ContentFilter::All, true);
     let search_inspector =
@@ -782,6 +797,76 @@ fn add_frame_appends_and_focuses_new_frame() {
 }
 
 #[test]
+fn broadcast_frame_can_be_added_focused_removed_and_navigated() {
+    let mut layout = WorkspaceLayout::default_layout();
+    let broadcast_id = layout
+        .add_frame(WorkspaceFrameKind::Broadcast)
+        .expect("broadcast frame should be addable");
+
+    assert!(
+        layout
+            .frames()
+            .iter()
+            .any(|frame| frame.kind() == WorkspaceFrameKind::QueueNowPlaying),
+        "queue frame should stay present beside broadcast"
+    );
+    assert_eq!(
+        layout.focused_frame_id(),
+        Some(broadcast_id),
+        "added broadcast frame should receive focus"
+    );
+    assert_eq!(
+        layout
+            .frame_nav(broadcast_id)
+            .expect("broadcast frame should get navigation")
+            .current(),
+        &FrameNavigationEntry::Broadcast,
+        "broadcast frame should get a broadcast navigation root"
+    );
+
+    layout
+        .push_nav(
+            broadcast_id,
+            FrameNavigationEntry::Search("listener truth".to_string()),
+        )
+        .expect("broadcast frame should accept navigation history");
+    assert_eq!(
+        layout.pop_nav(broadcast_id),
+        Some(FrameNavigationEntry::Broadcast),
+        "broadcast frame back navigation should return to its root"
+    );
+    assert_eq!(
+        layout
+            .frame_nav_mut(broadcast_id)
+            .expect("broadcast frame should still have navigation")
+            .go_forward()
+            .cloned(),
+        Ok(FrameNavigationEntry::Search("listener truth".to_string())),
+        "broadcast frame forward navigation should restore the pushed entry"
+    );
+
+    layout
+        .focus_frame(WorkspaceFrameId::new(2))
+        .expect("content frame should be focusable before removal");
+    layout
+        .remove_frame(broadcast_id)
+        .expect("broadcast frame should be removable");
+
+    assert!(
+        layout
+            .frames()
+            .iter()
+            .all(|frame| frame.kind() != WorkspaceFrameKind::Broadcast),
+        "removed broadcast frame should leave the layout"
+    );
+    assert_eq!(
+        layout.focused_frame_id(),
+        Some(WorkspaceFrameId::new(2)),
+        "removing an unfocused broadcast frame should preserve focus"
+    );
+}
+
+#[test]
 fn replace_nav_preserves_full_history_for_visible_layout_projection() {
     let mut source = WorkspaceLayout::default_layout();
     let detail_id = WorkspaceLayout::default_detail_frame_id();
@@ -920,6 +1005,7 @@ fn workspace_frame_kind_projects_detach_eligibility() {
         WorkspaceFrameKind::ContentList,
         WorkspaceFrameKind::Detail,
         WorkspaceFrameKind::QueueNowPlaying,
+        WorkspaceFrameKind::Broadcast,
     ] {
         assert_eq!(
             kind.detach_eligibility(),
@@ -955,6 +1041,19 @@ fn detach_and_dock_requests_defer_for_detachable_frames() {
             target: FrameDockTarget::Trailing,
         }),
         "queue dock should be recognized but deferred"
+    );
+
+    let mut layout = WorkspaceLayout::default_layout();
+    let broadcast_id = layout
+        .add_frame(WorkspaceFrameKind::Broadcast)
+        .expect("broadcast frame should be addable");
+    assert_eq!(
+        layout.request_dock(broadcast_id, FrameDockTarget::Trailing),
+        Err(WorkspaceModelError::DockDeferred {
+            frame_id: broadcast_id,
+            target: FrameDockTarget::Trailing,
+        }),
+        "broadcast dock should follow the trailing non-content frame pattern"
     );
 }
 
@@ -998,8 +1097,8 @@ fn detach_and_dock_requests_validate_frame_id() {
 fn workspace_layout_config_round_trips() {
     let mut layout = WorkspaceLayout::default_layout();
     let added = layout
-        .add_frame(WorkspaceFrameKind::Detail)
-        .expect("adding a frame should succeed");
+        .add_frame(WorkspaceFrameKind::Broadcast)
+        .expect("adding a broadcast frame should succeed");
 
     let restored = WorkspaceLayout::from_config(Some(&layout.to_config()));
 
@@ -1012,6 +1111,44 @@ fn workspace_layout_config_round_trips() {
         restored.focused_frame_id(),
         Some(added),
         "config conversion should preserve focused frame id"
+    );
+}
+
+#[test]
+fn workspace_layout_config_from_before_broadcast_frame_still_loads() {
+    let pre_broadcast_config = WorkspaceLayoutConfig {
+        frames: vec![
+            WorkspaceFrameConfig {
+                id: 1,
+                kind: WorkspaceFrameKind::SourceList,
+            },
+            WorkspaceFrameConfig {
+                id: 2,
+                kind: WorkspaceFrameKind::ContentList,
+            },
+            WorkspaceFrameConfig {
+                id: 3,
+                kind: WorkspaceFrameKind::Detail,
+            },
+            WorkspaceFrameConfig {
+                id: 4,
+                kind: WorkspaceFrameKind::QueueNowPlaying,
+            },
+        ],
+        focused_frame_id: Some(2),
+    };
+
+    let restored = WorkspaceLayout::from_config(Some(&pre_broadcast_config));
+
+    assert_eq!(
+        restored.to_config(),
+        pre_broadcast_config,
+        "layouts written before Broadcast existed should still load"
+    );
+    assert_eq!(
+        restored.focused_frame().map(WorkspaceFrameState::kind),
+        Some(WorkspaceFrameKind::ContentList),
+        "old layouts should preserve focus"
     );
 }
 

@@ -912,6 +912,7 @@ fn workspace_view_model_contract_is_gpui_free() {
         "ContentList",
         "Detail",
         "QueueNowPlaying",
+        "Broadcast",
         "pub(crate) fn focus_frame",
         "pub(crate) fn go_back",
         "pub(crate) fn go_forward",
@@ -1626,7 +1627,8 @@ fn workspace_layout_render_uses_frame_shell_without_screen_internals() {
         "fn should_collapse_frame(",
         "WorkspaceFrameKind::QueueNowPlaying =>",
         "WorkspaceFrameKind::Detail =>",
-        "WorkspaceFrameKind::SourceList | WorkspaceFrameKind::ContentList => false",
+        "WorkspaceFrameKind::Broadcast",
+        "| WorkspaceFrameKind::SourceList\n        | WorkspaceFrameKind::ContentList => false",
     ] {
         if !source.contains(required) {
             violations.push(format!(
@@ -3498,12 +3500,14 @@ fn active_frame_search_dispatch_phase_1_vm_contracts_are_owned_by_view_models() 
         "FrameSearchScope::InspectorQuery",
         "FrameSearchScope::DetailTracks",
         "FrameSearchScope::QueueRows",
+        "FrameSearchScope::BroadcastRows",
         "Filter sidebar...",
         "Search library...",
         "Search settings...",
         "Refine search...",
         "Filter tracks...",
         "Filter queue...",
+        "Filter broadcast...",
     ] {
         if !workspace_source.contains(required) {
             violations.push(format!(
@@ -3861,6 +3865,7 @@ fn workspace_frame_phase_2_guards_workspace_vm_contract_is_gpui_free_and_typed()
         "ContentList",
         "Detail",
         "QueueNowPlaying",
+        "Broadcast",
     ] {
         if !source.contains(required) {
             violations.push(format!(
@@ -11920,6 +11925,96 @@ fn adr_0059_broadcast_page_vm_is_gpui_free_and_token_path_only() {
     assert!(
         violations.is_empty(),
         "ADR 0059 BroadcastPageVm violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// ADR 0059: Broadcast is a distinct workspace frame and search scope.
+#[test]
+fn adr_0059_broadcast_workspace_frame_kind_is_distinct_from_queue() {
+    let workspace_source = workspace_vm_source();
+    let workspace_tests_source = read_source(&manifest_path("src/view_models/workspace/tests.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let config_source = read_source(&manifest_path("src/config.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "Broadcast,",
+        "FrameSearchScope::BroadcastRows",
+        "FrameNavigationEntry::Broadcast",
+        "Self::Broadcast => \"Broadcast\"",
+        "WorkspaceFrameKind::Broadcast => FrameNavigationEntry::Broadcast",
+        "(WorkspaceFrameKind::Broadcast, _)",
+        "\"Filter broadcast...\"",
+        "WorkspaceFrameKind::ContentList",
+        "WorkspaceFrameKind::Detail",
+        "WorkspaceFrameKind::QueueNowPlaying",
+        "WorkspaceFrameKind::Broadcast",
+    ] {
+        if !workspace_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace: ADR 0059 Broadcast frame contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "focused_search_descriptor_projects_broadcast_rows",
+        "broadcast_frame_can_be_added_focused_removed_and_navigated",
+        "workspace_layout_config_from_before_broadcast_frame_still_loads",
+        "WorkspaceFrameKind::QueueNowPlaying",
+        "WorkspaceFrameKind::Broadcast",
+    ] {
+        if !workspace_tests_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace/tests.rs: ADR 0059 Broadcast workspace tests missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "focused_search_descriptor()",
+        "FrameSearchScope::BroadcastRows",
+        "submit_broadcast_rows_search",
+    ] {
+        if !search_dispatch_source.contains(required) {
+            violations.push(format!(
+                "src/app/search_dispatch.rs: ADR 0059 Broadcast toolbar search routing missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "load_config_ignores_workspace_layout_with_unknown_frame_kind",
+        "future_frame",
+        "deserialize_workspace_layout_config",
+        "ignoring malformed workspace_layout",
+    ] {
+        if !config_source.contains(required) {
+            violations.push(format!(
+                "src/config.rs: ADR 0059 Broadcast workspace layout compatibility missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "BroadcastNowPlaying",
+        "NowPlayingBroadcast",
+        "BroadcastNowPlayingRows",
+    ] {
+        if workspace_source.contains(forbidden)
+            || workspace_tests_source.contains(forbidden)
+            || search_dispatch_source.contains(forbidden)
+        {
+            violations.push(format!(
+                "ADR 0059 Broadcast frame must stay separate from QueueNowPlaying; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 Broadcast workspace frame violations:\n{}",
         violations.join("\n")
     );
 }

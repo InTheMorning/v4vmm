@@ -810,6 +810,34 @@ workspace_layout = "not a layout"
     }
 
     #[test]
+    fn load_config_ignores_workspace_layout_with_unknown_frame_kind() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[workspace_layout]
+focused_frame_id = 2
+frames = [
+  { id = 1, kind = "source_list" },
+  { id = 2, kind = "future_frame" },
+]
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+
+        assert_eq!(
+            cfg.workspace_layout, None,
+            "unknown workspace frame kinds should fall back instead of failing config load"
+        );
+    }
+
+    #[test]
     fn load_config_ignores_malformed_workspace_layout_prefs() {
         let temp = tempfile::tempdir().expect("tempdir");
         let cfg_path = temp.path().join("config.toml");
