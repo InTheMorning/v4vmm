@@ -47,7 +47,10 @@ dead payload before a show instead of after it.
 ## Implementation Steps
 
 1. Add `src/application/queries/broadcast.rs` with a readiness query over the
-   library tracks that have a local file.
+   local library tracks that have a local file. The report always describes the
+   library this app owns and tagged. It never scans a remote host, because a
+   difference between a local file and a remote copy is a synchronization
+   problem and not a tagging problem.
 2. Return a summary with the three counts and a list of the tracks that are not
    ready, with the reason for each.
 3. Add `v4vmm broadcast readiness --json` to the CLI.

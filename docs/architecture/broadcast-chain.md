@@ -14,6 +14,7 @@ Read this before a change that crosses a repository boundary.
 | `mixxx-now-playing` | `musicindex-live-publisher` | Producer. Reports the track that Mixxx plays. | User service |
 | `musicindex-live-publisher` | `musicindex-live-publisher` | Publisher. Transforms drop files and sends live value payloads. | User service |
 | `musicindex-live-relay` | `splitkit` | Relay. Holds the current payload and sends it to listener apps. | Network service |
+| `butt` | external | Stream encoder. Sends the audio to the Icecast server that listeners hear. | Desktop or user service |
 
 Liquidsoap arrives later as one more producer. It needs a producer that writes
 the same drop-file contract.
@@ -99,7 +100,22 @@ Producer: `musicindex-live-relay`. Consumers: listener apps and `v4vmm`.
 receive. This read operates for a local publisher and for a remote publisher,
 because the relay is a network service.
 
-## Boundary 5: Service Control
+## Boundary 5: Encoder Control
+
+Producer: `v4vmm`. Consumer: the `butt` encoder.
+
+`butt` accepts control options on the command line: `-S` for status, `-s` to
+connect, `-d` to disconnect, `-r` and `-t` for recording, and `-a` with `-p` to
+address a running instance over the network. A local encoder and a remote
+encoder therefore use one code path.
+
+`v4vmm` never sends a song title with `-u`. The now-playing producer already
+writes the text file that the encoder reads.
+
+The audio path itself is outside this chain. This chain carries metadata and
+payment routing only.
+
+## Boundary 6: Service Control
 
 Producer: `v4vmm`. Consumer: `systemd` on the host that runs the publisher.
 
@@ -124,6 +140,8 @@ A control API in the publisher is future work. The liquidsoap work needs it.
 
 - The relay keeps state in memory. A restart discards live items, tokens, and
   snapshots. Every event then dies and listeners must tune again.
+- The relay also removes an event after an idle TTL. The default is 24 hours.
+  An event dies without a restart when nobody publishes to it.
 - The relay returns a broadcaster token one time. It keeps a hash and cannot
   return the token again.
 - The relay has no route to list live items and no route to delete one.

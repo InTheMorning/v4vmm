@@ -50,13 +50,17 @@ wire the frame adapter. Add the phase guards.
 
 1. Add `src/ui/shells/broadcast.rs` with `render_broadcast` and a
    `BroadcastSlots` builder for the callbacks, in the shape of the queue shell.
-2. Slots: create event, resume event, forget event, start service, stop service,
-   reset service, open logs, and select source.
+2. Slots: create event, resume event, forget event, copy feed tag, start
+   service, stop service, reset service, open logs, and select source.
 3. Render the three sections with the shared section or card composite that the
    repository already uses. Do not invent a new container.
 4. Render each action through the shared button primitive with its typed
    availability.
 5. Render the empty states with the shared empty-state composite.
+6. Render the feed tag in the `Event` section as selectable text with a copy
+   action. **This is a required affordance, not polish.** An operator cannot
+   reach listeners without pasting that tag into the feed, so the tag must be
+   visible and copyable without leaving the frame.
 6. Add `src/app/broadcast.rs` with `build_broadcast_frame`, which projects the
    view model and binds the slots, in the shape of
    `src/app/queue_now_playing.rs`.

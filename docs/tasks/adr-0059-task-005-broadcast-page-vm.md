@@ -62,6 +62,9 @@ Define the GPUI-free `BroadcastPageVm` display contract for the three sections:
    - `EventState { None, Unknown, Live, Dead }`
    - create, resume, and forget actions with typed availability
    - a listener truth line built from the observation outcome
+   - **`feed_tag`**, the complete `podcast:liveValue` element for the selected
+     event, ready to paste into an RSS feed, plus a copy action. The view model
+     builds the string. The shell never assembles it.
 5. Define `BroadcastPageVm { source, publisher, event, empty_label }` and a
    builder.
 6. Add a projector that takes plain inputs and returns the view model. The
@@ -75,6 +78,10 @@ Define the GPUI-free `BroadcastPageVm` display contract for the three sections:
    - `Forget` stays available for a dead event
 8. Add unit tests for: no event, live event, dead event, failed unit, publisher
    not installed, source paused, and source not reachable.
+9. Add a unit test for the feed tag: the string matches
+   `<podcast:liveValue uri="EVENT_ID" protocol="socket.io"/>` for a selected
+   event, the copy action is unavailable when no event is selected, and the
+   event identifier is escaped for XML attribute content.
 9. Add an architecture guard: the module is GPUI-free, holds the three section
    types, and contains no field named `token` other than `token_path`.
 
@@ -84,6 +91,7 @@ Define the GPUI-free `BroadcastPageVm` display contract for the three sections:
 - No `gpui` import and no service or database type in the public surface.
 - Service state and event state are enums, and `Failed` is distinct from
   `Inactive`.
+- The feed tag string is complete, escaped, and built in the view model.
 - The availability rules above are covered by tests.
 - The guard blocks a token field.
 

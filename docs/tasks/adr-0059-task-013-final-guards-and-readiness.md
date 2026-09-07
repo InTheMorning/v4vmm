@@ -51,6 +51,9 @@ and reconcile the document statuses.
    shell, in the shape of the ADR 0038 checks.
 3. Write `docs/runbooks/broadcast-operations.md`:
    - create an event and store the token
+   - **paste the `podcast:liveValue` tag into the RSS feed of the show.**
+     Listener apps find a live event only through that tag. State that the
+     chain reports success without it and no listener receives anything
    - back up the token file, because nobody can replace it
    - start and stop the services for a local host and a remote host
    - read the logs when a unit fails

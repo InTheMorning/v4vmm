@@ -63,6 +63,9 @@ Current plans:
 - [HIG product polish backlog](plans/hig-product-polish-backlog.md):
   HIG completeness work such as search suggestions, sidebar show/hide, Liquid
   Glass materials, and keyboard coverage
+- [Broadcast chain delivery order](plans/broadcast-chain-delivery-order.md):
+  the only cross-repository order. Read it before starting a session on the
+  broadcast work
 - [ADR 0059 broadcast control surface phase plan](plans/adr-0059-broadcast-control-surface-phase-plan.md):
   phased delivery for the `Broadcast` frame, the event registry, service
   control, and the `mpv` drop-file producer

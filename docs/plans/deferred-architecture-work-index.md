@@ -30,7 +30,19 @@ prioritized, and routed to the right governance artifact.
 4. Playback volume and playback-driver supervision.
    - Status: isolated playback-boundary follow-up.
    - Route: ADR 0021/0024 follow-up after the driver contract is clear.
-5. Visual-system polish and lower-priority product improvements.
+5. Broadcast recording and feed publishing.
+   - Status: direction recorded, no decision. A show becomes an episode with an
+     MP3, chapters, and value time split blocks that share the live timeline.
+   - Note: the live chain already produces the timeline. `butt` already
+     records. The missing pieces are timeline capture, generation, and
+     transport. The timeline owner is `musicindex-live-publisher`, not this
+     app, because the chain runs when this app is closed.
+   - Order: local recording and generation first, then post-processing
+     tooling, then publisher-side backup recording. Step three depends on step
+     two, because a post-icecast recording drifts and needs edits to repair.
+   - Route: future ADR after the ADR 0059 control surface ships. See
+     `docs/research/broadcast-recording-and-feed-publishing.md`.
+6. Visual-system polish and lower-priority product improvements.
    - Status: use bounded ADR 0025 tasks only when the change affects tokens,
      primitives, composites, or theme contracts.
    - HIG product-completeness gaps are tracked separately in

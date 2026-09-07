@@ -4,6 +4,22 @@
 
 Accepted - 2026-09-06.
 
+Amended 2026-09-06: the `Event` section must show the ready-to-paste
+`podcast:liveValue` tag with a copy action. Listener apps discover a live event
+only through that tag in the RSS feed of the show. Without the tag, the whole
+chain reports success and no listener receives anything.
+
+Amended 2026-09-06: the `Broadcast` frame gains a fourth section, `Stream`, for
+the stream encoder. `butt` has a control interface with a status request, a
+connect and disconnect pair, and a network address option, so the section can
+be built before any remote playback work. The three-section decision below
+becomes four. Nothing else changes.
+
+Amended 2026-09-06: the relay has a second death mode that the first draft did
+not record. It removes an event after an idle TTL, and the default is 24 hours
+(`splitkit`, `src/lib.rs`). The decisions below do not change, because the
+liveness test already treats a `404` as a dead event for both modes.
+
 Supersedes ADR 0018 and ADR 0019. This ADR carries the live decision for the
 relay client surface. The work follows
 `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md`.
@@ -46,6 +62,8 @@ Three facts about the relay control this design:
 
 - The relay keeps state in memory only. A restart of the relay process discards
   live items, tokens, and snapshots.
+- The relay removes an event after an idle TTL. The default is 24 hours. An
+  event therefore dies without a restart.
 - The relay has no route to list live items. It has no route to delete one.
 - The relay returns the broadcaster token one time only. It keeps a hash of the
   token and does not return the token again.
@@ -143,8 +161,28 @@ than one stream must not need a data model change.
 
 ### The Panel Is Named Broadcast
 
-The frame is `Broadcast`. It has three sections: `Source`, `Publisher`, and
-`Event`.
+The frame is `Broadcast`. It has four sections: `Source`, `Publisher`,
+`Event`, and `Stream`.
+
+`Event` shows the live item and the exact RSS tag that lets listener apps find
+it:
+
+```xml
+<podcast:liveValue uri="EVENT_ID" protocol="socket.io"/>
+```
+
+The operator copies that tag into the feed of the show. This app does not write
+the feed. Feed publication is future work, recorded in
+`docs/research/broadcast-recording-and-feed-publishing.md`.
+
+`Stream` shows the encoder that feeds the listeners, which is `butt` today.
+`butt` accepts control on the command line and over a network address, so a
+local encoder and a remote encoder use one code path and neither needs `ssh`.
+The section reports the connection state and the recording state, and offers
+connect and disconnect.
+
+The app does not send a song title to the encoder. The producer already writes
+the text file that the encoder reads.
 
 The `QueueNowPlaying` frame keeps its name and its meaning. It shows local
 playback in this app. The two frames can be active at the same time. They must
@@ -161,6 +199,8 @@ stay separate in code and in the interface.
   automatically.
 - The app sends no metadata to the relay. The publisher is the only sender.
 - Source kind names appear in source adapters only.
+- Encoder commands run only in the broadcast service layer, never in a screen.
+- The app never sends a song title to the encoder.
 - Relay clients come from `src/http_client.rs`, as ADR 0058 requires.
 - A runtime actor runs all work that blocks, as ADR 0040 requires.
 

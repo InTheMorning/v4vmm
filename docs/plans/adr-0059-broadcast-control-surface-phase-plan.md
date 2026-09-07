@@ -37,7 +37,8 @@ operate when this app is closed.
 
 ## Target State
 
-- A `Broadcast` frame with three sections: `Source`, `Publisher`, and `Event`.
+- A `Broadcast` frame with four sections: `Source`, `Publisher`, `Event`, and
+  `Stream`.
 - A local event registry with token files.
 - A relay observation actor that shows listener truth for local hosts and
   remote hosts.
@@ -108,8 +109,21 @@ session.
    the drop file when the app closes and warn the operator first.
 
 8. **Library readiness report.**
-   Report the tracks that carry no payment routes. Show the count in the
-   `Source` section and the list in the content frame.
+   Report the tracks in the local library that carry no payment routes. Show
+   the count in the `Source` section and the list in the content frame.
+
+9. **Stream encoder section.**
+   Add the `Stream` section for `butt`. Read the status, show the connection
+   state and the recording state, and offer connect and disconnect. Use the
+   network address option for a remote encoder.
+
+## Cross-Repository Order
+
+This plan orders the packets in this repository only. Two other repositories
+hold packets for the same system.
+
+`docs/plans/broadcast-chain-delivery-order.md` is the only place that states the
+order across all three. Read it first.
 
 ## Task Packets
 
@@ -127,10 +141,15 @@ session.
 | 6 | `docs/tasks/adr-0059-task-010-remote-hosts-over-ssh.md` |
 | 7 | `docs/tasks/adr-0059-task-011-mpv-drop-file-producer.md` |
 | 8 | `docs/tasks/adr-0059-task-012-library-readiness-report.md` |
+| 6 | `docs/tasks/adr-0059-task-014-attach-event-to-publisher-target.md` |
+| 9 | `docs/tasks/adr-0059-task-015-stream-encoder-section.md` |
 | Gate | `docs/tasks/adr-0059-task-013-final-guards-and-readiness.md` |
 
-Do the tasks in order. Task 005 and task 006 do not depend on each other and can
-run in either order inside phase 4.
+Do the tasks in order, except that task 005 and task 006 do not depend on each
+other inside phase 4.
+
+Task 014 depends on `control-surface-task-001` in the
+`musicindex-live-publisher` repository. Do that task first.
 
 ## Risks
 
@@ -171,8 +190,8 @@ panel fails, the publisher and the relay continue without it.
 
 - Which runbook holds the token backup procedure?
 - Does the operator need Icecast state in the same panel?
-- Which host does the readiness report use when the library is on one machine
-  and the publisher is on another?
+- Does the `Stream` section need a recording file browser, or is a state
+  report enough?
 
 ## References
 
