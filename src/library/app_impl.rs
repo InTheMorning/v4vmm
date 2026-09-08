@@ -67,9 +67,8 @@ use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::workspace::{
-    BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass,
-    FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId, WorkspaceLayout,
-    WorkspaceModelError,
+    BreadcrumbDisplay, ContentFilter, FrameNavigationEntry, FrameNavigationState,
+    LibraryFilterControlDisplay, WorkspaceFrameId, WorkspaceLayout, WorkspaceModelError,
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
@@ -268,12 +267,8 @@ impl LibraryApp {
         WorkspaceLayout::default_content_frame_id()
     }
 
-    pub(crate) fn content_filter_chip_strip(
-        &self,
-        width_class: FilterChipStripWidthClass,
-    ) -> FilterChipStripDisplay {
-        self.vm
-            .content_filter_chip_strip_for_width_class(width_class)
+    pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay {
+        self.vm.content_library_filter_control()
     }
 
     pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>) {

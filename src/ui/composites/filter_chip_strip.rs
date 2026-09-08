@@ -1,8 +1,10 @@
-//! Frame-local content filter chip strip.
+//! Frame-local search-inspector content filter chip strip.
 //!
 //! ADR 0047 moves All / Library / Index filters into frame chrome. This
 //! composite renders the shared VM display contract as either a segmented
 //! control or, for narrow frame chrome, the existing context-menu primitive.
+//! ADR 0062 moves the Music content list to `library_filter_control`; this
+//! module remains for the search-inspector caller.
 
 #![warn(clippy::pedantic)]
 

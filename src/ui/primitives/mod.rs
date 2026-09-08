@@ -34,7 +34,7 @@ pub mod stack;
 pub mod surface;
 pub mod tooltip;
 
-pub use button::{Button, ButtonSize, ButtonVariant};
+pub use button::{Button, ButtonLabelTreatment, ButtonSize, ButtonVariant};
 pub use context_menu::{ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope};
 pub use divider::Divider;
 pub use image::{Image, ImageSize};

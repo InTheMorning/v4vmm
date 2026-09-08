@@ -22,8 +22,8 @@ use crate::ui::layouts::{
 use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FrameNavigationEntry,
-    FrameNavigationState, FrameShellDisplay, WorkspaceFrameKind, WorkspaceFrameState,
-    WorkspaceLayout,
+    FrameNavigationState, FrameShellDisplay, LibraryFilterControlDisplay, WorkspaceFrameKind,
+    WorkspaceFrameState, WorkspaceLayout,
 };
 
 type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
@@ -44,6 +44,7 @@ pub(crate) struct WorkspaceSlots {
     content_list: Option<AnyElement>,
     detail: Option<AnyElement>,
     queue_now_playing: Option<AnyElement>,
+    content_list_library_filter_control: Option<LibraryFilterControlDisplay>,
     content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
     detail_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
@@ -96,7 +97,16 @@ impl WorkspaceSlots {
         self
     }
 
-    /// Supplies frame-local filter chrome for the content-list frame.
+    /// Supplies frame-local library-membership filter chrome for the content-list frame.
+    pub(crate) fn content_list_library_filter_control(
+        mut self,
+        display: LibraryFilterControlDisplay,
+    ) -> Self {
+        self.content_list_library_filter_control = Some(display);
+        self
+    }
+
+    /// Supplies frame-local chip filter chrome for the content-list frame.
     pub(crate) fn content_list_filter_chip_strip(
         mut self,
         display: FilterChipStripDisplay,
@@ -220,6 +230,18 @@ impl WorkspaceSlots {
         }
     }
 
+    fn library_filter_control_for(
+        &self,
+        kind: WorkspaceFrameKind,
+    ) -> Option<LibraryFilterControlDisplay> {
+        match kind {
+            WorkspaceFrameKind::ContentList => self.content_list_library_filter_control.clone(),
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::QueueNowPlaying => None,
+        }
+    }
+
     fn filter_select_handler_for(
         &self,
         kind: WorkspaceFrameKind,
@@ -303,6 +325,7 @@ impl RenderOnce for WorkspaceShell {
             }
 
             let filter_chip_strip = self.slots.filter_chip_strip_for(frame_kind);
+            let library_filter_control = self.slots.library_filter_control_for(frame_kind);
             let on_filter_select = self.slots.filter_select_handler_for(frame_kind);
             let content = self.slots.take(frame.kind(), frame, cx);
             let fallback_navigation = FrameNavigationState::new(navigation_entry_for(frame_kind));
@@ -313,6 +336,9 @@ impl RenderOnce for WorkspaceShell {
             let mut display = FrameShellDisplay::from_frame(frame, navigation, false);
             if let Some(filter_chip_strip) = filter_chip_strip {
                 display = display.with_filter_chip_strip(filter_chip_strip);
+            }
+            if let Some(library_filter_control) = library_filter_control {
+                display = display.with_library_filter_control(library_filter_control);
             }
             if should_render_breadcrumb(frame_kind, navigation) {
                 let breadcrumb_id = format!("workspace-frame-{}-breadcrumb", frame.id().value());

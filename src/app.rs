@@ -1049,13 +1049,11 @@ impl TopApp {
                 let mut slots = WorkspaceSlots::new().content_list(library_screen);
 
                 if matches!(mount, WorkspaceScreenMount::Music) {
-                    let filter_chip_strip = self
-                        .library
-                        .read(cx)
-                        .content_filter_chip_strip(filter_chip_width_class);
+                    let library_filter_control =
+                        self.library.read(cx).content_library_filter_control();
                     let content_filter_entity = entity.clone();
                     slots = slots
-                        .content_list_filter_chip_strip(filter_chip_strip)
+                        .content_list_library_filter_control(library_filter_control)
                         .on_content_list_filter_select(move |filter, _window, cx| {
                             content_filter_entity.update(cx, |this, cx| {
                                 this.set_frame_filter(content_frame_id, filter, cx);
@@ -1072,13 +1070,11 @@ impl TopApp {
                 let mut slots = WorkspaceSlots::new().content_list(library_screen);
 
                 if matches!(mount, WorkspaceScreenMount::Music) {
-                    let filter_chip_strip = self
-                        .library
-                        .read(cx)
-                        .content_filter_chip_strip(filter_chip_width_class);
+                    let library_filter_control =
+                        self.library.read(cx).content_library_filter_control();
                     let content_filter_entity = entity.clone();
                     slots = slots
-                        .content_list_filter_chip_strip(filter_chip_strip)
+                        .content_list_library_filter_control(library_filter_control)
                         .on_content_list_filter_select(move |filter, _window, cx| {
                             content_filter_entity.update(cx, |this, cx| {
                                 this.set_frame_filter(content_frame_id, filter, cx);

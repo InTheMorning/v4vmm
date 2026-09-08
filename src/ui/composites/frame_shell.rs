@@ -19,7 +19,10 @@ use gpui::{
     SharedString, Styled, Window,
 };
 
-use crate::ui::composites::{filter_chip_strip, BreadcrumbTrail, FilterChipStripSlots};
+use crate::ui::composites::{
+    filter_chip_strip, library_filter_control, BreadcrumbTrail, FilterChipStripSlots,
+    LibraryFilterControlSlots,
+};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
 use crate::ui::primitives::{
@@ -28,7 +31,7 @@ use crate::ui::primitives::{
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
     ContentFilter, FilterChipStripDisplay, FrameChromeButtonDisplay, FrameChromeMenuItemDisplay,
-    FrameNavigationEntry, FrameShellDisplay,
+    FrameNavigationEntry, FrameShellDisplay, LibraryFilterControlDisplay,
 };
 
 type FrameButtonHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -205,6 +208,7 @@ fn render_chrome(
 ) -> impl IntoElement {
     let content_slot_id = display.content_slot_id.clone();
     let filter_chip_strip_display = display.filter_chip_strip.clone();
+    let library_filter_control_display = display.library_filter_control.clone();
     let breadcrumb_display = display.breadcrumb.clone();
     let header_visible = display.header_visible();
     let mut nav = div()
@@ -298,8 +302,13 @@ fn render_chrome(
         chrome = chrome.child(header);
     }
 
-    if let Some(filter_display) = filter_chip_strip_display {
-        chrome = chrome.child(frame_filter_row(filter_display, slots.on_filter_select, cx));
+    if library_filter_control_display.is_some() || filter_chip_strip_display.is_some() {
+        chrome = chrome.child(frame_filter_row(
+            library_filter_control_display,
+            filter_chip_strip_display,
+            slots.on_filter_select,
+            cx,
+        ));
     }
 
     if let Some(breadcrumb) = breadcrumb_display {
@@ -323,20 +332,41 @@ fn render_chrome(
 }
 
 fn frame_filter_row(
-    filter_display: FilterChipStripDisplay,
+    library_filter_display: Option<LibraryFilterControlDisplay>,
+    filter_chip_display: Option<FilterChipStripDisplay>,
     handler: Option<FrameFilterSelectHandler>,
     cx: &App,
 ) -> AnyElement {
-    let mut filter_slots = FilterChipStripSlots::new();
-    if let Some(handler) = handler {
-        filter_slots = filter_slots.on_select(move |filter, window, cx| {
-            handler(filter, window, cx);
-        });
+    let mut row = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(Spacing::XS.scaled(cx));
+
+    if let Some(display) = library_filter_display {
+        let mut filter_slots = LibraryFilterControlSlots::new();
+        if let Some(handler) = handler.clone() {
+            filter_slots = filter_slots.on_activate(move |filter, window, cx| {
+                handler(filter, window, cx);
+            });
+        }
+        row = row.child(library_filter_control(display, filter_slots));
     }
+
+    if let Some(display) = filter_chip_display {
+        let mut filter_slots = FilterChipStripSlots::new();
+        if let Some(handler) = handler {
+            filter_slots = filter_slots.on_select(move |filter, window, cx| {
+                handler(filter, window, cx);
+            });
+        }
+        row = row.child(filter_chip_strip(display, filter_slots));
+    }
+
     div()
         .px(Spacing::MD.scaled(cx))
         .pb(Spacing::XS.scaled(cx))
-        .child(filter_chip_strip(filter_display, filter_slots))
+        .child(row)
         .into_any_element()
 }
 

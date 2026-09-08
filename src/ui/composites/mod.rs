@@ -28,6 +28,7 @@ pub mod file_header;
 pub mod filter_chip_strip;
 pub mod frame_shell;
 pub mod identity_action;
+pub mod library_filter_control;
 pub mod list_row;
 pub mod live_status_strip;
 pub mod musicbrainz_panel;
@@ -72,6 +73,13 @@ pub(crate) use filter_chip_strip::{filter_chip_strip, FilterChipStrip, FilterChi
 pub(crate) use frame_shell::{frame_shell, FrameShell, FrameShellSlots};
 pub use identity_action::{
     identity_action_button, IdentityActionButtonDisplay, IdentityActionKind,
+};
+#[expect(
+    unused_imports,
+    reason = "Situational ADR 0062 exports library filter control before another composite consumes the type directly"
+)]
+pub(crate) use library_filter_control::{
+    library_filter_control, LibraryFilterControl, LibraryFilterControlSlots,
 };
 pub use list_row::{ListRow, ListRowA11yLabel, ListRowDensity};
 pub(crate) use live_status_strip::{live_status_strip, LiveStatusStrip, LiveStatusStripSlots};

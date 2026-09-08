@@ -4,6 +4,12 @@
 
 Accepted - 2026-09-07.
 
+Amended 2026-09-07 after packets 001 through 003 shipped. The default order
+returns releases only, because the index recency query returns feeds. Mixed
+rows arrive through search and through expansion, not through the default
+order. The row contract still carries all three kinds, so neither path needs a
+second row model.
+
 Extends ADR 0060. Reverses the Recent Feeds reachability invariant that ADR
 0030 established.
 
@@ -47,11 +53,15 @@ its own region. It does not occupy the content region.
 
 ### A Row Is An Entity, Not A Fixed Shape
 
-Rows are mixed by entity type:
+The row contract carries three kinds:
 
 - A single renders as a track row.
 - A release renders as a row that expands to its tracks.
 - An artist renders as a row that expands to its releases.
+
+**The default order shows releases only.** The index recency query returns
+feeds, so a list with no search and no expansion is a list of releases. Mixing
+is a property of search results and of expansion, not of the default order.
 
 Every row carries two badges:
 
@@ -65,11 +75,13 @@ Both badges are view-model facts. A renderer does not decide them.
 
 The three source chips become one control with three states:
 
-| State | Meaning | Shows |
+| Treatment | Label | Shows |
 |---|---|---|
-| Highlighted | In library | Library rows only |
-| Off | No constraint | Library and index |
-| Struck through | Not in library | Index rows only |
+| Highlighted | `In library` | Library rows only |
+| Plain | `Any` | Library and index |
+| Struck through | `Not in library` | Index rows only |
+
+The cycle order is `Any`, `In library`, `Not in library`.
 
 The underlying model does not change. `ContentFilter::Library`,
 `ContentFilter::All`, and `ContentFilter::Index` already express these three
@@ -79,6 +91,16 @@ accessibility contract change.
 The struck-through state must announce itself as `Not in library` to assistive
 technology. Strike-through is a visual convention and carries no meaning on its
 own.
+
+The visible control face says `Library`. `Any`, `In library`, and
+`Not in library` remain view-model state labels for accessibility and hover
+help, not text concatenated onto the button face.
+
+When recent music is the active content source, the content-list view model
+retains the tree-derived local row set separately. `Any` projects recent index
+rows and local library rows. `Library` projects the retained local rows and does
+not expose remote recency pagination, because loading another index page cannot
+create local matches.
 
 ### Recency Is The Only Sort For Now
 
@@ -116,6 +138,8 @@ semantics.
 - No sort order is offered that the index cannot produce.
 - The source tree and the breadcrumb remain reachable.
 - Every row carries an entity badge and a library badge from a view model.
+- A row carries the artwork its source holds, whether that source is the local
+  tree or the index. Artwork parity is not optional in tile mode.
 - The library control has exactly three states, mapping to the existing
   `ContentFilter` values.
 - The struck-through state announces `Not in library` and never relies on the
@@ -239,6 +263,8 @@ Negative and risks:
 - Task packets for the row contract, the library control, the sort, and the
   tile mode.
 - Decide whether tile mode persists per section or globally.
+- Carry mixed rows into the list through search results and through expansion.
+  Neither path is scheduled.
 - Establish which sort orders the MusicIndex API can produce, before any second
   sort is designed.
 

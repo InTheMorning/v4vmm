@@ -15,8 +15,8 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, App, ClickEvent, ElementId, FontWeight, IntoElement, MouseButton, RenderOnce,
-    Rgba, Window,
+    div, prelude::*, App, ClickEvent, ElementId, FontWeight, IntoElement, KeyDownEvent,
+    MouseButton, RenderOnce, Rgba, Window,
 };
 
 use crate::ui::control_styles::ControlStyle;
@@ -62,7 +62,24 @@ enum ButtonContentAlignment {
     Leading,
 }
 
+/// Text treatment applied to a button label.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ButtonLabelTreatment {
+    /// Render the label without text decoration.
+    #[default]
+    Plain,
+    /// Render the label with strike-through text decoration.
+    LineThrough,
+}
+
+impl ButtonLabelTreatment {
+    const fn line_through(self) -> bool {
+        matches!(self, Self::LineThrough)
+    }
+}
+
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type ActivateHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
 pub(crate) const TINTED_BUTTON_BG_ALPHA: f32 = 0.08;
 pub(crate) const TINTED_BUTTON_HOVER_BG_ALPHA: f32 = 0.12;
@@ -77,6 +94,7 @@ pub struct Button {
     a11y_label: Option<gpui::SharedString>,
     leading_icon: Option<IconName>,
     on_click: Option<ClickHandler>,
+    on_activate: Option<ActivateHandler>,
     appearance: Option<Appearance>,
     radius: Option<Radius>,
     font_size: Option<FontSize>,
@@ -88,6 +106,7 @@ pub struct Button {
     content_alignment: ButtonContentAlignment,
     disabled: bool,
     selected: bool,
+    label_treatment: ButtonLabelTreatment,
 }
 
 impl Button {
@@ -100,6 +119,7 @@ impl Button {
             a11y_label: None,
             leading_icon: None,
             on_click: None,
+            on_activate: None,
             appearance: None,
             radius: None,
             font_size: None,
@@ -111,6 +131,7 @@ impl Button {
             content_alignment: ButtonContentAlignment::Center,
             disabled: false,
             selected: false,
+            label_treatment: ButtonLabelTreatment::Plain,
         }
     }
 
@@ -187,6 +208,16 @@ impl Button {
         self
     }
 
+    pub const fn foreground(mut self, color: SemanticColor) -> Self {
+        self.foreground = Some(color);
+        self
+    }
+
+    pub const fn label_treatment(mut self, treatment: ButtonLabelTreatment) -> Self {
+        self.label_treatment = treatment;
+        self
+    }
+
     pub fn appearance(mut self, appearance: Appearance) -> Self {
         self.appearance = Some(appearance);
         self
@@ -197,6 +228,14 @@ impl Button {
         F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     {
         self.on_click = Some(Rc::new(handler));
+        self
+    }
+
+    pub fn on_activate<F>(mut self, handler: F) -> Self
+    where
+        F: Fn(&mut Window, &mut App) + 'static,
+    {
+        self.on_activate = Some(Rc::new(handler));
         self
     }
 }
@@ -322,9 +361,11 @@ impl RenderOnce for Button {
         let label = self.label.clone().unwrap_or_default();
         let leading_icon = self.leading_icon;
         let on_click = self.on_click.clone();
+        let on_activate = self.on_activate.clone();
         let disabled = self.disabled;
         let full_width = self.full_width;
         let content_alignment = self.content_alignment;
+        let label_treatment = self.label_treatment;
         let tooltip = self.effective_tooltip();
 
         let mut visual = div()
@@ -376,19 +417,45 @@ impl RenderOnce for Button {
             hit_target = hit_target.opacity(0.4).cursor_default();
         } else {
             visual = visual.hover(move |s| s.bg(hover_bg));
-            if let Some(handler) = on_click {
+            if on_click.is_some() || on_activate.is_some() {
                 hit_target = hit_target.on_mouse_down(MouseButton::Left, move |_, _, _| {});
+            }
+            if let Some(handler) = on_activate.clone() {
+                hit_target = hit_target.on_click(move |event, window, cx| {
+                    let _ = event;
+                    handler(window, cx);
+                });
+            } else if let Some(handler) = on_click {
                 hit_target = hit_target.on_click(move |event, window, cx| {
                     handler(event, window, cx);
                 });
+            }
+            if let Some(handler) = on_activate {
+                hit_target = hit_target
+                    .tab_index(0)
+                    .on_key_down(move |event, window, cx| {
+                        if keyboard_activation_key(event) {
+                            cx.stop_propagation();
+                            handler(window, cx);
+                        }
+                    });
             }
         }
 
         if let Some(icon) = leading_icon {
             visual = visual.child(Icon::new(icon).size(IconSize::Transport).color(fg));
         }
+        let label = div()
+            .when(label_treatment.line_through(), Styled::line_through)
+            .child(label);
         hit_target.child(visual.child(label))
     }
+}
+
+fn keyboard_activation_key(event: &KeyDownEvent) -> bool {
+    !event.is_held
+        && (matches!(event.keystroke.key.as_str(), "enter" | "space")
+            || event.keystroke.key_char.as_deref() == Some(" "))
 }
 
 #[cfg(test)]
@@ -435,6 +502,27 @@ mod tests {
                 .label(),
             gpui::SharedString::from("Remove feed from library")
         );
+    }
+
+    #[test]
+    fn label_treatment_records_text_treatment() {
+        let button = Button::plain("excluded").label_treatment(ButtonLabelTreatment::LineThrough);
+
+        assert_eq!(button.label_treatment, ButtonLabelTreatment::LineThrough);
+    }
+
+    #[test]
+    fn foreground_override_records_token_role() {
+        let button = Button::plain("neutral").foreground(SemanticColor::SecondaryLabel);
+
+        assert_eq!(button.foreground, Some(SemanticColor::SecondaryLabel));
+    }
+
+    #[test]
+    fn activate_handler_records_keyboard_activation_path() {
+        let button = Button::plain("cycle-filter").on_activate(|_, _| {});
+
+        assert!(button.on_activate.is_some());
     }
 
     #[test]

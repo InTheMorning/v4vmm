@@ -45,9 +45,7 @@ use crate::view_models::search_results::{
     TrackResultDisplay,
 };
 use crate::view_models::text_filter::{contains_normalized, normalize};
-use crate::view_models::workspace::{
-    ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass,
-};
+use crate::view_models::workspace::{ContentFilter, LibraryFilterControlDisplay};
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{
     ArtistView, FeedMetadataFacts, FeedRef, FeedView, LocalIdentityFacts, TrackRef,
@@ -1185,6 +1183,7 @@ pub(crate) struct ContentListPageVm {
     filter_state: ContentFilter,
     text_filter: Option<String>,
     cached_rows: Vec<ContentListRowDisplay>,
+    library_rows: Vec<ContentListRowDisplay>,
     source: ContentListPageSource,
     load_state: ContentListPageLoadState,
     loading: bool,
@@ -1203,6 +1202,7 @@ impl ContentListPageVm {
     /// Creates a content-list page VM with cached rows and the default filter.
     #[must_use]
     pub(crate) fn new(cached_rows: Vec<ContentListRowDisplay>) -> Self {
+        let library_rows = cached_rows.clone();
         let load_state = if cached_rows.is_empty() {
             ContentListPageLoadState::Empty
         } else {
@@ -1212,6 +1212,7 @@ impl ContentListPageVm {
             filter_state: ContentFilter::default(),
             text_filter: None,
             cached_rows,
+            library_rows,
             source: ContentListPageSource::Tree,
             load_state,
             loading: false,
@@ -1275,6 +1276,8 @@ impl ContentListPageVm {
     pub(crate) fn replace_tree_rows(&mut self, cached_rows: Vec<ContentListRowDisplay>) {
         if self.source == ContentListPageSource::Tree {
             self.replace_rows(cached_rows);
+        } else {
+            self.library_rows = cached_rows;
         }
     }
 
@@ -1302,6 +1305,7 @@ impl ContentListPageVm {
 
     /// Replaces the cached rows while preserving the frame-local filter.
     pub(crate) fn replace_rows(&mut self, cached_rows: Vec<ContentListRowDisplay>) {
+        self.library_rows.clone_from(&cached_rows);
         self.cached_rows = cached_rows;
         self.source = ContentListPageSource::Tree;
         self.load_state = if self.cached_rows.is_empty() {
@@ -1329,28 +1333,84 @@ impl ContentListPageVm {
 
     /// Returns whether the active source is loading.
     #[must_use]
-    pub(crate) const fn is_loading(&self) -> bool {
-        self.loading
+    pub(crate) fn is_loading(&self) -> bool {
+        self.loading && !matches!(self.filter_state, ContentFilter::Library)
     }
 
     /// Returns whether the active source reports another page.
     #[must_use]
-    pub(crate) const fn has_more(&self) -> bool {
-        self.has_more
+    pub(crate) fn has_more(&self) -> bool {
+        self.has_more && !matches!(self.filter_state, ContentFilter::Library)
     }
 
     /// Returns rows visible under the current frame-local filter.
     #[must_use]
     pub(crate) fn visible_rows(&self) -> Vec<&ContentListRowDisplay> {
-        self.cached_rows
-            .iter()
-            .filter(|row| row.source.matches_filter(self.filter_state))
+        let mut rows = Vec::new();
+        let mut seen_ids = BTreeSet::new();
+        match self.filter_state {
+            ContentFilter::All => {
+                Self::push_source_rows(
+                    &mut rows,
+                    &mut seen_ids,
+                    &self.cached_rows,
+                    self.filter_state,
+                );
+                if self.source == ContentListPageSource::RecentMusic {
+                    Self::push_source_rows(
+                        &mut rows,
+                        &mut seen_ids,
+                        &self.library_rows,
+                        self.filter_state,
+                    );
+                }
+            }
+            ContentFilter::Library => {
+                Self::push_source_rows(
+                    &mut rows,
+                    &mut seen_ids,
+                    &self.library_rows,
+                    self.filter_state,
+                );
+                if self.source == ContentListPageSource::RecentMusic {
+                    Self::push_source_rows(
+                        &mut rows,
+                        &mut seen_ids,
+                        &self.cached_rows,
+                        self.filter_state,
+                    );
+                }
+            }
+            ContentFilter::Index => {
+                Self::push_source_rows(
+                    &mut rows,
+                    &mut seen_ids,
+                    &self.cached_rows,
+                    self.filter_state,
+                );
+            }
+        }
+
+        rows.into_iter()
             .filter(|row| {
                 self.text_filter
                     .as_deref()
                     .is_none_or(|filter| row.matches_text_filter(filter))
             })
             .collect()
+    }
+
+    fn push_source_rows<'a>(
+        target: &mut Vec<&'a ContentListRowDisplay>,
+        seen_ids: &mut BTreeSet<&'a str>,
+        source_rows: &'a [ContentListRowDisplay],
+        filter: ContentFilter,
+    ) {
+        for row in source_rows {
+            if row.source.matches_filter(filter) && seen_ids.insert(row.id.as_str()) {
+                target.push(row);
+            }
+        }
     }
 
     /// Returns stable row identifiers visible under the current filter.
@@ -1374,9 +1434,9 @@ impl ContentListPageVm {
     /// Returns loading placeholders for the active content-list load.
     #[must_use]
     pub(crate) fn loading_display(&self) -> Option<ContentListLoadingStateDisplay> {
-        self.loading.then(|| ContentListLoadingStateDisplay {
+        self.is_loading().then(|| ContentListLoadingStateDisplay {
             label: Self::LOADING_LABEL,
-            skeleton_count: pending_skeleton_count(self.loading, !self.cached_rows.is_empty()),
+            skeleton_count: pending_skeleton_count(self.is_loading(), !self.cached_rows.is_empty()),
         })
     }
 
@@ -1390,14 +1450,18 @@ impl ContentListPageVm {
                     detail: detail.clone(),
                 }),
             ),
-            ContentListPageLoadState::Loading if self.cached_rows.is_empty() => self
-                .loading_display()
-                .map(ContentListPageStateDisplay::Loading),
+            ContentListPageLoadState::Loading
+                if self.visible_rows().is_empty() && self.is_loading() =>
+            {
+                self.loading_display()
+                    .map(ContentListPageStateDisplay::Loading)
+            }
             ContentListPageLoadState::Loaded
             | ContentListPageLoadState::Empty
             | ContentListPageLoadState::Loading => self.visible_rows().is_empty().then(|| {
                 let empty = if self.cached_rows.is_empty()
                     && self.source == ContentListPageSource::RecentMusic
+                    && self.filter_state != ContentFilter::Library
                 {
                     ContentListEmptyStateDisplay::for_recent_music()
                 } else {
@@ -1410,8 +1474,8 @@ impl ContentListPageVm {
 
     /// Returns the load-more control display when the active source has another page.
     #[must_use]
-    pub(crate) const fn load_more_display(&self) -> Option<ContentListLoadMoreDisplay> {
-        if self.has_more {
+    pub(crate) fn load_more_display(&self) -> Option<ContentListLoadMoreDisplay> {
+        if self.has_more() {
             Some(ContentListLoadMoreDisplay {
                 button_id: Self::LOAD_MORE_BUTTON_ID,
                 label: Self::LOAD_MORE_LABEL,
@@ -1426,13 +1490,28 @@ impl ContentListPageVm {
     /// Returns row thumbnail URLs keyed by content-list row id.
     #[must_use]
     pub(crate) fn thumbnail_sources(&self) -> Vec<(String, String)> {
-        self.cached_rows
-            .iter()
-            .filter_map(|row| {
-                row.thumbnail_href()
-                    .map(|href| (row.id.clone(), href.to_string()))
-            })
-            .collect()
+        let mut sources = Vec::new();
+        let mut seen_ids = BTreeSet::new();
+        Self::push_thumbnail_sources(&mut sources, &mut seen_ids, &self.cached_rows);
+        if self.source == ContentListPageSource::RecentMusic {
+            Self::push_thumbnail_sources(&mut sources, &mut seen_ids, &self.library_rows);
+        }
+        sources
+    }
+
+    fn push_thumbnail_sources<'a>(
+        target: &mut Vec<(String, String)>,
+        seen_ids: &mut BTreeSet<&'a str>,
+        rows: &'a [ContentListRowDisplay],
+    ) {
+        for row in rows {
+            if !seen_ids.insert(row.id.as_str()) {
+                continue;
+            }
+            if let Some(href) = row.thumbnail_href() {
+                target.push((row.id.clone(), href.to_string()));
+            }
+        }
     }
 
     /// Returns an Index feed selection for a release row, when present.
@@ -1491,20 +1570,17 @@ impl ContentListPageVm {
         ("music-content-loading-row", index)
     }
 
-    /// Returns the frame-local filter chip display for this content list.
+    /// Returns the frame-local library-membership filter display for this content list.
     #[must_use]
     #[cfg(test)]
-    pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay {
-        self.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Normal)
+    pub(crate) fn library_filter_control(&self) -> LibraryFilterControlDisplay {
+        self.library_filter_control_display()
     }
 
-    /// Returns the frame-local filter chip display for the requested width.
+    /// Returns the frame-local library-membership filter display.
     #[must_use]
-    pub(crate) fn filter_chip_strip_for_width_class(
-        &self,
-        width_class: FilterChipStripWidthClass,
-    ) -> FilterChipStripDisplay {
-        FilterChipStripDisplay::default_for_content_list_width_class(self.filter_state, width_class)
+    pub(crate) fn library_filter_control_display(&self) -> LibraryFilterControlDisplay {
+        LibraryFilterControlDisplay::default_for_content_list(self.filter_state)
     }
 }
 
@@ -1915,12 +1991,8 @@ impl LibraryViewModel {
     }
 
     #[must_use]
-    pub(crate) fn content_filter_chip_strip_for_width_class(
-        &self,
-        width_class: FilterChipStripWidthClass,
-    ) -> FilterChipStripDisplay {
-        self.content_list_page
-            .filter_chip_strip_for_width_class(width_class)
+    pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay {
+        self.content_list_page.library_filter_control_display()
     }
 
     #[must_use]
@@ -4248,41 +4320,29 @@ mod tests {
     }
 
     #[test]
-    fn content_list_page_vm_filter_chip_strip_preserves_selected_filter() {
+    fn content_list_page_vm_library_filter_control_preserves_selected_filter() {
         let mut page = ContentListPageVm::new(Vec::new());
 
         page.set_filter(ContentFilter::Library);
-        let strip = page.filter_chip_strip();
-
-        let values = strip
-            .options
-            .iter()
-            .map(|option| option.value)
-            .collect::<Vec<_>>();
+        let display = page.library_filter_control();
 
         assert_eq!(
-            strip.selected,
+            display.current.filter,
             ContentFilter::Library,
-            "content-list chip strip should reflect the page-local selected filter"
+            "content-list library filter should reflect the page-local selected filter"
         );
         assert_eq!(
-            values,
+            display.keyboard_cycle_order,
             [
                 ContentFilter::All,
                 ContentFilter::Library,
                 ContentFilter::Index
             ],
-            "Situational ADR 0060 task 003 normal-width content-filter reachability guard: content-list chip strip must expose All, Library, and Index"
+            "Situational ADR 0062 library tri-state control guard: content-list library filter documents the keyboard cycle order"
         );
         assert!(
-            !strip.narrow_collapse_to_pulldown,
-            "Situational ADR 0060 task 003 normal-width content-filter reachability guard: content-list chip strip must not collapse"
-        );
-
-        let narrow = page.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Narrow);
-        assert!(
-            narrow.narrow_collapse_to_pulldown,
-            "Situational ADR 0060 task 003 narrow content-filter reachability guard: content-list chip strip keeps the narrow pull-down"
+            display.keyboard_cycle_order.contains(&ContentFilter::Index),
+            "Situational ADR 0062 library tri-state control guard: content-list library filter exposes the exclusion state"
         );
     }
 
@@ -4308,8 +4368,8 @@ mod tests {
         assert_eq!(page.source(), ContentListPageSource::RecentMusic);
         assert_eq!(
             page.visible_row_ids(),
-            ["index-feed:newest", "index-feed:older"],
-            "recent music rows should preserve the newest-first order returned by the index"
+            ["index-feed:newest", "index-feed:older", "local"],
+            "all-state recent music rows should preserve the newest-first index order and keep local library rows visible"
         );
         assert_eq!(
             page.visible_rows()[0].entity_kind(),
@@ -4346,6 +4406,83 @@ mod tests {
             "has_more should expose a VM-owned load-more display without a cursor"
         );
         assert_eq!(page.page_state_display(), None);
+    }
+
+    #[test]
+    fn content_list_page_vm_preserves_library_rows_when_recent_music_is_active() {
+        let mut recent = RecentFeedsPageVm::loading();
+        recent.finish_load(
+            recent_feed_batch(
+                vec![
+                    ("index-feed:newest", "Newest Release"),
+                    ("index-feed:older", "Older Release"),
+                ],
+                Some("next"),
+                true,
+            ),
+            false,
+        );
+        let mut page =
+            ContentListPageVm::new(vec![content_row("local", ContentListRowSource::Library)]);
+
+        page.replace_recent_feeds_page(&recent);
+
+        page.set_filter(ContentFilter::Library);
+        assert_eq!(
+            page.visible_row_ids(),
+            ["local"],
+            "Situational ADR 0062 library tri-state data-source guard: the Library state must filter local rows even after recent music becomes active"
+        );
+        assert_eq!(
+            page.page_state_display(),
+            None,
+            "library rows from the tree should prevent a false no-library-content state"
+        );
+        assert_eq!(
+            page.load_more_display(),
+            None,
+            "library-only filtering should hide the remote recency load-more action"
+        );
+        assert!(
+            !page.has_more(),
+            "library-only filtering should not advertise remote recency pages"
+        );
+
+        page.set_filter(ContentFilter::Index);
+        assert_eq!(
+            page.visible_row_ids(),
+            ["index-feed:newest", "index-feed:older"],
+            "the Index state should continue to filter the recent MusicIndex rows"
+        );
+        assert!(
+            page.has_more(),
+            "index filtering should keep remote recency pagination available"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_uses_local_empty_state_when_library_filter_hides_remote_loading() {
+        let mut page = ContentListPageVm::new(Vec::new());
+
+        page.begin_recent_music_load(false);
+        page.set_filter(ContentFilter::Library);
+
+        assert_eq!(
+            page.loading_display(),
+            None,
+            "library-only filtering should hide remote recency loading placeholders"
+        );
+        assert_eq!(
+            page.page_state_display(),
+            Some(ContentListPageStateDisplay::Empty(
+                ContentListEmptyStateDisplay {
+                    title: "No library content",
+                    secondary: "No local rows match this frame filter.",
+                    clear_filter_action_id: Some("content-list.clear-filter"),
+                }
+            )),
+            "library-only filtering should fall back to the local filter empty state"
+        );
     }
 
     #[test]
@@ -5718,10 +5855,9 @@ mod tests {
 
         assert_eq!(projection.tree.artists.len(), 2);
         assert_eq!(
-            vm.content_filter_chip_strip_for_width_class(FilterChipStripWidthClass::Normal)
-                .selected,
+            vm.content_library_filter_control().current.filter,
             ContentFilter::Library,
-            "frame chrome should reflect the selected content-list filter"
+            "frame chrome should reflect the selected library-membership filter"
         );
     }
 

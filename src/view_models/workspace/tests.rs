@@ -2,8 +2,9 @@ use super::{
     BreadcrumbDisplay, BreadcrumbTruncation, ContentFilter, FilterChipStripDisplay,
     FilterChipStripWidthClass, FrameDetachEligibility, FrameDockTarget, FrameNavigationEntry,
     FrameNavigationState, FrameSearchDescriptor, FrameSearchScope, FrameShellDisplay,
-    WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
-    WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
+    LibraryFilterControlDisplay, LibraryFilterControlTreatment, WorkspaceFrameConfig,
+    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    WorkspaceLayoutConfig, WorkspaceModelError,
 };
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -165,31 +166,84 @@ fn focused_search_descriptor_projects_queue_rows() {
 }
 
 #[test]
-fn filter_chip_strip_defaults_use_standard_option_order() {
-    let content_list = FilterChipStripDisplay::default_for_content_list(ContentFilter::All, true);
+fn library_filter_control_states_map_to_content_filters() {
+    let states = LibraryFilterControlDisplay::state_displays();
+
+    assert_eq!(
+        states.map(|state| state.filter),
+        [
+            ContentFilter::All,
+            ContentFilter::Library,
+            ContentFilter::Index
+        ],
+        "Situational ADR 0062 library tri-state control guard: display states must map to all ContentFilter values"
+    );
+    assert_eq!(
+        states.map(|state| state.text_label),
+        ["Library", "Library", "Library"],
+        "Situational ADR 0062 library tri-state control guard: every state must expose the library axis label"
+    );
+    assert_eq!(
+        states.map(|state| state.state_label),
+        ["Any", "In library", "Not in library"],
+        "Situational ADR 0062 library tri-state control guard: every state must expose an explicit state label"
+    );
+    assert_eq!(
+        states.map(|state| state.treatment),
+        [
+            LibraryFilterControlTreatment::Off,
+            LibraryFilterControlTreatment::Highlighted,
+            LibraryFilterControlTreatment::StruckThrough
+        ],
+        "Situational ADR 0062 library tri-state control guard: display states must expose non-color treatments"
+    );
+}
+
+#[test]
+fn library_filter_control_exclusion_accessibility_is_explicit() {
+    let display = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::Index);
+
+    assert_eq!(
+        display.current.a11y_label, "Not in library",
+        "Situational ADR 0062 library tri-state control guard: excluding state must announce `Not in library`"
+    );
+    assert!(
+        display.current.treatment.line_through(),
+        "Situational ADR 0062 library tri-state control guard: excluding state must not rely on color alone"
+    );
+}
+
+#[test]
+fn library_filter_control_documents_activation_cycle() {
+    let all = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::All);
+    let library = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::Library);
+    let index = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::Index);
+
+    assert_eq!(
+        all.keyboard_cycle_order,
+        [
+            ContentFilter::All,
+            ContentFilter::Library,
+            ContentFilter::Index
+        ],
+        "Situational ADR 0062 library tri-state control guard: keyboard cycle order must be documented in the VM"
+    );
+    assert_eq!(all.next_filter, ContentFilter::Library);
+    assert_eq!(library.next_filter, ContentFilter::Index);
+    assert_eq!(index.next_filter, ContentFilter::All);
+}
+
+#[test]
+fn search_filter_chip_strip_defaults_use_standard_option_order() {
     let search_inspector =
         FilterChipStripDisplay::default_for_search_inspector(ContentFilter::All, true);
 
-    let content_values: Vec<_> = content_list
-        .options
-        .iter()
-        .map(|option| option.value)
-        .collect();
     let search_values: Vec<_> = search_inspector
         .options
         .iter()
         .map(|option| option.value)
         .collect();
 
-    assert_eq!(
-        content_values,
-        [
-            ContentFilter::All,
-            ContentFilter::Library,
-            ContentFilter::Index
-        ],
-        "content-list filters should keep the ADR 0047 option order"
-    );
     assert_eq!(
         search_values,
         [
@@ -202,17 +256,10 @@ fn filter_chip_strip_defaults_use_standard_option_order() {
 }
 
 #[test]
-fn filter_chip_strip_defaults_round_trip_selected_filter() {
-    let content_list =
-        FilterChipStripDisplay::default_for_content_list(ContentFilter::Library, true);
+fn search_filter_chip_strip_defaults_round_trip_selected_filter() {
     let search_inspector =
         FilterChipStripDisplay::default_for_search_inspector(ContentFilter::Index, true);
 
-    assert_eq!(
-        content_list.selected,
-        ContentFilter::Library,
-        "content-list filter display should preserve the selected filter"
-    );
     assert_eq!(
         search_inspector.selected,
         ContentFilter::Index,
@@ -221,13 +268,13 @@ fn filter_chip_strip_defaults_round_trip_selected_filter() {
 }
 
 #[test]
-fn filter_chip_strip_defaults_pass_through_narrow_collapse() {
-    let expanded = FilterChipStripDisplay::default_for_content_list(ContentFilter::All, false);
+fn search_filter_chip_strip_defaults_pass_through_narrow_collapse() {
+    let expanded = FilterChipStripDisplay::default_for_search_inspector(ContentFilter::All, false);
     let collapsed = FilterChipStripDisplay::default_for_search_inspector(ContentFilter::All, true);
 
     assert!(
         !expanded.narrow_collapse_to_pulldown,
-        "content-list filter display should preserve expanded narrow-mode preference"
+        "search-inspector filter display should preserve expanded narrow-mode preference"
     );
     assert!(
         collapsed.narrow_collapse_to_pulldown,
@@ -236,12 +283,12 @@ fn filter_chip_strip_defaults_pass_through_narrow_collapse() {
 }
 
 #[test]
-fn filter_chip_strip_width_class_projects_normal_and_narrow_layouts() {
-    let normal = FilterChipStripDisplay::default_for_content_list_width_class(
+fn search_filter_chip_strip_width_class_projects_normal_and_narrow_layouts() {
+    let normal = FilterChipStripDisplay::default_for_search_inspector_width_class(
         ContentFilter::All,
         FilterChipStripWidthClass::Normal,
     );
-    let narrow = FilterChipStripDisplay::default_for_content_list_width_class(
+    let narrow = FilterChipStripDisplay::default_for_search_inspector_width_class(
         ContentFilter::All,
         FilterChipStripWidthClass::Narrow,
     );
@@ -257,15 +304,15 @@ fn filter_chip_strip_width_class_projects_normal_and_narrow_layouts() {
             ContentFilter::Library,
             ContentFilter::Index
         ],
-        "Situational ADR 0060 task 003 normal-width content-filter reachability guard: all options must be exposed"
+        "ADR 0047 search-inspector content-filter reachability guard: all chip options must be exposed"
     );
     assert!(
         !normal.narrow_collapse_to_pulldown,
-        "Situational ADR 0060 task 003 normal-width content-filter reachability guard: normal width must not collapse"
+        "ADR 0047 search-inspector content-filter reachability guard: normal width must not collapse"
     );
     assert!(
         narrow.narrow_collapse_to_pulldown,
-        "Situational ADR 0060 task 003 narrow content-filter reachability guard: narrow width keeps the ADR 0047 pull-down"
+        "ADR 0047 search-inspector content-filter reachability guard: narrow width keeps the pull-down"
     );
 }
 
@@ -383,6 +430,10 @@ fn frame_shell_display_passes_through_header_text_and_slot_id() {
         "filter chips are opt-in frame chrome"
     );
     assert_eq!(
+        display.library_filter_control, None,
+        "library filter controls are opt-in frame chrome"
+    );
+    assert_eq!(
         display.breadcrumb, None,
         "breadcrumbs are opt-in frame chrome"
     );
@@ -392,7 +443,8 @@ fn frame_shell_display_passes_through_header_text_and_slot_id() {
 fn frame_shell_display_accepts_optional_filter_chip_strip() {
     let frame = frame(7, WorkspaceFrameKind::ContentList);
     let nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
-    let filters = FilterChipStripDisplay::default_for_content_list(ContentFilter::Library, true);
+    let filters =
+        FilterChipStripDisplay::default_for_search_inspector(ContentFilter::Library, true);
 
     let display =
         FrameShellDisplay::from_frame(&frame, &nav, true).with_filter_chip_strip(filters.clone());
@@ -401,6 +453,22 @@ fn frame_shell_display_accepts_optional_filter_chip_strip() {
         display.filter_chip_strip,
         Some(filters),
         "frame shell should carry optional frame-local filters without applying them"
+    );
+}
+
+#[test]
+fn frame_shell_display_accepts_optional_library_filter_control() {
+    let frame = frame(7, WorkspaceFrameKind::ContentList);
+    let nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
+    let filters = LibraryFilterControlDisplay::default_for_content_list(ContentFilter::Library);
+
+    let display = FrameShellDisplay::from_frame(&frame, &nav, true)
+        .with_library_filter_control(filters.clone());
+
+    assert_eq!(
+        display.library_filter_control,
+        Some(filters),
+        "frame shell should carry optional frame-local library filters without applying them"
     );
 }
 

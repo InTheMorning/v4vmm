@@ -36,6 +36,117 @@ impl ContentFilter {
     }
 }
 
+/// Visual treatment projected for one library-membership filter state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LibraryFilterControlTreatment {
+    /// Required library membership; render with selected emphasis.
+    Highlighted,
+    /// No library-membership constraint; render without selected emphasis.
+    Off,
+    /// Excluded library membership; render active text with strike-through.
+    StruckThrough,
+}
+
+impl LibraryFilterControlTreatment {
+    /// Returns whether this treatment needs strike-through text.
+    #[must_use]
+    pub(crate) const fn line_through(self) -> bool {
+        matches!(self, Self::StruckThrough)
+    }
+}
+
+/// Display data for one state in the library-membership tri-state control.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryFilterControlStateDisplay {
+    /// Filter value represented by this state.
+    pub(crate) filter: ContentFilter,
+    /// Visible axis label shown on the control face.
+    pub(crate) text_label: &'static str,
+    /// Text label naming the current state.
+    pub(crate) state_label: &'static str,
+    /// Accessibility label for assistive technologies and tooltips.
+    pub(crate) a11y_label: &'static str,
+    /// Non-color treatment for this state.
+    pub(crate) treatment: LibraryFilterControlTreatment,
+}
+
+/// Display contract for one library-membership tri-state filter axis.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryFilterControlDisplay {
+    /// Stable element identifier for the control.
+    pub(crate) id: String,
+    /// Currently selected state.
+    pub(crate) current: LibraryFilterControlStateDisplay,
+    /// Filter selected by the next activation.
+    pub(crate) next_filter: ContentFilter,
+    /// Documented keyboard activation order for the three states.
+    pub(crate) keyboard_cycle_order: [ContentFilter; 3],
+}
+
+impl LibraryFilterControlDisplay {
+    const CONTENT_LIST_ID: &'static str = "workspace-content-list-library-filter";
+    const KEYBOARD_CYCLE_ORDER: [ContentFilter; 3] = [
+        ContentFilter::All,
+        ContentFilter::Library,
+        ContentFilter::Index,
+    ];
+
+    /// Creates the default content-list library-membership filter display.
+    #[must_use]
+    pub(crate) fn default_for_content_list(selected: ContentFilter) -> Self {
+        Self {
+            id: Self::CONTENT_LIST_ID.to_string(),
+            current: Self::state_display(selected),
+            next_filter: Self::next_filter(selected),
+            keyboard_cycle_order: Self::KEYBOARD_CYCLE_ORDER,
+        }
+    }
+
+    /// Returns every state in documented keyboard activation order.
+    #[must_use]
+    pub(crate) const fn state_displays() -> [LibraryFilterControlStateDisplay; 3] {
+        [
+            Self::state_display(ContentFilter::All),
+            Self::state_display(ContentFilter::Library),
+            Self::state_display(ContentFilter::Index),
+        ]
+    }
+
+    const fn state_display(filter: ContentFilter) -> LibraryFilterControlStateDisplay {
+        match filter {
+            ContentFilter::All => LibraryFilterControlStateDisplay {
+                filter,
+                text_label: "Library",
+                state_label: "Any",
+                a11y_label: "Any library status",
+                treatment: LibraryFilterControlTreatment::Off,
+            },
+            ContentFilter::Library => LibraryFilterControlStateDisplay {
+                filter,
+                text_label: "Library",
+                state_label: "In library",
+                a11y_label: "In library",
+                treatment: LibraryFilterControlTreatment::Highlighted,
+            },
+            ContentFilter::Index => LibraryFilterControlStateDisplay {
+                filter,
+                text_label: "Library",
+                state_label: "Not in library",
+                a11y_label: "Not in library",
+                treatment: LibraryFilterControlTreatment::StruckThrough,
+            },
+        }
+    }
+
+    const fn next_filter(filter: ContentFilter) -> ContentFilter {
+        match filter {
+            ContentFilter::All => ContentFilter::Library,
+            ContentFilter::Library => ContentFilter::Index,
+            ContentFilter::Index => ContentFilter::All,
+        }
+    }
+}
+
 /// Width class for projecting frame-local filter chrome.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum FilterChipStripWidthClass {
@@ -79,28 +190,6 @@ pub(crate) struct FilterChipStripDisplay {
 }
 
 impl FilterChipStripDisplay {
-    /// Creates the default content-list filter strip display.
-    #[must_use]
-    pub(crate) fn default_for_content_list(
-        selected: ContentFilter,
-        narrow_collapse_to_pulldown: bool,
-    ) -> Self {
-        Self::with_standard_options(
-            "workspace-content-list-filter",
-            selected,
-            narrow_collapse_to_pulldown,
-        )
-    }
-
-    /// Creates the default content-list filter strip display for a width class.
-    #[must_use]
-    pub(crate) fn default_for_content_list_width_class(
-        selected: ContentFilter,
-        width_class: FilterChipStripWidthClass,
-    ) -> Self {
-        Self::default_for_content_list(selected, width_class.narrow_collapse_to_pulldown())
-    }
-
     /// Creates the default search-inspector filter strip display.
     #[must_use]
     pub(crate) fn default_for_search_inspector(
@@ -217,6 +306,8 @@ pub(crate) struct FrameShellDisplay {
     pub(crate) action_menu_items: Vec<FrameChromeMenuItemDisplay>,
     /// Optional frame-local content filter strip.
     pub(crate) filter_chip_strip: Option<FilterChipStripDisplay>,
+    /// Optional frame-local library-membership filter control.
+    pub(crate) library_filter_control: Option<LibraryFilterControlDisplay>,
     /// Optional frame-local breadcrumb path.
     pub(crate) breadcrumb: Option<BreadcrumbDisplay>,
     /// Stable content slot identifier for mounting frame body content.
@@ -260,6 +351,7 @@ impl FrameShellDisplay {
             }),
             action_menu_items: Vec::new(),
             filter_chip_strip: None,
+            library_filter_control: None,
             breadcrumb: None,
             content_slot_id: format!("workspace-frame-{}-content", frame_id.value()),
         }
@@ -269,6 +361,16 @@ impl FrameShellDisplay {
     #[must_use]
     pub(crate) fn with_filter_chip_strip(mut self, display: FilterChipStripDisplay) -> Self {
         self.filter_chip_strip = Some(display);
+        self
+    }
+
+    /// Returns this shell display with frame-local library filter control attached.
+    #[must_use]
+    pub(crate) fn with_library_filter_control(
+        mut self,
+        display: LibraryFilterControlDisplay,
+    ) -> Self {
+        self.library_filter_control = Some(display);
         self
     }
 

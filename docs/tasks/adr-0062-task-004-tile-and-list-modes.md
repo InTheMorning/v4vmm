@@ -4,14 +4,17 @@ Status: Ready - 2026-09-07. Do after task 003.
 
 ## Goal
 
-Give the `Music` content region a tile mode and a list mode over the same rows.
+Give the `Music` content region a tile mode and a list mode over the same rows,
+and carry local artwork into rows so tile mode works for library content.
+
 Promote the existing view mode rather than inventing one.
 
 ## Files To Inspect
 
 - `docs/adr/0062-music-content-surface.md`
 - `src/view_models/recent_feeds.rs`, for `RecentFeedsViewMode`
-- `src/view_models/library.rs`, for `ContentListPageVm`
+- `src/view_models/library.rs`, for `ContentListPageVm`, `AlbumNode`, and
+  `content_list_rows_from_tree`
 - `src/ui/shells/workspace.rs`
 - `src/config.rs`, for preference persistence
 - `tests/architecture_tests.rs`
@@ -35,6 +38,13 @@ Promote the existing view mode rather than inventing one.
 - **`RecentFeedsViewMode` already exists** with `Tiles` and `List`, a default of
   `Tiles`, and label and accessibility label helpers. Move or generalize it.
   Do not define a second view mode enum.
+- **Local rows must carry artwork.** `AlbumNode` already holds `image_href`, and
+  `content_list_rows_from_tree` does not carry it through. Tile mode is an
+  artwork-first browser, so without this fix the `In library` filter shows a
+  grid of identical placeholder glyphs while index rows show real art. Fix the
+  projection before building the tile renderer.
+- Do not invent a placeholder that resembles real artwork. A row with no
+  artwork gets an explicit empty treatment.
 - **Both modes render the same rows and the same badges.** A row that is
   visible in list mode is visible in tile mode. The mode changes presentation
   only.
@@ -48,24 +58,28 @@ Promote the existing view mode rather than inventing one.
 
 ## Implementation Steps
 
-1. Move `RecentFeedsViewMode` to a shared location, or generalize it so the
+1. Carry `AlbumNode::image_href` through `content_list_rows_from_tree` into the
+   row contract, so a local row carries the same artwork facts as an index row.
+2. Move `RecentFeedsViewMode` to a shared location, or generalize it so the
    content list owns it. Keep the existing labels and accessibility labels.
-2. Add the mode to `ContentListPageVm` as display state with a typed control.
-3. Add the tile renderer. It reads the same rows as the list renderer.
-4. Render the mode control in the frame chrome beside the filter.
-5. Persist the mode in configuration. An older `config.toml` without the key
+3. Add the mode to `ContentListPageVm` as display state with a typed control.
+4. Add the tile renderer. It reads the same rows as the list renderer.
+5. Render the mode control in the frame chrome beside the filter.
+6. Persist the mode in configuration. An older `config.toml` without the key
    loads and uses the default.
-6. Add guards, situational, citing ADR 0062:
+7. Add guards, situational, citing ADR 0062:
    - one view mode enum exists, not two
    - both renderers read the same row contract
    - tile geometry comes from tokens
-7. Add view-model tests: default mode, mode change, and identical visible rows
-   in both modes for the same filter.
+   - the tree projection carries artwork
+8. Add view-model tests: default mode, mode change, identical visible rows in
+   both modes for the same filter, and a tree-derived row carrying artwork.
 
 ## Acceptance Criteria
 
 Mechanical:
 
+- A tree-derived row exposes the artwork its `AlbumNode` holds.
 - One view mode enum exists in the codebase.
 - `visible_rows()` returns the same rows in both modes for the same filter, and
   a test asserts it.
@@ -75,7 +89,9 @@ Mechanical:
 
 Visual proof, operator only:
 
-- Tile mode shows artwork clearly and remains readable at a normal width.
+- Tile mode shows artwork for library rows and index rows alike. No filter
+  state produces a grid of identical placeholders.
+- Tile mode remains readable at a normal width.
 - Both modes show the entity badge and the library badge.
 - Switching modes preserves scroll position or returns to the top predictably.
 
@@ -101,7 +117,9 @@ Visual proof, operator only:
 ## Escalation Triggers
 
 - A row kind has no artwork to show in tile mode. Report the fallback rather
-  than inventing a placeholder that looks like real artwork.
+  than inventing a placeholder that resembles real artwork.
+- A local row has no artwork because the album genuinely has none, rather than
+  because the projection drops it. Report which case you found.
 - Moving `RecentFeedsViewMode` breaks a caller that task 005 has not yet moved.
 - Scroll position cannot be preserved across a mode change without a change to
   the paging contract.

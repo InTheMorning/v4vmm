@@ -178,7 +178,7 @@ ADR 0062 then rebuilds what `Music` shows:
 |---|---|---|
 | 1 | `docs/tasks/adr-0062-task-001-mixed-entity-row-contract.md` | complete - 2026-09-07 |
 | 2 | `docs/tasks/adr-0062-task-002-music-default-view.md` | complete - 2026-09-07 |
-| 3 | `docs/tasks/adr-0062-task-003-library-tri-state-control.md` | ready |
+| 3 | `docs/tasks/adr-0062-task-003-library-tri-state-control.md` | complete - 2026-09-07 |
 | 4 | `docs/tasks/adr-0062-task-004-tile-and-list-modes.md` | ready |
 | 5 | `docs/tasks/adr-0062-task-005-retire-recent-feeds-destination.md` | ready |
 
