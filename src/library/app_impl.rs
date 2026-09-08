@@ -18,7 +18,9 @@ use crate::application::commands::metadata::{
 use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
 };
+use crate::application::errors::command::CommandError;
 use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
+use crate::application::queries::feed::FetchRecentFeedsPage;
 use crate::application::queries::images::FetchThumbnail;
 use crate::application::queries::library::{
     CompareLibraryTrack, FetchLibraryTrackContext, HydrateAlbumIdentity, LoadLibraryTracksTree,
@@ -44,6 +46,7 @@ use crate::ui::composites::{
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
 use crate::ui::primitives::{Button as UiButton, Label};
+use crate::ui::shells::library::content_list::render_library_content_list;
 use crate::ui::shells::library::detail::render_library_detail;
 use crate::ui::shells::library::sidebar::render_library_sidebar;
 use crate::ui::shells::library::track_detail_metadata::track_metadata_rows_for_frame;
@@ -62,6 +65,7 @@ use crate::view_models::library::{
 };
 use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_option_displays;
+use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::workspace::{
     BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass,
     FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId, WorkspaceLayout,
@@ -120,6 +124,19 @@ enum FrameHistoryMode {
 enum TrackSubscriptionAction {
     Download(Box<TrackRow>),
     Remove(i64),
+}
+
+fn command_error_detail(error: CommandError) -> String {
+    match error {
+        CommandError::Playlist(message)
+        | CommandError::Feed(message)
+        | CommandError::Download(message)
+        | CommandError::Metadata(message)
+        | CommandError::Playback(message)
+        | CommandError::Query(message)
+        | CommandError::Other(message) => message,
+        CommandError::Cancelled => "command cancelled".to_string(),
+    }
 }
 
 fn apply_library_removal_to_album_detail(detail: &mut LibraryDetail, target: LibraryRemovalTarget) {
@@ -262,6 +279,65 @@ impl LibraryApp {
     pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>) {
         self.vm.set_content_filter(filter);
         cx.notify();
+    }
+
+    pub(crate) fn start_recent_music_load(&mut self, append: bool, cx: &mut Context<Self>) {
+        let loaded_row_count = self.recent_music_page.row_count();
+        let Some(intent) = self.recent_music_page.begin_load(append) else {
+            return;
+        };
+
+        self.vm.begin_recent_music_content_load(append);
+        self.vm
+            .replace_recent_music_content(&self.recent_music_page);
+        let cursor = intent.into_cursor();
+        let command = FetchRecentFeedsPage::new(
+            self.musicindex_endpoint.clone(),
+            cursor,
+            if append { loaded_row_count } else { 0 },
+        );
+        cx.notify();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, batch, cx| {
+                this.recent_music_page.finish_load(batch, append);
+                this.vm
+                    .replace_recent_music_content(&this.recent_music_page);
+                cx.notify();
+            },
+            move |this, error, cx| {
+                this.recent_music_page.fail_load(
+                    "Recent music unavailable",
+                    command_error_detail(error),
+                    append,
+                );
+                this.vm
+                    .replace_recent_music_content(&this.recent_music_page);
+                cx.notify();
+            },
+        );
+    }
+
+    pub(crate) fn open_content_list_row(&mut self, row_id: &str, cx: &mut Context<Self>) {
+        if let Some(selection) = self.vm.content_list_index_feed_selection(row_id) {
+            cx.emit(super::LibraryAppEvent::OpenIndexFeedDetail {
+                feed_guid: selection.feed_guid,
+                label: selection.label,
+            });
+        }
+    }
+
+    pub(crate) fn recent_music_index_feed_detail(
+        &self,
+        activation_id: &str,
+        fallback_id: &str,
+        fallback_label: &str,
+    ) -> Option<crate::view_models::search_results::IndexDetailDisplay> {
+        self.vm
+            .content_list_index_feed_detail(activation_id, fallback_id, fallback_label)
     }
 
     #[allow(dead_code)]
@@ -407,8 +483,11 @@ impl LibraryApp {
             runtime_host,
             playlist_actor: None,
             musicbrainz_feed_saga,
+            recent_music_page: RecentFeedsPageVm::loading(),
+            recent_music_scroll: gpui::ScrollHandle::new(),
         };
         app.start_async_reload(cx);
+        app.start_recent_music_load(false, cx);
         app
     }
 
@@ -2301,6 +2380,11 @@ impl Render for LibraryApp {
                 album_thumbs.insert(url.clone(), img);
             }
         }
+        let mut content_row_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
+        for (row_id, url) in self.vm.content_list_thumbnail_sources() {
+            let img = self.thumbnail_for_url(Some(&url), false, cx);
+            content_row_thumbs.insert(row_id, img);
+        }
 
         let tree_projection = self.vm.tree_projection();
         let tree_items: Vec<AnyElement> = render_library_sidebar(
@@ -2618,7 +2702,48 @@ impl Render for LibraryApp {
             .into_any_element();
 
         let content = if matches!(self.detail, LibraryDetail::None) {
-            leading_pane
+            let content_list_pane = render_library_content_list(
+                self.vm.content_list_page(),
+                &content_row_thumbs,
+                &self.recent_music_scroll,
+                cx,
+            );
+            let trailing_pane = div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .min_w_0()
+                .overflow_hidden()
+                .child(content_list_pane)
+                .into_any_element();
+            SplitPane::new(chrome.split_pane_id)
+                .resize_handle_id(chrome.resize_handle_id)
+                .leading_width(px(self.vm.split_pane_width()))
+                .leading_min_width(layout::INSPECTOR_MIN_WIDTH)
+                .leading(leading_pane)
+                .trailing(trailing_pane)
+                .on_resize_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
+                    if this.vm.is_resizing() {
+                        this.vm.resize_split_pane(
+                            f32::from(event.position.x),
+                            f32::from(layout::INSPECTOR_MIN_WIDTH),
+                            f32::from(layout::INSPECTOR_MAX_WIDTH),
+                        );
+                        cx.notify();
+                    }
+                }))
+                .on_resize_end(cx.listener(|this, _: &MouseUpEvent, _window, cx| {
+                    if this.vm.is_resizing() {
+                        this.vm.end_resize();
+                        cx.notify();
+                    }
+                }))
+                .on_resize_start(cx.listener(|this, _: &MouseDownEvent, _window, cx| {
+                    this.vm.begin_resize();
+                    cx.notify();
+                }))
+                .into_any_element()
         } else {
             let detail_pane = render_library_detail(
                 &self.detail,

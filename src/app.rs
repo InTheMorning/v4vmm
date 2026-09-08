@@ -247,6 +247,9 @@ impl TopApp {
                     saved_search_id,
                     query,
                 } => this.open_saved_search(*saved_search_id, query, cx),
+                LibraryAppEvent::OpenIndexFeedDetail { feed_guid, label } => {
+                    this.open_index_feed_detail_from_music(feed_guid, label.clone(), cx);
+                }
             },
         );
         let appearance_sub = cx.observe_window_appearance(window, |this, window, cx| {
@@ -998,6 +1001,13 @@ impl TopApp {
                     }
                 } else if let Some(search_results) = self.search_results_detail.as_ref() {
                     let detail = search_results.index_feed_detail(&activation_id, id, label);
+                    let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
+                    WorkspaceSlots::new().content_list(detail_content)
+                } else if let Some(detail) =
+                    self.library
+                        .read(cx)
+                        .recent_music_index_feed_detail(&activation_id, id, label)
+                {
                     let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
                     WorkspaceSlots::new().content_list(detail_content)
                 } else {

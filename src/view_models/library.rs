@@ -35,9 +35,14 @@ use crate::view_models::format::{fmt_date, fmt_total_runtime_clock, plural};
 use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
+use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
+use crate::view_models::recent_feeds::{
+    RecentFeedResultRow, RecentFeedsPageState, RecentFeedsPageVm,
+};
 use crate::view_models::search_results::{
-    ArtistResultDisplay, FeedResultDisplay, SearchResultOrigin, TrackResultDisplay,
+    ArtistResultDisplay, FeedResultDisplay, IndexDetailDisplay, SearchResultOrigin,
+    TrackResultDisplay,
 };
 use crate::view_models::text_filter::{contains_normalized, normalize};
 use crate::view_models::workspace::{
@@ -623,8 +628,7 @@ pub(crate) struct LibraryTrackRowDisplay {
     pub(crate) state_label: Option<&'static str>,
 }
 
-/// Source bucket for a row in the future workspace content-list frame.
-#[allow(dead_code)]
+/// Source bucket for a row in the workspace content-list frame.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ContentListRowSource {
     /// Row belongs to the local library.
@@ -633,7 +637,6 @@ pub(crate) enum ContentListRowSource {
     Index,
 }
 
-#[allow(dead_code)]
 impl ContentListRowSource {
     /// Returns whether this source is visible under the content filter.
     #[must_use]
@@ -878,6 +881,22 @@ impl ContentListRowKind {
         }
     }
 
+    fn thumbnail_href(&self) -> Option<&str> {
+        match self {
+            Self::Artist(display) => display.thumbnail_href.as_deref(),
+            Self::Release(display) => display.thumbnail_href.as_deref(),
+            Self::Track(display) => display.thumbnail_href.as_deref(),
+        }
+    }
+
+    fn a11y_label(&self) -> &str {
+        match self {
+            Self::Artist(display) => &display.a11y_label,
+            Self::Release(display) => &display.a11y_label,
+            Self::Track(display) => &display.a11y_label,
+        }
+    }
+
     const fn source(&self) -> ContentListRowSource {
         match self {
             Self::Artist(display) => {
@@ -892,7 +911,6 @@ impl ContentListRowKind {
 }
 
 /// Display row cached by the GPUI-free content-list page VM.
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct ContentListRowDisplay {
     /// Stable row identifier.
@@ -906,12 +924,18 @@ pub(crate) struct ContentListRowDisplay {
     /// Local-vs-index provenance used by per-frame filtering.
     pub(crate) source: ContentListRowSource,
     /// Expansion state for entity kinds with children.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0062 task 002 renders release rows before expansion controls are wired"
+        )
+    )]
     pub(crate) expansion: ContentListRowExpansionDisplay,
     /// Optional curator-facing state label for the row.
     pub(crate) state_label: Option<&'static str>,
 }
 
-#[allow(dead_code)]
 impl ContentListRowDisplay {
     /// Creates a track content-list row display from legacy row facts.
     #[must_use]
@@ -929,6 +953,13 @@ impl ContentListRowDisplay {
 
     /// Projects an artist display into the mixed content-list row contract.
     #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0062 task 002 consumes release recency rows; artist rows land when the index recency source exposes them"
+        )
+    )]
     pub(crate) fn from_artist_result(display: ArtistResultDisplay, expanded: bool) -> Self {
         Self::from_kind(ContentListRowKind::Artist(display), expanded)
     }
@@ -987,6 +1018,24 @@ impl ContentListRowDisplay {
         self.kind.entity_kind()
     }
 
+    /// Returns the accessibility label owned by the underlying entity display.
+    #[must_use]
+    pub(crate) fn a11y_label(&self) -> &str {
+        self.kind.a11y_label()
+    }
+
+    /// Returns the optional thumbnail href owned by the underlying entity display.
+    #[must_use]
+    pub(crate) fn thumbnail_href(&self) -> Option<&str> {
+        self.kind.thumbnail_href()
+    }
+
+    /// Returns a stable renderer id for this row.
+    #[must_use]
+    pub(crate) fn element_id(&self) -> String {
+        format!("music-content-row-{}", self.id)
+    }
+
     fn from_kind(kind: ContentListRowKind, expanded: bool) -> Self {
         let source = kind.source();
         let entity_kind = kind.entity_kind();
@@ -1010,7 +1059,6 @@ impl ContentListRowDisplay {
 }
 
 /// Empty-state display for a filtered content-list frame.
-#[allow(dead_code)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ContentListEmptyStateDisplay {
     /// Primary empty-state title.
@@ -1021,7 +1069,6 @@ pub(crate) struct ContentListEmptyStateDisplay {
     pub(crate) clear_filter_action_id: Option<&'static str>,
 }
 
-#[allow(dead_code)]
 impl ContentListEmptyStateDisplay {
     #[must_use]
     const fn for_filter(filter: ContentFilter) -> Self {
@@ -1043,31 +1090,138 @@ impl ContentListEmptyStateDisplay {
             },
         }
     }
+
+    #[must_use]
+    const fn for_recent_music() -> Self {
+        Self {
+            title: "No recent music",
+            secondary: "MusicIndex did not return recent music.",
+            clear_filter_action_id: None,
+        }
+    }
+}
+
+/// Row population source currently projected into the content-list frame.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListPageSource {
+    /// Rows projected from the local source tree.
+    Tree,
+    /// Rows projected from the Recent Feeds index query.
+    RecentMusic,
+}
+
+/// Load state for the content-list frame.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListPageLoadState {
+    /// The first recency page is loading.
+    Loading,
+    /// Rows are available.
+    Loaded,
+    /// The active source returned no rows.
+    Empty,
+    /// The active source failed.
+    Failed {
+        /// Short operator-facing failure summary.
+        message: String,
+        /// Specific failure detail from the command layer.
+        detail: String,
+    },
+}
+
+/// Loading display for the content-list frame.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListLoadingStateDisplay {
+    /// Stable accessibility/status label.
+    pub(crate) label: &'static str,
+    /// Placeholder row count to render.
+    pub(crate) skeleton_count: usize,
+}
+
+/// Failed-state display for the content-list frame.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListFailedStateDisplay {
+    /// Short operator-facing failure summary.
+    pub(crate) title: String,
+    /// Specific failure detail from the command layer.
+    pub(crate) detail: String,
+}
+
+/// Current page-state display for the content-list frame.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListPageStateDisplay {
+    /// The content list is loading.
+    Loading(ContentListLoadingStateDisplay),
+    /// The content list has no rows to show.
+    Empty(ContentListEmptyStateDisplay),
+    /// The content list failed to load.
+    Failed(ContentListFailedStateDisplay),
+}
+
+/// Load-more control display for the content-list frame.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListLoadMoreDisplay {
+    /// Stable button id.
+    pub(crate) button_id: &'static str,
+    /// Visible button label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for the load-more action.
+    pub(crate) a11y_label: &'static str,
+    /// Whether the action is currently unavailable.
+    pub(crate) disabled: bool,
+}
+
+/// Index feed activation selected from the Music content list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListIndexFeedSelection {
+    /// Remote feed GUID parsed from the index row id.
+    pub(crate) feed_guid: String,
+    /// Display label captured from the selected row.
+    pub(crate) label: String,
 }
 
 /// GPUI-free page VM for a workspace content-list frame.
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub(crate) struct ContentListPageVm {
     filter_state: ContentFilter,
     text_filter: Option<String>,
     cached_rows: Vec<ContentListRowDisplay>,
+    source: ContentListPageSource,
+    load_state: ContentListPageLoadState,
+    loading: bool,
+    has_more: bool,
 }
 
-#[allow(dead_code)]
 impl ContentListPageVm {
+    const PAGE_ID: &'static str = "music-content-list-page";
+    const ROWS_ID: &'static str = "music-content-list-rows";
+    const LOAD_MORE_BUTTON_ID: &'static str = "music-content-list-load-more";
+    const LOAD_MORE_LABEL: &'static str = "Load more";
+    const LOAD_MORE_A11Y_LABEL: &'static str = "Load more recent music";
+    const LOADING_LABEL: &'static str = "Loading recent music";
+    const INDEX_FEED_PREFIX: &'static str = "index-feed:";
+
     /// Creates a content-list page VM with cached rows and the default filter.
     #[must_use]
     pub(crate) fn new(cached_rows: Vec<ContentListRowDisplay>) -> Self {
+        let load_state = if cached_rows.is_empty() {
+            ContentListPageLoadState::Empty
+        } else {
+            ContentListPageLoadState::Loaded
+        };
         Self {
             filter_state: ContentFilter::default(),
             text_filter: None,
             cached_rows,
+            source: ContentListPageSource::Tree,
+            load_state,
+            loading: false,
+            has_more: false,
         }
     }
 
     /// Projects database track rows into a content-list page VM.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn from_tracks(tracks: &[TrackRow]) -> Self {
         Self::new(
             tracks
@@ -1075,6 +1229,53 @@ impl ContentListPageVm {
                 .map(ContentListRowDisplay::from_track)
                 .collect(),
         )
+    }
+
+    /// Marks the content-list frame as loading recent music.
+    pub(crate) fn begin_recent_music_load(&mut self, append: bool) {
+        self.source = ContentListPageSource::RecentMusic;
+        self.loading = true;
+        if !append {
+            self.cached_rows.clear();
+            self.has_more = false;
+            self.load_state = ContentListPageLoadState::Loading;
+        }
+    }
+
+    /// Projects the current Recent Feeds page into Music content rows.
+    pub(crate) fn replace_recent_feeds_page(&mut self, page: &RecentFeedsPageVm) {
+        self.source = ContentListPageSource::RecentMusic;
+        self.loading = page.is_loading();
+        self.has_more = page.has_more();
+        match page.state() {
+            RecentFeedsPageState::Loading => {
+                if self.cached_rows.is_empty() {
+                    self.load_state = ContentListPageLoadState::Loading;
+                }
+            }
+            RecentFeedsPageState::Loaded(rows) => {
+                self.cached_rows = content_list_rows_from_recent_feeds(rows);
+                self.load_state = if self.cached_rows.is_empty() {
+                    ContentListPageLoadState::Empty
+                } else {
+                    ContentListPageLoadState::Loaded
+                };
+            }
+            RecentFeedsPageState::Error { message, detail } => {
+                self.cached_rows.clear();
+                self.load_state = ContentListPageLoadState::Failed {
+                    message: message.clone(),
+                    detail: detail.clone(),
+                };
+            }
+        }
+    }
+
+    /// Replaces tree-derived rows when the tree source is active.
+    pub(crate) fn replace_tree_rows(&mut self, cached_rows: Vec<ContentListRowDisplay>) {
+        if self.source == ContentListPageSource::Tree {
+            self.replace_rows(cached_rows);
+        }
     }
 
     /// Returns the selected content filter.
@@ -1102,12 +1303,40 @@ impl ContentListPageVm {
     /// Replaces the cached rows while preserving the frame-local filter.
     pub(crate) fn replace_rows(&mut self, cached_rows: Vec<ContentListRowDisplay>) {
         self.cached_rows = cached_rows;
+        self.source = ContentListPageSource::Tree;
+        self.load_state = if self.cached_rows.is_empty() {
+            ContentListPageLoadState::Empty
+        } else {
+            ContentListPageLoadState::Loaded
+        };
+        self.loading = false;
+        self.has_more = false;
     }
 
     /// Returns every cached row before filtering.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn cached_rows(&self) -> &[ContentListRowDisplay] {
         &self.cached_rows
+    }
+
+    /// Returns the active row population source.
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) const fn source(&self) -> ContentListPageSource {
+        self.source
+    }
+
+    /// Returns whether the active source is loading.
+    #[must_use]
+    pub(crate) const fn is_loading(&self) -> bool {
+        self.loading
+    }
+
+    /// Returns whether the active source reports another page.
+    #[must_use]
+    pub(crate) const fn has_more(&self) -> bool {
+        self.has_more
     }
 
     /// Returns rows visible under the current frame-local filter.
@@ -1126,6 +1355,7 @@ impl ContentListPageVm {
 
     /// Returns stable row identifiers visible under the current filter.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn visible_row_ids(&self) -> Vec<&str> {
         self.visible_rows()
             .into_iter()
@@ -1141,8 +1371,129 @@ impl ContentListPageVm {
             .then(|| ContentListEmptyStateDisplay::for_filter(self.filter_state))
     }
 
+    /// Returns loading placeholders for the active content-list load.
+    #[must_use]
+    pub(crate) fn loading_display(&self) -> Option<ContentListLoadingStateDisplay> {
+        self.loading.then(|| ContentListLoadingStateDisplay {
+            label: Self::LOADING_LABEL,
+            skeleton_count: pending_skeleton_count(self.loading, !self.cached_rows.is_empty()),
+        })
+    }
+
+    /// Returns the current content-list state display, when one should render.
+    #[must_use]
+    pub(crate) fn page_state_display(&self) -> Option<ContentListPageStateDisplay> {
+        match &self.load_state {
+            ContentListPageLoadState::Failed { message, detail } => Some(
+                ContentListPageStateDisplay::Failed(ContentListFailedStateDisplay {
+                    title: message.clone(),
+                    detail: detail.clone(),
+                }),
+            ),
+            ContentListPageLoadState::Loading if self.cached_rows.is_empty() => self
+                .loading_display()
+                .map(ContentListPageStateDisplay::Loading),
+            ContentListPageLoadState::Loaded
+            | ContentListPageLoadState::Empty
+            | ContentListPageLoadState::Loading => self.visible_rows().is_empty().then(|| {
+                let empty = if self.cached_rows.is_empty()
+                    && self.source == ContentListPageSource::RecentMusic
+                {
+                    ContentListEmptyStateDisplay::for_recent_music()
+                } else {
+                    ContentListEmptyStateDisplay::for_filter(self.filter_state)
+                };
+                ContentListPageStateDisplay::Empty(empty)
+            }),
+        }
+    }
+
+    /// Returns the load-more control display when the active source has another page.
+    #[must_use]
+    pub(crate) const fn load_more_display(&self) -> Option<ContentListLoadMoreDisplay> {
+        if self.has_more {
+            Some(ContentListLoadMoreDisplay {
+                button_id: Self::LOAD_MORE_BUTTON_ID,
+                label: Self::LOAD_MORE_LABEL,
+                a11y_label: Self::LOAD_MORE_A11Y_LABEL,
+                disabled: self.loading,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Returns row thumbnail URLs keyed by content-list row id.
+    #[must_use]
+    pub(crate) fn thumbnail_sources(&self) -> Vec<(String, String)> {
+        self.cached_rows
+            .iter()
+            .filter_map(|row| {
+                row.thumbnail_href()
+                    .map(|href| (row.id.clone(), href.to_string()))
+            })
+            .collect()
+    }
+
+    /// Returns an Index feed selection for a release row, when present.
+    #[must_use]
+    pub(crate) fn index_feed_selection(
+        &self,
+        row_id: &str,
+    ) -> Option<ContentListIndexFeedSelection> {
+        let row = self.cached_rows.iter().find(|row| row.id == row_id)?;
+        let ContentListRowKind::Release(release) = &row.kind else {
+            return None;
+        };
+        let feed_guid = row_id.strip_prefix(Self::INDEX_FEED_PREFIX)?.to_string();
+        Some(ContentListIndexFeedSelection {
+            feed_guid,
+            label: release.label.clone(),
+        })
+    }
+
+    /// Projects a selected recency row into remote Index feed detail.
+    #[must_use]
+    pub(crate) fn index_feed_detail(
+        &self,
+        activation_id: &str,
+        fallback_id: &str,
+        fallback_label: &str,
+    ) -> Option<IndexDetailDisplay> {
+        let row = self.cached_rows.iter().find_map(|row| match &row.kind {
+            ContentListRowKind::Release(release) if row.id == activation_id => Some(release),
+            ContentListRowKind::Artist(_)
+            | ContentListRowKind::Release(_)
+            | ContentListRowKind::Track(_) => None,
+        })?;
+        Some(IndexDetailDisplay::feed_or_fallback(
+            Some(row),
+            fallback_id,
+            fallback_label,
+        ))
+    }
+
+    /// Stable page element id for the renderer.
+    #[must_use]
+    pub(crate) const fn page_id() -> &'static str {
+        Self::PAGE_ID
+    }
+
+    /// Stable scroll/list element id for the renderer.
+    #[must_use]
+    pub(crate) const fn rows_id() -> &'static str {
+        Self::ROWS_ID
+    }
+
+    /// Stable skeleton row element id for the renderer.
+    #[must_use]
+    pub(crate) const fn skeleton_row_id(index: usize) -> (&'static str, usize) {
+        ("music-content-loading-row", index)
+    }
+
     /// Returns the frame-local filter chip display for this content list.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay {
         self.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Normal)
     }
@@ -1400,7 +1751,7 @@ impl LibraryViewModel {
 
     pub(crate) fn replace_tree(&mut self, tree: LibraryTree) {
         self.content_list_page
-            .replace_rows(content_list_rows_from_tree(&tree));
+            .replace_tree_rows(content_list_rows_from_tree(&tree));
         self.snapshot.tree = tree;
     }
 
@@ -1577,6 +1928,43 @@ impl LibraryViewModel {
         (self.content_filter() != ContentFilter::All)
             .then(|| self.content_list_page.empty_state())
             .flatten()
+    }
+
+    #[must_use]
+    pub(crate) const fn content_list_page(&self) -> &ContentListPageVm {
+        &self.content_list_page
+    }
+
+    pub(crate) fn begin_recent_music_content_load(&mut self, append: bool) {
+        self.content_list_page.begin_recent_music_load(append);
+    }
+
+    pub(crate) fn replace_recent_music_content(&mut self, page: &RecentFeedsPageVm) {
+        self.content_list_page.replace_recent_feeds_page(page);
+    }
+
+    #[must_use]
+    pub(crate) fn content_list_thumbnail_sources(&self) -> Vec<(String, String)> {
+        self.content_list_page.thumbnail_sources()
+    }
+
+    #[must_use]
+    pub(crate) fn content_list_index_feed_selection(
+        &self,
+        row_id: &str,
+    ) -> Option<ContentListIndexFeedSelection> {
+        self.content_list_page.index_feed_selection(row_id)
+    }
+
+    #[must_use]
+    pub(crate) fn content_list_index_feed_detail(
+        &self,
+        activation_id: &str,
+        fallback_id: &str,
+        fallback_label: &str,
+    ) -> Option<IndexDetailDisplay> {
+        self.content_list_page
+            .index_feed_detail(activation_id, fallback_id, fallback_label)
     }
 
     #[must_use]
@@ -2511,6 +2899,12 @@ fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>
         .flat_map(|artist| &artist.albums)
         .flat_map(|album| album.tracks.iter())
         .map(ContentListRowDisplay::from_track)
+        .collect()
+}
+
+fn content_list_rows_from_recent_feeds(rows: &[RecentFeedResultRow]) -> Vec<ContentListRowDisplay> {
+    rows.iter()
+        .map(|(_id, row)| ContentListRowDisplay::from_release_result(row.clone(), false))
         .collect()
 }
 
@@ -3467,6 +3861,28 @@ mod tests {
         TrackResultDisplay::new(id, label, origin).with_secondary_text("Artist")
     }
 
+    fn recent_feed_batch(
+        rows: Vec<(&str, &str)>,
+        cursor: Option<&str>,
+        has_more: bool,
+    ) -> crate::view_models::recent_feeds::RecentFeedsPageBatch {
+        crate::view_models::recent_feeds::RecentFeedsPageBatch {
+            rows: rows
+                .into_iter()
+                .enumerate()
+                .map(|(index, (id, label))| {
+                    (
+                        index as crate::view_models::search_results::SearchResultItemId,
+                        release_result(id, label, SearchResultOrigin::Index)
+                            .with_thumbnail_href(format!("https://example.test/{index}.jpg")),
+                    )
+                })
+                .collect(),
+            cursor: cursor.map(str::to_string),
+            has_more,
+        }
+    }
+
     #[test]
     fn content_list_row_projects_artist_result_contract() {
         let row = ContentListRowDisplay::from_artist_result(
@@ -3867,6 +4283,151 @@ mod tests {
         assert!(
             narrow.narrow_collapse_to_pulldown,
             "Situational ADR 0060 task 003 narrow content-filter reachability guard: content-list chip strip keeps the narrow pull-down"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_projects_first_recent_music_page() {
+        let mut recent = RecentFeedsPageVm::loading();
+        recent.finish_load(
+            recent_feed_batch(
+                vec![
+                    ("index-feed:newest", "Newest Release"),
+                    ("index-feed:older", "Older Release"),
+                ],
+                Some("next"),
+                true,
+            ),
+            false,
+        );
+        let mut page =
+            ContentListPageVm::new(vec![content_row("local", ContentListRowSource::Library)]);
+
+        page.replace_recent_feeds_page(&recent);
+
+        assert_eq!(page.source(), ContentListPageSource::RecentMusic);
+        assert_eq!(
+            page.visible_row_ids(),
+            ["index-feed:newest", "index-feed:older"],
+            "recent music rows should preserve the newest-first order returned by the index"
+        );
+        assert_eq!(
+            page.visible_rows()[0].entity_kind(),
+            ContentListEntityKind::Release,
+            "Recent Feeds rows project as release content rows"
+        );
+        assert_eq!(
+            page.visible_rows()[0].source,
+            ContentListRowSource::Index,
+            "Recent Feeds rows remain index-sourced"
+        );
+        assert_eq!(
+            page.thumbnail_sources(),
+            [
+                (
+                    "index-feed:newest".to_string(),
+                    "https://example.test/0.jpg".to_string()
+                ),
+                (
+                    "index-feed:older".to_string(),
+                    "https://example.test/1.jpg".to_string()
+                )
+            ],
+            "content-list thumbnail sources should be keyed by row id"
+        );
+        assert_eq!(
+            page.load_more_display(),
+            Some(ContentListLoadMoreDisplay {
+                button_id: "music-content-list-load-more",
+                label: "Load more",
+                a11y_label: "Load more recent music",
+                disabled: false,
+            }),
+            "has_more should expose a VM-owned load-more display without a cursor"
+        );
+        assert_eq!(page.page_state_display(), None);
+    }
+
+    #[test]
+    fn content_list_page_vm_appends_recent_music_pages() {
+        let mut recent = RecentFeedsPageVm::loading();
+        recent.finish_load(
+            recent_feed_batch(
+                vec![("index-feed:first", "First Release")],
+                Some("next"),
+                true,
+            ),
+            false,
+        );
+        recent.finish_load(
+            recent_feed_batch(vec![("index-feed:second", "Second Release")], None, false),
+            true,
+        );
+        let mut page = ContentListPageVm::new(Vec::new());
+
+        page.replace_recent_feeds_page(&recent);
+
+        assert_eq!(
+            page.visible_row_ids(),
+            ["index-feed:first", "index-feed:second"],
+            "appended recent music pages should extend the same content-list row set"
+        );
+        assert!(!page.has_more());
+    }
+
+    #[test]
+    fn content_list_page_vm_hides_load_more_when_recent_music_has_no_more_pages() {
+        let mut recent = RecentFeedsPageVm::loading();
+        recent.finish_load(
+            recent_feed_batch(vec![("index-feed:only", "Only Release")], None, false),
+            false,
+        );
+        let mut page = ContentListPageVm::new(Vec::new());
+
+        page.replace_recent_feeds_page(&recent);
+
+        assert_eq!(page.load_more_display(), None);
+        assert!(!page.has_more());
+    }
+
+    #[test]
+    fn content_list_page_vm_projects_empty_recent_music_result() {
+        let mut recent = RecentFeedsPageVm::loading();
+        recent.finish_load(recent_feed_batch(Vec::new(), None, false), false);
+        let mut page = ContentListPageVm::new(Vec::new());
+
+        page.replace_recent_feeds_page(&recent);
+
+        assert_eq!(
+            page.page_state_display(),
+            Some(ContentListPageStateDisplay::Empty(
+                ContentListEmptyStateDisplay {
+                    title: "No recent music",
+                    secondary: "MusicIndex did not return recent music.",
+                    clear_filter_action_id: None,
+                }
+            )),
+            "empty Recent Feeds results should use the recency empty display"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_projects_failed_recent_music_load() {
+        let mut recent = RecentFeedsPageVm::loading();
+        recent.fail_load("Recent music unavailable", "network failed", false);
+        let mut page = ContentListPageVm::new(Vec::new());
+
+        page.replace_recent_feeds_page(&recent);
+
+        assert_eq!(
+            page.page_state_display(),
+            Some(ContentListPageStateDisplay::Failed(
+                ContentListFailedStateDisplay {
+                    title: "Recent music unavailable".to_string(),
+                    detail: "network failed".to_string(),
+                }
+            )),
+            "failed recency loads should expose VM-owned failure copy"
         );
     }
 

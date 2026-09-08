@@ -2218,10 +2218,10 @@ fn adr_0047_task_010a_content_list_page_vm_owns_filter_projection() {
 
     for path in rust_files_under("src/ui") {
         let source = read_source(&path);
-        for forbidden in ["ContentListPageVm", "ContentListRowSource"] {
+        for forbidden in ["ContentListRowSource"] {
             if source.contains(forbidden) {
                 violations.push(format!(
-                    "{}: ADR 0047 Task 010a is VM-only; UI must not reference `{forbidden}` yet",
+                    "{}: ADR 0047 Task 010a keeps source filtering VM-owned; UI must not reference `{forbidden}`",
                     rel_path(&path)
                 ));
             }
@@ -2255,7 +2255,7 @@ fn adr_0047_task_010_content_list_filter_chips_are_frame_local() {
     for required in [
         "content_list_page: ContentListPageVm",
         "self.content_list_page",
-        "replace_rows(content_list_rows_from_tree(&tree))",
+        "replace_tree_rows(content_list_rows_from_tree(&tree))",
         "pub(crate) fn set_content_filter(&mut self, filter: ContentFilter)",
         "pub(crate) fn content_filter_chip_strip_for_width_class(",
         "pub(crate) fn content_filter_empty_state(&self) -> Option<ContentListEmptyStateDisplay>",
@@ -13021,7 +13021,7 @@ fn adr_0062_mixed_entity_row_contract_is_kind_backed() {
     let row_struct = source_between(
         &library_source,
         "pub(crate) struct ContentListRowDisplay",
-        "#[allow(dead_code)]\nimpl ContentListRowDisplay",
+        "impl ContentListRowDisplay",
     );
     let mut violations = Vec::new();
 
@@ -13124,6 +13124,223 @@ fn adr_0062_mixed_entity_row_contract_is_kind_backed() {
     assert!(
         violations.is_empty(),
         "Situational ADR 0062 mixed entity row contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0062: Music opens on recent content rows.
+#[test]
+fn adr_0062_music_default_content_projects_recent_music_rows() {
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let library_source = read_source(&manifest_path("src/library.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let content_shell_source = read_source(&manifest_path("src/ui/shells/library/content_list.rs"));
+    let library_render = source_between(
+        &library_app_source,
+        "impl Render for LibraryApp",
+        "#[cfg(test)]",
+    );
+    let no_selection_branch = source_between(
+        &library_render,
+        "let content = if matches!(self.detail, LibraryDetail::None) {",
+        "} else {",
+    );
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) enum ContentListPageSource",
+        "RecentMusic",
+        "pub(crate) fn begin_recent_music_load(&mut self, append: bool)",
+        "pub(crate) fn replace_recent_feeds_page(&mut self, page: &RecentFeedsPageVm)",
+        "fn content_list_rows_from_recent_feeds(",
+        "ContentListRowDisplay::from_release_result(row.clone(), false)",
+        "pub(crate) fn page_state_display(&self) -> Option<ContentListPageStateDisplay>",
+        "pub(crate) const fn load_more_display(&self) -> Option<ContentListLoadMoreDisplay>",
+    ] {
+        if !library_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: Situational ADR 0062 Music default content must project Recent Feeds into ContentList rows; missing `{required}`. Fix: project the recency source through ContentListPageVm before rendering."
+            ));
+        }
+    }
+
+    for required in [
+        "recent_music_page: RecentFeedsPageVm",
+        "recent_music_scroll: ScrollHandle",
+    ] {
+        if !library_source.contains(required) {
+            violations.push(format!(
+                "src/library.rs: Situational ADR 0062 Music default content must own the existing Recent Feeds pager instance; missing `{required}`. Fix: store RecentFeedsPageVm on LibraryApp, not a new pager type."
+            ));
+        }
+    }
+
+    for required in [
+        "app.start_recent_music_load(false, cx);",
+        "render_library_content_list(",
+        "self.vm.content_list_page()",
+        "&self.recent_music_scroll",
+    ] {
+        if !library_app_source.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: Situational ADR 0062 Music default content must render recent rows in the content region; missing `{required}`. Fix: mount render_library_content_list in the no-selection Music content branch."
+            ));
+        }
+    }
+
+    for required in [
+        "SplitPane::new(chrome.split_pane_id)",
+        ".leading(leading_pane)",
+        ".trailing(trailing_pane)",
+        "render_library_content_list(",
+    ] {
+        if !no_selection_branch.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: Situational ADR 0062 Music no-selection branch must keep the source tree separate from content rows; missing `{required}`. Fix: render a source pane plus content-list pane."
+            ));
+        }
+    }
+
+    if no_selection_branch.trim() == "leading_pane" {
+        violations.push(
+            "src/library/app_impl.rs: Situational ADR 0062 Music no-selection branch must not return the navigation tree as the content region. Fix: render ContentListPageVm::visible_rows() in the content pane."
+                .to_string(),
+        );
+    }
+
+    for required in [
+        "page.visible_rows()",
+        "page.page_state_display()",
+        "page.load_more_display()",
+        "render_content_list_row(",
+    ] {
+        if !content_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/library/content_list.rs: Situational ADR 0062 Music content renderer must consume ContentListPageVm rows and displays; missing `{required}`. Fix: render the VM row/status/load-more projections, not the source tree."
+            ));
+        }
+    }
+
+    if content_shell_source.contains("render_library_sidebar") {
+        violations.push(
+            "src/ui/shells/library/content_list.rs: Situational ADR 0062 Music content renderer must not render the navigation tree. Fix: keep source-list rendering in the source pane."
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0062 Music default content violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0062: Music recency rows reuse the Recent Feeds pager.
+#[test]
+fn adr_0062_music_default_content_reuses_recent_feeds_pager() {
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let library_source = read_source(&manifest_path("src/library.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
+    let content_shell_source = read_source(&manifest_path("src/ui/shells/library/content_list.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) fn begin_load(&mut self, append: bool)",
+        "pub(crate) fn finish_load(&mut self, batch: RecentFeedsPageBatch, append: bool)",
+        "pub(crate) const fn has_more(&self) -> bool",
+    ] {
+        if !recent_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/recent_feeds.rs: Situational ADR 0062 must consume the existing RecentFeedsPageVm pager; missing `{required}`. Fix: keep cursor paging in RecentFeedsPageVm."
+            ));
+        }
+    }
+
+    for required in [
+        "recent_music_page: RecentFeedsPageVm",
+        "self.recent_music_page.begin_load(append)",
+        "this.recent_music_page.finish_load(batch, append)",
+        "this.recent_music_page.fail_load(",
+        "if append { loaded_row_count } else { 0 }",
+        "replace_recent_music_content(&self.recent_music_page)",
+        "replace_recent_music_content(&this.recent_music_page)",
+    ] {
+        if !library_source.contains(required) && !library_app_source.contains(required) {
+            violations.push(format!(
+                "src/library.rs or src/library/app_impl.rs: Situational ADR 0062 Music recency must reuse RecentFeedsPageVm pagination; missing `{required}`. Fix: call the existing begin_load/finish_load/fail_load path."
+            ));
+        }
+    }
+
+    for forbidden in [
+        "ContentListLoadIntent",
+        "ContentListPageBatch",
+        "content_list_cursor",
+        "recent_music_cursor",
+        "cursor: Option<String>",
+        "fn begin_content_list_load",
+    ] {
+        if library_vm_source.contains(forbidden)
+            || library_source.contains(forbidden)
+            || library_app_source.contains(forbidden)
+            || content_shell_source.contains(forbidden)
+        {
+            violations.push(format!(
+                "Situational ADR 0062 forbids a second pager beside RecentFeedsPageVm; found `{forbidden}`. Fix: keep cursor state in src/view_models/recent_feeds.rs."
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0062 Recent Feeds pager reuse violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0062: the blocking recency query stays off the render path.
+#[test]
+fn adr_0062_music_default_content_query_stays_off_render_path() {
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let content_shell_source = read_source(&manifest_path("src/ui/shells/library/content_list.rs"));
+    let library_render = source_between(
+        &library_app_source,
+        "impl Render for LibraryApp",
+        "#[cfg(test)]",
+    );
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) fn start_recent_music_load(&mut self, append: bool, cx: &mut Context<Self>)",
+        "FetchRecentFeedsPage::new(",
+        "present_command(",
+        "CommandContext::next()",
+    ] {
+        if !library_app_source.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: Situational ADR 0062 Music recency query must run through the runtime command path; missing `{required}`. Fix: keep the blocking index request inside start_recent_music_load."
+            ));
+        }
+    }
+
+    for forbidden in [
+        "FetchRecentFeedsPage::new(",
+        "fetch_recent_feeds(",
+        "Client::new_with_base_url",
+        "begin_load(append)",
+        "present_command(",
+    ] {
+        if library_render.contains(forbidden) || content_shell_source.contains(forbidden) {
+            violations.push(format!(
+                "Situational ADR 0062 forbids blocking recency work on the render path; found `{forbidden}`. Fix: trigger start_recent_music_load from lifecycle or event callbacks only."
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0062 render-path query violations:\n{}",
         violations.join("\n")
     );
 }

@@ -412,6 +412,21 @@ impl TopApp {
         self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
     }
 
+    pub(super) fn open_index_feed_detail_from_music(
+        &mut self,
+        feed_guid: &str,
+        label: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(content_frame_id) = self.content_list_frame_id() else {
+            self.settings_status = "ContentList frame not found".to_string();
+            cx.notify();
+            return;
+        };
+
+        self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
+    }
+
     fn handle_index_artist_result_selected(
         &mut self,
         artist_name: &str,

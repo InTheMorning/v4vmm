@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
-use gpui::{Entity, Image};
+use gpui::{Entity, Image, ScrollHandle};
 use gpui_component::input::InputState;
 
 use crate::application::paged_track_list::{PagedTrackListMsg, PagedTrackListSnapshot};
@@ -29,6 +29,7 @@ use crate::view_models::library::{
     description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
     LibraryTrackInspectorState, LibraryViewModel,
 };
+use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::workspace::WorkspaceLayout;
 use crate::views::ArtistView;
 
@@ -67,6 +68,10 @@ pub enum LibraryAppEvent {
     OpenSavedSearch {
         saved_search_id: i64,
         query: String,
+    },
+    OpenIndexFeedDetail {
+        feed_guid: String,
+        label: String,
     },
 }
 
@@ -166,6 +171,10 @@ pub struct LibraryApp {
     /// Feed-level MusicBrainz lookup saga actor. Dropping the handle
     /// closes the inbox and lets the runtime task exit.
     musicbrainz_feed_saga: Option<MusicBrainzFeedSagaHandle>,
+    /// Existing Recent Feeds pager consumed by the default Music content region.
+    recent_music_page: RecentFeedsPageVm,
+    /// Scroll state for default Music recency pagination.
+    recent_music_scroll: ScrollHandle,
 }
 
 pub(crate) struct PlaylistActorState {

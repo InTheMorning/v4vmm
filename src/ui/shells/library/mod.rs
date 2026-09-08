@@ -13,6 +13,7 @@
 
 #![warn(clippy::pedantic)]
 
+pub mod content_list;
 pub mod detail;
 pub mod feed_detail;
 pub mod feed_list;
