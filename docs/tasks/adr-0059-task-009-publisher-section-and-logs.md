@@ -1,12 +1,15 @@
 # ADR 0059 Task 009: Publisher Section Wiring And Log Panel
 
-Status: Blocked - 2026-09-07. Needs revision against ADR 0060. The Publisher section is
-replaced.
+Status: Ready - 2026-09-08. Revised for ADR 0060. Establishes how a section
+composes into the Show screen mount. Do it before 012, 014, and 015.
 
 ## Goal
 
-Connect the control service to the `Publisher` section through a runtime actor,
-and add a log panel that opens from a button.
+Add a `Publisher` section to the `Show` screen mount, driven by the control
+service through a runtime actor, plus a log panel.
+
+**This packet establishes how a section composes into `Show`.** Packets 012,
+014, and 015 follow the pattern it sets, so decide it deliberately.
 
 ## Files To Inspect
 
@@ -15,18 +18,18 @@ and add a log panel that opens from a button.
 - `docs/adr/0040-async-vm-runtime.md`
 - `src/broadcast/control.rs`
 - `src/runtime/broadcast_observation.rs`
-- `src/view_models/broadcast.rs`
-- `src/ui/shells/broadcast.rs`
-- `src/app/broadcast.rs`
+- `src/view_models/show.rs`
+- `src/ui/shells/show.rs`
+- `src/app/show.rs`
 - `tests/architecture_tests.rs`
 
 ## Files Likely To Change
 
 - `src/runtime/broadcast_service_watch.rs` (new)
 - `src/runtime/mod.rs`
-- `src/view_models/broadcast.rs`
-- `src/ui/shells/broadcast.rs`
-- `src/app/broadcast.rs`
+- `src/view_models/show.rs`
+- `src/ui/shells/show.rs`
+- `src/app/show.rs`
 - `tests/architecture_tests.rs`
 
 ## Do Not Touch
@@ -34,6 +37,26 @@ and add a log panel that opens from a button.
 - `src/broadcast/control.rs` (task 008 owns it)
 - `src/api.rs`, `src/db.rs`
 - `src/ui/shells/queue_now_playing.rs`
+
+## How A Section Composes Into Show
+
+`Show` is a screen mount, not a frame. ADR 0060. It has no navigation history,
+no breadcrumb, and no content stack.
+
+What exists today:
+
+- `ShowPageVm { title, state_label, now_playing, empty_state, queue }`
+- `ShowSlots` with three transport callbacks
+- `render_show(vm, slots) -> ShowShell`, with `render_show_summary`,
+  `render_now_playing_summary`, and `render_empty_summary`
+
+A section is an optional field on `ShowPageVm` and a group of callbacks on
+`ShowSlots`. An absent section renders nothing. It does not render as
+unavailable, because ADR 0060 says a surface that cannot act is absent.
+
+Keep the section list ordered and explicit. Do not build a generic section
+container that later sections register into. Four known sections do not justify
+a plugin model.
 
 ## Constraints
 
@@ -56,8 +79,9 @@ and add a log panel that opens from a button.
 1. Add `src/runtime/broadcast_service_watch.rs`, an actor that calls
    `control::show` for both units on an interval and publishes the states over
    a `watch` channel. Reuse the observation actor shape.
-2. Extend the projector in `src/view_models/broadcast.rs` to read the service
-   states. Add a `logs` display with the unit name, the line count, and an open
+2. Add a `publisher: Option<PublisherSectionDisplay>` field to `ShowPageVm` and
+   its callbacks to `ShowSlots`. Extend the projector in
+   `src/view_models/show.rs` to read the service states. Add a `logs` display with the unit name, the line count, and an open
    state.
 3. Wire the start, stop, and reset slots to the async command runner.
 4. On a command success, invalidate the actor snapshot so the section updates
@@ -126,7 +150,7 @@ Read:
 - `docs/adr/0040-async-vm-runtime.md`
 - `src/broadcast/control.rs`
 - `src/runtime/broadcast_observation.rs`
-- `src/view_models/broadcast.rs`, `src/ui/shells/broadcast.rs`
+- `src/view_models/show.rs`, `src/ui/shells/broadcast.rs`
 
 Goal:
 - Add a service watch actor, wire start, stop, reset, and add a log panel.

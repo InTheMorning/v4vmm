@@ -1,7 +1,6 @@
 # ADR 0059 Task 010: Remote Hosts Over SSH
 
-Status: Blocked - 2026-09-07. The transport is unaffected. The view-model and shell steps
-need revision against ADR 0060.
+Status: Ready - 2026-09-08. Revised for ADR 0060. Do after 009.
 
 ## Goal
 
@@ -15,7 +14,7 @@ publisher on another machine. Use `ssh`. Add reachability as its own state.
 - `docs/architecture/broadcast-chain.md`
 - `src/broadcast/control.rs`
 - `src/config.rs`
-- `src/view_models/broadcast.rs`
+- `src/view_models/show.rs`
 - `tests/architecture_tests.rs`
 
 ## Files Likely To Change
@@ -23,8 +22,8 @@ publisher on another machine. Use `ssh`. Add reachability as its own state.
 - `src/broadcast/transport.rs` (new)
 - `src/broadcast/control.rs`
 - `src/config.rs`
-- `src/view_models/broadcast.rs`
-- `src/ui/shells/broadcast.rs`
+- `src/view_models/show.rs`
+- `src/ui/shells/show.rs`
 - `tests/architecture_tests.rs`
 
 ## Do Not Touch
@@ -66,7 +65,8 @@ publisher on another machine. Use `ssh`. Add reachability as its own state.
 6. Add a drop-file read through the transport, with `cat` on the drop file path.
    A missing file means no track plays.
 7. Extend the view model with the host name and the reachability state, and
-   render the host in the `Source` section.
+   render the host in the `Source` section of `Show`, following the section
+   composition that packet 009 establishes.
 8. Add unit tests with a stub runner: local command shape, ssh command shape,
    argument order, unreachable host, and a host name that holds a space or a
    semicolon.

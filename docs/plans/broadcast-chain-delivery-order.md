@@ -138,14 +138,14 @@ Update this table when a packet lands.
 | `v4vmm` | 005 broadcast page VM | removed by ADR 0060 / task 001 |
 | `v4vmm` | 006 broadcast frame kind | removed by ADR 0060 / task 001 |
 | `v4vmm` | 007 broadcast shell | removed by ADR 0060 / task 001 |
-| `v4vmm` | 008 service control | blocked - ADR 0060 |
-| `v4vmm` | 009 publisher section | blocked - ADR 0060 |
-| `v4vmm` | 010 remote hosts | blocked - ADR 0060 |
-| `v4vmm` | 014 attach event | blocked - ADR 0060 |
-| `v4vmm` | 011 mpv producer | blocked - ADR 0060 |
-| `v4vmm` | 012 readiness report | blocked - ADR 0060 |
-| `v4vmm` | 015 stream encoder | blocked - ADR 0060 |
-| `v4vmm` | 013 final guards | blocked - ADR 0060 |
+| `v4vmm` | 008 service control | ready |
+| `v4vmm` | 009 publisher section | ready |
+| `v4vmm` | 010 remote hosts | ready |
+| `v4vmm` | 014 attach event | ready |
+| `v4vmm` | 011 mpv producer | ready |
+| `v4vmm` | 012 readiness report | ready |
+| `v4vmm` | 015 stream encoder | ready |
+| `v4vmm` | 013 final guards | ready |
 | `splitkit` | reserved 001 store boundary | not started |
 | `splitkit` | reserved 002 reserved class | not started |
 | `splitkit` | reserved 003 restore and TTL | not started |
@@ -182,11 +182,25 @@ ADR 0062 then rebuilds what `Music` shows:
 | 4 | `docs/tasks/adr-0062-task-004-tile-and-list-modes.md` | complete - 2026-09-07 |
 | 5 | `docs/tasks/adr-0062-task-005-retire-recent-feeds-destination.md` | complete - 2026-09-07 |
 
+The ADR 0059 packets were revised against ADR 0060 on 2026-09-08 and are no
+longer blocked. Packet 009 establishes how a section composes into the `Show`
+screen mount, so it runs before 012, 014, and 015.
+
+| Order | Packet | Depends on |
+|---|---|---|
+| 1 | 008 service control | nothing |
+| 2 | 009 publisher section and logs | 008 |
+| 3 | 010 remote hosts | 009 |
+| 4 | 015 stream encoder section | 009 |
+| 5 | 011 mpv drop-file producer | nothing |
+| 6 | 012 library readiness report | 009, and ADR 0062 for the `Music` list |
+| 7 | 014 attach event to publisher target | 009, 010, and publisher task 001 |
+| 8 | 013 final guards and readiness | everything above |
+
 After that:
 
 1. Write ADR 0063, cache and dump policy. `Dump` needs it.
 2. Write ADR 0064, audition, and ADR 0065, play history.
-3. Revise the blocked ADR 0059 packets against ADR 0060.
 
 `v4vmm` packets 001 through 004 shipped and are unaffected. They are backend
 work that ADR 0060 does not touch.

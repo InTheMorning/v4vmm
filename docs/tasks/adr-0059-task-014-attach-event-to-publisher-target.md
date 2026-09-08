@@ -1,7 +1,7 @@
 # ADR 0059 Task 014: Attach An Event To A Publisher Target
 
-Status: Blocked - 2026-09-07. The service layer is unaffected. The `Event` section wiring
-needs revision against ADR 0060.
+Status: Ready - 2026-09-08. Revised for ADR 0060. Needs `musicindex-live-publisher`
+control-surface task 001. Do after 009 and 010.
 
 ## Goal
 
@@ -16,17 +16,19 @@ the event registry and the publisher.
 - `docs/architecture/broadcast-chain.md`
 - `docs/tasks/adr-0059-task-003-event-registry-service-and-cli.md`
 - `docs/tasks/adr-0059-task-010-remote-hosts-over-ssh.md`
-- `src/broadcast/registry.rs`
+- `src/broadcast/registry.rs`, for `BroadcastRegistry`, `CreatedBroadcastEvent`,
+  `CheckedBroadcastEvent`, `list_events`, and `forget_event`
+- `src/broadcast/tokens.rs`, for `token_path_for_event` and `read_token_file`
 - `src/broadcast/transport.rs`
-- `src/view_models/broadcast.rs`
+- `src/view_models/show.rs`
 - `musicindex-live-publisher`: `docs/tasks/control-surface-task-001-target-management.md`
 
 ## Files Likely To Change
 
 - `src/broadcast/publisher_targets.rs` (new)
 - `src/broadcast/mod.rs`
-- `src/view_models/broadcast.rs`
-- `src/ui/shells/broadcast.rs`
+- `src/view_models/show.rs`
+- `src/ui/shells/show.rs`
 - `src/cli.rs`
 - `tests/architecture_tests.rs`
 
@@ -64,7 +66,8 @@ the event registry and the publisher.
    a failure. An older publisher does not have these commands.
 6. After a successful attach or detach, restart the publisher unit through the
    control service, so the new configuration takes effect.
-7. Extend the `Event` section of the view model:
+7. Extend the `Event` section of `ShowPageVm`, following the section
+   composition that packet 009 establishes:
    - show the target name that carries the selected event, or `not attached`
    - add `Attach` and `Detach` actions with typed availability
    - `Attach` is unavailable while the publisher is not reachable

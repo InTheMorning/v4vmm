@@ -1,6 +1,6 @@
 # ADR 0059 Task 013: Final Guards And Readiness Gate
 
-Status: Blocked - 2026-09-07. Gate task. Revise after every other packet is reconciled.
+Status: Ready - 2026-09-08. Gate task. Do last.
 
 ## Goal
 

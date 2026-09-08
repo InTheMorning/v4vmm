@@ -1,7 +1,6 @@
 # ADR 0059 Task 011: mpv Drop-File Producer
 
-Status: Blocked - 2026-09-07. Backend only. Expected to need no change. Confirm against
-ADR 0060 before starting.
+Status: Ready - 2026-09-08. Backend only. ADR 0060 does not touch it.
 
 ## Goal
 

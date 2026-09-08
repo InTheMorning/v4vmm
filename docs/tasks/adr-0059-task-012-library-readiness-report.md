@@ -1,7 +1,6 @@
 # ADR 0059 Task 012: Library Broadcast Readiness Report
 
-Status: Blocked - 2026-09-07. The query is unaffected. The `Source` section wiring needs
-revision against ADR 0060.
+Status: Ready - 2026-09-08. Revised for ADR 0060 and ADR 0062. Do after 009.
 
 ## Goal
 
@@ -16,7 +15,7 @@ dead payload before a show instead of after it.
 - `src/metadata.rs` (the `TXXX:MusicIndex Value Routes` writer)
 - `src/audio_tags.rs`
 - `src/application/queries/library.rs`
-- `src/view_models/broadcast.rs`
+- `src/view_models/show.rs`
 - `src/db.rs`
 - `tests/architecture_tests.rs`
 
@@ -24,8 +23,8 @@ dead payload before a show instead of after it.
 
 - `src/application/queries/broadcast.rs` (new)
 - `src/application/queries/mod.rs`
-- `src/view_models/broadcast.rs`
-- `src/ui/shells/broadcast.rs`
+- `src/view_models/show.rs`
+- `src/ui/shells/show.rs`
 - `src/cli.rs`
 - `tests/architecture_tests.rs`
 
@@ -44,8 +43,12 @@ dead payload before a show instead of after it.
   them. The provenance rule forbids one inferred answer.
 - The scan reads files and blocks. Run it from a runtime actor or a command, not
   from a renderer.
-- The count belongs in the `Source` section. The list belongs in the
-  `ContentList` frame, not in a new list inside the broadcast frame.
+- **The count and the list live on different surfaces now.** The count belongs
+  in the `Source` section of `Show`, because readiness is a pre-flight fact. The
+  list belongs in `Music`, because a not-ready track is library content and
+  ADR 0062 made `Music` the surface for library content.
+- Opening the list switches section from `Show` to `Music` with a filter
+  applied. Do not build a second list inside `Show`.
 - Add a CLI command first, as ADR 0017 requires.
 
 ## Implementation Steps
@@ -118,7 +121,7 @@ Read:
 - `docs/adr/0059-broadcast-control-surface.md`
 - `docs/plans/curator-workflow-ui-design-brief.md`
 - `src/audio_tags.rs`, `src/application/queries/library.rs`
-- `src/view_models/broadcast.rs`
+- `src/view_models/show.rs`
 
 Goal:
 - Report library tracks with no payment routes, in the CLI and in the `Source`

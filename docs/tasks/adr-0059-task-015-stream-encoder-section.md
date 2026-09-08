@@ -1,12 +1,14 @@
 # ADR 0059 Task 015: Stream Encoder Section
 
-Status: Blocked - 2026-09-07. The encoder service is unaffected. The `Stream` section needs
-revision against ADR 0060.
+Status: Ready - 2026-09-08. Revised for ADR 0060. Do after 009.
 
 ## Goal
 
-Add the `Stream` section for the `butt` encoder. Report the connection state
-and the recording state, and offer connect and disconnect.
+Add a `Stream` section to the `Show` screen mount for the `butt` encoder.
+Report the connection state and the recording state, and offer connect and
+disconnect.
+
+Follow the section composition that packet 009 establishes.
 
 ## Files To Inspect
 
@@ -16,8 +18,8 @@ and the recording state, and offer connect and disconnect.
 - `src/broadcast/control.rs` (the command runner and the state pattern)
 - `src/broadcast/transport.rs`
 - `src/runtime/broadcast_service_watch.rs`
-- `src/view_models/broadcast.rs`
-- `src/ui/shells/broadcast.rs`
+- `src/view_models/show.rs`
+- `src/ui/shells/show.rs`
 - `tests/architecture_tests.rs`
 
 ## Files Likely To Change
@@ -26,9 +28,9 @@ and the recording state, and offer connect and disconnect.
 - `src/broadcast/mod.rs`
 - `src/config.rs`
 - `src/runtime/broadcast_service_watch.rs`
-- `src/view_models/broadcast.rs`
-- `src/ui/shells/broadcast.rs`
-- `src/app/broadcast.rs`
+- `src/view_models/show.rs`
+- `src/ui/shells/show.rs`
+- `src/app/show.rs`
 - `tests/architecture_tests.rs`
 
 ## Do Not Touch
