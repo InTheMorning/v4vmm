@@ -82,7 +82,8 @@ built-in player feeds the same chain as Mixxx.
 
 - The written file matches the `musicindex.nowplaying/1` field list.
 - Payment routes come from the file tag, not from `value_block`.
-- Pause removes the file, and the panel still reports paused.
+- Pause removes the file, and the playback view model still reports the paused
+  state.
 - Application exit warns and then removes the file.
 - A track with no route tag writes an empty array and no error.
 - The producer stays inactive when the drop directory is not configured.

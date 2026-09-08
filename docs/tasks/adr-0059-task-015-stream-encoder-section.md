@@ -134,16 +134,24 @@ and the recording state, and offer connect and disconnect.
 
 ## Acceptance Criteria
 
-- The section reports the connection state, the connecting state, the audio
-  signal state, and the recording state.
-- Connected with no audio signal is visibly distinct from connected with audio.
+Mechanical:
+
+- The view model carries the connection state, the connecting state, the audio
+  signal state, and the recording state as four separate values.
+- Connected-with-signal and connected-without-signal are different view-model
+  states carrying different labels and different icon roles. They are not one
+  state with a flag.
 - Connect and disconnect work for a local instance and for an addressed
   instance.
-- A missing binary shows an empty state and no error text.
-- Unparsable status output becomes `Unknown` and never panics.
-- No code path passes `-u` to the encoder.
-- The section is independent of the publisher state.
-- Screenshots exist for the three states above.
+- A missing binary yields an empty-state variant and no error string.
+- Unparsable status output yields `Unknown` and never panics.
+- A guard proves no code path passes `-u` to the encoder.
+- The encoder state is computed without reading publisher state.
+
+Visual proof, operator only:
+
+- Connected with no audio signal is distinguishable at a glance from connected
+  with audio, without relying on color.
 
 ## Test Commands
 

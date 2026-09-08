@@ -36,6 +36,22 @@ impl ContentFilter {
     }
 }
 
+/// Width class for projecting frame-local filter chrome.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum FilterChipStripWidthClass {
+    /// Normal frame width; render every chip directly.
+    #[default]
+    Normal,
+    /// Narrow frame width; collapse chips into the pull-down control.
+    Narrow,
+}
+
+impl FilterChipStripWidthClass {
+    const fn narrow_collapse_to_pulldown(self) -> bool {
+        matches!(self, Self::Narrow)
+    }
+}
+
 /// Display contract for one frame-local filter chip option.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FilterChipOption {
@@ -76,6 +92,15 @@ impl FilterChipStripDisplay {
         )
     }
 
+    /// Creates the default content-list filter strip display for a width class.
+    #[must_use]
+    pub(crate) fn default_for_content_list_width_class(
+        selected: ContentFilter,
+        width_class: FilterChipStripWidthClass,
+    ) -> Self {
+        Self::default_for_content_list(selected, width_class.narrow_collapse_to_pulldown())
+    }
+
     /// Creates the default search-inspector filter strip display.
     #[must_use]
     pub(crate) fn default_for_search_inspector(
@@ -87,6 +112,15 @@ impl FilterChipStripDisplay {
             selected,
             narrow_collapse_to_pulldown,
         )
+    }
+
+    /// Creates the default search-inspector filter display for a width class.
+    #[must_use]
+    pub(crate) fn default_for_search_inspector_width_class(
+        selected: ContentFilter,
+        width_class: FilterChipStripWidthClass,
+    ) -> Self {
+        Self::default_for_search_inspector(selected, width_class.narrow_collapse_to_pulldown())
     }
 
     fn with_standard_options(
@@ -243,5 +277,17 @@ impl FrameShellDisplay {
     pub(crate) fn with_breadcrumb(mut self, display: BreadcrumbDisplay) -> Self {
         self.breadcrumb = Some(display);
         self
+    }
+
+    /// Returns whether the frame header row carries visible information.
+    #[must_use]
+    pub(crate) fn header_visible(&self) -> bool {
+        !self.title.is_empty()
+            || self.subtitle.is_some()
+            || self.status.is_some()
+            || !self.back.disabled
+            || !self.forward.disabled
+            || self.close.is_some()
+            || !self.action_menu_items.is_empty()
     }
 }

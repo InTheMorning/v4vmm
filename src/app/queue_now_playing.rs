@@ -6,6 +6,7 @@
 
 use gpui::{App, ClickEvent, Context, Entity, Window};
 
+use crate::application::ApplicationServices;
 use crate::view_models::queue_now_playing::{
     QueueNowPlayingPageVm, QueueTrackInput, TransportState,
 };
@@ -24,9 +25,12 @@ pub(super) fn queue_transport_action(
     }
 }
 
-pub(super) fn queue_now_playing_vm(app: &TopApp) -> QueueNowPlayingPageVm {
-    let conn = app.conn.lock().expect("lock db");
-    let session = db::playback_session(&conn, playback::DEFAULT_SESSION_ID)
+pub(super) fn queue_now_playing_vm(
+    services: &ApplicationServices,
+    conn: &rusqlite::Connection,
+    text_filter: Option<String>,
+) -> QueueNowPlayingPageVm {
+    let session = db::playback_session(conn, playback::DEFAULT_SESSION_ID)
         .ok()
         .flatten()
         .filter(|session| session.state != "stopped");
@@ -40,7 +44,7 @@ pub(super) fn queue_now_playing_vm(app: &TopApp) -> QueueNowPlayingPageVm {
     let queue = session
         .as_ref()
         .map_or_else(QueueProjection::default, |session| {
-            queue_tracks_for_session(app, &conn, session)
+            queue_tracks_for_session(services, conn, session)
         });
 
     let mut vm = QueueNowPlayingPageVm::builder()
@@ -49,7 +53,7 @@ pub(super) fn queue_now_playing_vm(app: &TopApp) -> QueueNowPlayingPageVm {
         .skip_availability(queue.can_skip_previous, queue.can_skip_next)
         .build();
 
-    if let Some(filter) = app.queue_text_filter.clone() {
+    if let Some(filter) = text_filter {
         vm.set_text_filter(Some(filter));
     }
 
@@ -64,13 +68,12 @@ struct QueueProjection {
 }
 
 fn queue_tracks_for_session(
-    app: &TopApp,
+    services: &ApplicationServices,
     conn: &rusqlite::Connection,
     session: &db::PlaybackSessionRow,
 ) -> QueueProjection {
     if let Some(playlist_id) = session.playlist_id {
-        let rows = app
-            .application_services
+        let rows = services
             .query_service()
             .playlist_tracks(conn, playlist_id)
             .unwrap_or_default();

@@ -83,7 +83,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0048](0048-content-list-frame-breadcrumb-search.md) | Search is a toolbar command. Amended by ADR 0060 | Implemented |
 | [0050](0050-post-adr-0048-module-decomposition.md) | Module decomposition after ADR 0048 | Implemented |
 | [0055](0055-search-view-model-module-decomposition.md) | Search view-model module decomposition | Accepted |
-| [0060](0060-workflow-surface-structure.md) | Music, Show, Settings. Show is a screen mount | Proposed |
+| [0060](0060-workflow-surface-structure.md) | Music, Show, Settings. Show is a screen mount | Accepted |
 
 ## UI Presentation
 

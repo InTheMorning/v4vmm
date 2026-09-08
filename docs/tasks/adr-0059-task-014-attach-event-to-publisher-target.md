@@ -84,7 +84,8 @@ the event registry and the publisher.
 - A publisher without the target commands reports `CommandsUnavailable` and
   changes nothing.
 - No token text appears in a command line or in a log.
-- The `Event` section shows the attached target or `not attached`.
+- The view model carries either the attached target name or a `not attached`
+  state, and never an empty string.
 
 ## Test Commands
 

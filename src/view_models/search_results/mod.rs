@@ -15,7 +15,9 @@
 
 use crate::db::TrackRow;
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
-use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};
+use crate::view_models::workspace::{
+    ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass,
+};
 
 mod empty_state;
 mod index_detail;
@@ -187,7 +189,16 @@ impl SearchResultsInspectorPageVm {
     /// Returns the frame-chrome filter display for this inspector.
     #[must_use]
     pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay {
-        FilterChipStripDisplay::default_for_search_inspector(self.filter, true)
+        self.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Normal)
+    }
+
+    /// Returns the frame-chrome filter display for the requested width.
+    #[must_use]
+    pub(crate) fn filter_chip_strip_for_width_class(
+        &self,
+        width_class: FilterChipStripWidthClass,
+    ) -> FilterChipStripDisplay {
+        FilterChipStripDisplay::default_for_search_inspector_width_class(self.filter, width_class)
     }
 
     /// Sets the content filter without changing the selected tab.

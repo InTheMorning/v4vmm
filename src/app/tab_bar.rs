@@ -3,8 +3,7 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, img, prelude::*, Context, Image, ImageFormat, IntoElement, ObjectFit, SharedString,
-    Styled, Window,
+    div, img, prelude::*, Context, Image, ImageFormat, ObjectFit, SharedString, Styled, Window,
 };
 use gpui_component::input::Input;
 use gpui_component::{IconName as InputIconName, Size};
@@ -30,29 +29,18 @@ fn app_logo() -> Arc<Image> {
 
 pub(super) fn render_tab_bar(
     app: &mut TopApp,
-    playback_bar: impl IntoElement,
     window: &Window,
     cx: &mut Context<TopApp>,
 ) -> gpui::AnyElement {
     let display = AppToolbarVm::new().display();
     let bg_surface = color(cx, SemanticColor::SecondarySystemBackground);
-    let frame_bg = color(cx, SemanticColor::TertiarySystemBackground);
     let border_subtle = color(cx, SemanticColor::Separator);
     let spacing_xs = Spacing::XS.scaled(cx);
     let spacing_sm = Spacing::SM.scaled(cx);
     let spacing_md = Spacing::MD.scaled(cx);
     let tab_bar_height = TokenSize::RowLg.px();
-    let frame_radius = Radius::LG.scaled(cx);
     let toolbar_width = window.bounds().size.width;
-    let now_playing_width = if toolbar_width >= layout::APP_TOOLBAR_NOW_PLAYING_COMPACT_BREAKPOINT {
-        TokenSize::ColumnTall.scaled(cx)
-    } else if toolbar_width >= layout::APP_TOOLBAR_GLOBAL_SEARCH_COMPACT_BREAKPOINT {
-        TokenSize::ColumnRegular.scaled(cx)
-    } else {
-        TokenSize::MenuRegular.scaled(cx)
-    };
     let mark_tooltip = Tooltip::new(display.mark_a11y_label);
-    let now_playing_tooltip = Tooltip::new(display.now_playing.a11y_label);
 
     let mut toolbar = div()
         .id(display.id)
@@ -105,25 +93,6 @@ pub(super) fn render_tab_bar(
             toolbar_width,
             cx,
         ))
-        .child(
-            div()
-                .id(display.now_playing.id)
-                .w(now_playing_width)
-                .min_w(now_playing_width)
-                .max_w(now_playing_width)
-                .h(TokenSize::RowMd.scaled(cx))
-                .flex_shrink_0()
-                .border_1()
-                .border_color(border_subtle)
-                .rounded(frame_radius)
-                .bg(frame_bg)
-                .px(spacing_sm)
-                .flex()
-                .items_center()
-                .overflow_hidden()
-                .tooltip(move |window, cx| now_playing_tooltip.build(window, cx))
-                .child(playback_bar),
-        )
         .into_any_element()
 }
 

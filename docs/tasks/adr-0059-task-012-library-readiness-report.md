@@ -71,11 +71,17 @@ dead payload before a show instead of after it.
 
 ## Acceptance Criteria
 
+Mechanical:
+
 - The three results stay separate in the summary and in the list.
 - The CLI command prints the summary as JSON.
-- The `Source` section shows the count and opens the list.
-- No renderer reads a file.
-- Screenshots exist for the label and the list.
+- The view model carries the not-ready count and an action that opens the
+  filtered list.
+- A guard proves no renderer reads a file.
+
+Visual proof, operator only:
+
+- The count is legible in place and the action reaches the filtered list.
 
 ## Test Commands
 

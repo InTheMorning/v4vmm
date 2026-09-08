@@ -1,9 +1,9 @@
 use super::{
     BreadcrumbDisplay, BreadcrumbTruncation, ContentFilter, FilterChipStripDisplay,
-    FrameDetachEligibility, FrameDockTarget, FrameNavigationEntry, FrameNavigationState,
-    FrameSearchDescriptor, FrameSearchScope, FrameShellDisplay, WorkspaceFrameConfig,
-    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
-    WorkspaceLayoutConfig, WorkspaceModelError,
+    FilterChipStripWidthClass, FrameDetachEligibility, FrameDockTarget, FrameNavigationEntry,
+    FrameNavigationState, FrameSearchDescriptor, FrameSearchScope, FrameShellDisplay,
+    WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
+    WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
 };
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -236,6 +236,40 @@ fn filter_chip_strip_defaults_pass_through_narrow_collapse() {
 }
 
 #[test]
+fn filter_chip_strip_width_class_projects_normal_and_narrow_layouts() {
+    let normal = FilterChipStripDisplay::default_for_content_list_width_class(
+        ContentFilter::All,
+        FilterChipStripWidthClass::Normal,
+    );
+    let narrow = FilterChipStripDisplay::default_for_content_list_width_class(
+        ContentFilter::All,
+        FilterChipStripWidthClass::Narrow,
+    );
+
+    assert_eq!(
+        normal
+            .options
+            .iter()
+            .map(|option| option.value)
+            .collect::<Vec<_>>(),
+        [
+            ContentFilter::All,
+            ContentFilter::Library,
+            ContentFilter::Index
+        ],
+        "Situational ADR 0060 task 003 normal-width content-filter reachability guard: all options must be exposed"
+    );
+    assert!(
+        !normal.narrow_collapse_to_pulldown,
+        "Situational ADR 0060 task 003 normal-width content-filter reachability guard: normal width must not collapse"
+    );
+    assert!(
+        narrow.narrow_collapse_to_pulldown,
+        "Situational ADR 0060 task 003 narrow content-filter reachability guard: narrow width keeps the ADR 0047 pull-down"
+    );
+}
+
+#[test]
 fn frame_shell_display_disables_empty_history_navigation() {
     let frame = frame(7, WorkspaceFrameKind::Detail);
     let nav = FrameNavigationState::new(FrameNavigationEntry::TrackDetail(42));
@@ -383,6 +417,40 @@ fn frame_shell_display_accepts_optional_breadcrumb() {
         display.breadcrumb,
         Some(breadcrumb),
         "frame shell should carry optional frame-local breadcrumbs without routing them"
+    );
+}
+
+#[test]
+fn frame_shell_display_hides_header_when_no_header_facts_exist() {
+    let frame = WorkspaceFrameState::new(
+        WorkspaceFrameId::new(7),
+        WorkspaceFrameKind::ContentList,
+        "",
+    );
+    let nav = FrameNavigationState::new(FrameNavigationEntry::SourceList);
+
+    let display = FrameShellDisplay::from_frame(&frame, &nav, false);
+
+    assert!(
+        !display.header_visible(),
+        "Durable ADR 0061 element hierarchy guard: root content frame must not render a redundant section header"
+    );
+}
+
+#[test]
+fn frame_shell_display_shows_header_when_frame_facts_exist() {
+    let frame = WorkspaceFrameState::new(
+        WorkspaceFrameId::new(7),
+        WorkspaceFrameKind::ContentList,
+        "Search Results",
+    );
+    let nav = FrameNavigationState::new(FrameNavigationEntry::Search("beats".to_string()));
+
+    let display = FrameShellDisplay::from_frame(&frame, &nav, false);
+
+    assert!(
+        display.header_visible(),
+        "Durable ADR 0061 element hierarchy guard: informative frame headers must remain visible"
     );
 }
 

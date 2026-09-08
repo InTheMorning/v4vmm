@@ -4,6 +4,12 @@
 
 Accepted - 2026-09-07.
 
+Amended 2026-09-07: added the acceptance-criterion rule below. Three ADR 0060
+packets reported green while an operator found five visible defects, and one of
+those defects failed a criterion the packet itself stated. The criterion was
+phrased as a visual property with no mechanical form, so nothing evaluated it
+and it passed by omission.
+
 Canonical for all three repositories of the broadcast chain.
 `musicindex-live-publisher` and `splitkit` adopt this ADR by reference from
 their own `AGENTS.md`.
@@ -158,6 +164,27 @@ the same change. Net prose falls as net enforcement rises.
 A rule earns a guard when you can name the time it broke. A rule with no
 incident stays prose until it has one.
 
+### An Acceptance Criterion States How It Is Checked
+
+Every criterion in a task packet is exactly one of two kinds, and the packet
+says which:
+
+- **Mechanical.** A test proves it. State the property at the layer that owns
+  it, not at the layer where a person would see it.
+- **Visual.** Only a person can judge it. It belongs in an explicit visual-proof
+  list, never among the mechanical criteria.
+
+A criterion that is neither is not a criterion. It passes by omission, because
+an implementer evaluates what it can evaluate and reports the rest as met.
+
+Phrase a mechanical criterion at its owning layer. `The section shows six
+states` is a render-layer claim that no test can make. `The view model exposes
+six states and no raw transport error` is the same requirement at the layer
+that owns it, and a test can prove it.
+
+Keep visual criteria separate so they cannot hide among passing ones. A packet
+whose visual gate is blocked reports the gate as open, never as met.
+
 ### A Guard Message Names Its ADR And The Fix
 
 ```text
@@ -224,6 +251,8 @@ Their reading path must not grow with age either.
 - `docs/adr/README.md` matches the current ADR directory exactly.
 - No guard asserts a rule from a superseded or archived ADR.
 - Every guard failure message names its owning ADR.
+- Every acceptance criterion is mechanical or visual, and the packet says which.
+- No mechanical criterion is phrased at the render layer.
 - No document outside `docs/adr/` states a binding rule without citing its
   owner.
 

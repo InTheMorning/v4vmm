@@ -37,7 +37,9 @@ use crate::view_models::library_removal::{
 };
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::text_filter::{contains_normalized, normalize};
-use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};
+use crate::view_models::workspace::{
+    ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass,
+};
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{
     ArtistView, FeedMetadataFacts, FeedRef, FeedView, LocalIdentityFacts, TrackRef,
@@ -850,7 +852,16 @@ impl ContentListPageVm {
     /// Returns the frame-local filter chip display for this content list.
     #[must_use]
     pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay {
-        FilterChipStripDisplay::default_for_content_list(self.filter_state, true)
+        self.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Normal)
+    }
+
+    /// Returns the frame-local filter chip display for the requested width.
+    #[must_use]
+    pub(crate) fn filter_chip_strip_for_width_class(
+        &self,
+        width_class: FilterChipStripWidthClass,
+    ) -> FilterChipStripDisplay {
+        FilterChipStripDisplay::default_for_content_list_width_class(self.filter_state, width_class)
     }
 }
 
@@ -1261,8 +1272,12 @@ impl LibraryViewModel {
     }
 
     #[must_use]
-    pub(crate) fn content_filter_chip_strip(&self) -> FilterChipStripDisplay {
-        self.content_list_page.filter_chip_strip()
+    pub(crate) fn content_filter_chip_strip_for_width_class(
+        &self,
+        width_class: FilterChipStripWidthClass,
+    ) -> FilterChipStripDisplay {
+        self.content_list_page
+            .filter_chip_strip_for_width_class(width_class)
     }
 
     #[must_use]
@@ -3373,14 +3388,35 @@ mod tests {
         page.set_filter(ContentFilter::Library);
         let strip = page.filter_chip_strip();
 
+        let values = strip
+            .options
+            .iter()
+            .map(|option| option.value)
+            .collect::<Vec<_>>();
+
         assert_eq!(
             strip.selected,
             ContentFilter::Library,
             "content-list chip strip should reflect the page-local selected filter"
         );
+        assert_eq!(
+            values,
+            [
+                ContentFilter::All,
+                ContentFilter::Library,
+                ContentFilter::Index
+            ],
+            "Situational ADR 0060 task 003 normal-width content-filter reachability guard: content-list chip strip must expose All, Library, and Index"
+        );
         assert!(
-            strip.narrow_collapse_to_pulldown,
-            "content-list chip strip should opt into narrow pull-down collapse"
+            !strip.narrow_collapse_to_pulldown,
+            "Situational ADR 0060 task 003 normal-width content-filter reachability guard: content-list chip strip must not collapse"
+        );
+
+        let narrow = page.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Narrow);
+        assert!(
+            narrow.narrow_collapse_to_pulldown,
+            "Situational ADR 0060 task 003 narrow content-filter reachability guard: content-list chip strip keeps the narrow pull-down"
         );
     }
 
@@ -4671,7 +4707,8 @@ mod tests {
 
         assert_eq!(projection.tree.artists.len(), 2);
         assert_eq!(
-            vm.content_filter_chip_strip().selected,
+            vm.content_filter_chip_strip_for_width_class(FilterChipStripWidthClass::Normal)
+                .selected,
             ContentFilter::Library,
             "frame chrome should reflect the selected content-list filter"
         );

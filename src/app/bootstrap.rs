@@ -104,6 +104,7 @@ pub fn run_app() {
                             cx,
                         );
                         app.maybe_start_playback_polling(cx);
+                        app.refresh_show_page(cx);
                         app
                     });
                     let root = cx.new(|cx| Root::new(view, window, cx));

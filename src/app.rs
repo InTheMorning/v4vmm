@@ -39,9 +39,11 @@ use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
+use crate::view_models::show::ShowPageVm;
 use crate::view_models::workspace::{
-    ContentFilter, FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId,
-    WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
+    ContentFilter, FilterChipStripWidthClass, FrameNavigationEntry, FrameNavigationState,
+    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    WorkspaceLayoutConfig,
 };
 
 mod bootstrap;
@@ -59,10 +61,9 @@ mod tab_bar;
 
 pub use bootstrap::run_app;
 
-use playback_bar::build_playback_bar;
 use recent_feeds::IndexFeedDetailOrigin;
 use search_dispatch::RemoteDetailThumbnailState;
-use show::build_show_screen;
+use show::{build_live_status_strip, build_show_screen};
 use tab_bar::render_tab_bar;
 
 const WORKSPACE_CONTENT_FRAME_ID: WorkspaceFrameId = WorkspaceFrameId::new(2);
@@ -99,6 +100,14 @@ impl WorkspaceScreenMount {
     }
 }
 
+fn filter_chip_strip_width_class(width: gpui::Pixels) -> FilterChipStripWidthClass {
+    if width < layout::FILTER_CHIP_STRIP_NARROW_COLLAPSE_BREAKPOINT {
+        FilterChipStripWidthClass::Narrow
+    } else {
+        FilterChipStripWidthClass::Normal
+    }
+}
+
 impl From<AppTab> for WorkspaceScreenMount {
     fn from(tab: AppTab) -> Self {
         match tab {
@@ -126,6 +135,7 @@ pub struct TopApp {
     recent_feeds_detail: Option<RecentFeedsPageVm>,
     recent_feeds_scroll: ScrollHandle,
     queue_text_filter: Option<String>,
+    show_page: ShowPageVm,
     content_pane_width: gpui::Pixels,
     is_content_pane_resizing: bool,
     ui_scale: crate::config::UiScale,
@@ -288,6 +298,7 @@ impl TopApp {
             recent_feeds_detail: None,
             recent_feeds_scroll: ScrollHandle::new(),
             queue_text_filter: None,
+            show_page: ShowPageVm::idle(),
             content_pane_width: Self::initial_content_pane_width(workspace_layout_prefs),
             is_content_pane_resizing: false,
             ui_scale,
@@ -372,6 +383,7 @@ impl TopApp {
 
         if matches!(tab, AppTab::Show) {
             self.queue_text_filter = None;
+            self.refresh_show_page(cx);
             cx.notify();
             return;
         }
@@ -521,10 +533,17 @@ impl TopApp {
         });
     }
 
-    fn apply_playback_tick(&mut self, outcome: PlaybackTickOutcome, _cx: &mut Context<Self>) {
+    fn apply_playback_tick(&mut self, outcome: PlaybackTickOutcome, cx: &mut Context<Self>) {
         match outcome {
-            PlaybackTickOutcome::Idle => {}
-            PlaybackTickOutcome::Advanced => self.settings_status.clear(),
+            PlaybackTickOutcome::Idle => {
+                if self.show_page.is_active() {
+                    self.refresh_show_page(cx);
+                }
+            }
+            PlaybackTickOutcome::Advanced => {
+                self.settings_status.clear();
+                self.refresh_show_page(cx);
+            }
             PlaybackTickOutcome::Error(error) => {
                 self.settings_status = format!("Playback error: {error}");
             }
@@ -615,7 +634,7 @@ impl TopApp {
                 WorkspaceFrameState::new(
                     Self::unused_workspace_frame_id(&frames, WORKSPACE_CONTENT_FRAME_ID),
                     WorkspaceFrameKind::ContentList,
-                    mount.frame_title(),
+                    Self::root_content_frame_title(),
                 ),
             );
         }
@@ -650,18 +669,19 @@ impl TopApp {
     fn content_list_frame_title(
         layout: &WorkspaceLayout,
         frame_id: WorkspaceFrameId,
-        mount: WorkspaceScreenMount,
+        _mount: WorkspaceScreenMount,
     ) -> String {
         let Some(nav) = layout.frame_nav(frame_id) else {
-            return mount.frame_title().to_string();
+            return Self::root_content_frame_title();
         };
 
         match nav.current() {
-            FrameNavigationEntry::SourceList => mount.frame_title().to_string(),
+            FrameNavigationEntry::SourceList | FrameNavigationEntry::Settings => {
+                Self::root_content_frame_title()
+            }
             FrameNavigationEntry::Search(_) => "Search Results".to_string(),
             FrameNavigationEntry::RecentFeeds => "Recent Feeds".to_string(),
             FrameNavigationEntry::IndexFeedDetail { .. } => "Feed".to_string(),
-            FrameNavigationEntry::Settings => "Settings".to_string(),
             FrameNavigationEntry::PlaylistDetail(_) => "Playlist".to_string(),
             FrameNavigationEntry::TrackDetail(_)
             | FrameNavigationEntry::IndexTrackDetail { .. } => "Track".to_string(),
@@ -670,6 +690,10 @@ impl TopApp {
             | FrameNavigationEntry::IndexArtistFeedScope(_) => "Artist".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
         }
+    }
+
+    fn root_content_frame_title() -> String {
+        String::new()
     }
 
     fn unused_workspace_frame_id(
@@ -850,6 +874,7 @@ impl TopApp {
     fn render_workspace_content(
         &mut self,
         mount: WorkspaceScreenMount,
+        filter_chip_width_class: FilterChipStripWidthClass,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         if matches!(mount, WorkspaceScreenMount::Show) {
@@ -876,7 +901,7 @@ impl TopApp {
                 let (filter_chip_strip, thumbnail_hrefs) = {
                     let search_results = self.search_results_detail.as_ref().unwrap();
                     (
-                        search_results.filter_chip_strip(),
+                        search_results.filter_chip_strip_for_width_class(filter_chip_width_class),
                         search_results.thumbnail_hrefs_for_scope(
                             search_results.tab(),
                             search_results.filter(),
@@ -1014,7 +1039,10 @@ impl TopApp {
                 let mut slots = WorkspaceSlots::new().content_list(library_screen);
 
                 if matches!(mount, WorkspaceScreenMount::Music) {
-                    let filter_chip_strip = self.library.read(cx).content_filter_chip_strip();
+                    let filter_chip_strip = self
+                        .library
+                        .read(cx)
+                        .content_filter_chip_strip(filter_chip_width_class);
                     let content_filter_entity = entity.clone();
                     slots = slots
                         .content_list_filter_chip_strip(filter_chip_strip)
@@ -1034,7 +1062,10 @@ impl TopApp {
                 let mut slots = WorkspaceSlots::new().content_list(library_screen);
 
                 if matches!(mount, WorkspaceScreenMount::Music) {
-                    let filter_chip_strip = self.library.read(cx).content_filter_chip_strip();
+                    let filter_chip_strip = self
+                        .library
+                        .read(cx)
+                        .content_filter_chip_strip(filter_chip_width_class);
                     let content_filter_entity = entity.clone();
                     slots = slots
                         .content_list_filter_chip_strip(filter_chip_strip)
@@ -1135,7 +1166,9 @@ impl Drop for TopApp {
 impl Render for TopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.defer_application_event_drain(window, cx);
-        let playback_bar = build_playback_bar(self);
+        let mount = self.active_workspace_screen_mount();
+        let filter_chip_width_class = filter_chip_strip_width_class(window.bounds().size.width);
+        let live_status_strip = build_live_status_strip(self, mount, cx);
         let bg_canvas = color(cx, SemanticColor::SystemBackground);
         let text_primary = color(cx, SemanticColor::Label);
         div()
@@ -1160,7 +1193,7 @@ impl Render for TopApp {
             .on_action(cx.listener(TopApp::handle_move_selection_up))
             .on_action(cx.listener(TopApp::handle_move_selection_down))
             .on_action(cx.listener(TopApp::handle_confirm_selection))
-            .child(render_tab_bar(self, playback_bar, window, cx))
+            .child(render_tab_bar(self, window, cx))
             .child(
                 div()
                     .key_context(keyboard::ACTIVE_PANE_KEY_CONTEXT)
@@ -1170,11 +1203,9 @@ impl Render for TopApp {
                     .min_h_0()
                     .min_w_0()
                     .overflow_hidden()
+                    .when_some(live_status_strip, gpui::ParentElement::child)
                     // ADR 0060: workspace render delegates to the active app-section mount.
-                    .child({
-                        let mount = self.active_workspace_screen_mount();
-                        self.render_workspace_content(mount, cx)
-                    }),
+                    .child(self.render_workspace_content(mount, filter_chip_width_class, cx)),
             )
             .children(render_window_layers(window, cx))
     }

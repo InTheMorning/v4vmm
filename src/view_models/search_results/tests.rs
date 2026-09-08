@@ -1,6 +1,6 @@
 use crate::db::TrackRow;
 use crate::runtime::paged_list_vm::RowSlot;
-use crate::view_models::workspace::ContentFilter;
+use crate::view_models::workspace::{ContentFilter, FilterChipStripWidthClass};
 use crate::views::{FeedView, TrackView};
 
 use super::{
@@ -482,7 +482,13 @@ fn filter_chip_strip_uses_search_inspector_contract() {
     assert_eq!(strip.id, "workspace-search-inspector-filter");
     assert_eq!(strip.selected, ContentFilter::Index);
     assert!(
-        strip.narrow_collapse_to_pulldown,
+        !strip.narrow_collapse_to_pulldown,
+        "search inspector filters should render expanded at normal widths"
+    );
+
+    let narrow = vm.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Narrow);
+    assert!(
+        narrow.narrow_collapse_to_pulldown,
         "search inspector filters should collapse in narrow detail frames"
     );
 }

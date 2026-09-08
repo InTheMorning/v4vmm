@@ -31,6 +31,9 @@ impl TopApp {
             self.reload_cached();
             self.library.update(cx, LibraryApp::refresh);
         }
+        if events.iter().any(affects_show_surface) {
+            self.refresh_show_page(cx);
+        }
         cx.notify();
     }
 }
@@ -44,4 +47,8 @@ fn affects_library_surfaces(event: &ApplicationEvent) -> bool {
             | ApplicationEvent::Download(_)
             | ApplicationEvent::Metadata(_)
     )
+}
+
+fn affects_show_surface(event: &ApplicationEvent) -> bool {
+    matches!(event, ApplicationEvent::Playback(_))
 }

@@ -29,6 +29,7 @@ pub mod filter_chip_strip;
 pub mod frame_shell;
 pub mod identity_action;
 pub mod list_row;
+pub mod live_status_strip;
 pub mod musicbrainz_panel;
 pub mod playlist_popover;
 pub mod release_detail_surface;
@@ -73,6 +74,7 @@ pub use identity_action::{
     identity_action_button, IdentityActionButtonDisplay, IdentityActionKind,
 };
 pub use list_row::{ListRow, ListRowA11yLabel, ListRowDensity};
+pub(crate) use live_status_strip::{live_status_strip, LiveStatusStrip, LiveStatusStripSlots};
 pub use musicbrainz_panel::MusicBrainzPanel;
 pub use playlist_popover::{
     AddToPlaylistDisplay, AddToPlaylistPopover, PlaylistOption, PlaylistOptionDisplay,

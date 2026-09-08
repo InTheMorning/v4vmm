@@ -74,12 +74,22 @@ and add a log panel that opens from a button.
 
 ## Acceptance Criteria
 
-- The section shows six states and never shows a raw transport error.
-- A failed unit shows its reason and offers `Reset`.
-- Start, stop, and reset update the section without a frame change.
-- The log panel opens and closes, and holds the journal text.
-- No blocking call runs on the render thread.
-- Screenshots exist for the failed state and the open log panel.
+Mechanical:
+
+- The view model exposes six service states, and no variant carries a raw
+  transport error string.
+- The `Failed` state carries a reason and marks `Reset` available and `Start`
+  unavailable.
+- A command success invalidates the actor snapshot, so the next projection
+  reflects it without a remount.
+- The view model carries an open and closed log-panel state, and the open state
+  carries the journal text.
+- A guard proves no screen or shell calls `systemctl` or `journalctl`.
+
+Visual proof, operator only:
+
+- The failed state names its reason and the `Reset` action is the obvious one.
+- The log panel opens, is readable, and closes.
 
 ## Test Commands
 

@@ -1050,10 +1050,12 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
     }
 
     for required in [
-        "use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};",
+        "use crate::view_models::workspace::{",
+        "ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass",
         "pub(crate) struct SearchResultsInspectorPageVm",
         "pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay",
-        "FilterChipStripDisplay::default_for_search_inspector(self.filter, true)",
+        "pub(crate) fn filter_chip_strip_for_width_class(",
+        "FilterChipStripDisplay::default_for_search_inspector_width_class(",
         "pub(crate) fn set_tab",
         "pub(crate) fn set_filter",
         "pub(crate) fn is_empty",
@@ -2184,7 +2186,8 @@ fn adr_0047_task_010a_content_list_page_vm_owns_filter_projection() {
     let mut violations = Vec::new();
 
     for required in [
-        "use crate::view_models::workspace::{ContentFilter, FilterChipStripDisplay};",
+        "use crate::view_models::workspace::{",
+        "ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass",
         "pub(crate) enum ContentListRowSource",
         "pub(crate) const fn matches_filter(self, filter: ContentFilter) -> bool",
         "pub(crate) struct ContentListRowDisplay",
@@ -2196,7 +2199,8 @@ fn adr_0047_task_010a_content_list_page_vm_owns_filter_projection() {
         "pub(crate) fn visible_rows(&self) -> Vec<&ContentListRowDisplay>",
         "pub(crate) fn empty_state(&self) -> Option<ContentListEmptyStateDisplay>",
         "pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay",
-        "FilterChipStripDisplay::default_for_content_list(self.filter_state, true)",
+        "pub(crate) fn filter_chip_strip_for_width_class(",
+        "FilterChipStripDisplay::default_for_content_list_width_class(",
     ] {
         if !library_source.contains(required) {
             violations.push(format!(
@@ -2253,7 +2257,7 @@ fn adr_0047_task_010_content_list_filter_chips_are_frame_local() {
         "self.content_list_page",
         "replace_rows(content_list_rows_from_tree(&tree))",
         "pub(crate) fn set_content_filter(&mut self, filter: ContentFilter)",
-        "pub(crate) fn content_filter_chip_strip(&self) -> FilterChipStripDisplay",
+        "pub(crate) fn content_filter_chip_strip_for_width_class(",
         "pub(crate) fn content_filter_empty_state(&self) -> Option<ContentListEmptyStateDisplay>",
         "fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>",
     ] {
@@ -2272,7 +2276,9 @@ fn adr_0047_task_010_content_list_filter_chips_are_frame_local() {
     }
 
     for required in [
-        "pub(crate) fn content_filter_chip_strip(&self) -> FilterChipStripDisplay",
+        "pub(crate) fn content_filter_chip_strip(",
+        "width_class: FilterChipStripWidthClass",
+        "content_filter_chip_strip_for_width_class(width_class)",
         "pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>)",
         "self.vm.set_content_filter(filter)",
     ] {
@@ -3139,7 +3145,8 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
 
     for required in [
         "pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay",
-        "FilterChipStripDisplay::default_for_search_inspector(self.filter, true)",
+        "pub(crate) fn filter_chip_strip_for_width_class(",
+        "FilterChipStripDisplay::default_for_search_inspector_width_class(",
     ] {
         if !search_results_source.contains(required) {
             violations.push(format!(
@@ -3733,7 +3740,7 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
     }
 
     for required in [
-        "ShowPageVm::from_queue(queue_now_playing_vm(app))",
+        "app.show_page.clone()",
         "ShowSlots::new()",
         "queue_transport_action(",
         "TopApp::skip_playback_previous",
@@ -3749,6 +3756,7 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
 
     for required in [
         "QueueNowPlayingPageVm::builder()",
+        "services: &ApplicationServices",
         "queue_tracks_for_session(",
         "playlist_queue_projection(",
         ".skip_availability(",
@@ -3791,20 +3799,29 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
 }
 
 #[test]
-fn workspace_frame_phase_4_guards_toolbar_now_playing_is_compact() {
+fn workspace_frame_phase_4_guards_playback_commands_stay_out_of_toolbar() {
     let playback_source = read_source(&manifest_path("src/app/playback_bar.rs"));
     let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
     let mut violations = Vec::new();
 
-    for required in ["pub(super) fn build_playback_bar", "\"Nothing playing\""] {
+    for required in [
+        "pub(super) fn play_playlist_at(",
+        "pub(super) fn toggle_playback_paused(",
+        "fn run_playback_command",
+        "this.refresh_show_page(cx)",
+    ] {
         if !playback_source.contains(required) {
             violations.push(format!(
-                "src/app/playback_bar.rs: ADR 0046 Phase 4 compact toolbar playback card missing `{required}`"
+                "src/app/playback_bar.rs: ADR 0046 playback command binding missing `{required}`"
             ));
         }
     }
 
     for forbidden in [
+        "NowPlayingBar",
+        "NowPlayingData",
+        "build_playback_bar",
+        "\"Nothing playing\"",
         "on_prev",
         "on_next",
         "on_stop",
@@ -3817,6 +3834,7 @@ fn workspace_frame_phase_4_guards_toolbar_now_playing_is_compact() {
         "transport_btn(",
         "Button::styled",
         "StopPlayback",
+        "playback_bar_state",
         "IconName::Previous",
         "IconName::Next",
         "IconName::Stop",
@@ -3828,7 +3846,13 @@ fn workspace_frame_phase_4_guards_toolbar_now_playing_is_compact() {
         }
     }
 
-    for forbidden in ["QueueNowPlayingPageVm", "ContextMenuScope::WorkspaceFrame"] {
+    for forbidden in [
+        "QueueNowPlayingPageVm",
+        "ContextMenuScope::WorkspaceFrame",
+        "display.now_playing",
+        "app-toolbar-now-playing",
+        "build_playback_bar",
+    ] {
         if toolbar_source.contains(forbidden) {
             violations.push(format!(
                 "src/app/tab_bar.rs: ADR 0046 Phase 4 toolbar must not own queue controls; found `{forbidden}`"
@@ -4298,7 +4322,7 @@ fn app_shell_avoids_premature_product_naming() {
 }
 
 #[test]
-fn app_toolbar_frames_now_playing_through_app_view_model() {
+fn app_toolbar_exposes_tabs_and_global_search_without_now_playing_chip() {
     let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
     let playback_source = read_source(&manifest_path("src/app/playback_bar.rs"));
     let vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
@@ -4308,8 +4332,6 @@ fn app_toolbar_frames_now_playing_through_app_view_model() {
         "AppToolbarVm::new().display()",
         "display.leading_id",
         "display.center_id",
-        "display.now_playing.id",
-        ".border_1()",
         ".max_w(TokenSize::ColumnTall.scaled(cx))",
     ] {
         if !toolbar_source.contains(required) {
@@ -4322,7 +4344,7 @@ fn app_toolbar_frames_now_playing_through_app_view_model() {
     for required in [
         "pub(crate) struct AppToolbarDisplay",
         "pub(crate) struct AppToolbarTabDisplay",
-        "pub(crate) struct NowPlayingFrameDisplay",
+        "pub(crate) struct GlobalSearchDisplay",
         "mark_a11y_label",
         "a11y_label",
     ] {
@@ -4333,27 +4355,32 @@ fn app_toolbar_frames_now_playing_through_app_view_model() {
         }
     }
 
-    for required in [
-        "pub struct NowPlayingData",
-        "pub struct NowPlayingBar",
+    for forbidden in [
+        "NowPlayingFrameDisplay",
+        "now_playing: NowPlayingFrameDisplay",
+        "display.now_playing",
+        "app-toolbar-now-playing",
+        "NowPlayingData",
+        "NowPlayingBar",
+        "build_playback_bar",
         "\"Nothing playing\"",
+        "on_play_pause",
+        "\"np-playpause\"",
     ] {
-        if !playback_source.contains(required) {
+        if vm_source.contains(forbidden)
+            || toolbar_source.contains(forbidden)
+            || playback_source.contains(forbidden)
+        {
             violations.push(format!(
-                "src/app/playback_bar.rs: ADR 0046 toolbar status card missing `{required}`"
+                "ADR 0060 task 004 removes toolbar now-playing ownership; found `{forbidden}`"
             ));
         }
     }
 
-    for forbidden in [
-        "Button::styled",
-        "ControlStyle::ToolbarIcon",
-        "on_play_pause",
-        "\"np-playpause\"",
-    ] {
+    for forbidden in ["Button::styled", "ControlStyle::ToolbarIcon"] {
         if playback_source.contains(forbidden) {
             violations.push(format!(
-                "src/app/playback_bar.rs: ADR 0046 queue frame owns transport; toolbar status card must not contain `{forbidden}`"
+                "src/app/playback_bar.rs: ADR 0060 task 004 playback command binding must not render toolbar controls; found `{forbidden}`"
             ));
         }
     }
@@ -4362,7 +4389,7 @@ fn app_toolbar_frames_now_playing_through_app_view_model() {
         let source = read_source(&path);
         if source.contains("NowPlayingBar") || source.contains("NowPlayingData") {
             violations.push(format!(
-                "{}: ADR 0043 keeps single-use Now Playing app-shell-owned, not in ui/composites",
+                "{}: ADR 0060 task 004 removes the toolbar Now Playing card; found old app-shell type in composites",
                 rel_path(&path)
             ));
         }
@@ -4370,7 +4397,7 @@ fn app_toolbar_frames_now_playing_through_app_view_model() {
 
     assert!(
         violations.is_empty(),
-        "ADR 0043 toolbar/Now Playing frame violations:\n{}",
+        "ADR 0060 toolbar live-status ownership violations:\n{}",
         violations.join("\n")
     );
 }
@@ -4517,11 +4544,7 @@ fn global_search_replaces_screen_local_search_chrome() {
     for required in [
         "Input::new(&app.global_search_input)",
         ".prefix(InputIconName::Search)",
-        "let now_playing_width = if toolbar_width >= layout::APP_TOOLBAR_NOW_PLAYING_COMPACT_BREAKPOINT",
         "layout::APP_TOOLBAR_GLOBAL_SEARCH_COMPACT_BREAKPOINT",
-        "TokenSize::MenuRegular.scaled(cx)",
-        ".w(now_playing_width)",
-        ".min_w(now_playing_width)",
         "toolbar_width,",
         "let use_compact_search =",
         "display.search_button_id",
@@ -10682,7 +10705,8 @@ fn playback_polling_is_runtime_owned() {
         "crate::runtime::playback_polling::spawn(",
         "bridge_watch(",
         "fn apply_playback_tick(",
-        "PlaybackTickOutcome::Advanced => self.settings_status.clear()",
+        "PlaybackTickOutcome::Advanced =>",
+        "self.settings_status.clear();",
         "PlaybackTickOutcome::Error(error)",
     ] {
         assert!(
@@ -12077,7 +12101,7 @@ fn adr_0060_queue_is_not_mounted_in_curation_workspace() {
     }
 
     for required in [
-        "ShowPageVm::from_queue(queue_now_playing_vm(app))",
+        "app.show_page.clone()",
         "ShowSlots::new()",
         "queue_transport_action(",
         "render_queue_now_playing(queue, self.slots.queue)",
@@ -12213,6 +12237,7 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
     let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
     let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
     let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
     let workspace_chrome_source =
         read_source(&manifest_path("src/view_models/workspace/chrome.rs"));
     let db_source = read_source(&manifest_path("src/db.rs"));
@@ -12325,6 +12350,34 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
                 .to_string(),
         );
     }
+
+    for required in [
+        "pub(crate) enum FilterChipStripWidthClass",
+        "FilterChipStripWidthClass::Normal",
+        "FilterChipStripWidthClass::Narrow",
+        "default_for_content_list_width_class",
+        "filter_chip_strip_for_width_class",
+        "FILTER_CHIP_STRIP_NARROW_COLLAPSE_BREAKPOINT",
+        "filter_chip_strip_width_class(window.bounds().size.width)",
+    ] {
+        if !workspace_chrome_source.contains(required)
+            && !library_vm_source.contains(required)
+            && !app_source.contains(required)
+        {
+            violations.push(format!(
+                "Situational ADR 0060 task 003 normal-width content-filter reachability guard missing `{required}`"
+            ));
+        }
+    }
+    if library_vm_source
+        .contains("FilterChipStripDisplay::default_for_content_list(self.filter_state, true)")
+    {
+        violations.push(
+            "src/view_models/library.rs: Situational ADR 0060 task 003 normal-width content-filter reachability guard forbids unconditional collapse"
+                .to_string(),
+        );
+    }
+
     for forbidden in [
         "has_filterable_content_detail",
         "FrameNavigationEntry::SourceList",
@@ -12501,6 +12554,72 @@ fn adr_0060_music_surface_is_dominant_content_without_operational_panes() {
     );
 }
 
+/// Durable ADR 0061: element hierarchy omits redundant root section headers.
+#[test]
+fn adr_0061_root_content_frame_header_omits_redundant_section_title() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let workspace_vm_source = read_source(&manifest_path("src/view_models/workspace/chrome.rs"));
+    let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
+    let content_list_frame_title = source_between(
+        &app_source,
+        "fn content_list_frame_title(",
+        "fn unused_workspace_frame_id(",
+    );
+    let mut violations = Vec::new();
+
+    for required in [
+        "fn root_content_frame_title() -> String",
+        "String::new()",
+        "FrameNavigationEntry::SourceList | FrameNavigationEntry::Settings",
+    ] {
+        if !content_list_frame_title.contains(required) && !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: Durable ADR 0061 element hierarchy guard missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "FrameNavigationEntry::SourceList => mount.frame_title().to_string()",
+        "FrameNavigationEntry::Settings => \"Settings\".to_string()",
+    ] {
+        if content_list_frame_title.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: Durable ADR 0061 element hierarchy guard forbids redundant section frame title `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn header_visible(&self) -> bool",
+        "!self.title.is_empty()",
+        "|| !self.back.disabled",
+    ] {
+        if !workspace_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace/chrome.rs: Durable ADR 0061 element hierarchy guard missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "let header_visible = display.header_visible();",
+        "if header_visible {",
+    ] {
+        if !frame_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: Durable ADR 0061 element hierarchy guard missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Durable ADR 0061 root content frame header violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0060: curation labels are VM-owned display facts.
 #[test]
 fn adr_0060_music_row_state_labels_are_vm_owned() {
@@ -12586,6 +12705,304 @@ fn adr_0060_queue_has_no_volume_or_output_picker_display() {
     assert!(
         violations.is_empty(),
         "ADR 0060 queue output-control deletion violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0060: live status is a passive strip above Music/Settings.
+#[test]
+fn adr_0060_live_status_strip_contract_and_mount_are_guarded() {
+    let vm_source = read_source(&manifest_path("src/view_models/live_status.rs"));
+    let vm_mod_source = read_source(&manifest_path("src/view_models/mod.rs"));
+    let composite_source = read_source(&manifest_path("src/ui/composites/live_status_strip.rs"));
+    let composite_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let show_adapter_source = read_source(&manifest_path("src/app/show.rs"));
+    let app_render = source_between(
+        &app_source,
+        "impl Render for TopApp",
+        "fn render_ui_scale_picker",
+    );
+    let build_live_status_strip = source_between(
+        &show_adapter_source,
+        "pub(super) fn build_live_status_strip(",
+        "impl TopApp",
+    );
+    let mut violations = Vec::new();
+
+    for (line_number, line) in code_lines(&vm_source) {
+        for pattern in VIEW_MODEL_FORBIDDEN_PATTERNS {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/view_models/live_status.rs:{line_number}: ADR 0060 task 004 LiveStatus VM must stay renderer-free; found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    for required in [
+        "pub(crate) struct LiveStatusDisplay",
+        "pub(crate) active: bool",
+        "pub(crate) heading_label: &'static str",
+        "pub(crate) summary_label: String",
+        "pub(crate) struct LiveStatusNowPlayingDisplay",
+        "pub(crate) enum LiveStatusHealthState",
+        "pub(crate) enum LiveStatusHealthIconRole",
+        "pub(crate) struct LiveStatusHealthDisplay",
+        "pub(crate) struct LiveStatusRecordingDisplay",
+        "pub(crate) struct LiveStatusOpenShowActionDisplay",
+        "pub(crate) struct LiveStatusProjection",
+        "pub(crate) fn from_show_page(show: &ShowPageVm) -> Self",
+        "Health unknown",
+        "Recording",
+        "Open Show",
+    ] {
+        if !vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/live_status.rs: ADR 0060 task 004 display contract missing `{required}`"
+            ));
+        }
+    }
+
+    if !vm_mod_source.contains("pub(crate) mod live_status;") {
+        violations.push(
+            "src/view_models/mod.rs: ADR 0060 task 004 live_status VM module is not exported"
+                .to_string(),
+        );
+    }
+
+    for required in [
+        "pub(crate) fn live_status_strip(",
+        "pub(crate) struct LiveStatusStripSlots",
+        "pub(crate) fn on_open_show(",
+        "Icon::new(icon).size(IconSize::Action)",
+        "SharedString::from(health.label)",
+        "let now_playing_state_label = now_playing.map(|value| value.state_label);",
+        "SharedString::from(state_label)",
+        "recording.summary_label",
+        "open_show.label",
+    ] {
+        if !composite_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/live_status_strip.rs: ADR 0060 task 004 strip composite missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "crate::db",
+        "PlaybackOwner",
+        "PausePlayback",
+        "ResumePlayback",
+        "SkipPlayback",
+        "StopPlayback",
+        "queue_transport_action",
+        "present_command(",
+        "ApplicationCommand",
+        "BroadcastObservation",
+        "value.artist",
+        "when_some(artist",
+    ] {
+        if composite_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/composites/live_status_strip.rs: ADR 0060 task 004 strip is a glance surface; found command/state source `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) use live_status_strip::{",
+        "live_status_strip",
+        "LiveStatusStrip",
+        "LiveStatusStripSlots",
+    ] {
+        if !composite_mod_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/mod.rs: ADR 0060 task 004 live status strip export missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "let live_status_strip = build_live_status_strip(self, mount, cx)",
+        ".when_some(live_status_strip, gpui::ParentElement::child)",
+        "WorkspaceScreenMount::Music | WorkspaceScreenMount::Settings",
+        "LiveStatusDisplay::from_show_page(&app.show_page)",
+        "this.select_tab(AppTab::Show, cx);",
+    ] {
+        if !app_render.contains(required) && !show_adapter_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs or src/app/show.rs: ADR 0060 task 004 live strip mount/action missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "skip_playback",
+        "toggle_playback",
+        "PausePlayback",
+        "ResumePlayback",
+        "SkipPlayback",
+        "StopPlayback",
+        "queue_transport_action",
+        "present_command(",
+    ] {
+        if build_live_status_strip.contains(forbidden) {
+            violations.push(format!(
+                "src/app/show.rs: ADR 0060 task 004 live strip may only open Show; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "build_playback_bar",
+        "playback_bar_state",
+        "queue_now_playing_vm(",
+        "playback_snapshot(",
+        "db::playback_session(",
+        ".lock().expect(\"lock db\")",
+    ] {
+        if app_render.contains(forbidden) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 004 render path must not read show state; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 live status strip violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0060: Show and the strip share one cached projector.
+#[test]
+fn adr_0060_live_status_and_show_share_cached_projection() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let show_adapter_source = read_source(&manifest_path("src/app/show.rs"));
+    let queue_adapter_source = read_source(&manifest_path("src/app/queue_now_playing.rs"));
+    let playback_source = read_source(&manifest_path("src/app/playback_bar.rs"));
+    let events_source = read_source(&manifest_path("src/app/events.rs"));
+    let bootstrap_source = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "show_page: ShowPageVm",
+        "show_page: ShowPageVm::idle()",
+        "PlaybackTickOutcome::Advanced =>",
+        "self.refresh_show_page(cx)",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: ADR 0060 task 004 cached Show projection missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "app.show_page.clone()",
+        "pub(super) fn refresh_show_page(&self, cx: &mut Context<Self>)",
+        "struct RefreshShowPage",
+        "CommandOutcome::without_events(ShowPageVm::from_queue(",
+        "queue_now_playing_vm(",
+    ] {
+        if !show_adapter_source.contains(required) {
+            violations.push(format!(
+                "src/app/show.rs: ADR 0060 task 004 Show/strip shared projection missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "services: &ApplicationServices",
+        "text_filter: Option<String>",
+        "queue_tracks_for_session(services, conn, session)",
+    ] {
+        if !queue_adapter_source.contains(required) {
+            violations.push(format!(
+                "src/app/queue_now_playing.rs: ADR 0060 task 004 queue projection must be callable from a background refresh; missing `{required}`"
+            ));
+        }
+    }
+
+    if !playback_source.contains("this.refresh_show_page(cx)") {
+        violations.push(
+            "src/app/playback_bar.rs: ADR 0060 task 004 playback commands must refresh the cached Show projection"
+                .to_string(),
+        );
+    }
+    if !events_source.contains("fn affects_show_surface(event: &ApplicationEvent) -> bool")
+        || !events_source.contains("ApplicationEvent::Playback(_)")
+    {
+        violations.push(
+            "src/app/events.rs: ADR 0060 task 004 playback events must invalidate Show/live status"
+                .to_string(),
+        );
+    }
+    if !bootstrap_source.contains("app.refresh_show_page(cx);") {
+        violations.push(
+            "src/app/bootstrap.rs: ADR 0060 task 004 startup must refresh the cached Show projection"
+                .to_string(),
+        );
+    }
+
+    for forbidden in [
+        "ShowPageVm::from_queue(queue_now_playing_vm(app))",
+        "build_playback_bar(self)",
+        "playback_bar_state()",
+    ] {
+        if app_source.contains(forbidden)
+            || show_adapter_source.contains(forbidden)
+            || playback_source.contains(forbidden)
+        {
+            violations.push(format!(
+                "ADR 0060 task 004 forbids render-path Show/toolbar state reads; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 cached live-status projection violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0060: now-playing leaves the toolbar VM and renderer.
+#[test]
+fn adr_0060_toolbar_no_longer_carries_now_playing_chip() {
+    let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
+    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let layout_source = read_source(&manifest_path("src/ui/layouts.rs"));
+    let playback_source = read_source(&manifest_path("src/app/playback_bar.rs"));
+    let mut violations = Vec::new();
+
+    for forbidden in [
+        "NowPlayingFrameDisplay",
+        "now_playing: NowPlayingFrameDisplay",
+        "display.now_playing",
+        "app-toolbar-now-playing",
+        "APP_TOOLBAR_NOW_PLAYING_COMPACT_BREAKPOINT",
+        "build_playback_bar",
+        "NowPlayingBar",
+        "NowPlayingData",
+        "\"Nothing playing\"",
+    ] {
+        if toolbar_vm_source.contains(forbidden)
+            || toolbar_source.contains(forbidden)
+            || layout_source.contains(forbidden)
+            || playback_source.contains(forbidden)
+        {
+            violations.push(format!(
+                "ADR 0060 task 004 replaces the toolbar now-playing chip with the live status strip; found `{forbidden}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0060 toolbar now-playing removal violations:\n{}",
         violations.join("\n")
     );
 }

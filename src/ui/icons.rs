@@ -26,7 +26,9 @@ pub enum IconName {
     Back,
     ChevronLeft,
     ChevronRight,
+    Check,
     Close,
+    Info,
     Search,
     Rss,
     Nostr,
@@ -38,6 +40,7 @@ pub enum IconName {
     More,
     DragHandle,
     NotAllowed,
+    Warning,
 }
 
 impl IconName {
@@ -50,7 +53,9 @@ impl IconName {
             | Self::Back
             | Self::ChevronLeft
             | Self::ChevronRight
+            | Self::Check
             | Self::Close
+            | Self::Info
             | Self::Search
             | Self::Play
             | Self::Pause
@@ -59,7 +64,8 @@ impl IconName {
             | Self::Next
             | Self::More
             | Self::DragHandle
-            | Self::NotAllowed => None,
+            | Self::NotAllowed
+            | Self::Warning => None,
         }
     }
 
@@ -70,7 +76,9 @@ impl IconName {
             Self::Back => Some("\u{2190}"),
             Self::ChevronLeft => Some("\u{2039}"),
             Self::ChevronRight => Some("\u{203A}"),
+            Self::Check => Some("\u{2713}"),
             Self::Close => Some("\u{00D7}"),
+            Self::Info => Some("i"),
             Self::Play => Some("\u{25B6}"),
             Self::Pause => Some("\u{23F8}"),
             Self::Stop => Some("\u{23F9}"),
@@ -79,6 +87,7 @@ impl IconName {
             Self::More => Some("\u{22EF}"),
             Self::DragHandle => Some("\u{2630}"),
             Self::NotAllowed => Some("\u{2298}"),
+            Self::Warning => Some("\u{26A0}"),
             Self::Rss | Self::Nostr | Self::Search => None,
         }
     }
@@ -91,7 +100,9 @@ impl IconName {
             | Self::Back
             | Self::ChevronLeft
             | Self::ChevronRight
+            | Self::Check
             | Self::Close
+            | Self::Info
             | Self::Rss
             | Self::Nostr
             | Self::Play
@@ -101,7 +112,8 @@ impl IconName {
             | Self::Next
             | Self::More
             | Self::DragHandle
-            | Self::NotAllowed => None,
+            | Self::NotAllowed
+            | Self::Warning => None,
         }
     }
 
@@ -115,7 +127,9 @@ impl IconName {
             | Self::Back
             | Self::ChevronLeft
             | Self::ChevronRight
+            | Self::Check
             | Self::Close
+            | Self::Info
             | Self::Search
             | Self::Play
             | Self::Pause
@@ -124,7 +138,8 @@ impl IconName {
             | Self::Next
             | Self::More
             | Self::DragHandle
-            | Self::NotAllowed => None,
+            | Self::NotAllowed
+            | Self::Warning => None,
         }
     }
 }

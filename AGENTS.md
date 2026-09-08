@@ -134,6 +134,12 @@ Copy any pattern worth keeping into the live surface first.
 fixed until it is inspected in the running app or a screenshot, or the missing
 check is reported as residual risk.
 
+**An acceptance criterion states how it is checked.** It is mechanical, proved
+by a test and phrased at the layer that owns it, or it is visual and listed
+separately. `The section shows six states` is untestable. `The view model
+exposes six states` is the same requirement where a test can reach it. A
+criterion that is neither passes by omission.
+
 ## Build, Test, Lint
 
 ```bash

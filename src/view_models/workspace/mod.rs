@@ -31,8 +31,8 @@ mod tests;
 pub(crate) use breadcrumb::BreadcrumbTruncation;
 pub(crate) use breadcrumb::{BreadcrumbDisplay, BreadcrumbSegment};
 pub(crate) use chrome::{
-    ContentFilter, FilterChipOption, FilterChipStripDisplay, FrameChromeButtonDisplay,
-    FrameChromeMenuItemDisplay, FrameShellDisplay,
+    ContentFilter, FilterChipOption, FilterChipStripDisplay, FilterChipStripWidthClass,
+    FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameShellDisplay,
 };
 pub(crate) use frame::{
     FrameDetachEligibility, FrameDockTarget, FrameSearchDescriptor, FrameSearchScope,

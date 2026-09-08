@@ -51,6 +51,12 @@ pub(crate) struct ShowPageVm {
 }
 
 impl ShowPageVm {
+    /// Creates an idle Show page with no active playback.
+    #[must_use]
+    pub(crate) fn idle() -> Self {
+        Self::from_queue(QueueNowPlayingPageVm::builder().build())
+    }
+
     /// Projects the Show page from the existing queue display contract.
     #[must_use]
     pub(crate) fn from_queue(queue: QueueNowPlayingPageVm) -> Self {
@@ -76,13 +82,6 @@ impl ShowPageVm {
 
     /// Returns whether the page represents active show playback.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0060 task 004 consumes Show active state for the live status strip"
-        )
-    )]
     pub(crate) const fn is_active(&self) -> bool {
         self.empty_state.is_none()
     }
@@ -125,7 +124,7 @@ mod tests {
 
     #[test]
     fn stopped_queue_projects_idle_empty_state() {
-        let vm = ShowPageVm::from_queue(QueueNowPlayingPageVm::builder().build());
+        let vm = ShowPageVm::idle();
 
         assert!(!vm.is_active());
         assert_eq!(vm.title, "Show");

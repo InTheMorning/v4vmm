@@ -68,6 +68,7 @@ pub mod feed;
 pub mod format;
 pub mod library;
 pub mod library_removal;
+pub(crate) mod live_status;
 pub mod metadata;
 pub mod musicbrainz_panel;
 pub mod paged_feed_detail;

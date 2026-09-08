@@ -206,6 +206,7 @@ fn render_chrome(
     let content_slot_id = display.content_slot_id.clone();
     let filter_chip_strip_display = display.filter_chip_strip.clone();
     let breadcrumb_display = display.breadcrumb.clone();
+    let header_visible = display.header_visible();
     let mut nav = div()
         .flex()
         .flex_row()
@@ -293,7 +294,9 @@ fn render_chrome(
         .flex_col()
         .border_b_1()
         .border_color(secondary_color);
-    chrome = chrome.child(header);
+    if header_visible {
+        chrome = chrome.child(header);
+    }
 
     if let Some(filter_display) = filter_chip_strip_display {
         chrome = chrome.child(frame_filter_row(filter_display, slots.on_filter_select, cx));

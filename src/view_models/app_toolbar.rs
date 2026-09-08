@@ -32,12 +32,6 @@ pub(crate) struct GlobalSearchDisplay {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct NowPlayingFrameDisplay {
-    pub(crate) id: &'static str,
-    pub(crate) a11y_label: &'static str,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AppToolbarDisplay {
     pub(crate) id: &'static str,
     pub(crate) leading_id: &'static str,
@@ -46,7 +40,6 @@ pub(crate) struct AppToolbarDisplay {
     pub(crate) mark_a11y_label: &'static str,
     pub(crate) tabs: [AppToolbarTabDisplay; 3],
     pub(crate) global_search: GlobalSearchDisplay,
-    pub(crate) now_playing: NowPlayingFrameDisplay,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -97,10 +90,6 @@ impl AppToolbarVm {
                 search_button_label: "Search",
                 search_button_a11y_label: "Search Library and Index",
             },
-            now_playing: NowPlayingFrameDisplay {
-                id: "app-toolbar-now-playing",
-                a11y_label: "Now Playing controls",
-            },
         }
     }
 }
@@ -116,7 +105,6 @@ mod tests {
         assert_eq!(display.id, "app-toolbar");
         assert_eq!(display.leading_id, "app-toolbar-leading");
         assert_eq!(display.center_id, "app-toolbar-center");
-        assert_eq!(display.now_playing.id, "app-toolbar-now-playing");
     }
 
     #[test]
@@ -153,7 +141,6 @@ mod tests {
             display.global_search.recent_feeds_button_a11y_label,
             display.global_search.search_button_label,
             display.global_search.search_button_a11y_label,
-            display.now_playing.a11y_label,
             display.tabs[0].label,
             display.tabs[1].label,
             display.tabs[2].label,
