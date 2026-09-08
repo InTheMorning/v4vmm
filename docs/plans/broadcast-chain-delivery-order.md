@@ -23,13 +23,13 @@ lands.
 
 ## Hard Dependencies
 
-Only three exist. Everything else can run in any order.
+Two of the three are now satisfied. The third is soft and open.
 
 | Blocked packet | Waits for | Reason |
 |---|---|---|
-| `v4vmm` 014, attach event to target | `musicindex-live-publisher` control surface 001 | Without `target add`, this app can register an event and has no supported way to make the publisher use it |
-| `v4vmm` 014 | `v4vmm` 010, remote hosts | The attach runs through the transport, so a remote host works with one code path |
-| `v4vmm` 009, publisher section | `musicindex-live-publisher` control surface 002 | Soft. `--version` separates "not installed" from "installed but not configured". Without it the section reports one state less |
+| ~~`v4vmm` 014, attach event to target~~ | ~~`musicindex-live-publisher` control surface 001~~ | Satisfied 2026-09-07 (`a5b434e`). `target add`, `target list`, and `target remove` all shipped |
+| ~~`v4vmm` 014~~ | ~~`v4vmm` 010, remote hosts~~ | Satisfied 2026-09-08. Packet 010 shipped the transport |
+| `v4vmm` 009, publisher section | `musicindex-live-publisher` control surface 002 | Soft, and still open. Control surface 002 shipped 2026-09-07 (`459854c`), so `--version` and `config show --json` exist. Packet 009 shipped without consuming them, so the section still reports one state less. See Later Work |
 
 `splitkit` blocks nothing and is blocked by nothing.
 
@@ -141,8 +141,8 @@ Update this table when a packet lands.
 | `v4vmm` | 008 service control | complete - 2026-09-08 |
 | `v4vmm` | 009 publisher section | implemented - 2026-09-08; one visual gate open: failed-state reason and `Reset` prominence, not reproducible by the operator at this time |
 | `v4vmm` | 010 remote hosts | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
-| `v4vmm` | 014 attach event | ready |
-| `v4vmm` | 011 mpv producer | ready |
+| `v4vmm` | 014 attach event | ready - every dependency satisfied |
+| `v4vmm` | 011 mpv producer | implemented - 2026-09-08 |
 | `v4vmm` | 012 readiness report | implemented - 2026-09-08; one visual gate open: readiness count legibility and the action that reaches the filtered list |
 | `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
 | `v4vmm` | 013 final guards | ready |
@@ -210,6 +210,10 @@ work that ADR 0060 does not touch.
 These have no packets and are not scheduled. They are listed so the order above
 is not mistaken for the whole plan.
 
+- A seventh `ServiceState` in `v4vmm`, for a publisher that is installed and
+  not configured. `musicindex-live-publisher` control-surface task 002 supplies
+  the two facts that separate it, through `--version` and `config show --json`.
+  Landing that packet does not change `v4vmm` on its own. Needs a `v4vmm` packet.
 - Episode generation in `v4vmm`, from the show log. Needs a future ADR.
 - Post-processing tools in `v4vmm`. Gates publisher-side backup recording.
 - Broadcaster identity and quotas in `splitkit`. Options recorded, no decision.
