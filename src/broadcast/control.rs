@@ -7,12 +7,16 @@
 //! receive typed service states instead of parsing human status text.
 
 use std::collections::BTreeMap;
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::{anyhow, Context, Result};
 
+use crate::broadcast::transport::{Reachability, Transport};
+
 const SYSTEMCTL: &str = "systemctl";
 const JOURNALCTL: &str = "journalctl";
+const CAT: &str = "cat";
 const SHOW_PROPERTIES: &str = "--property=LoadState,ActiveState,SubState,Result";
 const PUBLISHER_UNIT_PREFIX: &str = "musicindex-live-publisher@";
 const PUBLISHER_UNIT_SUFFIX: &str = ".service";
@@ -88,6 +92,20 @@ impl ServiceState {
     pub const fn start_is_useful(&self) -> bool {
         !matches!(self, Self::Failed { .. })
     }
+}
+
+/// Drop-file state read from the host that owns the selected source.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DropFileRead {
+    /// The drop file exists and contains publisher input text.
+    Present {
+        /// Raw drop-file text.
+        text: String,
+    },
+    /// The drop file is absent, so no source track is playing.
+    NoTrack,
+    /// The host that owns the drop file cannot be reached.
+    NotReachable,
 }
 
 /// Exit status reported by a command runner.
@@ -208,8 +226,12 @@ impl<R: CommandRunner> ServiceControl<R> {
     /// # Errors
     ///
     /// Returns an error when `systemctl show` cannot run or returns no output.
-    pub fn show(&self, unit: &UnitRef) -> Result<ServiceState> {
-        let output = self.runner.run(SYSTEMCTL, &systemctl_show_args(unit))?;
+    pub fn show(&self, transport: &Transport, unit: &UnitRef) -> Result<ServiceState> {
+        let run = transport.run(&self.runner, SYSTEMCTL, &systemctl_show_args(unit))?;
+        if matches!(run.reachability, Reachability::NotReachable) {
+            return Ok(ServiceState::NotReachable);
+        }
+        let output = run.output;
         if output.stdout.trim().is_empty() && !output.status.success() {
             return Err(command_failure(SYSTEMCTL, &output));
         }
@@ -221,8 +243,8 @@ impl<R: CommandRunner> ServiceControl<R> {
     /// # Errors
     ///
     /// Returns an error when `systemctl start` fails.
-    pub fn start(&self, unit: &UnitRef) -> Result<()> {
-        self.run_systemctl_unit("start", unit)
+    pub fn start(&self, transport: &Transport, unit: &UnitRef) -> Result<()> {
+        self.run_systemctl_unit(transport, "start", unit)
     }
 
     /// Stop one unit.
@@ -230,8 +252,8 @@ impl<R: CommandRunner> ServiceControl<R> {
     /// # Errors
     ///
     /// Returns an error when `systemctl stop` fails.
-    pub fn stop(&self, unit: &UnitRef) -> Result<()> {
-        self.run_systemctl_unit("stop", unit)
+    pub fn stop(&self, transport: &Transport, unit: &UnitRef) -> Result<()> {
+        self.run_systemctl_unit(transport, "stop", unit)
     }
 
     /// Restart one unit.
@@ -239,8 +261,8 @@ impl<R: CommandRunner> ServiceControl<R> {
     /// # Errors
     ///
     /// Returns an error when `systemctl restart` fails.
-    pub fn restart(&self, unit: &UnitRef) -> Result<()> {
-        self.run_systemctl_unit("restart", unit)
+    pub fn restart(&self, transport: &Transport, unit: &UnitRef) -> Result<()> {
+        self.run_systemctl_unit(transport, "restart", unit)
     }
 
     /// Reset one failed unit.
@@ -248,8 +270,8 @@ impl<R: CommandRunner> ServiceControl<R> {
     /// # Errors
     ///
     /// Returns an error when `systemctl reset-failed` fails.
-    pub fn reset(&self, unit: &UnitRef) -> Result<()> {
-        self.run_systemctl_unit("reset-failed", unit)
+    pub fn reset(&self, transport: &Transport, unit: &UnitRef) -> Result<()> {
+        self.run_systemctl_unit(transport, "reset-failed", unit)
     }
 
     /// Reload the user systemd manager.
@@ -257,9 +279,9 @@ impl<R: CommandRunner> ServiceControl<R> {
     /// # Errors
     ///
     /// Returns an error when `systemctl daemon-reload` fails.
-    pub fn daemon_reload(&self) -> Result<()> {
+    pub fn daemon_reload(&self, transport: &Transport) -> Result<()> {
         let args = systemctl_args(["--user", "daemon-reload"]);
-        self.run_checked(SYSTEMCTL, &args).map(|_| ())
+        self.run_checked(transport, SYSTEMCTL, &args).map(|_| ())
     }
 
     /// Read journal text for one unit.
@@ -267,7 +289,7 @@ impl<R: CommandRunner> ServiceControl<R> {
     /// # Errors
     ///
     /// Returns an error when `journalctl` fails.
-    pub fn logs(&self, unit: &UnitRef, lines: usize) -> Result<String> {
+    pub fn logs(&self, transport: &Transport, unit: &UnitRef, lines: usize) -> Result<String> {
         let line_count = lines.to_string();
         let args = vec![
             "--user".to_owned(),
@@ -277,17 +299,61 @@ impl<R: CommandRunner> ServiceControl<R> {
             line_count,
             "--no-pager".to_owned(),
         ];
-        let output = self.run_checked(JOURNALCTL, &args)?;
+        let output = self.run_checked(transport, JOURNALCTL, &args)?;
         Ok(output.stdout)
     }
 
-    fn run_systemctl_unit(&self, operation: &str, unit: &UnitRef) -> Result<()> {
-        let args = systemctl_args(["--user", operation, unit.unit()]);
-        self.run_checked(SYSTEMCTL, &args).map(|_| ())
+    /// Read a source drop file through the selected transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the path cannot be represented as UTF-8, the
+    /// command cannot run, or a reached host reports a non-missing-file error.
+    pub fn read_drop_file(
+        &self,
+        transport: &Transport,
+        drop_file_path: &Path,
+    ) -> Result<DropFileRead> {
+        let drop_file_path = drop_file_path
+            .to_str()
+            .ok_or_else(|| anyhow!("drop file path must be UTF-8: {}", drop_file_path.display()))?;
+        let args = vec![drop_file_path.to_owned()];
+        let run = transport.run(&self.runner, CAT, &args)?;
+        if matches!(run.reachability, Reachability::NotReachable) {
+            return Ok(DropFileRead::NotReachable);
+        }
+        if run.output.status.success() {
+            return Ok(DropFileRead::Present {
+                text: run.output.stdout,
+            });
+        }
+        if cat_missing_file(&run.output) {
+            return Ok(DropFileRead::NoTrack);
+        }
+        Err(command_failure(CAT, &run.output))
     }
 
-    fn run_checked(&self, program: &str, args: &[String]) -> Result<CommandOutput> {
-        let output = self.runner.run(program, args)?;
+    fn run_systemctl_unit(
+        &self,
+        transport: &Transport,
+        operation: &str,
+        unit: &UnitRef,
+    ) -> Result<()> {
+        let args = systemctl_args(["--user", operation, unit.unit()]);
+        self.run_checked(transport, SYSTEMCTL, &args).map(|_| ())
+    }
+
+    fn run_checked(
+        &self,
+        transport: &Transport,
+        program: &str,
+        args: &[String],
+    ) -> Result<CommandOutput> {
+        let run = transport.run(&self.runner, program, args)?;
+        if matches!(run.reachability, Reachability::NotReachable) {
+            return Err(not_reachable_failure(transport));
+        }
+        let output = run.output;
         if output.status.success() {
             return Ok(output);
         }
@@ -300,8 +366,8 @@ impl<R: CommandRunner> ServiceControl<R> {
 /// # Errors
 ///
 /// Returns an error when `systemctl show` cannot run or returns no output.
-pub fn show(unit: &UnitRef) -> Result<ServiceState> {
-    ServiceControl::default().show(unit)
+pub fn show(transport: &Transport, unit: &UnitRef) -> Result<ServiceState> {
+    ServiceControl::default().show(transport, unit)
 }
 
 /// Start one unit with the real command runner.
@@ -309,8 +375,8 @@ pub fn show(unit: &UnitRef) -> Result<ServiceState> {
 /// # Errors
 ///
 /// Returns an error when `systemctl start` fails.
-pub fn start(unit: &UnitRef) -> Result<()> {
-    ServiceControl::default().start(unit)
+pub fn start(transport: &Transport, unit: &UnitRef) -> Result<()> {
+    ServiceControl::default().start(transport, unit)
 }
 
 /// Stop one unit with the real command runner.
@@ -318,8 +384,8 @@ pub fn start(unit: &UnitRef) -> Result<()> {
 /// # Errors
 ///
 /// Returns an error when `systemctl stop` fails.
-pub fn stop(unit: &UnitRef) -> Result<()> {
-    ServiceControl::default().stop(unit)
+pub fn stop(transport: &Transport, unit: &UnitRef) -> Result<()> {
+    ServiceControl::default().stop(transport, unit)
 }
 
 /// Restart one unit with the real command runner.
@@ -327,8 +393,8 @@ pub fn stop(unit: &UnitRef) -> Result<()> {
 /// # Errors
 ///
 /// Returns an error when `systemctl restart` fails.
-pub fn restart(unit: &UnitRef) -> Result<()> {
-    ServiceControl::default().restart(unit)
+pub fn restart(transport: &Transport, unit: &UnitRef) -> Result<()> {
+    ServiceControl::default().restart(transport, unit)
 }
 
 /// Reset one failed unit with the real command runner.
@@ -336,8 +402,8 @@ pub fn restart(unit: &UnitRef) -> Result<()> {
 /// # Errors
 ///
 /// Returns an error when `systemctl reset-failed` fails.
-pub fn reset(unit: &UnitRef) -> Result<()> {
-    ServiceControl::default().reset(unit)
+pub fn reset(transport: &Transport, unit: &UnitRef) -> Result<()> {
+    ServiceControl::default().reset(transport, unit)
 }
 
 /// Reload the user systemd manager with the real command runner.
@@ -345,8 +411,8 @@ pub fn reset(unit: &UnitRef) -> Result<()> {
 /// # Errors
 ///
 /// Returns an error when `systemctl daemon-reload` fails.
-pub fn daemon_reload() -> Result<()> {
-    ServiceControl::default().daemon_reload()
+pub fn daemon_reload(transport: &Transport) -> Result<()> {
+    ServiceControl::default().daemon_reload(transport)
 }
 
 /// Read journal text with the real command runner.
@@ -354,8 +420,17 @@ pub fn daemon_reload() -> Result<()> {
 /// # Errors
 ///
 /// Returns an error when `journalctl` fails.
-pub fn logs(unit: &UnitRef, lines: usize) -> Result<String> {
-    ServiceControl::default().logs(unit, lines)
+pub fn logs(transport: &Transport, unit: &UnitRef, lines: usize) -> Result<String> {
+    ServiceControl::default().logs(transport, unit, lines)
+}
+
+/// Read a source drop file with the real command runner.
+///
+/// # Errors
+///
+/// Returns an error when `cat` cannot run or returns an unexpected failure.
+pub fn read_drop_file(transport: &Transport, drop_file_path: &Path) -> Result<DropFileRead> {
+    ServiceControl::default().read_drop_file(transport, drop_file_path)
 }
 
 fn parse_service_state(output: &str) -> ServiceState {
@@ -415,6 +490,23 @@ fn command_failure(program: &str, output: &CommandOutput) -> anyhow::Error {
     }
 }
 
+fn cat_missing_file(output: &CommandOutput) -> bool {
+    output.status.code() == Some(1)
+        && output
+            .stderr
+            .to_ascii_lowercase()
+            .contains("no such file or directory")
+}
+
+fn not_reachable_failure(transport: &Transport) -> anyhow::Error {
+    match transport {
+        Transport::Local => anyhow!("broadcast host not reachable"),
+        Transport::Ssh { destination } => {
+            anyhow!("broadcast host {destination:?} not reachable")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -463,6 +555,14 @@ mod tests {
         UnitRef::new("musicindex-live-publisher@mixxx.service").expect("unit")
     }
 
+    fn local_transport() -> Transport {
+        Transport::local()
+    }
+
+    fn ssh_transport() -> Transport {
+        Transport::ssh("studio-box").expect("ssh transport")
+    }
+
     fn show_output(load_state: &str, active_state: &str, sub_state: &str, result: &str) -> String {
         format!(
             "LoadState={load_state}\nActiveState={active_state}\nSubState={sub_state}\nResult={result}\n"
@@ -490,7 +590,10 @@ mod tests {
         )));
         let service = ServiceControl::new(&runner);
 
-        assert_eq!(service.show(&unit())?, ServiceState::Active);
+        assert_eq!(
+            service.show(&local_transport(), &unit())?,
+            ServiceState::Active
+        );
         assert_eq!(
             runner.calls(),
             vec![RecordedCall {
@@ -531,9 +634,44 @@ mod tests {
             let runner = StubRunner::with_output(CommandOutput::success(output));
             let service = ServiceControl::new(&runner);
 
-            assert_eq!(service.show(&unit())?, expected);
+            assert_eq!(service.show(&local_transport(), &unit())?, expected);
         }
         Ok(())
+    }
+
+    #[test]
+    fn show_maps_unreachable_ssh_host_to_not_reachable() -> Result<()> {
+        let runner = StubRunner::with_output(CommandOutput::failure(
+            Some(255),
+            "",
+            "ssh: connect to host studio-box port 22: No route to host",
+        ));
+        let service = ServiceControl::new(&runner);
+
+        assert_eq!(
+            service.show(&ssh_transport(), &unit())?,
+            ServiceState::NotReachable
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn show_keeps_reached_systemctl_failure_out_of_not_reachable() {
+        let runner = StubRunner::with_output(CommandOutput::failure(
+            Some(1),
+            "",
+            "Failed to get properties: Unit not found",
+        ));
+        let service = ServiceControl::new(&runner);
+
+        let error = service
+            .show(&ssh_transport(), &unit())
+            .expect_err("reached systemctl failure should stay an error");
+
+        assert!(
+            error.to_string().contains("systemctl failed"),
+            "systemctl failure should not be converted to host reachability: {error}"
+        );
     }
 
     #[test]
@@ -553,7 +691,7 @@ mod tests {
             let service = ServiceControl::new(&runner);
 
             assert_eq!(
-                service.show(&unit())?,
+                service.show(&local_transport(), &unit())?,
                 ServiceState::Failed {
                     reason: expected_reason.to_owned(),
                 }
@@ -579,10 +717,10 @@ mod tests {
             let service = ServiceControl::new(&runner);
 
             match expected_operation {
-                "start" => service.start(&unit())?,
-                "stop" => service.stop(&unit())?,
-                "restart" => service.restart(&unit())?,
-                "reset-failed" => service.reset(&unit())?,
+                "start" => service.start(&local_transport(), &unit())?,
+                "stop" => service.stop(&local_transport(), &unit())?,
+                "restart" => service.restart(&local_transport(), &unit())?,
+                "reset-failed" => service.reset(&local_transport(), &unit())?,
                 _ => unreachable!("test covers known operations only"),
             }
 
@@ -602,11 +740,38 @@ mod tests {
     }
 
     #[test]
+    fn ssh_service_operations_wrap_the_same_systemctl_command() -> Result<()> {
+        let runner = StubRunner::with_output(CommandOutput::success(""));
+        let service = ServiceControl::new(&runner);
+
+        service.start(&ssh_transport(), &unit())?;
+
+        assert_eq!(
+            runner.calls(),
+            vec![RecordedCall {
+                program: "ssh".to_owned(),
+                args: vec![
+                    "-o".to_owned(),
+                    "BatchMode=yes".to_owned(),
+                    "-o".to_owned(),
+                    "ConnectTimeout=5".to_owned(),
+                    "studio-box".to_owned(),
+                    "systemctl".to_owned(),
+                    "--user".to_owned(),
+                    "start".to_owned(),
+                    "musicindex-live-publisher@mixxx.service".to_owned(),
+                ],
+            }]
+        );
+        Ok(())
+    }
+
+    #[test]
     fn daemon_reload_uses_user_manager() -> Result<()> {
         let runner = StubRunner::with_output(CommandOutput::success(""));
         let service = ServiceControl::new(&runner);
 
-        service.daemon_reload()?;
+        service.daemon_reload(&local_transport())?;
 
         assert_eq!(
             runner.calls(),
@@ -624,7 +789,7 @@ mod tests {
             let runner = StubRunner::with_output(CommandOutput::success(expected));
             let service = ServiceControl::new(&runner);
 
-            assert_eq!(service.logs(&unit(), 50)?, expected);
+            assert_eq!(service.logs(&local_transport(), &unit(), 50)?, expected);
             assert_eq!(
                 runner.calls(),
                 vec![RecordedCall {
@@ -644,6 +809,58 @@ mod tests {
     }
 
     #[test]
+    fn drop_file_read_uses_cat_and_maps_missing_file_to_no_track() -> Result<()> {
+        for (output, expected) in [
+            (
+                CommandOutput::success("{\"schema\":\"musicindex.nowplaying/1\"}\n"),
+                DropFileRead::Present {
+                    text: "{\"schema\":\"musicindex.nowplaying/1\"}\n".to_owned(),
+                },
+            ),
+            (
+                CommandOutput::failure(
+                    Some(1),
+                    "",
+                    "cat: /tmp/now-playing.json: No such file or directory",
+                ),
+                DropFileRead::NoTrack,
+            ),
+        ] {
+            let runner = StubRunner::with_output(output);
+            let service = ServiceControl::new(&runner);
+
+            assert_eq!(
+                service.read_drop_file(&local_transport(), Path::new("/tmp/now-playing.json"))?,
+                expected
+            );
+            assert_eq!(
+                runner.calls(),
+                vec![RecordedCall {
+                    program: "cat".to_owned(),
+                    args: vec!["/tmp/now-playing.json".to_owned()],
+                }]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn drop_file_read_maps_unreachable_ssh_host_to_not_reachable() -> Result<()> {
+        let runner = StubRunner::with_output(CommandOutput::failure(
+            Some(255),
+            "",
+            "ssh: connect to host studio-box port 22: Connection timed out",
+        ));
+        let service = ServiceControl::new(&runner);
+
+        assert_eq!(
+            service.read_drop_file(&ssh_transport(), Path::new("/tmp/now-playing.json"))?,
+            DropFileRead::NotReachable
+        );
+        Ok(())
+    }
+
+    #[test]
     fn failed_commands_return_stderr_context() {
         let runner = StubRunner::with_output(CommandOutput::failure(
             Some(1),
@@ -652,7 +869,9 @@ mod tests {
         ));
         let service = ServiceControl::new(&runner);
 
-        let error = service.start(&unit()).expect_err("start should fail");
+        let error = service
+            .start(&local_transport(), &unit())
+            .expect_err("start should fail");
 
         assert!(error.to_string().contains("unit could not be started"));
     }

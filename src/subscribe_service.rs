@@ -756,7 +756,7 @@ fn fill_missing_source_text(target: &mut Option<String>, fallback: &Option<Strin
 mod tests {
     use super::*;
     use crate::api::SourceEnclosure;
-    use crate::config::{Config, PlaybackConfig};
+    use crate::config::{BroadcastConfig, Config, PlaybackConfig};
     use crate::theme_profile::ThemeProfile;
 
     fn cfg(temp: &std::path::Path) -> Config {
@@ -765,6 +765,7 @@ mod tests {
             db_path: temp.join("db.sqlite"),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            broadcast: BroadcastConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
             workspace: None,

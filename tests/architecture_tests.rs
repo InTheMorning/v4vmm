@@ -11616,7 +11616,8 @@ fn adr_0059_publisher_service_control_boundary_is_broadcast_owned() {
         "const JOURNALCTL: &str = \"journalctl\"",
         "--property=LoadState,ActiveState,SubState,Result",
         "reset-failed",
-        "pub fn logs(&self, unit: &UnitRef, lines: usize)",
+        "pub fn show(&self, transport: &Transport, unit: &UnitRef)",
+        "pub fn logs(&self, transport: &Transport, unit: &UnitRef, lines: usize)",
     ] {
         if !control_source.contains(required) && !broadcast_mod_source.contains(required) {
             violations.push(format!(
@@ -11645,6 +11646,63 @@ fn adr_0059_publisher_service_control_boundary_is_broadcast_owned() {
     assert!(
         violations.is_empty(),
         "Situational ADR 0059 service-control boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0059: Packet 010 SSH command construction stays in broadcast.
+#[test]
+fn adr_0059_ssh_transport_boundary_is_broadcast_owned() {
+    let mut violations = Vec::new();
+    let transport_source = read_source(&manifest_path("src/broadcast/transport.rs"));
+    let broadcast_mod_source = read_source(&manifest_path("src/broadcast/mod.rs"));
+
+    for required in [
+        "pub mod transport;",
+        "pub enum Transport",
+        "Ssh {",
+        "const SSH: &str = \"ssh\"",
+        "BatchMode=yes",
+        "ConnectTimeout=5",
+        "fn ssh_args(",
+        "Reachability::NotReachable",
+    ] {
+        if !transport_source.contains(required) && !broadcast_mod_source.contains(required) {
+            violations.push(format!(
+                "src/broadcast/transport.rs: Situational ADR 0059 Packet 010 SSH transport missing `{required}`. Fix: keep SSH wrapping and reachability classification in broadcast::transport."
+            ));
+        }
+    }
+
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        if file.starts_with("src/broadcast/") || file == "src/config.rs" {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in [
+                "Command::new(\"ssh\")",
+                "Command::new(SSH",
+                "std::process::Command::new(\"ssh\")",
+                ".run(\"ssh\"",
+                "runner.run(\"ssh\"",
+                "program: \"ssh\"",
+                "\"ssh\"",
+            ] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{}:{line_number}: Situational ADR 0059 Packet 010 forbids SSH command construction outside src/broadcast. Fix: route remote host commands through broadcast::transport.",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0059 Packet 010 SSH transport boundary violations:\n{}",
         violations.join("\n")
     );
 }

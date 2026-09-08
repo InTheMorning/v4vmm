@@ -22,7 +22,8 @@ use crate::ui::tokens::{color, FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::show::{
     PublisherActionDisplay, PublisherLogPanelState, PublisherSectionDisplay,
     PublisherServiceDisplay, PublisherServiceRole, PublisherServiceStateKind,
-    ShowEmptyStateDisplay, ShowNowPlayingDisplay, ShowPageVm,
+    ShowEmptyStateDisplay, ShowNowPlayingDisplay, ShowPageVm, SourceReachabilityState,
+    SourceSectionDisplay,
 };
 
 /// Callback slots supplied by the application-owned Show screen.
@@ -153,6 +154,7 @@ impl RenderOnce for ShowShell {
             state_label,
             now_playing,
             empty_state,
+            source,
             publisher,
             queue,
         } = self.vm;
@@ -173,6 +175,10 @@ impl RenderOnce for ShowShell {
                 empty_state,
                 cx,
             ));
+
+        if let Some(source) = source {
+            screen = screen.child(render_source_section(source, cx));
+        }
 
         if let Some(publisher) = publisher {
             screen = screen.child(render_publisher_section(
@@ -348,6 +354,82 @@ fn render_summary_subtitle(
             .text_color(tertiary_label)
             .child(SharedString::from(state_label)),
     )
+}
+
+fn render_source_section(source: SourceSectionDisplay, cx: &App) -> impl IntoElement {
+    let state_color = source_reachability_color(source.reachability.state);
+    let body = div()
+        .id("source-section-body")
+        .flex()
+        .flex_col()
+        .gap(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(Spacing::SM.scaled(cx))
+                .child(SectionHeader::new(source.title))
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::SecondaryLabel))
+                        .truncate()
+                        .child(SharedString::from(source.summary.clone())),
+                ),
+        )
+        .child(
+            div()
+                .id("source-host-row")
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(Spacing::MD.scaled(cx))
+                .border_t_1()
+                .border_color(color(cx, SemanticColor::Separator))
+                .pt(Spacing::SM.scaled(cx))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .min_w_0()
+                        .gap(Spacing::XXS.scaled(cx))
+                        .child(
+                            div()
+                                .text_size(FontSize::Headline.scaled(cx))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(color(cx, SemanticColor::Label))
+                                .truncate()
+                                .child(SharedString::from(source.host_name)),
+                        )
+                        .child(
+                            div()
+                                .text_size(FontSize::Caption.scaled(cx))
+                                .text_color(color(cx, SemanticColor::SecondaryLabel))
+                                .child(SharedString::from(source.reachability.detail)),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, state_color))
+                        .child(SharedString::from(source.reachability.label)),
+                ),
+        );
+
+    div()
+        .id("show-source-section")
+        .flex_shrink_0()
+        .px(Spacing::XL.scaled(cx))
+        .pb(Spacing::LG.scaled(cx))
+        .child(
+            Surface::new(SurfaceElevation::Sunken)
+                .padding(Spacing::MD)
+                .child(body),
+        )
 }
 
 fn render_publisher_section(
@@ -633,6 +715,14 @@ const fn state_color(kind: PublisherServiceStateKind) -> SemanticColor {
         PublisherServiceStateKind::NotInstalled
         | PublisherServiceStateKind::NotReachable
         | PublisherServiceStateKind::Unknown => SemanticColor::WarningLabel,
+    }
+}
+
+const fn source_reachability_color(state: SourceReachabilityState) -> SemanticColor {
+    match state {
+        SourceReachabilityState::Reachable => SemanticColor::SuccessLabel,
+        SourceReachabilityState::NotReachable => SemanticColor::WarningLabel,
+        SourceReachabilityState::Unknown => SemanticColor::SecondaryLabel,
     }
 }
 

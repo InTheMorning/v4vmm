@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::broadcast::control::{self, ServiceState, UnitRef};
+use crate::broadcast::transport::Transport;
 
 const BROADCAST_SERVICE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 const INBOX_CAPACITY: usize = 8;
@@ -30,6 +31,10 @@ pub enum BroadcastServiceRole {
 pub struct BroadcastServiceWatchUnit {
     /// Role this unit plays in the chain.
     pub role: BroadcastServiceRole,
+    /// Curator-facing host name for this unit.
+    pub host_name: String,
+    /// Transport used to read this unit.
+    pub transport: Transport,
     /// User unit name to observe.
     pub unit: UnitRef,
 }
@@ -37,8 +42,18 @@ pub struct BroadcastServiceWatchUnit {
 impl BroadcastServiceWatchUnit {
     /// Create a watch unit.
     #[must_use]
-    pub const fn new(role: BroadcastServiceRole, unit: UnitRef) -> Self {
-        Self { role, unit }
+    pub fn new(
+        role: BroadcastServiceRole,
+        host_name: impl Into<String>,
+        transport: Transport,
+        unit: UnitRef,
+    ) -> Self {
+        Self {
+            role,
+            host_name: host_name.into(),
+            transport,
+            unit,
+        }
     }
 }
 
@@ -47,6 +62,8 @@ impl BroadcastServiceWatchUnit {
 pub struct BroadcastServiceUnitSnapshot {
     /// Role this unit plays in the chain.
     pub role: BroadcastServiceRole,
+    /// Curator-facing host name for this unit.
+    pub host_name: String,
     /// Complete user unit name.
     pub unit_name: String,
     /// Reduced service state.
@@ -69,6 +86,7 @@ impl BroadcastServiceWatchSnapshot {
                 .iter()
                 .map(|unit| BroadcastServiceUnitSnapshot {
                     role: unit.role,
+                    host_name: unit.host_name.clone(),
                     unit_name: unit.unit.unit().to_owned(),
                     state: ServiceState::Unknown,
                 })
@@ -139,7 +157,7 @@ pub fn start(units: Vec<BroadcastServiceWatchUnit>) -> BroadcastServiceWatchHand
 }
 
 trait ServiceStateReader: Send + Sync + 'static {
-    fn show(&self, unit: &UnitRef) -> Result<ServiceState, String>;
+    fn show(&self, transport: &Transport, unit: &UnitRef) -> Result<ServiceState, String>;
 }
 
 type SharedServiceStateReader = Arc<dyn ServiceStateReader>;
@@ -147,8 +165,8 @@ type SharedServiceStateReader = Arc<dyn ServiceStateReader>;
 struct ControlServiceStateReader;
 
 impl ServiceStateReader for ControlServiceStateReader {
-    fn show(&self, unit: &UnitRef) -> Result<ServiceState, String> {
-        control::show(unit).map_err(|error| format!("{error:#}"))
+    fn show(&self, transport: &Transport, unit: &UnitRef) -> Result<ServiceState, String> {
+        control::show(transport, unit).map_err(|error| format!("{error:#}"))
     }
 }
 
@@ -213,8 +231,11 @@ fn read_services_blocking(
             .iter()
             .map(|unit| BroadcastServiceUnitSnapshot {
                 role: unit.role,
+                host_name: unit.host_name.clone(),
                 unit_name: unit.unit.unit().to_owned(),
-                state: reader.show(&unit.unit).unwrap_or(ServiceState::Unknown),
+                state: reader
+                    .show(&unit.transport, &unit.unit)
+                    .unwrap_or(ServiceState::Unknown),
             })
             .collect(),
     )
@@ -246,11 +267,13 @@ mod tests {
             vec![
                 BroadcastServiceUnitSnapshot {
                     role: BroadcastServiceRole::Publisher,
+                    host_name: "Local".to_owned(),
                     unit_name: "musicindex-live-publisher@mixxx.service".to_owned(),
                     state: ServiceState::Active,
                 },
                 BroadcastServiceUnitSnapshot {
                     role: BroadcastServiceRole::Producer,
+                    host_name: "Local".to_owned(),
                     unit_name: "mixxx-now-playing.service".to_owned(),
                     state: ServiceState::Inactive,
                 },
@@ -340,10 +363,14 @@ mod tests {
         vec![
             BroadcastServiceWatchUnit::new(
                 BroadcastServiceRole::Publisher,
+                "Local",
+                Transport::local(),
                 UnitRef::publisher("mixxx").expect("publisher unit"),
             ),
             BroadcastServiceWatchUnit::new(
                 BroadcastServiceRole::Producer,
+                "Local",
+                Transport::local(),
                 UnitRef::new("mixxx-now-playing.service").expect("producer unit"),
             ),
         ]
@@ -368,7 +395,7 @@ mod tests {
     }
 
     impl ServiceStateReader for StubServiceStateReader {
-        fn show(&self, unit: &UnitRef) -> Result<ServiceState, String> {
+        fn show(&self, _transport: &Transport, unit: &UnitRef) -> Result<ServiceState, String> {
             self.calls
                 .lock()
                 .expect("calls lock")

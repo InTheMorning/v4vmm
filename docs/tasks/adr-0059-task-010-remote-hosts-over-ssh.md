@@ -1,6 +1,8 @@
 # ADR 0059 Task 010: Remote Hosts Over SSH
 
-Status: Ready - 2026-09-08. Revised for ADR 0060. Do after 009.
+Status: Implemented, visual proof blocked - 2026-09-08. Mechanical acceptance
+met. Visual proof for the Source host/reachability row is blocked by GPUI X11
+initialization in the agent session.
 
 ## Goal
 

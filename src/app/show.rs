@@ -13,6 +13,7 @@ use crate::application::{
     ApplicationCommand, ApplicationServices, CommandContext, CommandError, CommandOutcome,
 };
 use crate::broadcast::control::{self, UnitRef};
+use crate::config::BroadcastHostConfig;
 use crate::presentation::present_command;
 use crate::presentation::{bridge_watch, RuntimeHost};
 use crate::runtime::{
@@ -116,7 +117,14 @@ impl TopApp {
             return;
         };
 
-        let units = match local_broadcast_service_units() {
+        let selected_host = match selected_broadcast_host(&self.broadcast) {
+            Ok(host) => host,
+            Err(error) => {
+                self.settings_status = format!("Publisher status error: {error:#}");
+                return;
+            }
+        };
+        let units = match broadcast_service_units(&selected_host) {
             Ok(units) => units,
             Err(error) => {
                 self.settings_status = format!("Publisher status error: {error}");
@@ -183,7 +191,15 @@ impl TopApp {
         operation: PublisherServiceOperation,
         cx: &mut Context<Self>,
     ) {
-        let command = match PublisherServiceCommand::new(role, operation) {
+        let selected_host = match selected_broadcast_host(&self.broadcast) {
+            Ok(host) => host,
+            Err(error) => {
+                self.settings_status = format!("Publisher command error: {error:#}");
+                cx.notify();
+                return;
+            }
+        };
+        let command = match PublisherServiceCommand::new(&selected_host, role, operation) {
             Ok(command) => command,
             Err(error) => {
                 self.settings_status = format!("Publisher command error: {error}");
@@ -207,7 +223,15 @@ impl TopApp {
     }
 
     fn open_publisher_logs(&mut self, role: PublisherServiceRole, cx: &mut Context<Self>) {
-        let command = match ReadPublisherLogs::new(role) {
+        let selected_host = match selected_broadcast_host(&self.broadcast) {
+            Ok(host) => host,
+            Err(error) => {
+                self.settings_status = format!("Publisher log error: {error:#}");
+                cx.notify();
+                return;
+            }
+        };
+        let command = match ReadPublisherLogs::new(&selected_host, role) {
             Ok(command) => command,
             Err(error) => {
                 self.settings_status = format!("Publisher log error: {error}");
@@ -298,18 +322,21 @@ enum PublisherServiceOperation {
 
 struct PublisherServiceCommand {
     role: PublisherServiceRole,
+    transport: crate::broadcast::transport::Transport,
     unit: UnitRef,
     operation: PublisherServiceOperation,
 }
 
 impl PublisherServiceCommand {
     fn new(
+        host: &BroadcastHostConfig,
         role: PublisherServiceRole,
         operation: PublisherServiceOperation,
     ) -> Result<Self, CommandError> {
         Ok(Self {
             role,
-            unit: local_broadcast_service_unit(role).map_err(publisher_command_error)?,
+            transport: host.transport.clone(),
+            unit: broadcast_service_unit(host, role).map_err(publisher_command_error)?,
             operation,
         })
     }
@@ -323,9 +350,9 @@ impl ApplicationCommand for PublisherServiceCommand {
             return Err(CommandError::Cancelled);
         }
         match self.operation {
-            PublisherServiceOperation::Start => control::start(&self.unit),
-            PublisherServiceOperation::Stop => control::stop(&self.unit),
-            PublisherServiceOperation::Reset => control::reset(&self.unit),
+            PublisherServiceOperation::Start => control::start(&self.transport, &self.unit),
+            PublisherServiceOperation::Stop => control::stop(&self.transport, &self.unit),
+            PublisherServiceOperation::Reset => control::reset(&self.transport, &self.unit),
         }
         .map_err(|error| {
             publisher_command_error(format!(
@@ -341,15 +368,17 @@ impl ApplicationCommand for PublisherServiceCommand {
 
 struct ReadPublisherLogs {
     role: PublisherServiceRole,
+    transport: crate::broadcast::transport::Transport,
     unit: UnitRef,
     line_count: usize,
 }
 
 impl ReadPublisherLogs {
-    fn new(role: PublisherServiceRole) -> Result<Self, CommandError> {
+    fn new(host: &BroadcastHostConfig, role: PublisherServiceRole) -> Result<Self, CommandError> {
         Ok(Self {
             role,
-            unit: local_broadcast_service_unit(role).map_err(publisher_command_error)?,
+            transport: host.transport.clone(),
+            unit: broadcast_service_unit(host, role).map_err(publisher_command_error)?,
             line_count: PUBLISHER_LOG_LINE_COUNT,
         })
     }
@@ -362,9 +391,10 @@ impl ApplicationCommand for ReadPublisherLogs {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        let text = control::logs(&self.unit, self.line_count).map_err(|error| {
-            publisher_command_error(format!("read {} logs: {error:#}", role_label(self.role)))
-        })?;
+        let text =
+            control::logs(&self.transport, &self.unit, self.line_count).map_err(|error| {
+                publisher_command_error(format!("read {} logs: {error:#}", role_label(self.role)))
+            })?;
         Ok(CommandOutcome::without_events(PublisherLogsResult {
             role: self.role,
             unit_name: self.unit.unit().to_owned(),
@@ -389,22 +419,38 @@ fn start_broadcast_service_watch(
     crate::runtime::broadcast_service_watch::start(units)
 }
 
-fn local_broadcast_service_units() -> anyhow::Result<Vec<BroadcastServiceWatchUnit>> {
+fn selected_broadcast_host(
+    broadcast: &crate::config::BroadcastConfig,
+) -> anyhow::Result<BroadcastHostConfig> {
+    Ok(broadcast.selected_host()?.clone())
+}
+
+fn broadcast_service_units(
+    host: &BroadcastHostConfig,
+) -> anyhow::Result<Vec<BroadcastServiceWatchUnit>> {
+    let host_name = host.name.trim().to_owned();
     Ok(vec![
         BroadcastServiceWatchUnit::new(
             BroadcastServiceRole::Publisher,
-            local_broadcast_service_unit(BroadcastServiceRole::Publisher)?,
+            host_name.clone(),
+            host.transport.clone(),
+            broadcast_service_unit(host, BroadcastServiceRole::Publisher)?,
         ),
         BroadcastServiceWatchUnit::new(
             BroadcastServiceRole::Producer,
-            local_broadcast_service_unit(BroadcastServiceRole::Producer)?,
+            host_name,
+            host.transport.clone(),
+            broadcast_service_unit(host, BroadcastServiceRole::Producer)?,
         ),
     ])
 }
 
-fn local_broadcast_service_unit(role: PublisherServiceRole) -> anyhow::Result<UnitRef> {
+fn broadcast_service_unit(
+    host: &BroadcastHostConfig,
+    role: PublisherServiceRole,
+) -> anyhow::Result<UnitRef> {
     match role {
-        PublisherServiceRole::Publisher => UnitRef::publisher("mixxx"),
+        PublisherServiceRole::Publisher => UnitRef::publisher(&host.instance_name),
         PublisherServiceRole::Producer => UnitRef::new(PRODUCER_UNIT),
     }
 }

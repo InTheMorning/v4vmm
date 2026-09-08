@@ -2,10 +2,12 @@
 use anyhow::{anyhow, Context, Result};
 use directories::{BaseDirs, ProjectDirs};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::api::DEFAULT_BASE_URL;
+use crate::broadcast::transport::Transport;
 use crate::theme_profile::ThemeProfile;
 use crate::view_models::workspace::{ContentViewMode, WorkspaceLayoutConfig};
 
@@ -30,6 +32,10 @@ pub struct Config {
     /// driver so existing configs keep loading unchanged.
     #[serde(default)]
     pub playback: PlaybackConfig,
+
+    /// Broadcast host configuration. Missing config defaults to one local host.
+    #[serde(default)]
+    pub broadcast: BroadcastConfig,
 
     /// Global UI scale factor. Mirrors iOS Dynamic Type's named steps.
     /// Missing value defaults to `medium` (1.0×).
@@ -221,6 +227,117 @@ impl PlaybackDriver {
     }
 }
 
+/// Broadcast host list configuration.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct BroadcastConfig {
+    /// Optional selected host name. When absent, the first host is selected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_host: Option<String>,
+    /// Configured broadcast hosts.
+    #[serde(default = "default_broadcast_hosts")]
+    pub hosts: Vec<BroadcastHostConfig>,
+}
+
+impl Default for BroadcastConfig {
+    fn default() -> Self {
+        Self {
+            selected_host: None,
+            hosts: default_broadcast_hosts(),
+        }
+    }
+}
+
+impl BroadcastConfig {
+    /// Return the selected broadcast host.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the host list is empty or the selected host name
+    /// does not match a configured host.
+    pub fn selected_host(&self) -> Result<&BroadcastHostConfig> {
+        let Some(selected_host) = self.selected_host.as_deref() else {
+            return self
+                .hosts
+                .first()
+                .ok_or_else(|| anyhow!("config: broadcast.hosts is empty"));
+        };
+        let selected_host = selected_host.trim();
+        self.hosts
+            .iter()
+            .find(|host| host.name.trim() == selected_host)
+            .ok_or_else(|| anyhow!("config: broadcast selected_host {selected_host:?} not found"))
+    }
+
+    /// Validate host-list shape and selected host.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a host field is empty, names are duplicated, the
+    /// list is empty, the transport is invalid, or the selected host is absent.
+    pub fn validate(&self) -> Result<()> {
+        let mut names = BTreeSet::new();
+        for host in &self.hosts {
+            host.validate()?;
+            let name = host.name.trim();
+            if !names.insert(name.to_owned()) {
+                return Err(anyhow!("config: duplicate broadcast host name {name:?}"));
+            }
+        }
+        let _ = self.selected_host()?;
+        Ok(())
+    }
+}
+
+/// One configured host that can own publisher-side broadcast services.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct BroadcastHostConfig {
+    /// Curator-facing host name.
+    pub name: String,
+    /// Local or SSH command transport.
+    #[serde(flatten)]
+    pub transport: Transport,
+    /// Publisher instance name used in the user service unit.
+    pub instance_name: String,
+}
+
+impl BroadcastHostConfig {
+    /// Return the default local broadcast host.
+    #[must_use]
+    pub fn default_local() -> Self {
+        Self {
+            name: "Local".to_owned(),
+            transport: Transport::local(),
+            instance_name: default_broadcast_instance_name(),
+        }
+    }
+
+    /// Validate this host entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the name, instance name, or transport is invalid.
+    pub fn validate(&self) -> Result<()> {
+        if self.name.trim().is_empty() {
+            return Err(anyhow!("config: broadcast host name is empty"));
+        }
+        if self.instance_name.trim().is_empty() {
+            return Err(anyhow!(
+                "config: broadcast host {} instance_name is empty",
+                self.name
+            ));
+        }
+        self.transport.validate()
+    }
+}
+
+fn default_broadcast_hosts() -> Vec<BroadcastHostConfig> {
+    vec![BroadcastHostConfig::default_local()]
+}
+
+fn default_broadcast_instance_name() -> String {
+    "mixxx".to_owned()
+}
+
 fn deserialize_playback_driver<'de, D>(
     deserializer: D,
 ) -> std::result::Result<PlaybackDriver, D::Error>
@@ -288,6 +405,9 @@ pub fn load_config(cfg_path: &Path) -> Result<Config> {
     if cfg.db_path.as_os_str().is_empty() {
         return Err(anyhow!("config: db_path is empty"));
     }
+    cfg.broadcast
+        .validate()
+        .with_context(|| format!("parse broadcast config {}", cfg_path.display()))?;
 
     Ok(cfg)
 }
@@ -562,6 +682,15 @@ theme_profile = "dark"
 # driver = "mpv"
 # mpv_path = "/usr/bin/mpv"
 
+# Broadcast host control. Missing section defaults to this local host.
+# [broadcast]
+# selected_host = "Local"
+#
+# [[broadcast.hosts]]
+# name = "Local"
+# transport = "local"
+# instance_name = "mixxx"
+
 # Workspace layout is persisted automatically. Missing or malformed values
 # fall back to the default layout.
 "#,
@@ -647,6 +776,69 @@ db_path = "/tmp/v4vmm.sqlite"
 
         assert_eq!(cfg.driver, PlaybackDriver::Null);
         assert_eq!(cfg.mpv_path, None);
+    }
+
+    #[test]
+    fn load_config_defaults_missing_broadcast_to_local_host() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let host = cfg.broadcast.selected_host().expect("selected host");
+
+        assert_eq!(cfg.broadcast.hosts.len(), 1);
+        assert_eq!(host.name, "Local");
+        assert_eq!(host.transport, Transport::Local);
+        assert_eq!(host.instance_name, "mixxx");
+    }
+
+    #[test]
+    fn load_config_parses_broadcast_host_list_and_selection() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[broadcast]
+selected_host = "Studio"
+
+[[broadcast.hosts]]
+name = "Local"
+transport = "local"
+instance_name = "mixxx"
+
+[[broadcast.hosts]]
+name = "Studio"
+transport = "ssh"
+destination = "studio-box"
+instance_name = "remote-mixxx"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let host = cfg.broadcast.selected_host().expect("selected host");
+
+        assert_eq!(cfg.broadcast.hosts.len(), 2);
+        assert_eq!(host.name, "Studio");
+        assert_eq!(
+            host.transport,
+            Transport::Ssh {
+                destination: "studio-box".to_owned()
+            }
+        );
+        assert_eq!(host.instance_name, "remote-mixxx");
     }
 
     #[test]

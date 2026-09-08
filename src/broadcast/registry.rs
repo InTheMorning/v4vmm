@@ -246,7 +246,7 @@ mod tests {
     use anyhow::Result;
 
     use super::*;
-    use crate::config::{Config, PlaybackConfig, UiScale};
+    use crate::config::{BroadcastConfig, Config, PlaybackConfig, UiScale};
     use crate::theme_profile::ThemeProfile;
 
     const FIXED_TIME: i64 = 1_778_284_900;
@@ -261,6 +261,7 @@ mod tests {
             db_path: temp.path().join("v4vmm.sqlite"),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            broadcast: BroadcastConfig::default(),
             ui_scale: UiScale::default(),
             theme_profile: ThemeProfile::default(),
             workspace_layout: None,

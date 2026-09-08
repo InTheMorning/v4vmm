@@ -548,7 +548,7 @@ mod tests {
     use crate::api::{SourceEnclosure, Track};
     use crate::audio_format::AudioFormat;
     use crate::audio_tags::AudioTags;
-    use crate::config::{Config, PlaybackConfig};
+    use crate::config::{BroadcastConfig, Config, PlaybackConfig};
     use crate::theme_profile::ThemeProfile;
 
     fn track() -> Track {
@@ -633,6 +633,7 @@ mod tests {
             db_path: "/tmp/v4vmm-test.sqlite".into(),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            broadcast: BroadcastConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
             workspace: None,
@@ -656,6 +657,7 @@ mod tests {
             db_path: "/tmp/v4vmm-test.sqlite".into(),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            broadcast: BroadcastConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
             workspace: None,
@@ -683,6 +685,7 @@ mod tests {
             db_path: "/tmp/v4vmm-test.sqlite".into(),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            broadcast: BroadcastConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
             workspace: None,
@@ -783,6 +786,7 @@ mod tests {
             db_path: temp.path().join("db.sqlite"),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            broadcast: BroadcastConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
             workspace: None,
@@ -847,6 +851,7 @@ mod tests {
             db_path: temp.path().join("db.sqlite"),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            broadcast: BroadcastConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
             workspace: None,
@@ -887,6 +892,7 @@ mod tests {
             db_path: temp.path().join("db.sqlite"),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            broadcast: BroadcastConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
             workspace: None,
@@ -935,6 +941,7 @@ mod tests {
             db_path: temp.path().join("db.sqlite"),
             flac_path: None,
             playback: PlaybackConfig::default(),
+            broadcast: BroadcastConfig::default(),
             ui_scale: Default::default(),
             theme_profile: ThemeProfile::default(),
             workspace: None,

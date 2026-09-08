@@ -94,6 +94,7 @@ pub fn run_app() {
                             musicindex_endpoint,
                             cfg.music_dir,
                             cfg.flac_path,
+                            cfg.broadcast,
                             cfg.workspace_layout,
                             workspace_layout_prefs.as_ref(),
                             cfg.ui_scale,

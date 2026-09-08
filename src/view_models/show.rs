@@ -38,6 +38,63 @@ pub(crate) struct ShowNowPlayingDisplay {
     pub(crate) a11y_label: String,
 }
 
+/// Display-ready Source section for the `Show` screen mount.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SourceSectionDisplay {
+    /// Stable section title.
+    pub(crate) title: &'static str,
+    /// Selected host summary.
+    pub(crate) summary: String,
+    /// Curator-facing host name.
+    pub(crate) host_name: String,
+    /// Host reachability display.
+    pub(crate) reachability: SourceReachabilityDisplay,
+}
+
+/// Display-ready host reachability state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SourceReachabilityDisplay {
+    /// Stable reachability kind.
+    pub(crate) state: SourceReachabilityState,
+    /// Curator-facing label.
+    pub(crate) label: &'static str,
+    /// Curator-facing detail.
+    pub(crate) detail: &'static str,
+}
+
+/// Stable host reachability state for the Source section.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SourceReachabilityState {
+    /// The selected host accepted at least one broadcast service read.
+    Reachable,
+    /// The selected host did not answer the SSH transport.
+    NotReachable,
+    /// No service read has established host reachability yet.
+    Unknown,
+}
+
+impl SourceReachabilityState {
+    const fn display(self) -> SourceReachabilityDisplay {
+        match self {
+            Self::Reachable => SourceReachabilityDisplay {
+                state: self,
+                label: "Reachable",
+                detail: "Host accepts broadcast control.",
+            },
+            Self::NotReachable => SourceReachabilityDisplay {
+                state: self,
+                label: "Not reachable",
+                detail: "Host cannot be reached.",
+            },
+            Self::Unknown => SourceReachabilityDisplay {
+                state: self,
+                label: "Unknown",
+                detail: "Host reachability has not been checked.",
+            },
+        }
+    }
+}
+
 /// Role of one publisher-side service in the show surface.
 pub(crate) type PublisherServiceRole = broadcast_service_watch::BroadcastServiceRole;
 
@@ -295,6 +352,8 @@ pub(crate) struct ShowPageVm {
     pub(crate) now_playing: Option<ShowNowPlayingDisplay>,
     /// Empty state shown when there is no active show playback.
     pub(crate) empty_state: Option<ShowEmptyStateDisplay>,
+    /// Optional Source section; absent sections render nothing.
+    pub(crate) source: Option<SourceSectionDisplay>,
     /// Optional Publisher section; absent sections render nothing.
     pub(crate) publisher: Option<PublisherSectionDisplay>,
     /// Queue and transport display projected by the existing queue VM.
@@ -328,6 +387,7 @@ impl ShowPageVm {
             .find(|row| row.now_playing)
             .map(ShowNowPlayingDisplay::from_queue_row);
         let active = queue.transport.play_pause_state.is_active();
+        let source = publisher_snapshot.and_then(SourceSectionDisplay::from_snapshot);
         let publisher = match publisher_snapshot {
             Some(snapshot) => PublisherSectionDisplay::from_snapshot(snapshot, log_panel),
             None => None,
@@ -341,6 +401,7 @@ impl ShowPageVm {
                 title: "No active show",
                 subtitle: "Show playback is idle.",
             }),
+            source,
             publisher,
             queue,
         }
@@ -361,6 +422,22 @@ impl ShowNowPlayingDisplay {
             duration_label: row.duration_label.clone(),
             a11y_label: row.a11y_label.clone(),
         }
+    }
+}
+
+impl SourceSectionDisplay {
+    fn from_snapshot(
+        snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
+    ) -> Option<Self> {
+        let host_name = snapshot.units.first()?.host_name.clone();
+        let reachability = source_reachability(snapshot.units.as_slice()).display();
+        let summary = format!("{host_name} - {}", reachability.label);
+        Some(Self {
+            title: "Source",
+            summary,
+            host_name,
+            reachability,
+        })
     }
 }
 
@@ -489,6 +566,24 @@ fn service_summary(services: &[PublisherServiceDisplay]) -> String {
     }
 }
 
+fn source_reachability(
+    units: &[broadcast_service_watch::BroadcastServiceUnitSnapshot],
+) -> SourceReachabilityState {
+    if units
+        .iter()
+        .any(|unit| matches!(unit.state, ServiceState::NotReachable))
+    {
+        return SourceReachabilityState::NotReachable;
+    }
+    if units
+        .iter()
+        .all(|unit| matches!(unit.state, ServiceState::Unknown))
+    {
+        return SourceReachabilityState::Unknown;
+    }
+    SourceReachabilityState::Reachable
+}
+
 const fn availability(available: bool) -> PublisherActionAvailability {
     if available {
         PublisherActionAvailability::Available
@@ -551,6 +646,7 @@ mod tests {
             })
         );
         assert!(vm.now_playing.is_none());
+        assert!(vm.source.is_none());
         assert!(vm.publisher.is_none());
         assert!(vm.queue.rows.is_empty());
     }
@@ -614,6 +710,19 @@ mod tests {
         );
         let publisher = vm.publisher.expect("publisher section");
 
+        assert_eq!(
+            vm.source,
+            Some(SourceSectionDisplay {
+                title: "Source",
+                summary: "Local - Reachable".to_owned(),
+                host_name: "Local".to_owned(),
+                reachability: SourceReachabilityDisplay {
+                    state: SourceReachabilityState::Reachable,
+                    label: "Reachable",
+                    detail: "Host accepts broadcast control.",
+                },
+            })
+        );
         assert_eq!(publisher.title, "Publisher");
         assert_eq!(publisher.summary, "2 services observed");
         assert_eq!(publisher.services.len(), 2);
@@ -683,6 +792,41 @@ mod tests {
     }
 
     #[test]
+    fn source_section_projects_not_reachable_host_state() {
+        let snapshot = publisher_snapshot_on_host(
+            "Studio",
+            [(
+                PublisherServiceRole::Publisher,
+                "musicindex-live-publisher@mixxx.service",
+                ServiceState::NotReachable,
+            )],
+        );
+        let vm = ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+        );
+
+        assert_eq!(
+            vm.source,
+            Some(SourceSectionDisplay {
+                title: "Source",
+                summary: "Studio - Not reachable".to_owned(),
+                host_name: "Studio".to_owned(),
+                reachability: SourceReachabilityDisplay {
+                    state: SourceReachabilityState::NotReachable,
+                    label: "Not reachable",
+                    detail: "Host cannot be reached.",
+                },
+            })
+        );
+        assert_eq!(
+            vm.publisher.expect("publisher section").services[0].state,
+            PublisherServiceStateDisplay::NotReachable
+        );
+    }
+
+    #[test]
     fn publisher_log_panel_open_state_carries_journal_text() {
         let snapshot = publisher_snapshot([(
             PublisherServiceRole::Publisher,
@@ -730,6 +874,13 @@ mod tests {
     fn publisher_snapshot<const N: usize>(
         units: [(PublisherServiceRole, &str, ServiceState); N],
     ) -> broadcast_service_watch::BroadcastServiceWatchSnapshot {
+        publisher_snapshot_on_host("Local", units)
+    }
+
+    fn publisher_snapshot_on_host<const N: usize>(
+        host_name: &str,
+        units: [(PublisherServiceRole, &str, ServiceState); N],
+    ) -> broadcast_service_watch::BroadcastServiceWatchSnapshot {
         broadcast_service_watch::BroadcastServiceWatchSnapshot {
             at: std::time::Instant::now(),
             units: units
@@ -737,6 +888,7 @@ mod tests {
                 .map(|(role, unit_name, state)| {
                     broadcast_service_watch::BroadcastServiceUnitSnapshot {
                         role,
+                        host_name: host_name.to_owned(),
                         unit_name: unit_name.to_owned(),
                         state,
                     }
