@@ -1,6 +1,6 @@
 # ADR 0059 Task 008: Publisher Service Control
 
-Status: Ready - 2026-09-08. Backend only. ADR 0060 does not touch it.
+Status: Implemented - 2026-09-08. Backend only. ADR 0060 does not touch it.
 
 ## Goal
 
@@ -72,7 +72,9 @@ and the producer unit with `systemctl --user`. No UI.
 
 ## Acceptance Criteria
 
-- Every state maps from recorded output, including `not-found`.
+- Mechanical: the five locally observable states map from recorded output,
+  including `not-found`. `NotReachable` has no local output that produces it.
+  Task 010 owns its construction and its test.
 - A failed unit reports its `Result` value as the reason.
 - The log read returns text and never panics on an empty journal.
 - No test runs a real `systemctl`.
@@ -124,7 +126,8 @@ Do not touch:
 - UI, view models, `src/app/**`, API, database, the registry service
 
 Acceptance criteria:
-- Six states map from recorded output, `not-found` included.
+- Five locally observable states map from recorded output, `not-found`
+  included. Declare `NotReachable` for task 010 and do not construct it here.
 - Failed carries the `Result` reason.
 - Guard blocks `systemctl` outside `src/broadcast/`.
 

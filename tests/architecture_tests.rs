@@ -11602,6 +11602,53 @@ fn adr_0059_broadcast_services_stay_gpui_free_and_use_api_client() {
     );
 }
 
+/// Situational ADR 0059: systemd service commands stay in broadcast control.
+#[test]
+fn adr_0059_publisher_service_control_boundary_is_broadcast_owned() {
+    let mut violations = Vec::new();
+    let control_source = read_source(&manifest_path("src/broadcast/control.rs"));
+    let broadcast_mod_source = read_source(&manifest_path("src/broadcast/mod.rs"));
+
+    for required in [
+        "pub mod control;",
+        "pub trait CommandRunner",
+        "const SYSTEMCTL: &str = \"systemctl\"",
+        "const JOURNALCTL: &str = \"journalctl\"",
+        "--property=LoadState,ActiveState,SubState,Result",
+        "reset-failed",
+        "pub fn logs(&self, unit: &UnitRef, lines: usize)",
+    ] {
+        if !control_source.contains(required) && !broadcast_mod_source.contains(required) {
+            violations.push(format!(
+                "src/broadcast/control.rs: Situational ADR 0059 service-control boundary missing `{required}`. Fix: keep systemd command construction and journal reads in broadcast control."
+            ));
+        }
+    }
+
+    for path in rust_files_under("src") {
+        if rel_path(&path) == "src/broadcast/control.rs" {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in ["systemctl", "journalctl"] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{}:{line_number}: Situational ADR 0059 service-control boundary forbids `{forbidden}` outside src/broadcast/control.rs. Fix: route user service commands through broadcast::control.",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0059 service-control boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0060: broadcasting is not a workspace frame.
 #[test]
 fn adr_0060_workspace_has_no_broadcast_frame_kind() {

@@ -138,7 +138,7 @@ Update this table when a packet lands.
 | `v4vmm` | 005 broadcast page VM | removed by ADR 0060 / task 001 |
 | `v4vmm` | 006 broadcast frame kind | removed by ADR 0060 / task 001 |
 | `v4vmm` | 007 broadcast shell | removed by ADR 0060 / task 001 |
-| `v4vmm` | 008 service control | ready |
+| `v4vmm` | 008 service control | complete - 2026-09-08 |
 | `v4vmm` | 009 publisher section | ready |
 | `v4vmm` | 010 remote hosts | ready |
 | `v4vmm` | 014 attach event | ready |
