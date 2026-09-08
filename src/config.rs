@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::api::DEFAULT_BASE_URL;
+use crate::broadcast::encoder::EncoderTarget;
 use crate::broadcast::transport::Transport;
 use crate::theme_profile::ThemeProfile;
 use crate::view_models::workspace::{ContentViewMode, WorkspaceLayoutConfig};
@@ -236,6 +237,9 @@ pub struct BroadcastConfig {
     /// Configured broadcast hosts.
     #[serde(default = "default_broadcast_hosts")]
     pub hosts: Vec<BroadcastHostConfig>,
+    /// Optional stream encoder control configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoder: Option<BroadcastEncoderConfig>,
 }
 
 impl Default for BroadcastConfig {
@@ -243,6 +247,7 @@ impl Default for BroadcastConfig {
         Self {
             selected_host: None,
             hosts: default_broadcast_hosts(),
+            encoder: None,
         }
     }
 }
@@ -284,6 +289,9 @@ impl BroadcastConfig {
             }
         }
         let _ = self.selected_host()?;
+        if let Some(encoder) = &self.encoder {
+            encoder.validate()?;
+        }
         Ok(())
     }
 }
@@ -330,12 +338,71 @@ impl BroadcastHostConfig {
     }
 }
 
+/// Optional stream encoder control configuration.
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq, Serialize)]
+pub struct BroadcastEncoderConfig {
+    /// Path or binary name for the `butt` control command.
+    #[serde(default = "default_encoder_binary_path")]
+    pub binary_path: PathBuf,
+    /// Optional network control address for an already-running encoder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+    /// Optional network control port for an already-running encoder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Default encoder server passed to the connect command.
+    #[serde(default = "default_encoder_server_name")]
+    pub default_server_name: String,
+}
+
+impl BroadcastEncoderConfig {
+    /// Build the command target described by this config.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a configured path is not UTF-8 or a required
+    /// encoder field is empty.
+    pub fn target(&self) -> Result<EncoderTarget> {
+        let binary_path = self.binary_path.to_str().ok_or_else(|| {
+            anyhow!(
+                "config: broadcast.encoder binary_path must be UTF-8: {}",
+                self.binary_path.display()
+            )
+        })?;
+        EncoderTarget::new(binary_path.to_owned(), self.address.clone(), self.port)
+    }
+
+    /// Validate the encoder configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when binary path, address, or default server name is
+    /// empty.
+    pub fn validate(&self) -> Result<()> {
+        let _ = self.target()?;
+        if self.default_server_name.trim().is_empty() {
+            return Err(anyhow!(
+                "config: broadcast.encoder default_server_name is empty"
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn default_broadcast_hosts() -> Vec<BroadcastHostConfig> {
     vec![BroadcastHostConfig::default_local()]
 }
 
 fn default_broadcast_instance_name() -> String {
     "mixxx".to_owned()
+}
+
+fn default_encoder_binary_path() -> PathBuf {
+    PathBuf::from(EncoderTarget::default_binary())
+}
+
+fn default_encoder_server_name() -> String {
+    "default".to_owned()
 }
 
 fn deserialize_playback_driver<'de, D>(
@@ -690,6 +757,13 @@ theme_profile = "dark"
 # name = "Local"
 # transport = "local"
 # instance_name = "mixxx"
+#
+# Stream encoder control. Missing group reports the encoder as not installed.
+# [broadcast.encoder]
+# binary_path = "butt"
+# default_server_name = "default"
+# address = "127.0.0.1"
+# port = 1256
 
 # Workspace layout is persisted automatically. Missing or malformed values
 # fall back to the default layout.
@@ -798,6 +872,7 @@ db_path = "/tmp/v4vmm.sqlite"
         assert_eq!(host.name, "Local");
         assert_eq!(host.transport, Transport::Local);
         assert_eq!(host.instance_name, "mixxx");
+        assert!(cfg.broadcast.encoder.is_none());
     }
 
     #[test]
@@ -839,6 +914,37 @@ instance_name = "remote-mixxx"
             }
         );
         assert_eq!(host.instance_name, "remote-mixxx");
+    }
+
+    #[test]
+    fn load_config_parses_broadcast_encoder_group() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[broadcast.encoder]
+binary_path = "/usr/bin/butt"
+address = "127.0.0.1"
+port = 1256
+default_server_name = "main"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let encoder = cfg.broadcast.encoder.expect("encoder config");
+        let target = encoder.target().expect("encoder target");
+
+        assert_eq!(encoder.binary_path, PathBuf::from("/usr/bin/butt"));
+        assert_eq!(encoder.address.as_deref(), Some("127.0.0.1"));
+        assert_eq!(encoder.port, Some(1256));
+        assert_eq!(encoder.default_server_name, "main");
+        assert_eq!(target.binary_path(), "/usr/bin/butt");
+        assert!(target.is_addressed());
     }
 
     #[test]

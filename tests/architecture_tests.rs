@@ -11707,6 +11707,78 @@ fn adr_0059_ssh_transport_boundary_is_broadcast_owned() {
     );
 }
 
+/// Situational ADR 0059: Packet 015 encoder command construction stays in broadcast.
+#[test]
+fn adr_0059_stream_encoder_control_boundary_is_broadcast_owned() {
+    let mut violations = Vec::new();
+    let encoder_source = read_source(&manifest_path("src/broadcast/encoder.rs"));
+    let broadcast_mod_source = read_source(&manifest_path("src/broadcast/mod.rs"));
+
+    for required in [
+        "pub mod encoder;",
+        "pub struct EncoderTarget",
+        "pub enum EncoderState",
+        "Connected",
+        "Connecting",
+        "Disconnected",
+        "NotInstalled",
+        "NotReachable",
+        "pub enum RecordingState",
+        "pub enum AudioSignalState",
+        "const DEFAULT_ENCODER_BINARY: &str = \"butt\"",
+        "const STATUS_OPTION: &str = \"-S\"",
+        "const CONNECT_OPTION: &str = \"-s\"",
+        "const DISCONNECT_OPTION: &str = \"-d\"",
+        "pub fn status(&self, target: &EncoderTarget)",
+        "pub fn connect(&self, target: &EncoderTarget, server_name: &str)",
+        "pub fn disconnect(&self, target: &EncoderTarget)",
+    ] {
+        if !encoder_source.contains(required) && !broadcast_mod_source.contains(required) {
+            violations.push(format!(
+                "src/broadcast/encoder.rs: Situational ADR 0059 Packet 015 encoder control missing `{required}`. Fix: keep stream encoder command construction and status parsing in broadcast::encoder."
+            ));
+        }
+    }
+
+    for (line_number, line) in code_lines(&encoder_source) {
+        if line.contains("\"-u\"") {
+            violations.push(format!(
+                "src/broadcast/encoder.rs:{line_number}: Situational ADR 0059 Packet 015 forbids sending song titles to the encoder. Fix: remove the encoder `-u` option and let the producer own song text."
+            ));
+        }
+    }
+
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        if file == "src/broadcast/encoder.rs" || file == "src/config.rs" {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in [
+                "Command::new(\"butt\")",
+                "std::process::Command::new(\"butt\")",
+                ".run(\"butt\"",
+                "runner.run(\"butt\"",
+                "program: \"butt\"",
+            ] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{}:{line_number}: Situational ADR 0059 Packet 015 forbids encoder command construction outside src/broadcast/encoder.rs. Fix: route stream encoder commands through broadcast::encoder.",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0059 Packet 015 stream encoder boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0059: Packet 009 screens and shells do not run service tools.
 #[test]
 fn adr_0059_show_screen_and_shell_do_not_call_service_processes() {

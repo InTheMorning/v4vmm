@@ -7,10 +7,14 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::broadcast::{
+    control::ServiceState,
+    encoder::{AudioSignalState, EncoderState, ListenerCount, RecordingState},
+};
+use crate::runtime::broadcast_service_watch;
 use crate::view_models::queue_now_playing::{
     QueueNowPlayingPageVm, QueueRowDisplay, TransportState,
 };
-use crate::{broadcast::control::ServiceState, runtime::broadcast_service_watch};
 
 pub(crate) const PUBLISHER_LOG_LINE_COUNT: usize = 50;
 
@@ -341,6 +345,246 @@ pub(crate) struct PublisherSectionDisplay {
     pub(crate) close_logs: PublisherActionDisplay,
 }
 
+/// Display-ready Stream section for the `Show` screen mount.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StreamSectionDisplay {
+    /// Stable section title.
+    pub(crate) title: &'static str,
+    /// Summary label for the encoder.
+    pub(crate) summary: String,
+    /// Configured server label.
+    pub(crate) server_label: String,
+    /// Stream connection state.
+    pub(crate) connection: StreamConnectionDisplay,
+    /// Audio-signal state.
+    pub(crate) signal: StreamSignalDisplay,
+    /// Recording state.
+    pub(crate) recording: StreamRecordingDisplay,
+    /// Listener-count display.
+    pub(crate) listeners: StreamListenersDisplay,
+    /// Optional encoder song title cross-check.
+    pub(crate) encoder_song: Option<String>,
+    /// Optional stream elapsed timer.
+    pub(crate) stream_elapsed_label: Option<String>,
+    /// Connect and disconnect actions, absent when no command should be shown.
+    pub(crate) actions: Option<StreamActionsDisplay>,
+}
+
+/// Display-ready stream connection state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct StreamConnectionDisplay {
+    /// Stable connection state.
+    pub(crate) state: StreamConnectionState,
+    /// Curator-facing state label.
+    pub(crate) label: &'static str,
+    /// Curator-facing state detail.
+    pub(crate) detail: &'static str,
+    /// Icon role paired with the state label.
+    pub(crate) icon_role: StreamStateIconRole,
+}
+
+/// Stable stream connection states.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StreamConnectionState {
+    /// The encoder is connected to a stream server.
+    Connected,
+    /// The encoder is connecting to a stream server.
+    Connecting,
+    /// The encoder is running and disconnected.
+    Disconnected,
+    /// No encoder binary or configured target is available.
+    NotInstalled,
+    /// The addressed encoder instance did not answer.
+    NotReachable,
+    /// The connection state was not classified.
+    Unknown,
+}
+
+impl StreamConnectionState {
+    const fn display(self) -> StreamConnectionDisplay {
+        match self {
+            Self::Connected => StreamConnectionDisplay {
+                state: self,
+                label: "Connected",
+                detail: "Encoder is feeding the stream.",
+                icon_role: StreamStateIconRole::Success,
+            },
+            Self::Connecting => StreamConnectionDisplay {
+                state: self,
+                label: "Connecting",
+                detail: "Encoder is connecting.",
+                icon_role: StreamStateIconRole::Warning,
+            },
+            Self::Disconnected => StreamConnectionDisplay {
+                state: self,
+                label: "Disconnected",
+                detail: "Encoder is not feeding the stream.",
+                icon_role: StreamStateIconRole::Info,
+            },
+            Self::NotInstalled => StreamConnectionDisplay {
+                state: self,
+                label: "Not installed",
+                detail: "Encoder control is not available.",
+                icon_role: StreamStateIconRole::Warning,
+            },
+            Self::NotReachable => StreamConnectionDisplay {
+                state: self,
+                label: "Not reachable",
+                detail: "Encoder control did not answer.",
+                icon_role: StreamStateIconRole::Warning,
+            },
+            Self::Unknown => StreamConnectionDisplay {
+                state: self,
+                label: "Unknown",
+                detail: "Encoder status is not classified.",
+                icon_role: StreamStateIconRole::Info,
+            },
+        }
+    }
+}
+
+/// Display-ready stream audio-signal state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct StreamSignalDisplay {
+    /// Stable signal state.
+    pub(crate) state: StreamSignalState,
+    /// Curator-facing state label.
+    pub(crate) label: &'static str,
+    /// Curator-facing state detail.
+    pub(crate) detail: &'static str,
+    /// Icon role paired with the state label.
+    pub(crate) icon_role: StreamStateIconRole,
+}
+
+/// Stable stream audio-signal states.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StreamSignalState {
+    /// Audio signal is present.
+    Present,
+    /// Audio signal is absent.
+    Absent,
+    /// Audio-signal state was not classified.
+    Unknown,
+}
+
+impl StreamSignalState {
+    const fn display(self) -> StreamSignalDisplay {
+        match self {
+            Self::Present => StreamSignalDisplay {
+                state: self,
+                label: "Audio present",
+                detail: "Input signal is reaching the encoder.",
+                icon_role: StreamStateIconRole::Success,
+            },
+            Self::Absent => StreamSignalDisplay {
+                state: self,
+                label: "No audio signal",
+                detail: "Connected stream would carry silence.",
+                icon_role: StreamStateIconRole::Warning,
+            },
+            Self::Unknown => StreamSignalDisplay {
+                state: self,
+                label: "Signal unknown",
+                detail: "Encoder did not report input signal.",
+                icon_role: StreamStateIconRole::Info,
+            },
+        }
+    }
+}
+
+/// Display-ready stream recording state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StreamRecordingDisplay {
+    /// Stable recording state.
+    pub(crate) state: StreamRecordingState,
+    /// Curator-facing state label.
+    pub(crate) label: &'static str,
+    /// Curator-facing state detail.
+    pub(crate) detail: &'static str,
+    /// Optional elapsed recording timer.
+    pub(crate) elapsed_label: Option<String>,
+    /// Optional recording file path.
+    pub(crate) path: Option<String>,
+    /// Icon role paired with the state label.
+    pub(crate) icon_role: StreamStateIconRole,
+}
+
+/// Stable stream recording states.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StreamRecordingState {
+    /// The encoder is recording.
+    Recording,
+    /// The encoder is not recording.
+    Stopped,
+    /// Recording state was not classified.
+    Unknown,
+}
+
+/// Display-ready stream listener count.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StreamListenersDisplay {
+    /// Curator-facing label.
+    pub(crate) label: String,
+    /// Curator-facing detail.
+    pub(crate) detail: &'static str,
+}
+
+/// Stream state icon roles used by shells.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StreamStateIconRole {
+    /// Informational state.
+    Info,
+    /// Healthy state.
+    Success,
+    /// State that needs attention.
+    Warning,
+}
+
+/// Typed availability for stream actions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StreamActionAvailability {
+    /// The action can be run.
+    Available,
+    /// The action is visible but unavailable in this state.
+    Unavailable,
+}
+
+impl StreamActionAvailability {
+    #[must_use]
+    pub(crate) const fn disabled(self) -> bool {
+        matches!(self, Self::Unavailable)
+    }
+}
+
+/// Display-ready action state for stream controls.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StreamActionDisplay {
+    /// Stable element identifier.
+    pub(crate) id: &'static str,
+    /// Visible action label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for the action.
+    pub(crate) a11y_label: String,
+    /// Typed action availability.
+    pub(crate) availability: StreamActionAvailability,
+}
+
+impl StreamActionDisplay {
+    #[must_use]
+    pub(crate) const fn disabled(&self) -> bool {
+        self.availability.disabled()
+    }
+}
+
+/// Display-ready stream actions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StreamActionsDisplay {
+    /// Connect action.
+    pub(crate) connect: StreamActionDisplay,
+    /// Disconnect action.
+    pub(crate) disconnect: StreamActionDisplay,
+}
+
 /// Display-ready state for the `Show` screen mount.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ShowPageVm {
@@ -356,6 +600,8 @@ pub(crate) struct ShowPageVm {
     pub(crate) source: Option<SourceSectionDisplay>,
     /// Optional Publisher section; absent sections render nothing.
     pub(crate) publisher: Option<PublisherSectionDisplay>,
+    /// Optional Stream section; absent sections render nothing.
+    pub(crate) stream: Option<StreamSectionDisplay>,
     /// Queue and transport display projected by the existing queue VM.
     pub(crate) queue: QueueNowPlayingPageVm,
 }
@@ -392,6 +638,7 @@ impl ShowPageVm {
             Some(snapshot) => PublisherSectionDisplay::from_snapshot(snapshot, log_panel),
             None => None,
         };
+        let stream = publisher_snapshot.map(StreamSectionDisplay::from_snapshot);
         Self {
             title: "Show",
             state_label,
@@ -403,6 +650,7 @@ impl ShowPageVm {
             }),
             source,
             publisher,
+            stream,
             queue,
         }
     }
@@ -489,6 +737,138 @@ impl PublisherServiceDisplay {
             logs: service_logs(snapshot.role, label, &unit_name, &state, log_panel),
             state,
         }
+    }
+}
+
+impl StreamSectionDisplay {
+    fn from_snapshot(snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot) -> Self {
+        let encoder = &snapshot.encoder;
+        let connection = stream_connection_state(encoder.status.state).display();
+        let signal = stream_signal_state(encoder.status.signal).display();
+        let recording = stream_recording_display(&encoder.status.recording);
+        let summary = format!("{} - {}", encoder.server_name, connection.label);
+        Self {
+            title: "Stream",
+            summary,
+            server_label: encoder.server_name.clone(),
+            connection,
+            signal,
+            recording,
+            listeners: stream_listeners_display(encoder.status.listeners),
+            encoder_song: encoder.status.song.clone(),
+            stream_elapsed_label: encoder.status.stream_seconds.map(elapsed_label),
+            actions: stream_actions(encoder.configured, connection.state),
+        }
+    }
+}
+
+fn stream_connection_state(state: EncoderState) -> StreamConnectionState {
+    match state {
+        EncoderState::Connected => StreamConnectionState::Connected,
+        EncoderState::Connecting => StreamConnectionState::Connecting,
+        EncoderState::Disconnected => StreamConnectionState::Disconnected,
+        EncoderState::NotInstalled => StreamConnectionState::NotInstalled,
+        EncoderState::NotReachable => StreamConnectionState::NotReachable,
+        EncoderState::Unknown => StreamConnectionState::Unknown,
+    }
+}
+
+fn stream_signal_state(state: AudioSignalState) -> StreamSignalState {
+    match state {
+        AudioSignalState::Present => StreamSignalState::Present,
+        AudioSignalState::Absent => StreamSignalState::Absent,
+        AudioSignalState::Unknown => StreamSignalState::Unknown,
+    }
+}
+
+fn stream_recording_display(recording: &RecordingState) -> StreamRecordingDisplay {
+    match recording {
+        RecordingState::Recording { seconds, path } => StreamRecordingDisplay {
+            state: StreamRecordingState::Recording,
+            label: "Recording",
+            detail: "Encoder is writing an episode file.",
+            elapsed_label: seconds.map(elapsed_label),
+            path: path.clone(),
+            icon_role: StreamStateIconRole::Success,
+        },
+        RecordingState::Stopped { seconds, path } => StreamRecordingDisplay {
+            state: StreamRecordingState::Stopped,
+            label: "Stopped",
+            detail: "Encoder recording is stopped.",
+            elapsed_label: seconds.map(elapsed_label),
+            path: path.clone(),
+            icon_role: StreamStateIconRole::Info,
+        },
+        RecordingState::Unknown => StreamRecordingDisplay {
+            state: StreamRecordingState::Unknown,
+            label: "Recording unknown",
+            detail: "Encoder did not report recording state.",
+            elapsed_label: None,
+            path: None,
+            icon_role: StreamStateIconRole::Info,
+        },
+    }
+}
+
+fn stream_listeners_display(listeners: ListenerCount) -> StreamListenersDisplay {
+    match listeners {
+        ListenerCount::Known(count) => StreamListenersDisplay {
+            label: format!("{count} listeners"),
+            detail: "Reported by the stream server.",
+        },
+        ListenerCount::Unknown => StreamListenersDisplay {
+            label: "Listeners unknown".to_owned(),
+            detail: "Encoder did not report a useful count.",
+        },
+    }
+}
+
+fn stream_actions(
+    configured: bool,
+    connection: StreamConnectionState,
+) -> Option<StreamActionsDisplay> {
+    if !configured || matches!(connection, StreamConnectionState::NotInstalled) {
+        return None;
+    }
+
+    Some(StreamActionsDisplay {
+        connect: StreamActionDisplay {
+            id: "stream-connect",
+            label: "Connect",
+            a11y_label: "Connect stream encoder".to_owned(),
+            availability: stream_action_availability(matches!(
+                connection,
+                StreamConnectionState::Disconnected
+            )),
+        },
+        disconnect: StreamActionDisplay {
+            id: "stream-disconnect",
+            label: "Disconnect",
+            a11y_label: "Disconnect stream encoder".to_owned(),
+            availability: stream_action_availability(matches!(
+                connection,
+                StreamConnectionState::Connected
+            )),
+        },
+    })
+}
+
+const fn stream_action_availability(available: bool) -> StreamActionAvailability {
+    if available {
+        StreamActionAvailability::Available
+    } else {
+        StreamActionAvailability::Unavailable
+    }
+}
+
+fn elapsed_label(seconds: u64) -> String {
+    let hours = seconds / 3_600;
+    let minutes = (seconds % 3_600) / 60;
+    let seconds = seconds % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
     }
 }
 
@@ -616,6 +996,7 @@ const fn transport_state_label(state: TransportState) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use crate::broadcast::encoder::EncoderStatus;
     use crate::view_models::queue_now_playing::{QueueTrackInput, TransportState};
 
     use super::*;
@@ -648,6 +1029,7 @@ mod tests {
         assert!(vm.now_playing.is_none());
         assert!(vm.source.is_none());
         assert!(vm.publisher.is_none());
+        assert!(vm.stream.is_none());
         assert!(vm.queue.rows.is_empty());
     }
 
@@ -738,6 +1120,10 @@ mod tests {
         );
         assert!(!publisher.services[1].actions.start.disabled());
         assert!(publisher.services[1].actions.stop.disabled());
+        assert_eq!(
+            vm.stream.expect("stream section").connection.state,
+            StreamConnectionState::NotInstalled
+        );
     }
 
     #[test]
@@ -871,6 +1257,149 @@ mod tests {
         );
     }
 
+    #[test]
+    fn stream_section_projects_connected_signal_recording_and_actions() {
+        let snapshot = snapshot_with_encoder(
+            Vec::new(),
+            broadcast_service_watch::BroadcastEncoderSnapshot {
+                server_name: "Main".to_owned(),
+                configured: true,
+                status: EncoderStatus {
+                    state: EncoderState::Connected,
+                    recording: RecordingState::Stopped {
+                        seconds: Some(0),
+                        path: None,
+                    },
+                    signal: AudioSignalState::Present,
+                    listeners: ListenerCount::Known(12),
+                    song: Some("Artist - Title".to_owned()),
+                    stream_seconds: Some(3_725),
+                },
+            },
+        );
+        let vm = ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+        );
+        let stream = vm.stream.expect("stream section");
+        let actions = stream.actions.expect("stream actions");
+
+        assert!(vm.source.is_none());
+        assert!(vm.publisher.is_none());
+        assert_eq!(stream.title, "Stream");
+        assert_eq!(stream.summary, "Main - Connected");
+        assert_eq!(stream.connection.state, StreamConnectionState::Connected);
+        assert_eq!(stream.signal.state, StreamSignalState::Present);
+        assert_eq!(stream.signal.icon_role, StreamStateIconRole::Success);
+        assert_eq!(stream.recording.state, StreamRecordingState::Stopped);
+        assert_eq!(stream.listeners.label, "12 listeners");
+        assert_eq!(stream.encoder_song.as_deref(), Some("Artist - Title"));
+        assert_eq!(stream.stream_elapsed_label.as_deref(), Some("1:02:05"));
+        assert!(actions.connect.disabled());
+        assert!(!actions.disconnect.disabled());
+    }
+
+    #[test]
+    fn stream_section_distinguishes_connected_without_audio_signal() {
+        let with_signal = StreamSignalState::Present.display();
+        let without_signal = StreamSignalState::Absent.display();
+
+        assert_ne!(with_signal.label, without_signal.label);
+        assert_ne!(with_signal.icon_role, without_signal.icon_role);
+
+        let snapshot = snapshot_with_encoder(
+            Vec::new(),
+            broadcast_service_watch::BroadcastEncoderSnapshot {
+                server_name: "Main".to_owned(),
+                configured: true,
+                status: EncoderStatus {
+                    state: EncoderState::Connected,
+                    recording: RecordingState::Stopped {
+                        seconds: Some(0),
+                        path: None,
+                    },
+                    signal: AudioSignalState::Absent,
+                    listeners: ListenerCount::Unknown,
+                    song: None,
+                    stream_seconds: None,
+                },
+            },
+        );
+        let vm = ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+        );
+        let stream = vm.stream.expect("stream section");
+
+        assert_eq!(stream.connection.state, StreamConnectionState::Connected);
+        assert_eq!(stream.signal.state, StreamSignalState::Absent);
+        assert_eq!(stream.signal.label, "No audio signal");
+        assert_eq!(stream.signal.icon_role, StreamStateIconRole::Warning);
+    }
+
+    #[test]
+    fn stream_section_projects_connecting_and_recording_file_path() {
+        let snapshot = snapshot_with_encoder(
+            Vec::new(),
+            broadcast_service_watch::BroadcastEncoderSnapshot {
+                server_name: "Main".to_owned(),
+                configured: true,
+                status: EncoderStatus {
+                    state: EncoderState::Connecting,
+                    recording: RecordingState::Recording {
+                        seconds: Some(42),
+                        path: Some("/recordings/show.mp3".to_owned()),
+                    },
+                    signal: AudioSignalState::Unknown,
+                    listeners: ListenerCount::Unknown,
+                    song: None,
+                    stream_seconds: None,
+                },
+            },
+        );
+        let vm = ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+        );
+        let stream = vm.stream.expect("stream section");
+        let actions = stream.actions.expect("stream actions");
+
+        assert_eq!(stream.connection.state, StreamConnectionState::Connecting);
+        assert_eq!(stream.recording.state, StreamRecordingState::Recording);
+        assert_eq!(stream.recording.elapsed_label.as_deref(), Some("0:42"));
+        assert_eq!(
+            stream.recording.path.as_deref(),
+            Some("/recordings/show.mp3")
+        );
+        assert!(actions.connect.disabled());
+        assert!(actions.disconnect.disabled());
+    }
+
+    #[test]
+    fn stream_not_installed_is_empty_state_without_actions() {
+        let snapshot = snapshot_with_encoder(
+            Vec::new(),
+            broadcast_service_watch::BroadcastEncoderSnapshot {
+                server_name: "Not configured".to_owned(),
+                configured: false,
+                status: EncoderStatus::not_installed(),
+            },
+        );
+        let vm = ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+        );
+        let stream = vm.stream.expect("stream section");
+
+        assert_eq!(stream.connection.state, StreamConnectionState::NotInstalled);
+        assert_eq!(stream.recording.state, StreamRecordingState::Unknown);
+        assert!(stream.actions.is_none());
+    }
+
     fn publisher_snapshot<const N: usize>(
         units: [(PublisherServiceRole, &str, ServiceState); N],
     ) -> broadcast_service_watch::BroadcastServiceWatchSnapshot {
@@ -881,9 +1410,8 @@ mod tests {
         host_name: &str,
         units: [(PublisherServiceRole, &str, ServiceState); N],
     ) -> broadcast_service_watch::BroadcastServiceWatchSnapshot {
-        broadcast_service_watch::BroadcastServiceWatchSnapshot {
-            at: std::time::Instant::now(),
-            units: units
+        snapshot_with_encoder(
+            units
                 .into_iter()
                 .map(|(role, unit_name, state)| {
                     broadcast_service_watch::BroadcastServiceUnitSnapshot {
@@ -894,6 +1422,22 @@ mod tests {
                     }
                 })
                 .collect(),
+            broadcast_service_watch::BroadcastEncoderSnapshot {
+                server_name: "Not configured".to_owned(),
+                configured: false,
+                status: EncoderStatus::not_installed(),
+            },
+        )
+    }
+
+    fn snapshot_with_encoder(
+        units: Vec<broadcast_service_watch::BroadcastServiceUnitSnapshot>,
+        encoder: broadcast_service_watch::BroadcastEncoderSnapshot,
+    ) -> broadcast_service_watch::BroadcastServiceWatchSnapshot {
+        broadcast_service_watch::BroadcastServiceWatchSnapshot {
+            at: std::time::Instant::now(),
+            units,
+            encoder,
         }
     }
 }

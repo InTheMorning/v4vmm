@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::broadcast::control::{self, ServiceState, UnitRef};
+use crate::broadcast::encoder::{self, EncoderStatus, EncoderTarget};
 use crate::broadcast::transport::Transport;
 
 const BROADCAST_SERVICE_POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -70,6 +71,46 @@ pub struct BroadcastServiceUnitSnapshot {
     pub state: ServiceState,
 }
 
+/// Stream encoder observed by the broadcast watch actor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BroadcastEncoderWatchTarget {
+    /// Curator-facing server label used by the Stream section.
+    pub server_name: String,
+    /// Command target for a configured encoder.
+    pub target: Option<EncoderTarget>,
+}
+
+impl BroadcastEncoderWatchTarget {
+    /// Create a configured encoder watch target.
+    #[must_use]
+    pub fn configured(server_name: impl Into<String>, target: EncoderTarget) -> Self {
+        Self {
+            server_name: server_name.into(),
+            target: Some(target),
+        }
+    }
+
+    /// Create an unconfigured encoder target.
+    #[must_use]
+    pub fn not_configured() -> Self {
+        Self {
+            server_name: "Not configured".to_owned(),
+            target: None,
+        }
+    }
+}
+
+/// Stream encoder state observed by the actor.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BroadcastEncoderSnapshot {
+    /// Curator-facing server label used by the Stream section.
+    pub server_name: String,
+    /// Whether the operator configured an encoder target.
+    pub configured: bool,
+    /// Parsed encoder status.
+    pub status: EncoderStatus,
+}
+
 /// Snapshot published after each service observation tick.
 #[derive(Clone, Debug)]
 pub struct BroadcastServiceWatchSnapshot {
@@ -77,10 +118,12 @@ pub struct BroadcastServiceWatchSnapshot {
     pub at: Instant,
     /// State for each observed unit.
     pub units: Vec<BroadcastServiceUnitSnapshot>,
+    /// State of the stream encoder control interface.
+    pub encoder: BroadcastEncoderSnapshot,
 }
 
 impl BroadcastServiceWatchSnapshot {
-    fn unknown(units: &[BroadcastServiceWatchUnit]) -> Self {
+    fn unknown(units: &[BroadcastServiceWatchUnit], encoder: &BroadcastEncoderWatchTarget) -> Self {
         Self::new(
             units
                 .iter()
@@ -91,13 +134,15 @@ impl BroadcastServiceWatchSnapshot {
                     state: ServiceState::Unknown,
                 })
                 .collect(),
+            unknown_encoder_snapshot(encoder),
         )
     }
 
-    fn new(units: Vec<BroadcastServiceUnitSnapshot>) -> Self {
+    fn new(units: Vec<BroadcastServiceUnitSnapshot>, encoder: BroadcastEncoderSnapshot) -> Self {
         Self {
             at: Instant::now(),
             units,
+            encoder,
         }
     }
 }
@@ -148,39 +193,57 @@ enum BroadcastServiceWatchCommand {
 
 /// Spawns the broadcast service watch actor on the current tokio runtime.
 #[must_use]
-pub fn start(units: Vec<BroadcastServiceWatchUnit>) -> BroadcastServiceWatchHandle {
+pub fn start(
+    units: Vec<BroadcastServiceWatchUnit>,
+    encoder: BroadcastEncoderWatchTarget,
+) -> BroadcastServiceWatchHandle {
     start_with_reader(
         units,
-        Arc::new(ControlServiceStateReader),
+        encoder,
+        Arc::new(ControlBroadcastStatusReader),
         BROADCAST_SERVICE_POLL_INTERVAL,
     )
 }
 
-trait ServiceStateReader: Send + Sync + 'static {
+trait BroadcastStatusReader: Send + Sync + 'static {
     fn show(&self, transport: &Transport, unit: &UnitRef) -> Result<ServiceState, String>;
+
+    fn encoder_status(&self, target: &EncoderTarget) -> Result<EncoderStatus, String>;
 }
 
-type SharedServiceStateReader = Arc<dyn ServiceStateReader>;
+type SharedBroadcastStatusReader = Arc<dyn BroadcastStatusReader>;
 
-struct ControlServiceStateReader;
+struct ControlBroadcastStatusReader;
 
-impl ServiceStateReader for ControlServiceStateReader {
+impl BroadcastStatusReader for ControlBroadcastStatusReader {
     fn show(&self, transport: &Transport, unit: &UnitRef) -> Result<ServiceState, String> {
         control::show(transport, unit).map_err(|error| format!("{error:#}"))
+    }
+
+    fn encoder_status(&self, target: &EncoderTarget) -> Result<EncoderStatus, String> {
+        encoder::status(target).map_err(|error| format!("{error:#}"))
     }
 }
 
 fn start_with_reader(
     units: Vec<BroadcastServiceWatchUnit>,
-    reader: SharedServiceStateReader,
+    encoder: BroadcastEncoderWatchTarget,
+    reader: SharedBroadcastStatusReader,
     interval: Duration,
 ) -> BroadcastServiceWatchHandle {
-    let (snapshot_tx, snapshot_rx) = watch::channel(BroadcastServiceWatchSnapshot::unknown(&units));
+    let (snapshot_tx, snapshot_rx) =
+        watch::channel(BroadcastServiceWatchSnapshot::unknown(&units, &encoder));
     let (inbox_tx, mut inbox_rx) = mpsc::channel::<BroadcastServiceWatchCommand>(INBOX_CAPACITY);
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
 
     tokio::spawn(async move {
-        publish_snapshot(&snapshot_tx, units.clone(), Arc::clone(&reader)).await;
+        publish_snapshot(
+            &snapshot_tx,
+            units.clone(),
+            encoder.clone(),
+            Arc::clone(&reader),
+        )
+        .await;
         loop {
             tokio::select! {
                 biased;
@@ -189,10 +252,22 @@ fn start_with_reader(
                     let Some(BroadcastServiceWatchCommand::RefreshNow) = command else {
                         break;
                     };
-                    publish_snapshot(&snapshot_tx, units.clone(), Arc::clone(&reader)).await;
+                    publish_snapshot(
+                        &snapshot_tx,
+                        units.clone(),
+                        encoder.clone(),
+                        Arc::clone(&reader),
+                    )
+                    .await;
                 }
                 () = tokio::time::sleep(interval) => {
-                    publish_snapshot(&snapshot_tx, units.clone(), Arc::clone(&reader)).await;
+                    publish_snapshot(
+                        &snapshot_tx,
+                        units.clone(),
+                        encoder.clone(),
+                        Arc::clone(&reader),
+                    )
+                    .await;
                 }
             }
         }
@@ -208,23 +283,29 @@ fn start_with_reader(
 async fn publish_snapshot(
     snapshot_tx: &watch::Sender<BroadcastServiceWatchSnapshot>,
     units: Vec<BroadcastServiceWatchUnit>,
-    reader: SharedServiceStateReader,
+    encoder: BroadcastEncoderWatchTarget,
+    reader: SharedBroadcastStatusReader,
 ) {
-    let fallback = BroadcastServiceWatchSnapshot::unknown(&units);
-    let snapshot = read_services(units, reader).await.unwrap_or(fallback);
+    let fallback = BroadcastServiceWatchSnapshot::unknown(&units, &encoder);
+    let snapshot = read_broadcast_status(units, encoder, reader)
+        .await
+        .unwrap_or(fallback);
     let _ = snapshot_tx.send(snapshot);
 }
 
-async fn read_services(
+async fn read_broadcast_status(
     units: Vec<BroadcastServiceWatchUnit>,
-    reader: SharedServiceStateReader,
+    encoder: BroadcastEncoderWatchTarget,
+    reader: SharedBroadcastStatusReader,
 ) -> Result<BroadcastServiceWatchSnapshot, tokio::task::JoinError> {
-    tokio::task::spawn_blocking(move || read_services_blocking(&units, &reader)).await
+    tokio::task::spawn_blocking(move || read_broadcast_status_blocking(&units, &encoder, &reader))
+        .await
 }
 
-fn read_services_blocking(
+fn read_broadcast_status_blocking(
     units: &[BroadcastServiceWatchUnit],
-    reader: &SharedServiceStateReader,
+    encoder: &BroadcastEncoderWatchTarget,
+    reader: &SharedBroadcastStatusReader,
 ) -> BroadcastServiceWatchSnapshot {
     BroadcastServiceWatchSnapshot::new(
         units
@@ -238,7 +319,40 @@ fn read_services_blocking(
                     .unwrap_or(ServiceState::Unknown),
             })
             .collect(),
+        read_encoder_snapshot(encoder, reader),
     )
+}
+
+fn read_encoder_snapshot(
+    encoder: &BroadcastEncoderWatchTarget,
+    reader: &SharedBroadcastStatusReader,
+) -> BroadcastEncoderSnapshot {
+    match &encoder.target {
+        Some(target) => BroadcastEncoderSnapshot {
+            server_name: encoder.server_name.clone(),
+            configured: true,
+            status: reader
+                .encoder_status(target)
+                .unwrap_or_else(|_| EncoderStatus::unknown()),
+        },
+        None => BroadcastEncoderSnapshot {
+            server_name: encoder.server_name.clone(),
+            configured: false,
+            status: EncoderStatus::not_installed(),
+        },
+    }
+}
+
+fn unknown_encoder_snapshot(encoder: &BroadcastEncoderWatchTarget) -> BroadcastEncoderSnapshot {
+    BroadcastEncoderSnapshot {
+        server_name: encoder.server_name.clone(),
+        configured: encoder.target.is_some(),
+        status: if encoder.target.is_some() {
+            EncoderStatus::unknown()
+        } else {
+            EncoderStatus::not_installed()
+        },
+    }
 }
 
 #[cfg(test)]
@@ -248,19 +362,28 @@ mod tests {
 
     use tokio::time::timeout;
 
+    use crate::broadcast::encoder::{
+        AudioSignalState, EncoderState, ListenerCount, RecordingState,
+    };
+
     use super::*;
 
     #[tokio::test(flavor = "current_thread")]
-    async fn service_watch_reads_all_units_into_snapshot() {
+    async fn service_watch_reads_all_units_and_encoder_into_snapshot() {
         let units = watch_units();
-        let reader = Arc::new(StubServiceStateReader::new(vec![
-            Ok(ServiceState::Active),
-            Ok(ServiceState::Inactive),
-        ]));
+        let encoder_status = connected_encoder_status();
+        let reader = Arc::new(StubBroadcastStatusReader::new(
+            vec![Ok(ServiceState::Active), Ok(ServiceState::Inactive)],
+            vec![Ok(encoder_status.clone())],
+        ));
 
-        let snapshot = read_services(units, Arc::clone(&reader) as SharedServiceStateReader)
-            .await
-            .expect("join");
+        let snapshot = read_broadcast_status(
+            units,
+            watch_encoder(),
+            Arc::clone(&reader) as SharedBroadcastStatusReader,
+        )
+        .await
+        .expect("join");
 
         assert_eq!(
             snapshot.units,
@@ -286,21 +409,37 @@ mod tests {
                 "mixxx-now-playing.service",
             ]
         );
+        assert_eq!(
+            snapshot.encoder,
+            BroadcastEncoderSnapshot {
+                server_name: "default".to_owned(),
+                configured: true,
+                status: encoder_status,
+            }
+        );
+        assert_eq!(reader.encoder_calls(), vec!["butt"]);
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn service_watch_maps_read_errors_to_unknown_state() {
         let units = watch_units();
-        let reader = Arc::new(StubServiceStateReader::new(vec![
-            Err("cannot read service".to_owned()),
-            Ok(ServiceState::Failed {
-                reason: "exit-code".to_owned(),
-            }),
-        ]));
+        let reader = Arc::new(StubBroadcastStatusReader::new(
+            vec![
+                Err("cannot read service".to_owned()),
+                Ok(ServiceState::Failed {
+                    reason: "exit-code".to_owned(),
+                }),
+            ],
+            vec![Err("cannot read encoder".to_owned())],
+        ));
 
-        let snapshot = read_services(units, Arc::clone(&reader) as SharedServiceStateReader)
-            .await
-            .expect("join");
+        let snapshot = read_broadcast_status(
+            units,
+            watch_encoder(),
+            Arc::clone(&reader) as SharedBroadcastStatusReader,
+        )
+        .await
+        .expect("join");
 
         assert_eq!(snapshot.units[0].state, ServiceState::Unknown);
         assert_eq!(
@@ -309,20 +448,47 @@ mod tests {
                 reason: "exit-code".to_owned(),
             }
         );
+        assert_eq!(snapshot.encoder.status, EncoderStatus::unknown());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn service_watch_reports_unconfigured_encoder_as_not_installed() {
+        let reader = Arc::new(StubBroadcastStatusReader::new(Vec::new(), Vec::new()));
+
+        let snapshot = read_broadcast_status(
+            Vec::new(),
+            BroadcastEncoderWatchTarget::not_configured(),
+            Arc::clone(&reader) as SharedBroadcastStatusReader,
+        )
+        .await
+        .expect("join");
+
+        assert_eq!(
+            snapshot.encoder,
+            BroadcastEncoderSnapshot {
+                server_name: "Not configured".to_owned(),
+                configured: false,
+                status: EncoderStatus::not_installed(),
+            }
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn service_watch_refresh_now_publishes_without_waiting_for_interval() {
         let units = watch_units();
-        let reader = Arc::new(StubServiceStateReader::new(vec![
-            Ok(ServiceState::Inactive),
-            Ok(ServiceState::Inactive),
-            Ok(ServiceState::Active),
-            Ok(ServiceState::Active),
-        ]));
+        let reader = Arc::new(StubBroadcastStatusReader::new(
+            vec![
+                Ok(ServiceState::Inactive),
+                Ok(ServiceState::Inactive),
+                Ok(ServiceState::Active),
+                Ok(ServiceState::Active),
+            ],
+            vec![Ok(EncoderStatus::unknown()), Ok(connected_encoder_status())],
+        ));
         let handle = start_with_reader(
             units,
-            Arc::clone(&reader) as SharedServiceStateReader,
+            watch_encoder(),
+            Arc::clone(&reader) as SharedBroadcastStatusReader,
             Duration::from_secs(60),
         );
         let mut receiver = handle.subscribe();
@@ -359,6 +525,13 @@ mod tests {
         }
     }
 
+    fn watch_encoder() -> BroadcastEncoderWatchTarget {
+        BroadcastEncoderWatchTarget::configured(
+            "default",
+            EncoderTarget::local("butt").expect("encoder target"),
+        )
+    }
+
     fn watch_units() -> Vec<BroadcastServiceWatchUnit> {
         vec![
             BroadcastServiceWatchUnit::new(
@@ -376,25 +549,53 @@ mod tests {
         ]
     }
 
-    struct StubServiceStateReader {
-        calls: Mutex<Vec<String>>,
-        responses: Mutex<VecDeque<Result<ServiceState, String>>>,
+    fn connected_encoder_status() -> EncoderStatus {
+        EncoderStatus {
+            state: EncoderState::Connected,
+            recording: RecordingState::Stopped {
+                seconds: Some(0),
+                path: None,
+            },
+            signal: AudioSignalState::Present,
+            listeners: ListenerCount::Unknown,
+            song: Some("Artist - Title".to_owned()),
+            stream_seconds: Some(12),
+        }
     }
 
-    impl StubServiceStateReader {
-        fn new(responses: Vec<Result<ServiceState, String>>) -> Self {
+    struct StubBroadcastStatusReader {
+        calls: Mutex<Vec<String>>,
+        responses: Mutex<VecDeque<Result<ServiceState, String>>>,
+        encoder_calls: Mutex<Vec<String>>,
+        encoder_responses: Mutex<VecDeque<Result<EncoderStatus, String>>>,
+    }
+
+    impl StubBroadcastStatusReader {
+        fn new(
+            responses: Vec<Result<ServiceState, String>>,
+            encoder_responses: Vec<Result<EncoderStatus, String>>,
+        ) -> Self {
             Self {
                 calls: Mutex::new(Vec::new()),
                 responses: Mutex::new(VecDeque::from(responses)),
+                encoder_calls: Mutex::new(Vec::new()),
+                encoder_responses: Mutex::new(VecDeque::from(encoder_responses)),
             }
         }
 
         fn calls(&self) -> Vec<String> {
             self.calls.lock().expect("calls lock").clone()
         }
+
+        fn encoder_calls(&self) -> Vec<String> {
+            self.encoder_calls
+                .lock()
+                .expect("encoder calls lock")
+                .clone()
+        }
     }
 
-    impl ServiceStateReader for StubServiceStateReader {
+    impl BroadcastStatusReader for StubBroadcastStatusReader {
         fn show(&self, _transport: &Transport, unit: &UnitRef) -> Result<ServiceState, String> {
             self.calls
                 .lock()
@@ -405,6 +606,18 @@ mod tests {
                 .expect("responses lock")
                 .pop_front()
                 .expect("stub response")
+        }
+
+        fn encoder_status(&self, target: &EncoderTarget) -> Result<EncoderStatus, String> {
+            self.encoder_calls
+                .lock()
+                .expect("encoder calls lock")
+                .push(target.binary_path().to_owned());
+            self.encoder_responses
+                .lock()
+                .expect("encoder responses lock")
+                .pop_front()
+                .expect("stub encoder response")
         }
     }
 }

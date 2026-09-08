@@ -4,6 +4,7 @@
 //! module owns GPUI-free helpers that support the app's control-surface state.
 
 pub mod control;
+pub mod encoder;
 pub mod registry;
 pub mod tokens;
 pub mod transport;

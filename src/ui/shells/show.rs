@@ -15,7 +15,7 @@ use gpui::{
 use gpui_component::scroll::ScrollableElement;
 
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::icons::IconName;
+use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::{Button, MultilineText, SectionHeader, Surface, SurfaceElevation};
 use crate::ui::shells::queue_now_playing::{render_queue_now_playing, QueueNowPlayingSlots};
 use crate::ui::tokens::{color, FontSize, SemanticColor, Size, Spacing};
@@ -23,7 +23,8 @@ use crate::view_models::show::{
     PublisherActionDisplay, PublisherLogPanelState, PublisherSectionDisplay,
     PublisherServiceDisplay, PublisherServiceRole, PublisherServiceStateKind,
     ShowEmptyStateDisplay, ShowNowPlayingDisplay, ShowPageVm, SourceReachabilityState,
-    SourceSectionDisplay,
+    SourceSectionDisplay, StreamActionDisplay, StreamActionsDisplay, StreamRecordingDisplay,
+    StreamSectionDisplay, StreamStateIconRole,
 };
 
 /// Callback slots supplied by the application-owned Show screen.
@@ -31,6 +32,7 @@ use crate::view_models::show::{
 pub(crate) struct ShowSlots {
     queue: QueueNowPlayingSlots,
     publisher: PublisherSlots,
+    stream: StreamSlots,
 }
 
 impl Default for ShowSlots {
@@ -38,6 +40,7 @@ impl Default for ShowSlots {
         Self {
             queue: QueueNowPlayingSlots::new(),
             publisher: PublisherSlots::default(),
+            stream: StreamSlots::default(),
         }
     }
 }
@@ -45,6 +48,7 @@ impl Default for ShowSlots {
 type PublisherClickHandler =
     Rc<dyn Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static>;
 type PublisherCloseHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type StreamClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 #[derive(Default)]
 struct PublisherSlots {
@@ -53,6 +57,12 @@ struct PublisherSlots {
     reset: Option<PublisherClickHandler>,
     open_logs: Option<PublisherClickHandler>,
     close_logs: Option<PublisherCloseHandler>,
+}
+
+#[derive(Default)]
+struct StreamSlots {
+    connect: Option<StreamClickHandler>,
+    disconnect: Option<StreamClickHandler>,
 }
 
 impl ShowSlots {
@@ -132,6 +142,24 @@ impl ShowSlots {
         self.publisher.close_logs = Some(Rc::new(handler));
         self
     }
+
+    /// Supplies the stream connect callback.
+    pub(crate) fn on_connect_stream(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.stream.connect = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the stream disconnect callback.
+    pub(crate) fn on_disconnect_stream(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.stream.disconnect = Some(Rc::new(handler));
+        self
+    }
 }
 
 /// Show screen element.
@@ -156,6 +184,7 @@ impl RenderOnce for ShowShell {
             empty_state,
             source,
             publisher,
+            stream,
             queue,
         } = self.vm;
 
@@ -186,6 +215,10 @@ impl RenderOnce for ShowShell {
                 self.slots.publisher,
                 cx,
             ));
+        }
+
+        if let Some(stream) = stream {
+            screen = screen.child(render_stream_section(stream, &self.slots.stream, cx));
         }
 
         screen.child(
@@ -483,6 +516,284 @@ fn render_publisher_section(
         )
 }
 
+fn render_stream_section(
+    stream: StreamSectionDisplay,
+    slots: &StreamSlots,
+    cx: &App,
+) -> impl IntoElement {
+    let mut header = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(Spacing::SM.scaled(cx))
+        .child(SectionHeader::new(stream.title))
+        .child(
+            div()
+                .text_size(FontSize::Caption.scaled(cx))
+                .text_color(color(cx, SemanticColor::SecondaryLabel))
+                .truncate()
+                .child(SharedString::from(stream.summary.clone())),
+        );
+
+    if let Some(actions) = stream.actions.clone() {
+        header = header.child(render_stream_actions(actions, slots, cx));
+    }
+
+    let mut body = div()
+        .id("stream-section-body")
+        .flex()
+        .flex_col()
+        .gap(Spacing::SM.scaled(cx))
+        .child(header)
+        .child(render_stream_status_row(
+            "stream-connection-row",
+            "Connection",
+            stream.connection.label,
+            stream.connection.detail,
+            stream.connection.icon_role,
+            cx,
+        ))
+        .child(render_stream_status_row(
+            "stream-signal-row",
+            "Audio",
+            stream.signal.label,
+            stream.signal.detail,
+            stream.signal.icon_role,
+            cx,
+        ))
+        .child(render_stream_recording_row(stream.recording, cx))
+        .child(render_stream_metadata_row(
+            &stream.server_label,
+            &stream.listeners.label,
+            stream.listeners.detail,
+            stream.stream_elapsed_label,
+            cx,
+        ));
+
+    if let Some(song) = stream.encoder_song {
+        body = body.child(
+            div()
+                .id("stream-song-row")
+                .text_size(FontSize::Caption.scaled(cx))
+                .text_color(color(cx, SemanticColor::SecondaryLabel))
+                .truncate()
+                .child(SharedString::from(format!("Encoder song: {song}"))),
+        );
+    }
+
+    div()
+        .id("show-stream-section")
+        .flex_shrink_0()
+        .px(Spacing::XL.scaled(cx))
+        .pb(Spacing::LG.scaled(cx))
+        .child(
+            Surface::new(SurfaceElevation::Sunken)
+                .padding(Spacing::MD)
+                .child(body),
+        )
+}
+
+fn render_stream_actions(
+    actions: StreamActionsDisplay,
+    slots: &StreamSlots,
+    cx: &App,
+) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(Spacing::XS.scaled(cx))
+        .child(render_stream_action_button(
+            actions.connect,
+            IconName::Play,
+            ControlStyle::Primary,
+            slots.connect.clone(),
+        ))
+        .child(render_stream_action_button(
+            actions.disconnect,
+            IconName::Stop,
+            ControlStyle::Destructive,
+            slots.disconnect.clone(),
+        ))
+}
+
+fn render_stream_status_row(
+    id: &'static str,
+    label: &'static str,
+    state_label: &'static str,
+    detail: &'static str,
+    icon_role: StreamStateIconRole,
+    cx: &App,
+) -> impl IntoElement {
+    let state_color = stream_icon_color(icon_role);
+    div()
+        .id(id)
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(Spacing::MD.scaled(cx))
+        .border_t_1()
+        .border_color(color(cx, SemanticColor::Separator))
+        .pt(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .gap(Spacing::XXS.scaled(cx))
+                .child(
+                    div()
+                        .text_size(FontSize::Headline.scaled(cx))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(cx, SemanticColor::Label))
+                        .child(SharedString::from(label)),
+                )
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
+                        .child(SharedString::from(detail)),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(Spacing::XS.scaled(cx))
+                .flex_shrink_0()
+                .child(
+                    Icon::new(stream_icon_name(icon_role))
+                        .size(IconSize::Action)
+                        .color(color(cx, state_color)),
+                )
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, state_color))
+                        .child(SharedString::from(state_label)),
+                ),
+        )
+}
+
+fn render_stream_recording_row(recording: StreamRecordingDisplay, cx: &App) -> impl IntoElement {
+    let detail = recording.elapsed_label.as_ref().map_or_else(
+        || recording.detail.to_owned(),
+        |elapsed| format!("{} {}", recording.detail, elapsed),
+    );
+    let state_color = stream_icon_color(recording.icon_role);
+    let mut row = div()
+        .id("stream-recording-row")
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(Spacing::MD.scaled(cx))
+        .border_t_1()
+        .border_color(color(cx, SemanticColor::Separator))
+        .pt(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .gap(Spacing::XXS.scaled(cx))
+                .child(
+                    div()
+                        .text_size(FontSize::Headline.scaled(cx))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(cx, SemanticColor::Label))
+                        .child("Recording"),
+                )
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
+                        .truncate()
+                        .child(SharedString::from(detail)),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(Spacing::XS.scaled(cx))
+                .flex_shrink_0()
+                .child(
+                    Icon::new(stream_icon_name(recording.icon_role))
+                        .size(IconSize::Action)
+                        .color(color(cx, state_color)),
+                )
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, state_color))
+                        .child(SharedString::from(recording.label)),
+                ),
+        );
+
+    if let Some(path) = recording.path {
+        row = row.child(
+            div()
+                .text_size(FontSize::Caption.scaled(cx))
+                .text_color(color(cx, SemanticColor::SecondaryLabel))
+                .truncate()
+                .child(SharedString::from(path)),
+        );
+    }
+
+    row
+}
+
+fn render_stream_metadata_row(
+    server_label: &str,
+    listeners_label: &str,
+    listeners_detail: &'static str,
+    stream_elapsed_label: Option<String>,
+    cx: &App,
+) -> impl IntoElement {
+    let elapsed = stream_elapsed_label.map_or_else(
+        || "Stream timer unknown".to_owned(),
+        |elapsed| format!("Stream {elapsed}"),
+    );
+    div()
+        .id("stream-metadata-row")
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(Spacing::MD.scaled(cx))
+        .border_t_1()
+        .border_color(color(cx, SemanticColor::Separator))
+        .pt(Spacing::SM.scaled(cx))
+        .text_size(FontSize::Caption.scaled(cx))
+        .text_color(color(cx, SemanticColor::SecondaryLabel))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .child(SharedString::from(format!("Server: {server_label}"))),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_end()
+                .flex_shrink_0()
+                .gap(Spacing::XXS.scaled(cx))
+                .child(SharedString::from(listeners_label.to_owned()))
+                .child(
+                    div()
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
+                        .child(SharedString::from(listeners_detail)),
+                )
+                .child(SharedString::from(elapsed)),
+        )
+}
+
 fn render_publisher_service(
     service: PublisherServiceDisplay,
     slots: &PublisherSlots,
@@ -611,6 +922,31 @@ fn render_publisher_action_button(
     button
 }
 
+fn render_stream_action_button(
+    display: StreamActionDisplay,
+    icon: IconName,
+    style: ControlStyle,
+    handler: Option<StreamClickHandler>,
+) -> Button {
+    let disabled = display.disabled();
+    let mut button = Button::styled(SharedString::from(display.id), style)
+        .leading_icon(icon)
+        .label(display.label)
+        .a11y_label(display.a11y_label.clone())
+        .tooltip(display.a11y_label)
+        .disabled(disabled);
+
+    if !disabled {
+        if let Some(handler) = handler {
+            button = button.on_click(move |event, window, cx| {
+                handler(event, window, cx);
+            });
+        }
+    }
+
+    button
+}
+
 fn render_publisher_log_panel(
     panel: PublisherLogPanelState,
     close_display: PublisherActionDisplay,
@@ -723,6 +1059,22 @@ const fn source_reachability_color(state: SourceReachabilityState) -> SemanticCo
         SourceReachabilityState::Reachable => SemanticColor::SuccessLabel,
         SourceReachabilityState::NotReachable => SemanticColor::WarningLabel,
         SourceReachabilityState::Unknown => SemanticColor::SecondaryLabel,
+    }
+}
+
+const fn stream_icon_name(role: StreamStateIconRole) -> IconName {
+    match role {
+        StreamStateIconRole::Info => IconName::Info,
+        StreamStateIconRole::Success => IconName::Check,
+        StreamStateIconRole::Warning => IconName::Warning,
+    }
+}
+
+const fn stream_icon_color(role: StreamStateIconRole) -> SemanticColor {
+    match role {
+        StreamStateIconRole::Info => SemanticColor::SecondaryLabel,
+        StreamStateIconRole::Success => SemanticColor::SuccessLabel,
+        StreamStateIconRole::Warning => SemanticColor::WarningLabel,
     }
 }
 

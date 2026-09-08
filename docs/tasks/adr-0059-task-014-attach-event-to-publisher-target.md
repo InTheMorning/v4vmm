@@ -80,6 +80,13 @@ the event registry and the publisher.
 10. Add a guard: no file outside `src/broadcast/` runs a
     `musicindex-live-publisher` command.
 
+## Section Order
+
+ADR 0059 orders the sections `Source`, `Publisher`, `Event`, `Stream`.
+Packet 015 shipped `Stream` before `Event` existed, so `Stream` currently
+renders directly after `Publisher`. Insert `Event` between them. Do not
+append it after `Stream`.
+
 ## Acceptance Criteria
 
 - An event registered in task 003 can be attached to a publisher target.

@@ -13,12 +13,13 @@ use crate::application::{
     ApplicationCommand, ApplicationServices, CommandContext, CommandError, CommandOutcome,
 };
 use crate::broadcast::control::{self, UnitRef};
+use crate::broadcast::encoder::{self, EncoderTarget};
 use crate::config::BroadcastHostConfig;
 use crate::presentation::present_command;
 use crate::presentation::{bridge_watch, RuntimeHost};
 use crate::runtime::{
-    BroadcastServiceRole, BroadcastServiceWatchHandle, BroadcastServiceWatchSnapshot,
-    BroadcastServiceWatchUnit,
+    BroadcastEncoderWatchTarget, BroadcastServiceRole, BroadcastServiceWatchHandle,
+    BroadcastServiceWatchSnapshot, BroadcastServiceWatchUnit,
 };
 use crate::ui::composites::{live_status_strip, LiveStatusStrip, LiveStatusStripSlots};
 use crate::ui::shells::show::{render_show, ShowShell, ShowSlots};
@@ -40,6 +41,8 @@ pub(super) fn build_show_screen(app: &TopApp, cx: &mut Context<TopApp>) -> ShowS
     let reset_entity = entity.clone();
     let logs_entity = entity.clone();
     let close_logs_entity = entity.clone();
+    let connect_stream_entity = entity.clone();
+    let disconnect_stream_entity = entity.clone();
     render_show(
         app.show_page.clone(),
         ShowSlots::new()
@@ -75,6 +78,16 @@ pub(super) fn build_show_screen(app: &TopApp, cx: &mut Context<TopApp>) -> ShowS
             .on_close_publisher_logs(move |_, _, cx| {
                 close_logs_entity.update(cx, |this, cx| {
                     this.close_publisher_logs(cx);
+                });
+            })
+            .on_connect_stream(move |_, _, cx| {
+                connect_stream_entity.update(cx, |this, cx| {
+                    this.run_stream_encoder_command(StreamEncoderOperation::Connect, cx);
+                });
+            })
+            .on_disconnect_stream(move |_, _, cx| {
+                disconnect_stream_entity.update(cx, |this, cx| {
+                    this.run_stream_encoder_command(StreamEncoderOperation::Disconnect, cx);
                 });
             }),
     )
@@ -131,7 +144,14 @@ impl TopApp {
                 return;
             }
         };
-        let handle = start_broadcast_service_watch(&host, units);
+        let encoder = match broadcast_encoder_watch_target(&self.broadcast) {
+            Ok(encoder) => encoder,
+            Err(error) => {
+                self.settings_status = format!("Stream status error: {error:#}");
+                return;
+            }
+        };
+        let handle = start_broadcast_service_watch(&host, units, encoder);
         self.publisher_service_snapshot = Some(handle.latest());
         bridge_watch(
             handle.subscribe(),
@@ -264,6 +284,34 @@ impl TopApp {
         self.publisher_log_panel = PublisherLogPanelState::closed();
         self.reproject_show_page_from_current_queue();
         cx.notify();
+    }
+
+    fn run_stream_encoder_command(
+        &mut self,
+        operation: StreamEncoderOperation,
+        cx: &mut Context<Self>,
+    ) {
+        let command = match StreamEncoderCommand::new(&self.broadcast, operation) {
+            Ok(command) => command,
+            Err(error) => {
+                self.settings_status = format!("Stream command error: {error:#}");
+                cx.notify();
+                return;
+            }
+        };
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            |this, (), _cx| {
+                this.settings_status.clear();
+                this.invalidate_publisher_service_snapshot();
+            },
+            |this, error, _cx| {
+                this.settings_status = format!("Stream command error: {error:#}");
+            },
+        );
     }
 
     fn invalidate_publisher_service_snapshot(&self) {
@@ -414,15 +462,79 @@ struct PublisherLogsResult {
 fn start_broadcast_service_watch(
     host: &RuntimeHost,
     units: Vec<BroadcastServiceWatchUnit>,
+    encoder: BroadcastEncoderWatchTarget,
 ) -> BroadcastServiceWatchHandle {
     let _enter = host.handle().enter();
-    crate::runtime::broadcast_service_watch::start(units)
+    crate::runtime::broadcast_service_watch::start(units, encoder)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StreamEncoderOperation {
+    Connect,
+    Disconnect,
+}
+
+struct StreamEncoderCommand {
+    target: EncoderTarget,
+    server_name: String,
+    operation: StreamEncoderOperation,
+}
+
+impl StreamEncoderCommand {
+    fn new(
+        broadcast: &crate::config::BroadcastConfig,
+        operation: StreamEncoderOperation,
+    ) -> Result<Self, CommandError> {
+        let encoder = broadcast
+            .encoder
+            .as_ref()
+            .ok_or_else(|| CommandError::Other("broadcast.encoder is not configured".to_owned()))?;
+        Ok(Self {
+            target: encoder.target().map_err(stream_command_error)?,
+            server_name: encoder.default_server_name.trim().to_owned(),
+            operation,
+        })
+    }
+}
+
+impl ApplicationCommand for StreamEncoderCommand {
+    type Output = ();
+
+    fn execute(self, context: &CommandContext) -> crate::application::CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        match self.operation {
+            StreamEncoderOperation::Connect => encoder::connect(&self.target, &self.server_name),
+            StreamEncoderOperation::Disconnect => encoder::disconnect(&self.target),
+        }
+        .map_err(|error| {
+            stream_command_error(format!(
+                "{} stream encoder: {error:#}",
+                stream_operation_label(self.operation)
+            ))
+        })?;
+
+        Ok(CommandOutcome::without_events(()))
+    }
 }
 
 fn selected_broadcast_host(
     broadcast: &crate::config::BroadcastConfig,
 ) -> anyhow::Result<BroadcastHostConfig> {
     Ok(broadcast.selected_host()?.clone())
+}
+
+fn broadcast_encoder_watch_target(
+    broadcast: &crate::config::BroadcastConfig,
+) -> anyhow::Result<BroadcastEncoderWatchTarget> {
+    let Some(encoder) = &broadcast.encoder else {
+        return Ok(BroadcastEncoderWatchTarget::not_configured());
+    };
+    Ok(BroadcastEncoderWatchTarget::configured(
+        encoder.default_server_name.trim().to_owned(),
+        encoder.target()?,
+    ))
 }
 
 fn broadcast_service_units(
@@ -459,6 +571,10 @@ fn publisher_command_error(error: impl std::fmt::Display) -> CommandError {
     CommandError::Other(error.to_string())
 }
 
+fn stream_command_error(error: impl std::fmt::Display) -> CommandError {
+    CommandError::Other(error.to_string())
+}
+
 const fn role_label(role: PublisherServiceRole) -> &'static str {
     match role {
         PublisherServiceRole::Publisher => "publisher",
@@ -471,5 +587,12 @@ const fn operation_label(operation: PublisherServiceOperation) -> &'static str {
         PublisherServiceOperation::Start => "start",
         PublisherServiceOperation::Stop => "stop",
         PublisherServiceOperation::Reset => "reset",
+    }
+}
+
+const fn stream_operation_label(operation: StreamEncoderOperation) -> &'static str {
+    match operation {
+        StreamEncoderOperation::Connect => "connect",
+        StreamEncoderOperation::Disconnect => "disconnect",
     }
 }

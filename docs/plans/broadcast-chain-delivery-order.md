@@ -144,7 +144,7 @@ Update this table when a packet lands.
 | `v4vmm` | 014 attach event | ready |
 | `v4vmm` | 011 mpv producer | ready |
 | `v4vmm` | 012 readiness report | ready |
-| `v4vmm` | 015 stream encoder | ready |
+| `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
 | `v4vmm` | 013 final guards | ready |
 | `splitkit` | reserved 001 store boundary | not started |
 | `splitkit` | reserved 002 reserved class | not started |

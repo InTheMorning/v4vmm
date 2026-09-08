@@ -9,7 +9,7 @@ Amended 2026-09-06: the `Event` section must show the ready-to-paste
 only through that tag in the RSS feed of the show. Without the tag, the whole
 chain reports success and no listener receives anything.
 
-Amended 2026-09-06: the `Broadcast` frame gains a fourth section, `Stream`, for
+Amended 2026-09-06: the broadcast surface gains a fourth section, `Stream`, for
 the stream encoder. `butt` has a control interface with a status request, a
 connect and disconnect pair, and a network address option, so the section can
 be built before any remote playback work. The three-section decision below
@@ -159,10 +159,15 @@ Events, sources, and hosts are lists in the data model and in the service
 layer. The first user interface shows one selection at a time. Support for more
 than one stream must not need a data model change.
 
-### The Panel Is Named Broadcast
+### The Broadcast Sections Live In Show
 
-The frame is `Broadcast`. It has four sections: `Source`, `Publisher`,
-`Event`, and `Stream`.
+Amended 2026-09-08 by ADR 0060, which removed the `Broadcast` frame. The four
+broadcast sections mount inside the `Show` screen, in this order: `Source`,
+`Publisher`, `Event`, and `Stream`.
+
+A section is an optional field on `ShowPageVm` and a group of callbacks on
+`ShowSlots`. An absent section renders nothing. It does not render as
+unavailable.
 
 `Event` shows the live item and the exact RSS tag that lets listener apps find
 it:
@@ -184,9 +189,9 @@ connect and disconnect.
 The app does not send a song title to the encoder. The producer already writes
 the text file that the encoder reads.
 
-The `QueueNowPlaying` frame keeps its name and its meaning. It shows local
-playback in this app. The two frames can be active at the same time. They must
-stay separate in code and in the interface.
+The queue keeps its name and its meaning. It shows local playback in this app.
+ADR 0060 moved it into `Show` beside these sections. The queue and the
+broadcast sections stay separate in code and in the interface.
 
 ## Invariants
 

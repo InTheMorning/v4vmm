@@ -33,8 +33,9 @@ pub use broadcast_observation::{
     BroadcastObservationHandle, BroadcastObservationOutcome, BroadcastObservationSnapshot,
 };
 pub use broadcast_service_watch::{
-    BroadcastServiceRole, BroadcastServiceUnitSnapshot, BroadcastServiceWatchHandle,
-    BroadcastServiceWatchSnapshot, BroadcastServiceWatchUnit,
+    BroadcastEncoderSnapshot, BroadcastEncoderWatchTarget, BroadcastServiceRole,
+    BroadcastServiceUnitSnapshot, BroadcastServiceWatchHandle, BroadcastServiceWatchSnapshot,
+    BroadcastServiceWatchUnit,
 };
 pub use musicbrainz_feed_saga::{
     MusicBrainzFeedSagaHandle, MusicBrainzFeedSagaState, StartFeedLookup,
