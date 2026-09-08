@@ -39,8 +39,15 @@ and the producer unit with `systemctl --user`. No UI.
   - `LoadState=not-found` becomes `NotInstalled`
   - `ActiveState=failed` becomes `Failed`, and `Result` carries the reason
   - `ActiveState=active` becomes `Active`
+  - `ActiveState=reloading` becomes `Active`, because the unit runs
   - `ActiveState=inactive` becomes `Inactive`
+  - `ActiveState=activating` becomes `Starting`
+  - `ActiveState=deactivating` becomes `Stopping`
   - anything else becomes `Unknown`
+
+  Amended 2026-09-08. `Starting` and `Stopping` were added after an operator saw
+  `Unknown` during a restart loop. A restart sits in `activating` with
+  `SubState=auto-restart`, so the transition read as an unclassified state.
 - **A failed unit needs `reset-failed` before `start` does anything.** The unit
   file sets `StartLimitBurst=5`, so a wrong token drives the unit to `failed`
   and holds it there. Expose `reset` as its own operation.
@@ -72,9 +79,10 @@ and the producer unit with `systemctl --user`. No UI.
 
 ## Acceptance Criteria
 
-- Mechanical: the five locally observable states map from recorded output,
-  including `not-found`. `NotReachable` has no local output that produces it.
-  Task 010 owns its construction and its test.
+- Mechanical: the seven locally observable states map from recorded output,
+  including `not-found`, `activating`, `deactivating`, and `reloading`.
+  `NotReachable` has no local output that produces it. Task 010 owns its
+  construction and its test.
 - A failed unit reports its `Result` value as the reason.
 - The log read returns text and never panics on an empty journal.
 - No test runs a real `systemctl`.
@@ -130,8 +138,9 @@ Do not touch:
 - UI, view models, `src/app/**`, API, database, the registry service
 
 Acceptance criteria:
-- Five locally observable states map from recorded output, `not-found`
-  included. Declare `NotReachable` for task 010 and do not construct it here.
+- Seven locally observable states map from recorded output, `not-found`,
+  `activating`, `deactivating`, and `reloading` included. Declare `NotReachable`
+  for task 010 and do not construct it here.
 - Failed carries the `Result` reason.
 - Guard blocks `systemctl` outside `src/broadcast/`.
 

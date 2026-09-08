@@ -177,6 +177,10 @@ pub(crate) enum PublisherServiceStateDisplay {
     Active,
     /// The service is installed and stopped.
     Inactive,
+    /// The service manager is starting the unit.
+    Starting,
+    /// The service manager is stopping the unit.
+    Stopping,
     /// The service is failed and needs reset before start.
     Failed {
         /// Failure reason from the service manager result.
@@ -186,15 +190,17 @@ pub(crate) enum PublisherServiceStateDisplay {
     NotInstalled,
     /// The host that owns the unit cannot be reached.
     NotReachable,
-    /// The service state is not classified by this surface.
+    /// The service manager reported a state this surface does not know.
     Unknown,
 }
 
 impl PublisherServiceStateDisplay {
     #[cfg(test)]
-    const ALL_KINDS: [PublisherServiceStateKind; 6] = [
+    const ALL_KINDS: [PublisherServiceStateKind; 8] = [
         PublisherServiceStateKind::Active,
         PublisherServiceStateKind::Inactive,
+        PublisherServiceStateKind::Starting,
+        PublisherServiceStateKind::Stopping,
         PublisherServiceStateKind::Failed,
         PublisherServiceStateKind::NotInstalled,
         PublisherServiceStateKind::NotReachable,
@@ -205,6 +211,8 @@ impl PublisherServiceStateDisplay {
         match state {
             ServiceState::Active => Self::Active,
             ServiceState::Inactive => Self::Inactive,
+            ServiceState::Starting => Self::Starting,
+            ServiceState::Stopping => Self::Stopping,
             ServiceState::Failed { reason } => Self::Failed {
                 reason: reason.clone(),
             },
@@ -219,6 +227,8 @@ impl PublisherServiceStateDisplay {
         match self {
             Self::Active => PublisherServiceStateKind::Active,
             Self::Inactive => PublisherServiceStateKind::Inactive,
+            Self::Starting => PublisherServiceStateKind::Starting,
+            Self::Stopping => PublisherServiceStateKind::Stopping,
             Self::Failed { .. } => PublisherServiceStateKind::Failed,
             Self::NotInstalled => PublisherServiceStateKind::NotInstalled,
             Self::NotReachable => PublisherServiceStateKind::NotReachable,
@@ -231,6 +241,8 @@ impl PublisherServiceStateDisplay {
         match self {
             Self::Active => "Active",
             Self::Inactive => "Inactive",
+            Self::Starting => "Starting",
+            Self::Stopping => "Stopping",
             Self::Failed { .. } => "Failed",
             Self::NotInstalled => "Not installed",
             Self::NotReachable => "Not reachable",
@@ -238,14 +250,24 @@ impl PublisherServiceStateDisplay {
         }
     }
 
+    /// Curator-facing detail for this state.
+    ///
+    /// Every state returns a line. The row keeps one detail line in every state,
+    /// so a service that starts, fails, and restarts does not change the height
+    /// of the section under it.
     #[must_use]
-    pub(crate) fn detail(&self) -> Option<String> {
+    pub(crate) fn detail(&self) -> String {
         match self {
-            Self::Failed { reason } => Some(format!("Reason: {reason}")),
-            Self::NotInstalled => Some("Unit file not found.".to_owned()),
-            Self::NotReachable => Some("Host cannot be reached.".to_owned()),
-            Self::Unknown => Some("State is not classified.".to_owned()),
-            Self::Active | Self::Inactive => None,
+            Self::Failed { reason } => format!("Reason: {reason}"),
+            Self::NotInstalled => "Unit file not found.".to_owned(),
+            Self::NotReachable => "Host cannot be reached.".to_owned(),
+            Self::Unknown => {
+                "The service manager reported a state this app does not know.".to_owned()
+            }
+            Self::Active => "Unit is running.".to_owned(),
+            Self::Inactive => "Unit is stopped.".to_owned(),
+            Self::Starting => "Unit is starting.".to_owned(),
+            Self::Stopping => "Unit is stopping.".to_owned(),
         }
     }
 }
@@ -257,13 +279,17 @@ pub(crate) enum PublisherServiceStateKind {
     Active,
     /// The service is installed and stopped.
     Inactive,
+    /// The service manager is starting the unit.
+    Starting,
+    /// The service manager is stopping the unit.
+    Stopping,
     /// The service is failed and needs reset before start.
     Failed,
     /// The unit file is absent.
     NotInstalled,
     /// The host that owns the unit cannot be reached.
     NotReachable,
-    /// The service state is not classified by this surface.
+    /// The service manager reported a state this surface does not know.
     Unknown,
 }
 
@@ -1318,7 +1344,7 @@ impl PublisherSectionDisplay {
         let summary = service_summary(&services);
 
         Some(Self {
-            title: "Publisher",
+            title: "Live Metadata",
             summary,
             services,
             log_panel,
@@ -1744,7 +1770,7 @@ mod tests {
                 readiness: None,
             })
         );
-        assert_eq!(publisher.title, "Publisher");
+        assert_eq!(publisher.title, "Live Metadata");
         assert_eq!(publisher.summary, "2 services observed");
         assert_eq!(publisher.services.len(), 2);
         assert_eq!(
@@ -1787,9 +1813,33 @@ mod tests {
                 reason: "exit-code".to_owned(),
             }
         );
-        assert_eq!(service.state.detail().as_deref(), Some("Reason: exit-code"));
+        assert_eq!(service.state.detail(), "Reason: exit-code");
         assert!(service.actions.start.disabled());
         assert!(!service.actions.reset.disabled());
+    }
+
+    #[test]
+    fn every_publisher_service_state_returns_a_detail_line() {
+        // An optional detail line changed the height of the publisher strip every
+        // time a unit started, failed, or restarted, and moved the log panel with
+        // it. Every state must return a line so the row height stays fixed.
+        let states = [
+            PublisherServiceStateDisplay::Active,
+            PublisherServiceStateDisplay::Inactive,
+            PublisherServiceStateDisplay::Failed {
+                reason: "start-limit-hit".to_owned(),
+            },
+            PublisherServiceStateDisplay::NotInstalled,
+            PublisherServiceStateDisplay::NotReachable,
+            PublisherServiceStateDisplay::Unknown,
+        ];
+
+        for state in states {
+            assert!(
+                !state.detail().trim().is_empty(),
+                "state {state:?} returns an empty detail line"
+            );
+        }
     }
 
     #[test]
@@ -1807,10 +1857,7 @@ mod tests {
         let service = &vm.publisher.expect("publisher section").services[0];
 
         assert_eq!(service.state, PublisherServiceStateDisplay::NotInstalled);
-        assert_eq!(
-            service.state.detail().as_deref(),
-            Some("Unit file not found.")
-        );
+        assert_eq!(service.state.detail(), "Unit file not found.");
         assert!(service.actions.start.disabled());
         assert!(service.actions.stop.disabled());
         assert!(service.actions.reset.disabled());
@@ -1922,8 +1969,8 @@ mod tests {
     }
 
     #[test]
-    fn publisher_service_state_exposes_six_variants_without_transport_error_payload() {
-        assert_eq!(PublisherServiceStateDisplay::ALL_KINDS.len(), 6);
+    fn publisher_service_state_exposes_eight_variants_without_transport_error_payload() {
+        assert_eq!(PublisherServiceStateDisplay::ALL_KINDS.len(), 8);
         assert_eq!(
             PublisherServiceStateDisplay::from_service_state(&ServiceState::NotReachable),
             PublisherServiceStateDisplay::NotReachable

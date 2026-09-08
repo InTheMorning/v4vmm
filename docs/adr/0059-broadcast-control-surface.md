@@ -163,7 +163,12 @@ than one stream must not need a data model change.
 
 Amended 2026-09-08 by ADR 0060, which removed the `Broadcast` frame. The four
 broadcast sections mount inside the `Show` screen, in this order: `Source`,
-`Publisher`, `Event`, and `Stream`.
+`Live Metadata`, `Event`, and `Stream`.
+
+Amended 2026-09-08. The section that holds the two services is named
+`Live Metadata`, not `Publisher`. It holds the metadata producer and the
+metadata publisher, so the section name states what the two services do. The
+services keep the names `Producer` and `Publisher` inside it.
 
 A section is an optional field on `ShowPageVm` and a group of callbacks on
 `ShowSlots`. An absent section renders nothing. It does not render as

@@ -73,6 +73,10 @@ pub enum ServiceState {
     Active,
     /// The service is installed and stopped.
     Inactive,
+    /// The service manager is starting the unit.
+    Starting,
+    /// The service manager is stopping the unit.
+    Stopping,
     /// The service is failed and needs `reset-failed` before `start`.
     Failed {
         /// The systemd `Result` value for the failed unit.
@@ -443,8 +447,11 @@ fn parse_service_state(output: &str) -> ServiceState {
     }
 
     match properties.get("ActiveState").copied().unwrap_or_default() {
-        "active" => ServiceState::Active,
+        // `reloading` means the unit runs and re-reads its configuration.
+        "active" | "reloading" => ServiceState::Active,
         "inactive" => ServiceState::Inactive,
+        "activating" => ServiceState::Starting,
+        "deactivating" => ServiceState::Stopping,
         "failed" => ServiceState::Failed {
             reason: failed_reason(&properties),
         },
@@ -570,6 +577,40 @@ mod tests {
     }
 
     #[test]
+    fn show_maps_activating_to_starting() -> Result<()> {
+        let runner = StubRunner::with_output(CommandOutput::success(
+            "LoadState=loaded\nActiveState=activating\nSubState=start\nResult=success\n",
+        ));
+        let control = ServiceControl::new(&runner);
+        let state = control.show(&Transport::local(), &unit())?;
+        assert_eq!(state, ServiceState::Starting);
+        Ok(())
+    }
+
+    #[test]
+    fn show_maps_deactivating_to_stopping() -> Result<()> {
+        let runner = StubRunner::with_output(CommandOutput::success(
+            "LoadState=loaded\nActiveState=deactivating\nSubState=stop\nResult=success\n",
+        ));
+        let control = ServiceControl::new(&runner);
+        let state = control.show(&Transport::local(), &unit())?;
+        assert_eq!(state, ServiceState::Stopping);
+        Ok(())
+    }
+
+    #[test]
+    fn show_maps_reloading_to_active() -> Result<()> {
+        // A reloading unit runs. It is not an unknown state.
+        let runner = StubRunner::with_output(CommandOutput::success(
+            "LoadState=loaded\nActiveState=reloading\nSubState=reload\nResult=success\n",
+        ));
+        let control = ServiceControl::new(&runner);
+        let state = control.show(&Transport::local(), &unit())?;
+        assert_eq!(state, ServiceState::Active);
+        Ok(())
+    }
+
+    #[test]
     fn publisher_unit_name_uses_instance_input() -> Result<()> {
         let unit = UnitRef::publisher("mixxx")?;
 
@@ -627,7 +668,12 @@ mod tests {
                 ServiceState::NotInstalled,
             ),
             (
+                // The restart loop sits here between attempts.
                 show_output("loaded", "activating", "auto-restart", "success"),
+                ServiceState::Starting,
+            ),
+            (
+                show_output("loaded", "not-a-real-state", "none", "success"),
                 ServiceState::Unknown,
             ),
         ] {

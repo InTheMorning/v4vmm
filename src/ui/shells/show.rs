@@ -1168,14 +1168,15 @@ fn render_publisher_service(
                 .child(SharedString::from(service.unit_name.clone())),
         );
 
-    if let Some(detail) = service.state.detail() {
-        text = text.child(
-            div()
-                .text_size(FontSize::Caption.scaled(cx))
-                .text_color(color(cx, detail_color(service.state.kind())))
-                .child(SharedString::from(detail)),
-        );
-    }
+    // Always render the detail line. An optional row changes the height of this
+    // strip every time the unit starts, fails, or restarts, and everything below
+    // it moves with the change.
+    text = text.child(
+        div()
+            .text_size(FontSize::Caption.scaled(cx))
+            .text_color(color(cx, detail_color(service.state.kind())))
+            .child(SharedString::from(service.state.detail())),
+    );
 
     div()
         .id(SharedString::from(service.id.clone()))
@@ -1429,7 +1430,10 @@ fn render_close_logs_button(
 const fn state_color(kind: PublisherServiceStateKind) -> SemanticColor {
     match kind {
         PublisherServiceStateKind::Active => SemanticColor::SuccessLabel,
-        PublisherServiceStateKind::Inactive => SemanticColor::SecondaryLabel,
+        // A transition is neither good news nor a warning. Keep it quiet.
+        PublisherServiceStateKind::Inactive
+        | PublisherServiceStateKind::Starting
+        | PublisherServiceStateKind::Stopping => SemanticColor::SecondaryLabel,
         PublisherServiceStateKind::Failed => SemanticColor::DangerLabel,
         PublisherServiceStateKind::NotInstalled
         | PublisherServiceStateKind::NotReachable
@@ -1517,6 +1521,8 @@ const fn detail_color(kind: PublisherServiceStateKind) -> SemanticColor {
         PublisherServiceStateKind::Failed => SemanticColor::DangerLabel,
         PublisherServiceStateKind::Active
         | PublisherServiceStateKind::Inactive
+        | PublisherServiceStateKind::Starting
+        | PublisherServiceStateKind::Stopping
         | PublisherServiceStateKind::NotInstalled
         | PublisherServiceStateKind::NotReachable
         | PublisherServiceStateKind::Unknown => SemanticColor::SecondaryLabel,
