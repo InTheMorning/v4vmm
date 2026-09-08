@@ -1,10 +1,12 @@
 # ADR 0059 Task 009: Publisher Section Wiring And Log Panel
 
-Status: Implemented, one visual gate open - 2026-09-08. Mechanical acceptance
-met. Visual: the log panel lines are met; the failed-state reason and `Reset`
-prominence stay OPEN, because the operator cannot reproduce a service failure
-at this time. Establishes how a section composes into the Show screen mount.
-Do it before 012, 014, and 015.
+Status: Implemented - 2026-09-08. Mechanical acceptance met. Visual acceptance
+met on 2026-09-08: the failed state named `Reason: start-limit-hit`, `Reset` was
+the obvious action, and the log panel opened, read, and closed. One defect found
+and fixed in the same pass: the detail line was optional, so the row height
+changed every time a unit started, failed, or restarted, and the log panel moved
+with it. Every service state now returns a detail line. Establishes how a section
+composes into the Show screen mount. Do it before 012, 014, and 015.
 
 ## Goal
 

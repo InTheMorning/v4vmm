@@ -84,14 +84,16 @@ them, one line at a time, and records the result in the owning packet first.
 
 | Packet | Open gate | What it needs |
 |---|---|---|
-| 009 publisher section | The failed state names its reason, and `Reset` is the obvious action | A unit driven to `failed`, ideally `Result=start-limit-hit` |
 | 010 remote hosts | The `Source` host and reachability row reads correctly | A configured SSH host that is unreachable |
 | 015 stream encoder | The connected, disconnected, and not-installed states read correctly | An installed `butt` binary |
 | 012 readiness report | The readiness count is legible in place, and the action reaches the filtered list | A working display only |
 | 002, 003, 004 | Met on 2026-09-08 | Nothing. Recorded here so the set is complete |
 
-When a gate closes, update the owning packet `Status:` line and the row in
-`docs/plans/broadcast-chain-delivery-order.md` in the same change.
+The open checks and the method to reach each state live in
+`docs/pending-human-checks.md`. That file holds what is open today, not a
+history. When a gate closes, update the owning packet `Status:` line, update the
+row in `docs/plans/broadcast-chain-delivery-order.md`, and remove the section
+from that file, all in the same change.
 
 If an operator cannot clear a gate before this packet ships, that is an
 acceptable outcome. Report the gate as open in the readiness summary, name the

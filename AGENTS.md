@@ -149,9 +149,11 @@ desktop session:
   unit, an unreachable host, or an installed binary
 - the cleanup that undoes any state the steps created
 
-Leave the gate open in the packet `Status:` line and in
-`docs/plans/broadcast-chain-delivery-order.md`. A gate that no person has walked
-is never met, and a green mechanical suite is not evidence about it.
+Leave the gate open in the packet `Status:` line, in
+`docs/plans/broadcast-chain-delivery-order.md`, and in
+`docs/pending-human-checks.md`, which holds every check that is open today. A
+gate that no person has walked is never met, and a green mechanical suite is not
+evidence about it.
 
 **An acceptance criterion states how it is checked.** It is mechanical, proved
 by a test and phrased at the layer that owns it, or it is visual and listed
