@@ -73,12 +73,42 @@ and reconcile the document statuses.
 8. Answer the three open questions in the phase plan, or move them to
    `docs/plans/deferred-architecture-work-index.md`.
 
+## Inherited Visual Gates
+
+These gates opened in earlier packets and stay open. This packet inherits every
+one of them. **Do not report this packet complete while any line below is open,
+and never mark one met because the mechanical suite is green.**
+
+Each needs real hardware that an agent session does not have. An operator clears
+them, one line at a time, and records the result in the owning packet first.
+
+| Packet | Open gate | What it needs |
+|---|---|---|
+| 009 publisher section | The failed state names its reason, and `Reset` is the obvious action | A unit driven to `failed`, ideally `Result=start-limit-hit` |
+| 010 remote hosts | The `Source` host and reachability row reads correctly | A configured SSH host that is unreachable |
+| 015 stream encoder | The connected, disconnected, and not-installed states read correctly | An installed `butt` binary |
+| 002, 003, 004 | Met on 2026-09-08 | Nothing. Recorded here so the set is complete |
+
+Packet 012 has not run yet. Add its gate to this table if it opens one.
+
+When a gate closes, update the owning packet `Status:` line and the row in
+`docs/plans/broadcast-chain-delivery-order.md` in the same change.
+
+If an operator cannot clear a gate before this packet ships, that is an
+acceptable outcome. Report the gate as open in the readiness summary, name the
+hardware it waits on, and say so in the `Status:` line of this packet. A chain
+declared ready on an unperformed visual check is not.
+
 ## Acceptance Criteria
 
+- Mechanical: the readiness summary lists every inherited visual gate and its
+  state, and the list matches the owning packet `Status:` lines.
 - Every ADR 0059 invariant has a guard or a recorded reason.
 - The review document names each artifact it checked.
 - The runbook covers token backup and relay restart recovery.
-- The seven screenshots exist.
+- Screenshots exist for every gate an operator could clear. A gate that waits
+  on absent hardware has no screenshot, and the readiness summary says which
+  hardware it waits on.
 - The ADR and the plan carry a status that matches the evidence.
 - `docs/README.md` links the runbook and the review.
 

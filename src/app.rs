@@ -1187,6 +1187,21 @@ impl TopApp {
 
 impl Drop for TopApp {
     fn drop(&mut self) {
+        match self.playback_owner.lock() {
+            Ok(mut playback_owner) => {
+                if let Some(warning) = playback_owner.broadcast_drop_file_shutdown_warning() {
+                    eprintln!("{warning}");
+                }
+                if let Err(error) = playback_owner.clear_broadcast_drop_file() {
+                    eprintln!(
+                        "v4vmm::broadcast: failed to remove mpv now-playing drop file on shutdown: {error:#}"
+                    );
+                }
+            }
+            Err(_) => {
+                eprintln!("v4vmm::broadcast: failed to lock playback owner on shutdown");
+            }
+        }
         if let Err(error) = self.persist_workspace_layout() {
             eprintln!("v4vmm::workspace: failed to save workspace layout on shutdown: {error:#}");
         }

@@ -5,6 +5,7 @@
 
 pub mod control;
 pub mod encoder;
+pub mod producer;
 pub mod registry;
 pub mod tokens;
 pub mod transport;

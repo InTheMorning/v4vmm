@@ -59,10 +59,14 @@ pub fn run_app() {
         let conn = Arc::new(Mutex::new(conn));
         let playback_driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)
             .expect("configure playback driver");
-        let playback_owner = Arc::new(Mutex::new(PlaybackOwner::new(
-            playback_driver,
-            playback::DEFAULT_SESSION_ID,
-        )));
+        let drop_file_producer = cfg
+            .broadcast
+            .drop_file_producer()
+            .expect("configure broadcast drop-file producer");
+        let playback_owner = Arc::new(Mutex::new(
+            PlaybackOwner::new(playback_driver, playback::DEFAULT_SESSION_ID)
+                .with_drop_file_producer(drop_file_producer),
+        ));
 
         // Construct the async runtime host once; it owns the tokio Runtime
         // and VmBus used by ADR 0040 actors and command presentation.

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::api::DEFAULT_BASE_URL;
 use crate::broadcast::encoder::EncoderTarget;
+use crate::broadcast::producer::DropFileProducer;
 use crate::broadcast::transport::Transport;
 use crate::theme_profile::ThemeProfile;
 use crate::view_models::workspace::{ContentViewMode, WorkspaceLayoutConfig};
@@ -234,6 +235,12 @@ pub struct BroadcastConfig {
     /// Optional selected host name. When absent, the first host is selected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_host: Option<String>,
+    /// Optional publisher watch directory for the built-in mpv producer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drop_directory: Option<PathBuf>,
+    /// Publisher target name written by the built-in mpv producer.
+    #[serde(default = "default_drop_file_target")]
+    pub drop_file_target: String,
     /// Configured broadcast hosts.
     #[serde(default = "default_broadcast_hosts")]
     pub hosts: Vec<BroadcastHostConfig>,
@@ -246,6 +253,8 @@ impl Default for BroadcastConfig {
     fn default() -> Self {
         Self {
             selected_host: None,
+            drop_directory: None,
+            drop_file_target: default_drop_file_target(),
             hosts: default_broadcast_hosts(),
             encoder: None,
         }
@@ -273,6 +282,21 @@ impl BroadcastConfig {
             .ok_or_else(|| anyhow!("config: broadcast selected_host {selected_host:?} not found"))
     }
 
+    /// Build the built-in mpv drop-file producer when it is configured.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the configured target cannot be used as a visible
+    /// file name.
+    pub fn drop_file_producer(&self) -> Result<Option<DropFileProducer>> {
+        self.drop_directory
+            .as_ref()
+            .map(|drop_directory| {
+                DropFileProducer::new(drop_directory.clone(), self.drop_file_target.clone())
+            })
+            .transpose()
+    }
+
     /// Validate host-list shape and selected host.
     ///
     /// # Errors
@@ -289,6 +313,9 @@ impl BroadcastConfig {
             }
         }
         let _ = self.selected_host()?;
+        if self.drop_directory.is_some() {
+            let _ = DropFileProducer::validate_target_name(&self.drop_file_target)?;
+        }
         if let Some(encoder) = &self.encoder {
             encoder.validate()?;
         }
@@ -395,6 +422,10 @@ fn default_broadcast_hosts() -> Vec<BroadcastHostConfig> {
 
 fn default_broadcast_instance_name() -> String {
     "mixxx".to_owned()
+}
+
+fn default_drop_file_target() -> String {
+    "default".to_owned()
 }
 
 fn default_encoder_binary_path() -> PathBuf {
@@ -752,6 +783,9 @@ theme_profile = "dark"
 # Broadcast host control. Missing section defaults to this local host.
 # [broadcast]
 # selected_host = "Local"
+# mpv drop-file producer. Missing drop_directory disables this producer.
+# drop_directory = "/run/user/1000/musicindex-live-publisher/mpv/nowplaying"
+# drop_file_target = "default"
 #
 # [[broadcast.hosts]]
 # name = "Local"
@@ -872,6 +906,13 @@ db_path = "/tmp/v4vmm.sqlite"
         assert_eq!(host.name, "Local");
         assert_eq!(host.transport, Transport::Local);
         assert_eq!(host.instance_name, "mixxx");
+        assert_eq!(cfg.broadcast.drop_directory, None);
+        assert_eq!(cfg.broadcast.drop_file_target, "default");
+        assert!(cfg
+            .broadcast
+            .drop_file_producer()
+            .expect("producer")
+            .is_none());
         assert!(cfg.broadcast.encoder.is_none());
     }
 
@@ -945,6 +986,43 @@ default_server_name = "main"
         assert_eq!(encoder.default_server_name, "main");
         assert_eq!(target.binary_path(), "/usr/bin/butt");
         assert!(target.is_addressed());
+    }
+
+    #[test]
+    fn load_config_parses_broadcast_drop_file_producer() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/music"
+db_path = "/tmp/v4vmm.sqlite"
+
+[broadcast]
+drop_directory = "/tmp/musicindex-live-publisher/mpv/nowplaying"
+drop_file_target = "stream-a"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let producer = cfg
+            .broadcast
+            .drop_file_producer()
+            .expect("producer config")
+            .expect("active producer");
+
+        assert_eq!(
+            cfg.broadcast.drop_directory,
+            Some(PathBuf::from(
+                "/tmp/musicindex-live-publisher/mpv/nowplaying"
+            ))
+        );
+        assert_eq!(producer.target(), "stream-a");
+        assert_eq!(
+            producer.path(),
+            Path::new("/tmp/musicindex-live-publisher/mpv/nowplaying/stream-a.nowplaying.json")
+        );
     }
 
     #[test]

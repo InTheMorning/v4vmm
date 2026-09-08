@@ -9,6 +9,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+use crate::broadcast::producer::DropFileProducer;
 use crate::playback_driver::{DriverStatus, PlaybackDriver};
 use crate::{db, playback, playlist_service, track_identity};
 
@@ -25,6 +26,7 @@ pub struct PlaybackOwner<D> {
     session_id: String,
     eof_armed: bool,
     loaded_track_id: Option<i64>,
+    drop_file_producer: Option<DropFileProducer>,
 }
 
 impl<D: PlaybackDriver> PlaybackOwner<D> {
@@ -34,11 +36,34 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             session_id: session_id.into(),
             eof_armed: true,
             loaded_track_id: None,
+            drop_file_producer: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_drop_file_producer(mut self, producer: Option<DropFileProducer>) -> Self {
+        self.drop_file_producer = producer;
+        self
     }
 
     pub fn driver(&self) -> &D {
         &self.driver
+    }
+
+    #[must_use]
+    pub fn drop_file_producer(&self) -> Option<&DropFileProducer> {
+        self.drop_file_producer.as_ref()
+    }
+
+    #[must_use]
+    pub fn broadcast_drop_file_shutdown_warning(&self) -> Option<&'static str> {
+        self.drop_file_producer
+            .as_ref()
+            .map(DropFileProducer::shutdown_warning)
+    }
+
+    pub fn clear_broadcast_drop_file(&mut self) -> Result<bool> {
+        self.clear_drop_file()
     }
 
     pub fn load_track_path(
@@ -52,10 +77,13 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         self.eof_armed = true;
         self.loaded_track_id = Some(track_id);
         let update = playback::set_track(conn, track_id, &self.session_id)?;
+        self.sync_drop_file_for_update(conn, &update)?;
         if start_ms == 0 {
             return Ok(update);
         }
-        playback::update_position(conn, start_ms, &self.session_id)
+        let update = playback::update_position(conn, start_ms, &self.session_id)?;
+        self.sync_drop_file_for_update(conn, &update)?;
+        Ok(update)
     }
 
     pub fn play_playlist_at(
@@ -69,15 +97,20 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             .load(Path::new(&selection.identity.local_path), 0)?;
         self.eof_armed = true;
         self.loaded_track_id = Some(selection.track_id);
-        playback::play_playlist_at(conn, playlist_id, playlist_position, &self.session_id)
+        let update =
+            playback::play_playlist_at(conn, playlist_id, playlist_position, &self.session_id)?;
+        self.sync_drop_file_for_update(conn, &update)?;
+        Ok(update)
     }
 
     pub fn load_current_session(&mut self, conn: &Connection) -> Result<Option<DriverStatus>> {
         let Some(session) = db::playback_session(conn, &self.session_id)? else {
+            self.clear_drop_file()?;
             return Ok(None);
         };
         if session.state == "stopped" {
             self.loaded_track_id = None;
+            self.clear_drop_file()?;
             return Ok(None);
         }
         let identity = track_identity::local_track_identity(conn, session.local_track_id)?;
@@ -88,7 +121,13 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         }
         self.eof_armed = true;
         self.loaded_track_id = Some(session.local_track_id);
-        self.driver.poll().map(Some)
+        let status = self.driver.poll()?;
+        if session.state == "paused" {
+            self.clear_drop_file()?;
+        } else if let Some(update) = playback::now_playing_update(conn, &self.session_id)? {
+            self.sync_drop_file_for_update(conn, &update)?;
+        }
+        Ok(Some(status))
     }
 
     pub fn seek(
@@ -97,23 +136,33 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         position_ms: u64,
     ) -> Result<playback::NowPlayingUpdate> {
         self.driver.seek(position_ms)?;
-        playback::update_position(conn, position_ms, &self.session_id)
+        let update = playback::update_position(conn, position_ms, &self.session_id)?;
+        self.sync_drop_file_for_update(conn, &update)?;
+        Ok(update)
     }
 
     pub fn pause(&mut self, conn: &Connection, paused: bool) -> Result<playback::NowPlayingUpdate> {
         self.driver.pause(paused)?;
-        playback::update_paused(conn, paused, &self.session_id)
+        let update = playback::update_paused(conn, paused, &self.session_id)?;
+        if paused {
+            self.clear_drop_file()?;
+        } else {
+            self.sync_drop_file_for_update(conn, &update)?;
+        }
+        Ok(update)
     }
 
     pub fn skip_next(&mut self, conn: &Connection) -> Result<playback::NowPlayingUpdate> {
         let update = playback::skip_next(conn, &self.session_id)?;
         self.load_update_track(conn, &update)?;
+        self.sync_drop_file_for_update(conn, &update)?;
         Ok(update)
     }
 
     pub fn skip_previous(&mut self, conn: &Connection) -> Result<playback::NowPlayingUpdate> {
         let update = playback::skip_previous(conn, &self.session_id)?;
         self.load_update_track(conn, &update)?;
+        self.sync_drop_file_for_update(conn, &update)?;
         Ok(update)
     }
 
@@ -121,7 +170,9 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         self.driver.stop()?;
         self.eof_armed = false;
         self.loaded_track_id = None;
-        playback::stop(conn, &self.session_id)
+        let session = playback::stop(conn, &self.session_id)?;
+        self.clear_drop_file()?;
+        Ok(session)
     }
 
     fn load_update_track(
@@ -141,12 +192,14 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             if self.loaded_track_id.take().is_some() {
                 self.driver.stop()?;
             }
+            self.clear_drop_file()?;
             return Ok(PollOutcome::NoSession);
         };
         if session.state == "stopped" {
             if self.loaded_track_id.take().is_some() {
                 self.driver.stop()?;
             }
+            self.clear_drop_file()?;
             return Ok(PollOutcome::Reconciled(None));
         }
         if self.loaded_track_id != Some(session.local_track_id) {
@@ -157,8 +210,14 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
                 self.driver.pause(true)?;
             }
             self.loaded_track_id = Some(session.local_track_id);
-            return playback::now_playing_update(conn, &self.session_id)
-                .map(PollOutcome::Reconciled);
+            let update = playback::now_playing_update(conn, &self.session_id)?;
+            match &update {
+                Some(update) => self.sync_drop_file_for_update(conn, update)?,
+                None => {
+                    self.clear_drop_file()?;
+                }
+            }
+            return Ok(PollOutcome::Reconciled(update));
         }
         let status = self.driver.poll()?;
         if let Some(error) = &status.error {
@@ -175,21 +234,59 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             self.driver.load(Path::new(&identity.local_path), 0)?;
             self.loaded_track_id = Some(update.local_track_id);
             self.eof_armed = true;
+            self.sync_drop_file_for_update(conn, &update)?;
             return Ok(PollOutcome::Advanced(update));
         }
         self.eof_armed = true;
         let update = playback::reconcile_driver_status(conn, &status, &self.session_id)?;
+        match &update {
+            Some(update) => self.sync_drop_file_for_update(conn, update)?,
+            None => {
+                self.clear_drop_file()?;
+            }
+        }
         Ok(PollOutcome::Reconciled(update))
+    }
+
+    fn sync_drop_file_for_update(
+        &mut self,
+        conn: &Connection,
+        update: &playback::NowPlayingUpdate,
+    ) -> Result<()> {
+        let Some(producer) = self.drop_file_producer.as_mut() else {
+            return Ok(());
+        };
+        let Some(session) = db::playback_session(conn, &self.session_id)? else {
+            producer.clear()?;
+            return Ok(());
+        };
+        if session.state != "playing" {
+            producer.clear()?;
+            return Ok(());
+        }
+        let identity = track_identity::local_track_identity(conn, update.local_track_id)?;
+        producer.publish(update, Path::new(&identity.local_path))?;
+        Ok(())
+    }
+
+    fn clear_drop_file(&mut self) -> Result<bool> {
+        self.drop_file_producer
+            .as_mut()
+            .map_or(Ok(false), DropFileProducer::clear)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::PathBuf;
 
     use anyhow::Result;
 
     use super::*;
+    use crate::application::ApplicationQueryService;
+    use crate::audio_tags::{write_id3v24_edits, Id3v24Edit};
+    use crate::broadcast::producer::{DropFileProducer, SHUTDOWN_WARNING};
     use crate::playback_driver::NullDriver;
 
     fn setup_test_db() -> Result<Connection> {
@@ -240,6 +337,20 @@ mod tests {
         Ok(track_id)
     }
 
+    fn tagged_audio_file(temp: &tempfile::TempDir, name: &str) -> Result<PathBuf> {
+        let path = temp.path().join(name);
+        fs::write(&path, b"not really an mp3")?;
+        write_id3v24_edits(
+            &path,
+            &[Id3v24Edit {
+                frame_label: "TXXX:MusicIndex Value Routes".to_owned(),
+                value: r#"[{"recipient_name":"Embedded Route","route_type":"node","split":77.0}]"#
+                    .to_owned(),
+            }],
+        )?;
+        Ok(path)
+    }
+
     #[test]
     fn owner_seek_updates_driver_and_session_immediately() -> Result<()> {
         let conn = setup_test_db()?;
@@ -271,6 +382,70 @@ mod tests {
 
         assert_eq!(row.state, "paused");
         assert!(owner.driver().snapshot().paused);
+        Ok(())
+    }
+
+    #[test]
+    fn owner_pause_removes_drop_file_but_keeps_paused_now_playing() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        let audio_path = tagged_audio_file(&temp, "track.mp3")?;
+        let track_id = create_track(&conn, feed_id, "item-guid", &audio_path.to_string_lossy())?;
+        let producer = DropFileProducer::new(temp.path(), "default")?;
+        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID)
+            .with_drop_file_producer(Some(producer));
+
+        owner.load_track_path(&conn, track_id, &audio_path, 0)?;
+        let drop_path = owner
+            .drop_file_producer()
+            .expect("producer")
+            .path()
+            .to_owned();
+        assert!(drop_path.exists());
+
+        owner.pause(&conn, true)?;
+        let row = db::playback_session(&conn, playback::DEFAULT_SESSION_ID)?.expect("session");
+        let current = playback::now_playing_update(&conn, playback::DEFAULT_SESSION_ID)?
+            .expect("paused sessions still have display state");
+        let snapshot = ApplicationQueryService::new()
+            .playback_snapshot(&conn, playback::DEFAULT_SESSION_ID)
+            .expect("playback VM snapshot");
+
+        assert_eq!(row.state, "paused");
+        assert_eq!(current.local_track_id, track_id);
+        assert!(snapshot.is_active());
+        assert!(snapshot.is_paused());
+        assert_eq!(snapshot.title(), Some("Track item-guid"));
+        assert!(!drop_path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn owner_shutdown_cleanup_warns_and_removes_drop_file() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        let audio_path = tagged_audio_file(&temp, "track.mp3")?;
+        let track_id = create_track(&conn, feed_id, "item-guid", &audio_path.to_string_lossy())?;
+        let producer = DropFileProducer::new(temp.path(), "default")?;
+        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID)
+            .with_drop_file_producer(Some(producer));
+
+        assert_eq!(
+            owner.broadcast_drop_file_shutdown_warning(),
+            Some(SHUTDOWN_WARNING)
+        );
+        owner.load_track_path(&conn, track_id, &audio_path, 0)?;
+        let drop_path = owner
+            .drop_file_producer()
+            .expect("producer")
+            .path()
+            .to_owned();
+        assert!(drop_path.exists());
+
+        assert!(owner.clear_broadcast_drop_file()?);
+        assert!(!drop_path.exists());
         Ok(())
     }
 

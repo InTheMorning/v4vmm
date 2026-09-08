@@ -11707,6 +11707,68 @@ fn adr_0059_ssh_transport_boundary_is_broadcast_owned() {
     );
 }
 
+/// Situational ADR 0059: Packet 011 mpv drop-file production stays in broadcast.
+#[test]
+fn adr_0059_mpv_drop_file_producer_boundary_is_broadcast_owned() {
+    let mut violations = Vec::new();
+    let producer_source = read_source(&manifest_path("src/broadcast/producer.rs"));
+    let production_source = producer_source.split("#[cfg(test)]").next().unwrap_or("");
+    let broadcast_mod_source = read_source(&manifest_path("src/broadcast/mod.rs"));
+
+    for required in [
+        "pub mod producer;",
+        "pub struct DropFileProducer",
+        "pub const DROP_FILE_SCHEMA: &str = \"musicindex.nowplaying/1\"",
+        "pub const DROP_FILE_SUFFIX: &str = \".nowplaying.json\"",
+        "TXXX:MusicIndex Value Routes",
+        "EMBEDDED_ID3_ROUTES_SOURCE: &str = \"embedded-id3\"",
+        "fn write_atomic(&self, content: &str)",
+        "fs::rename(&temp_path, &self.path)",
+        "remove_file_if_exists(&self.path)",
+    ] {
+        if !producer_source.contains(required) && !broadcast_mod_source.contains(required) {
+            violations.push(format!(
+                "src/broadcast/producer.rs: Situational ADR 0059 Packet 011 mpv drop-file producer missing `{required}`. Fix: keep mpv now-playing drop-file construction in broadcast::producer."
+            ));
+        }
+    }
+
+    if production_source.contains("value_block") {
+        violations.push(
+            "src/broadcast/producer.rs: Situational ADR 0059 Packet 011 forbids building value routes from NowPlayingUpdate.value_block. Fix: read embedded MusicIndex Value Routes from the audio file tag.".to_owned(),
+        );
+    }
+
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        if file == "src/broadcast/producer.rs" {
+            continue;
+        }
+        let source = read_source(&path);
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or("");
+        for (line_number, line) in code_lines(production_source) {
+            for forbidden in [
+                "DROP_FILE_SUFFIX",
+                ".nowplaying.json",
+                "musicindex.nowplaying/1",
+            ] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{}:{line_number}: Situational ADR 0059 Packet 011 forbids mpv drop-file naming or schema construction outside src/broadcast/producer.rs. Fix: route mpv drop-file writes through broadcast::producer.",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0059 Packet 011 mpv drop-file producer boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0059: Packet 015 encoder command construction stays in broadcast.
 #[test]
 fn adr_0059_stream_encoder_control_boundary_is_broadcast_owned() {
