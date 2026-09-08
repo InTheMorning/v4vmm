@@ -13088,6 +13088,116 @@ fn adr_0060_toolbar_no_longer_carries_now_playing_chip() {
     );
 }
 
+/// Situational ADR 0063: Show dashboard layout numbers stay out of the VM.
+#[test]
+fn adr_0063_show_card_contract_is_renderer_free_and_column_only() {
+    let show_source = read_source(&manifest_path("src/view_models/show.rs"));
+    let card_struct = source_between(
+        &show_source,
+        "pub(crate) struct ShowCardDisplay",
+        "/// Side-panel mode for the Show screen.",
+    );
+    let page_struct = source_between(
+        &show_source,
+        "pub(crate) struct ShowPageVm",
+        "impl ShowPageVm",
+    );
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) enum ShowCardKind",
+        "Source",
+        "LiveMetadata",
+        "Event",
+        "Stream",
+        "const ORDER: [Self; 4]",
+        "pub(crate) enum ShowCardStateKind",
+        "Ok",
+        "Attention",
+        "Failed",
+        "Absent",
+        "Unknown",
+        "pub(crate) enum ShowPanelMode",
+        "Cuelist",
+        "Detail(ShowCardKind)",
+        "pub(crate) enum ShowWidthClass",
+        "Compact",
+        "Medium",
+        "Wide",
+        "pub(crate) const fn columns(self) -> u16",
+        "Self::Compact => 1",
+        "Self::Medium => 2",
+        "Self::Wide => 3",
+    ] {
+        if !show_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/show.rs: Situational ADR 0063 Show card contract missing `{required}`. Fix: keep card identity, state, panel mode, and column count in the view model."
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) kind: ShowCardKind",
+        "pub(crate) title: &'static str",
+        "pub(crate) state_label: String",
+        "pub(crate) state: ShowCardStateKind",
+        "pub(crate) primary: String",
+        "pub(crate) secondary: String",
+        "pub(crate) a11y_label: String",
+    ] {
+        if !card_struct.contains(required) {
+            violations.push(format!(
+                "src/view_models/show.rs: Situational ADR 0063 card summary shape missing `{required}`. Fix: every card must carry the same display-ready field set."
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) cards: Vec<ShowCardDisplay>",
+        "pub(crate) width_class: ShowWidthClass",
+        "pub(crate) panel_mode: ShowPanelMode",
+        "pub(crate) panel_open: bool",
+    ] {
+        if !page_struct.contains(required) {
+            violations.push(format!(
+                "src/view_models/show.rs: Situational ADR 0063 ShowPageVm missing `{required}`. Fix: keep dashboard card and panel state in the page VM."
+            ));
+        }
+    }
+
+    for (line_number, line) in code_lines(&show_source) {
+        for pattern in [
+            "use gpui",
+            "gpui::",
+            "use gpui_component",
+            "gpui_component::",
+            "px(",
+            ".px()",
+            "Pixels",
+            "window.bounds",
+            "size.width",
+        ] {
+            if line.contains(pattern) {
+                violations.push(format!(
+                    "src/view_models/show.rs:{line_number}: Situational ADR 0063 Show card contract must stay renderer-free and expose only column count, found `{pattern}` in `{line}`"
+                ));
+            }
+        }
+
+        if line.contains("const ") && (line.contains("BREAKPOINT") || line.contains("WIDTH")) {
+            violations.push(format!(
+                "src/view_models/show.rs:{line_number}: Situational ADR 0063 Show VM must not hold layout threshold constants: `{line}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0063 Show card contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0062: mixed Music rows carry a kind and shared badges.
 #[test]
 fn adr_0062_mixed_entity_row_contract_is_kind_backed() {

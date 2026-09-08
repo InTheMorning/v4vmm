@@ -899,6 +899,130 @@ pub(crate) struct StreamActionsDisplay {
     pub(crate) disconnect: StreamActionDisplay,
 }
 
+/// Stable card identities for the Show dashboard.
+///
+/// The order of this enum is the ADR 0059 section order.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ShowCardKind {
+    /// Source host and library readiness.
+    Source,
+    /// Live metadata producer and publisher services.
+    LiveMetadata,
+    /// Relay event and publisher target attachment.
+    Event,
+    /// Stream encoder status.
+    Stream,
+}
+
+impl ShowCardKind {
+    const ORDER: [Self; 4] = [Self::Source, Self::LiveMetadata, Self::Event, Self::Stream];
+
+    const fn title(self) -> &'static str {
+        match self {
+            Self::Source => "Source",
+            Self::LiveMetadata => "Live Metadata",
+            Self::Event => "Event",
+            Self::Stream => "Stream",
+        }
+    }
+}
+
+/// Summary state for a Show dashboard card.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ShowCardStateKind {
+    /// The section summary is healthy.
+    Ok,
+    /// The section needs operator attention.
+    Attention,
+    /// The section reports a failed state.
+    Failed,
+    /// The section exists but its subject is absent.
+    Absent,
+    /// The section state is not known.
+    Unknown,
+}
+
+/// Display-ready summary for one Show dashboard card.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ShowCardDisplay {
+    /// Stable card identity.
+    pub(crate) kind: ShowCardKind,
+    /// Visible card title.
+    pub(crate) title: &'static str,
+    /// Visible state badge label.
+    pub(crate) state_label: String,
+    /// Typed state for semantic card styling.
+    pub(crate) state: ShowCardStateKind,
+    /// Primary summary line. Always present and non-empty.
+    pub(crate) primary: String,
+    /// Secondary summary line. Always present, empty when unused.
+    pub(crate) secondary: String,
+    /// Accessibility label for the whole card.
+    pub(crate) a11y_label: String,
+}
+
+/// Side-panel mode for the Show screen.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum ShowPanelMode {
+    /// The panel shows the cuelist.
+    #[default]
+    Cuelist,
+    /// The panel shows detail for one dashboard card.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 003 wires card selection into the panel mode."
+        )
+    )]
+    Detail(ShowCardKind),
+}
+
+/// Width class for the Show dashboard card grid.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum ShowWidthClass {
+    /// One dashboard column.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 002 maps an observed window width to this class."
+        )
+    )]
+    Compact,
+    /// Two dashboard columns.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 002 maps an observed window width to this class."
+        )
+    )]
+    Medium,
+    /// Three dashboard columns.
+    #[default]
+    Wide,
+}
+
+impl ShowWidthClass {
+    /// Returns the dashboard grid column count.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 002 has the shell read this column count."
+        )
+    )]
+    #[must_use]
+    pub(crate) const fn columns(self) -> u16 {
+        match self {
+            Self::Compact => 1,
+            Self::Medium => 2,
+            Self::Wide => 3,
+        }
+    }
+}
+
 /// Display-ready state for the `Show` screen mount.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ShowPageVm {
@@ -918,6 +1042,14 @@ pub(crate) struct ShowPageVm {
     pub(crate) event: Option<EventSectionDisplay>,
     /// Optional Stream section; absent sections render nothing.
     pub(crate) stream: Option<StreamSectionDisplay>,
+    /// Dashboard card summaries in `ShowCardKind` order.
+    pub(crate) cards: Vec<ShowCardDisplay>,
+    /// Dashboard width class.
+    pub(crate) width_class: ShowWidthClass,
+    /// Current side-panel mode.
+    pub(crate) panel_mode: ShowPanelMode,
+    /// Whether the side panel is open.
+    pub(crate) panel_open: bool,
     /// Queue and transport display projected by the existing queue VM.
     pub(crate) queue: QueueNowPlayingPageVm,
 }
@@ -993,6 +1125,12 @@ impl ShowPageVm {
         let event =
             event_input.map(|input| EventSectionDisplay::from_input(input, publisher_reachable));
         let stream = publisher_snapshot.map(StreamSectionDisplay::from_snapshot);
+        let cards = show_cards(
+            source.as_ref(),
+            publisher.as_ref(),
+            event.as_ref(),
+            stream.as_ref(),
+        );
         Self {
             title: "Show",
             state_label,
@@ -1006,6 +1144,10 @@ impl ShowPageVm {
             publisher,
             event,
             stream,
+            cards,
+            width_class: ShowWidthClass::default(),
+            panel_mode: ShowPanelMode::default(),
+            panel_open: true,
             queue,
         }
     }
@@ -1014,6 +1156,192 @@ impl ShowPageVm {
     #[must_use]
     pub(crate) const fn is_active(&self) -> bool {
         self.empty_state.is_none()
+    }
+}
+
+fn show_cards(
+    source: Option<&SourceSectionDisplay>,
+    publisher: Option<&PublisherSectionDisplay>,
+    event: Option<&EventSectionDisplay>,
+    stream: Option<&StreamSectionDisplay>,
+) -> Vec<ShowCardDisplay> {
+    ShowCardKind::ORDER
+        .into_iter()
+        .filter_map(|kind| match kind {
+            ShowCardKind::Source => source.map(ShowCardDisplay::from_source),
+            ShowCardKind::LiveMetadata => publisher.map(ShowCardDisplay::from_live_metadata),
+            ShowCardKind::Event => event.map(ShowCardDisplay::from_event),
+            ShowCardKind::Stream => stream.map(ShowCardDisplay::from_stream),
+        })
+        .collect()
+}
+
+impl ShowCardDisplay {
+    fn from_source(section: &SourceSectionDisplay) -> Self {
+        Self::new(
+            ShowCardKind::Source,
+            section.reachability.label,
+            source_card_state(section.reachability.state),
+            non_empty_summary_line(&section.host_name, "Unknown host"),
+            section
+                .readiness
+                .as_ref()
+                .map_or_else(String::new, |readiness| readiness.count_label.clone()),
+        )
+    }
+
+    fn from_live_metadata(section: &PublisherSectionDisplay) -> Self {
+        let (state, state_label) = live_metadata_card_state(section.services.as_slice());
+        let primary = section
+            .services
+            .first()
+            .map_or_else(String::new, live_metadata_service_line);
+        let secondary = section
+            .services
+            .get(1)
+            .map_or_else(String::new, live_metadata_service_line);
+
+        Self::new(
+            ShowCardKind::LiveMetadata,
+            state_label,
+            state,
+            non_empty_summary_line(&primary, "No services observed"),
+            secondary,
+        )
+    }
+
+    fn from_event(section: &EventSectionDisplay) -> Self {
+        let secondary = if section.event.event_id.is_some() {
+            format!(
+                "Target: {}",
+                non_empty_summary_line(&section.target.label, "unknown")
+            )
+        } else {
+            String::new()
+        };
+
+        Self::new(
+            ShowCardKind::Event,
+            section.event.state.label,
+            event_card_state(section.event.state.state),
+            non_empty_summary_line(&section.event.label, "No event selected"),
+            secondary,
+        )
+    }
+
+    fn from_stream(section: &StreamSectionDisplay) -> Self {
+        Self::new(
+            ShowCardKind::Stream,
+            section.connection.label,
+            stream_card_state(section.connection.state),
+            non_empty_summary_line(section.connection.label, "Unknown connection"),
+            section.listeners.label.clone(),
+        )
+    }
+
+    fn new(
+        kind: ShowCardKind,
+        state_label: impl Into<String>,
+        state: ShowCardStateKind,
+        primary: String,
+        secondary: String,
+    ) -> Self {
+        let title = kind.title();
+        let state_label = state_label.into();
+        let a11y_label = show_card_a11y_label(title, &state_label, &primary, &secondary);
+        Self {
+            kind,
+            title,
+            state_label,
+            state,
+            primary,
+            secondary,
+            a11y_label,
+        }
+    }
+}
+
+fn non_empty_summary_line(value: &str, fallback: &str) -> String {
+    if value.trim().is_empty() {
+        fallback.to_owned()
+    } else {
+        value.to_owned()
+    }
+}
+
+fn show_card_a11y_label(title: &str, state_label: &str, primary: &str, secondary: &str) -> String {
+    if secondary.trim().is_empty() {
+        format!("{title}, {state_label}, {primary}")
+    } else {
+        format!("{title}, {state_label}, {primary}, {secondary}")
+    }
+}
+
+const fn source_card_state(state: SourceReachabilityState) -> ShowCardStateKind {
+    match state {
+        SourceReachabilityState::Reachable => ShowCardStateKind::Ok,
+        SourceReachabilityState::NotReachable => ShowCardStateKind::Failed,
+        SourceReachabilityState::Unknown => ShowCardStateKind::Unknown,
+    }
+}
+
+fn live_metadata_card_state(
+    services: &[PublisherServiceDisplay],
+) -> (ShowCardStateKind, &'static str) {
+    if services
+        .iter()
+        .any(|service| matches!(service.state.kind(), PublisherServiceStateKind::Failed))
+    {
+        return (ShowCardStateKind::Failed, "Failed");
+    }
+
+    if services.iter().any(|service| {
+        matches!(
+            service.state.kind(),
+            PublisherServiceStateKind::NotInstalled | PublisherServiceStateKind::NotReachable
+        )
+    }) {
+        return (ShowCardStateKind::Attention, "Needs attention");
+    }
+
+    if services
+        .iter()
+        .any(|service| matches!(service.state.kind(), PublisherServiceStateKind::Unknown))
+    {
+        return (ShowCardStateKind::Unknown, "Unknown");
+    }
+
+    if services
+        .iter()
+        .all(|service| matches!(service.state.kind(), PublisherServiceStateKind::Active))
+    {
+        return (ShowCardStateKind::Ok, "Active");
+    }
+
+    (ShowCardStateKind::Attention, "Needs attention")
+}
+
+fn live_metadata_service_line(service: &PublisherServiceDisplay) -> String {
+    format!("{}: {}", service.label, service.state.label())
+}
+
+const fn event_card_state(state: EventState) -> ShowCardStateKind {
+    match state {
+        EventState::None => ShowCardStateKind::Absent,
+        EventState::Unknown => ShowCardStateKind::Unknown,
+        EventState::Live => ShowCardStateKind::Ok,
+        EventState::Dead => ShowCardStateKind::Failed,
+    }
+}
+
+const fn stream_card_state(state: StreamConnectionState) -> ShowCardStateKind {
+    match state {
+        StreamConnectionState::Connected => ShowCardStateKind::Ok,
+        StreamConnectionState::Connecting
+        | StreamConnectionState::Disconnected
+        | StreamConnectionState::NotInstalled
+        | StreamConnectionState::NotReachable => ShowCardStateKind::Attention,
+        StreamConnectionState::Unknown => ShowCardStateKind::Unknown,
     }
 }
 
@@ -1694,6 +2022,10 @@ mod tests {
         assert!(vm.publisher.is_none());
         assert!(vm.event.is_none());
         assert!(vm.stream.is_none());
+        assert!(vm.cards.is_empty());
+        assert_eq!(vm.width_class, ShowWidthClass::default());
+        assert_eq!(vm.panel_mode, ShowPanelMode::default());
+        assert!(vm.panel_open);
         assert!(vm.queue.rows.is_empty());
     }
 
@@ -1733,6 +2065,246 @@ mod tests {
         assert!(vm.is_active());
         assert_eq!(vm.state_label, "Paused");
         assert!(vm.empty_state.is_none());
+    }
+
+    #[test]
+    fn card_summaries_have_uniform_lines_for_each_section_state() {
+        let mut cards = Vec::new();
+
+        for state in [
+            SourceReachabilityState::Reachable,
+            SourceReachabilityState::NotReachable,
+            SourceReachabilityState::Unknown,
+        ] {
+            cards.push(ShowCardDisplay::from_source(&SourceSectionDisplay {
+                title: "Source",
+                summary: "Local".to_owned(),
+                host_name: "Local".to_owned(),
+                reachability: state.display(),
+                readiness: None,
+            }));
+        }
+
+        cards.push(ShowCardDisplay::from_source(&SourceSectionDisplay {
+            title: "Source",
+            summary: "Local".to_owned(),
+            host_name: "Local".to_owned(),
+            reachability: SourceReachabilityState::Reachable.display(),
+            readiness: Some(SourceReadinessDisplay::checking()),
+        }));
+
+        for state in service_states() {
+            let snapshot = publisher_snapshot([(
+                PublisherServiceRole::Publisher,
+                "musicindex-live-publisher@mixxx.service",
+                state,
+            )]);
+            let publisher =
+                PublisherSectionDisplay::from_snapshot(&snapshot, PublisherLogPanelState::closed())
+                    .expect("publisher section");
+            cards.push(ShowCardDisplay::from_live_metadata(&publisher));
+        }
+
+        for state in [
+            EventState::None,
+            EventState::Unknown,
+            EventState::Live,
+            EventState::Dead,
+        ] {
+            let selected_event =
+                (!matches!(state, EventState::None)).then(|| EventSelectionInput {
+                    label: None,
+                    event_id: "event-one".to_owned(),
+                    endpoint: "https://relay.example".to_owned(),
+                    token_path: "/tmp/event-one.token".to_owned(),
+                    state,
+                    token_file_missing: false,
+                });
+            let input = event_input(
+                selected_event,
+                EventTargetListInput::Loaded {
+                    targets: Vec::new(),
+                },
+            );
+            let event = EventSectionDisplay::from_input(&input, true);
+            cards.push(ShowCardDisplay::from_event(&event));
+        }
+
+        for state in [
+            EncoderState::Connected,
+            EncoderState::Connecting,
+            EncoderState::Disconnected,
+            EncoderState::NotInstalled,
+            EncoderState::NotReachable,
+            EncoderState::Unknown,
+        ] {
+            let stream = StreamSectionDisplay::from_snapshot(&snapshot_with_encoder(
+                Vec::new(),
+                broadcast_service_watch::BroadcastEncoderSnapshot {
+                    server_name: "Main".to_owned(),
+                    configured: true,
+                    status: EncoderStatus {
+                        state,
+                        recording: RecordingState::Unknown,
+                        signal: AudioSignalState::Unknown,
+                        listeners: ListenerCount::Unknown,
+                        song: None,
+                        stream_seconds: None,
+                    },
+                },
+            ));
+            cards.push(ShowCardDisplay::from_stream(&stream));
+        }
+
+        for card in cards {
+            assert_uniform_card(card);
+        }
+    }
+
+    #[test]
+    fn absent_sections_leave_no_card_cell() {
+        let snapshot = snapshot_with_encoder(
+            Vec::new(),
+            broadcast_service_watch::BroadcastEncoderSnapshot {
+                server_name: "Not configured".to_owned(),
+                configured: false,
+                status: EncoderStatus::not_installed(),
+            },
+        );
+
+        let vm = ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+        );
+
+        assert!(vm.source.is_none());
+        assert!(vm.publisher.is_none());
+        assert!(vm.event.is_none());
+        assert_eq!(
+            vm.cards.iter().map(|card| card.kind).collect::<Vec<_>>(),
+            vec![ShowCardKind::Stream]
+        );
+    }
+
+    #[test]
+    fn cards_follow_show_card_kind_order() {
+        let snapshot = publisher_snapshot([
+            (
+                PublisherServiceRole::Publisher,
+                "musicindex-live-publisher@mixxx.service",
+                ServiceState::Active,
+            ),
+            (
+                PublisherServiceRole::Producer,
+                "mixxx-now-playing.service",
+                ServiceState::Active,
+            ),
+        ]);
+        let input = event_input(
+            Some(EventSelectionInput {
+                label: Some("Late Night".to_owned()),
+                event_id: "event-one".to_owned(),
+                endpoint: "https://relay.example".to_owned(),
+                token_path: "/tmp/event-one.token".to_owned(),
+                state: EventState::Live,
+                token_file_missing: false,
+            }),
+            EventTargetListInput::Loaded {
+                targets: Vec::new(),
+            },
+        );
+
+        let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+            None,
+            Some(&input),
+        );
+
+        assert_eq!(
+            vm.cards.iter().map(|card| card.kind).collect::<Vec<_>>(),
+            ShowCardKind::ORDER.to_vec()
+        );
+    }
+
+    #[test]
+    fn show_width_classes_return_column_counts() {
+        assert_eq!(ShowWidthClass::Compact.columns(), 1);
+        assert_eq!(ShowWidthClass::Medium.columns(), 2);
+        assert_eq!(ShowWidthClass::Wide.columns(), 3);
+    }
+
+    #[test]
+    fn show_panel_mode_defaults_to_cuelist_and_detail_holds_one_card() {
+        assert_eq!(ShowPanelMode::default(), ShowPanelMode::Cuelist);
+
+        let detail = ShowPanelMode::Detail(ShowCardKind::Event);
+        let ShowPanelMode::Detail(kind) = detail else {
+            panic!("detail mode must hold one card kind");
+        };
+        assert_eq!(kind, ShowCardKind::Event);
+    }
+
+    #[test]
+    fn live_metadata_card_failed_when_any_service_failed() {
+        let snapshot = publisher_snapshot([
+            (
+                PublisherServiceRole::Publisher,
+                "musicindex-live-publisher@mixxx.service",
+                ServiceState::Active,
+            ),
+            (
+                PublisherServiceRole::Producer,
+                "mixxx-now-playing.service",
+                ServiceState::Failed {
+                    reason: "exit-code".to_owned(),
+                },
+            ),
+        ]);
+        let vm = ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+        );
+        let card = vm
+            .cards
+            .iter()
+            .find(|card| card.kind == ShowCardKind::LiveMetadata)
+            .expect("live metadata card");
+
+        assert_eq!(card.state, ShowCardStateKind::Failed);
+        assert_eq!(card.state_label, "Failed");
+    }
+
+    #[test]
+    fn live_metadata_card_uses_two_service_lines() {
+        let snapshot = publisher_snapshot([
+            (
+                PublisherServiceRole::Publisher,
+                "musicindex-live-publisher@mixxx.service",
+                ServiceState::Active,
+            ),
+            (
+                PublisherServiceRole::Producer,
+                "mixxx-now-playing.service",
+                ServiceState::Inactive,
+            ),
+        ]);
+        let vm = ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+        );
+        let card = vm
+            .cards
+            .iter()
+            .find(|card| card.kind == ShowCardKind::LiveMetadata)
+            .expect("live metadata card");
+
+        assert_eq!(card.primary, "Publisher: Active");
+        assert_eq!(card.secondary, "Producer: Inactive");
     }
 
     #[test]
@@ -2404,5 +2976,43 @@ mod tests {
             attach_target_name: "default".to_owned(),
             remote_host: false,
         }
+    }
+
+    fn service_states() -> Vec<ServiceState> {
+        vec![
+            ServiceState::Active,
+            ServiceState::Inactive,
+            ServiceState::Starting,
+            ServiceState::Stopping,
+            ServiceState::Failed {
+                reason: "exit-code".to_owned(),
+            },
+            ServiceState::NotInstalled,
+            ServiceState::NotReachable,
+            ServiceState::Unknown,
+        ]
+    }
+
+    fn assert_uniform_card(card: ShowCardDisplay) {
+        assert!(
+            !card.title.trim().is_empty(),
+            "card {card:?} has an empty title"
+        );
+        assert!(
+            !card.state_label.trim().is_empty(),
+            "card {card:?} has an empty state label"
+        );
+        assert!(
+            !card.primary.trim().is_empty(),
+            "card {card:?} has an empty primary line"
+        );
+        assert!(
+            card.secondary.is_empty() || !card.secondary.trim().is_empty(),
+            "card {card:?} has a whitespace-only secondary line"
+        );
+        assert!(
+            !card.a11y_label.trim().is_empty(),
+            "card {card:?} has an empty accessibility label"
+        );
     }
 }

@@ -1,7 +1,8 @@
 # ADR 0063 Task 001: Card Contract And Width Class
 
-Status: Ready - 2026-09-08. Do first. Tasks 002 and 003 read the contract that
-this task defines. No renderer change.
+Status: Implemented - 2026-09-08. Mechanical acceptance met. No visual
+criteria; the app was not run for this view-model-only packet. Tasks 002 and
+003 read the contract that this task defines.
 
 ## Goal
 

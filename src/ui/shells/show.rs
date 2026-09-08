@@ -233,6 +233,7 @@ impl RenderOnce for ShowShell {
             event,
             stream,
             queue,
+            ..
         } = self.vm;
 
         let mut screen = div()

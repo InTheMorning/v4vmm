@@ -23,14 +23,19 @@ container until task 003 moves it.
 - `src/ui/composites/show_card.rs` (new)
 - `src/ui/composites/mod.rs`
 - `src/ui/shells/show.rs`
+- `src/view_models/show.rs`, for the width mapping only
+- `src/app/show.rs`, for the window-width observation only
 - `tests/architecture_tests.rs`
 
 ## Do Not Touch
 
-- `src/view_models/**`. Task 001 owns the contract.
-- `src/app/**`, `src/broadcast/**`, `src/runtime/**`
+- The card contract types from task 001. Read them, do not change their shape.
+  The width mapping in step 4 is the one addition this task makes to
+  `src/view_models/show.rs`.
+- `src/broadcast/**`, `src/runtime/**`
 - `render_queue_now_playing` and its slots
 - The transport controls
+- `src/app/**` beyond the window-width observation in step 4
 
 ## Constraints
 
@@ -40,6 +45,15 @@ container until task 003 moves it.
   card with one summary line and a card with two are the same height.
 - The grid column count comes from `ShowPageVm`. The shell reads
   `width_class.columns()`. **No breakpoint arithmetic in the shell.**
+- **The width class needs an input, and task 001 did not give it one.**
+  `ShowPageVm::width_class` is the default in every case today, so the grid is
+  always three columns. The app layer observes the window width and passes it to
+  the view model. The view model maps the width to a class. Neither the shell nor
+  the composite chooses a class.
+- Task 001 added `..` to the `ShowPageVm` destructure in `render_show`, to keep
+  the shell compiling. **Restore the exhaustive destructure in this task.** The
+  exhaustive form is what forces a later field to reach the renderer, and the
+  card list is the field that must reach it now.
 - The grid does not scroll. No `overflow_y_scrollbar` and no scroll container
   reaches the card region. ADR 0063 states this as an invariant.
 - A card is selectable. Selection sends the card kind through a slot. This task
@@ -57,19 +71,27 @@ container until task 003 moves it.
    lines. Both lines always render, so the height never changes.
 3. Map `ShowCardStateKind` to a semantic color. Never use color alone: the badge
    carries the state label text as well.
-4. Add the card grid to `render_show`:
+4. Add a width observation:
+   - the app layer reads the window width and calls a view-model constructor
+     with it
+   - the view model maps the width to `ShowWidthClass`
+   - pick the two breakpoints from the token scale, and state them in the view
+     model, not in `src/ui/`
+5. Restore the exhaustive `ShowPageVm` destructure in `render_show`, and remove
+   the `..`.
+6. Add the card grid to `render_show`:
    - a container with `.grid()` and `.grid_cols(vm.width_class.columns())`
    - one `ShowCard` for each entry of `vm.cards`
    - the grid sits under the show summary and above the queue container
-5. Add `on_select_card` to `ShowSlots`, taking `ShowCardKind`.
-6. Delete `render_source_section`, `render_publisher_section`,
+7. Add `on_select_card` to `ShowSlots`, taking `ShowCardKind`.
+8. Delete `render_source_section`, `render_publisher_section`,
    `render_event_section`, and `render_stream_section`, and the helper functions
    that only they reach.
-7. Keep the queue container as it is. Task 003 moves it.
-8. Add a guard: `src/ui/shells/show.rs` and `src/ui/composites/show_card.rs`
+9. Keep the queue container as it is. Task 003 moves it.
+10. Add a guard: `src/ui/shells/show.rs` and `src/ui/composites/show_card.rs`
    hold no pixel breakpoint, no `grid_cols` literal, and no scroll container in
    the card region.
-9. Add a guard: the card composite holds no state-to-text mapping, so the view
+11. Add a guard: the card composite holds no state-to-text mapping, so the view
    model keeps every label.
 
 ## Acceptance Criteria
@@ -78,6 +100,9 @@ Mechanical, proved by a test:
 
 - The shell reads the column count from the view model, and holds no breakpoint
   constant.
+- A window width reaches the view model, and each width class is selected by a
+  test at a width that belongs to it.
+- The `ShowPageVm` destructure in `render_show` is exhaustive, with no `..`.
 - The card region holds no scroll container.
 - The card composite holds no state label string and no state branch that picks
   text.
@@ -89,6 +114,8 @@ Visual, operator only:
 - Every card is visible at once, with no scrolling, at the window size the
   operator uses.
 - Cards fill the width. The middle of the window carries content.
+- Making the window narrow reduces the column count, and the cards stay
+  readable.
 - Every card is the same height, in every state.
 - A card state is readable without color, from its label.
 
@@ -138,13 +165,19 @@ Constraints:
 - The card composite renders the display contract. It builds no string.
 - Every card is the same height, set from a token.
 - No breakpoint arithmetic and no scroll container in the card region.
+- The app layer observes the window width. The view model maps it to a class.
+  The shell only reads `columns()`.
+- Restore the exhaustive `ShowPageVm` destructure. Remove the `..`.
 - Delete the four section renderers. Record what task 003 needs first.
 
 Do not touch:
-- `src/view_models/**`, `src/app/**`, the queue renderer, the transport
+- `src/broadcast/**`, `src/runtime/**`, the queue renderer, the transport
+- The card contract types from task 001, other than adding the width mapping
 
 Acceptance criteria:
 - Column count comes from the view model, and the shell holds no breakpoint.
+- A window width reaches the view model, and a test picks each class.
+- The `render_show` destructure is exhaustive.
 - The card region holds no scroll container.
 - No dead helper is left behind by the deleted renderers.
 
