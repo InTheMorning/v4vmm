@@ -42,7 +42,11 @@ use super::{AppTab, TopApp, WorkspaceScreenMount};
 
 const PRODUCER_UNIT: &str = "mixxx-now-playing.service";
 
-pub(super) fn build_show_screen(app: &TopApp, cx: &mut Context<TopApp>) -> ShowShell {
+pub(super) fn build_show_screen(
+    app: &TopApp,
+    window_width: f32,
+    cx: &mut Context<TopApp>,
+) -> ShowShell {
     let entity = cx.entity();
     let service_entity = entity.clone();
     let stop_entity = entity.clone();
@@ -55,7 +59,7 @@ pub(super) fn build_show_screen(app: &TopApp, cx: &mut Context<TopApp>) -> ShowS
     let attach_event_entity = entity.clone();
     let detach_event_entity = entity.clone();
     render_show(
-        app.show_page.clone(),
+        app.show_page.clone().with_window_width(window_width),
         ShowSlots::new()
             .on_skip_previous(queue_transport_action(
                 entity.clone(),
@@ -71,6 +75,7 @@ pub(super) fn build_show_screen(app: &TopApp, cx: &mut Context<TopApp>) -> ShowS
                     this.open_broadcast_readiness_in_music(cx);
                 });
             })
+            .on_select_card(|_, _, _, _| {})
             .on_start_publisher_service(move |role, _, _, cx| {
                 service_entity.update(cx, |this, cx| {
                     this.run_publisher_service_command(role, PublisherServiceOperation::Start, cx);

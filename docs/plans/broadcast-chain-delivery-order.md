@@ -147,7 +147,7 @@ Update this table when a packet lands.
 | `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
 | `v4vmm` | 013 final guards | ready |
 | `v4vmm` | 0063 001 card contract | implemented - 2026-09-08; no visual criteria |
-| `v4vmm` | 0063 002 card grid shell | ready |
+| `v4vmm` | 0063 002 card grid shell | mechanical implemented - 2026-09-08; operator visual check open |
 | `v4vmm` | 0063 003 detail panel | ready |
 | `splitkit` | reserved 001 store boundary | not started |
 | `splitkit` | reserved 002 reserved class | not started |

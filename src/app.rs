@@ -885,11 +885,14 @@ impl TopApp {
     fn render_workspace_screen_mount(
         &mut self,
         mount: WorkspaceScreenMount,
+        show_window_width: f32,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         match mount {
             WorkspaceScreenMount::Music => self.library.clone().into_any_element(),
-            WorkspaceScreenMount::Show => build_show_screen(self, cx).into_any_element(),
+            WorkspaceScreenMount::Show => {
+                build_show_screen(self, show_window_width, cx).into_any_element()
+            }
             WorkspaceScreenMount::Settings => render_settings(self, cx),
         }
     }
@@ -902,10 +905,11 @@ impl TopApp {
         &mut self,
         mount: WorkspaceScreenMount,
         filter_chip_width_class: FilterChipStripWidthClass,
+        show_window_width: f32,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         if matches!(mount, WorkspaceScreenMount::Show) {
-            return self.render_workspace_screen_mount(mount, cx);
+            return self.render_workspace_screen_mount(mount, show_window_width, cx);
         }
 
         let layout = Self::visible_workspace_layout(&self.workspace_layout, mount);
@@ -1029,8 +1033,11 @@ impl TopApp {
                     let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
                     WorkspaceSlots::new().content_list(detail_content)
                 } else {
-                    let library_screen =
-                        self.render_workspace_screen_mount(WorkspaceScreenMount::Music, cx);
+                    let library_screen = self.render_workspace_screen_mount(
+                        WorkspaceScreenMount::Music,
+                        show_window_width,
+                        cx,
+                    );
                     WorkspaceSlots::new().content_list(library_screen)
                 }
             }
@@ -1047,8 +1054,11 @@ impl TopApp {
                 WorkspaceSlots::new().content_list(detail_content)
             }
             Some(FrameNavigationEntry::Settings) => {
-                let settings_screen =
-                    self.render_workspace_screen_mount(WorkspaceScreenMount::Settings, cx);
+                let settings_screen = self.render_workspace_screen_mount(
+                    WorkspaceScreenMount::Settings,
+                    show_window_width,
+                    cx,
+                );
                 WorkspaceSlots::new().content_list(settings_screen)
             }
             // Entity details or default: render the Library-backed Music surface.
@@ -1063,8 +1073,11 @@ impl TopApp {
                 | FrameNavigationEntry::SourceList,
             )
             | None => {
-                let library_screen =
-                    self.render_workspace_screen_mount(WorkspaceScreenMount::Music, cx);
+                let library_screen = self.render_workspace_screen_mount(
+                    WorkspaceScreenMount::Music,
+                    show_window_width,
+                    cx,
+                );
                 let mut slots = WorkspaceSlots::new().content_list(library_screen);
 
                 if matches!(mount, WorkspaceScreenMount::Music) {
@@ -1093,8 +1106,11 @@ impl TopApp {
             }
             // Unhandled nav variants: render active screen mount as fallback
             _ => {
-                let library_screen =
-                    self.render_workspace_screen_mount(WorkspaceScreenMount::Music, cx);
+                let library_screen = self.render_workspace_screen_mount(
+                    WorkspaceScreenMount::Music,
+                    show_window_width,
+                    cx,
+                );
                 let mut slots = WorkspaceSlots::new().content_list(library_screen);
 
                 if matches!(mount, WorkspaceScreenMount::Music) {
@@ -1226,6 +1242,7 @@ impl Render for TopApp {
         self.defer_application_event_drain(window, cx);
         let mount = self.active_workspace_screen_mount();
         let filter_chip_width_class = filter_chip_strip_width_class(window.bounds().size.width);
+        let show_window_width = f32::from(window.bounds().size.width);
         let live_status_strip = build_live_status_strip(self, mount, cx);
         let bg_canvas = color(cx, SemanticColor::SystemBackground);
         let text_primary = color(cx, SemanticColor::Label);
@@ -1263,7 +1280,12 @@ impl Render for TopApp {
                     .overflow_hidden()
                     .when_some(live_status_strip, gpui::ParentElement::child)
                     // ADR 0060: workspace render delegates to the active app-section mount.
-                    .child(self.render_workspace_content(mount, filter_chip_width_class, cx)),
+                    .child(self.render_workspace_content(
+                        mount,
+                        filter_chip_width_class,
+                        show_window_width,
+                        cx,
+                    )),
             )
             .children(render_window_layers(window, cx))
     }

@@ -139,6 +139,13 @@ pub(crate) struct SourceReadinessActionDisplay {
 }
 
 impl SourceReadinessActionDisplay {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 003 moves readiness actions into the detail panel."
+        )
+    )]
     #[must_use]
     pub(crate) const fn disabled(&self) -> bool {
         self.availability.disabled()
@@ -255,6 +262,13 @@ impl PublisherServiceStateDisplay {
     /// Every state returns a line. The row keeps one detail line in every state,
     /// so a service that starts, fails, and restarts does not change the height
     /// of the section under it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 003 moves service detail rows into the panel."
+        )
+    )]
     #[must_use]
     pub(crate) fn detail(&self) -> String {
         match self {
@@ -323,6 +337,13 @@ pub(crate) struct PublisherActionDisplay {
 }
 
 impl PublisherActionDisplay {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 003 moves publisher actions into the detail panel."
+        )
+    )]
     #[must_use]
     pub(crate) fn disabled(&self) -> bool {
         self.availability.disabled()
@@ -414,6 +435,13 @@ impl PublisherLogPanelState {
         }
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 003 moves publisher logs into the detail panel."
+        )
+    )]
     #[must_use]
     pub(crate) const fn is_open(&self) -> bool {
         matches!(self, Self::Open { .. })
@@ -584,6 +612,13 @@ pub(crate) struct EventActionDisplay {
 }
 
 impl EventActionDisplay {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 003 moves event actions into the detail panel."
+        )
+    )]
     #[must_use]
     pub(crate) const fn disabled(&self) -> bool {
         self.availability.disabled()
@@ -884,6 +919,13 @@ pub(crate) struct StreamActionDisplay {
 }
 
 impl StreamActionDisplay {
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "ADR 0063 task 003 moves stream actions into the detail panel."
+        )
+    )]
     #[must_use]
     pub(crate) const fn disabled(&self) -> bool {
         self.availability.disabled()
@@ -982,37 +1024,31 @@ pub(crate) enum ShowPanelMode {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum ShowWidthClass {
     /// One dashboard column.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 002 maps an observed window width to this class."
-        )
-    )]
     Compact,
     /// Two dashboard columns.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 002 maps an observed window width to this class."
-        )
-    )]
     Medium,
     /// Three dashboard columns.
     #[default]
     Wide,
 }
 
+const SHOW_GRID_MEDIUM_MIN: f32 = 712.0;
+const SHOW_GRID_WIDE_MIN: f32 = 1_056.0;
+
 impl ShowWidthClass {
+    /// Returns the dashboard width class for a window width.
+    #[must_use]
+    pub(crate) fn for_window_width(window_width: f32) -> Self {
+        if window_width < SHOW_GRID_MEDIUM_MIN {
+            Self::Compact
+        } else if window_width < SHOW_GRID_WIDE_MIN {
+            Self::Medium
+        } else {
+            Self::Wide
+        }
+    }
+
     /// Returns the dashboard grid column count.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 002 has the shell read this column count."
-        )
-    )]
     #[must_use]
     pub(crate) const fn columns(self) -> u16 {
         match self {
@@ -1150,6 +1186,13 @@ impl ShowPageVm {
             panel_open: true,
             queue,
         }
+    }
+
+    /// Applies a window-width projection to the Show dashboard.
+    #[must_use]
+    pub(crate) fn with_window_width(mut self, window_width: f32) -> Self {
+        self.width_class = ShowWidthClass::for_window_width(window_width);
+        self
     }
 
     /// Returns whether the page represents active show playback.
@@ -2234,6 +2277,30 @@ mod tests {
         assert_eq!(ShowWidthClass::Compact.columns(), 1);
         assert_eq!(ShowWidthClass::Medium.columns(), 2);
         assert_eq!(ShowWidthClass::Wide.columns(), 3);
+    }
+
+    #[test]
+    fn window_width_selects_show_width_class() {
+        assert_eq!(
+            ShowWidthClass::for_window_width(711.0),
+            ShowWidthClass::Compact
+        );
+        assert_eq!(
+            ShowWidthClass::for_window_width(712.0),
+            ShowWidthClass::Medium
+        );
+        assert_eq!(
+            ShowWidthClass::for_window_width(1_055.0),
+            ShowWidthClass::Medium
+        );
+        assert_eq!(
+            ShowWidthClass::for_window_width(1_056.0),
+            ShowWidthClass::Wide
+        );
+        assert_eq!(
+            ShowPageVm::idle().with_window_width(711.0).width_class,
+            ShowWidthClass::Compact
+        );
     }
 
     #[test]

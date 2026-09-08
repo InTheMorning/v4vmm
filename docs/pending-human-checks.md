@@ -102,6 +102,24 @@ Look for:
 - The connection state and the recording state read as two different facts.
 - The listener count changes with the encoder state.
 
+## Open: Show Card Grid
+
+Owner: ADR 0063 task 002. Needs a screen only.
+
+1. Start the app with `cargo run --release`.
+2. Open `Show`.
+3. Resize the window from the operator's normal width to a narrow width.
+
+Look for:
+
+- Every card is visible at once, with no scrolling, at the window size the
+  operator uses.
+- Cards fill the width. The middle of the window carries content.
+- Making the window narrow reduces the column count, and the cards stay
+  readable.
+- Every card is the same height, in every state.
+- A card state is readable without color, from its label.
+
 ## Method: Reach A Publisher Service State
 
 This section is not a check. It is the method that each publisher check needs.

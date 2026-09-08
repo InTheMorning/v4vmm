@@ -35,6 +35,7 @@ pub mod musicbrainz_panel;
 pub mod playlist_popover;
 pub mod release_detail_surface;
 pub mod segmented_control;
+pub mod show_card;
 pub mod skeleton_inspector;
 pub mod skeleton_track_row;
 pub mod split_pane;
@@ -93,6 +94,7 @@ pub use release_detail_surface::{
     ReleaseTrackSectionDisplay,
 };
 pub use segmented_control::{Segment, SegmentDisplay, SegmentedControl, SegmentedControlStyle};
+pub(crate) use show_card::ShowCard;
 pub use skeleton_inspector::SkeletonInspector;
 pub use skeleton_track_row::SkeletonTrackRow;
 pub use split_pane::SplitPane;

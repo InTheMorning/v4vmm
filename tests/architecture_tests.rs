@@ -1503,7 +1503,7 @@ fn workspace_screen_mount_boundary_wraps_existing_screens_whole() {
         "fn active_workspace_screen_mount(&self) -> WorkspaceScreenMount",
         "fn render_workspace_screen_mount(",
         "WorkspaceScreenMount::Music => self.library.clone().into_any_element()",
-        "WorkspaceScreenMount::Show => build_show_screen(self, cx).into_any_element()",
+        "build_show_screen(self, show_window_width, cx).into_any_element()",
         "WorkspaceScreenMount::Settings => render_settings(self, cx)",
         "workspace render delegates to the active app-section mount",
     ] {
@@ -3765,7 +3765,7 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
     for required in [
         "mod queue_now_playing;",
         "mod show;",
-        "WorkspaceScreenMount::Show => build_show_screen(self, cx).into_any_element()",
+        "build_show_screen(self, show_window_width, cx).into_any_element()",
         "if matches!(mount, WorkspaceScreenMount::Show)",
     ] {
         if !app_source.contains(required) {
@@ -12032,7 +12032,7 @@ fn adr_0060_show_is_screen_mount_not_frame_kind() {
         "AppTab::Show",
         "WorkspaceScreenMount::Show",
         "show_tab_focus: gpui::FocusHandle",
-        "WorkspaceScreenMount::Show => build_show_screen(self, cx).into_any_element()",
+        "build_show_screen(self, show_window_width, cx).into_any_element()",
         "if matches!(mount, WorkspaceScreenMount::Show)",
         "self.queue_text_filter = None;",
     ] {
@@ -13088,7 +13088,7 @@ fn adr_0060_toolbar_no_longer_carries_now_playing_chip() {
     );
 }
 
-/// Situational ADR 0063: Show dashboard layout numbers stay out of the VM.
+/// Situational ADR 0063: Show dashboard card contract stays renderer-free.
 #[test]
 fn adr_0063_show_card_contract_is_renderer_free_and_column_only() {
     let show_source = read_source(&manifest_path("src/view_models/show.rs"));
@@ -13124,7 +13124,11 @@ fn adr_0063_show_card_contract_is_renderer_free_and_column_only() {
         "Compact",
         "Medium",
         "Wide",
+        "const SHOW_GRID_MEDIUM_MIN: f32 = 712.0;",
+        "const SHOW_GRID_WIDE_MIN: f32 = 1_056.0;",
+        "pub(crate) fn for_window_width(window_width: f32) -> Self",
         "pub(crate) const fn columns(self) -> u16",
+        "pub(crate) fn with_window_width(mut self, window_width: f32) -> Self",
         "Self::Compact => 1",
         "Self::Medium => 2",
         "Self::Wide => 3",
@@ -13179,21 +13183,199 @@ fn adr_0063_show_card_contract_is_renderer_free_and_column_only() {
         ] {
             if line.contains(pattern) {
                 violations.push(format!(
-                    "src/view_models/show.rs:{line_number}: Situational ADR 0063 Show card contract must stay renderer-free and expose only column count, found `{pattern}` in `{line}`"
+                    "src/view_models/show.rs:{line_number}: Situational ADR 0063 Show card contract must stay renderer-free and map plain width input, found `{pattern}` in `{line}`"
                 ));
             }
-        }
-
-        if line.contains("const ") && (line.contains("BREAKPOINT") || line.contains("WIDTH")) {
-            violations.push(format!(
-                "src/view_models/show.rs:{line_number}: Situational ADR 0063 Show VM must not hold layout threshold constants: `{line}`"
-            ));
         }
     }
 
     assert!(
         violations.is_empty(),
         "Situational ADR 0063 Show card contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0063: Show card grid reads the VM contract only.
+#[test]
+fn adr_0063_show_card_grid_shell_uses_vm_contract() {
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let show_adapter_source = read_source(&manifest_path("src/app/show.rs"));
+    let shell_source = read_source(&manifest_path("src/ui/shells/show.rs"));
+    let card_source = read_source(&manifest_path("src/ui/composites/show_card.rs"));
+    let composites_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
+    let render_show_body = source_between(
+        &shell_source,
+        "impl RenderOnce for ShowShell",
+        "fn render_show_summary(",
+    );
+    let card_grid_source = source_between(
+        &shell_source,
+        "fn render_show_card_grid(",
+        "fn show_card_selected(",
+    );
+    let compact_card_grid = compact_source(card_grid_source);
+    let mut violations = Vec::new();
+
+    for required in [
+        "let show_window_width = f32::from(window.bounds().size.width);",
+        "build_show_screen(self, show_window_width, cx).into_any_element()",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: Situational ADR 0063 task 002 window-width observation missing `{required}`. Fix: observe width in the app layer and pass it to Show."
+            ));
+        }
+    }
+
+    for required in [
+        "window_width: f32",
+        "app.show_page.clone().with_window_width(window_width)",
+        ".on_select_card(",
+    ] {
+        if !show_adapter_source.contains(required) {
+            violations.push(format!(
+                "src/app/show.rs: Situational ADR 0063 task 002 Show adapter missing `{required}`. Fix: pass observed width to the VM and expose card selection through ShowSlots."
+            ));
+        }
+    }
+
+    for required in ["pub mod show_card;", "pub(crate) use show_card::ShowCard;"] {
+        if !composites_mod_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/mod.rs: Situational ADR 0063 task 002 show-card composite export missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "use crate::ui::composites::ShowCard;",
+        "card: ShowCardSlots",
+        "type ShowCardClickHandler",
+        "pub(crate) fn on_select_card(",
+        "cards,",
+        "width_class,",
+        "panel_mode,",
+        "panel_open,",
+        "render_show_card_grid(",
+        "ShowCard::new(card).selected(selected)",
+    ] {
+        if !shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/show.rs: Situational ADR 0063 task 002 card-grid shell missing `{required}`"
+            ));
+        }
+    }
+
+    if render_show_body.contains("..") {
+        violations.push(
+            "src/ui/shells/show.rs: Situational ADR 0063 task 002 render_show must destructure ShowPageVm exhaustively, without `..`"
+                .to_string(),
+        );
+    }
+
+    if !compact_card_grid.contains(".grid().grid_cols(width_class.columns())") {
+        violations.push(
+            "src/ui/shells/show.rs: Situational ADR 0063 task 002 card grid must read `width_class.columns()`"
+                .to_string(),
+        );
+    }
+
+    for forbidden in [
+        "fn render_source_section(",
+        "fn render_publisher_section(",
+        "fn render_event_section(",
+        "fn render_stream_section(",
+        "fn render_source_readiness_row(",
+        "fn render_publisher_service(",
+        "fn render_event_identity_row(",
+        "fn render_event_target_row(",
+        "fn render_stream_status_row(",
+        "fn render_stream_recording_row(",
+        "fn render_publisher_log_panel(",
+        "source_reachability_color",
+        "event_target_icon",
+        "stream_icon_name",
+    ] {
+        if shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/show.rs: Situational ADR 0063 task 002 deleted section renderer/helper still present `{forbidden}`"
+            ));
+        }
+    }
+
+    for (file, source) in [
+        ("src/ui/shells/show.rs", shell_source.as_str()),
+        ("src/ui/composites/show_card.rs", card_source.as_str()),
+    ] {
+        for (line_number, line) in code_lines(source) {
+            for forbidden in [
+                "BREAKPOINT",
+                "SHOW_GRID_",
+                "window.bounds",
+                "size.width",
+                "f32::from",
+                "ScrollableElement",
+                "overflow_y_scrollbar",
+                "overflow_scrollbar",
+            ] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{file}:{line_number}: Situational ADR 0063 task 002 forbids breakpoint/window-width and scroll ownership in the shell/card region; found `{forbidden}` in `{line}`"
+                    ));
+                }
+            }
+
+            if line.contains(".grid_cols(") && !line.contains("width_class.columns()") {
+                violations.push(format!(
+                    "{file}:{line_number}: Situational ADR 0063 task 002 grid columns must come from `width_class.columns()`, not a literal: `{line}`"
+                ));
+            }
+        }
+    }
+
+    for forbidden in [
+        "\"Active\"",
+        "\"Needs attention\"",
+        "\"Failed\"",
+        "\"Unknown\"",
+        "\"Reachable\"",
+        "\"Connected\"",
+        "\"Disconnected\"",
+        "\"Live\"",
+        "\"Dead\"",
+        "\"No event\"",
+    ] {
+        if card_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/composites/show_card.rs: Situational ADR 0063 task 002 card composite must not map state to display text; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "display: ShowCardDisplay",
+        "selected: bool",
+        "on_select: Option<ShowCardClickHandler>",
+        ".h(Size::MenuCompact.scaled(cx))",
+        ".child(SharedString::from(state_label))",
+        "const fn state_badge_tokens(state: ShowCardStateKind)",
+        "ShowCardStateKind::Ok => (SemanticColor::Success, SemanticColor::OnSuccess)",
+        "ShowCardStateKind::Attention => (SemanticColor::Warning, SemanticColor::OnWarning)",
+        "ShowCardStateKind::Failed => (SemanticColor::Danger, SemanticColor::OnDanger)",
+        "ShowCardStateKind::Absent => (SemanticColor::SystemFill, SemanticColor::SecondaryLabel)",
+        "ShowCardStateKind::Unknown => (SemanticColor::Info, SemanticColor::OnInfo)",
+    ] {
+        if !card_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/show_card.rs: Situational ADR 0063 task 002 show-card composite missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0063 Show card-grid shell violations:\n{}",
         violations.join("\n")
     );
 }
