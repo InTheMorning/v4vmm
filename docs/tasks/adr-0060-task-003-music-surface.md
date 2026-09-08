@@ -146,7 +146,8 @@ mechanical run.
 - `cargo test --quiet`
 - `cargo test --test architecture_tests --quiet`
 - `cargo clippy --quiet -- -D warnings`
-- `cargo run` for the visual check
+- Do not run the app. Write the operator visual check instead, as AGENTS.md
+  requires.
 
 ## Expected Final Report Format
 

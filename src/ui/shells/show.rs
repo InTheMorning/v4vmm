@@ -20,12 +20,13 @@ use crate::ui::primitives::{Button, MultilineText, SectionHeader, Surface, Surfa
 use crate::ui::shells::queue_now_playing::{render_queue_now_playing, QueueNowPlayingSlots};
 use crate::ui::tokens::{color, FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::show::{
-    PublisherActionDisplay, PublisherLogPanelState, PublisherSectionDisplay,
-    PublisherServiceDisplay, PublisherServiceRole, PublisherServiceStateKind,
-    ShowEmptyStateDisplay, ShowNowPlayingDisplay, ShowPageVm, SourceReachabilityState,
-    SourceReadinessActionDisplay, SourceReadinessDisplay, SourceReadinessState,
-    SourceSectionDisplay, StreamActionDisplay, StreamActionsDisplay, StreamRecordingDisplay,
-    StreamSectionDisplay, StreamStateIconRole,
+    EventActionDisplay, EventActionsDisplay, EventSectionDisplay, EventSelectionDisplay,
+    EventState, EventTargetAttachmentDisplay, EventTargetAttachmentState, PublisherActionDisplay,
+    PublisherLogPanelState, PublisherSectionDisplay, PublisherServiceDisplay, PublisherServiceRole,
+    PublisherServiceStateKind, ShowEmptyStateDisplay, ShowNowPlayingDisplay, ShowPageVm,
+    SourceReachabilityState, SourceReadinessActionDisplay, SourceReadinessDisplay,
+    SourceReadinessState, SourceSectionDisplay, StreamActionDisplay, StreamActionsDisplay,
+    StreamRecordingDisplay, StreamSectionDisplay, StreamStateIconRole,
 };
 
 /// Callback slots supplied by the application-owned Show screen.
@@ -34,6 +35,7 @@ pub(crate) struct ShowSlots {
     queue: QueueNowPlayingSlots,
     source: SourceSlots,
     publisher: PublisherSlots,
+    event: EventSlots,
     stream: StreamSlots,
 }
 
@@ -43,6 +45,7 @@ impl Default for ShowSlots {
             queue: QueueNowPlayingSlots::new(),
             source: SourceSlots::default(),
             publisher: PublisherSlots::default(),
+            event: EventSlots::default(),
             stream: StreamSlots::default(),
         }
     }
@@ -52,6 +55,7 @@ type SourceClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'stati
 type PublisherClickHandler =
     Rc<dyn Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static>;
 type PublisherCloseHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type EventClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 type StreamClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 #[derive(Default)]
@@ -66,6 +70,12 @@ struct PublisherSlots {
     reset: Option<PublisherClickHandler>,
     open_logs: Option<PublisherClickHandler>,
     close_logs: Option<PublisherCloseHandler>,
+}
+
+#[derive(Default)]
+struct EventSlots {
+    attach: Option<EventClickHandler>,
+    detach: Option<EventClickHandler>,
 }
 
 #[derive(Default)]
@@ -161,6 +171,24 @@ impl ShowSlots {
         self
     }
 
+    /// Supplies the Event target attach callback.
+    pub(crate) fn on_attach_event_target(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.event.attach = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the Event target detach callback.
+    pub(crate) fn on_detach_event_target(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.event.detach = Some(Rc::new(handler));
+        self
+    }
+
     /// Supplies the stream connect callback.
     pub(crate) fn on_connect_stream(
         mut self,
@@ -202,6 +230,7 @@ impl RenderOnce for ShowShell {
             empty_state,
             source,
             publisher,
+            event,
             stream,
             queue,
         } = self.vm;
@@ -233,6 +262,10 @@ impl RenderOnce for ShowShell {
                 self.slots.publisher,
                 cx,
             ));
+        }
+
+        if let Some(event) = event {
+            screen = screen.child(render_event_section(event, &self.slots.event, cx));
         }
 
         if let Some(stream) = stream {
@@ -601,6 +634,221 @@ fn render_publisher_section(
                 .padding(Spacing::MD)
                 .child(body),
         )
+}
+
+fn render_event_section(
+    event: EventSectionDisplay,
+    slots: &EventSlots,
+    cx: &App,
+) -> impl IntoElement {
+    let mut body = div()
+        .id("event-section-body")
+        .flex()
+        .flex_col()
+        .gap(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(Spacing::SM.scaled(cx))
+                .child(SectionHeader::new(event.title))
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::SecondaryLabel))
+                        .truncate()
+                        .child(SharedString::from(event.summary.clone())),
+                ),
+        )
+        .child(render_event_identity_row(event.event, cx))
+        .child(render_event_target_row(
+            event.target,
+            event.actions,
+            slots,
+            cx,
+        ));
+
+    if let Some(feed_tag) = event.feed_tag {
+        body = body.child(render_event_feed_tag(feed_tag, cx));
+    }
+    if let Some(hint) = event.hint {
+        body = body.child(render_event_hint(hint, cx));
+    }
+
+    div()
+        .id("show-event-section")
+        .flex_shrink_0()
+        .px(Spacing::XL.scaled(cx))
+        .pb(Spacing::LG.scaled(cx))
+        .child(
+            Surface::new(SurfaceElevation::Sunken)
+                .padding(Spacing::MD)
+                .child(body),
+        )
+}
+
+fn render_event_identity_row(event: EventSelectionDisplay, cx: &App) -> impl IntoElement {
+    let mut details = div()
+        .flex()
+        .flex_col()
+        .min_w_0()
+        .gap(Spacing::XXS.scaled(cx))
+        .child(
+            div()
+                .text_size(FontSize::Headline.scaled(cx))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(color(cx, SemanticColor::Label))
+                .truncate()
+                .child(SharedString::from(event.label)),
+        )
+        .child(
+            div()
+                .text_size(FontSize::Caption.scaled(cx))
+                .text_color(color(cx, SemanticColor::TertiaryLabel))
+                .truncate()
+                .child(SharedString::from(event.state.detail)),
+        );
+
+    if let Some(event_id) = event.event_id {
+        details = details.child(
+            div()
+                .text_size(FontSize::Caption.scaled(cx))
+                .text_color(color(cx, SemanticColor::SecondaryLabel))
+                .truncate()
+                .child(SharedString::from(event_id)),
+        );
+    }
+    if let Some(endpoint) = event.endpoint {
+        details = details.child(
+            div()
+                .text_size(FontSize::Caption.scaled(cx))
+                .text_color(color(cx, SemanticColor::TertiaryLabel))
+                .truncate()
+                .child(SharedString::from(endpoint)),
+        );
+    }
+
+    div()
+        .id("event-identity-row")
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(Spacing::MD.scaled(cx))
+        .border_t_1()
+        .border_color(color(cx, SemanticColor::Separator))
+        .pt(Spacing::SM.scaled(cx))
+        .child(details)
+        .child(
+            div()
+                .flex_shrink_0()
+                .text_size(FontSize::Caption.scaled(cx))
+                .text_color(color(cx, event_state_color(event.state.state)))
+                .child(SharedString::from(event.state.label)),
+        )
+}
+
+fn render_event_target_row(
+    target: EventTargetAttachmentDisplay,
+    actions: EventActionsDisplay,
+    slots: &EventSlots,
+    cx: &App,
+) -> impl IntoElement {
+    let state_color = event_target_color(target.state);
+    div()
+        .id("event-target-row")
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(Spacing::MD.scaled(cx))
+        .border_t_1()
+        .border_color(color(cx, SemanticColor::Separator))
+        .pt(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .gap(Spacing::XXS.scaled(cx))
+                .child(
+                    div()
+                        .text_size(FontSize::Headline.scaled(cx))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(cx, SemanticColor::Label))
+                        .truncate()
+                        .child(SharedString::from(target.label)),
+                )
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::TertiaryLabel))
+                        .truncate()
+                        .child(SharedString::from(target.detail)),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(Spacing::XS.scaled(cx))
+                .flex_shrink_0()
+                .child(
+                    Icon::new(event_target_icon(target.state))
+                        .size(IconSize::Action)
+                        .color(color(cx, state_color)),
+                )
+                .child(render_event_action_button(
+                    actions.attach,
+                    IconName::Add,
+                    ControlStyle::Primary,
+                    slots.attach.clone(),
+                ))
+                .child(render_event_action_button(
+                    actions.detach,
+                    IconName::Close,
+                    ControlStyle::Secondary,
+                    slots.detach.clone(),
+                )),
+        )
+}
+
+fn render_event_feed_tag(feed_tag: String, cx: &App) -> impl IntoElement {
+    div()
+        .id("event-feed-tag-row")
+        .flex()
+        .flex_col()
+        .gap(Spacing::XS.scaled(cx))
+        .border_t_1()
+        .border_color(color(cx, SemanticColor::Separator))
+        .pt(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .text_size(FontSize::Caption.scaled(cx))
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(color(cx, SemanticColor::TertiaryLabel))
+                .child("Feed tag"),
+        )
+        .child(
+            MultilineText::new(feed_tag)
+                .wrap_lines()
+                .size(FontSize::Caption)
+                .color(SemanticColor::Label),
+        )
+}
+
+fn render_event_hint(hint: String, cx: &App) -> impl IntoElement {
+    div()
+        .id("event-token-hint-row")
+        .border_t_1()
+        .border_color(color(cx, SemanticColor::Separator))
+        .pt(Spacing::SM.scaled(cx))
+        .text_size(FontSize::Caption.scaled(cx))
+        .text_color(color(cx, SemanticColor::WarningLabel))
+        .child(SharedString::from(hint))
 }
 
 fn render_stream_section(
@@ -1034,6 +1282,31 @@ fn render_stream_action_button(
     button
 }
 
+fn render_event_action_button(
+    display: EventActionDisplay,
+    icon: IconName,
+    style: ControlStyle,
+    handler: Option<EventClickHandler>,
+) -> Button {
+    let disabled = display.disabled();
+    let mut button = Button::styled(SharedString::from(display.id), style)
+        .leading_icon(icon)
+        .label(display.label)
+        .a11y_label(display.a11y_label.clone())
+        .tooltip(display.a11y_label)
+        .disabled(disabled);
+
+    if !disabled {
+        if let Some(handler) = handler {
+            button = button.on_click(move |event, window, cx| {
+                handler(event, window, cx);
+            });
+        }
+    }
+
+    button
+}
+
 fn render_source_readiness_button(
     display: SourceReadinessActionDisplay,
     handler: Option<SourceClickHandler>,
@@ -1189,6 +1462,37 @@ const fn source_readiness_color(state: SourceReadinessState) -> SemanticColor {
         SourceReadinessState::Checking | SourceReadinessState::Empty => {
             SemanticColor::SecondaryLabel
         }
+    }
+}
+
+const fn event_state_color(state: EventState) -> SemanticColor {
+    match state {
+        EventState::Live => SemanticColor::SuccessLabel,
+        EventState::Dead => SemanticColor::DangerLabel,
+        EventState::None | EventState::Unknown => SemanticColor::SecondaryLabel,
+    }
+}
+
+const fn event_target_icon(state: EventTargetAttachmentState) -> IconName {
+    match state {
+        EventTargetAttachmentState::Attached => IconName::Check,
+        EventTargetAttachmentState::NotAttached
+        | EventTargetAttachmentState::Unknown
+        | EventTargetAttachmentState::CommandsUnavailable
+        | EventTargetAttachmentState::NotReachable
+        | EventTargetAttachmentState::Failed => IconName::Info,
+    }
+}
+
+const fn event_target_color(state: EventTargetAttachmentState) -> SemanticColor {
+    match state {
+        EventTargetAttachmentState::Attached => SemanticColor::SuccessLabel,
+        EventTargetAttachmentState::NotAttached | EventTargetAttachmentState::Unknown => {
+            SemanticColor::SecondaryLabel
+        }
+        EventTargetAttachmentState::CommandsUnavailable
+        | EventTargetAttachmentState::NotReachable
+        | EventTargetAttachmentState::Failed => SemanticColor::WarningLabel,
     }
 }
 

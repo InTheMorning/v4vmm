@@ -131,8 +131,27 @@ superseded. When the class is unclear, choose situational.
 Copy any pattern worth keeping into the live surface first.
 
 **Visual proof.** A user-visible layout, hierarchy, or presentation fix is not
-fixed until it is inspected in the running app or a screenshot, or the missing
-check is reported as residual risk.
+fixed until a person inspects it in the running app.
+
+**Never run the app.** No `cargo run`, no `xvfb-run`, no other headless display
+attempt. GPUI cannot initialize an X11 client in an agent session. That failure
+is known, it is not a defect, and it carries no information. Do not attempt it,
+do not report it as an unresolved concern, and do not describe it as blocking.
+It blocks nothing that any agent could do.
+
+**Write operator instructions instead.** End the report with an
+`Operator visual check` section that a person can follow at a terminal in a
+desktop session:
+
+- numbered steps, including the commands that reach the state
+- what to look at, and what would count as wrong
+- any hardware or system state the check needs, named plainly, such as a failed
+  unit, an unreachable host, or an installed binary
+- the cleanup that undoes any state the steps created
+
+Leave the gate open in the packet `Status:` line and in
+`docs/plans/broadcast-chain-delivery-order.md`. A gate that no person has walked
+is never met, and a green mechanical suite is not evidence about it.
 
 **An acceptance criterion states how it is checked.** It is mechanical, proved
 by a test and phrased at the layer that owns it, or it is visual and listed

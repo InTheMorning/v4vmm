@@ -1,9 +1,11 @@
 # ADR 0059 Task 014: Attach An Event To A Publisher Target
 
-Status: Ready - 2026-09-08. Revised for ADR 0060. The dependency on
-`musicindex-live-publisher` control-surface task 001 is satisfied: it shipped on
-2026-09-07 in `a5b434e`. Packets 009 and 010 are also done, so nothing blocks
-this packet.
+Status: Implemented, visual proof blocked - 2026-09-08. Revised for ADR 0060.
+The dependency on `musicindex-live-publisher` control-surface task 001 is
+satisfied: it shipped on 2026-09-07 in `a5b434e`. Packets 009 and 010 are also
+done, so nothing blocks this packet. Mechanical acceptance is met. Visual proof
+for the `Show` Event section is blocked by GPUI X11 initialization in the agent
+session.
 
 ## Goal
 
@@ -122,6 +124,10 @@ append it after `Stream`.
 3. Behavior changed
 4. Deviations from task
 5. Unresolved concerns
+6. Operator visual check, when this packet has visual criteria
+
+Do not run the app and do not attempt a headless display. Write the operator
+steps instead, as AGENTS.md requires.
 
 ## Escalation Triggers
 

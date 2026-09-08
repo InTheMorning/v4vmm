@@ -141,7 +141,7 @@ Update this table when a packet lands.
 | `v4vmm` | 008 service control | complete - 2026-09-08 |
 | `v4vmm` | 009 publisher section | implemented - 2026-09-08; one visual gate open: failed-state reason and `Reset` prominence, not reproducible by the operator at this time |
 | `v4vmm` | 010 remote hosts | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
-| `v4vmm` | 014 attach event | ready - every dependency satisfied |
+| `v4vmm` | 014 attach event | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
 | `v4vmm` | 011 mpv producer | implemented - 2026-09-08 |
 | `v4vmm` | 012 readiness report | implemented - 2026-09-08; one visual gate open: readiness count legibility and the action that reaches the filtered list |
 | `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |

@@ -1,10 +1,13 @@
 //! Command-line integration surface for non-UI workflows.
 
+use std::path::Path;
+
 use anyhow::{anyhow, Context, Result};
 use rusqlite::Connection;
 use serde::Serialize;
 
 use crate::application::ApplicationQueryService;
+use crate::broadcast::publisher_targets;
 use crate::broadcast::registry::BroadcastRegistry;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::{api, config, db, debug_contracts, playback};
@@ -44,6 +47,16 @@ pub fn run(args: &[String]) -> Result<()> {
             if section == "broadcast" && area == "events" && command == "check" =>
         {
             check_broadcast_event(event_id, rest)
+        }
+        [section, area, command, rest @ ..]
+            if section == "broadcast" && area == "targets" && command == "list" =>
+        {
+            print_broadcast_targets(rest)
+        }
+        [section, area, command, event_id, rest @ ..]
+            if section == "broadcast" && area == "targets" && command == "attach" =>
+        {
+            attach_broadcast_target(event_id, rest)
         }
         [section, command, rest @ ..] if section == "broadcast" && command == "readiness" => {
             print_broadcast_readiness(rest)
@@ -109,6 +122,12 @@ fn configured_broadcast_registry(conn: &Connection) -> Result<BroadcastRegistry<
     let cfg_path = config::config_path()?;
     let endpoint = config::load_musicindex_endpoint(&cfg_path)?;
     BroadcastRegistry::new(conn, &endpoint)
+}
+
+fn configured_broadcast_host() -> Result<config::BroadcastHostConfig> {
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
+    cfg.broadcast.selected_host().cloned()
 }
 
 fn print_now_playing(args: &[String]) -> Result<()> {
@@ -182,6 +201,35 @@ fn check_broadcast_event(event_id: &str, args: &[String]) -> Result<()> {
     let registry = configured_broadcast_registry(&conn)?;
     let checked = registry.check_event(event_id)?;
     print_json(&checked)
+}
+
+fn print_broadcast_targets(args: &[String]) -> Result<()> {
+    parse_json_only_options("broadcast targets list", args)?;
+    let host = configured_broadcast_host()?;
+    let targets = publisher_targets::list_targets(&host.transport, &host.instance_name)?;
+    print_json(&targets)
+}
+
+fn attach_broadcast_target(event_id: &str, args: &[String]) -> Result<()> {
+    let options = parse_broadcast_target_attach_options(args)?;
+    let conn = open_configured_db()?;
+    let event = db::broadcast_event_by_event_id(&conn, event_id)?
+        .with_context(|| format!("broadcast event not found: {event_id}"))?;
+    let host = configured_broadcast_host()?;
+
+    publisher_targets::attach_event(
+        &host.transport,
+        &host.instance_name,
+        &options.target,
+        &event.event_id,
+        Path::new(&event.token_path),
+    )?;
+
+    println!(
+        "attached broadcast event {} to publisher target {}",
+        event.event_id, options.target
+    );
+    Ok(())
 }
 
 fn print_broadcast_readiness(args: &[String]) -> Result<()> {
@@ -315,6 +363,11 @@ struct BroadcastEventCreateOptions {
     label: Option<String>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct BroadcastTargetAttachOptions {
+    target: String,
+}
+
 #[derive(Debug, Default)]
 struct NowPlayingOptions {
     json: bool,
@@ -381,6 +434,30 @@ fn parse_broadcast_event_create_options(args: &[String]) -> Result<BroadcastEven
         }
     }
     Ok(options)
+}
+
+fn parse_broadcast_target_attach_options(args: &[String]) -> Result<BroadcastTargetAttachOptions> {
+    let mut target = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--target" => {
+                let value = option_value(args, index, "--target")?;
+                anyhow::ensure!(target.is_none(), "duplicate --target");
+                target = Some(value.trim().to_owned());
+                index += 2;
+            }
+            flag => {
+                return Err(anyhow!(
+                    "unsupported broadcast targets attach option {flag:?}"
+                ))
+            }
+        }
+    }
+
+    let target = target.context("broadcast targets attach requires --target <name>")?;
+    anyhow::ensure!(!target.is_empty(), "broadcast target name cannot be empty");
+    Ok(BroadcastTargetAttachOptions { target })
 }
 
 fn parse_json_only_options(command: &str, args: &[String]) -> Result<()> {
@@ -474,6 +551,8 @@ fn help_text() -> &'static str {
   v4vmm broadcast events create --json [--label <text>]
   v4vmm broadcast events forget <event-id>
   v4vmm broadcast events check <event-id> --json
+  v4vmm broadcast targets list --json
+  v4vmm broadcast targets attach <event-id> --target <name>
   v4vmm broadcast readiness --json
   v4vmm playlists list --json
   v4vmm playlist tracks <playlist-id> --json

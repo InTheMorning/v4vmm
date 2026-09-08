@@ -11841,6 +11841,64 @@ fn adr_0059_stream_encoder_control_boundary_is_broadcast_owned() {
     );
 }
 
+/// Situational ADR 0059: Packet 014 publisher target commands stay in broadcast.
+#[test]
+fn adr_0059_publisher_target_command_boundary_is_broadcast_owned() {
+    let mut violations = Vec::new();
+    let target_source = read_source(&manifest_path("src/broadcast/publisher_targets.rs"));
+    let broadcast_mod_source = read_source(&manifest_path("src/broadcast/mod.rs"));
+
+    for required in [
+        "pub mod publisher_targets;",
+        "const PUBLISHER_BINARY: &str = \"musicindex-live-publisher\"",
+        "pub struct PublisherTargetControl",
+        "pub enum PublisherTargetCommandError",
+        "CommandsUnavailable",
+        "target list",
+        "target add",
+        "target remove",
+        "--token-file",
+        "ServiceControl::new(self.runner.clone())",
+        ".restart(transport, &unit)",
+    ] {
+        if !target_source.contains(required) && !broadcast_mod_source.contains(required) {
+            violations.push(format!(
+                "src/broadcast/publisher_targets.rs: Situational ADR 0059 Packet 014 publisher target control missing `{required}`. Fix: keep target command construction and publisher restart in broadcast::publisher_targets."
+            ));
+        }
+    }
+
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        if file.starts_with("src/broadcast/") {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in [
+                "Command::new(\"musicindex-live-publisher\")",
+                "std::process::Command::new(\"musicindex-live-publisher\")",
+                ".run(\"musicindex-live-publisher\"",
+                "runner.run(\"musicindex-live-publisher\"",
+                "program: \"musicindex-live-publisher\"",
+            ] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{}:{line_number}: Situational ADR 0059 Packet 014 forbids publisher target command construction outside src/broadcast. Fix: route target list/add/remove through broadcast::publisher_targets.",
+                        rel_path(&path)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0059 Packet 014 publisher target boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0059: Packet 009 screens and shells do not run service tools.
 #[test]
 fn adr_0059_show_screen_and_shell_do_not_call_service_processes() {
@@ -12918,7 +12976,7 @@ fn adr_0060_live_status_and_show_share_cached_projection() {
         "app.show_page.clone()",
         "pub(super) fn refresh_show_page(&self, cx: &mut Context<Self>)",
         "struct RefreshShowPage",
-        "this.reproject_show_page(queue)",
+        "this.reproject_show_page(projection.queue)",
         "queue_now_playing_vm(",
     ] {
         if !show_adapter_source.contains(required) {
@@ -12929,6 +12987,7 @@ fn adr_0060_live_status_and_show_share_cached_projection() {
     }
     if !show_adapter_source.contains("ShowPageVm::from_queue_and_publisher(")
         && !show_adapter_source.contains("ShowPageVm::from_queue_publisher_and_readiness(")
+        && !show_adapter_source.contains("ShowPageVm::from_queue_publisher_readiness_and_event(")
     {
         violations.push(
             "src/app/show.rs: ADR 0060 task 004 Show/strip shared projection missing ShowPageVm constructor"

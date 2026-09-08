@@ -6,6 +6,7 @@
 pub mod control;
 pub mod encoder;
 pub mod producer;
+pub mod publisher_targets;
 pub mod registry;
 pub mod tokens;
 pub mod transport;

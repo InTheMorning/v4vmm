@@ -87,6 +87,10 @@ each second and publishes a plain snapshot. No interface work.
 3. Behavior changed
 4. Deviations from task
 5. Unresolved concerns
+6. Operator visual check, when this packet has visual criteria
+
+Do not run the app and do not attempt a headless display. Write the operator
+steps instead, as AGENTS.md requires.
 
 ## Escalation Triggers
 

@@ -105,9 +105,8 @@ declared ready on an unperformed visual check is not.
 - Every ADR 0059 invariant has a guard or a recorded reason.
 - The review document names each artifact it checked.
 - The runbook covers token backup and relay restart recovery.
-- Screenshots exist for every gate an operator could clear. A gate that waits
-  on absent hardware has no screenshot, and the readiness summary says which
-  hardware it waits on.
+- The report carries operator steps for every gate still open, and the
+  readiness summary names the hardware each one waits on.
 - The ADR and the plan carry a status that matches the evidence.
 - `docs/README.md` links the runbook and the review.
 
@@ -125,9 +124,13 @@ declared ready on an unperformed visual check is not.
 1. Files changed
 2. Tests run
 3. Guards added, one line for each invariant
-4. Screenshots captured
-5. Open gates, if any
+4. Operator visual check, with numbered steps for every gate in the inherited
+   table that is still open, and the hardware each one needs
+5. Open gates, one line for each, naming what it waits on
 6. Merge recommendation
+
+Do not run the app and do not attempt a headless display. Write the operator
+steps instead, as AGENTS.md requires.
 
 ## Escalation Triggers
 

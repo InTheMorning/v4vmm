@@ -41,7 +41,7 @@ use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
-use crate::view_models::show::{PublisherLogPanelState, ShowPageVm};
+use crate::view_models::show::{EventSectionInput, PublisherLogPanelState, ShowPageVm};
 use crate::view_models::workspace::{
     ContentFilter, ContentViewMode, FilterChipStripWidthClass, FrameNavigationEntry,
     FrameNavigationState, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
@@ -154,6 +154,7 @@ pub struct TopApp {
     publisher_service_watch: Option<BroadcastServiceWatchHandle>,
     publisher_service_snapshot: Option<BroadcastServiceWatchSnapshot>,
     publisher_log_panel: PublisherLogPanelState,
+    event_section_input: Option<EventSectionInput>,
     conn: Arc<Mutex<Connection>>,
     image_cache: Arc<ImageCache>,
     remote_detail_thumbnails: BTreeMap<String, RemoteDetailThumbnailState>,
@@ -326,6 +327,7 @@ impl TopApp {
             publisher_service_watch: None,
             publisher_service_snapshot: None,
             publisher_log_panel: PublisherLogPanelState::closed(),
+            event_section_input: None,
             conn,
             image_cache,
             remote_detail_thumbnails: BTreeMap::new(),

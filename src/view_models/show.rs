@@ -413,6 +413,226 @@ pub(crate) struct PublisherSectionDisplay {
     pub(crate) close_logs: PublisherActionDisplay,
 }
 
+/// Display-ready Event section for the `Show` screen mount.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventSectionDisplay {
+    /// Stable section title.
+    pub(crate) title: &'static str,
+    /// Summary label for the selected broadcast event.
+    pub(crate) summary: String,
+    /// Selected event label and identifiers.
+    pub(crate) event: EventSelectionDisplay,
+    /// Publisher target attachment state.
+    pub(crate) target: EventTargetAttachmentDisplay,
+    /// Complete listener feed tag, built outside the renderer.
+    pub(crate) feed_tag: Option<String>,
+    /// Operational hint for remote token-file setup.
+    pub(crate) hint: Option<String>,
+    /// Attach and detach action state.
+    pub(crate) actions: EventActionsDisplay,
+}
+
+/// Display-ready selected broadcast event facts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventSelectionDisplay {
+    /// Curator-facing event label.
+    pub(crate) label: String,
+    /// Relay event identifier, when one is selected.
+    pub(crate) event_id: Option<String>,
+    /// Relay endpoint for the event.
+    pub(crate) endpoint: Option<String>,
+    /// Stored token file path.
+    pub(crate) token_path: Option<String>,
+    /// Stored event liveness state.
+    pub(crate) state: EventStateDisplay,
+}
+
+/// Display-ready event liveness state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct EventStateDisplay {
+    /// Stable state.
+    pub(crate) state: EventState,
+    /// Curator-facing state label.
+    pub(crate) label: &'static str,
+    /// Curator-facing state detail.
+    pub(crate) detail: &'static str,
+}
+
+/// Stable event liveness states.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EventState {
+    /// No event is selected.
+    None,
+    /// Event liveness has not been checked.
+    Unknown,
+    /// The relay still has the event.
+    Live,
+    /// The relay reports the event as dead.
+    Dead,
+}
+
+impl EventState {
+    const fn display(self) -> EventStateDisplay {
+        match self {
+            Self::None => EventStateDisplay {
+                state: self,
+                label: "No event",
+                detail: "No broadcast event is selected.",
+            },
+            Self::Unknown => EventStateDisplay {
+                state: self,
+                label: "Unknown",
+                detail: "Event liveness has not been checked.",
+            },
+            Self::Live => EventStateDisplay {
+                state: self,
+                label: "Live",
+                detail: "Relay accepts this event.",
+            },
+            Self::Dead => EventStateDisplay {
+                state: self,
+                label: "Dead",
+                detail: "Relay no longer has this event.",
+            },
+        }
+    }
+}
+
+/// Publisher target attachment display for the selected event.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventTargetAttachmentDisplay {
+    /// Stable attachment state.
+    pub(crate) state: EventTargetAttachmentState,
+    /// Target name or a non-empty state label.
+    pub(crate) label: String,
+    /// Attached target name, only when known.
+    pub(crate) target_name: Option<String>,
+    /// Curator-facing detail.
+    pub(crate) detail: String,
+}
+
+/// Stable publisher target attachment state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EventTargetAttachmentState {
+    /// The selected event is attached to a target.
+    Attached,
+    /// The selected event is not attached to any listed target.
+    NotAttached,
+    /// Target command output is not available yet.
+    Unknown,
+    /// The publisher is too old to expose target commands.
+    CommandsUnavailable,
+    /// The publisher host cannot be reached.
+    NotReachable,
+    /// Target list failed without a narrower state.
+    Failed,
+}
+
+/// Typed availability for event target actions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum EventActionAvailability {
+    /// The action can be run.
+    Available,
+    /// The action is visible but unavailable in this state.
+    Unavailable,
+}
+
+impl EventActionAvailability {
+    #[must_use]
+    pub(crate) const fn disabled(self) -> bool {
+        matches!(self, Self::Unavailable)
+    }
+}
+
+/// Display-ready event target action state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventActionDisplay {
+    /// Stable element identifier.
+    pub(crate) id: &'static str,
+    /// Visible action label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for the action.
+    pub(crate) a11y_label: String,
+    /// Typed action availability.
+    pub(crate) availability: EventActionAvailability,
+}
+
+impl EventActionDisplay {
+    #[must_use]
+    pub(crate) const fn disabled(&self) -> bool {
+        self.availability.disabled()
+    }
+}
+
+/// Display-ready event target actions.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventActionsDisplay {
+    /// Attach action.
+    pub(crate) attach: EventActionDisplay,
+    /// Detach action.
+    pub(crate) detach: EventActionDisplay,
+}
+
+/// Input for projecting an Event section.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventSectionInput {
+    /// Selected event, if the registry has one.
+    pub(crate) selected_event: Option<EventSelectionInput>,
+    /// Latest target-list read for the selected publisher host.
+    pub(crate) targets: EventTargetListInput,
+    /// Target name chosen by the app surface for an attach command.
+    pub(crate) attach_target_name: String,
+    /// Whether the selected publisher host uses a remote transport.
+    pub(crate) remote_host: bool,
+}
+
+/// Input for projecting a selected broadcast event.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventSelectionInput {
+    /// Optional operator label.
+    pub(crate) label: Option<String>,
+    /// Relay event identifier.
+    pub(crate) event_id: String,
+    /// Relay endpoint.
+    pub(crate) endpoint: String,
+    /// Stored token file path.
+    pub(crate) token_path: String,
+    /// Stored liveness state.
+    pub(crate) state: EventState,
+    /// Whether the local token path is missing.
+    pub(crate) token_file_missing: bool,
+}
+
+/// Input target list state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum EventTargetListInput {
+    /// No target command has completed yet.
+    Unknown,
+    /// Target list read from the publisher.
+    Loaded {
+        /// Listed targets.
+        targets: Vec<EventTargetInput>,
+    },
+    /// The selected publisher is too old for target commands.
+    CommandsUnavailable,
+    /// The selected host did not answer.
+    NotReachable,
+    /// Target listing failed without a narrower state.
+    Failed {
+        /// Failure detail.
+        detail: String,
+    },
+}
+
+/// Input target row from the publisher target list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct EventTargetInput {
+    /// Configured target name.
+    pub(crate) name: String,
+    /// Event identifier currently attached to the target.
+    pub(crate) event_id: String,
+}
+
 /// Display-ready Stream section for the `Show` screen mount.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct StreamSectionDisplay {
@@ -668,6 +888,8 @@ pub(crate) struct ShowPageVm {
     pub(crate) source: Option<SourceSectionDisplay>,
     /// Optional Publisher section; absent sections render nothing.
     pub(crate) publisher: Option<PublisherSectionDisplay>,
+    /// Optional Event section; absent sections render nothing.
+    pub(crate) event: Option<EventSectionDisplay>,
     /// Optional Stream section; absent sections render nothing.
     pub(crate) stream: Option<StreamSectionDisplay>,
     /// Queue and transport display projected by the existing queue VM.
@@ -705,6 +927,24 @@ impl ShowPageVm {
         log_panel: PublisherLogPanelState,
         readiness_snapshot: Option<&BroadcastReadinessSnapshot>,
     ) -> Self {
+        Self::from_queue_publisher_readiness_and_event(
+            queue,
+            publisher_snapshot,
+            log_panel,
+            readiness_snapshot,
+            None,
+        )
+    }
+
+    /// Projects the Show page from queue, publisher, readiness, and event state.
+    #[must_use]
+    pub(crate) fn from_queue_publisher_readiness_and_event(
+        queue: QueueNowPlayingPageVm,
+        publisher_snapshot: Option<&broadcast_service_watch::BroadcastServiceWatchSnapshot>,
+        log_panel: PublisherLogPanelState,
+        readiness_snapshot: Option<&BroadcastReadinessSnapshot>,
+        event_input: Option<&EventSectionInput>,
+    ) -> Self {
         let state_label = transport_state_label(queue.transport.play_pause_state);
         let now_playing = queue
             .rows
@@ -718,6 +958,14 @@ impl ShowPageVm {
             Some(snapshot) => PublisherSectionDisplay::from_snapshot(snapshot, log_panel),
             None => None,
         };
+        let publisher_reachable = publisher_snapshot.is_some_and(|snapshot| {
+            matches!(
+                source_reachability(snapshot.units.as_slice()),
+                SourceReachabilityState::Reachable
+            )
+        });
+        let event =
+            event_input.map(|input| EventSectionDisplay::from_input(input, publisher_reachable));
         let stream = publisher_snapshot.map(StreamSectionDisplay::from_snapshot);
         Self {
             title: "Show",
@@ -730,6 +978,7 @@ impl ShowPageVm {
             }),
             source,
             publisher,
+            event,
             stream,
             queue,
         }
@@ -841,6 +1090,215 @@ impl SourceReadinessDisplay {
             a11y_label: "Open broadcast readiness issues in Music".to_owned(),
             availability,
         }
+    }
+}
+
+impl EventSectionDisplay {
+    fn from_input(input: &EventSectionInput, publisher_reachable: bool) -> Self {
+        let event = EventSelectionDisplay::from_input(input.selected_event.as_ref());
+        let target = EventTargetAttachmentDisplay::from_input(input);
+        let feed_tag = input
+            .selected_event
+            .as_ref()
+            .map(|event| feed_tag_for_event(&event.event_id));
+        let hint = event_hint(input);
+        let actions = EventActionsDisplay::from_state(
+            &event,
+            &target,
+            input.attach_target_name.trim(),
+            publisher_reachable,
+        );
+        let summary = match &event.event_id {
+            Some(event_id) => format!("{event_id} - {}", target.label),
+            None => event.state.label.to_owned(),
+        };
+
+        Self {
+            title: "Event",
+            summary,
+            event,
+            target,
+            feed_tag,
+            hint,
+            actions,
+        }
+    }
+}
+
+impl EventSelectionDisplay {
+    fn from_input(input: Option<&EventSelectionInput>) -> Self {
+        let Some(input) = input else {
+            return Self {
+                label: "No event selected".to_owned(),
+                event_id: None,
+                endpoint: None,
+                token_path: None,
+                state: EventState::None.display(),
+            };
+        };
+
+        Self {
+            label: input
+                .label
+                .as_deref()
+                .map(str::trim)
+                .filter(|label| !label.is_empty())
+                .unwrap_or(&input.event_id)
+                .to_owned(),
+            event_id: Some(input.event_id.clone()),
+            endpoint: Some(input.endpoint.clone()),
+            token_path: Some(input.token_path.clone()),
+            state: input.state.display(),
+        }
+    }
+}
+
+impl EventTargetAttachmentDisplay {
+    fn from_input(input: &EventSectionInput) -> Self {
+        let Some(selected_event) = input.selected_event.as_ref() else {
+            return Self::not_attached("No broadcast event selected.");
+        };
+
+        match &input.targets {
+            EventTargetListInput::Loaded { targets } => targets
+                .iter()
+                .find(|target| target.event_id == selected_event.event_id)
+                .map_or_else(
+                    || Self::not_attached("No publisher target carries this event."),
+                    |target| Self::attached(&target.name),
+                ),
+            EventTargetListInput::Unknown => Self {
+                state: EventTargetAttachmentState::Unknown,
+                label: "Target unknown".to_owned(),
+                target_name: None,
+                detail: "Target list has not been read.".to_owned(),
+            },
+            EventTargetListInput::CommandsUnavailable => Self {
+                state: EventTargetAttachmentState::CommandsUnavailable,
+                label: "Target commands unavailable".to_owned(),
+                target_name: None,
+                detail: "Publisher target commands are not installed.".to_owned(),
+            },
+            EventTargetListInput::NotReachable => Self {
+                state: EventTargetAttachmentState::NotReachable,
+                label: "Publisher not reachable".to_owned(),
+                target_name: None,
+                detail: "Target list cannot be read from the host.".to_owned(),
+            },
+            EventTargetListInput::Failed { detail } => Self {
+                state: EventTargetAttachmentState::Failed,
+                label: "Target list failed".to_owned(),
+                target_name: None,
+                detail: detail.clone(),
+            },
+        }
+    }
+
+    fn attached(target_name: &str) -> Self {
+        let target_name = target_name.trim();
+        if target_name.is_empty() {
+            return Self::not_attached("Publisher returned an empty target name.");
+        }
+        Self {
+            state: EventTargetAttachmentState::Attached,
+            label: target_name.to_owned(),
+            target_name: Some(target_name.to_owned()),
+            detail: "This target carries the selected event.".to_owned(),
+        }
+    }
+
+    fn not_attached(detail: &str) -> Self {
+        Self {
+            state: EventTargetAttachmentState::NotAttached,
+            label: "not attached".to_owned(),
+            target_name: None,
+            detail: detail.to_owned(),
+        }
+    }
+}
+
+impl EventActionsDisplay {
+    fn from_state(
+        event: &EventSelectionDisplay,
+        target: &EventTargetAttachmentDisplay,
+        attach_target_name: &str,
+        publisher_reachable: bool,
+    ) -> Self {
+        let has_event = event.event_id.is_some();
+        let event_live_enough = !matches!(event.state.state, EventState::Dead | EventState::None);
+        let commands_ready = matches!(
+            target.state,
+            EventTargetAttachmentState::Attached | EventTargetAttachmentState::NotAttached
+        );
+        let attach_available = has_event
+            && event_live_enough
+            && publisher_reachable
+            && commands_ready
+            && matches!(target.state, EventTargetAttachmentState::NotAttached)
+            && !attach_target_name.is_empty();
+        let detach_available = has_event
+            && publisher_reachable
+            && commands_ready
+            && matches!(target.state, EventTargetAttachmentState::Attached);
+
+        Self {
+            attach: EventActionDisplay {
+                id: "event-target-attach",
+                label: "Attach",
+                a11y_label: if attach_target_name.is_empty() {
+                    "Attach selected event to publisher target".to_owned()
+                } else {
+                    format!("Attach selected event to publisher target {attach_target_name}")
+                },
+                availability: event_action_availability(attach_available),
+            },
+            detach: EventActionDisplay {
+                id: "event-target-detach",
+                label: "Detach",
+                a11y_label: target.target_name.as_ref().map_or_else(
+                    || "Detach selected event from publisher target".to_owned(),
+                    |target_name| {
+                        format!("Detach selected event from publisher target {target_name}")
+                    },
+                ),
+                availability: event_action_availability(detach_available),
+            },
+        }
+    }
+}
+
+fn event_hint(input: &EventSectionInput) -> Option<String> {
+    let event = input.selected_event.as_ref()?;
+    (input.remote_host && event.token_file_missing)
+        .then(|| "Token file is missing locally; copy it to the publisher host.".to_owned())
+}
+
+fn feed_tag_for_event(event_id: &str) -> String {
+    format!(
+        "<podcast:liveValue uri=\"{}\" protocol=\"socket.io\"/>",
+        escape_xml_attribute(event_id)
+    )
+}
+
+fn escape_xml_attribute(value: &str) -> String {
+    value.chars().fold(String::new(), |mut escaped, character| {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            _ => escaped.push(character),
+        }
+        escaped
+    })
+}
+
+const fn event_action_availability(available: bool) -> EventActionAvailability {
+    if available {
+        EventActionAvailability::Available
+    } else {
+        EventActionAvailability::Unavailable
     }
 }
 
@@ -1208,6 +1666,7 @@ mod tests {
         assert!(vm.now_playing.is_none());
         assert!(vm.source.is_none());
         assert!(vm.publisher.is_none());
+        assert!(vm.event.is_none());
         assert!(vm.stream.is_none());
         assert!(vm.queue.rows.is_empty());
     }
@@ -1476,6 +1935,235 @@ mod tests {
     }
 
     #[test]
+    fn event_section_projects_attached_target_and_feed_tag() {
+        let snapshot = publisher_snapshot([(
+            PublisherServiceRole::Publisher,
+            "musicindex-live-publisher@mixxx.service",
+            ServiceState::Active,
+        )]);
+        let input = event_input(
+            Some(EventSelectionInput {
+                label: Some("Late Night".to_owned()),
+                event_id: "event&one".to_owned(),
+                endpoint: "https://relay.example".to_owned(),
+                token_path: "/tmp/event-one.token".to_owned(),
+                state: EventState::Live,
+                token_file_missing: false,
+            }),
+            EventTargetListInput::Loaded {
+                targets: vec![EventTargetInput {
+                    name: "late-night".to_owned(),
+                    event_id: "event&one".to_owned(),
+                }],
+            },
+        );
+
+        let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+            None,
+            Some(&input),
+        );
+        let event = vm.event.expect("event section");
+
+        assert_eq!(event.title, "Event");
+        assert_eq!(event.event.label, "Late Night");
+        assert_eq!(event.event.state.state, EventState::Live);
+        assert_eq!(event.target.state, EventTargetAttachmentState::Attached);
+        assert_eq!(event.target.label, "late-night");
+        assert_eq!(event.target.target_name.as_deref(), Some("late-night"));
+        assert_eq!(
+            event.feed_tag.as_deref(),
+            Some("<podcast:liveValue uri=\"event&amp;one\" protocol=\"socket.io\"/>")
+        );
+        assert!(event.actions.attach.disabled());
+        assert!(!event.actions.detach.disabled());
+    }
+
+    #[test]
+    fn event_section_projects_not_attached_without_empty_target_label() {
+        let snapshot = publisher_snapshot([(
+            PublisherServiceRole::Publisher,
+            "musicindex-live-publisher@mixxx.service",
+            ServiceState::Active,
+        )]);
+        let input = event_input(
+            Some(EventSelectionInput {
+                label: None,
+                event_id: "event-one".to_owned(),
+                endpoint: "https://relay.example".to_owned(),
+                token_path: "/tmp/event-one.token".to_owned(),
+                state: EventState::Unknown,
+                token_file_missing: false,
+            }),
+            EventTargetListInput::Loaded {
+                targets: vec![EventTargetInput {
+                    name: "default".to_owned(),
+                    event_id: "event-two".to_owned(),
+                }],
+            },
+        );
+
+        let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+            None,
+            Some(&input),
+        );
+        let event = vm.event.expect("event section");
+
+        assert_eq!(event.target.state, EventTargetAttachmentState::NotAttached);
+        assert_eq!(event.target.label, "not attached");
+        assert!(!event.target.label.is_empty());
+        assert_eq!(event.target.target_name, None);
+        assert!(!event.actions.attach.disabled());
+        assert!(event.actions.detach.disabled());
+    }
+
+    #[test]
+    fn event_section_disables_attach_for_dead_event_or_unreachable_publisher() {
+        let reachable = publisher_snapshot([(
+            PublisherServiceRole::Publisher,
+            "musicindex-live-publisher@mixxx.service",
+            ServiceState::Active,
+        )]);
+        let unreachable = publisher_snapshot_on_host(
+            "Studio",
+            [(
+                PublisherServiceRole::Publisher,
+                "musicindex-live-publisher@mixxx.service",
+                ServiceState::NotReachable,
+            )],
+        );
+        let input = event_input(
+            Some(EventSelectionInput {
+                label: None,
+                event_id: "event-one".to_owned(),
+                endpoint: "https://relay.example".to_owned(),
+                token_path: "/tmp/event-one.token".to_owned(),
+                state: EventState::Dead,
+                token_file_missing: false,
+            }),
+            EventTargetListInput::Loaded {
+                targets: Vec::new(),
+            },
+        );
+
+        let dead_vm = ShowPageVm::from_queue_publisher_readiness_and_event(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&reachable),
+            PublisherLogPanelState::closed(),
+            None,
+            Some(&input),
+        );
+        let live_input = EventSectionInput {
+            selected_event: Some(EventSelectionInput {
+                state: EventState::Live,
+                ..input.selected_event.clone().expect("event")
+            }),
+            ..input.clone()
+        };
+        let unreachable_vm = ShowPageVm::from_queue_publisher_readiness_and_event(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&unreachable),
+            PublisherLogPanelState::closed(),
+            None,
+            Some(&live_input),
+        );
+
+        assert!(dead_vm
+            .event
+            .expect("dead event section")
+            .actions
+            .attach
+            .disabled());
+        assert!(unreachable_vm
+            .event
+            .expect("unreachable event section")
+            .actions
+            .attach
+            .disabled());
+    }
+
+    #[test]
+    fn event_section_reports_unavailable_target_commands() {
+        let snapshot = publisher_snapshot([(
+            PublisherServiceRole::Publisher,
+            "musicindex-live-publisher@mixxx.service",
+            ServiceState::Active,
+        )]);
+        let input = event_input(
+            Some(EventSelectionInput {
+                label: None,
+                event_id: "event-one".to_owned(),
+                endpoint: "https://relay.example".to_owned(),
+                token_path: "/tmp/event-one.token".to_owned(),
+                state: EventState::Live,
+                token_file_missing: false,
+            }),
+            EventTargetListInput::CommandsUnavailable,
+        );
+
+        let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+            None,
+            Some(&input),
+        );
+        let event = vm.event.expect("event section");
+
+        assert_eq!(
+            event.target.state,
+            EventTargetAttachmentState::CommandsUnavailable
+        );
+        assert_eq!(event.target.label, "Target commands unavailable");
+        assert!(event.actions.attach.disabled());
+        assert!(event.actions.detach.disabled());
+    }
+
+    #[test]
+    fn event_section_hints_when_remote_token_file_is_missing() {
+        let snapshot = publisher_snapshot_on_host(
+            "Studio",
+            [(
+                PublisherServiceRole::Publisher,
+                "musicindex-live-publisher@mixxx.service",
+                ServiceState::Active,
+            )],
+        );
+        let mut input = event_input(
+            Some(EventSelectionInput {
+                label: None,
+                event_id: "event-one".to_owned(),
+                endpoint: "https://relay.example".to_owned(),
+                token_path: "/tmp/event-one.token".to_owned(),
+                state: EventState::Live,
+                token_file_missing: true,
+            }),
+            EventTargetListInput::Loaded {
+                targets: Vec::new(),
+            },
+        );
+        input.remote_host = true;
+
+        let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+            None,
+            Some(&input),
+        );
+
+        assert_eq!(
+            vm.event.expect("event section").hint.as_deref(),
+            Some("Token file is missing locally; copy it to the publisher host.")
+        );
+    }
+
+    #[test]
     fn stream_section_projects_connected_signal_recording_and_actions() {
         let snapshot = snapshot_with_encoder(
             Vec::new(),
@@ -1656,6 +2344,18 @@ mod tests {
             at: std::time::Instant::now(),
             units,
             encoder,
+        }
+    }
+
+    fn event_input(
+        selected_event: Option<EventSelectionInput>,
+        targets: EventTargetListInput,
+    ) -> EventSectionInput {
+        EventSectionInput {
+            selected_event,
+            targets,
+            attach_target_name: "default".to_owned(),
+            remote_host: false,
         }
     }
 }
