@@ -94,10 +94,14 @@ the event registry and the publisher.
 
 ## Section Order
 
-ADR 0059 orders the sections `Source`, `Publisher`, `Event`, `Stream`.
+ADR 0059 orders the sections `Source`, `Live Metadata`, `Event`, `Stream`.
 Packet 015 shipped `Stream` before `Event` existed, so `Stream` currently
-renders directly after `Publisher`. Insert `Event` between them. Do not
+renders directly after `Live Metadata`. Insert `Event` between them. Do not
 append it after `Stream`.
+
+The section that holds the publisher and producer services is titled
+`Live Metadata`. The view-model field and the module names keep the word
+`publisher`. Do not rename them.
 
 ## Acceptance Criteria
 
