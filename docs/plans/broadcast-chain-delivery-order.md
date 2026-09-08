@@ -172,10 +172,20 @@ not gate the structural work.
 before the curation surface gives it up. The reverse order leaves playback with
 no home.
 
-After the restructure:
+ADR 0062 then rebuilds what `Music` shows:
 
-1. Write ADR 0062, cache and dump policy. `Dump` needs it.
-2. Write ADR 0063, audition, and ADR 0064, play history.
+| Step | Packet | State |
+|---|---|---|
+| 1 | `docs/tasks/adr-0062-task-001-mixed-entity-row-contract.md` | ready |
+| 2 | `docs/tasks/adr-0062-task-002-music-default-view.md` | ready |
+| 3 | `docs/tasks/adr-0062-task-003-library-tri-state-control.md` | ready |
+| 4 | `docs/tasks/adr-0062-task-004-tile-and-list-modes.md` | ready |
+| 5 | `docs/tasks/adr-0062-task-005-retire-recent-feeds-destination.md` | ready |
+
+After that:
+
+1. Write ADR 0063, cache and dump policy. `Dump` needs it.
+2. Write ADR 0064, audition, and ADR 0065, play history.
 3. Revise the blocked ADR 0059 packets against ADR 0060.
 
 `v4vmm` packets 001 through 004 shipped and are unaffected. They are backend
