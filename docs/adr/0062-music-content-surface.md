@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-09-07. Change this status to `Accepted` after review.
+Accepted - 2026-09-07.
 
 Extends ADR 0060. Reverses the Recent Feeds reachability invariant that ADR
 0030 established.
@@ -136,28 +136,50 @@ broken control.
 Rejected. It makes the control honest without making the surface useful, and it
 leaves the content region full of navigation.
 
-### A Segmented Control Instead Of One Tri-State Control
+### Keep The Segmented Control
 
-Rejected by the product owner in favor of one control. **This is a deliberate
-deviation from Apple HIG and it is recorded as one.**
+Rejected. The current implementation is a segmented control, and
+`adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell` requires
+`SegmentedControl::new(selected).filter_style()`. This ADR therefore replaces a
+working control rather than adding one, and that guard changes with it.
 
-HIG reserves the mixed state for indeterminacy. `components/toggles.md` defines
-it as "show mixed state when subordinate checkboxes have different states", and
-calls it "rarely useful" for radio buttons. This ADR uses that visual slot for a
-third choice instead, which is a different meaning.
+The reason is that a segmented control states the wrong structure.
 
-HIG answers one-of-three with a segmented control: "users select only one
-segment at a time", and "help users understand at a glance which controls are
-selected". A segmented control reading `All`, `In library`, `Not in library`
-would be self-describing and larger.
+**Library membership is one axis, not three options.** A segmented control
+reading `All`, `In library`, `Not in library` presents three peers. They are
+not peers. `In library` and `Not in library` are the two real positions, and
+`All` is the absence of a constraint. A control that renders the null case as a
+sibling of the two real cases misdescribes what the operator is choosing.
 
-The counter-argument is that this is not a one-of-three choice. `All` is the
-absence of a constraint, not a peer of the other two. The real shape is one axis
-with three positions: require, ignore, exclude. HIG names no pattern for that.
+**Filter axes multiply and segmented controls do not.** Library membership is
+the first filter this surface needs and it will not be the last. Downloaded
+state, artwork presence, and payment-route presence are all the same shape:
+a property to require, ignore, or exclude. Four segmented controls in a row is
+not a filter bar. Four tri-state toggles is.
 
-Mitigation: the control carries an explicit text label for its current state,
-not only the visual treatment. Revisit if operators misread the struck-through
-state.
+This is the deciding argument. The choice is not between two ways to render one
+filter. It is between a control that composes as filters accumulate and one
+that does not.
+
+**Apple HIG does not cover this case.** HIG names patterns for choosing among
+options and for boolean settings. `components/toggles.md` defines the mixed
+state as indeterminacy, "show mixed state when subordinate checkboxes have
+different states", and calls it "rarely useful" on radio buttons. Segmented
+controls answer "select only one segment at a time". A three-position filter
+axis is neither of those things.
+
+**The design fills a gap in the guidance rather than breaking a rule.** HIG
+remains structural guidance for this project, and this is a considered
+departure recorded as one, not an oversight.
+
+Requirements that follow from the choice:
+
+- The control carries an explicit text label for its current state, so the
+  state is never carried by the visual treatment alone.
+- The struck-through state announces `Not in library` to assistive technology.
+- The three states are reachable by keyboard in a predictable order.
+
+Revisit if operators misread the struck-through state in use.
 
 ### Keep Recent Feeds As A Destination
 
@@ -186,8 +208,11 @@ Positive:
 
 Negative and risks:
 
-- A tri-state cycling control is less discoverable than a segmented control,
-  and it is not the Apple HIG pattern for a one-of-three choice.
+- The tri-state control is less immediately self-describing than the segmented
+  control it replaces. An operator learns the cycle once. The text label carries
+  the state in the meantime.
+- Replacing a guarded control means the ADR 0047 filter-chip guards change with
+  this ADR rather than surviving it.
 - The default view is a paged remote query rather than a local tree read. Paging
   and windowing from ADR 0041 apply, and this ADR does not restate them.
 - One sort order is a thin sort control. It exists to make the shape right, and
@@ -202,6 +227,14 @@ Negative and risks:
 
 - Delete the `Recent Feeds` reachability guards, including the one asserting
   `return_to_recent_feeds` in the parked discover module.
+- Update `adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell` and
+  `adr_0047_task_010_content_list_filter_chips_are_frame_local`. Both require
+  the segmented chip strip that this ADR replaces.
+- Reuse rather than rebuild. `RecentFeedsViewMode` already provides tiles and
+  list. `RecentFeedsPageVm` already provides cursor paging and load-more.
+  `ArtistResultDisplay`, `FeedResultDisplay`, and `TrackResultDisplay` already
+  exist, separated today by `SearchResultsTab`. The mixed row merges those three
+  tabs into one list, and the entity badge replaces the tab.
 - Amend ADR 0030 to record that its reachability invariant is withdrawn.
 - Task packets for the row contract, the library control, the sort, and the
   tile mode.
