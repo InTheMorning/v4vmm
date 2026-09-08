@@ -84,6 +84,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0050](0050-post-adr-0048-module-decomposition.md) | Module decomposition after ADR 0048 | Implemented |
 | [0055](0055-search-view-model-module-decomposition.md) | Search view-model module decomposition | Accepted |
 | [0060](0060-workflow-surface-structure.md) | Music, Show, Settings. Show is a screen mount | Accepted |
+| [0062](0062-music-content-surface.md) | Music opens on recent mixed entity rows | Accepted |
 
 ## UI Presentation
 

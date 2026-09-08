@@ -13007,6 +13007,127 @@ fn adr_0060_toolbar_no_longer_carries_now_playing_chip() {
     );
 }
 
+/// Situational ADR 0062: mixed Music rows carry a kind and shared badges.
+#[test]
+fn adr_0062_mixed_entity_row_contract_is_kind_backed() {
+    let library_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let search_results_source =
+        read_source(&manifest_path("src/view_models/search_results/results.rs"));
+    let row_contract = source_between(
+        &library_source,
+        "pub(crate) enum ContentListEntityKind",
+        "/// Empty-state display for a filtered content-list frame.",
+    );
+    let row_struct = source_between(
+        &library_source,
+        "pub(crate) struct ContentListRowDisplay",
+        "#[allow(dead_code)]\nimpl ContentListRowDisplay",
+    );
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) enum ContentListRowKind",
+        "Artist(ArtistResultDisplay)",
+        "Release(FeedResultDisplay)",
+        "Track(TrackResultDisplay)",
+        "pub(crate) struct ContentListEntityBadgeDisplay",
+        "pub(crate) struct ContentListLibraryBadgeDisplay",
+        "pub(crate) enum ContentListRowExpansionDisplay",
+        "pub(crate) enum ContentListRowExpansionState",
+        "ContentListLibraryBadgeDisplay::for_source(source)",
+        "ContentListRowExpansionDisplay::for_kind(entity_kind, expanded)",
+        "pub(crate) fn from_artist_result(",
+        "pub(crate) fn from_release_result(",
+        "pub(crate) fn from_track_result(",
+    ] {
+        if !row_contract.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: Situational ADR 0062 mixed entity row contract missing `{required}`"
+            ));
+        }
+    }
+
+    let variant_count = ["Artist(", "Release(", "Track("]
+        .into_iter()
+        .filter(|variant| row_contract.contains(variant))
+        .count();
+    if variant_count != 3 {
+        violations.push(format!(
+            "src/view_models/library.rs: Situational ADR 0062 mixed entity row contract must have exactly three row-kind cases; found {variant_count}"
+        ));
+    }
+
+    for required in [
+        "pub(crate) id: String",
+        "pub(crate) kind: ContentListRowKind",
+        "pub(crate) entity_badge: ContentListEntityBadgeDisplay",
+        "pub(crate) library_badge: ContentListLibraryBadgeDisplay",
+        "pub(crate) source: ContentListRowSource",
+        "pub(crate) expansion: ContentListRowExpansionDisplay",
+    ] {
+        if !row_struct.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: Situational ADR 0062 mixed entity row display missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "artist: Option",
+        "release: Option",
+        "feed: Option",
+        "track: Option",
+        "artist_display",
+        "release_display",
+        "feed_display",
+        "track_display",
+        "title: String",
+        "secondary_text: String",
+    ] {
+        if row_struct.contains(forbidden) {
+            violations.push(format!(
+                "src/view_models/library.rs: Situational ADR 0062 mixed entity row display must not carry top-level kind-specific or copied fields; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) struct ArtistResultDisplay",
+        "pub(crate) struct FeedResultDisplay",
+        "pub(crate) struct TrackResultDisplay",
+    ] {
+        if !search_results_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results/results.rs: Situational ADR 0062 must compose existing result displays; missing `{required}`"
+            ));
+        }
+    }
+
+    for (path, source) in [
+        ("src/view_models/library.rs", library_source.as_str()),
+        (
+            "src/view_models/search_results/results.rs",
+            search_results_source.as_str(),
+        ),
+    ] {
+        for (line_number, line) in code_lines(source) {
+            for pattern in VIEW_MODEL_FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{path}:{line_number}: Situational ADR 0062 mixed entity row VM must stay renderer-free; found `{pattern}` in `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0062 mixed entity row contract violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 fn display_surface_files() -> Vec<String> {
     let mut files = Vec::new();
     files.push("src/app.rs".to_string());

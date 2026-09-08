@@ -36,6 +36,9 @@ use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
+use crate::view_models::search_results::{
+    ArtistResultDisplay, FeedResultDisplay, SearchResultOrigin, TrackResultDisplay,
+};
 use crate::view_models::text_filter::{contains_normalized, normalize};
 use crate::view_models::workspace::{
     ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass,
@@ -641,6 +644,20 @@ impl ContentListRowSource {
             ContentFilter::Index => matches!(self, Self::Index),
         }
     }
+
+    const fn from_search_result_origin(origin: SearchResultOrigin) -> Self {
+        match origin {
+            SearchResultOrigin::Library => Self::Library,
+            SearchResultOrigin::Index => Self::Index,
+        }
+    }
+
+    const fn as_search_result_origin(self) -> SearchResultOrigin {
+        match self {
+            Self::Library => SearchResultOrigin::Library,
+            Self::Index => SearchResultOrigin::Index,
+        }
+    }
 }
 
 const fn row_state_label_for_source(source: ContentListRowSource) -> Option<&'static str> {
@@ -650,25 +667,253 @@ const fn row_state_label_for_source(source: ContentListRowSource) -> Option<&'st
     }
 }
 
+/// Entity kind carried by a mixed Music content row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListEntityKind {
+    /// Artist row.
+    Artist,
+    /// Release row.
+    Release,
+    /// Track row.
+    Track,
+}
+
+impl ContentListEntityKind {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Artist => "Artist",
+            Self::Release => "Release",
+            Self::Track => "Track",
+        }
+    }
+
+    const fn a11y_label(self) -> &'static str {
+        match self {
+            Self::Artist => "Entity type: Artist",
+            Self::Release => "Entity type: Release",
+            Self::Track => "Entity type: Track",
+        }
+    }
+}
+
+/// Display-ready entity badge for a mixed Music content row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListEntityBadgeDisplay {
+    /// Entity kind represented by the badge.
+    pub(crate) kind: ContentListEntityKind,
+    /// Visible badge label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for assistive technologies and tooltips.
+    pub(crate) a11y_label: &'static str,
+}
+
+impl ContentListEntityBadgeDisplay {
+    const fn for_kind(kind: ContentListEntityKind) -> Self {
+        Self {
+            kind,
+            label: kind.label(),
+            a11y_label: kind.a11y_label(),
+        }
+    }
+}
+
+/// Library-membership state for a mixed Music content row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListLibraryBadgeState {
+    /// Row is already in the local library.
+    InLibrary,
+    /// Row is available from the index and is not local.
+    NotInLibrary,
+}
+
+impl ContentListLibraryBadgeState {
+    const fn from_source(source: ContentListRowSource) -> Self {
+        match source {
+            ContentListRowSource::Library => Self::InLibrary,
+            ContentListRowSource::Index => Self::NotInLibrary,
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::InLibrary => "In library",
+            Self::NotInLibrary => "Not in library",
+        }
+    }
+
+    const fn a11y_label(self) -> &'static str {
+        match self {
+            Self::InLibrary => "Library status: In library",
+            Self::NotInLibrary => "Library status: Not in library",
+        }
+    }
+}
+
+/// Display-ready library badge for a mixed Music content row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListLibraryBadgeDisplay {
+    /// Library-membership state represented by the badge.
+    pub(crate) state: ContentListLibraryBadgeState,
+    /// Visible badge label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for assistive technologies and tooltips.
+    pub(crate) a11y_label: &'static str,
+}
+
+impl ContentListLibraryBadgeDisplay {
+    const fn for_source(source: ContentListRowSource) -> Self {
+        let state = ContentListLibraryBadgeState::from_source(source);
+        Self {
+            state,
+            label: state.label(),
+            a11y_label: state.a11y_label(),
+        }
+    }
+}
+
+/// Expansion state for rows that reveal child rows.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListRowExpansionState {
+    /// Child rows are hidden.
+    Collapsed,
+    /// Child rows are visible.
+    Expanded,
+}
+
+/// Display-ready expansion fact for a mixed Music content row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListRowExpansionDisplay {
+    /// This row can expand or collapse.
+    Available {
+        /// Current expansion state.
+        state: ContentListRowExpansionState,
+        /// Accessibility label for the expansion affordance.
+        a11y_label: &'static str,
+    },
+    /// This row has no child rows.
+    Unavailable,
+}
+
+impl ContentListRowExpansionDisplay {
+    const fn for_kind(kind: ContentListEntityKind, expanded: bool) -> Self {
+        match kind {
+            ContentListEntityKind::Artist | ContentListEntityKind::Release => Self::Available {
+                state: if expanded {
+                    ContentListRowExpansionState::Expanded
+                } else {
+                    ContentListRowExpansionState::Collapsed
+                },
+                a11y_label: if expanded {
+                    kind.collapse_a11y_label()
+                } else {
+                    kind.expand_a11y_label()
+                },
+            },
+            ContentListEntityKind::Track => Self::Unavailable,
+        }
+    }
+}
+
+impl ContentListEntityKind {
+    const fn expand_a11y_label(self) -> &'static str {
+        match self {
+            Self::Artist => "Expand artist row",
+            Self::Release => "Expand release row",
+            Self::Track => "Track row cannot expand",
+        }
+    }
+
+    const fn collapse_a11y_label(self) -> &'static str {
+        match self {
+            Self::Artist => "Collapse artist row",
+            Self::Release => "Collapse release row",
+            Self::Track => "Track row cannot collapse",
+        }
+    }
+}
+
+/// Existing entity display carried by a mixed Music content row.
+#[derive(Clone, Debug)]
+pub(crate) enum ContentListRowKind {
+    /// Artist search-result display.
+    Artist(ArtistResultDisplay),
+    /// Release/feed search-result display.
+    Release(FeedResultDisplay),
+    /// Track search-result display.
+    Track(TrackResultDisplay),
+}
+
+impl ContentListRowKind {
+    /// Returns the entity kind for this row.
+    #[must_use]
+    pub(crate) const fn entity_kind(&self) -> ContentListEntityKind {
+        match self {
+            Self::Artist(_) => ContentListEntityKind::Artist,
+            Self::Release(_) => ContentListEntityKind::Release,
+            Self::Track(_) => ContentListEntityKind::Track,
+        }
+    }
+
+    fn id(&self) -> &str {
+        match self {
+            Self::Artist(display) => &display.id,
+            Self::Release(display) => &display.id,
+            Self::Track(display) => &display.id,
+        }
+    }
+
+    fn label(&self) -> &str {
+        match self {
+            Self::Artist(display) => &display.label,
+            Self::Release(display) => &display.label,
+            Self::Track(display) => &display.label,
+        }
+    }
+
+    fn secondary_text(&self) -> &str {
+        match self {
+            Self::Artist(display) => &display.secondary_text,
+            Self::Release(display) => &display.secondary_text,
+            Self::Track(display) => &display.secondary_text,
+        }
+    }
+
+    const fn source(&self) -> ContentListRowSource {
+        match self {
+            Self::Artist(display) => {
+                ContentListRowSource::from_search_result_origin(display.origin)
+            }
+            Self::Release(display) => {
+                ContentListRowSource::from_search_result_origin(display.origin)
+            }
+            Self::Track(display) => ContentListRowSource::from_search_result_origin(display.origin),
+        }
+    }
+}
+
 /// Display row cached by the GPUI-free content-list page VM.
 #[allow(dead_code)]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct ContentListRowDisplay {
     /// Stable row identifier.
     pub(crate) id: String,
-    /// Primary visible row title.
-    pub(crate) title: String,
-    /// Secondary visible row text.
-    pub(crate) secondary_text: String,
+    /// Existing entity display and kind represented by this row.
+    pub(crate) kind: ContentListRowKind,
+    /// Entity-type badge display.
+    pub(crate) entity_badge: ContentListEntityBadgeDisplay,
+    /// Library membership badge display.
+    pub(crate) library_badge: ContentListLibraryBadgeDisplay,
     /// Local-vs-index provenance used by per-frame filtering.
     pub(crate) source: ContentListRowSource,
+    /// Expansion state for entity kinds with children.
+    pub(crate) expansion: ContentListRowExpansionDisplay,
     /// Optional curator-facing state label for the row.
     pub(crate) state_label: Option<&'static str>,
 }
 
 #[allow(dead_code)]
 impl ContentListRowDisplay {
-    /// Creates a content-list row display.
+    /// Creates a track content-list row display from legacy row facts.
     #[must_use]
     pub(crate) fn new(
         id: impl Into<String>,
@@ -676,13 +921,28 @@ impl ContentListRowDisplay {
         secondary_text: impl Into<String>,
         source: ContentListRowSource,
     ) -> Self {
-        Self {
-            id: id.into(),
-            title: title.into(),
-            secondary_text: secondary_text.into(),
-            source,
-            state_label: row_state_label_for_source(source),
-        }
+        Self::from_track_result(
+            TrackResultDisplay::new(id, title, source.as_search_result_origin())
+                .with_secondary_text(secondary_text),
+        )
+    }
+
+    /// Projects an artist display into the mixed content-list row contract.
+    #[must_use]
+    pub(crate) fn from_artist_result(display: ArtistResultDisplay, expanded: bool) -> Self {
+        Self::from_kind(ContentListRowKind::Artist(display), expanded)
+    }
+
+    /// Projects a release/feed display into the mixed content-list row contract.
+    #[must_use]
+    pub(crate) fn from_release_result(display: FeedResultDisplay, expanded: bool) -> Self {
+        Self::from_kind(ContentListRowKind::Release(display), expanded)
+    }
+
+    /// Projects a track display into the mixed content-list row contract.
+    #[must_use]
+    pub(crate) fn from_track_result(display: TrackResultDisplay) -> Self {
+        Self::from_kind(ContentListRowKind::Track(display), false)
     }
 
     /// Projects a database track row into content-list display data.
@@ -709,11 +969,43 @@ impl ContentListRowDisplay {
         )
     }
 
+    /// Returns the primary visible row title.
+    #[must_use]
+    pub(crate) fn title(&self) -> &str {
+        self.kind.label()
+    }
+
+    /// Returns the secondary visible row text.
+    #[must_use]
+    pub(crate) fn secondary_text(&self) -> &str {
+        self.kind.secondary_text()
+    }
+
+    /// Returns the entity kind represented by this row.
+    #[must_use]
+    pub(crate) const fn entity_kind(&self) -> ContentListEntityKind {
+        self.kind.entity_kind()
+    }
+
+    fn from_kind(kind: ContentListRowKind, expanded: bool) -> Self {
+        let source = kind.source();
+        let entity_kind = kind.entity_kind();
+        Self {
+            id: kind.id().to_string(),
+            kind,
+            entity_badge: ContentListEntityBadgeDisplay::for_kind(entity_kind),
+            library_badge: ContentListLibraryBadgeDisplay::for_source(source),
+            source,
+            expansion: ContentListRowExpansionDisplay::for_kind(entity_kind, expanded),
+            state_label: row_state_label_for_source(source),
+        }
+    }
+
     #[must_use]
     fn matches_text_filter(&self, filter: &str) -> bool {
         filter.is_empty()
-            || contains_normalized(&self.title, filter)
-            || contains_normalized(&self.secondary_text, filter)
+            || contains_normalized(self.title(), filter)
+            || contains_normalized(self.secondary_text(), filter)
     }
 }
 
@@ -755,7 +1047,7 @@ impl ContentListEmptyStateDisplay {
 
 /// GPUI-free page VM for a workspace content-list frame.
 #[allow(dead_code)]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct ContentListPageVm {
     filter_state: ContentFilter,
     text_filter: Option<String>,
@@ -3163,6 +3455,160 @@ mod tests {
         ContentListRowDisplay::new(id, format!("{id} title"), format!("{id} secondary"), source)
     }
 
+    fn artist_result(id: &str, label: &str, origin: SearchResultOrigin) -> ArtistResultDisplay {
+        ArtistResultDisplay::new(id, label, origin).with_secondary_text("2 releases")
+    }
+
+    fn release_result(id: &str, label: &str, origin: SearchResultOrigin) -> FeedResultDisplay {
+        FeedResultDisplay::new(id, label, origin).with_secondary_text("12 tracks")
+    }
+
+    fn track_result(id: &str, label: &str, origin: SearchResultOrigin) -> TrackResultDisplay {
+        TrackResultDisplay::new(id, label, origin).with_secondary_text("Artist")
+    }
+
+    #[test]
+    fn content_list_row_projects_artist_result_contract() {
+        let row = ContentListRowDisplay::from_artist_result(
+            artist_result("artist-1", "Alice", SearchResultOrigin::Library),
+            true,
+        );
+
+        assert_eq!(row.id, "artist-1");
+        assert_eq!(row.title(), "Alice");
+        assert_eq!(row.secondary_text(), "2 releases");
+        assert_eq!(row.entity_kind(), ContentListEntityKind::Artist);
+        assert_eq!(
+            row.entity_badge,
+            ContentListEntityBadgeDisplay {
+                kind: ContentListEntityKind::Artist,
+                label: "Artist",
+                a11y_label: "Entity type: Artist",
+            }
+        );
+        assert_eq!(
+            row.library_badge,
+            ContentListLibraryBadgeDisplay {
+                state: ContentListLibraryBadgeState::InLibrary,
+                label: "In library",
+                a11y_label: "Library status: In library",
+            }
+        );
+        assert_eq!(
+            row.expansion,
+            ContentListRowExpansionDisplay::Available {
+                state: ContentListRowExpansionState::Expanded,
+                a11y_label: "Collapse artist row",
+            }
+        );
+    }
+
+    #[test]
+    fn content_list_row_projects_release_result_contract() {
+        let row = ContentListRowDisplay::from_release_result(
+            release_result("release-1", "Release", SearchResultOrigin::Index),
+            false,
+        );
+
+        assert_eq!(row.id, "release-1");
+        assert_eq!(row.title(), "Release");
+        assert_eq!(row.secondary_text(), "12 tracks");
+        assert_eq!(row.entity_kind(), ContentListEntityKind::Release);
+        assert_eq!(
+            row.entity_badge,
+            ContentListEntityBadgeDisplay {
+                kind: ContentListEntityKind::Release,
+                label: "Release",
+                a11y_label: "Entity type: Release",
+            }
+        );
+        assert_eq!(
+            row.library_badge,
+            ContentListLibraryBadgeDisplay {
+                state: ContentListLibraryBadgeState::NotInLibrary,
+                label: "Not in library",
+                a11y_label: "Library status: Not in library",
+            }
+        );
+        assert_eq!(
+            row.expansion,
+            ContentListRowExpansionDisplay::Available {
+                state: ContentListRowExpansionState::Collapsed,
+                a11y_label: "Expand release row",
+            }
+        );
+    }
+
+    #[test]
+    fn content_list_row_projects_track_result_contract() {
+        let row = ContentListRowDisplay::from_track_result(track_result(
+            "track-1",
+            "Track",
+            SearchResultOrigin::Index,
+        ));
+
+        assert_eq!(row.id, "track-1");
+        assert_eq!(row.title(), "Track");
+        assert_eq!(row.secondary_text(), "Artist");
+        assert_eq!(row.entity_kind(), ContentListEntityKind::Track);
+        assert_eq!(
+            row.entity_badge,
+            ContentListEntityBadgeDisplay {
+                kind: ContentListEntityKind::Track,
+                label: "Track",
+                a11y_label: "Entity type: Track",
+            }
+        );
+        assert_eq!(
+            row.library_badge,
+            ContentListLibraryBadgeDisplay {
+                state: ContentListLibraryBadgeState::NotInLibrary,
+                label: "Not in library",
+                a11y_label: "Library status: Not in library",
+            }
+        );
+        assert_eq!(row.expansion, ContentListRowExpansionDisplay::Unavailable);
+    }
+
+    #[test]
+    fn content_list_page_vm_filters_every_mixed_row_kind_by_source() {
+        let mut page = ContentListPageVm::new(vec![
+            ContentListRowDisplay::from_artist_result(
+                artist_result("artist", "Artist", SearchResultOrigin::Library),
+                false,
+            ),
+            ContentListRowDisplay::from_release_result(
+                release_result("release", "Release", SearchResultOrigin::Index),
+                false,
+            ),
+            ContentListRowDisplay::from_track_result(track_result(
+                "track",
+                "Track",
+                SearchResultOrigin::Index,
+            )),
+        ]);
+
+        assert_eq!(
+            page.visible_row_ids(),
+            ["artist", "release", "track"],
+            "ContentFilter::All should preserve every mixed row kind"
+        );
+
+        page.set_filter(ContentFilter::Library);
+        assert_eq!(
+            page.visible_row_ids(),
+            ["artist"],
+            "ContentFilter::Library should keep source semantics for mixed rows"
+        );
+
+        page.set_filter(ContentFilter::Index);
+        assert_eq!(
+            page.visible_row_ids(),
+            ["release", "track"],
+            "ContentFilter::Index should keep source semantics for mixed rows"
+        );
+    }
+
     #[test]
     fn content_list_page_vm_defaults_to_all_filter() {
         let page = ContentListPageVm::new(vec![
@@ -3339,27 +3785,31 @@ mod tests {
         let mut page = ContentListPageVm::from_tracks(&tracks);
 
         page.set_filter(ContentFilter::Library);
+        let visible_rows = page.visible_rows();
+        assert_eq!(visible_rows.len(), 1);
+        assert_eq!(visible_rows[0].id, "1");
+        assert_eq!(visible_rows[0].title(), "Local Track");
+        assert_eq!(visible_rows[0].secondary_text(), "Local Artist");
+        assert_eq!(visible_rows[0].entity_kind(), ContentListEntityKind::Track);
+        assert_eq!(visible_rows[0].source, ContentListRowSource::Library);
         assert_eq!(
-            page.visible_rows().into_iter().cloned().collect::<Vec<_>>(),
-            vec![ContentListRowDisplay::new(
-                "1",
-                "Local Track",
-                "Local Artist",
-                ContentListRowSource::Library,
-            )],
+            visible_rows[0].library_badge.state,
+            ContentListLibraryBadgeState::InLibrary,
             "TrackRow.is_in_library should project local rows as library content"
         );
 
         page.set_filter(ContentFilter::Index);
+        let visible_rows = page.visible_rows();
+        assert_eq!(visible_rows.len(), 1);
+        assert_eq!(visible_rows[0].id, "2");
+        assert_eq!(visible_rows[0].title(), "Remote Feed");
+        assert_eq!(visible_rows[0].secondary_text(), "Remote Album");
+        assert_eq!(visible_rows[0].entity_kind(), ContentListEntityKind::Track);
+        assert_eq!(visible_rows[0].source, ContentListRowSource::Index);
         assert_eq!(
-            page.visible_rows().into_iter().cloned().collect::<Vec<_>>(),
-            vec![ContentListRowDisplay::new(
-                "2",
-                "Remote Feed",
-                "Remote Album",
-                ContentListRowSource::Index,
-            )],
-            "non-library TrackRow values should project as index content"
+            visible_rows[0].library_badge.state,
+            ContentListLibraryBadgeState::NotInLibrary,
+            "non-library TrackRow values should project remote rows as index content"
         );
     }
 
@@ -4730,7 +5180,7 @@ mod tests {
         );
         let visible_rows = vm.content_list_page.visible_rows();
         assert_eq!(visible_rows.len(), 1);
-        assert_eq!(visible_rows[0].title, "Cliffs");
+        assert_eq!(visible_rows[0].title(), "Cliffs");
 
         vm.set_content_text_filter(None);
         let projection = vm.tree_projection();
