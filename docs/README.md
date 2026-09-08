@@ -22,6 +22,8 @@ Core:
   services, projections, screens, and UI composites in their lanes
 - [Broadcast chain](architecture/broadcast-chain.md): the four components of
   the live payment chain, the contract at each boundary, and who owns what
+- [Column text truncation](troubleshooting/column-text-truncation.md): why text
+  renders as `...`, the mitigation, and the root cause that is still open
 - [Pending human checks](pending-human-checks.md): the acceptance criteria that
   are open now and need a person, and the method to reach each state
 

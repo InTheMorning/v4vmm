@@ -131,6 +131,7 @@ fn render_header(
         .min_w_0()
         .child(
             div()
+                .flex_1()
                 .min_w_0()
                 .text_size(FontSize::Headline.scaled(cx))
                 .font_weight(FontWeight::SEMIBOLD)
@@ -173,12 +174,12 @@ fn render_summary_lines(primary: String, secondary: String, cx: &App) -> impl In
 }
 
 fn render_summary_line(value: String, text_color: SemanticColor, cx: &App) -> impl IntoElement {
+    // No `truncate()` here. In this column it renders the ellipsis and drops the
+    // text. The card already clips with `overflow_hidden`.
     div()
         .min_h(FontSize::Body.scaled(cx))
-        .min_w_0()
         .text_size(FontSize::Body.scaled(cx))
         .text_color(color(cx, text_color))
-        .truncate()
         .child(SharedString::from(value))
 }
 

@@ -321,7 +321,7 @@ fn render_panel_header(
                 })
                 .child(
                     div()
-                        .min_w_0()
+                        .flex_1()
                         .truncate()
                         .text_size(FontSize::Headline.scaled(cx))
                         .font_weight(FontWeight::SEMIBOLD)
@@ -541,7 +541,7 @@ fn render_publisher_logs(
                         .flex_col()
                         .child(
                             div()
-                                .truncate()
+                                .overflow_hidden()
                                 .text_size(FontSize::Body.scaled(cx))
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(color(cx, SemanticColor::Label))
@@ -719,8 +719,7 @@ fn render_detail_row(
         )
         .child(
             div()
-                .min_w_0()
-                .truncate()
+                .overflow_hidden()
                 .text_size(FontSize::Body.scaled(cx))
                 .text_color(color(cx, SemanticColor::Label))
                 .child(value.into()),
@@ -796,8 +795,7 @@ fn render_log_output(text: &str, line_count: usize, cx: &App) -> impl IntoElemen
         has_lines = true;
         output = output.child(
             div()
-                .min_w_0()
-                .truncate()
+                .overflow_hidden()
                 .child(SharedString::from(line.to_owned())),
         );
     }

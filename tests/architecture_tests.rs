@@ -13093,6 +13093,61 @@ fn adr_0060_toolbar_no_longer_carries_now_playing_chip() {
     );
 }
 
+/// Situational ADR 0063: column text does not call `truncate()`.
+///
+/// `truncate()` on text stacked in a flex column renders `...` and drops the
+/// text. This shipped on 2026-09-08 and made every card summary line and every
+/// panel value unreadable. Neither `w_full()` nor moving `min_w_0` to the parent
+/// repaired it.
+///
+/// A row item is different. `src/ui/shells/queue_now_playing.rs` truncates
+/// correctly, and `show_detail_panel.rs` truncates its header title, because
+/// both sit in a flex row that gives the element a width.
+///
+/// Use `overflow_hidden()` for column text. The text clips and stays readable.
+#[test]
+fn adr_0063_column_text_does_not_truncate() {
+    let mut violations = Vec::new();
+
+    for relative in [
+        "src/ui/composites/show_card.rs",
+        "src/ui/composites/show_detail_panel.rs",
+    ] {
+        let source = read_source(&manifest_path(relative));
+        let lines: Vec<&str> = source.lines().collect();
+
+        for (index, line) in lines.iter().enumerate() {
+            if !line.contains(".truncate()") {
+                continue;
+            }
+
+            let mut start = index;
+            while start > 0 && !lines[start].contains("div()") {
+                start -= 1;
+            }
+
+            // Two shapes truncate correctly, because both give the element a
+            // definite width: a row item that flexes, and an element with an
+            // explicit width bound.
+            let chain = lines[start..=index].join("\n");
+            if chain.contains("flex_1()") || chain.contains("max_w(") || chain.contains(".w(") {
+                continue;
+            }
+
+            violations.push(format!(
+                "{relative}:{}: Situational ADR 0063 forbids `truncate()` on column text. Fix: use `overflow_hidden()`, or the element renders `...` and drops the text.",
+                index + 1
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0063 column truncation violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0063: Show dashboard card contract stays renderer-free.
 #[test]
 fn adr_0063_show_card_contract_is_renderer_free_and_column_only() {

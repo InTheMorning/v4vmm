@@ -129,6 +129,11 @@ stays a reasonable answer if the section count grows past what one screen holds.
 
 ## Follow-Up Work
 
+- Find the root cause of the column truncation defect, and restore the
+  ellipsis. `docs/troubleshooting/column-text-truncation.md` holds what is
+  known, the three attempts, and the open questions. The mitigation clips text
+  and gives no ellipsis.
+
 - A packet for the card contract and the width class in the view model.
 - A packet for the card composite and the grid shell.
 - A packet for the collapsible panel and its two modes.

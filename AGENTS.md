@@ -161,6 +161,21 @@ separately. `The section shows six states` is untestable. `The view model
 exposes six states` is the same requirement where a test can reach it. A
 criterion that is neither passes by omission.
 
+**Column text does not call `truncate()`.** On text stacked in a flex column,
+`truncate()` renders `...` and drops the text. Adding `w_full()` does not repair
+it, and neither does moving `min_w_0` to the parent. Both were tried on
+2026-09-08 and neither worked.
+
+Use `overflow_hidden()` for column text. It clips and stays readable.
+
+`truncate()` is correct where the element has a definite width:
+
+- a row item with `flex_1()`, as in `src/ui/shells/queue_now_playing.rs`
+- an element with an explicit `max_w()` or `w()`, such as a badge
+
+This defect has shipped more than once. A guard covers the `Show` dashboard.
+Every other surface is a manual check.
+
 ## Build, Test, Lint
 
 ```bash

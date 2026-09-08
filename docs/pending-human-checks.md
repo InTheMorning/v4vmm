@@ -10,10 +10,22 @@ check passes, do all three in the same change:
 
 1. Record it in the `Status:` line of the owning packet in `docs/tasks/`.
 2. Record it in the row in `docs/plans/broadcast-chain-delivery-order.md`.
-3. Remove the section from this file.
+3. Remove the section from this file, and number the sections that stay, so
+   the order is still `1` to `n`.
 
 When no check is open, this file keeps the function and the method sections
 only. A closed check leaves no entry here.
+
+## Order
+
+Do the checks in the order below, and not in another order.
+
+The two layout checks come first, because every other check happens inside that
+layout. A readiness count that is hard to read tells you nothing while the grid
+that holds it is still unproved.
+
+The last two checks change the configuration file. They are together at the end,
+so you edit that file once and start the app once more.
 
 ## Before You Start
 
@@ -24,7 +36,45 @@ it. Make a copy first, and put it back when you finish.
 cp ~/.config/v4vmm/config.toml ~/.config/v4vmm/config.toml.bak
 ```
 
-## Open: Library Readiness Report
+## Open 1: Show Card Grid
+
+Owner: ADR 0063 task 002. Needs a screen only.
+
+1. Start the app with `cargo run --release`.
+2. Open `Show`.
+3. Resize the window from the operator's normal width to a narrow width.
+
+Look for:
+
+- Every card is visible at once, with no scrolling, at the window size the
+  operator uses.
+- Cards fill the width. The middle of the window carries content.
+- Making the window narrow reduces the column count, and the cards stay
+  readable.
+- Every card is the same height, in every state.
+- A card state is readable without color, from its label.
+
+
+## Open 2: Show Detail Panel
+
+Owner: ADR 0063 task 003. Needs a screen only.
+
+1. Start the app with `cargo run --release`.
+2. Open `Show`.
+3. Select each card, close the panel, reopen it, and return detail to the
+   cuelist.
+4. Open publisher logs from the `Live Metadata` detail.
+
+Look for:
+
+- The panel opens and closes, and the card grid remains usable in both states.
+- Selecting a card shows its detail, and the cuelist returns when detail closes.
+- Publisher logs read correctly at panel width.
+- Transport controls remain reachable while the panel is closed.
+- Service state changes do not move layout while detail is open.
+
+
+## Open 3: Library Readiness Report
 
 Owner: ADR 0059 task 012. Needs a screen only.
 
@@ -40,7 +90,8 @@ Look for:
 - The control opens `Music` with the not-ready rows filtered.
 - `Show` does not show a second list of its own.
 
-## Open: Remote Host Reachability
+
+## Open 4: Remote Host Reachability
 
 Owner: ADR 0059 task 010. Needs a configuration change only, not a second
 machine.
@@ -75,7 +126,8 @@ To examine the timeout path, use `destination = "192.0.2.1"` as an alternative.
 No router accepts that address, so the check waits for the five second connect
 timeout.
 
-## Open: Stream Encoder States
+
+## Open 5: Stream Encoder States
 
 Owner: ADR 0059 task 015. The first half needs no encoder.
 
@@ -102,41 +154,6 @@ Look for:
 - The connection state and the recording state read as two different facts.
 - The listener count changes with the encoder state.
 
-## Open: Show Card Grid
-
-Owner: ADR 0063 task 002. Needs a screen only.
-
-1. Start the app with `cargo run --release`.
-2. Open `Show`.
-3. Resize the window from the operator's normal width to a narrow width.
-
-Look for:
-
-- Every card is visible at once, with no scrolling, at the window size the
-  operator uses.
-- Cards fill the width. The middle of the window carries content.
-- Making the window narrow reduces the column count, and the cards stay
-  readable.
-- Every card is the same height, in every state.
-- A card state is readable without color, from its label.
-
-## Open: Show Detail Panel
-
-Owner: ADR 0063 task 003. Needs a screen only.
-
-1. Start the app with `cargo run --release`.
-2. Open `Show`.
-3. Select each card, close the panel, reopen it, and return detail to the
-   cuelist.
-4. Open publisher logs from the `Live Metadata` detail.
-
-Look for:
-
-- The panel opens and closes, and the card grid remains usable in both states.
-- Selecting a card shows its detail, and the cuelist returns when detail closes.
-- Publisher logs read correctly at panel width.
-- Transport controls remain reachable while the panel is closed.
-- Service state changes do not move layout while detail is open.
 
 ## Method: Reach A Publisher Service State
 
