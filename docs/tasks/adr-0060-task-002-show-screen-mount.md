@@ -1,6 +1,6 @@
 # ADR 0060 Task 002: Show Screen Mount And Queue Relocation
 
-Status: Ready - 2026-09-07. Do after task 001.
+Status: Implemented - 2026-09-08. Mechanical and visual acceptance met.
 
 ## Goal
 
@@ -90,7 +90,17 @@ arrive when the revised ADR 0059 packets fill them.
 - No frame kind is named for `Show`.
 - An older `config.toml` still loads.
 - The queue display contract is unchanged.
-- Screenshots exist for both states.
+
+## Visual Acceptance
+
+A person judges these. They are open until an operator runs the app outside a
+headless session and reports each line. Never report them as met from a passing
+mechanical run.
+
+- `Show` presents the queue and the transport as one readable region, not as
+  two unrelated blocks.
+- Curation leaves no empty gap where the queue pane used to mount.
+- Moving between the three sections keeps the window furniture stable.
 
 ## Test Commands
 

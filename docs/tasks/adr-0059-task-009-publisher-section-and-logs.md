@@ -1,7 +1,10 @@
 # ADR 0059 Task 009: Publisher Section Wiring And Log Panel
 
-Status: Ready - 2026-09-08. Revised for ADR 0060. Establishes how a section
-composes into the Show screen mount. Do it before 012, 014, and 015.
+Status: Implemented, one visual gate open - 2026-09-08. Mechanical acceptance
+met. Visual: the log panel lines are met; the failed-state reason and `Reset`
+prominence stay OPEN, because the operator cannot reproduce a service failure
+at this time. Establishes how a section composes into the Show screen mount.
+Do it before 012, 014, and 015.
 
 ## Goal
 

@@ -104,6 +104,7 @@ pub fn run_app() {
                             cx,
                         );
                         app.maybe_start_playback_polling(cx);
+                        app.maybe_start_broadcast_service_watch(cx);
                         app.refresh_show_page(cx);
                         app
                     });

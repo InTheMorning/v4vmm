@@ -11649,6 +11649,34 @@ fn adr_0059_publisher_service_control_boundary_is_broadcast_owned() {
     );
 }
 
+/// Situational ADR 0059: Packet 009 screens and shells do not run service tools.
+#[test]
+fn adr_0059_show_screen_and_shell_do_not_call_service_processes() {
+    let mut violations = Vec::new();
+
+    for root in ["src/app", "src/ui/shells"] {
+        for path in rust_files_under(root) {
+            let source = read_source(&path);
+            for (line_number, line) in code_lines(&source) {
+                for forbidden in ["systemctl", "journalctl"] {
+                    if line.contains(forbidden) {
+                        violations.push(format!(
+                            "{}:{line_number}: Situational ADR 0059 Packet 009 forbids `{forbidden}` in screens and shells. Fix: route publisher service observation and logs through runtime actors and broadcast::control.",
+                            rel_path(&path)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0059 Packet 009 screen/shell service-process violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0060: broadcasting is not a workspace frame.
 #[test]
 fn adr_0060_workspace_has_no_broadcast_frame_kind() {
@@ -12673,7 +12701,8 @@ fn adr_0060_live_status_and_show_share_cached_projection() {
         "app.show_page.clone()",
         "pub(super) fn refresh_show_page(&self, cx: &mut Context<Self>)",
         "struct RefreshShowPage",
-        "CommandOutcome::without_events(ShowPageVm::from_queue(",
+        "this.reproject_show_page(queue)",
+        "ShowPageVm::from_queue_and_publisher(",
         "queue_now_playing_vm(",
     ] {
         if !show_adapter_source.contains(required) {

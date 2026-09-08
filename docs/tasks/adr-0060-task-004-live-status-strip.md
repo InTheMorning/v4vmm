@@ -1,6 +1,6 @@
 # ADR 0060 Task 004: Live Status Strip
 
-Status: Ready - 2026-09-07. Do after task 003.
+Status: Implemented - 2026-09-08. Mechanical and visual acceptance met.
 
 ## Goal
 
@@ -83,7 +83,18 @@ one owner.
 - The toolbar no longer carries a now-playing chip.
 - One projector feeds both the strip and `Show`.
 - No blocking read on the render path.
-- Three screenshots exist.
+
+## Visual Acceptance
+
+A person judges these. They are open until an operator runs the app outside a
+headless session and reports each line. Never report them as met from a passing
+mechanical run.
+
+- The strip reads as status, not as a second toolbar, and does not crowd the
+  section below it.
+- Health is legible without color, by shape or text, at a glance.
+- The strip appearing and disappearing does not shift the content underneath
+  in a way that loses the reader's place.
 
 ## Test Commands
 

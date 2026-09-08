@@ -139,7 +139,7 @@ Update this table when a packet lands.
 | `v4vmm` | 006 broadcast frame kind | removed by ADR 0060 / task 001 |
 | `v4vmm` | 007 broadcast shell | removed by ADR 0060 / task 001 |
 | `v4vmm` | 008 service control | complete - 2026-09-08 |
-| `v4vmm` | 009 publisher section | ready |
+| `v4vmm` | 009 publisher section | implemented - 2026-09-08; one visual gate open: failed-state reason and `Reset` prominence, not reproducible by the operator at this time |
 | `v4vmm` | 010 remote hosts | ready |
 | `v4vmm` | 014 attach event | ready |
 | `v4vmm` | 011 mpv producer | ready |
@@ -164,9 +164,9 @@ not gate the structural work.
 | Step | Packet | State |
 |---|---|---|
 | 1 | `docs/tasks/adr-0060-task-001-remove-broadcast-frame.md` | complete - 2026-09-07 |
-| 2 | `docs/tasks/adr-0060-task-002-show-screen-mount.md` | implementation complete - 2026-09-07; visual proof blocked by GPUI X11 initialization |
-| 3 | `docs/tasks/adr-0060-task-003-music-surface.md` | implementation complete - 2026-09-07; visual proof blocked by GPUI X11 initialization |
-| 4 | `docs/tasks/adr-0060-task-004-live-status-strip.md` | implementation complete - 2026-09-07; visual proof blocked by GPUI X11 initialization |
+| 2 | `docs/tasks/adr-0060-task-002-show-screen-mount.md` | implemented - 2026-09-08; visual acceptance met |
+| 3 | `docs/tasks/adr-0060-task-003-music-surface.md` | implemented - 2026-09-08; visual acceptance met |
+| 4 | `docs/tasks/adr-0060-task-004-live-status-strip.md` | implemented - 2026-09-08; visual acceptance met |
 
 `Show` comes before `Music`. The queue moves into `Show`, so `Show` must exist
 before the curation surface gives it up. The reverse order leaves playback with

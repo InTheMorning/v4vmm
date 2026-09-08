@@ -1,6 +1,6 @@
 # ADR 0060 Task 003: Music Surface
 
-Status: Ready - 2026-09-07. Do after task 002.
+Status: Implemented - 2026-09-08. Mechanical and visual acceptance met.
 
 ## Goal
 
@@ -118,12 +118,26 @@ region of the window shows music instead of an empty prompt.
 - No database column, CLI command, or module name changed.
 - The content region holds the dominant share of the window by default.
 - An empty detail region does not dominate the layout.
-- The filter reaches `Library` and `Index` in one action.
+- The view model projects the next filter state from one toggle input, and
+  covers `Library`, `Index`, and all content. ADR 0062 owns the control and
+  its guard; this packet only requires the control to be primary.
 - No operational surface renders during curation.
 - `Update available` and `New` come from a view model.
 - No volume control and no output picker render anywhere.
 - The guards that required them are gone, and the guard suite is smaller.
-- Four screenshots exist.
+
+## Visual Acceptance
+
+A person judges these. They are open until an operator runs the app outside a
+headless session and reports each line. Never report them as met from a passing
+mechanical run.
+
+- Music holds the dominant share of the window on first open, with no empty
+  prompt in the largest region.
+- An empty detail region reads as secondary and does not compete with the
+  content region.
+- The filter control reads as a primary control, not as a toolbar afterthought.
+- Nothing operational appears while curating.
 
 ## Test Commands
 

@@ -22,6 +22,7 @@
 
 pub mod actor;
 pub mod broadcast_observation;
+pub mod broadcast_service_watch;
 pub mod musicbrainz_feed_saga;
 pub mod paged_list_vm;
 pub mod playback_polling;
@@ -30,6 +31,10 @@ pub mod vm_bus;
 pub use actor::{Actor, ActorHandle, Snapshot};
 pub use broadcast_observation::{
     BroadcastObservationHandle, BroadcastObservationOutcome, BroadcastObservationSnapshot,
+};
+pub use broadcast_service_watch::{
+    BroadcastServiceRole, BroadcastServiceUnitSnapshot, BroadcastServiceWatchHandle,
+    BroadcastServiceWatchSnapshot, BroadcastServiceWatchUnit,
 };
 pub use musicbrainz_feed_saga::{
     MusicBrainzFeedSagaHandle, MusicBrainzFeedSagaState, StartFeedLookup,
