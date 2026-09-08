@@ -27,10 +27,8 @@ must not rely on memory or visual intent alone after a bug is fixed.
   sidebar show/hide, Liquid Glass materials, and keyboard shortcuts through
   bounded tasks with the same ownership and proof requirements.
 - No shell/layout change may land without scroll-chain verification for Search
-  results, Recent Feeds, feed detail track lists, Library sidebar/detail,
+  results, Music content rows, feed detail track lists, Library sidebar/detail,
   playlist detail, and track inspectors.
-- Recent Feeds reachability is invariant after any search, filter change,
-  selection, or detail navigation.
 - Search type filters apply to every visible result section.
 - Inspectors must not show raw transport errors for unavailable optional panels.
 - Previously fixed flows must not be simplified without a parity guard.
@@ -61,4 +59,3 @@ A small screen-local shortcut that weakens ownership is not.
 - `tests/architecture_tests.rs::hig_product_polish_backlog_stays_separate_from_restructuring`
 - `tests/architecture_tests.rs::workspace_layout_render_uses_frame_shell_without_screen_internals`
 - `tests/architecture_tests.rs::global_search_replaces_screen_local_search_chrome`
-- `view_models::search::tests::search_render_snapshot_keeps_recent_feeds_reachable_after_search`

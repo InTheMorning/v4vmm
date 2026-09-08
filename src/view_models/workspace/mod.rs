@@ -402,9 +402,7 @@ impl WorkspaceLayout {
             }
             (
                 WorkspaceFrameKind::ContentList,
-                FrameNavigationEntry::SourceList
-                | FrameNavigationEntry::Search(_)
-                | FrameNavigationEntry::RecentFeeds,
+                FrameNavigationEntry::SourceList | FrameNavigationEntry::Search(_),
             ) => (FrameSearchScope::LibraryRows, "Search library..."),
             (WorkspaceFrameKind::ContentList, _) => {
                 (FrameSearchScope::DetailTracks, "Filter tracks...")

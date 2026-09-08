@@ -179,15 +179,6 @@ impl ContentViewMode {
         }
     }
 
-    /// Returns the accessibility label used by the Recent Feeds route.
-    #[must_use]
-    pub(crate) const fn a11y_label(self) -> &'static str {
-        match self {
-            Self::Tiles => "Show Recent Feeds as tiles",
-            Self::List => "Show Recent Feeds as a list",
-        }
-    }
-
     const fn content_list_a11y_label(self) -> &'static str {
         match self {
             Self::Tiles => "Show Music content as tiles",

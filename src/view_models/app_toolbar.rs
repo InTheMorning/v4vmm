@@ -23,9 +23,6 @@ pub(crate) struct AppToolbarTabDisplay {
 pub(crate) struct GlobalSearchDisplay {
     pub(crate) input_id: &'static str,
     pub(crate) placeholder: &'static str,
-    pub(crate) recent_feeds_button_id: &'static str,
-    pub(crate) recent_feeds_button_label: &'static str,
-    pub(crate) recent_feeds_button_a11y_label: &'static str,
     pub(crate) search_button_id: &'static str,
     pub(crate) search_button_label: &'static str,
     pub(crate) search_button_a11y_label: &'static str,
@@ -83,9 +80,6 @@ impl AppToolbarVm {
             global_search: GlobalSearchDisplay {
                 input_id: "app-toolbar-global-search-input",
                 placeholder: "Search Library and Index",
-                recent_feeds_button_id: "app-toolbar-recent-feeds",
-                recent_feeds_button_label: "Recent Feeds",
-                recent_feeds_button_a11y_label: "Show Recent Feeds",
                 search_button_id: "app-toolbar-global-search-submit",
                 search_button_label: "Search",
                 search_button_a11y_label: "Search Library and Index",
@@ -123,9 +117,6 @@ mod tests {
 
         assert_eq!(display.input_id, "app-toolbar-global-search-input");
         assert_eq!(display.placeholder, "Search Library and Index");
-        assert_eq!(display.recent_feeds_button_id, "app-toolbar-recent-feeds");
-        assert_eq!(display.recent_feeds_button_label, "Recent Feeds");
-        assert_eq!(display.recent_feeds_button_a11y_label, "Show Recent Feeds");
         assert_eq!(display.search_button_id, "app-toolbar-global-search-submit");
         assert_eq!(display.search_button_label, "Search");
         assert_eq!(display.search_button_a11y_label, "Search Library and Index");
@@ -137,8 +128,6 @@ mod tests {
         let strings = [
             display.mark_a11y_label,
             display.global_search.placeholder,
-            display.global_search.recent_feeds_button_label,
-            display.global_search.recent_feeds_button_a11y_label,
             display.global_search.search_button_label,
             display.global_search.search_button_a11y_label,
             display.tabs[0].label,

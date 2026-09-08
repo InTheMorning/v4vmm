@@ -392,7 +392,6 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/keyboard.rs",
     "src/app/menu.rs",
     "src/app/playback_bar.rs",
-    "src/app/recent_feeds.rs",
     "src/app/resize.rs",
     "src/app/search_dispatch.rs",
     "src/app/tab_bar.rs",
@@ -439,7 +438,6 @@ const PRESENTATION_GLUE_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/playback_bar.rs",
     "src/app/queue_now_playing.rs",
-    "src/app/recent_feeds.rs",
     "src/app/show.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
@@ -592,7 +590,6 @@ fn agent_guidelines_lock_user_confirmed_regression_ratchet() {
         "isolated renderer tweaks for music presentation",
         "Agent Acceptance Checklist",
         "No shell/layout change may land without scroll-chain verification",
-        "Recent Feeds reachability is invariant",
         "Search type filters apply to every visible result section",
         "Inspectors must not show raw transport errors",
         "Subagents get bounded write scopes",
@@ -4682,7 +4679,6 @@ fn global_search_replaces_screen_local_search_chrome() {
         "index_controls: IndexControlsVisibility",
         "ContentFilter::All",
         "show_recents_command = !show_recents_root",
-        "pub(crate) fn return_to_recent_feeds(",
     ] {
         if !search_vm_source.contains(required) {
             violations.push(format!(
@@ -4701,19 +4697,6 @@ fn global_search_replaces_screen_local_search_chrome() {
         if toolbar_source.contains(forbidden) {
             violations.push(format!(
                 "src/app/tab_bar.rs: ADR 0047 Task 011 retired toolbar scope controls; remove `{forbidden}`"
-            ));
-        }
-    }
-
-    for required in [
-        "params.show_recents_command",
-        "params.pane_display.recents_button_id",
-        "params.pane_display.recents_button_label",
-        "this.show_recent_feeds(window, cx)",
-    ] {
-        if !search_shell_source.contains(required) {
-            violations.push(format!(
-                "src/ui/shells/discover/search_input.rs: Recent Feeds return affordance missing `{required}`"
             ));
         }
     }
@@ -10920,7 +10903,6 @@ fn nav_top_drives_content_list_body_switch() {
         "FrameNavigationEntry::AlbumDetail(_)",
         "FrameNavigationEntry::ArtistDetail(_)",
         "FrameNavigationEntry::PlaylistDetail(_)",
-        "FrameNavigationEntry::RecentFeeds",
         "FrameNavigationEntry::IndexArtistFeedScope(_)",
         "FrameNavigationEntry::IndexFeedDetail { .. }",
         "FrameNavigationEntry::IndexTrackDetail { .. }",
@@ -10944,155 +10926,6 @@ fn nav_top_drives_content_list_body_switch() {
         !app_source.contains(".content_list(active_screen)"),
         "ContentList body must be selected from nav top, not the active toolbar tab mount"
     );
-}
-
-#[test]
-fn recent_feeds_route_is_reachable_from_toolbar() {
-    let nav_source = read_source(&manifest_path("src/view_models/workspace/nav.rs"));
-    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
-    let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
-    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
-    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
-    let feed_query_source = read_source(&manifest_path("src/application/queries/feed.rs"));
-    let app_source = read_source(&manifest_path("src/app.rs"));
-    let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
-
-    for required in ["RecentFeeds", "\"Recent Feeds\".to_string()"] {
-        assert!(
-            nav_source.contains(required),
-            "src/view_models/workspace/nav.rs: Recent Feeds route variant missing `{required}`"
-        );
-    }
-
-    for required in [
-        "pub(crate) struct RecentFeedsPageVm",
-        "pub(crate) enum RecentFeedsPageState",
-        "Loading",
-        "Loaded(Vec<RecentFeedResultRow>)",
-        "Error { message: String, detail: String }",
-        "index_feed_detail(",
-    ] {
-        assert!(
-            recent_vm_source.contains(required),
-            "src/view_models/recent_feeds.rs: Recent Feeds VM contract missing `{required}`"
-        );
-    }
-
-    for required in [
-        "recent_feeds_button_id",
-        "recent_feeds_button_label",
-        "Recent Feeds",
-        "render_recent_feeds_button",
-        "IconName::Rss",
-        "open_recent_feeds_in_content_list",
-    ] {
-        assert!(
-            toolbar_vm_source.contains(required) || toolbar_source.contains(required),
-            "toolbar Recent Feeds entry point missing `{required}`"
-        );
-    }
-
-    for required in [
-        "pub(super) fn open_recent_feeds_in_content_list(",
-        "pub(super) fn start_recent_feeds_load(",
-        "FetchRecentFeedsPage::new(",
-        "present_command(",
-        "content_list_nav_is_recent_feeds",
-        "handle_recent_feed_selected(",
-    ] {
-        assert!(
-            search_dispatch_source.contains(required),
-            "src/app/search_dispatch.rs: Recent Feeds dispatch missing `{required}`"
-        );
-    }
-
-    for required in [
-        "pub(crate) struct FetchRecentFeedsPage",
-        "impl ApplicationCommand for FetchRecentFeedsPage",
-        "fn fetch_recent_feed_result_rows(",
-        "fetch_recent_feeds(Some(crate::api::PAGE_LIMIT), cursor)",
-    ] {
-        assert!(
-            feed_query_source.contains(required),
-            "src/application/queries/feed.rs: Recent Feeds query command missing `{required}`"
-        );
-    }
-
-    for required in [
-        "recent_feeds_detail: Option<RecentFeedsPageVm>",
-        "FrameNavigationEntry::RecentFeeds",
-        "mod recent_feeds",
-    ] {
-        assert!(
-            app_source.contains(required),
-            "src/app.rs: ContentList Recent Feeds body switch missing `{required}`"
-        );
-    }
-
-    for required in [
-        "render_recent_feeds_page",
-        "RecentFeedsPageSlots::new()",
-        "IndexFeedDetailOrigin::RecentFeeds",
-    ] {
-        assert!(
-            app_recent_source.contains(required),
-            "src/app/recent_feeds.rs: ContentList Recent Feeds integration missing `{required}`"
-        );
-    }
-
-    let submit_global_search_body = search_dispatch_source
-        .split("pub(super) fn submit_global_search(")
-        .nth(1)
-        .and_then(|body| {
-            body.split("pub(super) fn open_search_results_in_content_list(")
-                .next()
-        })
-        .unwrap_or_default();
-    assert!(
-        !submit_global_search_body.contains("RecentFeeds")
-            && !submit_global_search_body.contains("open_recent_feeds_in_content_list"),
-        "Recent Feeds must be a toolbar command, not a restored empty-query search branch"
-    );
-}
-
-#[test]
-fn recent_feeds_route_preserves_artwork_slots() {
-    let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
-    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
-    let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
-
-    for required in [
-        "feed_thumbnail_sources(",
-        "row.thumbnail_href",
-        "Vec<(String, String)>",
-    ] {
-        assert!(
-            recent_vm_source.contains(required),
-            "src/view_models/recent_feeds.rs: Recent Feeds rows must expose VM-owned thumbnail sources; missing `{required}`"
-        );
-    }
-
-    for required in [
-        "RecentFeedsPageVm::feed_thumbnail_sources",
-        "index_remote_detail_hero_image(&url, cx)",
-        ".with_thumbnails(recent_thumbnails)",
-    ] {
-        assert!(
-            app_recent_source.contains(required),
-            "src/app/recent_feeds.rs: Recent Feeds render path must resolve row artwork through TopApp image cache; missing `{required}`"
-        );
-    }
-
-    for required in [
-        "thumbnails: BTreeMap<String, Option<Arc<Image>>>",
-        "pub(crate) fn with_thumbnails(",
-        ".get(&row.id)",
-    ] {
-        assert!(
-            recent_shell_source.contains(required),
-            "src/ui/shells/recent_feeds.rs: Recent Feeds renderer must consume resolved artwork slots; missing `{required}`"
-        );
-    }
 }
 
 #[test]
@@ -11164,185 +10997,6 @@ fn index_feed_detail_track_rows_preserve_artwork_fallbacks() {
         assert!(
             search_dispatch_source.contains(required),
             "src/app/search_dispatch.rs: Index feed detail track rows must receive track/feed artwork thumbnails; missing `{required}`"
-        );
-    }
-}
-
-#[test]
-fn recent_feeds_route_preserves_scroll_pagination() {
-    let app_source = read_source(&manifest_path("src/app.rs"));
-    let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
-    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
-    let feed_query_source = read_source(&manifest_path("src/application/queries/feed.rs"));
-    let pagination_source = read_source(&manifest_path("src/view_models/pagination.rs"));
-    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
-    let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
-    let search_vm_source = search_vm_source();
-
-    for required in [
-        "pub(crate) struct RecentFeedsPageBatch",
-        "pub(crate) struct RecentFeedsLoadIntent",
-        "cursor: Option<String>",
-        "has_more: bool",
-        "loading: bool",
-        "pub(crate) fn begin_load(",
-        "pub(crate) fn finish_load(",
-        "pub(crate) fn fail_load(",
-        "pub(crate) const fn is_loading(",
-        "pub(crate) const fn has_more(",
-        "pub(crate) fn row_count(",
-    ] {
-        assert!(
-            recent_vm_source.contains(required),
-            "src/view_models/recent_feeds.rs: Recent Feeds pagination must be VM-owned; missing `{required}`"
-        );
-    }
-
-    for required in [
-        "recent_feeds_scroll: ScrollHandle",
-        "recent_feeds_scroll: ScrollHandle::new()",
-    ] {
-        assert!(
-            app_source.contains(required),
-            "src/app.rs: Recent Feeds route must own scroll state; missing `{required}`"
-        );
-    }
-
-    for required in [
-        ".with_scroll_handle(self.recent_feeds_scroll.clone())",
-        ".on_load_more(",
-        "this.start_recent_feeds_load(true, cx)",
-    ] {
-        assert!(
-            app_recent_source.contains(required),
-            "src/app/recent_feeds.rs: Recent Feeds route must wire scroll pagination; missing `{required}`"
-        );
-    }
-
-    for required in [
-        "start_recent_feeds_load(&mut self, append: bool",
-        "detail.begin_load(append)",
-        "let cursor = intent.into_cursor()",
-        "FetchRecentFeedsPage::new(",
-        "if append { loaded_row_count } else { 0 }",
-        "detail.finish_load(batch, append)",
-        "!append && detail.has_more()",
-        "detail.fail_load(",
-    ] {
-        assert!(
-            search_dispatch_source.contains(required),
-            "src/app/search_dispatch.rs: Recent Feeds loader must request and append cursor pages; missing `{required}`"
-        );
-    }
-
-    for required in [
-        "fn fetch_recent_feed_result_rows(",
-        "self.cursor.as_deref()",
-        "start_index + index",
-    ] {
-        assert!(
-            feed_query_source.contains(required),
-            "src/application/queries/feed.rs: Recent Feeds page query must preserve cursor fetch and append offsets; missing `{required}`"
-        );
-    }
-
-    for required in [
-        "RecentFeedsLoadMoreHandler",
-        "on_load_more(",
-        "with_scroll_handle(",
-        "attach_recent_feeds_auto_pagination(",
-        ".track_scroll(scroll_handle)",
-        ".on_scroll_wheel(",
-        "render_recent_feeds_load_more_footer",
-        "recent-feeds-load-more",
-    ] {
-        assert!(
-            recent_shell_source.contains(required),
-            "src/ui/shells/recent_feeds.rs: Recent Feeds tiles/list must auto-load more on scroll; missing `{required}`"
-        );
-    }
-
-    for required in [
-        "pub(crate) fn should_auto_load_more(",
-        "AUTO_PAGINATE_THRESHOLD_PX",
-    ] {
-        assert!(
-            pagination_source.contains(required),
-            "src/view_models/pagination.rs: shared pagination policy missing `{required}`"
-        );
-        assert!(
-            !search_vm_source.contains(required),
-            "src/view_models/search/ must not own shared pagination policy `{required}`"
-        );
-    }
-}
-
-#[test]
-fn recent_feeds_route_has_vm_owned_tile_list_view_mode() {
-    let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
-    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
-    let workspace_chrome_source =
-        read_source(&manifest_path("src/view_models/workspace/chrome.rs"));
-    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
-    let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
-
-    for required in [
-        "pub(crate) enum ContentViewMode",
-        "#[default]",
-        "pub(crate) const fn label(self) -> &'static str",
-        "pub(crate) const fn id_suffix(self) -> &'static str",
-        "pub(crate) const fn a11y_label(self) -> &'static str",
-    ] {
-        assert!(
-            workspace_chrome_source.contains(required),
-            "src/view_models/workspace/chrome.rs: Situational ADR 0062 Recent Feeds view mode must use the shared VM-owned mode enum; missing `{required}`"
-        );
-    }
-
-    for required in [
-        "pub(crate) type RecentFeedsViewMode = ContentViewMode",
-        "pub(crate) const fn view_mode(",
-        "pub(crate) fn set_view_mode(",
-        "pub(crate) const fn with_view_mode(",
-    ] {
-        assert!(
-            recent_vm_source.contains(required),
-            "src/view_models/recent_feeds.rs: Situational ADR 0062 Recent Feeds route must reuse the shared VM-owned mode enum; missing `{required}`"
-        );
-    }
-
-    assert!(
-        !recent_vm_source.contains("enum RecentFeedsViewMode"),
-        "src/view_models/recent_feeds.rs: Situational ADR 0062 Recent Feeds route must not define a second view-mode enum"
-    );
-
-    for required in [
-        "set_recent_feeds_view_mode(",
-        ".on_view_mode_select(",
-        "this.set_recent_feeds_view_mode(view_mode, cx)",
-    ] {
-        assert!(
-            app_recent_source.contains(required),
-            "src/app/recent_feeds.rs: Situational ADR 0062 Recent Feeds view-mode command wiring missing `{required}`"
-        );
-    }
-
-    for required in ["RecentFeedsPageVm::view_mode", "with_view_mode(view_mode)"] {
-        assert!(
-            search_dispatch_source.contains(required),
-            "src/app/search_dispatch.rs: Situational ADR 0062 Recent Feeds refresh must preserve VM-owned view mode; missing `{required}`"
-        );
-    }
-
-    for required in [
-        "render_recent_feeds_view_mode_control",
-        "render_recent_feed_tiles",
-        "render_recent_feed_rows",
-        "recent-feed-tile-",
-    ] {
-        assert!(
-            recent_shell_source.contains(required),
-            "src/ui/shells/recent_feeds.rs: Situational ADR 0062 Recent Feeds shell must expose the route view-mode presentations; missing `{required}`"
         );
     }
 }
@@ -13367,6 +13021,161 @@ fn adr_0062_music_default_content_reuses_recent_feeds_pager() {
     );
 }
 
+/// Situational ADR 0062: the Recent Feeds destination is retired, while its pager survives.
+#[test]
+fn adr_0062_recent_feeds_destination_is_retired() {
+    let nav_source = read_source(&manifest_path("src/view_models/workspace/nav.rs"));
+    let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
+    let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
+    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let shells_mod_source = read_source(&manifest_path("src/ui/shells/mod.rs"));
+    let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
+    let feed_query_source = read_source(&manifest_path("src/application/queries/feed.rs"));
+    let library_source = read_source(&manifest_path("src/library.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let adr_0030_source = read_source(&manifest_path(
+        "docs/adr/0030-discovery-library-ui-fixes.md",
+    ));
+    let route_plan_source = read_source(&manifest_path(
+        "docs/plans/post-adr-0048-recent-feeds-route-plan.md",
+    ));
+    let mut violations = Vec::new();
+
+    for path in ["src/app/recent_feeds.rs", "src/ui/shells/recent_feeds.rs"] {
+        if manifest_path(path).exists() {
+            violations.push(format!(
+                "{path}: Situational ADR 0062 retired Recent Feeds destination guard found a route module. Fix: keep the recency pager, not a separate destination."
+            ));
+        }
+    }
+
+    for (label, source, forbidden) in [
+        (
+            "src/view_models/workspace/nav.rs",
+            &nav_source,
+            "FrameNavigationEntry::RecentFeeds",
+        ),
+        (
+            "src/view_models/workspace/nav.rs",
+            &nav_source,
+            "\"Recent Feeds\".to_string()",
+        ),
+        (
+            "src/view_models/app_toolbar.rs",
+            &toolbar_vm_source,
+            "recent_feeds_button_id",
+        ),
+        (
+            "src/view_models/app_toolbar.rs",
+            &toolbar_vm_source,
+            "app-toolbar-recent-feeds",
+        ),
+        (
+            "src/app/tab_bar.rs",
+            &toolbar_source,
+            "render_recent_feeds_button",
+        ),
+        (
+            "src/app/tab_bar.rs",
+            &toolbar_source,
+            "open_recent_feeds_in_content_list",
+        ),
+        ("src/app.rs", &app_source, "mod recent_feeds;"),
+        (
+            "src/app.rs",
+            &app_source,
+            "recent_feeds_detail: Option<RecentFeedsPageVm>",
+        ),
+        (
+            "src/app/search_dispatch.rs",
+            &search_dispatch_source,
+            "pub(super) fn open_recent_feeds_in_content_list(",
+        ),
+        (
+            "src/app/search_dispatch.rs",
+            &search_dispatch_source,
+            "pub(super) fn start_recent_feeds_load(",
+        ),
+        (
+            "src/app/search_dispatch.rs",
+            &search_dispatch_source,
+            "handle_recent_feed_selected(",
+        ),
+        (
+            "src/ui/shells/mod.rs",
+            &shells_mod_source,
+            "pub mod recent_feeds;",
+        ),
+    ] {
+        if source.contains(forbidden) {
+            violations.push(format!(
+                "{label}: Situational ADR 0062 retired Recent Feeds destination guard found `{forbidden}`. Fix: do not restore a toolbar command, route, or screen mount for the destination."
+            ));
+        }
+    }
+
+    for (label, source, required) in [
+        (
+            "src/view_models/recent_feeds.rs",
+            &recent_vm_source,
+            "pub(crate) struct RecentFeedsPageVm",
+        ),
+        (
+            "src/view_models/recent_feeds.rs",
+            &recent_vm_source,
+            "pub(crate) struct RecentFeedsPageBatch",
+        ),
+        (
+            "src/view_models/recent_feeds.rs",
+            &recent_vm_source,
+            "pub(crate) struct RecentFeedsLoadIntent",
+        ),
+        (
+            "src/application/queries/feed.rs",
+            &feed_query_source,
+            "pub(crate) struct FetchRecentFeedsPage",
+        ),
+        (
+            "src/application/queries/feed.rs",
+            &feed_query_source,
+            "fetch_recent_feeds(Some(crate::api::PAGE_LIMIT), cursor)",
+        ),
+        (
+            "src/library.rs",
+            &library_source,
+            "recent_music_page: RecentFeedsPageVm",
+        ),
+        (
+            "src/library/app_impl.rs",
+            &library_app_source,
+            "FetchRecentFeedsPage::new(",
+        ),
+        (
+            "docs/adr/0030-discovery-library-ui-fixes.md",
+            &adr_0030_source,
+            "ADR 0062 withdraws the Recent Feeds",
+        ),
+        (
+            "docs/plans/post-adr-0048-recent-feeds-route-plan.md",
+            &route_plan_source,
+            "Retired by ADR 0062",
+        ),
+    ] {
+        if !source.contains(required) {
+            violations.push(format!(
+                "{label}: Situational ADR 0062 retired Recent Feeds destination guard missing `{required}`. Fix: retire only the destination and keep the Music recency data source documented."
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0062 retired Recent Feeds destination violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0062: the blocking recency query stays off the render path.
 #[test]
 fn adr_0062_music_default_content_query_stays_off_render_path() {
@@ -13585,7 +13394,7 @@ fn adr_0062_music_content_tile_and_list_modes_share_row_contract() {
         .any(|source| source.contains("enum RecentFeedsViewMode"))
     {
         violations.push(
-            "Situational ADR 0062 content view-mode guard forbids a second RecentFeedsViewMode enum. Fix: keep RecentFeedsViewMode as an alias of ContentViewMode."
+            "Situational ADR 0062 content view-mode guard forbids a RecentFeedsViewMode enum. Fix: keep Music content on the shared ContentViewMode enum."
                 .to_string(),
         );
     }

@@ -9,7 +9,6 @@ use crate::application::commands::download::{SubscribeThenAppendToPlaylist, Subs
 use crate::application::commands::feed::SubscribeFeed;
 use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::errors::command::CommandError;
-use crate::application::queries::feed::FetchRecentFeedsPage;
 use crate::application::queries::images::FetchThumbnail;
 use crate::application::queries::search::FetchIndexSearchResults;
 use crate::application::CommandContext;
@@ -34,7 +33,6 @@ use crate::ui::shells::search_results_inspector::{
 };
 use crate::ui::shells::track::TrackDetailBehaviorSlots;
 use crate::view_models::entity_detail::{EntitySurfaceContext, SharedTrackRowVm};
-use crate::view_models::recent_feeds::{RecentFeedsPageVm, RecentFeedsViewMode};
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState, WorkspaceFrameId};
 use crate::views::{FeedRef, FeedView, TrackRef, TrackView};
@@ -77,110 +75,6 @@ impl TopApp {
                 cx.notify();
             }
         }
-    }
-
-    pub(super) fn open_recent_feeds_in_content_list(&mut self, cx: &mut Context<Self>) {
-        let Some(content_list_id) = self.content_list_frame_id() else {
-            self.settings_status = "ContentList frame not found".to_string();
-            cx.notify();
-            return;
-        };
-
-        let navigation_result = match self.workspace_layout.frame_nav_mut(content_list_id) {
-            Some(nav) if matches!(nav.current(), FrameNavigationEntry::RecentFeeds) => {
-                nav.replace_current(FrameNavigationEntry::RecentFeeds);
-                Ok(())
-            }
-            Some(_) => self
-                .workspace_layout
-                .push_nav(content_list_id, FrameNavigationEntry::RecentFeeds),
-            None => Err(
-                crate::view_models::workspace::WorkspaceModelError::FrameNotFound(content_list_id),
-            ),
-        };
-
-        match navigation_result.and_then(|()| self.workspace_layout.focus_frame(content_list_id)) {
-            Ok(()) => {
-                let view_mode = self
-                    .recent_feeds_detail
-                    .as_ref()
-                    .map_or(RecentFeedsViewMode::Tiles, RecentFeedsPageVm::view_mode);
-                self.recent_feeds_detail =
-                    Some(RecentFeedsPageVm::loading().with_view_mode(view_mode));
-                self.start_recent_feeds_load(false, cx);
-                cx.notify();
-            }
-            Err(error) => {
-                self.settings_status = format!("Error opening Recent Feeds: {error}");
-                cx.notify();
-            }
-        }
-    }
-
-    pub(super) fn start_recent_feeds_load(&mut self, append: bool, cx: &mut Context<Self>) {
-        if self.recent_feeds_detail.is_none() {
-            self.recent_feeds_detail = Some(RecentFeedsPageVm::loading());
-        }
-
-        let loaded_row_count = self
-            .recent_feeds_detail
-            .as_ref()
-            .map_or(0, RecentFeedsPageVm::row_count);
-        let Some(intent) = self
-            .recent_feeds_detail
-            .as_mut()
-            .and_then(|detail| detail.begin_load(append))
-        else {
-            return;
-        };
-
-        let endpoint = self.endpoint_input.read(cx).value().to_string();
-        let cursor = intent.into_cursor();
-        let command =
-            FetchRecentFeedsPage::new(endpoint, cursor, if append { loaded_row_count } else { 0 });
-        cx.notify();
-        present_command(
-            &self.command_runner,
-            command,
-            CommandContext::next(),
-            cx,
-            move |this, batch, cx| {
-                if !this.content_list_nav_is_recent_feeds() {
-                    return;
-                }
-
-                if this.recent_feeds_detail.is_none() {
-                    this.recent_feeds_detail = Some(RecentFeedsPageVm::loading());
-                }
-
-                if let Some(detail) = this.recent_feeds_detail.as_mut() {
-                    detail.finish_load(batch, append);
-                    let should_eager_prefetch = !append && detail.has_more();
-                    cx.notify();
-                    if should_eager_prefetch {
-                        this.start_recent_feeds_load(true, cx);
-                    }
-                }
-            },
-            move |this, error, cx| {
-                if !this.content_list_nav_is_recent_feeds() {
-                    return;
-                }
-
-                if this.recent_feeds_detail.is_none() {
-                    this.recent_feeds_detail = Some(RecentFeedsPageVm::loading());
-                }
-
-                if let Some(detail) = this.recent_feeds_detail.as_mut() {
-                    detail.fail_load(
-                        "Recent Feeds unavailable",
-                        command_error_detail(error),
-                        append,
-                    );
-                    cx.notify();
-                }
-            },
-        );
     }
 
     fn search_results_detail_for_query(&self, query: &str) -> SearchResultsInspectorPageVm {
@@ -258,12 +152,6 @@ impl TopApp {
             .and_then(|content_list_id| self.workspace_layout.frame_nav(content_list_id))
             .and_then(FrameNavigationState::active_search_query)
             .is_some_and(|current| current == query)
-    }
-
-    fn content_list_nav_is_recent_feeds(&self) -> bool {
-        self.content_list_frame_id()
-            .and_then(|content_list_id| self.workspace_layout.frame_nav(content_list_id))
-            .is_some_and(|nav| matches!(nav.current(), FrameNavigationEntry::RecentFeeds))
     }
 
     pub(super) fn sync_search_results_detail_with_nav(
@@ -389,27 +277,6 @@ impl TopApp {
         }
 
         self.sync_search_results_detail_with_nav(content_frame_id);
-    }
-
-    pub(super) fn handle_recent_feed_selected(&mut self, result_id: &str, cx: &mut Context<Self>) {
-        let Some(content_frame_id) = self.content_list_frame_id() else {
-            self.settings_status = "ContentList frame not found".to_string();
-            cx.notify();
-            return;
-        };
-
-        let Some(feed_guid) = result_id.strip_prefix("index-feed:") else {
-            self.settings_status = format!("Unexpected Recent Feeds id format: {result_id}");
-            cx.notify();
-            return;
-        };
-
-        let label = self
-            .recent_feeds_detail
-            .as_ref()
-            .and_then(|detail| detail.index_feed_label(result_id))
-            .unwrap_or_else(|| feed_guid.to_string());
-        self.push_index_feed_detail(content_frame_id, feed_guid, label, cx);
     }
 
     pub(super) fn open_index_feed_detail_from_music(

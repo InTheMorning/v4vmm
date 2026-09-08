@@ -1,19 +1,11 @@
-//! Recent Feeds page view-model.
+//! Recent feed pager view-model.
 //!
-//! ADR 0048 keeps visible discovery surfaces inside the workspace
-//! `ContentList` frame. This module owns the GPUI-free state for the
-//! first-class Recent Feeds route while reusing Index feed result rows and
-//! detail projection types.
+//! ADR 0062 retires the separate Recent Feeds destination while keeping the
+//! existing Index recency query as the default Music ordering source.
 
 #![warn(clippy::pedantic)]
 
-use crate::view_models::search_results::{
-    FeedResultDisplay, IndexDetailDisplay, SearchResultItemId,
-};
-use crate::view_models::workspace::{ContentFilter, ContentViewMode};
-
-/// Presentation mode for the Recent Feeds route.
-pub(crate) type RecentFeedsViewMode = ContentViewMode;
+use crate::view_models::search_results::{FeedResultDisplay, SearchResultItemId};
 
 /// Display-ready row for one Recent Feeds item.
 pub(crate) type RecentFeedResultRow = (SearchResultItemId, FeedResultDisplay);
@@ -43,7 +35,7 @@ impl RecentFeedsLoadIntent {
     }
 }
 
-/// Current load state for the Recent Feeds route.
+/// Current load state for the recent feed pager.
 #[derive(Clone, Debug)]
 pub(crate) enum RecentFeedsPageState {
     /// A request is in flight.
@@ -54,11 +46,10 @@ pub(crate) enum RecentFeedsPageState {
     Error { message: String, detail: String },
 }
 
-/// GPUI-free page contract for Recent Feeds.
+/// GPUI-free page contract for the recent feed pager.
 #[derive(Clone, Debug)]
 pub(crate) struct RecentFeedsPageVm {
     state: RecentFeedsPageState,
-    view_mode: RecentFeedsViewMode,
     cursor: Option<String>,
     has_more: bool,
     loading: bool,
@@ -70,18 +61,10 @@ impl RecentFeedsPageVm {
     pub(crate) const fn loading() -> Self {
         Self {
             state: RecentFeedsPageState::Loading,
-            view_mode: RecentFeedsViewMode::Tiles,
             cursor: None,
             has_more: false,
             loading: false,
         }
-    }
-
-    /// Returns this page with a specific presentation mode.
-    #[must_use]
-    pub(crate) const fn with_view_mode(mut self, view_mode: RecentFeedsViewMode) -> Self {
-        self.view_mode = view_mode;
-        self
     }
 
     /// Begins a fresh or append Recent Feeds load.
@@ -118,19 +101,6 @@ impl RecentFeedsPageVm {
         } else {
             self.state = RecentFeedsPageState::Loaded(batch.rows);
         }
-    }
-
-    /// Replaces the page with loaded recent feed rows.
-    #[cfg(test)]
-    pub(crate) fn replace_feeds(&mut self, rows: Vec<RecentFeedResultRow>) {
-        self.finish_load(
-            RecentFeedsPageBatch {
-                rows,
-                cursor: None,
-                has_more: false,
-            },
-            false,
-        );
     }
 
     /// Marks the page as failed.
@@ -177,67 +147,6 @@ impl RecentFeedsPageVm {
     pub(crate) const fn state(&self) -> &RecentFeedsPageState {
         &self.state
     }
-
-    /// Returns the selected presentation mode.
-    #[must_use]
-    pub(crate) const fn view_mode(&self) -> RecentFeedsViewMode {
-        self.view_mode
-    }
-
-    /// Sets the selected presentation mode.
-    pub(crate) fn set_view_mode(&mut self, view_mode: RecentFeedsViewMode) {
-        self.view_mode = view_mode;
-    }
-
-    /// Returns the display label for an Index feed activation id.
-    #[must_use]
-    pub(crate) fn index_feed_label(&self, activation_id: &str) -> Option<String> {
-        self.feed_row_matching(|row| row.id == activation_id)
-            .map(|row| row.label.clone())
-    }
-
-    /// Returns row thumbnail URLs keyed by activation id.
-    #[must_use]
-    pub(crate) fn feed_thumbnail_sources(&self) -> Vec<(String, String)> {
-        let RecentFeedsPageState::Loaded(rows) = &self.state else {
-            return Vec::new();
-        };
-
-        rows.iter()
-            .filter_map(|(_id, row)| {
-                row.thumbnail_href
-                    .as_ref()
-                    .map(|href| (row.id.clone(), href.clone()))
-            })
-            .collect()
-    }
-
-    /// Projects a remote Index feed detail page from a Recent Feeds row.
-    #[must_use]
-    pub(crate) fn index_feed_detail(
-        &self,
-        activation_id: &str,
-        fallback_id: &str,
-        fallback_label: &str,
-    ) -> IndexDetailDisplay {
-        IndexDetailDisplay::feed_or_fallback(
-            self.feed_row_matching(|row| row.id == activation_id),
-            fallback_id,
-            fallback_label,
-        )
-    }
-
-    fn feed_row_matching(
-        &self,
-        predicate: impl Fn(&FeedResultDisplay) -> bool,
-    ) -> Option<&FeedResultDisplay> {
-        let RecentFeedsPageState::Loaded(rows) = &self.state else {
-            return None;
-        };
-        rows.iter()
-            .map(|(_id, row)| row)
-            .find(|row| row.origin.matches_filter(ContentFilter::Index) && predicate(row))
-    }
 }
 
 #[cfg(test)]
@@ -250,69 +159,8 @@ mod tests {
         let vm = RecentFeedsPageVm::loading();
 
         assert!(matches!(vm.state(), RecentFeedsPageState::Loading));
-        assert_eq!(vm.view_mode(), RecentFeedsViewMode::Tiles);
         assert!(!vm.is_loading());
         assert!(!vm.has_more());
-    }
-
-    #[test]
-    fn view_mode_defaults_to_tiles_and_can_switch_to_list() {
-        let mut vm = RecentFeedsPageVm::loading();
-
-        vm.set_view_mode(RecentFeedsViewMode::List);
-
-        assert_eq!(vm.view_mode(), RecentFeedsViewMode::List);
-        assert_eq!(RecentFeedsViewMode::Tiles.label(), "Tiles");
-        assert_eq!(RecentFeedsViewMode::List.id_suffix(), "list");
-        assert_eq!(
-            RecentFeedsViewMode::Tiles.a11y_label(),
-            "Show Recent Feeds as tiles"
-        );
-    }
-
-    #[test]
-    fn loaded_rows_project_index_feed_detail() {
-        let row = FeedResultDisplay::new(
-            "index-feed:feed-guid",
-            "Recent Album",
-            SearchResultOrigin::Index,
-        )
-        .with_secondary_text("Recent Artist");
-        let mut vm = RecentFeedsPageVm::loading();
-        vm.replace_feeds(vec![(7, row)]);
-
-        let detail = vm.index_feed_detail("index-feed:feed-guid", "feed-guid", "Fallback");
-
-        assert_eq!(detail.title, "Recent Album");
-        assert_eq!(detail.secondary_text, "Recent Artist");
-        assert_eq!(
-            vm.index_feed_label("index-feed:feed-guid"),
-            Some("Recent Album".to_string())
-        );
-        assert!(
-            vm.feed_thumbnail_sources().is_empty(),
-            "rows without thumbnail hrefs should not request images"
-        );
-    }
-
-    #[test]
-    fn loaded_rows_project_thumbnail_sources() {
-        let row = FeedResultDisplay::new(
-            "index-feed:feed-guid",
-            "Recent Album",
-            SearchResultOrigin::Index,
-        )
-        .with_thumbnail_href("https://example.test/art.jpg");
-        let mut vm = RecentFeedsPageVm::loading();
-        vm.replace_feeds(vec![(7, row)]);
-
-        assert_eq!(
-            vm.feed_thumbnail_sources(),
-            vec![(
-                "index-feed:feed-guid".to_string(),
-                "https://example.test/art.jpg".to_string()
-            )]
-        );
     }
 
     #[test]

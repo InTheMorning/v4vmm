@@ -30,7 +30,6 @@ pub mod library;
 pub mod library_removal_confirmation;
 pub mod playlist;
 pub mod queue_now_playing;
-pub mod recent_feeds;
 pub mod search_result_rows;
 pub mod search_results_inspector;
 pub mod show;

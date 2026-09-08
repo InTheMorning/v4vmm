@@ -6,8 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use gpui::{
-    div, prelude::*, relative, Context, Entity, Image, Render, ScrollHandle, SharedString, Styled,
-    Window,
+    div, prelude::*, relative, Context, Entity, Image, Render, SharedString, Styled, Window,
 };
 use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::Size;
@@ -37,7 +36,6 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::library::{LibraryTrackRowVm, LibraryTree};
-use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::show::ShowPageVm;
 use crate::view_models::workspace::{
@@ -53,7 +51,6 @@ mod keyboard;
 mod menu;
 mod playback_bar;
 mod queue_now_playing;
-mod recent_feeds;
 mod resize;
 mod search_dispatch;
 mod show;
@@ -61,7 +58,6 @@ mod tab_bar;
 
 pub use bootstrap::run_app;
 
-use recent_feeds::IndexFeedDetailOrigin;
 use search_dispatch::RemoteDetailThumbnailState;
 use show::{build_live_status_strip, build_show_screen};
 use tab_bar::render_tab_bar;
@@ -132,8 +128,6 @@ pub struct TopApp {
     workspace_layout: WorkspaceLayout,
     last_music_content_nav: Option<FrameNavigationState>,
     search_results_detail: Option<SearchResultsInspectorPageVm>,
-    recent_feeds_detail: Option<RecentFeedsPageVm>,
-    recent_feeds_scroll: ScrollHandle,
     queue_text_filter: Option<String>,
     show_page: ShowPageVm,
     content_pane_width: gpui::Pixels,
@@ -299,8 +293,6 @@ impl TopApp {
             ),
             last_music_content_nav: None,
             search_results_detail: None,
-            recent_feeds_detail: None,
-            recent_feeds_scroll: ScrollHandle::new(),
             queue_text_filter: None,
             show_page: ShowPageVm::idle(),
             content_pane_width: Self::initial_content_pane_width(workspace_layout_prefs),
@@ -437,7 +429,6 @@ impl TopApp {
                     if !matches!(
                         entry,
                         FrameNavigationEntry::Search(_)
-                            | FrameNavigationEntry::RecentFeeds
                             | FrameNavigationEntry::SourceList
                             | FrameNavigationEntry::Settings
                     ) {
@@ -537,12 +528,6 @@ impl TopApp {
             });
             if let FrameNavigationEntry::Search(query) = &entry {
                 self.start_index_search_for_query(query, cx);
-            }
-            if matches!(entry, FrameNavigationEntry::RecentFeeds)
-                && self.recent_feeds_detail.is_none()
-            {
-                self.recent_feeds_detail = Some(RecentFeedsPageVm::loading());
-                self.start_recent_feeds_load(false, cx);
             }
             cx.notify();
         }
@@ -701,7 +686,6 @@ impl TopApp {
                 Self::root_content_frame_title()
             }
             FrameNavigationEntry::Search(_) => "Search Results".to_string(),
-            FrameNavigationEntry::RecentFeeds => "Recent Feeds".to_string(),
             FrameNavigationEntry::IndexFeedDetail { .. } => "Feed".to_string(),
             FrameNavigationEntry::PlaylistDetail(_) => "Playlist".to_string(),
             FrameNavigationEntry::TrackDetail(_)
@@ -971,9 +955,6 @@ impl TopApp {
                         });
                     })
             }
-            Some(FrameNavigationEntry::RecentFeeds) => {
-                self.render_recent_feeds_content(&entity, cx)
-            }
             Some(FrameNavigationEntry::IndexArtistFeedScope(_))
                 if self.search_results_detail.is_some() =>
             {
@@ -1005,19 +986,16 @@ impl TopApp {
             }
             Some(FrameNavigationEntry::IndexFeedDetail { id, label }) => {
                 let activation_id = format!("index-feed:{id}");
-                if self.content_list_index_feed_detail_origin(content_frame_id)
-                    == Some(IndexFeedDetailOrigin::RecentFeeds)
+                let search_is_active = self
+                    .workspace_layout
+                    .frame_nav(content_frame_id)
+                    .and_then(FrameNavigationState::active_search_query)
+                    .is_some();
+                if let Some(search_results) = self
+                    .search_results_detail
+                    .as_ref()
+                    .filter(|_| search_is_active)
                 {
-                    if let Some(recent_feeds) = self.recent_feeds_detail.as_ref() {
-                        let detail = recent_feeds.index_feed_detail(&activation_id, id, label);
-                        let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
-                        WorkspaceSlots::new().content_list(detail_content)
-                    } else {
-                        let library_screen =
-                            self.render_workspace_screen_mount(WorkspaceScreenMount::Music, cx);
-                        WorkspaceSlots::new().content_list(library_screen)
-                    }
-                } else if let Some(search_results) = self.search_results_detail.as_ref() {
                     let detail = search_results.index_feed_detail(&activation_id, id, label);
                     let detail_content = self.render_index_feed_or_fallback_detail(&detail, cx);
                     WorkspaceSlots::new().content_list(detail_content)

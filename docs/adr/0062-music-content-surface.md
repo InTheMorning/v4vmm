@@ -253,17 +253,14 @@ Negative and risks:
 
 ## Follow-Up Work
 
-- Delete the `Recent Feeds` reachability guards, including the one asserting
-  `return_to_recent_feeds` in the parked discover module.
 - Update `adr_0047_phase_d_filter_chip_strip_renders_through_frame_shell` and
   `adr_0047_task_010_content_list_filter_chips_are_frame_local`. Both require
   the segmented chip strip that this ADR replaces.
-- Reuse rather than rebuild. `RecentFeedsViewMode` already provides tiles and
-  list. `RecentFeedsPageVm` already provides cursor paging and load-more.
+- Reuse rather than rebuild. `RecentFeedsPageVm` already provides cursor
+  paging and load-more.
   `ArtistResultDisplay`, `FeedResultDisplay`, and `TrackResultDisplay` already
   exist, separated today by `SearchResultsTab`. The mixed row merges those three
   tabs into one list, and the entity badge replaces the tab.
-- Amend ADR 0030 to record that its reachability invariant is withdrawn.
 - Task packets for the row contract, the library control, the sort, and the
   tile mode.
 - Decide whether tile mode persists per section or globally.

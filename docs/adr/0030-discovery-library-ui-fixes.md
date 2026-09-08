@@ -4,6 +4,10 @@
 
 Accepted - 2026-05-01.
 
+Amended - 2026-09-07: ADR 0062 withdraws the Recent Feeds
+reachability invariant because the separate Recent Feeds destination was
+removed. The recency query remains as Music's default content source.
+
 ## Context
 
 Discovery and Library share feed, track, contributor, and metadata inspection

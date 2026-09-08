@@ -4,14 +4,18 @@
 
 Implemented - 2026-05-18.
 
+Amended - 2026-09-07: ADR 0062 removed `src/app/recent_feeds.rs` with the
+separate Recent Feeds destination. The decomposition boundary remains in force
+for the surviving `src/app/` modules.
+
 Verified files:
 
 - `src/app/{search_dispatch,breadcrumb,resize}.rs`
 - `src/view_models/workspace/{breadcrumb,chrome,frame,nav,tests}.rs`
 - `src/view_models/search_results/{empty_state,index_detail,paged_tab,results,tabs,tests}.rs`
 
-Recent Feeds follow-up work added `src/app/recent_feeds.rs` without weakening
-the decomposition boundary.
+ADR 0062 later removed the Recent Feeds route module without weakening the
+decomposition boundary.
 
 ## Context
 

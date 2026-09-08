@@ -2,7 +2,11 @@
 
 ## Status
 
-Implemented - 2026-05-18.
+Retired by ADR 0062 - 2026-09-07.
+
+ADR 0062 removes the separate Recent Feeds destination. The
+`FetchRecentFeedsPage` query and `RecentFeedsPageVm` pager survive as Music's
+default recency data source.
 
 ## Goal
 
