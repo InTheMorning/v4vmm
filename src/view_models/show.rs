@@ -139,13 +139,6 @@ pub(crate) struct SourceReadinessActionDisplay {
 }
 
 impl SourceReadinessActionDisplay {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 003 moves readiness actions into the detail panel."
-        )
-    )]
     #[must_use]
     pub(crate) const fn disabled(&self) -> bool {
         self.availability.disabled()
@@ -258,17 +251,6 @@ impl PublisherServiceStateDisplay {
     }
 
     /// Curator-facing detail for this state.
-    ///
-    /// Every state returns a line. The row keeps one detail line in every state,
-    /// so a service that starts, fails, and restarts does not change the height
-    /// of the section under it.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 003 moves service detail rows into the panel."
-        )
-    )]
     #[must_use]
     pub(crate) fn detail(&self) -> String {
         match self {
@@ -337,13 +319,6 @@ pub(crate) struct PublisherActionDisplay {
 }
 
 impl PublisherActionDisplay {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 003 moves publisher actions into the detail panel."
-        )
-    )]
     #[must_use]
     pub(crate) fn disabled(&self) -> bool {
         self.availability.disabled()
@@ -612,13 +587,6 @@ pub(crate) struct EventActionDisplay {
 }
 
 impl EventActionDisplay {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 003 moves event actions into the detail panel."
-        )
-    )]
     #[must_use]
     pub(crate) const fn disabled(&self) -> bool {
         self.availability.disabled()
@@ -919,13 +887,6 @@ pub(crate) struct StreamActionDisplay {
 }
 
 impl StreamActionDisplay {
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 003 moves stream actions into the detail panel."
-        )
-    )]
     #[must_use]
     pub(crate) const fn disabled(&self) -> bool {
         self.availability.disabled()
@@ -959,7 +920,9 @@ pub(crate) enum ShowCardKind {
 impl ShowCardKind {
     const ORDER: [Self; 4] = [Self::Source, Self::LiveMetadata, Self::Event, Self::Stream];
 
-    const fn title(self) -> &'static str {
+    /// Returns the stable visible title for this card kind.
+    #[must_use]
+    pub(crate) const fn title(self) -> &'static str {
         match self {
             Self::Source => "Source",
             Self::LiveMetadata => "Live Metadata",
@@ -1010,14 +973,100 @@ pub(crate) enum ShowPanelMode {
     #[default]
     Cuelist,
     /// The panel shows detail for one dashboard card.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 003 wires card selection into the panel mode."
-        )
-    )]
     Detail(ShowCardKind),
+}
+
+impl ShowPanelMode {
+    /// Returns the visible title for the current panel mode.
+    #[must_use]
+    pub(crate) const fn title(self) -> &'static str {
+        match self {
+            Self::Cuelist => "Cuelist",
+            Self::Detail(kind) => kind.title(),
+        }
+    }
+}
+
+/// Typed availability for Show panel controls.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ShowPanelActionAvailability {
+    /// The control can be run.
+    Available,
+    /// The control is visible but unavailable for the current mode.
+    Unavailable,
+}
+
+impl ShowPanelActionAvailability {
+    #[must_use]
+    pub(crate) const fn disabled(self) -> bool {
+        matches!(self, Self::Unavailable)
+    }
+}
+
+/// Display-ready state for a Show panel chrome action.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ShowPanelActionDisplay {
+    /// Stable element identifier.
+    pub(crate) id: &'static str,
+    /// Visible action label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for the action.
+    pub(crate) a11y_label: &'static str,
+    /// Typed action availability.
+    pub(crate) availability: ShowPanelActionAvailability,
+}
+
+impl ShowPanelActionDisplay {
+    #[must_use]
+    pub(crate) const fn disabled(self) -> bool {
+        self.availability.disabled()
+    }
+}
+
+/// Display-ready chrome actions for the Show side panel.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ShowPanelChromeDisplay {
+    /// Action that opens the panel.
+    pub(crate) open_panel: ShowPanelActionDisplay,
+    /// Action that closes the panel.
+    pub(crate) close_panel: ShowPanelActionDisplay,
+    /// Action that returns detail mode to the cuelist.
+    pub(crate) show_cuelist: ShowPanelActionDisplay,
+}
+
+impl ShowPanelChromeDisplay {
+    const fn for_mode(mode: ShowPanelMode) -> Self {
+        Self {
+            open_panel: ShowPanelActionDisplay {
+                id: "show-panel-open",
+                label: "Open",
+                a11y_label: "Open show side panel",
+                availability: ShowPanelActionAvailability::Available,
+            },
+            close_panel: ShowPanelActionDisplay {
+                id: "show-panel-close",
+                label: "Close",
+                a11y_label: "Close show side panel",
+                availability: ShowPanelActionAvailability::Available,
+            },
+            show_cuelist: ShowPanelActionDisplay {
+                id: "show-panel-cuelist",
+                label: "Cuelist",
+                a11y_label: "Return show side panel to cuelist",
+                availability: if matches!(mode, ShowPanelMode::Detail(_)) {
+                    ShowPanelActionAvailability::Available
+                } else {
+                    ShowPanelActionAvailability::Unavailable
+                },
+            },
+        }
+    }
+}
+
+impl Default for ShowPanelChromeDisplay {
+    fn default() -> Self {
+        Self::for_mode(ShowPanelMode::default())
+    }
 }
 
 /// Width class for the Show dashboard card grid.
@@ -1086,6 +1135,8 @@ pub(crate) struct ShowPageVm {
     pub(crate) panel_mode: ShowPanelMode,
     /// Whether the side panel is open.
     pub(crate) panel_open: bool,
+    /// Side-panel chrome action display state.
+    pub(crate) panel_chrome: ShowPanelChromeDisplay,
     /// Queue and transport display projected by the existing queue VM.
     pub(crate) queue: QueueNowPlayingPageVm,
 }
@@ -1184,6 +1235,7 @@ impl ShowPageVm {
             width_class: ShowWidthClass::default(),
             panel_mode: ShowPanelMode::default(),
             panel_open: true,
+            panel_chrome: ShowPanelChromeDisplay::default(),
             queue,
         }
     }
@@ -1195,10 +1247,53 @@ impl ShowPageVm {
         self
     }
 
+    /// Preserves panel mode and open state across a fresh Show projection.
+    #[must_use]
+    pub(crate) fn with_panel_state(mut self, panel_mode: ShowPanelMode, panel_open: bool) -> Self {
+        self.set_panel_mode(panel_mode);
+        self.panel_open = panel_open;
+        self
+    }
+
+    /// Opens the panel in detail mode for a selected dashboard card.
+    #[must_use]
+    pub(crate) fn select_card(mut self, kind: ShowCardKind) -> Self {
+        self.set_panel_mode(ShowPanelMode::Detail(kind));
+        self.panel_open = true;
+        self
+    }
+
+    /// Returns the panel to cuelist mode and leaves it open.
+    #[must_use]
+    pub(crate) fn show_cuelist_panel(mut self) -> Self {
+        self.set_panel_mode(ShowPanelMode::Cuelist);
+        self.panel_open = true;
+        self
+    }
+
+    /// Closes the side panel without changing its current mode.
+    #[must_use]
+    pub(crate) fn close_panel(mut self) -> Self {
+        self.panel_open = false;
+        self
+    }
+
+    /// Opens the side panel without changing its current mode.
+    #[must_use]
+    pub(crate) fn open_panel(mut self) -> Self {
+        self.panel_open = true;
+        self
+    }
+
     /// Returns whether the page represents active show playback.
     #[must_use]
     pub(crate) const fn is_active(&self) -> bool {
         self.empty_state.is_none()
+    }
+
+    fn set_panel_mode(&mut self, panel_mode: ShowPanelMode) {
+        self.panel_mode = panel_mode;
+        self.panel_chrome = ShowPanelChromeDisplay::for_mode(panel_mode);
     }
 }
 
@@ -2312,6 +2407,49 @@ mod tests {
             panic!("detail mode must hold one card kind");
         };
         assert_eq!(kind, ShowCardKind::Event);
+    }
+
+    #[test]
+    fn selecting_show_card_sets_detail_panel_mode() {
+        let vm = ShowPageVm::idle().select_card(ShowCardKind::Stream);
+
+        assert_eq!(vm.panel_mode, ShowPanelMode::Detail(ShowCardKind::Stream));
+        assert!(vm.panel_open);
+        assert!(!vm.panel_chrome.show_cuelist.disabled());
+    }
+
+    #[test]
+    fn closing_show_detail_returns_to_cuelist_and_leaves_panel_open() {
+        let vm = ShowPageVm::idle()
+            .select_card(ShowCardKind::LiveMetadata)
+            .show_cuelist_panel();
+
+        assert_eq!(vm.panel_mode, ShowPanelMode::Cuelist);
+        assert!(vm.panel_open);
+        assert!(vm.panel_chrome.show_cuelist.disabled());
+    }
+
+    #[test]
+    fn selecting_show_card_while_panel_closed_reopens_panel() {
+        let vm = ShowPageVm::idle()
+            .close_panel()
+            .select_card(ShowCardKind::Source);
+
+        assert_eq!(vm.panel_mode, ShowPanelMode::Detail(ShowCardKind::Source));
+        assert!(vm.panel_open);
+    }
+
+    #[test]
+    fn show_panel_mode_is_exclusive_and_preserved_across_projection() {
+        let detail = ShowPanelMode::Detail(ShowCardKind::Event);
+        assert!(!matches!(detail, ShowPanelMode::Cuelist));
+
+        let vm = ShowPageVm::from_queue(QueueNowPlayingPageVm::builder().build())
+            .with_panel_state(detail, false);
+
+        assert_eq!(vm.panel_mode, detail);
+        assert!(!vm.panel_open);
+        assert!(!vm.panel_chrome.show_cuelist.disabled());
     }
 
     #[test]

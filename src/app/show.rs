@@ -32,7 +32,8 @@ use crate::view_models::live_status::LiveStatusDisplay;
 use crate::view_models::queue_now_playing::QueueNowPlayingPageVm;
 use crate::view_models::show::{
     EventSectionInput, EventSelectionInput, EventState, EventTargetInput, EventTargetListInput,
-    PublisherLogPanelState, PublisherServiceRole, ShowPageVm, PUBLISHER_LOG_LINE_COUNT,
+    PublisherLogPanelState, PublisherServiceRole, ShowCardKind, ShowPageVm,
+    PUBLISHER_LOG_LINE_COUNT,
 };
 use crate::view_models::workspace::FrameNavigationEntry;
 use crate::{config, db};
@@ -53,6 +54,10 @@ pub(super) fn build_show_screen(
     let reset_entity = entity.clone();
     let logs_entity = entity.clone();
     let close_logs_entity = entity.clone();
+    let select_card_entity = entity.clone();
+    let open_panel_entity = entity.clone();
+    let close_panel_entity = entity.clone();
+    let show_cuelist_entity = entity.clone();
     let connect_stream_entity = entity.clone();
     let disconnect_stream_entity = entity.clone();
     let readiness_entity = entity.clone();
@@ -75,7 +80,26 @@ pub(super) fn build_show_screen(
                     this.open_broadcast_readiness_in_music(cx);
                 });
             })
-            .on_select_card(|_, _, _, _| {})
+            .on_select_card(move |kind, _, _, cx| {
+                select_card_entity.update(cx, |this, cx| {
+                    this.select_show_card_detail(kind, cx);
+                });
+            })
+            .on_open_show_panel(move |_, _, cx| {
+                open_panel_entity.update(cx, |this, cx| {
+                    this.open_show_panel(cx);
+                });
+            })
+            .on_close_show_panel(move |_, _, cx| {
+                close_panel_entity.update(cx, |this, cx| {
+                    this.close_show_panel(cx);
+                });
+            })
+            .on_show_cuelist(move |_, _, cx| {
+                show_cuelist_entity.update(cx, |this, cx| {
+                    this.show_cuelist_panel(cx);
+                });
+            })
             .on_start_publisher_service(move |role, _, _, cx| {
                 service_entity.update(cx, |this, cx| {
                     this.run_publisher_service_command(role, PublisherServiceOperation::Start, cx);
@@ -267,17 +291,40 @@ impl TopApp {
     }
 
     fn reproject_show_page(&mut self, queue: QueueNowPlayingPageVm) {
+        let panel_mode = self.show_page.panel_mode;
+        let panel_open = self.show_page.panel_open;
         self.show_page = ShowPageVm::from_queue_publisher_readiness_and_event(
             queue,
             self.publisher_service_snapshot.as_ref(),
             self.publisher_log_panel.clone(),
             self.broadcast_readiness_snapshot.as_ref(),
             self.event_section_input.as_ref(),
-        );
+        )
+        .with_panel_state(panel_mode, panel_open);
     }
 
     fn reproject_show_page_from_current_queue(&mut self) {
         self.reproject_show_page(self.show_page.queue.clone());
+    }
+
+    fn select_show_card_detail(&mut self, kind: ShowCardKind, cx: &mut Context<Self>) {
+        self.show_page = self.show_page.clone().select_card(kind);
+        cx.notify();
+    }
+
+    fn open_show_panel(&mut self, cx: &mut Context<Self>) {
+        self.show_page = self.show_page.clone().open_panel();
+        cx.notify();
+    }
+
+    fn close_show_panel(&mut self, cx: &mut Context<Self>) {
+        self.show_page = self.show_page.clone().close_panel();
+        cx.notify();
+    }
+
+    fn show_cuelist_panel(&mut self, cx: &mut Context<Self>) {
+        self.show_page = self.show_page.clone().show_cuelist_panel();
+        cx.notify();
     }
 
     fn run_publisher_service_command(
@@ -339,7 +386,7 @@ impl TopApp {
             command,
             CommandContext::next(),
             cx,
-            |this, logs, _cx| {
+            |this, logs, cx| {
                 this.settings_status.clear();
                 this.publisher_log_panel = PublisherLogPanelState::open(
                     logs.role,
@@ -348,6 +395,11 @@ impl TopApp {
                     logs.text,
                 );
                 this.reproject_show_page_from_current_queue();
+                this.show_page = this
+                    .show_page
+                    .clone()
+                    .select_card(ShowCardKind::LiveMetadata);
+                cx.notify();
             },
             |this, error, _cx| {
                 this.settings_status = format!("Publisher log error: {error:#}");

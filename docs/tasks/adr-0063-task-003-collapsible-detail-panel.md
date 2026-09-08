@@ -1,6 +1,7 @@
 # ADR 0063 Task 003: Collapsible Detail Panel
 
-Status: Ready - 2026-09-08. Do after task 002. This task closes ADR 0063.
+Status: Mechanical implemented - 2026-09-08; operator visual check open.
+This task closes ADR 0063 after the visual check passes.
 
 ## Goal
 

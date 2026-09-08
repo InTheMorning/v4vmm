@@ -1,14 +1,9 @@
 //! Show screen shell.
 //!
 //! ADR 0060 gives playback its own screen mount instead of a workspace frame.
-//! This shell renders the show summary and embeds the Queue/Now Playing
-//! surface without adding frame chrome, history, or breadcrumbs.
-//!
-//! ADR 0063 task 003 detail inventory:
-//! - Source detail needs host reachability and the readiness action.
-//! - Live Metadata detail needs service rows, service actions, and logs.
-//! - Event detail needs event identity, target actions, feed tag, and hints.
-//! - Stream detail needs encoder status rows and connect/disconnect actions.
+//! ADR 0063 arranges Show as a dashboard: the shell composes the summary, card
+//! grid, transport deck, and trailing detail panel without taking ownership of
+//! section detail rendering.
 
 #![warn(clippy::pedantic)]
 
@@ -19,8 +14,10 @@ use gpui::{
     SharedString, Styled, Window,
 };
 
-use crate::ui::composites::ShowCard;
-use crate::ui::shells::queue_now_playing::{render_queue_now_playing, QueueNowPlayingSlots};
+use crate::ui::composites::{
+    ShowCard, ShowDetailPanel, ShowDetailPanelDisplay, ShowDetailPanelSlots,
+};
+use crate::ui::shells::queue_now_playing::{render_queue_transport, QueueNowPlayingSlots};
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::show::{
     PublisherServiceRole, ShowCardDisplay, ShowCardKind, ShowEmptyStateDisplay,
@@ -32,10 +29,7 @@ use crate::view_models::show::{
 pub(crate) struct ShowSlots {
     queue: QueueNowPlayingSlots,
     card: ShowCardSlots,
-    source: SourceSlots,
-    publisher: PublisherSlots,
-    event: EventSlots,
-    stream: StreamSlots,
+    panel: ShowDetailPanelSlots,
 }
 
 impl Default for ShowSlots {
@@ -43,51 +37,16 @@ impl Default for ShowSlots {
         Self {
             queue: QueueNowPlayingSlots::new(),
             card: ShowCardSlots::default(),
-            source: SourceSlots::default(),
-            publisher: PublisherSlots::default(),
-            event: EventSlots::default(),
-            stream: StreamSlots::default(),
+            panel: ShowDetailPanelSlots::new(),
         }
     }
 }
 
-type SourceClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
-type PublisherClickHandler =
-    Rc<dyn Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static>;
-type PublisherCloseHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 type ShowCardClickHandler = Rc<dyn Fn(ShowCardKind, &ClickEvent, &mut Window, &mut App) + 'static>;
-type EventClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
-type StreamClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 #[derive(Default)]
 struct ShowCardSlots {
     select: Option<ShowCardClickHandler>,
-}
-
-#[derive(Default)]
-struct SourceSlots {
-    open_readiness: Option<SourceClickHandler>,
-}
-
-#[derive(Default)]
-struct PublisherSlots {
-    start: Option<PublisherClickHandler>,
-    stop: Option<PublisherClickHandler>,
-    reset: Option<PublisherClickHandler>,
-    open_logs: Option<PublisherClickHandler>,
-    close_logs: Option<PublisherCloseHandler>,
-}
-
-#[derive(Default)]
-struct EventSlots {
-    attach: Option<EventClickHandler>,
-    detach: Option<EventClickHandler>,
-}
-
-#[derive(Default)]
-struct StreamSlots {
-    connect: Option<StreamClickHandler>,
-    disconnect: Option<StreamClickHandler>,
 }
 
 impl ShowSlots {
@@ -128,7 +87,7 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.source.open_readiness = Some(Rc::new(handler));
+        self.panel = self.panel.on_open_broadcast_readiness(handler);
         self
     }
 
@@ -141,12 +100,39 @@ impl ShowSlots {
         self
     }
 
+    /// Supplies the panel-open callback.
+    pub(crate) fn on_open_show_panel(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.panel = self.panel.on_open_panel(handler);
+        self
+    }
+
+    /// Supplies the panel-close callback.
+    pub(crate) fn on_close_show_panel(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.panel = self.panel.on_close_panel(handler);
+        self
+    }
+
+    /// Supplies the callback that returns detail mode to the cuelist.
+    pub(crate) fn on_show_cuelist(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.panel = self.panel.on_show_cuelist(handler);
+        self
+    }
+
     /// Supplies the publisher service start callback.
     pub(crate) fn on_start_publisher_service(
         mut self,
         handler: impl Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.publisher.start = Some(Rc::new(handler));
+        self.panel = self.panel.on_start_publisher_service(handler);
         self
     }
 
@@ -155,7 +141,7 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.publisher.stop = Some(Rc::new(handler));
+        self.panel = self.panel.on_stop_publisher_service(handler);
         self
     }
 
@@ -164,7 +150,7 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.publisher.reset = Some(Rc::new(handler));
+        self.panel = self.panel.on_reset_publisher_service(handler);
         self
     }
 
@@ -173,7 +159,7 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.publisher.open_logs = Some(Rc::new(handler));
+        self.panel = self.panel.on_open_publisher_logs(handler);
         self
     }
 
@@ -182,7 +168,7 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.publisher.close_logs = Some(Rc::new(handler));
+        self.panel = self.panel.on_close_publisher_logs(handler);
         self
     }
 
@@ -191,7 +177,7 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.event.attach = Some(Rc::new(handler));
+        self.panel = self.panel.on_attach_event_target(handler);
         self
     }
 
@@ -200,7 +186,7 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.event.detach = Some(Rc::new(handler));
+        self.panel = self.panel.on_detach_event_target(handler);
         self
     }
 
@@ -209,7 +195,7 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.stream.connect = Some(Rc::new(handler));
+        self.panel = self.panel.on_connect_stream(handler);
         self
     }
 
@@ -218,7 +204,7 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.stream.disconnect = Some(Rc::new(handler));
+        self.panel = self.panel.on_disconnect_stream(handler);
         self
     }
 }
@@ -243,16 +229,18 @@ impl RenderOnce for ShowShell {
             state_label,
             now_playing,
             empty_state,
-            source: _source,
-            publisher: _publisher,
-            event: _event,
-            stream: _stream,
+            source,
+            publisher,
+            event,
+            stream,
             cards,
             width_class,
             panel_mode,
             panel_open,
+            panel_chrome,
             queue,
         } = self.vm;
+        let transport = queue.transport.clone();
 
         div()
             .id("show-screen")
@@ -270,26 +258,47 @@ impl RenderOnce for ShowShell {
                 empty_state,
                 cx,
             ))
-            .child(render_show_card_grid(
-                cards,
-                width_class,
-                panel_mode,
-                panel_open,
-                &self.slots.card,
-                cx,
-            ))
             .child(
                 div()
-                    .id("show-queue-transport")
+                    .id("show-dashboard-body")
                     .flex()
-                    .flex_col()
+                    .flex_row()
                     .flex_1()
                     .min_h_0()
                     .min_w_0()
                     .overflow_hidden()
-                    .border_t_1()
-                    .border_color(color(cx, SemanticColor::Separator))
-                    .child(render_queue_now_playing(queue, self.slots.queue)),
+                    .child(
+                        div()
+                            .id("show-dashboard-main")
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_h_0()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .child(render_show_card_grid(
+                                cards,
+                                width_class,
+                                panel_mode,
+                                panel_open,
+                                &self.slots.card,
+                                cx,
+                            ))
+                            .child(render_queue_transport(transport, self.slots.queue)),
+                    )
+                    .child(ShowDetailPanel::new(
+                        ShowDetailPanelDisplay {
+                            panel_mode,
+                            panel_open,
+                            panel_chrome,
+                            queue,
+                            source,
+                            publisher,
+                            event,
+                            stream,
+                        },
+                        self.slots.panel,
+                    )),
             )
     }
 }

@@ -120,6 +120,24 @@ Look for:
 - Every card is the same height, in every state.
 - A card state is readable without color, from its label.
 
+## Open: Show Detail Panel
+
+Owner: ADR 0063 task 003. Needs a screen only.
+
+1. Start the app with `cargo run --release`.
+2. Open `Show`.
+3. Select each card, close the panel, reopen it, and return detail to the
+   cuelist.
+4. Open publisher logs from the `Live Metadata` detail.
+
+Look for:
+
+- The panel opens and closes, and the card grid remains usable in both states.
+- Selecting a card shows its detail, and the cuelist returns when detail closes.
+- Publisher logs read correctly at panel width.
+- Transport controls remain reachable while the panel is closed.
+- Service state changes do not move layout while detail is open.
+
 ## Method: Reach A Publisher Service State
 
 This section is not a check. It is the method that each publisher check needs.

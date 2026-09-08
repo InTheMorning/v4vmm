@@ -3723,7 +3723,8 @@ fn workspace_frame_phase_4_guards_queue_frame_shell_wiring() {
     let mut violations = Vec::new();
 
     for required in [
-        "pub(crate) fn render_queue_now_playing(",
+        "pub(crate) fn render_queue_cuelist(",
+        "pub(crate) fn render_queue_transport(",
         "QueueNowPlayingPageVm",
         "QueueNowPlayingSlots",
         "IconName::Previous",
@@ -12166,7 +12167,8 @@ fn adr_0060_queue_is_not_mounted_in_curation_workspace() {
         "app.show_page.clone()",
         "ShowSlots::new()",
         "queue_transport_action(",
-        "render_queue_now_playing(queue, self.slots.queue)",
+        "render_queue_transport(transport, self.slots.queue)",
+        "ShowDetailPanel::new(",
     ] {
         if !show_adapter_source.contains(required) && !show_shell_source.contains(required) {
             violations.push(format!(
@@ -12261,7 +12263,8 @@ fn adr_0060_show_vm_and_shell_layer_boundaries() {
         "on_skip_previous(",
         "on_play_pause(",
         "on_skip_next(",
-        "render_queue_now_playing(queue, self.slots.queue)",
+        "render_queue_transport(transport, self.slots.queue)",
+        "ShowDetailPanel::new(",
     ] {
         if !shell_source.contains(required) {
             violations.push(format!(
@@ -12587,7 +12590,8 @@ fn adr_0060_music_surface_is_dominant_content_without_operational_panes() {
     ] {
         for forbidden in [
             "QueueNowPlaying",
-            "render_queue_now_playing",
+            "render_queue_cuelist",
+            "render_queue_transport",
             "TransportDisplay",
             "BroadcastObservation",
             "BroadcastStatus",
@@ -12605,7 +12609,8 @@ fn adr_0060_music_surface_is_dominant_content_without_operational_panes() {
         let source = read_source(&path);
         for forbidden in [
             "QueueNowPlaying",
-            "render_queue_now_playing",
+            "render_queue_cuelist",
+            "render_queue_transport",
             "TransportDisplay",
             "BroadcastObservation",
             "BroadcastStatus",
@@ -13249,7 +13254,7 @@ fn adr_0063_show_card_grid_shell_uses_vm_contract() {
     }
 
     for required in [
-        "use crate::ui::composites::ShowCard;",
+        "ShowCard, ShowDetailPanel, ShowDetailPanelDisplay, ShowDetailPanelSlots,",
         "card: ShowCardSlots",
         "type ShowCardClickHandler",
         "pub(crate) fn on_select_card(",
@@ -13376,6 +13381,163 @@ fn adr_0063_show_card_grid_shell_uses_vm_contract() {
     assert!(
         violations.is_empty(),
         "Situational ADR 0063 Show card-grid shell violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0063: Show detail panel owns detail; transport stays outside.
+#[test]
+fn adr_0063_show_detail_panel_owns_detail_and_transport_stays_on_show() {
+    let vm_source = read_source(&manifest_path("src/view_models/show.rs"));
+    let app_source = read_source(&manifest_path("src/app/show.rs"));
+    let shell_source = read_source(&manifest_path("src/ui/shells/show.rs"));
+    let queue_shell_source = read_source(&manifest_path("src/ui/shells/queue_now_playing.rs"));
+    let panel_source = read_source(&manifest_path("src/ui/composites/show_detail_panel.rs"));
+    let composites_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
+    let card_grid_source = source_between(
+        &shell_source,
+        "fn render_show_card_grid(",
+        "fn show_card_selected(",
+    );
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) struct ShowPanelChromeDisplay",
+        "pub(crate) panel_chrome: ShowPanelChromeDisplay",
+        "pub(crate) fn with_panel_state(",
+        "pub(crate) fn select_card(mut self, kind: ShowCardKind) -> Self",
+        "self.set_panel_mode(ShowPanelMode::Detail(kind));",
+        "self.panel_open = true;",
+        "pub(crate) fn show_cuelist_panel(mut self) -> Self",
+        "self.set_panel_mode(ShowPanelMode::Cuelist);",
+        "pub(crate) fn close_panel(mut self) -> Self",
+        "pub(crate) fn open_panel(mut self) -> Self",
+    ] {
+        if !vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/show.rs: Situational ADR 0063 task 003 panel state contract missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        ".with_panel_state(panel_mode, panel_open)",
+        ".on_select_card(move |kind, _, _, cx|",
+        "this.select_show_card_detail(kind, cx);",
+        ".on_open_show_panel(",
+        ".on_close_show_panel(",
+        ".on_show_cuelist(",
+        ".select_card(ShowCardKind::LiveMetadata);",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app/show.rs: Situational ADR 0063 task 003 app panel wiring missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn render_queue_cuelist(",
+        "pub(crate) fn render_queue_transport(",
+    ] {
+        if !queue_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/queue_now_playing.rs: Situational ADR 0063 task 003 queue renderer split missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub mod show_detail_panel;",
+        "pub(crate) use show_detail_panel::{ShowDetailPanel, ShowDetailPanelDisplay, ShowDetailPanelSlots};",
+    ] {
+        if !composites_mod_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/mod.rs: Situational ADR 0063 task 003 detail-panel composite export missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "ShowDetailPanel::new(",
+        "ShowDetailPanelDisplay {",
+        "panel_chrome,",
+        "render_queue_transport(transport, self.slots.queue)",
+    ] {
+        if !shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/show.rs: Situational ADR 0063 task 003 Show shell panel/transport composition missing `{required}`"
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) struct ShowDetailPanel",
+        "pub(crate) struct ShowDetailPanelDisplay",
+        "pub(crate) struct ShowDetailPanelSlots",
+        ".w(Size::ColumnRegular.scaled(cx))",
+        "render_queue_cuelist(queue)",
+        "ShowPanelMode::Cuelist =>",
+        "ShowPanelMode::Detail(kind) =>",
+        "fn render_source_detail(",
+        "fn render_publisher_detail(",
+        "fn render_event_detail(",
+        "fn render_stream_detail(",
+        "fn render_publisher_logs(",
+        ".overflow_y_scroll()",
+        ".absolute()",
+        ".right_0()",
+        "PublisherLogPanelState::Open",
+    ] {
+        if !panel_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/show_detail_panel.rs: Situational ADR 0063 task 003 detail-panel composite missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "render_queue_transport",
+        "render_control_deck",
+        "render_transport(",
+    ] {
+        if panel_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/composites/show_detail_panel.rs: Situational ADR 0063 task 003 transport must stay outside the panel composite; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "PublisherLogPanelState",
+        "fn render_publisher_log_panel(",
+        "show-publisher-log-strip",
+    ] {
+        if shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/show.rs: Situational ADR 0063 task 003 inline publisher log state/strip must not live in the Show shell; found `{forbidden}`"
+            ));
+        }
+    }
+
+    for (line_number, line) in code_lines(card_grid_source) {
+        for forbidden in [
+            "ScrollableElement",
+            "overflow_y_scroll",
+            "overflow_y_scrollbar",
+            "overflow_scrollbar",
+        ] {
+            if line.contains(forbidden) {
+                violations.push(format!(
+                    "src/ui/shells/show.rs:{line_number}: Situational ADR 0063 task 003 card grid must not own a scroll container; found `{forbidden}` in `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0063 Show detail-panel violations:\n{}",
         violations.join("\n")
     );
 }

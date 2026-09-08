@@ -66,41 +66,47 @@ impl QueueNowPlayingSlots {
     }
 }
 
-/// Queue/Now Playing frame shell element.
+/// Queue cuelist shell element.
 #[derive(IntoElement)]
 #[must_use]
-pub(crate) struct QueueNowPlayingShell {
+pub(crate) struct QueueCuelistShell {
     vm: QueueNowPlayingPageVm,
+}
+
+/// Queue transport shell element.
+#[derive(IntoElement)]
+#[must_use]
+pub(crate) struct QueueTransportShell {
+    transport: TransportDisplay,
     slots: QueueNowPlayingSlots,
 }
 
-/// Creates the Queue/Now Playing frame shell.
-pub(crate) fn render_queue_now_playing(
-    vm: QueueNowPlayingPageVm,
-    slots: QueueNowPlayingSlots,
-) -> QueueNowPlayingShell {
-    QueueNowPlayingShell { vm, slots }
+/// Creates a queue-only shell for panel cuelist mode.
+pub(crate) fn render_queue_cuelist(vm: QueueNowPlayingPageVm) -> QueueCuelistShell {
+    QueueCuelistShell { vm }
 }
 
-impl RenderOnce for QueueNowPlayingShell {
+/// Creates a transport-only shell for the Show surface.
+pub(crate) fn render_queue_transport(
+    transport: TransportDisplay,
+    slots: QueueNowPlayingSlots,
+) -> QueueTransportShell {
+    QueueTransportShell { transport, slots }
+}
+
+impl RenderOnce for QueueCuelistShell {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let QueueNowPlayingPageVm {
-            rows,
-            transport,
-            empty_label,
-            ..
+            rows, empty_label, ..
         } = self.vm;
-        let slots = self.slots;
 
-        div()
-            .size_full()
-            .flex()
-            .flex_col()
-            .min_h_0()
-            .min_w_0()
-            .overflow_hidden()
-            .child(render_queue_list(rows, empty_label, cx))
-            .child(render_control_deck(transport, slots, cx))
+        render_queue_list(rows, empty_label, cx)
+    }
+}
+
+impl RenderOnce for QueueTransportShell {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        render_control_deck(self.transport, self.slots, cx)
     }
 }
 
