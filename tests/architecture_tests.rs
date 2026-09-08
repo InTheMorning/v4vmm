@@ -11869,6 +11869,31 @@ fn adr_0059_show_screen_and_shell_do_not_call_service_processes() {
     );
 }
 
+/// Situational ADR 0059: Packet 012 renderer path does not scan readiness files.
+#[test]
+fn adr_0059_broadcast_readiness_file_scan_stays_out_of_renderers() {
+    let mut violations = Vec::new();
+
+    for file in ["src/app/show.rs", "src/ui/shells/show.rs"] {
+        let source = read_source(&manifest_path(file));
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in ["read_audio_tags", "MusicIndex Value Routes", ".is_file()"] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{file}:{line_number}: Situational ADR 0059 Packet 012 forbids readiness file scanning in the renderer path. Fix: keep payment-route tag reads in application queries or runtime actors."
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0059 Packet 012 readiness renderer violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// Situational ADR 0060: broadcasting is not a workspace frame.
 #[test]
 fn adr_0060_workspace_has_no_broadcast_frame_kind() {
@@ -12894,7 +12919,6 @@ fn adr_0060_live_status_and_show_share_cached_projection() {
         "pub(super) fn refresh_show_page(&self, cx: &mut Context<Self>)",
         "struct RefreshShowPage",
         "this.reproject_show_page(queue)",
-        "ShowPageVm::from_queue_and_publisher(",
         "queue_now_playing_vm(",
     ] {
         if !show_adapter_source.contains(required) {
@@ -12902,6 +12926,14 @@ fn adr_0060_live_status_and_show_share_cached_projection() {
                 "src/app/show.rs: ADR 0060 task 004 Show/strip shared projection missing `{required}`"
             ));
         }
+    }
+    if !show_adapter_source.contains("ShowPageVm::from_queue_and_publisher(")
+        && !show_adapter_source.contains("ShowPageVm::from_queue_publisher_and_readiness(")
+    {
+        violations.push(
+            "src/app/show.rs: ADR 0060 task 004 Show/strip shared projection missing ShowPageVm constructor"
+                .to_string(),
+        );
     }
 
     for required in [

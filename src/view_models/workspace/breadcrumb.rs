@@ -131,6 +131,7 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
         FrameNavigationEntry::IndexTrackDetail { id, .. } => {
             format!("index-track-{}", slug_id(id))
         }
+        FrameNavigationEntry::ReadinessIssues => "broadcast-readiness".to_string(),
         FrameNavigationEntry::Settings => "settings".to_string(),
         FrameNavigationEntry::QueueNowPlaying => "queue-now-playing".to_string(),
     }

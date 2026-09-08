@@ -11,7 +11,7 @@ use crate::broadcast::{
     control::ServiceState,
     encoder::{AudioSignalState, EncoderState, ListenerCount, RecordingState},
 };
-use crate::runtime::broadcast_service_watch;
+use crate::runtime::{broadcast_service_watch, BroadcastReadinessSnapshot};
 use crate::view_models::queue_now_playing::{
     QueueNowPlayingPageVm, QueueRowDisplay, TransportState,
 };
@@ -53,6 +53,8 @@ pub(crate) struct SourceSectionDisplay {
     pub(crate) host_name: String,
     /// Host reachability display.
     pub(crate) reachability: SourceReachabilityDisplay,
+    /// Local library payment-route readiness display.
+    pub(crate) readiness: Option<SourceReadinessDisplay>,
 }
 
 /// Display-ready host reachability state.
@@ -75,6 +77,72 @@ pub(crate) enum SourceReachabilityState {
     NotReachable,
     /// No service read has established host reachability yet.
     Unknown,
+}
+
+/// Display-ready local library readiness state for the Source section.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SourceReadinessDisplay {
+    /// Stable row identifier.
+    pub(crate) id: &'static str,
+    /// Curator-facing count label.
+    pub(crate) count_label: String,
+    /// Curator-facing detail.
+    pub(crate) detail: String,
+    /// Stable readiness state.
+    pub(crate) state: SourceReadinessState,
+    /// Action that opens the Music readiness list.
+    pub(crate) action: SourceReadinessActionDisplay,
+}
+
+/// Stable local library readiness state for the Source section.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SourceReadinessState {
+    /// Readiness scan is pending.
+    Checking,
+    /// No local library tracks are present.
+    Empty,
+    /// Every scanned local library track is ready.
+    Ready,
+    /// Some scanned tracks need routes or files.
+    NeedsAttention,
+    /// The readiness scan failed.
+    Failed,
+}
+
+/// Typed availability for the Source readiness action.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SourceReadinessActionAvailability {
+    /// The action can be run.
+    Available,
+    /// The action is visible but unavailable in this state.
+    Unavailable,
+}
+
+impl SourceReadinessActionAvailability {
+    #[must_use]
+    pub(crate) const fn disabled(self) -> bool {
+        matches!(self, Self::Unavailable)
+    }
+}
+
+/// Display-ready action state for opening readiness problems in Music.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SourceReadinessActionDisplay {
+    /// Stable element identifier.
+    pub(crate) id: &'static str,
+    /// Visible action label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for the action.
+    pub(crate) a11y_label: String,
+    /// Typed action availability.
+    pub(crate) availability: SourceReadinessActionAvailability,
+}
+
+impl SourceReadinessActionDisplay {
+    #[must_use]
+    pub(crate) const fn disabled(&self) -> bool {
+        self.availability.disabled()
+    }
 }
 
 impl SourceReachabilityState {
@@ -626,6 +694,17 @@ impl ShowPageVm {
         publisher_snapshot: Option<&broadcast_service_watch::BroadcastServiceWatchSnapshot>,
         log_panel: PublisherLogPanelState,
     ) -> Self {
+        Self::from_queue_publisher_and_readiness(queue, publisher_snapshot, log_panel, None)
+    }
+
+    /// Projects the Show page from queue, publisher state, and readiness state.
+    #[must_use]
+    pub(crate) fn from_queue_publisher_and_readiness(
+        queue: QueueNowPlayingPageVm,
+        publisher_snapshot: Option<&broadcast_service_watch::BroadcastServiceWatchSnapshot>,
+        log_panel: PublisherLogPanelState,
+        readiness_snapshot: Option<&BroadcastReadinessSnapshot>,
+    ) -> Self {
         let state_label = transport_state_label(queue.transport.play_pause_state);
         let now_playing = queue
             .rows
@@ -633,7 +712,8 @@ impl ShowPageVm {
             .find(|row| row.now_playing)
             .map(ShowNowPlayingDisplay::from_queue_row);
         let active = queue.transport.play_pause_state.is_active();
-        let source = publisher_snapshot.and_then(SourceSectionDisplay::from_snapshot);
+        let source = publisher_snapshot
+            .and_then(|snapshot| SourceSectionDisplay::from_snapshot(snapshot, readiness_snapshot));
         let publisher = match publisher_snapshot {
             Some(snapshot) => PublisherSectionDisplay::from_snapshot(snapshot, log_panel),
             None => None,
@@ -676,6 +756,7 @@ impl ShowNowPlayingDisplay {
 impl SourceSectionDisplay {
     fn from_snapshot(
         snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
+        readiness_snapshot: Option<&BroadcastReadinessSnapshot>,
     ) -> Option<Self> {
         let host_name = snapshot.units.first()?.host_name.clone();
         let reachability = source_reachability(snapshot.units.as_slice()).display();
@@ -685,7 +766,81 @@ impl SourceSectionDisplay {
             summary,
             host_name,
             reachability,
+            readiness: readiness_snapshot.map(SourceReadinessDisplay::from_snapshot),
         })
+    }
+}
+
+impl SourceReadinessDisplay {
+    const ID: &'static str = "source-readiness-row";
+    const ACTION_ID: &'static str = "source-readiness-open";
+
+    fn from_snapshot(snapshot: &BroadcastReadinessSnapshot) -> Self {
+        if let Some(error) = snapshot.error.as_ref() {
+            return Self {
+                id: Self::ID,
+                count_label: "Readiness unavailable".to_owned(),
+                detail: error.clone(),
+                state: SourceReadinessState::Failed,
+                action: Self::action(SourceReadinessActionAvailability::Unavailable),
+            };
+        }
+        let Some(report) = snapshot.report.as_ref() else {
+            return Self::checking();
+        };
+
+        let total =
+            report.summary.ready + report.summary.no_route_tag + report.summary.file_missing;
+        if total == 0 {
+            return Self {
+                id: Self::ID,
+                count_label: "No local tracks".to_owned(),
+                detail: "Library has no downloaded tracks to check.".to_owned(),
+                state: SourceReadinessState::Empty,
+                action: Self::action(SourceReadinessActionAvailability::Unavailable),
+            };
+        }
+
+        let problem_count = report.problem_count();
+        if problem_count == 0 {
+            return Self {
+                id: Self::ID,
+                count_label: format!("{} ready", track_count_label(report.summary.ready)),
+                detail: "Every scanned track carries payment routes.".to_owned(),
+                state: SourceReadinessState::Ready,
+                action: Self::action(SourceReadinessActionAvailability::Unavailable),
+            };
+        }
+
+        Self {
+            id: Self::ID,
+            count_label: format!("{} not ready", track_count_label(problem_count)),
+            detail: format!(
+                "{} missing routes, {} missing files.",
+                report.summary.no_route_tag, report.summary.file_missing
+            ),
+            state: SourceReadinessState::NeedsAttention,
+            action: Self::action(SourceReadinessActionAvailability::Available),
+        }
+    }
+
+    fn checking() -> Self {
+        Self {
+            id: Self::ID,
+            count_label: "Checking readiness".to_owned(),
+            detail: "Reading local library payment-route tags.".to_owned(),
+            state: SourceReadinessState::Checking,
+            action: Self::action(SourceReadinessActionAvailability::Unavailable),
+        }
+    }
+
+    fn action(availability: SourceReadinessActionAvailability) -> SourceReadinessActionDisplay {
+        SourceReadinessActionDisplay {
+            id: Self::ACTION_ID,
+            label: "Open",
+            a11y_label: "Open broadcast readiness issues in Music".to_owned(),
+            availability,
+        }
     }
 }
 
@@ -820,6 +975,14 @@ fn stream_listeners_display(listeners: ListenerCount) -> StreamListenersDisplay 
             label: "Listeners unknown".to_owned(),
             detail: "Encoder did not report a useful count.",
         },
+    }
+}
+
+fn track_count_label(count: usize) -> String {
+    if count == 1 {
+        "1 track".to_owned()
+    } else {
+        format!("{count} tracks")
     }
 }
 
@@ -996,6 +1159,10 @@ const fn transport_state_label(state: TransportState) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use crate::application::queries::broadcast::{
+        BroadcastReadinessReport, BroadcastReadinessState, BroadcastReadinessSummary,
+        BroadcastReadinessTrack,
+    };
     use crate::broadcast::encoder::EncoderStatus;
     use crate::view_models::queue_now_playing::{QueueTrackInput, TransportState};
 
@@ -1008,6 +1175,18 @@ mod tests {
             artist: Some("Artist".to_string()),
             duration_seconds: Some(125),
             now_playing,
+        }
+    }
+
+    fn readiness_track(id: i64, state: BroadcastReadinessState) -> BroadcastReadinessTrack {
+        BroadcastReadinessTrack {
+            track_id: id,
+            title: "Track".to_owned(),
+            artist: Some("Artist".to_owned()),
+            album: Some("Album".to_owned()),
+            path: Some("/tmp/track.mp3".to_owned()),
+            state,
+            reason: "Embedded MusicIndex Value Routes tag is missing.".to_owned(),
         }
     }
 
@@ -1103,6 +1282,7 @@ mod tests {
                     label: "Reachable",
                     detail: "Host accepts broadcast control.",
                 },
+                readiness: None,
             })
         );
         assert_eq!(publisher.title, "Publisher");
@@ -1204,12 +1384,50 @@ mod tests {
                     label: "Not reachable",
                     detail: "Host cannot be reached.",
                 },
+                readiness: None,
             })
         );
         assert_eq!(
             vm.publisher.expect("publisher section").services[0].state,
             PublisherServiceStateDisplay::NotReachable
         );
+    }
+
+    #[test]
+    fn source_section_projects_cached_broadcast_readiness() {
+        let snapshot = publisher_snapshot([(
+            PublisherServiceRole::Publisher,
+            "musicindex-live-publisher@mixxx.service",
+            ServiceState::Active,
+        )]);
+        let readiness = BroadcastReadinessSnapshot {
+            report: Some(BroadcastReadinessReport {
+                summary: BroadcastReadinessSummary {
+                    ready: 3,
+                    no_route_tag: 1,
+                    file_missing: 1,
+                },
+                tracks: vec![readiness_track(7, BroadcastReadinessState::NoRouteTag)],
+            }),
+            error: None,
+        };
+
+        let vm = ShowPageVm::from_queue_publisher_and_readiness(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            PublisherLogPanelState::closed(),
+            Some(&readiness),
+        );
+        let readiness = vm
+            .source
+            .expect("source section")
+            .readiness
+            .expect("readiness display");
+
+        assert_eq!(readiness.count_label, "2 tracks not ready");
+        assert_eq!(readiness.detail, "1 missing routes, 1 missing files.");
+        assert_eq!(readiness.state, SourceReadinessState::NeedsAttention);
+        assert!(!readiness.action.disabled());
     }
 
     #[test]

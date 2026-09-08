@@ -49,6 +49,8 @@ pub(crate) enum FrameNavigationEntry {
         /// Display label captured from the selected result row.
         label: String,
     },
+    /// Music content list filtered to tracks that need broadcast readiness work.
+    ReadinessIssues,
     /// Application settings.
     Settings,
     /// Queue and Now Playing frame root.
@@ -75,6 +77,7 @@ impl FrameNavigationEntry {
             Self::IndexFeedDetail { label, .. } | Self::IndexTrackDetail { label, .. } => {
                 label.clone()
             }
+            Self::ReadinessIssues => "Broadcast Readiness".to_string(),
             Self::Settings => "Settings".to_string(),
             Self::QueueNowPlaying => "Queue".to_string(),
         }

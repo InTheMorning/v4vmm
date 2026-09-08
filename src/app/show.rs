@@ -18,8 +18,9 @@ use crate::config::BroadcastHostConfig;
 use crate::presentation::present_command;
 use crate::presentation::{bridge_watch, RuntimeHost};
 use crate::runtime::{
-    BroadcastEncoderWatchTarget, BroadcastServiceRole, BroadcastServiceWatchHandle,
-    BroadcastServiceWatchSnapshot, BroadcastServiceWatchUnit,
+    BroadcastEncoderWatchTarget, BroadcastReadinessSnapshot, BroadcastReadinessWatchHandle,
+    BroadcastServiceRole, BroadcastServiceWatchHandle, BroadcastServiceWatchSnapshot,
+    BroadcastServiceWatchUnit,
 };
 use crate::ui::composites::{live_status_strip, LiveStatusStrip, LiveStatusStripSlots};
 use crate::ui::shells::show::{render_show, ShowShell, ShowSlots};
@@ -28,6 +29,7 @@ use crate::view_models::queue_now_playing::QueueNowPlayingPageVm;
 use crate::view_models::show::{
     PublisherLogPanelState, PublisherServiceRole, ShowPageVm, PUBLISHER_LOG_LINE_COUNT,
 };
+use crate::view_models::workspace::FrameNavigationEntry;
 
 use super::queue_now_playing::{queue_now_playing_vm, queue_transport_action};
 use super::{AppTab, TopApp, WorkspaceScreenMount};
@@ -43,6 +45,7 @@ pub(super) fn build_show_screen(app: &TopApp, cx: &mut Context<TopApp>) -> ShowS
     let close_logs_entity = entity.clone();
     let connect_stream_entity = entity.clone();
     let disconnect_stream_entity = entity.clone();
+    let readiness_entity = entity.clone();
     render_show(
         app.show_page.clone(),
         ShowSlots::new()
@@ -55,6 +58,11 @@ pub(super) fn build_show_screen(app: &TopApp, cx: &mut Context<TopApp>) -> ShowS
                 TopApp::toggle_playback_paused,
             ))
             .on_skip_next(queue_transport_action(entity, TopApp::skip_playback_next))
+            .on_open_broadcast_readiness(move |_, _, cx| {
+                readiness_entity.update(cx, |this, cx| {
+                    this.open_broadcast_readiness_in_music(cx);
+                });
+            })
             .on_start_publisher_service(move |role, _, _, cx| {
                 service_entity.update(cx, |this, cx| {
                     this.run_publisher_service_command(role, PublisherServiceOperation::Start, cx);
@@ -121,6 +129,27 @@ pub(super) fn build_live_status_strip(
 }
 
 impl TopApp {
+    pub(super) fn maybe_start_broadcast_readiness_watch(&mut self, cx: &mut Context<Self>) {
+        if self.broadcast_readiness_watch.is_some() {
+            return;
+        }
+        let Some(host) = self.runtime_host.clone() else {
+            self.settings_status = "Broadcast readiness error: runtime unavailable".to_string();
+            return;
+        };
+
+        let handle = start_broadcast_readiness_watch(&host, Arc::clone(&self.conn));
+        self.broadcast_readiness_snapshot = Some(handle.latest());
+        bridge_watch(
+            handle.subscribe(),
+            |this: &mut Self, snapshot, cx| {
+                this.apply_broadcast_readiness_snapshot(snapshot, cx);
+            },
+            cx,
+        );
+        self.broadcast_readiness_watch = Some(handle);
+    }
+
     pub(super) fn maybe_start_broadcast_service_watch(&mut self, cx: &mut Context<Self>) {
         if self.publisher_service_watch.is_some() {
             return;
@@ -193,11 +222,31 @@ impl TopApp {
         cx.notify();
     }
 
+    fn apply_broadcast_readiness_snapshot(
+        &mut self,
+        snapshot: BroadcastReadinessSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        let mounted_report = self
+            .music_readiness_list_is_current()
+            .then(|| snapshot.report.clone())
+            .flatten();
+        self.broadcast_readiness_snapshot = Some(snapshot);
+        if let Some(report) = mounted_report {
+            self.library.update(cx, |library, cx| {
+                library.show_broadcast_readiness_report(&report, cx);
+            });
+        }
+        self.reproject_show_page_from_current_queue();
+        cx.notify();
+    }
+
     fn reproject_show_page(&mut self, queue: QueueNowPlayingPageVm) {
-        self.show_page = ShowPageVm::from_queue_and_publisher(
+        self.show_page = ShowPageVm::from_queue_publisher_and_readiness(
             queue,
             self.publisher_service_snapshot.as_ref(),
             self.publisher_log_panel.clone(),
+            self.broadcast_readiness_snapshot.as_ref(),
         );
     }
 
@@ -318,6 +367,46 @@ impl TopApp {
         if let Some(handle) = self.publisher_service_watch.as_ref() {
             let _ = handle.refresh_now();
         }
+    }
+
+    pub(super) fn invalidate_broadcast_readiness_snapshot(&self) {
+        if let Some(handle) = self.broadcast_readiness_watch.as_ref() {
+            let _ = handle.refresh_now();
+        }
+    }
+
+    fn open_broadcast_readiness_in_music(&mut self, cx: &mut Context<Self>) {
+        let Some(report) = self
+            .broadcast_readiness_snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.report.clone())
+        else {
+            "Broadcast readiness is not available yet".clone_into(&mut self.settings_status);
+            cx.notify();
+            return;
+        };
+
+        self.tab = AppTab::Music;
+        if let Some(content_list_id) = self.content_list_frame_id() {
+            if let Err(error) = self
+                .workspace_layout
+                .reset_nav(content_list_id, FrameNavigationEntry::ReadinessIssues)
+            {
+                self.settings_status = format!("Error opening broadcast readiness: {error}");
+            }
+        }
+        self.library.update(cx, |library, cx| {
+            library.show_broadcast_readiness_report(&report, cx);
+        });
+        cx.notify();
+    }
+
+    fn music_readiness_list_is_current(&self) -> bool {
+        matches!(self.tab, AppTab::Music)
+            && self
+                .content_list_frame_id()
+                .and_then(|id| self.workspace_layout.frame_nav(id))
+                .is_some_and(|nav| matches!(nav.current(), FrameNavigationEntry::ReadinessIssues))
     }
 }
 
@@ -466,6 +555,14 @@ fn start_broadcast_service_watch(
 ) -> BroadcastServiceWatchHandle {
     let _enter = host.handle().enter();
     crate::runtime::broadcast_service_watch::start(units, encoder)
+}
+
+fn start_broadcast_readiness_watch(
+    host: &RuntimeHost,
+    conn: Arc<Mutex<Connection>>,
+) -> BroadcastReadinessWatchHandle {
+    let _enter = host.handle().enter();
+    crate::runtime::broadcast_readiness::start(conn)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

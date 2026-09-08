@@ -23,6 +23,7 @@ use crate::view_models::show::{
     PublisherActionDisplay, PublisherLogPanelState, PublisherSectionDisplay,
     PublisherServiceDisplay, PublisherServiceRole, PublisherServiceStateKind,
     ShowEmptyStateDisplay, ShowNowPlayingDisplay, ShowPageVm, SourceReachabilityState,
+    SourceReadinessActionDisplay, SourceReadinessDisplay, SourceReadinessState,
     SourceSectionDisplay, StreamActionDisplay, StreamActionsDisplay, StreamRecordingDisplay,
     StreamSectionDisplay, StreamStateIconRole,
 };
@@ -31,6 +32,7 @@ use crate::view_models::show::{
 #[must_use]
 pub(crate) struct ShowSlots {
     queue: QueueNowPlayingSlots,
+    source: SourceSlots,
     publisher: PublisherSlots,
     stream: StreamSlots,
 }
@@ -39,16 +41,23 @@ impl Default for ShowSlots {
     fn default() -> Self {
         Self {
             queue: QueueNowPlayingSlots::new(),
+            source: SourceSlots::default(),
             publisher: PublisherSlots::default(),
             stream: StreamSlots::default(),
         }
     }
 }
 
+type SourceClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 type PublisherClickHandler =
     Rc<dyn Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static>;
 type PublisherCloseHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 type StreamClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+
+#[derive(Default)]
+struct SourceSlots {
+    open_readiness: Option<SourceClickHandler>,
+}
 
 #[derive(Default)]
 struct PublisherSlots {
@@ -95,6 +104,15 @@ impl ShowSlots {
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.queue = self.queue.on_skip_next(handler);
+        self
+    }
+
+    /// Supplies the Source readiness open callback.
+    pub(crate) fn on_open_broadcast_readiness(
+        mut self,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.source.open_readiness = Some(Rc::new(handler));
         self
     }
 
@@ -206,7 +224,7 @@ impl RenderOnce for ShowShell {
             ));
 
         if let Some(source) = source {
-            screen = screen.child(render_source_section(source, cx));
+            screen = screen.child(render_source_section(source, self.slots.source, cx));
         }
 
         if let Some(publisher) = publisher {
@@ -389,9 +407,13 @@ fn render_summary_subtitle(
     )
 }
 
-fn render_source_section(source: SourceSectionDisplay, cx: &App) -> impl IntoElement {
+fn render_source_section(
+    source: SourceSectionDisplay,
+    slots: SourceSlots,
+    cx: &App,
+) -> impl IntoElement {
     let state_color = source_reachability_color(source.reachability.state);
-    let body = div()
+    let mut body = div()
         .id("source-section-body")
         .flex()
         .flex_col()
@@ -453,6 +475,14 @@ fn render_source_section(source: SourceSectionDisplay, cx: &App) -> impl IntoEle
                 ),
         );
 
+    if let Some(readiness) = source.readiness {
+        body = body.child(render_source_readiness_row(
+            readiness,
+            slots.open_readiness,
+            cx,
+        ));
+    }
+
     div()
         .id("show-source-section")
         .flex_shrink_0()
@@ -462,6 +492,63 @@ fn render_source_section(source: SourceSectionDisplay, cx: &App) -> impl IntoEle
             Surface::new(SurfaceElevation::Sunken)
                 .padding(Spacing::MD)
                 .child(body),
+        )
+}
+
+fn render_source_readiness_row(
+    readiness: SourceReadinessDisplay,
+    open_readiness: Option<SourceClickHandler>,
+    cx: &App,
+) -> impl IntoElement {
+    let state_color = source_readiness_color(readiness.state);
+    div()
+        .id(readiness.id)
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap(Spacing::MD.scaled(cx))
+        .border_t_1()
+        .border_color(color(cx, SemanticColor::Separator))
+        .pt(Spacing::SM.scaled(cx))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .gap(Spacing::XXS.scaled(cx))
+                .child(
+                    div()
+                        .text_size(FontSize::Headline.scaled(cx))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(color(cx, SemanticColor::Label))
+                        .truncate()
+                        .child(SharedString::from(readiness.count_label)),
+                )
+                .child(
+                    div()
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::SecondaryLabel))
+                        .truncate()
+                        .child(SharedString::from(readiness.detail)),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(Spacing::XS.scaled(cx))
+                .flex_shrink_0()
+                .child(
+                    Icon::new(source_readiness_icon(readiness.state))
+                        .size(IconSize::Action)
+                        .color(color(cx, state_color)),
+                )
+                .child(render_source_readiness_button(
+                    readiness.action,
+                    open_readiness,
+                )),
         )
 }
 
@@ -947,6 +1034,29 @@ fn render_stream_action_button(
     button
 }
 
+fn render_source_readiness_button(
+    display: SourceReadinessActionDisplay,
+    handler: Option<SourceClickHandler>,
+) -> Button {
+    let disabled = display.disabled();
+    let mut button = Button::styled(SharedString::from(display.id), ControlStyle::Secondary)
+        .leading_icon(IconName::Search)
+        .label(display.label)
+        .a11y_label(display.a11y_label.clone())
+        .tooltip(display.a11y_label)
+        .disabled(disabled);
+
+    if !disabled {
+        if let Some(handler) = handler {
+            button = button.on_click(move |event, window, cx| {
+                handler(event, window, cx);
+            });
+        }
+    }
+
+    button
+}
+
 fn render_publisher_log_panel(
     panel: PublisherLogPanelState,
     close_display: PublisherActionDisplay,
@@ -1059,6 +1169,26 @@ const fn source_reachability_color(state: SourceReachabilityState) -> SemanticCo
         SourceReachabilityState::Reachable => SemanticColor::SuccessLabel,
         SourceReachabilityState::NotReachable => SemanticColor::WarningLabel,
         SourceReachabilityState::Unknown => SemanticColor::SecondaryLabel,
+    }
+}
+
+const fn source_readiness_icon(state: SourceReadinessState) -> IconName {
+    match state {
+        SourceReadinessState::Ready => IconName::Check,
+        SourceReadinessState::NeedsAttention | SourceReadinessState::Failed => IconName::Warning,
+        SourceReadinessState::Checking | SourceReadinessState::Empty => IconName::Info,
+    }
+}
+
+const fn source_readiness_color(state: SourceReadinessState) -> SemanticColor {
+    match state {
+        SourceReadinessState::Ready => SemanticColor::SuccessLabel,
+        SourceReadinessState::NeedsAttention | SourceReadinessState::Failed => {
+            SemanticColor::WarningLabel
+        }
+        SourceReadinessState::Checking | SourceReadinessState::Empty => {
+            SemanticColor::SecondaryLabel
+        }
     }
 }
 

@@ -4,6 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use rusqlite::Connection;
 use serde::Serialize;
 
+use crate::application::ApplicationQueryService;
 use crate::broadcast::registry::BroadcastRegistry;
 use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::{api, config, db, debug_contracts, playback};
@@ -43,6 +44,9 @@ pub fn run(args: &[String]) -> Result<()> {
             if section == "broadcast" && area == "events" && command == "check" =>
         {
             check_broadcast_event(event_id, rest)
+        }
+        [section, command, rest @ ..] if section == "broadcast" && command == "readiness" => {
+            print_broadcast_readiness(rest)
         }
         [section, command, flag]
             if section == "playlists" && command == "list" && flag == "--json" =>
@@ -178,6 +182,13 @@ fn check_broadcast_event(event_id: &str, args: &[String]) -> Result<()> {
     let registry = configured_broadcast_registry(&conn)?;
     let checked = registry.check_event(event_id)?;
     print_json(&checked)
+}
+
+fn print_broadcast_readiness(args: &[String]) -> Result<()> {
+    parse_json_only_options("broadcast readiness", args)?;
+    let conn = open_configured_db()?;
+    let report = ApplicationQueryService::new().broadcast_readiness_report(&conn)?;
+    print_json(&report)
 }
 
 fn print_playlists() -> Result<()> {
@@ -463,6 +474,7 @@ fn help_text() -> &'static str {
   v4vmm broadcast events create --json [--label <text>]
   v4vmm broadcast events forget <event-id>
   v4vmm broadcast events check <event-id> --json
+  v4vmm broadcast readiness --json
   v4vmm playlists list --json
   v4vmm playlist tracks <playlist-id> --json
   v4vmm library tracks --json

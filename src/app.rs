@@ -23,7 +23,10 @@ use crate::playback_driver::ConfiguredPlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
 use crate::presentation::{bridge_watch, present_command, GpuiEventBridge};
 use crate::runtime::playback_polling::{PlaybackPollingHandle, PlaybackTickOutcome};
-use crate::runtime::{BroadcastServiceWatchHandle, BroadcastServiceWatchSnapshot};
+use crate::runtime::{
+    BroadcastReadinessSnapshot, BroadcastReadinessWatchHandle, BroadcastServiceWatchHandle,
+    BroadcastServiceWatchSnapshot,
+};
 use crate::theme_profile::ThemeProfile;
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts as layout;
@@ -146,6 +149,8 @@ pub struct TopApp {
     _appearance_sub: gpui::Subscription,
     playback_owner: Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>,
     playback_polling: Option<PlaybackPollingHandle>,
+    broadcast_readiness_watch: Option<BroadcastReadinessWatchHandle>,
+    broadcast_readiness_snapshot: Option<BroadcastReadinessSnapshot>,
     publisher_service_watch: Option<BroadcastServiceWatchHandle>,
     publisher_service_snapshot: Option<BroadcastServiceWatchSnapshot>,
     publisher_log_panel: PublisherLogPanelState,
@@ -316,6 +321,8 @@ impl TopApp {
             _appearance_sub: appearance_sub,
             playback_owner,
             playback_polling: None,
+            broadcast_readiness_watch: None,
+            broadcast_readiness_snapshot: None,
             publisher_service_watch: None,
             publisher_service_snapshot: None,
             publisher_log_panel: PublisherLogPanelState::closed(),
@@ -389,6 +396,7 @@ impl TopApp {
 
         if matches!(tab, AppTab::Show) {
             self.queue_text_filter = None;
+            self.invalidate_broadcast_readiness_snapshot();
             self.refresh_show_page(cx);
             cx.notify();
             return;
@@ -439,6 +447,7 @@ impl TopApp {
                     if !matches!(
                         entry,
                         FrameNavigationEntry::Search(_)
+                            | FrameNavigationEntry::ReadinessIssues
                             | FrameNavigationEntry::SourceList
                             | FrameNavigationEntry::Settings
                     ) {
@@ -703,6 +712,7 @@ impl TopApp {
             FrameNavigationEntry::AlbumDetail(_) => "Album".to_string(),
             FrameNavigationEntry::ArtistDetail(_)
             | FrameNavigationEntry::IndexArtistFeedScope(_) => "Artist".to_string(),
+            FrameNavigationEntry::ReadinessIssues => "Broadcast Readiness".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
         }
     }
@@ -1047,6 +1057,7 @@ impl TopApp {
                 | FrameNavigationEntry::PlaylistDetail(_)
                 | FrameNavigationEntry::IndexArtistFeedScope(_)
                 | FrameNavigationEntry::IndexTrackDetail { .. }
+                | FrameNavigationEntry::ReadinessIssues
                 | FrameNavigationEntry::SourceList,
             )
             | None => {

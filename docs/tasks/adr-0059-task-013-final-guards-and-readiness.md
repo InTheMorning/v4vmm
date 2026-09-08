@@ -87,9 +87,8 @@ them, one line at a time, and records the result in the owning packet first.
 | 009 publisher section | The failed state names its reason, and `Reset` is the obvious action | A unit driven to `failed`, ideally `Result=start-limit-hit` |
 | 010 remote hosts | The `Source` host and reachability row reads correctly | A configured SSH host that is unreachable |
 | 015 stream encoder | The connected, disconnected, and not-installed states read correctly | An installed `butt` binary |
+| 012 readiness report | The readiness count is legible in place, and the action reaches the filtered list | A working display only |
 | 002, 003, 004 | Met on 2026-09-08 | Nothing. Recorded here so the set is complete |
-
-Packet 012 has not run yet. Add its gate to this table if it opens one.
 
 When a gate closes, update the owning packet `Status:` line and the row in
 `docs/plans/broadcast-chain-delivery-order.md` in the same change.

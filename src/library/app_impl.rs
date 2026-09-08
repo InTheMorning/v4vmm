@@ -20,6 +20,7 @@ use crate::application::commands::playlist::{
 };
 use crate::application::errors::command::CommandError;
 use crate::application::library_removal::{LibraryRemovalIntent, LibraryRemovalTarget};
+use crate::application::queries::broadcast::BroadcastReadinessReport;
 use crate::application::queries::feed::FetchRecentFeedsPage;
 use crate::application::queries::images::FetchThumbnail;
 use crate::application::queries::library::{
@@ -341,6 +342,15 @@ impl LibraryApp {
                 label: selection.label,
             });
         }
+    }
+
+    pub(crate) fn show_broadcast_readiness_report(
+        &mut self,
+        report: &BroadcastReadinessReport,
+        cx: &mut Context<Self>,
+    ) {
+        self.vm.replace_broadcast_readiness_report(report);
+        cx.notify();
     }
 
     pub(crate) fn recent_music_index_feed_detail(
@@ -1621,6 +1631,7 @@ impl LibraryApp {
             FrameNavigationEntry::Search(query) => query.clone(),
             FrameNavigationEntry::IndexFeedDetail { label, .. }
             | FrameNavigationEntry::IndexTrackDetail { label, .. } => label.clone(),
+            FrameNavigationEntry::ReadinessIssues => "Broadcast Readiness".to_string(),
             FrameNavigationEntry::Settings => "Settings".to_string(),
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
         }

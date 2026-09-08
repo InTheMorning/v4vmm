@@ -23,6 +23,7 @@ use std::fmt::Write as _;
 #[cfg(test)]
 use crate::application::library_removal::LibraryRemovalImpact;
 use crate::application::library_removal::{LibraryRemovalPlan, LibraryRemovalTarget};
+use crate::application::queries::broadcast::{BroadcastReadinessReport, BroadcastReadinessTrack};
 use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
@@ -1023,6 +1024,27 @@ impl ContentListRowDisplay {
         Self::from_track_result(display)
     }
 
+    /// Projects a broadcast-readiness problem into a local Music content row.
+    #[must_use]
+    pub(crate) fn from_broadcast_readiness_track(track: &BroadcastReadinessTrack) -> Self {
+        let artist = track
+            .artist
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("Unknown Artist");
+        let mut display = TrackResultDisplay::new(
+            track.track_id.to_string(),
+            track.title.clone(),
+            SearchResultOrigin::Library,
+        )
+        .with_secondary_text(format!("{artist} - {}", track.reason));
+        display.a11y_label = format!("Track: {}. {}", track.title, track.reason);
+
+        let mut row = Self::from_track_result(display);
+        row.state_label = Some(track.state.label());
+        row
+    }
+
     /// Returns the primary visible row title.
     #[must_use]
     pub(crate) fn title(&self) -> &str {
@@ -1122,6 +1144,14 @@ impl ContentListEmptyStateDisplay {
             clear_filter_action_id: None,
         }
     }
+
+    const fn for_broadcast_readiness() -> Self {
+        Self {
+            title: "No readiness issues",
+            secondary: "Local library tracks with files have payment routes.",
+            clear_filter_action_id: None,
+        }
+    }
 }
 
 /// Row population source currently projected into the content-list frame.
@@ -1131,6 +1161,8 @@ pub(crate) enum ContentListPageSource {
     Tree,
     /// Rows projected from the Recent Feeds index query.
     RecentMusic,
+    /// Rows projected from the broadcast readiness report.
+    BroadcastReadiness,
 }
 
 /// Load state for the content-list frame.
@@ -1362,6 +1394,23 @@ impl ContentListPageVm {
         self.has_more = false;
     }
 
+    /// Replaces the page with broadcast-readiness problem rows.
+    pub(crate) fn replace_broadcast_readiness_rows(&mut self, rows: Vec<ContentListRowDisplay>) {
+        self.library_rows.clone_from(&rows);
+        self.cached_rows = rows;
+        self.source = ContentListPageSource::BroadcastReadiness;
+        self.filter_state = ContentFilter::Library;
+        self.text_filter = None;
+        self.view_mode = ContentViewMode::List;
+        self.load_state = if self.cached_rows.is_empty() {
+            ContentListPageLoadState::Empty
+        } else {
+            ContentListPageLoadState::Loaded
+        };
+        self.loading = false;
+        self.has_more = false;
+    }
+
     /// Returns every cached row before filtering.
     #[must_use]
     #[cfg(test)]
@@ -1504,7 +1553,11 @@ impl ContentListPageVm {
             ContentListPageLoadState::Loaded
             | ContentListPageLoadState::Empty
             | ContentListPageLoadState::Loading => self.visible_rows().is_empty().then(|| {
-                let empty = if self.cached_rows.is_empty()
+                let empty = if self.source == ContentListPageSource::BroadcastReadiness
+                    && self.cached_rows.is_empty()
+                {
+                    ContentListEmptyStateDisplay::for_broadcast_readiness()
+                } else if self.cached_rows.is_empty()
                     && self.source == ContentListPageSource::RecentMusic
                     && self.filter_state != ContentFilter::Library
                 {
@@ -1886,6 +1939,16 @@ impl LibraryViewModel {
         self.content_list_page
             .replace_tree_rows(content_list_rows_from_tree(&tree));
         self.snapshot.tree = tree;
+    }
+
+    pub(crate) fn replace_broadcast_readiness_report(&mut self, report: &BroadcastReadinessReport) {
+        let rows = report
+            .problem_tracks()
+            .into_iter()
+            .map(ContentListRowDisplay::from_broadcast_readiness_track)
+            .collect();
+        self.content_list_page
+            .replace_broadcast_readiness_rows(rows);
     }
 
     pub(crate) fn update_album_identity_facts(
@@ -3996,6 +4059,23 @@ mod tests {
         ContentListRowDisplay::new(id, format!("{id} title"), format!("{id} secondary"), source)
     }
 
+    fn broadcast_readiness_track(
+        id: i64,
+        title: &str,
+        state: crate::application::queries::broadcast::BroadcastReadinessState,
+        reason: &str,
+    ) -> BroadcastReadinessTrack {
+        BroadcastReadinessTrack {
+            track_id: id,
+            title: title.to_owned(),
+            artist: Some("Artist".to_owned()),
+            album: Some("Album".to_owned()),
+            path: Some("/tmp/track.mp3".to_owned()),
+            state,
+            reason: reason.to_owned(),
+        }
+    }
+
     fn artist_result(id: &str, label: &str, origin: SearchResultOrigin) -> ArtistResultDisplay {
         ArtistResultDisplay::new(id, label, origin).with_secondary_text("2 releases")
     }
@@ -6001,6 +6081,48 @@ mod tests {
             ContentFilter::Library,
             "frame chrome should reflect the selected library-membership filter"
         );
+    }
+
+    #[test]
+    fn library_view_model_broadcast_readiness_report_replaces_content_list() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        let report = BroadcastReadinessReport {
+            summary: crate::application::queries::broadcast::BroadcastReadinessSummary {
+                ready: 1,
+                no_route_tag: 1,
+                file_missing: 1,
+            },
+            tracks: vec![
+                broadcast_readiness_track(
+                    7,
+                    "Missing Routes",
+                    crate::application::queries::broadcast::BroadcastReadinessState::NoRouteTag,
+                    "Embedded MusicIndex Value Routes tag is missing.",
+                ),
+                broadcast_readiness_track(
+                    8,
+                    "Missing File",
+                    crate::application::queries::broadcast::BroadcastReadinessState::FileMissing,
+                    "Recorded local file is missing.",
+                ),
+            ],
+        };
+
+        vm.replace_broadcast_readiness_report(&report);
+
+        assert_eq!(
+            vm.content_list_page.source(),
+            ContentListPageSource::BroadcastReadiness
+        );
+        assert_eq!(vm.content_filter(), ContentFilter::Library);
+        assert_eq!(vm.content_view_mode(), ContentViewMode::List);
+        let rows = vm.content_list_page.visible_rows();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].title(), "Missing Routes");
+        assert_eq!(rows[0].state_label, Some("Missing routes"));
+        assert_eq!(rows[1].title(), "Missing File");
+        assert_eq!(rows[1].state_label, Some("Missing file"));
     }
 
     #[test]

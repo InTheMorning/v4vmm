@@ -22,6 +22,7 @@
 
 pub mod actor;
 pub mod broadcast_observation;
+pub mod broadcast_readiness;
 pub mod broadcast_service_watch;
 pub mod musicbrainz_feed_saga;
 pub mod paged_list_vm;
@@ -32,6 +33,7 @@ pub use actor::{Actor, ActorHandle, Snapshot};
 pub use broadcast_observation::{
     BroadcastObservationHandle, BroadcastObservationOutcome, BroadcastObservationSnapshot,
 };
+pub(crate) use broadcast_readiness::{BroadcastReadinessSnapshot, BroadcastReadinessWatchHandle};
 pub use broadcast_service_watch::{
     BroadcastEncoderSnapshot, BroadcastEncoderWatchTarget, BroadcastServiceRole,
     BroadcastServiceUnitSnapshot, BroadcastServiceWatchHandle, BroadcastServiceWatchSnapshot,
