@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::api::DEFAULT_BASE_URL;
 use crate::theme_profile::ThemeProfile;
-use crate::view_models::workspace::WorkspaceLayoutConfig;
+use crate::view_models::workspace::{ContentViewMode, WorkspaceLayoutConfig};
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -72,6 +72,9 @@ pub(crate) struct WorkspaceLayoutPrefs {
         skip_serializing_if = "Option::is_none"
     )]
     pub(crate) content_pane_width: Option<f32>,
+    /// Persisted Music content-list presentation mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) content_list_view_mode: Option<ContentViewMode>,
 }
 
 /// Persisted UI scale enum — TOML representation is a lowercase string
@@ -427,6 +430,17 @@ pub(crate) fn save_workspace_layout_prefs(
         }
         None => {
             layout_table.remove("content_pane_width");
+        }
+    }
+    match workspace_layout_prefs.content_list_view_mode {
+        Some(mode) => {
+            layout_table.insert(
+                "content_list_view_mode".into(),
+                toml::Value::String(mode.id_suffix().to_string()),
+            );
+        }
+        None => {
+            layout_table.remove("content_list_view_mode");
         }
     }
 
@@ -1197,6 +1211,7 @@ kind = "detail"
             &cfg_path,
             &WorkspaceLayoutPrefs {
                 content_pane_width: Some(1400.0),
+                content_list_view_mode: Some(ContentViewMode::List),
             },
         )
         .expect("save workspace layout prefs");
@@ -1229,6 +1244,22 @@ kind = "detail"
             prefs.and_then(|prefs| prefs.content_pane_width),
             Some(1400.0),
             "workspace prefs save should update the persisted pane width"
+        );
+        assert_eq!(
+            prefs.and_then(|prefs| prefs.content_list_view_mode),
+            Some(ContentViewMode::List),
+            "workspace prefs save should update the persisted content-list view mode"
+        );
+        assert_eq!(
+            table
+                .get("workspace")
+                .and_then(toml::Value::as_table)
+                .and_then(|workspace| workspace.get("layout"))
+                .and_then(toml::Value::as_table)
+                .and_then(|layout| layout.get("content_list_view_mode"))
+                .and_then(toml::Value::as_str),
+            Some("list"),
+            "workspace prefs save should serialize the content-list view mode"
         );
         assert_eq!(
             table
@@ -1270,6 +1301,7 @@ workspace = "not a table"
             &cfg_path,
             &WorkspaceLayoutPrefs {
                 content_pane_width: Some(900.0),
+                content_list_view_mode: None,
             },
         )
         .expect("save workspace layout prefs");
@@ -1284,6 +1316,66 @@ workspace = "not a table"
             prefs.and_then(|prefs| prefs.content_pane_width),
             Some(900.0),
             "workspace prefs save should replace malformed workspace tables"
+        );
+    }
+
+    #[test]
+    fn load_config_defaults_missing_content_list_view_mode() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/old"
+db_path = "/tmp/v4vmm.sqlite"
+
+[workspace.layout]
+content_pane_width = 720.0
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let prefs = cfg
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.layout.as_ref())
+            .expect("workspace layout prefs");
+
+        assert_eq!(prefs.content_pane_width, Some(720.0));
+        assert_eq!(
+            prefs.content_list_view_mode, None,
+            "old configs without content_list_view_mode should keep loading"
+        );
+    }
+
+    #[test]
+    fn load_config_parses_content_list_view_mode() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let cfg_path = temp.path().join("config.toml");
+        fs::write(
+            &cfg_path,
+            r#"
+music_dir = "/tmp/old"
+db_path = "/tmp/v4vmm.sqlite"
+
+[workspace.layout]
+content_list_view_mode = "list"
+"#,
+        )
+        .expect("write config");
+
+        let cfg = load_config(&cfg_path).expect("load config");
+        let prefs = cfg
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.layout.as_ref())
+            .expect("workspace layout prefs");
+
+        assert_eq!(
+            prefs.content_list_view_mode,
+            Some(ContentViewMode::List),
+            "workspace prefs should deserialize the content-list view mode"
         );
     }
 }

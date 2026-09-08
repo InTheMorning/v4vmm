@@ -1769,7 +1769,7 @@ fn workspace_frame_phase_5_layout_persistence_contract() {
     }
 
     for required in [
-        "use crate::view_models::workspace::WorkspaceLayoutConfig;",
+        "WorkspaceLayoutConfig",
         "workspace_layout: Option<WorkspaceLayoutConfig>",
         "deserialize_workspace_layout_config",
         "pub(crate) fn save_workspace_layout(",
@@ -2200,7 +2200,8 @@ fn adr_0047_phase_d_filter_controls_render_through_frame_shell() {
         "on_filter_select",
         "display.filter_chip_strip.clone()",
         "display.library_filter_control.clone()",
-        "library_filter_control_display.is_some() || filter_chip_strip_display.is_some()",
+        "library_filter_control_display.is_some()",
+        "filter_chip_strip_display.is_some()",
         "library_filter_control(display, filter_slots)",
         "filter_chip_strip(display, filter_slots)",
     ] {
@@ -2225,7 +2226,8 @@ fn adr_0047_task_010a_content_list_page_vm_owns_filter_projection() {
 
     for required in [
         "use crate::view_models::workspace::{",
-        "ContentFilter, LibraryFilterControlDisplay",
+        "ContentFilter",
+        "LibraryFilterControlDisplay",
         "pub(crate) enum ContentListRowSource",
         "pub(crate) const fn matches_filter(self, filter: ContentFilter) -> bool",
         "pub(crate) struct ContentListRowDisplay",
@@ -11279,21 +11281,40 @@ fn recent_feeds_route_preserves_scroll_pagination() {
 fn recent_feeds_route_has_vm_owned_tile_list_view_mode() {
     let app_recent_source = read_source(&manifest_path("src/app/recent_feeds.rs"));
     let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let workspace_chrome_source =
+        read_source(&manifest_path("src/view_models/workspace/chrome.rs"));
     let recent_vm_source = read_source(&manifest_path("src/view_models/recent_feeds.rs"));
     let recent_shell_source = read_source(&manifest_path("src/ui/shells/recent_feeds.rs"));
 
     for required in [
-        "pub(crate) enum RecentFeedsViewMode",
+        "pub(crate) enum ContentViewMode",
         "#[default]",
+        "pub(crate) const fn label(self) -> &'static str",
+        "pub(crate) const fn id_suffix(self) -> &'static str",
+        "pub(crate) const fn a11y_label(self) -> &'static str",
+    ] {
+        assert!(
+            workspace_chrome_source.contains(required),
+            "src/view_models/workspace/chrome.rs: Situational ADR 0062 Recent Feeds view mode must use the shared VM-owned mode enum; missing `{required}`"
+        );
+    }
+
+    for required in [
+        "pub(crate) type RecentFeedsViewMode = ContentViewMode",
         "pub(crate) const fn view_mode(",
         "pub(crate) fn set_view_mode(",
         "pub(crate) const fn with_view_mode(",
     ] {
         assert!(
             recent_vm_source.contains(required),
-            "src/view_models/recent_feeds.rs: Recent Feeds view mode must be VM-owned and default to tiles; missing `{required}`"
+            "src/view_models/recent_feeds.rs: Situational ADR 0062 Recent Feeds route must reuse the shared VM-owned mode enum; missing `{required}`"
         );
     }
+
+    assert!(
+        !recent_vm_source.contains("enum RecentFeedsViewMode"),
+        "src/view_models/recent_feeds.rs: Situational ADR 0062 Recent Feeds route must not define a second view-mode enum"
+    );
 
     for required in [
         "set_recent_feeds_view_mode(",
@@ -11302,14 +11323,14 @@ fn recent_feeds_route_has_vm_owned_tile_list_view_mode() {
     ] {
         assert!(
             app_recent_source.contains(required),
-            "src/app/recent_feeds.rs: Recent Feeds view-mode command wiring missing `{required}`"
+            "src/app/recent_feeds.rs: Situational ADR 0062 Recent Feeds view-mode command wiring missing `{required}`"
         );
     }
 
     for required in ["RecentFeedsPageVm::view_mode", "with_view_mode(view_mode)"] {
         assert!(
             search_dispatch_source.contains(required),
-            "src/app/search_dispatch.rs: Recent Feeds refresh must preserve VM-owned view mode; missing `{required}`"
+            "src/app/search_dispatch.rs: Situational ADR 0062 Recent Feeds refresh must preserve VM-owned view mode; missing `{required}`"
         );
     }
 
@@ -11321,7 +11342,7 @@ fn recent_feeds_route_has_vm_owned_tile_list_view_mode() {
     ] {
         assert!(
             recent_shell_source.contains(required),
-            "src/ui/shells/recent_feeds.rs: Recent Feeds shell must expose the route view-mode presentations; missing `{required}`"
+            "src/ui/shells/recent_feeds.rs: Situational ADR 0062 Recent Feeds shell must expose the route view-mode presentations; missing `{required}`"
         );
     }
 }
@@ -13526,6 +13547,237 @@ fn adr_0062_library_tri_state_control_contract_is_vm_owned() {
     assert!(
         violations.is_empty(),
         "Situational ADR 0062 library tri-state control violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0062: Music content uses one persisted tile/list mode over one row contract.
+#[test]
+fn adr_0062_music_content_tile_and_list_modes_share_row_contract() {
+    let workspace_chrome_source =
+        read_source(&manifest_path("src/view_models/workspace/chrome.rs"));
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let content_shell_source = read_source(&manifest_path("src/ui/shells/library/content_list.rs"));
+    let frame_shell_vm_source = read_source(&manifest_path("src/view_models/workspace/chrome.rs"));
+    let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
+    let workspace_shell_source = read_source(&manifest_path("src/ui/shells/workspace.rs"));
+    let view_mode_control_source =
+        read_source(&manifest_path("src/ui/composites/view_mode_control.rs"));
+    let config_source = read_source(&manifest_path("src/config.rs"));
+    let tokens_source = read_source(&manifest_path("src/ui/tokens.rs"));
+    let app_source = read_source(&manifest_path("src/app.rs"));
+    let resize_source = read_source(&manifest_path("src/app/resize.rs"));
+    let mut violations = Vec::new();
+
+    let content_view_mode_enum_count = rust_files_under("src")
+        .into_iter()
+        .map(|path| read_source(&path))
+        .filter(|source| source.contains("enum ContentViewMode"))
+        .count();
+    if content_view_mode_enum_count != 1 {
+        violations.push(format!(
+            "Situational ADR 0062 content view-mode guard expects exactly one ContentViewMode enum; found {content_view_mode_enum_count}. Fix: promote the existing mode enum instead of defining another."
+        ));
+    }
+    if rust_files_under("src")
+        .into_iter()
+        .map(|path| read_source(&path))
+        .any(|source| source.contains("enum RecentFeedsViewMode"))
+    {
+        violations.push(
+            "Situational ADR 0062 content view-mode guard forbids a second RecentFeedsViewMode enum. Fix: keep RecentFeedsViewMode as an alias of ContentViewMode."
+                .to_string(),
+        );
+    }
+
+    for required in [
+        "pub(crate) enum ContentViewMode",
+        "#[serde(rename_all = \"snake_case\")]",
+        "Tiles",
+        "List",
+        "pub(crate) struct ContentViewModeControlDisplay",
+        "pub(crate) struct ContentViewModeOptionDisplay",
+        "default_for_content_list(selected: ContentViewMode)",
+        "options: [ContentViewModeOptionDisplay; 2]",
+        "content_list_a11y_label",
+    ] {
+        if !workspace_chrome_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace/chrome.rs: Situational ADR 0062 content view-mode contract missing `{required}`. Fix: keep labels, options, and accessibility in the VM layer."
+            ));
+        }
+    }
+
+    for required in [
+        "view_mode: ContentViewMode",
+        "pub(crate) const fn view_mode(&self) -> ContentViewMode",
+        "pub(crate) fn set_view_mode(&mut self, view_mode: ContentViewMode)",
+        "pub(crate) fn view_mode_control_display(&self) -> ContentViewModeControlDisplay",
+        "ContentViewModeControlDisplay::default_for_content_list(self.view_mode)",
+        "pub(crate) const fn content_view_mode(&self) -> ContentViewMode",
+        "pub(crate) fn set_content_view_mode(&mut self, view_mode: ContentViewMode)",
+        "pub(crate) fn content_view_mode_control(&self) -> ContentViewModeControlDisplay",
+    ] {
+        if !library_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: Situational ADR 0062 content view-mode projection missing `{required}`. Fix: own Music content mode in ContentListPageVm and expose it through LibraryViewModel."
+            ));
+        }
+    }
+
+    for required in [
+        "fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>",
+        "let album_image_href = album.image_href.as_deref();",
+        "ContentListRowDisplay::from_track_with_album_image(",
+        "pub(crate) fn from_track_with_album_image(",
+        ".or_else(|| album_image_href.map(str::to_owned))",
+        "display = display.with_thumbnail_href(thumbnail_href);",
+    ] {
+        if !library_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: Situational ADR 0062 tree artwork projection missing `{required}`. Fix: carry AlbumNode image_href into tree-derived ContentListRowDisplay thumbnails."
+            ));
+        }
+    }
+
+    for required in [
+        "match page.view_mode()",
+        "ContentViewMode::List =>",
+        "render_content_list_rows(page, render_state, thumbnails, scroll_handle, cx)",
+        "ContentViewMode::Tiles =>",
+        "render_content_list_tiles(page, render_state, thumbnails, scroll_handle, cx)",
+        "fn render_content_list_rows(",
+        "fn render_content_list_tiles(",
+        "fn render_content_list_tile(",
+        "fn render_empty_content_tile_artwork(",
+        "row.entity_badge.label",
+        "row.library_badge.label",
+        "ImagePrimitive::new(image)",
+        "ContentListPageVm::skeleton_tile_id(index)",
+    ] {
+        if !content_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/library/content_list.rs: Situational ADR 0062 tile/list renderer contract missing `{required}`. Fix: have both presentations render the same ContentListRowDisplay fields."
+            ));
+        }
+    }
+
+    for forbidden in [
+        "layout::SEARCH_TILE_WIDTH",
+        "layout::THUMBNAIL_XL",
+        "gpui::px(",
+        ".emoji()",
+    ] {
+        if content_shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/library/content_list.rs: Situational ADR 0062 tile geometry and empty artwork must use tokens and explicit VM data; found `{forbidden}`."
+            ));
+        }
+    }
+
+    for required in ["ContentTileWidth", "ContentTileArtwork"] {
+        if !tokens_source.contains(required) {
+            violations.push(format!(
+                "src/ui/tokens.rs: Situational ADR 0062 content tile geometry token missing `{required}`. Fix: keep Music tile dimensions in named tokens."
+            ));
+        }
+    }
+
+    for required in [
+        "view_mode_control: Option<ContentViewModeControlDisplay>",
+        "pub(crate) fn with_view_mode_control(",
+    ] {
+        if !frame_shell_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/workspace/chrome.rs: Situational ADR 0062 frame-shell view-mode display missing `{required}`. Fix: carry view-mode chrome through FrameShellDisplay."
+            ));
+        }
+    }
+
+    for required in [
+        "view_mode_control(display, view_mode_slots)",
+        "pub(crate) fn on_view_mode_select(",
+        "handler(view_mode, window, cx)",
+    ] {
+        if !frame_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/frame_shell.rs: Situational ADR 0062 frame-shell view-mode wiring missing `{required}`. Fix: render shared view-mode chrome through the frame shell."
+            ));
+        }
+    }
+
+    for required in [
+        "content_list_view_mode_control: Option<ContentViewModeControlDisplay>",
+        "pub(crate) fn content_list_view_mode_control(",
+        "on_content_list_view_mode_select: Option<WorkspaceViewModeSelectHandler>",
+        "pub(crate) fn on_content_list_view_mode_select(",
+        "WorkspaceFrameKind::ContentList => self.content_list_view_mode_control.clone()",
+        "display = display.with_view_mode_control(view_mode_control);",
+    ] {
+        if !workspace_shell_source.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/workspace.rs: Situational ADR 0062 workspace-shell view-mode wiring missing `{required}`. Fix: route Music content view mode as frame-local chrome."
+            ));
+        }
+    }
+
+    for required in [
+        "pub(crate) fn view_mode_control(",
+        "ContentViewModeControlDisplay",
+        "SegmentedControl::new(selected)",
+        ".filter_style()",
+        "label: SharedString::from(option.label)",
+        "a11y_label: SharedString::from(option.a11y_label)",
+    ] {
+        if !view_mode_control_source.contains(required) {
+            violations.push(format!(
+                "src/ui/composites/view_mode_control.rs: Situational ADR 0062 view-mode composite missing `{required}`. Fix: adapt the VM display contract without renderer-owned labels."
+            ));
+        }
+    }
+
+    for required in [
+        "content_list_view_mode: Option<ContentViewMode>",
+        "#[serde(default, skip_serializing_if = \"Option::is_none\")]",
+        "mode.id_suffix().to_string()",
+    ] {
+        if !config_source.contains(required) {
+            violations.push(format!(
+                "src/config.rs: Situational ADR 0062 content view-mode persistence missing `{required}`. Fix: persist the selected Music content mode while keeping old configs loadable."
+            ));
+        }
+    }
+
+    for required in [
+        "Self::initial_content_list_view_mode(workspace_layout_prefs)",
+        ".content_list_view_mode_control(content_view_mode_control)",
+        ".on_content_list_view_mode_select(",
+        "this.set_content_list_view_mode(view_mode, cx)",
+        "fn set_content_list_view_mode(",
+        "persist_content_list_view_mode(view_mode)",
+    ] {
+        if !app_source.contains(required) {
+            violations.push(format!(
+                "src/app.rs: Situational ADR 0062 content view-mode app wiring missing `{required}`. Fix: route the frame chrome selection back through TopApp."
+            ));
+        }
+    }
+
+    for required in [
+        "pub(super) fn initial_content_list_view_mode(",
+        "content_list_view_mode: Some(content_list_view_mode)",
+        "pub(super) fn persist_content_list_view_mode(",
+    ] {
+        if !resize_source.contains(required) {
+            violations.push(format!(
+                "src/app/resize.rs: Situational ADR 0062 content view-mode persistence bridge missing `{required}`. Fix: save pane width and content mode together."
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0062 Music content tile/list mode violations:\n{}",
         violations.join("\n")
     );
 }

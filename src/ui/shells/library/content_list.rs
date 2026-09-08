@@ -22,13 +22,21 @@ use crate::ui::composites::{
     ThumbnailSize,
 };
 use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::{Button as UiButton, Label};
-use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
+use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, Skeleton};
+use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size, Spacing};
 use crate::view_models::library::{
-    ContentListEntityKind, ContentListLoadMoreDisplay, ContentListPageStateDisplay,
-    ContentListPageVm, ContentListRowDisplay,
+    ContentListEntityKind, ContentListLoadMoreDisplay, ContentListLoadingStateDisplay,
+    ContentListPageStateDisplay, ContentListPageVm, ContentListRowDisplay,
 };
 use crate::view_models::pagination::{should_auto_load_more, AUTO_PAGINATE_THRESHOLD_PX};
+use crate::view_models::workspace::ContentViewMode;
+
+struct ContentListRenderState<'a> {
+    visible_rows: Vec<&'a ContentListRowDisplay>,
+    loading_display: Option<ContentListLoadingStateDisplay>,
+    state_display: Option<ContentListPageStateDisplay>,
+    load_more_display: Option<ContentListLoadMoreDisplay>,
+}
 
 /// Renders the Music content-list page.
 pub(crate) fn render_library_content_list(
@@ -37,10 +45,44 @@ pub(crate) fn render_library_content_list(
     scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let visible_rows = page.visible_rows();
-    let loading_display = page.loading_display();
-    let state_display = page.page_state_display();
-    let load_more_display = page.load_more_display();
+    let render_state = ContentListRenderState {
+        visible_rows: page.visible_rows(),
+        loading_display: page.loading_display(),
+        state_display: page.page_state_display(),
+        load_more_display: page.load_more_display(),
+    };
+    let body = match page.view_mode() {
+        ContentViewMode::List => {
+            render_content_list_rows(page, render_state, thumbnails, scroll_handle, cx)
+        }
+        ContentViewMode::Tiles => {
+            render_content_list_tiles(page, render_state, thumbnails, scroll_handle, cx)
+        }
+    };
+
+    div()
+        .id(ContentListPageVm::page_id())
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .min_w_0()
+        .overflow_hidden()
+        .child(body)
+        .into_any_element()
+}
+
+fn render_content_list_rows(
+    page: &ContentListPageVm,
+    render_state: ContentListRenderState<'_>,
+    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    scroll_handle: &ScrollHandle,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let pending_rows = render_state
+        .loading_display
+        .as_ref()
+        .map_or(0, |display| display.skeleton_count);
     let mut container = div()
         .id(ContentListPageVm::rows_id())
         .flex()
@@ -61,36 +103,74 @@ pub(crate) fn render_library_content_list(
         cx,
     );
 
-    div()
-        .id(ContentListPageVm::page_id())
+    container
+        .children(render_state.visible_rows.into_iter().map(|row| {
+            render_content_list_row(row, thumbnails.get(&row.id).cloned().flatten(), cx)
+        }))
+        .children((0..pending_rows).map(|index| {
+            SkeletonTrackRow::new(ContentListPageVm::skeleton_row_id(index))
+                .show_duration(false)
+                .into_any_element()
+        }))
+        .when_some(render_state.state_display, |el, display| {
+            el.child(render_content_list_state(display, cx))
+        })
+        .when_some(render_state.load_more_display, |el, display| {
+            el.child(render_content_list_load_more(display, cx))
+        })
+        .into_any_element()
+}
+
+fn render_content_list_tiles(
+    page: &ContentListPageVm,
+    render_state: ContentListRenderState<'_>,
+    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    scroll_handle: &ScrollHandle,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let pending_tiles = render_state
+        .loading_display
+        .as_ref()
+        .map_or(0, |display| display.skeleton_count);
+    let mut container = div()
+        .id(ContentListPageVm::rows_id())
         .flex()
         .flex_col()
         .flex_1()
         .min_h_0()
         .min_w_0()
-        .overflow_hidden()
+        .overflow_y_scroll()
+        .px(Spacing::MD.scaled(cx))
+        .pb(Spacing::MD.scaled(cx))
+        .gap(Spacing::SM.scaled(cx));
+
+    container = attach_content_list_auto_pagination(
+        container,
+        page.has_more(),
+        page.is_loading(),
+        scroll_handle,
+        cx,
+    );
+
+    container
         .child(
-            container
-                .children(visible_rows.into_iter().map(|row| {
-                    render_content_list_row(row, thumbnails.get(&row.id).cloned().flatten(), cx)
+            div()
+                .id(ContentListPageVm::tiles_id())
+                .flex()
+                .flex_row()
+                .flex_wrap()
+                .gap(Spacing::MD.scaled(cx))
+                .children(render_state.visible_rows.into_iter().map(|row| {
+                    render_content_list_tile(row, thumbnails.get(&row.id).cloned().flatten(), cx)
                 }))
-                .children(
-                    loading_display
-                        .iter()
-                        .flat_map(|display| 0..display.skeleton_count)
-                        .map(|index| {
-                            SkeletonTrackRow::new(ContentListPageVm::skeleton_row_id(index))
-                                .show_duration(false)
-                                .into_any_element()
-                        }),
-                )
-                .when_some(state_display, |el, display| {
-                    el.child(render_content_list_state(display, cx))
-                })
-                .when_some(load_more_display, |el, display| {
-                    el.child(render_content_list_load_more(display, cx))
-                }),
+                .children((0..pending_tiles).map(|index| render_pending_content_tile(index, cx))),
         )
+        .when_some(render_state.state_display, |el, display| {
+            el.child(render_content_list_state(display, cx))
+        })
+        .when_some(render_state.load_more_display, |el, display| {
+            el.child(render_content_list_load_more(display, cx))
+        })
         .into_any_element()
 }
 
@@ -157,6 +237,138 @@ fn render_content_list_row(
         .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
             this.open_content_list_row(&row_id, cx);
         }))
+        .into_any_element()
+}
+
+fn render_content_list_tile(
+    row: &ContentListRowDisplay,
+    thumbnail: Option<Arc<Image>>,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let row_id = row.id.clone();
+    let entity_kind = entity_kind_for_content(row.entity_kind());
+    let artwork_size = Size::ContentTileArtwork.scaled(cx);
+    let hover_bg = color(cx, SemanticColor::SecondarySystemBackground);
+
+    div()
+        .id(SharedString::from(row.element_id()))
+        .flex()
+        .flex_col()
+        .gap(Spacing::SM.scaled(cx))
+        .w(Size::ContentTileWidth.scaled(cx))
+        .p(Spacing::SM.scaled(cx))
+        .rounded(Radius::MD.scaled(cx))
+        .cursor_pointer()
+        .hover(move |el| el.bg(hover_bg))
+        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+            this.open_content_list_row(&row_id, cx);
+        }))
+        .child(render_content_list_tile_artwork(
+            thumbnail,
+            artwork_size,
+            cx,
+        ))
+        .child(
+            div().w(artwork_size).min_w_0().child(
+                Label::new(row.title().to_string())
+                    .size(FontSize::Caption)
+                    .weight(FontWeight::MEDIUM)
+                    .truncated(),
+            ),
+        )
+        .when(!row.secondary_text().is_empty(), |el| {
+            el.child(
+                div().w(artwork_size).min_w_0().child(
+                    Label::new(row.secondary_text().to_string())
+                        .size(FontSize::Micro)
+                        .color(SemanticColor::TertiaryLabel)
+                        .truncated(),
+                ),
+            )
+        })
+        .child(render_content_list_tile_badges(row, entity_kind, cx))
+        .into_any_element()
+}
+
+fn render_content_list_tile_artwork(
+    thumbnail: Option<Arc<Image>>,
+    artwork_size: gpui::Pixels,
+    cx: &App,
+) -> AnyElement {
+    match thumbnail {
+        Some(image) => ImagePrimitive::new(image)
+            .dimension(artwork_size)
+            .radius(Radius::MD)
+            .into_any_element(),
+        None => render_empty_content_tile_artwork(artwork_size, cx),
+    }
+}
+
+fn render_empty_content_tile_artwork(artwork_size: gpui::Pixels, cx: &App) -> AnyElement {
+    div()
+        .w(artwork_size)
+        .h(artwork_size)
+        .rounded(Radius::MD.scaled(cx))
+        .overflow_hidden()
+        .flex_shrink_0()
+        .bg(color(cx, SemanticColor::SystemFill))
+        .border_1()
+        .border_color(color(cx, SemanticColor::Separator))
+        .into_any_element()
+}
+
+fn render_content_list_tile_badges(
+    row: &ContentListRowDisplay,
+    entity_kind: EntityKind,
+    cx: &App,
+) -> AnyElement {
+    let mut badges = div()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap(Spacing::XS.scaled(cx))
+        .child(TagBadge::new(TagBadgeDisplay {
+            kind: entity_kind,
+            label: Some(SharedString::from(row.entity_badge.label)),
+        }))
+        .child(
+            Label::new(row.library_badge.label)
+                .size(FontSize::Micro)
+                .color(SemanticColor::TertiaryLabel)
+                .truncated(),
+        );
+
+    if let Some(state_label) = row.state_label {
+        badges = badges.child(
+            Label::new(state_label)
+                .size(FontSize::Micro)
+                .color(SemanticColor::Accent)
+                .truncated(),
+        );
+    }
+
+    badges.into_any_element()
+}
+
+fn render_pending_content_tile(index: usize, cx: &App) -> AnyElement {
+    let artwork_size = Size::ContentTileArtwork.scaled(cx);
+
+    div()
+        .id(ContentListPageVm::skeleton_tile_id(index))
+        .flex()
+        .flex_col()
+        .gap(Spacing::SM.scaled(cx))
+        .w(Size::ContentTileWidth.scaled(cx))
+        .p(Spacing::SM.scaled(cx))
+        .rounded(Radius::MD.scaled(cx))
+        .child(
+            div()
+                .flex_shrink_0()
+                .child(Skeleton::block(artwork_size, artwork_size).radius(Radius::MD)),
+        )
+        .child(div().w(artwork_size).child(Skeleton::row().full_width()))
+        .child(div().w(artwork_size).child(Skeleton::row().full_width()))
         .into_any_element()
 }
 

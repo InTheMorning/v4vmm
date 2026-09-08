@@ -482,6 +482,10 @@ pub enum Size {
     RowMd,
     /// 44 px — HIG menu/list row height (touch-friendly).
     RowLg,
+    /// 176 px — Music content tile outer width.
+    ContentTileWidth,
+    /// 152 px — Music content tile artwork edge.
+    ContentTileArtwork,
 }
 
 impl Size {
@@ -499,6 +503,8 @@ impl Size {
             Self::ColumnTall => px(480.0),
             Self::RowMd => px(36.0),
             Self::MinHitTarget | Self::RowLg => px(44.0),
+            Self::ContentTileWidth => px(176.0),
+            Self::ContentTileArtwork => px(152.0),
         }
     }
 

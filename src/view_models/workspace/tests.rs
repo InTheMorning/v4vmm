@@ -1,10 +1,10 @@
 use super::{
-    BreadcrumbDisplay, BreadcrumbTruncation, ContentFilter, FilterChipStripDisplay,
-    FilterChipStripWidthClass, FrameDetachEligibility, FrameDockTarget, FrameNavigationEntry,
-    FrameNavigationState, FrameSearchDescriptor, FrameSearchScope, FrameShellDisplay,
-    LibraryFilterControlDisplay, LibraryFilterControlTreatment, WorkspaceFrameConfig,
-    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
-    WorkspaceLayoutConfig, WorkspaceModelError,
+    BreadcrumbDisplay, BreadcrumbTruncation, ContentFilter, ContentViewMode,
+    ContentViewModeControlDisplay, FilterChipStripDisplay, FilterChipStripWidthClass,
+    FrameDetachEligibility, FrameDockTarget, FrameNavigationEntry, FrameNavigationState,
+    FrameSearchDescriptor, FrameSearchScope, FrameShellDisplay, LibraryFilterControlDisplay,
+    LibraryFilterControlTreatment, WorkspaceFrameConfig, WorkspaceFrameId, WorkspaceFrameKind,
+    WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig, WorkspaceModelError,
 };
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
@@ -234,6 +234,32 @@ fn library_filter_control_documents_activation_cycle() {
 }
 
 #[test]
+fn content_view_mode_control_projects_content_list_options() {
+    let display = ContentViewModeControlDisplay::default_for_content_list(ContentViewMode::List);
+
+    assert_eq!(
+        display.selected,
+        ContentViewMode::List,
+        "Situational ADR 0062 content-list view mode guard: selected mode should pass through"
+    );
+    assert_eq!(
+        display.options.map(|option| option.mode),
+        [ContentViewMode::Tiles, ContentViewMode::List],
+        "Situational ADR 0062 content-list view mode guard: content mode control should expose tile and list options"
+    );
+    assert_eq!(
+        display.options.map(|option| option.label),
+        ["Tiles", "List"],
+        "Situational ADR 0062 content-list view mode guard: mode labels should be VM-owned"
+    );
+    assert_eq!(
+        display.options.map(|option| option.a11y_label),
+        ["Show Music content as tiles", "Show Music content as a list"],
+        "Situational ADR 0062 content-list view mode guard: content mode accessibility labels should be VM-owned"
+    );
+}
+
+#[test]
 fn search_filter_chip_strip_defaults_use_standard_option_order() {
     let search_inspector =
         FilterChipStripDisplay::default_for_search_inspector(ContentFilter::All, true);
@@ -434,6 +460,10 @@ fn frame_shell_display_passes_through_header_text_and_slot_id() {
         "library filter controls are opt-in frame chrome"
     );
     assert_eq!(
+        display.view_mode_control, None,
+        "view-mode controls are opt-in frame chrome"
+    );
+    assert_eq!(
         display.breadcrumb, None,
         "breadcrumbs are opt-in frame chrome"
     );
@@ -469,6 +499,22 @@ fn frame_shell_display_accepts_optional_library_filter_control() {
         display.library_filter_control,
         Some(filters),
         "frame shell should carry optional frame-local library filters without applying them"
+    );
+}
+
+#[test]
+fn frame_shell_display_accepts_optional_view_mode_control() {
+    let frame = frame(7, WorkspaceFrameKind::ContentList);
+    let nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
+    let modes = ContentViewModeControlDisplay::default_for_content_list(ContentViewMode::List);
+
+    let display =
+        FrameShellDisplay::from_frame(&frame, &nav, true).with_view_mode_control(modes.clone());
+
+    assert_eq!(
+        display.view_mode_control,
+        Some(modes),
+        "frame shell should carry optional frame-local view modes without applying them"
     );
 }
 

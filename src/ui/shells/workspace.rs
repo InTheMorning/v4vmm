@@ -21,12 +21,13 @@ use crate::ui::layouts::{
 };
 use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
-    BreadcrumbDisplay, ContentFilter, FilterChipStripDisplay, FrameNavigationEntry,
-    FrameNavigationState, FrameShellDisplay, LibraryFilterControlDisplay, WorkspaceFrameKind,
-    WorkspaceFrameState, WorkspaceLayout,
+    BreadcrumbDisplay, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
+    FilterChipStripDisplay, FrameNavigationEntry, FrameNavigationState, FrameShellDisplay,
+    LibraryFilterControlDisplay, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
 };
 
 type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
+type WorkspaceViewModeSelectHandler = Rc<dyn Fn(ContentViewMode, &mut Window, &mut App) + 'static>;
 type WorkspaceBreadcrumbSelectHandler =
     Rc<dyn Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static>;
 type WorkspaceBreadcrumbLabeler = Rc<dyn Fn(&FrameNavigationEntry) -> String + 'static>;
@@ -45,9 +46,11 @@ pub(crate) struct WorkspaceSlots {
     detail: Option<AnyElement>,
     queue_now_playing: Option<AnyElement>,
     content_list_library_filter_control: Option<LibraryFilterControlDisplay>,
+    content_list_view_mode_control: Option<ContentViewModeControlDisplay>,
     content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
     detail_filter_chip_strip: Option<FilterChipStripDisplay>,
     on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
+    on_content_list_view_mode_select: Option<WorkspaceViewModeSelectHandler>,
     on_detail_filter_select: Option<WorkspaceFilterSelectHandler>,
     on_content_list_breadcrumb_select: Option<WorkspaceBreadcrumbSelectHandler>,
     content_list_breadcrumb_labeler: Option<WorkspaceBreadcrumbLabeler>,
@@ -106,6 +109,15 @@ impl WorkspaceSlots {
         self
     }
 
+    /// Supplies frame-local content view-mode chrome for the content-list frame.
+    pub(crate) fn content_list_view_mode_control(
+        mut self,
+        display: ContentViewModeControlDisplay,
+    ) -> Self {
+        self.content_list_view_mode_control = Some(display);
+        self
+    }
+
     /// Supplies frame-local chip filter chrome for the content-list frame.
     pub(crate) fn content_list_filter_chip_strip(
         mut self,
@@ -131,6 +143,15 @@ impl WorkspaceSlots {
         handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_content_list_filter_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the content-list view-mode callback.
+    pub(crate) fn on_content_list_view_mode_select(
+        mut self,
+        handler: impl Fn(ContentViewMode, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_content_list_view_mode_select = Some(Rc::new(handler));
         self
     }
 
@@ -242,6 +263,18 @@ impl WorkspaceSlots {
         }
     }
 
+    fn view_mode_control_for(
+        &self,
+        kind: WorkspaceFrameKind,
+    ) -> Option<ContentViewModeControlDisplay> {
+        match kind {
+            WorkspaceFrameKind::ContentList => self.content_list_view_mode_control.clone(),
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::QueueNowPlaying => None,
+        }
+    }
+
     fn filter_select_handler_for(
         &self,
         kind: WorkspaceFrameKind,
@@ -250,6 +283,18 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.on_content_list_filter_select.clone(),
             WorkspaceFrameKind::Detail => self.on_detail_filter_select.clone(),
             WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
+        }
+    }
+
+    fn view_mode_select_handler_for(
+        &self,
+        kind: WorkspaceFrameKind,
+    ) -> Option<WorkspaceViewModeSelectHandler> {
+        match kind {
+            WorkspaceFrameKind::ContentList => self.on_content_list_view_mode_select.clone(),
+            WorkspaceFrameKind::SourceList
+            | WorkspaceFrameKind::Detail
+            | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -326,7 +371,9 @@ impl RenderOnce for WorkspaceShell {
 
             let filter_chip_strip = self.slots.filter_chip_strip_for(frame_kind);
             let library_filter_control = self.slots.library_filter_control_for(frame_kind);
+            let view_mode_control = self.slots.view_mode_control_for(frame_kind);
             let on_filter_select = self.slots.filter_select_handler_for(frame_kind);
+            let on_view_mode_select = self.slots.view_mode_select_handler_for(frame_kind);
             let content = self.slots.take(frame.kind(), frame, cx);
             let fallback_navigation = FrameNavigationState::new(navigation_entry_for(frame_kind));
             let navigation = self
@@ -339,6 +386,9 @@ impl RenderOnce for WorkspaceShell {
             }
             if let Some(library_filter_control) = library_filter_control {
                 display = display.with_library_filter_control(library_filter_control);
+            }
+            if let Some(view_mode_control) = view_mode_control {
+                display = display.with_view_mode_control(view_mode_control);
             }
             if should_render_breadcrumb(frame_kind, navigation) {
                 let breadcrumb_id = format!("workspace-frame-{}-breadcrumb", frame.id().value());
@@ -359,6 +409,11 @@ impl RenderOnce for WorkspaceShell {
             if let Some(handler) = on_filter_select {
                 shell_slots = shell_slots.on_filter_select(move |filter, window, cx| {
                     handler(filter, window, cx);
+                });
+            }
+            if let Some(handler) = on_view_mode_select {
+                shell_slots = shell_slots.on_view_mode_select(move |view_mode, window, cx| {
+                    handler(view_mode, window, cx);
                 });
             }
             if let Some(handler) = self.slots.breadcrumb_select_handler_for(frame_kind) {

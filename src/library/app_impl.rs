@@ -67,8 +67,9 @@ use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::workspace::{
-    BreadcrumbDisplay, ContentFilter, FrameNavigationEntry, FrameNavigationState,
-    LibraryFilterControlDisplay, WorkspaceFrameId, WorkspaceLayout, WorkspaceModelError,
+    BreadcrumbDisplay, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
+    FrameNavigationEntry, FrameNavigationState, LibraryFilterControlDisplay, WorkspaceFrameId,
+    WorkspaceLayout, WorkspaceModelError,
 };
 use crate::views::{EntityIdentityLinks, LocalIdentityFacts};
 use gpui::{
@@ -271,8 +272,25 @@ impl LibraryApp {
         self.vm.content_library_filter_control()
     }
 
+    pub(crate) fn content_view_mode_control(&self) -> ContentViewModeControlDisplay {
+        self.vm.content_view_mode_control()
+    }
+
+    pub(crate) const fn content_view_mode(&self) -> ContentViewMode {
+        self.vm.content_view_mode()
+    }
+
     pub(crate) fn set_content_filter(&mut self, filter: ContentFilter, cx: &mut Context<Self>) {
         self.vm.set_content_filter(filter);
+        cx.notify();
+    }
+
+    pub(crate) fn set_content_view_mode(
+        &mut self,
+        view_mode: ContentViewMode,
+        cx: &mut Context<Self>,
+    ) {
+        self.vm.set_content_view_mode(view_mode);
         cx.notify();
     }
 
@@ -427,6 +445,32 @@ impl LibraryApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        Self::new_with_content_view_mode(
+            conn,
+            cache,
+            musicindex_endpoint,
+            application_services,
+            runtime_host,
+            ContentViewMode::default(),
+            window,
+            cx,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "top-level app bootstrap passes persisted content mode into the library surface"
+    )]
+    pub(crate) fn new_with_content_view_mode(
+        conn: Arc<Mutex<Connection>>,
+        cache: Arc<ImageCache>,
+        musicindex_endpoint: String,
+        application_services: Arc<ApplicationServices>,
+        runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
+        content_view_mode: ContentViewMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let chrome = LibraryViewModel::chrome_display();
         let new_playlist_input = cx.new(|cx: &mut Context<InputState>| {
             InputState::new(window, cx).placeholder(chrome.new_playlist_placeholder)
@@ -462,13 +506,15 @@ impl LibraryApp {
             );
             handle
         });
+        let mut vm = LibraryViewModel::new();
+        vm.set_content_view_mode(content_view_mode);
         let mut app = Self {
             conn,
             application_services,
             command_runner,
             cache,
             musicindex_endpoint,
-            vm: LibraryViewModel::new(),
+            vm,
             workspace_layout: Self::default_workspace_layout(),
             detail: LibraryDetail::None,
             thumbnails: BTreeMap::new(),

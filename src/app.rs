@@ -41,9 +41,9 @@ use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::show::ShowPageVm;
 use crate::view_models::workspace::{
-    ContentFilter, FilterChipStripWidthClass, FrameNavigationEntry, FrameNavigationState,
-    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
-    WorkspaceLayoutConfig,
+    ContentFilter, ContentViewMode, FilterChipStripWidthClass, FrameNavigationEntry,
+    FrameNavigationState, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState,
+    WorkspaceLayout, WorkspaceLayoutConfig,
 };
 
 mod bootstrap;
@@ -226,12 +226,13 @@ impl TopApp {
         });
         let global_search_sub = cx.subscribe(&global_search_input, Self::on_global_search_event);
         let library = cx.new(|cx| {
-            LibraryApp::new(
+            LibraryApp::new_with_content_view_mode(
                 conn.clone(),
                 library_cache,
                 musicindex_endpoint.clone(),
                 library_services,
                 library_runtime_host.clone(),
+                Self::initial_content_list_view_mode(workspace_layout_prefs),
                 window,
                 cx,
             )
@@ -471,6 +472,23 @@ impl TopApp {
             self.library.update(cx, |library, cx| {
                 library.set_content_filter(filter, cx);
             });
+        }
+        cx.notify();
+    }
+
+    fn set_content_list_view_mode(&mut self, view_mode: ContentViewMode, cx: &mut Context<Self>) {
+        if !matches!(
+            self.active_workspace_screen_mount(),
+            WorkspaceScreenMount::Music
+        ) {
+            return;
+        }
+
+        self.library.update(cx, |library, cx| {
+            library.set_content_view_mode(view_mode, cx);
+        });
+        if let Err(error) = self.persist_content_list_view_mode(view_mode) {
+            self.settings_status = format!("Error: {error:#}");
         }
         cx.notify();
     }
@@ -1051,12 +1069,21 @@ impl TopApp {
                 if matches!(mount, WorkspaceScreenMount::Music) {
                     let library_filter_control =
                         self.library.read(cx).content_library_filter_control();
+                    let content_view_mode_control =
+                        self.library.read(cx).content_view_mode_control();
                     let content_filter_entity = entity.clone();
+                    let content_view_mode_entity = entity.clone();
                     slots = slots
                         .content_list_library_filter_control(library_filter_control)
+                        .content_list_view_mode_control(content_view_mode_control)
                         .on_content_list_filter_select(move |filter, _window, cx| {
                             content_filter_entity.update(cx, |this, cx| {
                                 this.set_frame_filter(content_frame_id, filter, cx);
+                            });
+                        })
+                        .on_content_list_view_mode_select(move |view_mode, _window, cx| {
+                            content_view_mode_entity.update(cx, |this, cx| {
+                                this.set_content_list_view_mode(view_mode, cx);
                             });
                         });
                 }
@@ -1072,12 +1099,21 @@ impl TopApp {
                 if matches!(mount, WorkspaceScreenMount::Music) {
                     let library_filter_control =
                         self.library.read(cx).content_library_filter_control();
+                    let content_view_mode_control =
+                        self.library.read(cx).content_view_mode_control();
                     let content_filter_entity = entity.clone();
+                    let content_view_mode_entity = entity.clone();
                     slots = slots
                         .content_list_library_filter_control(library_filter_control)
+                        .content_list_view_mode_control(content_view_mode_control)
                         .on_content_list_filter_select(move |filter, _window, cx| {
                             content_filter_entity.update(cx, |this, cx| {
                                 this.set_frame_filter(content_frame_id, filter, cx);
+                            });
+                        })
+                        .on_content_list_view_mode_select(move |view_mode, _window, cx| {
+                            content_view_mode_entity.update(cx, |this, cx| {
+                                this.set_content_list_view_mode(view_mode, cx);
                             });
                         });
                 }

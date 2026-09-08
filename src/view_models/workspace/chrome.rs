@@ -2,6 +2,8 @@
 
 #![warn(clippy::pedantic)]
 
+use serde::{Deserialize, Serialize};
+
 use super::{
     breadcrumb::BreadcrumbDisplay,
     frame::{WorkspaceFrameId, WorkspaceFrameState},
@@ -143,6 +145,108 @@ impl LibraryFilterControlDisplay {
             ContentFilter::All => ContentFilter::Library,
             ContentFilter::Library => ContentFilter::Index,
             ContentFilter::Index => ContentFilter::All,
+        }
+    }
+}
+
+/// Presentation mode for content rows.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ContentViewMode {
+    /// Tiled artwork-first browser.
+    #[default]
+    Tiles,
+    /// Compact row list.
+    List,
+}
+
+impl ContentViewMode {
+    /// Returns the visible segment label.
+    #[must_use]
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Tiles => "Tiles",
+            Self::List => "List",
+        }
+    }
+
+    /// Returns the stable segment id suffix.
+    #[must_use]
+    pub(crate) const fn id_suffix(self) -> &'static str {
+        match self {
+            Self::Tiles => "tiles",
+            Self::List => "list",
+        }
+    }
+
+    /// Returns the accessibility label used by the Recent Feeds route.
+    #[must_use]
+    pub(crate) const fn a11y_label(self) -> &'static str {
+        match self {
+            Self::Tiles => "Show Recent Feeds as tiles",
+            Self::List => "Show Recent Feeds as a list",
+        }
+    }
+
+    const fn content_list_a11y_label(self) -> &'static str {
+        match self {
+            Self::Tiles => "Show Music content as tiles",
+            Self::List => "Show Music content as a list",
+        }
+    }
+}
+
+/// Display data for one content view-mode segment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ContentViewModeOptionDisplay {
+    /// Presentation mode selected by the segment.
+    pub(crate) mode: ContentViewMode,
+    /// Stable segment identifier.
+    pub(crate) id: &'static str,
+    /// Visible segment label.
+    pub(crate) label: &'static str,
+    /// Accessibility label for assistive technologies and tooltips.
+    pub(crate) a11y_label: &'static str,
+}
+
+/// Display contract for selecting a content view mode.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContentViewModeControlDisplay {
+    /// Stable control identifier.
+    pub(crate) id: &'static str,
+    /// Currently selected mode.
+    pub(crate) selected: ContentViewMode,
+    /// Ordered mode options.
+    pub(crate) options: [ContentViewModeOptionDisplay; 2],
+}
+
+impl ContentViewModeControlDisplay {
+    const CONTENT_LIST_ID: &'static str = "workspace-content-list-view-mode";
+    const CONTENT_LIST_TILES_ID: &'static str = "workspace-content-list-view-mode-tiles";
+    const CONTENT_LIST_LIST_ID: &'static str = "workspace-content-list-view-mode-list";
+
+    /// Creates the default content-list view-mode display.
+    #[must_use]
+    pub(crate) const fn default_for_content_list(selected: ContentViewMode) -> Self {
+        Self {
+            id: Self::CONTENT_LIST_ID,
+            selected,
+            options: [
+                Self::content_list_option(ContentViewMode::Tiles),
+                Self::content_list_option(ContentViewMode::List),
+            ],
+        }
+    }
+
+    const fn content_list_option(mode: ContentViewMode) -> ContentViewModeOptionDisplay {
+        ContentViewModeOptionDisplay {
+            mode,
+            id: match mode {
+                ContentViewMode::Tiles => Self::CONTENT_LIST_TILES_ID,
+                ContentViewMode::List => Self::CONTENT_LIST_LIST_ID,
+            },
+            label: mode.label(),
+            a11y_label: mode.content_list_a11y_label(),
         }
     }
 }
@@ -308,6 +412,8 @@ pub(crate) struct FrameShellDisplay {
     pub(crate) filter_chip_strip: Option<FilterChipStripDisplay>,
     /// Optional frame-local library-membership filter control.
     pub(crate) library_filter_control: Option<LibraryFilterControlDisplay>,
+    /// Optional frame-local content view-mode control.
+    pub(crate) view_mode_control: Option<ContentViewModeControlDisplay>,
     /// Optional frame-local breadcrumb path.
     pub(crate) breadcrumb: Option<BreadcrumbDisplay>,
     /// Stable content slot identifier for mounting frame body content.
@@ -352,6 +458,7 @@ impl FrameShellDisplay {
             action_menu_items: Vec::new(),
             filter_chip_strip: None,
             library_filter_control: None,
+            view_mode_control: None,
             breadcrumb: None,
             content_slot_id: format!("workspace-frame-{}-content", frame_id.value()),
         }
@@ -371,6 +478,13 @@ impl FrameShellDisplay {
         display: LibraryFilterControlDisplay,
     ) -> Self {
         self.library_filter_control = Some(display);
+        self
+    }
+
+    /// Returns this shell display with frame-local view-mode control attached.
+    #[must_use]
+    pub(crate) fn with_view_mode_control(mut self, display: ContentViewModeControlDisplay) -> Self {
+        self.view_mode_control = Some(display);
         self
     }
 

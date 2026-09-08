@@ -131,6 +131,10 @@ badges, and respond to the same filter and sort.
 The mode is a view preference. It changes no row content and no filter
 semantics.
 
+`ContentViewMode` owns the `Tiles` and `List` labels and accessibility text for
+the content-list control. The selected mode persists under
+`[workspace.layout].content_list_view_mode`; missing values load as tile mode.
+
 ## Invariants
 
 - The `Music` content region renders rows, never a navigation tree.

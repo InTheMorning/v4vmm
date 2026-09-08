@@ -20,8 +20,8 @@ use gpui::{
 };
 
 use crate::ui::composites::{
-    filter_chip_strip, library_filter_control, BreadcrumbTrail, FilterChipStripSlots,
-    LibraryFilterControlSlots,
+    filter_chip_strip, library_filter_control, view_mode_control, BreadcrumbTrail,
+    FilterChipStripSlots, LibraryFilterControlSlots, ViewModeControlSlots,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
@@ -30,13 +30,15 @@ use crate::ui::primitives::{
 };
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 use crate::view_models::workspace::{
-    ContentFilter, FilterChipStripDisplay, FrameChromeButtonDisplay, FrameChromeMenuItemDisplay,
-    FrameNavigationEntry, FrameShellDisplay, LibraryFilterControlDisplay,
+    ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FilterChipStripDisplay,
+    FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameNavigationEntry, FrameShellDisplay,
+    LibraryFilterControlDisplay,
 };
 
 type FrameButtonHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type FrameMenuSelectHandler = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
 type FrameFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
+type FrameViewModeSelectHandler = Rc<dyn Fn(ContentViewMode, &mut Window, &mut App) + 'static>;
 type FrameBreadcrumbSelectHandler =
     Rc<dyn Fn(FrameNavigationEntry, &mut Window, &mut App) + 'static>;
 
@@ -50,6 +52,7 @@ pub(crate) struct FrameShellSlots {
     on_close: Option<FrameButtonHandler>,
     on_menu_select: Option<FrameMenuSelectHandler>,
     on_filter_select: Option<FrameFilterSelectHandler>,
+    on_view_mode_select: Option<FrameViewModeSelectHandler>,
     on_breadcrumb_select: Option<FrameBreadcrumbSelectHandler>,
     appearance: Option<Appearance>,
 }
@@ -111,6 +114,15 @@ impl FrameShellSlots {
         handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_filter_select = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies the frame-local view-mode selection callback.
+    pub(crate) fn on_view_mode_select(
+        mut self,
+        handler: impl Fn(ContentViewMode, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_view_mode_select = Some(Rc::new(handler));
         self
     }
 
@@ -209,6 +221,7 @@ fn render_chrome(
     let content_slot_id = display.content_slot_id.clone();
     let filter_chip_strip_display = display.filter_chip_strip.clone();
     let library_filter_control_display = display.library_filter_control.clone();
+    let view_mode_control_display = display.view_mode_control.clone();
     let breadcrumb_display = display.breadcrumb.clone();
     let header_visible = display.header_visible();
     let mut nav = div()
@@ -302,11 +315,16 @@ fn render_chrome(
         chrome = chrome.child(header);
     }
 
-    if library_filter_control_display.is_some() || filter_chip_strip_display.is_some() {
+    if library_filter_control_display.is_some()
+        || filter_chip_strip_display.is_some()
+        || view_mode_control_display.is_some()
+    {
         chrome = chrome.child(frame_filter_row(
             library_filter_control_display,
             filter_chip_strip_display,
+            view_mode_control_display,
             slots.on_filter_select,
+            slots.on_view_mode_select,
             cx,
         ));
     }
@@ -334,7 +352,9 @@ fn render_chrome(
 fn frame_filter_row(
     library_filter_display: Option<LibraryFilterControlDisplay>,
     filter_chip_display: Option<FilterChipStripDisplay>,
+    view_mode_display: Option<ContentViewModeControlDisplay>,
     handler: Option<FrameFilterSelectHandler>,
+    view_mode_handler: Option<FrameViewModeSelectHandler>,
     cx: &App,
 ) -> AnyElement {
     let mut row = div()
@@ -361,6 +381,17 @@ fn frame_filter_row(
             });
         }
         row = row.child(filter_chip_strip(display, filter_slots));
+    }
+
+    row = row.child(div().flex_1().min_w_0());
+    if let Some(display) = view_mode_display {
+        let mut view_mode_slots = ViewModeControlSlots::new();
+        if let Some(handler) = view_mode_handler {
+            view_mode_slots = view_mode_slots.on_select(move |view_mode, window, cx| {
+                handler(view_mode, window, cx);
+            });
+        }
+        row = row.child(view_mode_control(display, view_mode_slots));
     }
 
     div()
@@ -449,6 +480,7 @@ mod tests {
             .on_forward(|_, _| {})
             .on_close(|_, _| {})
             .on_menu_select(|_, _, _| {})
+            .on_view_mode_select(|_, _, _| {})
             .on_breadcrumb_select(|_, _, _| {});
 
         assert!(slots.content.is_some());
@@ -456,6 +488,7 @@ mod tests {
         assert!(slots.on_forward.is_some());
         assert!(slots.on_close.is_some());
         assert!(slots.on_menu_select.is_some());
+        assert!(slots.on_view_mode_select.is_some());
         assert!(slots.on_breadcrumb_select.is_some());
         assert!(slots.on_filter_select.is_none());
     }
@@ -465,6 +498,13 @@ mod tests {
         let slots = FrameShellSlots::new().on_filter_select(|_, _, _| {});
 
         assert!(slots.on_filter_select.is_some());
+    }
+
+    #[test]
+    fn slots_accept_view_mode_selection_callback() {
+        let slots = FrameShellSlots::new().on_view_mode_select(|_, _, _| {});
+
+        assert!(slots.on_view_mode_select.is_some());
     }
 
     #[test]

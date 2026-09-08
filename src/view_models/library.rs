@@ -45,7 +45,9 @@ use crate::view_models::search_results::{
     TrackResultDisplay,
 };
 use crate::view_models::text_filter::{contains_normalized, normalize};
-use crate::view_models::workspace::{ContentFilter, LibraryFilterControlDisplay};
+use crate::view_models::workspace::{
+    ContentFilter, ContentViewMode, ContentViewModeControlDisplay, LibraryFilterControlDisplay,
+};
 use crate::view_models::{ActionStatusMessageDisplay, SplitPaneState};
 use crate::views::{
     ArtistView, FeedMetadataFacts, FeedRef, FeedView, LocalIdentityFacts, TrackRef,
@@ -937,6 +939,7 @@ pub(crate) struct ContentListRowDisplay {
 impl ContentListRowDisplay {
     /// Creates a track content-list row display from legacy row facts.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn new(
         id: impl Into<String>,
         title: impl Into<String>,
@@ -976,26 +979,48 @@ impl ContentListRowDisplay {
 
     /// Projects a database track row into content-list display data.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn from_track(track: &TrackRow) -> Self {
-        Self::new(
+        Self::from_track_with_album_image(track, track.album_image_href.as_deref())
+    }
+
+    /// Projects a database track row into content-list display data with album artwork.
+    #[must_use]
+    pub(crate) fn from_track_with_album_image(
+        track: &TrackRow,
+        album_image_href: Option<&str>,
+    ) -> Self {
+        let source = if track.is_in_library {
+            ContentListRowSource::Library
+        } else {
+            ContentListRowSource::Index
+        };
+        let thumbnail_href = track
+            .track_image_href
+            .clone()
+            .or_else(|| track.album_image_href.clone())
+            .or_else(|| album_image_href.map(str::to_owned));
+        let mut display = TrackResultDisplay::new(
             track.id.to_string(),
             track
                 .track_title
                 .clone()
                 .or_else(|| track.feed_title.clone())
                 .unwrap_or_else(|| "Untitled".to_string()),
+            source.as_search_result_origin(),
+        )
+        .with_secondary_text(
             track
                 .album_artist_name
                 .clone()
                 .or_else(|| track.artist_name.clone())
                 .or_else(|| track.album_title.clone())
                 .unwrap_or_else(|| "Unknown Artist".to_string()),
-            if track.is_in_library {
-                ContentListRowSource::Library
-            } else {
-                ContentListRowSource::Index
-            },
-        )
+        );
+        if let Some(thumbnail_href) = thumbnail_href {
+            display = display.with_thumbnail_href(thumbnail_href);
+        }
+        Self::from_track_result(display)
     }
 
     /// Returns the primary visible row title.
@@ -1181,6 +1206,7 @@ pub(crate) struct ContentListIndexFeedSelection {
 #[derive(Clone, Debug)]
 pub(crate) struct ContentListPageVm {
     filter_state: ContentFilter,
+    view_mode: ContentViewMode,
     text_filter: Option<String>,
     cached_rows: Vec<ContentListRowDisplay>,
     library_rows: Vec<ContentListRowDisplay>,
@@ -1193,6 +1219,7 @@ pub(crate) struct ContentListPageVm {
 impl ContentListPageVm {
     const PAGE_ID: &'static str = "music-content-list-page";
     const ROWS_ID: &'static str = "music-content-list-rows";
+    const TILES_ID: &'static str = "music-content-list-tiles";
     const LOAD_MORE_BUTTON_ID: &'static str = "music-content-list-load-more";
     const LOAD_MORE_LABEL: &'static str = "Load more";
     const LOAD_MORE_A11Y_LABEL: &'static str = "Load more recent music";
@@ -1210,6 +1237,7 @@ impl ContentListPageVm {
         };
         Self {
             filter_state: ContentFilter::default(),
+            view_mode: ContentViewMode::default(),
             text_filter: None,
             cached_rows,
             library_rows,
@@ -1290,6 +1318,23 @@ impl ContentListPageVm {
     /// Sets the selected content filter for this frame-local page.
     pub(crate) fn set_filter(&mut self, filter: ContentFilter) {
         self.filter_state = filter;
+    }
+
+    /// Returns the selected content presentation mode.
+    #[must_use]
+    pub(crate) const fn view_mode(&self) -> ContentViewMode {
+        self.view_mode
+    }
+
+    /// Sets the selected content presentation mode.
+    pub(crate) fn set_view_mode(&mut self, view_mode: ContentViewMode) {
+        self.view_mode = view_mode;
+    }
+
+    /// Returns the frame-local content-list view-mode control display.
+    #[must_use]
+    pub(crate) fn view_mode_control_display(&self) -> ContentViewModeControlDisplay {
+        ContentViewModeControlDisplay::default_for_content_list(self.view_mode)
     }
 
     /// Returns the active text filter, when set.
@@ -1564,10 +1609,22 @@ impl ContentListPageVm {
         Self::ROWS_ID
     }
 
+    /// Stable tile-grid element id for the renderer.
+    #[must_use]
+    pub(crate) const fn tiles_id() -> &'static str {
+        Self::TILES_ID
+    }
+
     /// Stable skeleton row element id for the renderer.
     #[must_use]
     pub(crate) const fn skeleton_row_id(index: usize) -> (&'static str, usize) {
         ("music-content-loading-row", index)
+    }
+
+    /// Stable skeleton tile element id for the renderer.
+    #[must_use]
+    pub(crate) const fn skeleton_tile_id(index: usize) -> (&'static str, usize) {
+        ("music-content-loading-tile", index)
     }
 
     /// Returns the frame-local library-membership filter display for this content list.
@@ -1993,6 +2050,20 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) fn content_library_filter_control(&self) -> LibraryFilterControlDisplay {
         self.content_list_page.library_filter_control_display()
+    }
+
+    #[must_use]
+    pub(crate) const fn content_view_mode(&self) -> ContentViewMode {
+        self.content_list_page.view_mode()
+    }
+
+    pub(crate) fn set_content_view_mode(&mut self, view_mode: ContentViewMode) {
+        self.content_list_page.set_view_mode(view_mode);
+    }
+
+    #[must_use]
+    pub(crate) fn content_view_mode_control(&self) -> ContentViewModeControlDisplay {
+        self.content_list_page.view_mode_control_display()
     }
 
     #[must_use]
@@ -2969,8 +3040,12 @@ fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>
     tree.artists
         .iter()
         .flat_map(|artist| &artist.albums)
-        .flat_map(|album| album.tracks.iter())
-        .map(ContentListRowDisplay::from_track)
+        .flat_map(|album| {
+            let album_image_href = album.image_href.as_deref();
+            album.tracks.iter().map(move |track| {
+                ContentListRowDisplay::from_track_with_album_image(track, album_image_href)
+            })
+        })
         .collect()
 }
 
@@ -4130,6 +4205,58 @@ mod tests {
     }
 
     #[test]
+    fn content_list_page_vm_defaults_to_tiles_view_mode() {
+        let page = ContentListPageVm::new(Vec::new());
+        let display = page.view_mode_control_display();
+
+        assert_eq!(
+            page.view_mode(),
+            ContentViewMode::Tiles,
+            "Situational ADR 0062 content-list view mode guard: Music content should default to tiles"
+        );
+        assert_eq!(
+            display.selected,
+            ContentViewMode::Tiles,
+            "Situational ADR 0062 content-list view mode guard: control display should mirror page selection"
+        );
+        assert_eq!(
+            display.options.map(|option| option.mode),
+            [ContentViewMode::Tiles, ContentViewMode::List],
+            "Situational ADR 0062 content-list view mode guard: control should expose tile and list options"
+        );
+    }
+
+    #[test]
+    fn content_list_page_vm_set_view_mode_preserves_visible_rows() {
+        let mut page = ContentListPageVm::new(vec![
+            content_row("library", ContentListRowSource::Library),
+            content_row("index", ContentListRowSource::Index),
+        ]);
+        page.set_filter(ContentFilter::Index);
+        let tile_rows = page
+            .visible_row_ids()
+            .into_iter()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+
+        page.set_view_mode(ContentViewMode::List);
+
+        assert_eq!(
+            page.view_mode(),
+            ContentViewMode::List,
+            "Situational ADR 0062 content-list view mode guard: selected mode should update"
+        );
+        assert_eq!(
+            page.visible_row_ids()
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+            tile_rows,
+            "Situational ADR 0062 content-list view mode guard: tile and list modes should expose the same visible rows for the same filter"
+        );
+    }
+
+    #[test]
     fn content_list_page_vm_set_filter_updates_visible_rows() {
         let mut page = ContentListPageVm::new(vec![
             content_row("library", ContentListRowSource::Library),
@@ -4298,6 +4425,21 @@ mod tests {
             visible_rows[0].library_badge.state,
             ContentListLibraryBadgeState::NotInLibrary,
             "non-library TrackRow values should project remote rows as index content"
+        );
+    }
+
+    #[test]
+    fn content_list_rows_from_tree_carry_album_artwork() {
+        let rows = content_list_rows_from_tree(&library_tree());
+        let row = rows
+            .iter()
+            .find(|row| row.id == "1")
+            .expect("projected row with album artwork");
+
+        assert_eq!(
+            row.thumbnail_href(),
+            Some("saw.jpg"),
+            "Situational ADR 0062 content-list artwork guard: tree-derived rows should carry AlbumNode image_href into the shared row contract"
         );
     }
 
@@ -5858,6 +6000,30 @@ mod tests {
             vm.content_library_filter_control().current.filter,
             ContentFilter::Library,
             "frame chrome should reflect the selected library-membership filter"
+        );
+    }
+
+    #[test]
+    fn library_view_model_content_view_mode_uses_content_list_page_vm() {
+        let mut vm = LibraryViewModel::new();
+
+        assert_eq!(
+            vm.content_view_mode(),
+            ContentViewMode::Tiles,
+            "Situational ADR 0062 content-list view mode guard: LibraryViewModel should expose the page VM default"
+        );
+
+        vm.set_content_view_mode(ContentViewMode::List);
+
+        assert_eq!(
+            vm.content_view_mode(),
+            ContentViewMode::List,
+            "Situational ADR 0062 content-list view mode guard: LibraryViewModel should update the page VM mode"
+        );
+        assert_eq!(
+            vm.content_view_mode_control().selected,
+            ContentViewMode::List,
+            "Situational ADR 0062 content-list view mode guard: LibraryViewModel should project the selected mode into chrome display"
         );
     }
 

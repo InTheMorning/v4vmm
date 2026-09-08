@@ -10,7 +10,10 @@
 use crate::view_models::search_results::{
     FeedResultDisplay, IndexDetailDisplay, SearchResultItemId,
 };
-use crate::view_models::workspace::ContentFilter;
+use crate::view_models::workspace::{ContentFilter, ContentViewMode};
+
+/// Presentation mode for the Recent Feeds route.
+pub(crate) type RecentFeedsViewMode = ContentViewMode;
 
 /// Display-ready row for one Recent Feeds item.
 pub(crate) type RecentFeedResultRow = (SearchResultItemId, FeedResultDisplay);
@@ -37,45 +40,6 @@ impl RecentFeedsLoadIntent {
     #[must_use]
     pub(crate) fn into_cursor(self) -> Option<String> {
         self.cursor
-    }
-}
-
-/// Presentation mode for the Recent Feeds route.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum RecentFeedsViewMode {
-    /// Tiled artwork-first browser.
-    #[default]
-    Tiles,
-    /// Compact row list.
-    List,
-}
-
-impl RecentFeedsViewMode {
-    /// Returns the visible segment label.
-    #[must_use]
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Tiles => "Tiles",
-            Self::List => "List",
-        }
-    }
-
-    /// Returns the stable segment id suffix.
-    #[must_use]
-    pub(crate) const fn id_suffix(self) -> &'static str {
-        match self {
-            Self::Tiles => "tiles",
-            Self::List => "list",
-        }
-    }
-
-    /// Returns the accessibility label for the segment.
-    #[must_use]
-    pub(crate) const fn a11y_label(self) -> &'static str {
-        match self {
-            Self::Tiles => "Show Recent Feeds as tiles",
-            Self::List => "Show Recent Feeds as a list",
-        }
     }
 }
 

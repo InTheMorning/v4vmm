@@ -44,6 +44,7 @@ pub mod track_detail_surface;
 pub mod track_header;
 pub mod track_metadata_grid;
 pub mod track_row;
+pub mod view_mode_control;
 
 pub use action_button::{action_button, ActionButtonDisplay};
 pub use action_row::{
@@ -106,3 +107,4 @@ pub use track_metadata_grid::{
     TrackMetadataTextValue,
 };
 pub use track_row::TrackRow;
+pub(crate) use view_mode_control::{view_mode_control, ViewModeControlSlots};
