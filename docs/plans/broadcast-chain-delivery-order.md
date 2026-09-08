@@ -146,6 +146,9 @@ Update this table when a packet lands.
 | `v4vmm` | 012 readiness report | implemented - 2026-09-08; one visual gate open: readiness count legibility and the action that reaches the filtered list |
 | `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
 | `v4vmm` | 013 final guards | ready |
+| `v4vmm` | 0063 001 card contract | ready |
+| `v4vmm` | 0063 002 card grid shell | ready |
+| `v4vmm` | 0063 003 detail panel | ready |
 | `splitkit` | reserved 001 store boundary | not started |
 | `splitkit` | reserved 002 reserved class | not started |
 | `splitkit` | reserved 003 restore and TTL | not started |
@@ -196,6 +199,15 @@ screen mount, so it runs before 012, 014, and 015.
 | 6 | 012 library readiness report | 009, and ADR 0062 for the `Music` list |
 | 7 | 014 attach event to publisher target | 009, 010, and publisher task 001 |
 | 8 | 013 final guards and readiness | everything above |
+
+ADR 0063 rebuilds the `Show` layout. It does not block the packets above, and
+they do not block it. Packet 013 checks the layout that ADR 0063 leaves.
+
+| Order | Packet | Depends on |
+|---|---|---|
+| 1 | `docs/tasks/adr-0063-task-001-card-contract-and-width-class.md` | nothing |
+| 2 | `docs/tasks/adr-0063-task-002-card-grid-shell.md` | 001 |
+| 3 | `docs/tasks/adr-0063-task-003-collapsible-detail-panel.md` | 002 |
 
 After that:
 

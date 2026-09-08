@@ -87,6 +87,7 @@ them, one line at a time, and records the result in the owning packet first.
 | 010 remote hosts | The `Source` host and reachability row reads correctly | A configured SSH host that is unreachable |
 | 015 stream encoder | The connected, disconnected, and not-installed states read correctly | An installed `butt` binary |
 | 012 readiness report | The readiness count is legible in place, and the action reaches the filtered list | A working display only |
+| 0063 003 detail panel | The panel, the card grid, and the transport all work together | A working display only |
 | 002, 003, 004 | Met on 2026-09-08 | Nothing. Recorded here so the set is complete |
 
 The open checks and the method to reach each state live in

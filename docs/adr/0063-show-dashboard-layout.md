@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed - 2026-09-08.
+Accepted - 2026-09-08.
 
 Amends ADR 0060, which made `Show` a screen mount but did not say how the
 sections inside it are arranged. ADR 0059 keeps the section set and the section
@@ -65,6 +65,14 @@ Selecting a card while the panel is closed opens the panel in `Detail`.
 The log output of a service is `Detail` content for the `Live Metadata` card. It
 is not a strip inside the section any more.
 
+### Transport Stays Outside The Panel
+
+The transport controls do not move into the panel. They stay on `Show` itself,
+below the card grid, and they are visible when the panel is closed.
+
+A closed panel must never remove play, pause, or skip from an operator during a
+live show.
+
 ### Status Does Not Scroll
 
 The card grid does not scroll. Every card is visible at once at every supported
@@ -80,6 +88,7 @@ compact card, not a scroll region.
 - The card grid does not scroll.
 - The view model owns the column count. The shell reads it.
 - The panel shows the cuelist or one card detail, never both.
+- The transport controls stay reachable when the panel is closed.
 - The panel closes, and the grid continues to work when it is closed.
 - The section set and the section order stay as ADR 0059 states them.
 
@@ -114,6 +123,8 @@ stays a reasonable answer if the section count grows past what one screen holds.
 - The publisher log panel state moves from the section to the panel.
 - `render_show` renders a grid and a panel, not a column of sections.
 - The queue keeps its display contract. Only its container changes.
+- The transport moves out of the queue container, so it survives a closed
+  panel.
 - A visual check for this layout is open until a person runs it.
 
 ## Follow-Up Work
@@ -121,7 +132,6 @@ stays a reasonable answer if the section count grows past what one screen holds.
 - A packet for the card contract and the width class in the view model.
 - A packet for the card composite and the grid shell.
 - A packet for the collapsible panel and its two modes.
-- Decide where the transport controls live. They render under the queue today.
 
 ## References
 
