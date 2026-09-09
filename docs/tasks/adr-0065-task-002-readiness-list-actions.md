@@ -1,7 +1,8 @@
 # ADR 0065 Task 002: Check All Feeds Repairs, And The List Acts
 
-Status: Implemented - 2026-09-09. Mechanical acceptance complete. Visual gate
-open in `docs/pending-human-checks.md`.
+Status: Implemented - 2026-09-09. Mechanical and operator visual acceptance
+met; the operator check confirmed `Check all feeds` repairs route tags and
+reports counts.
 
 Revised 2026-09-08 after ADR 0065 was amended. Do after task 001, which writes
 the tag this task asks for.

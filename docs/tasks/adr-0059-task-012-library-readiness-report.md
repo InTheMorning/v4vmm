@@ -1,9 +1,8 @@
 # ADR 0059 Task 012: Library Broadcast Readiness Report
 
-Status: Implemented, one visual gate open - 2026-09-08. Mechanical acceptance
-met. Visual: the readiness count legibility and the action that reaches the
-filtered list stay OPEN, blocked by GPUI X11 initialization in the agent
-session. Revised for ADR 0060 and ADR 0062.
+Status: Implemented - 2026-09-08. Mechanical and operator visual acceptance
+met; the operator check confirmed the readiness count agrees with
+`broadcast readiness --json`. Revised for ADR 0060 and ADR 0062.
 
 ## Goal
 

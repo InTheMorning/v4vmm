@@ -140,25 +140,25 @@ Update this table when a packet lands.
 | `v4vmm` | 007 broadcast shell | removed by ADR 0060 / task 001 |
 | `v4vmm` | 008 service control | complete - 2026-09-08 |
 | `v4vmm` | 009 publisher section | implemented - 2026-09-08; visual acceptance met, one layout defect found and fixed (detail line now always present) |
-| `v4vmm` | 010 remote hosts | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
-| `v4vmm` | 014 attach event | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
+| `v4vmm` | 010 remote hosts | implemented - 2026-09-08; visual acceptance met with `Broken` SSH host |
+| `v4vmm` | 014 attach event | implemented - 2026-09-08; visual acceptance met with default target attach and detach |
 | `v4vmm` | 011 mpv producer | implemented - 2026-09-08 |
-| `v4vmm` | 012 readiness report | implemented - 2026-09-08; one visual gate open: readiness count legibility and the action that reaches the filtered list |
-| `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
+| `v4vmm` | 012 readiness report | implemented - 2026-09-08; visual acceptance met with readiness CLI count |
+| `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual acceptance met with no encoder and `butt`; command buttons briefly disappearing moved to polish backlog |
 | `v4vmm` | 013 final guards | ready |
 | `v4vmm` | 0063 001 card contract | implemented - 2026-09-08; no visual criteria |
-| `v4vmm` | 0063 002 card grid shell | implemented - 2026-09-08; visual check passed after the truncation fix |
-| `v4vmm` | 0063 003 detail panel | implemented - 2026-09-08; visual check found four defects, three fixed, the log placement moved to 004 |
+| `v4vmm` | 0063 002 card grid shell | implemented - 2026-09-08; visual acceptance met after the 2026-09-09 fix retest |
+| `v4vmm` | 0063 003 detail panel | implemented - 2026-09-08; visual acceptance met after the 2026-09-09 fix retest; log placement moved to 004 |
 | `v4vmm` | 0063 004 log bottom pane | ready |
-| `v4vmm` | 0064 001 relative local paths | implemented - 2026-09-09; one visual gate open: readiness report counts after repair |
+| `v4vmm` | 0064 001 relative local paths | implemented - 2026-09-09; visual acceptance met after path repair converted moved library |
 | `v4vmm` | 0064 002 repair report surface | ready |
 | `v4vmm` | 0065 001 tag repair service | implemented - 2026-09-09; no visual criteria |
-| `v4vmm` | 0065 002 check-all-feeds repair and list actions | implemented - 2026-09-09; visual gate open: route repair row action and check-all result copy |
-| `splitkit` | reserved 001 store boundary | not started |
-| `splitkit` | reserved 002 reserved class | not started |
-| `splitkit` | reserved 003 restore and TTL | not started |
-| `splitkit` | reserved 004 list and delete | not started |
-| `splitkit` | reserved 005 guards and review | not started |
+| `v4vmm` | 0065 002 check-all-feeds repair and list actions | implemented - 2026-09-09; visual acceptance met; result message width moved to polish backlog |
+| `splitkit` | reserved 001 store boundary | ready |
+| `splitkit` | reserved 002 reserved class | ready; response contract pinned against `LiveItemCreateResponse` |
+| `splitkit` | reserved 003 restore and TTL | ready; this is the packet that stops the 24-hour death |
+| `splitkit` | reserved 004 list and delete | ready; list envelope pinned |
+| `splitkit` | reserved 005 guards and review | ready; also reconciles this plan |
 
 ## Current Blocker
 
@@ -250,6 +250,10 @@ work that ADR 0060 does not touch.
 These have no packets and are not scheduled. They are listed so the order above
 is not mistaken for the whole plan.
 
+- A `v4vmm` packet for reserving a durable live item. `splitkit` reserved live
+  items 002 adds the route, and nothing in `v4vmm` calls it. Until then an
+  operator reserves an item with `curl` and pastes the identifier. Needed
+  before a station runs more than one show a week.
 - A seventh `ServiceState` in `v4vmm`, for a publisher that is installed and
   not configured. `musicindex-live-publisher` control-surface task 002 supplies
   the two facts that separate it, through `--version` and `config show --json`.

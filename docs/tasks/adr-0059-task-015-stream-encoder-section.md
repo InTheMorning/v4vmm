@@ -1,8 +1,8 @@
 # ADR 0059 Task 015: Stream Encoder Section
 
-Status: Implemented, visual proof blocked - 2026-09-08. Mechanical acceptance
-met. Visual proof for connected, disconnected, and not-installed stream states
-is blocked by GPUI X11 initialization in the agent session.
+Status: Implemented - 2026-09-08. Mechanical and operator visual acceptance
+met; the 2026-09-09 operator check confirmed the not-configured state and
+`butt` connect/disconnect states.
 
 ## Goal
 

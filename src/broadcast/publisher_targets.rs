@@ -22,7 +22,9 @@ use crate::broadcast::transport::{Reachability, Transport};
 const PUBLISHER_BINARY: &str = "musicindex-live-publisher";
 const TARGET_EXISTS_EXIT_CODE: i32 = 2;
 const TARGET_NOT_FOUND_EXIT_CODE: i32 = 3;
-const UNKNOWN_TARGET_SUBCOMMAND: &str = "unknown target subcommand";
+/// A publisher that has no `target` commands never reaches its `target` parser.
+/// The word falls through to the run-mode parser, which prints this.
+const UNEXPECTED_TARGET_ARGUMENT: &str = "unexpected argument target";
 
 type TargetResult<T> = std::result::Result<T, PublisherTargetCommandError>;
 
@@ -323,6 +325,7 @@ fn target_add_args(
         event_id,
         "--token-file".to_owned(),
         token_path,
+        "--replace".to_owned(),
     ])
 }
 
@@ -415,8 +418,13 @@ fn classify_failure(
 }
 
 fn target_commands_unavailable(output: &CommandOutput) -> bool {
+    // Only the run-mode message means the commands are absent.
+    //
+    // `unknown target subcommand` says the opposite: the publisher holds the
+    // command group and rejected the subcommand this app sent. Reading that as
+    // "too old" sends the operator to upgrade a publisher that is current.
     let message = format!("{}\n{}", output.stdout, output.stderr).to_ascii_lowercase();
-    message.contains(UNKNOWN_TARGET_SUBCOMMAND)
+    message.contains(UNEXPECTED_TARGET_ARGUMENT)
 }
 
 fn command_detail(output: &CommandOutput) -> String {
@@ -504,7 +512,7 @@ mod tests {
     }
 
     #[test]
-    fn attach_event_passes_token_file_path_and_restarts_publisher() -> Result<()> {
+    fn adr_0059_packet_014_attach_event_replaces_target_and_restarts_publisher() -> Result<()> {
         let runner = StubRunner::new(vec![
             CommandOutput::success("written"),
             CommandOutput::success(""),
@@ -530,6 +538,10 @@ mod tests {
         assert!(calls[0].args.contains(&"event-one".to_owned()));
         assert!(calls[0].args.contains(&"--token-file".to_owned()));
         assert!(calls[0].args.contains(&token_path.display().to_string()));
+        assert!(
+            calls[0].args.contains(&"--replace".to_owned()),
+            "target attach must replace an existing publisher target"
+        );
         assert!(
             !calls[0].args.contains(&"secret-token-text".to_owned()),
             "target attach must not pass token text"
@@ -567,12 +579,40 @@ mod tests {
         Ok(())
     }
 
+    /// A publisher that holds the command group and rejects the subcommand is a
+    /// different answer from one that has no command group. Reading the first as
+    /// "too old" sends an operator to upgrade a publisher that is current.
+    #[test]
+    fn unknown_subcommand_is_a_failure_and_not_an_absent_feature() {
+        let runner = StubRunner::new(vec![CommandOutput::failure(
+            Some(1),
+            "",
+            "unknown target subcommand attach",
+        )]);
+        let control = PublisherTargetControl::new(&runner);
+
+        let error = control
+            .attach_event(
+                &Transport::local(),
+                "mixxx",
+                "default",
+                "event-one",
+                Path::new("/tmp/token"),
+            )
+            .expect_err("unknown subcommand fails");
+
+        assert!(
+            !matches!(error, PublisherTargetCommandError::CommandsUnavailable),
+            "an unknown subcommand is not an absent feature, got {error:?}"
+        );
+    }
+
     #[test]
     fn missing_target_command_reports_commands_unavailable_without_restart() {
         let runner = StubRunner::new(vec![CommandOutput::failure(
             Some(1),
             "",
-            "unknown target subcommand attach",
+            "Error: unexpected argument target",
         )]);
         let control = PublisherTargetControl::new(&runner);
 
@@ -592,6 +632,22 @@ mod tests {
             1,
             "unavailable command must not restart"
         );
+    }
+
+    #[test]
+    fn adr_0059_packet_014_unexpected_target_argument_reports_commands_unavailable() {
+        let runner = StubRunner::new(vec![CommandOutput::failure(
+            Some(1),
+            "",
+            "Error: unexpected argument target",
+        )]);
+        let control = PublisherTargetControl::new(&runner);
+
+        let error = control
+            .list_targets(&Transport::local(), "mixxx")
+            .expect_err("old publisher parser should report command unavailability");
+
+        assert_eq!(error, PublisherTargetCommandError::CommandsUnavailable);
     }
 
     #[test]

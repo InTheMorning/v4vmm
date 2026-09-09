@@ -87,6 +87,48 @@ failed action reported nothing. That is fixed. This is the same lesson at a
 smaller scale: **a surface that starts an action reports the result of that
 action, in a place with room for it.**
 
+#### A8 - Service Actions Can Briefly Repaint The Previous State
+
+Reported by an operator on 2026-09-09, while closing the ADR 0063 follow-up
+visual check.
+
+`Start` and `Stop` answer immediately with the expected transition state, but a
+watch refresh can briefly repaint the old service state before the final state
+arrives. A stop can flash `Started` before `Stopped`, and a start can flash
+`Stopped` before `Started`.
+
+Owner: ADR 0059 and ADR 0063, because this is a `Show` service-state
+presentation issue after the dashboard restructuring.
+
+Bounded fix:
+
+- keep the operator-requested transition state authoritative until the command
+  completes or fails
+- only let the service watch replace it when the reported state agrees with the
+  requested direction or the command has left the in-flight state
+- add unit coverage for start and stop so a stale watch sample cannot override
+  the immediate transition display
+
+#### A9 - Stream Command Buttons Briefly Disappear
+
+Reported by an operator on 2026-09-09, while closing the ADR 0059 task 015
+visual check.
+
+The stream encoder connect and disconnect commands work, and the connection
+state changes as intended, but both action buttons briefly disappear after
+either command is pressed.
+
+Owner: ADR 0059 task 015, because this is the `Show` Stream section action
+presentation.
+
+Bounded fix:
+
+- keep the action row mounted while a stream command is in flight
+- represent temporary command state through typed action availability or labels,
+  not by removing both controls
+- add view-model coverage so a stream command in flight still projects an
+  action row
+
 ### Track B - HIG Product-Completeness Gaps
 
 These are product polish gaps, not restructuring mandates. Implement one item

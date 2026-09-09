@@ -1,11 +1,12 @@
 # ADR 0059 Task 014: Attach An Event To A Publisher Target
 
-Status: Implemented, visual proof blocked - 2026-09-08. Revised for ADR 0060.
+Status: Implemented - 2026-09-08. Mechanical and operator visual acceptance
+met after the 2026-09-09 default-target attach/detach run. Revised for ADR
+0060.
 The dependency on `musicindex-live-publisher` control-surface task 001 is
 satisfied: it shipped on 2026-09-07 in `a5b434e`. Packets 009 and 010 are also
-done, so nothing blocks this packet. Mechanical acceptance is met. Visual proof
-for the `Show` Event section is blocked by GPUI X11 initialization in the agent
-session.
+done, so nothing blocks this packet. Mechanical and operator visual acceptance
+are met.
 
 ## Goal
 
@@ -55,15 +56,22 @@ the event registry and the publisher.
   network.
 - Never send a token as a command argument. Send the token file path.
 - A target name is an input, not a constant. `default` is the first value only.
+- Attaching replaces the named publisher target, because a normal publisher
+  already has a `default` target.
 - Read the target list. Do not cache it across a host change.
 - The publisher packet records the shipped command contract in its `Contract
   With The Control Surface` section. `target list --json` prints
   `{"targets": [...]}`, not a bare array. Read exit `2` as "target exists" and
   exit `3` as "target not found".
-- **Exit `2` is not a usage error in this publisher.** An older publisher
-  without these commands exits `1` with `unknown target subcommand`, so
-  `CommandsUnavailable` is detected from that message, never from the exit code
-  alone.
+- **Exit `2` is not a usage error in this publisher.** An older publisher never
+  reaches the `target` parser, so it answers `unexpected argument target`. That
+  message alone means `CommandsUnavailable`, and the exit code never does.
+- **`unknown target subcommand` is not an absent feature.** It says the
+  publisher holds the command group and rejected the subcommand this app sent.
+  Report it as a failure. Corrected 2026-09-09, after both messages were read as
+  "too old", which would send an operator to upgrade a current publisher.
+- The attach passes `--replace`, so re-attaching an event to a target that
+  already holds one overwrites it instead of failing.
 
 ## Implementation Steps
 
@@ -71,7 +79,7 @@ the event registry and the publisher.
 2. Add `list_targets(transport, instance)` that runs
    `musicindex-live-publisher target list --json` and parses the result.
 3. Add `attach_event(transport, instance, target_name, event_id, token_path)`
-   that runs `musicindex-live-publisher target add`.
+   that runs `musicindex-live-publisher target add --replace`.
 4. Add `detach_target(transport, instance, target_name)` that runs
    `musicindex-live-publisher target remove`.
 5. Map the missing-command case to a `CommandsUnavailable` state, separate from

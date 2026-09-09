@@ -1,8 +1,8 @@
 # ADR 0059 Task 010: Remote Hosts Over SSH
 
-Status: Implemented, visual proof blocked - 2026-09-08. Mechanical acceptance
-met. Visual proof for the Source host/reachability row is blocked by GPUI X11
-initialization in the agent session.
+Status: Implemented - 2026-09-08. Mechanical and operator visual acceptance
+met; the 2026-09-09 operator check confirmed a `Broken` SSH host renders as
+`Not reachable`.
 
 ## Goal
 

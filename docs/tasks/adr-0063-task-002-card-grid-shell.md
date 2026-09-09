@@ -1,8 +1,7 @@
 # ADR 0063 Task 002: Card Grid Shell
 
-Status: Mechanical implemented, operator visual check open - 2026-09-08.
-Mechanical acceptance is met. The operator visual check is recorded in
-`docs/pending-human-checks.md`. Task 003 needs the grid that this task builds.
+Status: Implemented - 2026-09-08. Mechanical and operator visual acceptance
+met. Task 003 needs the grid that this task builds.
 
 ## Goal
 

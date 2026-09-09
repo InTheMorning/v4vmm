@@ -1,8 +1,7 @@
 # ADR 0064 Task 001: Relative Local Paths
 
-Status: Implemented - 2026-09-09; mechanical acceptance complete; one visual
-gate open: the readiness report counts repaired tracks as ready or as missing
-routes, and no longer as missing files.
+Status: Implemented - 2026-09-09. Mechanical and operator visual acceptance
+met; the operator check confirmed the path repair converted a moved library.
 
 ## Goal
 
