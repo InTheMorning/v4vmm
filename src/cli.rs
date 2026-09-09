@@ -1,12 +1,16 @@
 //! Command-line integration surface for non-UI workflows.
 
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Context, Result};
 use rusqlite::Connection;
 use serde::Serialize;
 
-use crate::application::ApplicationQueryService;
+use crate::application::commands::payment_routes::{
+    RepairMissingPaymentRouteTags, RepairPaymentRoutesForTrack,
+};
+use crate::application::{ApplicationQueryService, CommandBus, CommandContext};
 use crate::broadcast::publisher_targets;
 use crate::broadcast::registry::BroadcastRegistry;
 use crate::playback_driver::ConfiguredPlaybackDriver;
@@ -60,6 +64,16 @@ pub fn run(args: &[String]) -> Result<()> {
         }
         [section, command, rest @ ..] if section == "broadcast" && command == "readiness" => {
             print_broadcast_readiness(rest)
+        }
+        [section, command, flag]
+            if section == "broadcast" && command == "repair-routes" && flag == "--json" =>
+        {
+            repair_broadcast_routes()
+        }
+        [section, command, track_id, flag]
+            if section == "broadcast" && command == "repair-routes" && flag == "--json" =>
+        {
+            repair_broadcast_routes_for_track(parse_i64("track id", track_id)?)
         }
         [section, command, flag]
             if section == "playlists" && command == "list" && flag == "--json" =>
@@ -126,12 +140,14 @@ fn open_configured_db_with_config_without_repair() -> Result<(config::Config, Co
 fn configured_musicindex_client(endpoint: Option<&str>) -> Result<api::Client> {
     let base_url = match endpoint {
         Some(endpoint) => config::normalize_musicindex_endpoint(endpoint)?,
-        None => {
-            let cfg_path = config::config_path()?;
-            config::load_musicindex_endpoint(&cfg_path)?
-        }
+        None => configured_musicindex_endpoint()?,
     };
     Ok(api::Client::new_with_base_url(base_url))
+}
+
+fn configured_musicindex_endpoint() -> Result<String> {
+    let cfg_path = config::config_path()?;
+    config::load_musicindex_endpoint(&cfg_path)
 }
 
 fn configured_broadcast_registry(conn: &Connection) -> Result<BroadcastRegistry<'_>> {
@@ -254,6 +270,28 @@ fn print_broadcast_readiness(args: &[String]) -> Result<()> {
     let report =
         ApplicationQueryService::new().broadcast_readiness_report(&conn, &cfg.music_dir)?;
     print_json(&report)
+}
+
+fn repair_broadcast_routes() -> Result<()> {
+    let (cfg, conn) = open_configured_db_with_config()?;
+    let endpoint = configured_musicindex_endpoint()?;
+    let shared = Arc::new(Mutex::new(conn));
+    let outcome = CommandBus::new().execute(
+        RepairMissingPaymentRouteTags::new(shared, endpoint, cfg.music_dir),
+        &CommandContext::next(),
+    )?;
+    print_json(outcome.value())
+}
+
+fn repair_broadcast_routes_for_track(track_id: i64) -> Result<()> {
+    let (cfg, conn) = open_configured_db_with_config()?;
+    let endpoint = configured_musicindex_endpoint()?;
+    let shared = Arc::new(Mutex::new(conn));
+    let outcome = CommandBus::new().execute(
+        RepairPaymentRoutesForTrack::new(shared, endpoint, cfg.music_dir, track_id),
+        &CommandContext::next(),
+    )?;
+    print_json(outcome.value())
 }
 
 fn print_playlists() -> Result<()> {
@@ -577,6 +615,8 @@ fn help_text() -> &'static str {
   v4vmm broadcast targets list --json
   v4vmm broadcast targets attach <event-id> --target <name>
   v4vmm broadcast readiness --json
+  v4vmm broadcast repair-routes --json
+  v4vmm broadcast repair-routes <track-id> --json
   v4vmm playlists list --json
   v4vmm playlist tracks <playlist-id> --json
   v4vmm library tracks --json
@@ -605,5 +645,11 @@ mod tests {
     #[test]
     fn help_lists_library_repair_paths_json_command() {
         assert!(help_text().contains("v4vmm library repair-paths --json"));
+    }
+
+    #[test]
+    fn help_lists_broadcast_repair_routes_json_commands() {
+        assert!(help_text().contains("v4vmm broadcast repair-routes --json"));
+        assert!(help_text().contains("v4vmm broadcast repair-routes <track-id> --json"));
     }
 }

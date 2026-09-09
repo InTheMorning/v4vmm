@@ -6093,6 +6093,7 @@ mod tests {
             summary: crate::application::queries::broadcast::BroadcastReadinessSummary {
                 ready: 1,
                 no_route_tag: 1,
+                no_routes_upstream: 0,
                 file_missing: 1,
                 not_downloaded: 0,
             },

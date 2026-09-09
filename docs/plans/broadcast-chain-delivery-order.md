@@ -152,8 +152,8 @@ Update this table when a packet lands.
 | `v4vmm` | 0063 004 log bottom pane | ready |
 | `v4vmm` | 0064 001 relative local paths | implemented - 2026-09-09; one visual gate open: readiness report counts after repair |
 | `v4vmm` | 0064 002 repair report surface | ready |
-| `v4vmm` | 0065 001 tag repair service | ready |
-| `v4vmm` | 0065 002 readiness list actions | ready |
+| `v4vmm` | 0065 001 tag repair service | implemented - 2026-09-09; no visual criteria |
+| `v4vmm` | 0065 002 check-all-feeds repair and list actions | ready |
 | `splitkit` | reserved 001 store boundary | not started |
 | `splitkit` | reserved 002 reserved class | not started |
 | `splitkit` | reserved 003 restore and TTL | not started |
@@ -230,6 +230,9 @@ only after task 001, and the list becomes usable after task 002.
 |---|---|---|
 | 1 | `docs/tasks/adr-0065-task-001-tag-repair-service.md` | nothing |
 | 2 | `docs/tasks/adr-0065-task-002-readiness-list-actions.md` | 001 |
+
+ADR 0065 was amended on 2026-09-08: `Check all feeds` performs the repair, so
+an operator does not need to know a second action exists.
 
 After that:
 

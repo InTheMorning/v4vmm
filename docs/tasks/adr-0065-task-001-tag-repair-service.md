@@ -1,6 +1,6 @@
 # ADR 0065 Task 001: Payment Route Tag Repair Service
 
-Status: Ready - 2026-09-08. Backend and CLI only. Task 002 gives it a surface.
+Status: Implemented - 2026-09-09. Mechanical acceptance complete. No visual gate.
 
 ## Goal
 
@@ -48,8 +48,11 @@ without asking whether the feed changed upstream.
   that `src/api.rs` already applies when a track carries none.
 - A repair ends in one of three outcomes, and the caller can tell them apart:
   `Repaired`, `NoRoutesUpstream`, `Failed` with a reason.
-- **`NoRoutesUpstream` is not a failure.** It is the answer that this app can not
-  fix the track, and a later run must not retry it as though it might.
+- **`NoRoutesUpstream` is not a failure.** It is the answer that this app can
+  not fix the track. A repair of every track trusts a recorded answer and does
+  not ask again. **A repair of one track always asks again**, because the
+  operator targeted it and the publisher may have acted since. Amended
+  2026-09-08, after review found the recorded answer blocked both paths.
 - Never write a file when the routes are empty. An empty tag reads as ready to
   the readiness check and pays nobody.
 - The repair is safe to run twice. A track that is already ready is skipped.
@@ -94,7 +97,8 @@ Mechanical, proved by a test:
   written.
 - An empty route set never reaches a file.
 - A track that already carries the tag is skipped.
-- Two runs give the same result as one.
+- Two runs of the repair-all give the same result as one.
+- A repair of one track asks upstream again, even when the answer is recorded.
 - The readiness summary counts `NoRoutesUpstream` separately from `NoRouteTag`.
 - The guard blocks a tag repair inside `src/feed_service.rs`.
 - `v4vmm broadcast repair-routes --json` prints the three counts.

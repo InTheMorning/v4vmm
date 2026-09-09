@@ -12,16 +12,15 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 use serde::Serialize;
 
-use crate::api::PaymentRoute;
 use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::errors::command::CommandError;
 use crate::audio_tags::{read_audio_tags, AudioTags};
-use crate::db::TrackRow;
+use crate::db::{self, LocalMetadataOwner, LocalMetadataValue, TrackRow};
+use crate::metadata::{
+    audio_tags_have_ready_value_routes, audio_tags_value_routes, MUSICINDEX_METADATA_SOURCE,
+    MUSICINDEX_PAYMENT_ROUTES_ABSENT_FACT_KEY,
+};
 use crate::{config, library_service};
-
-const VALUE_ROUTES_KEY: &str = "Value Routes";
-const VALUE_ROUTES_FRAME: &str = "TXXX:MusicIndex Value Routes";
-const MUSICINDEX_VALUE_ROUTES_CUSTOM_KEY: &str = "MusicIndex Value Routes";
 
 /// Readiness report for local library tracks before a show.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
@@ -45,7 +44,10 @@ impl BroadcastReadinessReport {
     /// Returns the number of tracks that need curator attention.
     #[must_use]
     pub(crate) const fn problem_count(&self) -> usize {
-        self.summary.no_route_tag + self.summary.file_missing + self.summary.not_downloaded
+        self.summary.no_route_tag
+            + self.summary.no_routes_upstream
+            + self.summary.file_missing
+            + self.summary.not_downloaded
     }
 }
 
@@ -56,6 +58,8 @@ pub(crate) struct BroadcastReadinessSummary {
     pub(crate) ready: usize,
     /// Tracks whose local file lacks a usable value-routes tag.
     pub(crate) no_route_tag: usize,
+    /// Tracks whose upstream `MusicIndex` data has no payment routes.
+    pub(crate) no_routes_upstream: usize,
     /// Tracks whose recorded local path cannot be read.
     pub(crate) file_missing: usize,
     /// Tracks in the library with no downloaded file.
@@ -67,6 +71,7 @@ impl BroadcastReadinessSummary {
         match state {
             BroadcastReadinessState::Ready => self.ready += 1,
             BroadcastReadinessState::NoRouteTag => self.no_route_tag += 1,
+            BroadcastReadinessState::NoRoutesUpstream => self.no_routes_upstream += 1,
             BroadcastReadinessState::FileMissing => self.file_missing += 1,
             BroadcastReadinessState::NotDownloaded => self.not_downloaded += 1,
         }
@@ -81,6 +86,8 @@ pub(crate) enum BroadcastReadinessState {
     Ready,
     /// Local file has no usable embedded payment-route tag.
     NoRouteTag,
+    /// `MusicIndex` has no payment routes for this track or its feed.
+    NoRoutesUpstream,
     /// The library row has no downloaded file at all.
     NotDownloaded,
     /// Local path is missing or does not point to a readable file.
@@ -94,6 +101,7 @@ impl BroadcastReadinessState {
         match self {
             Self::Ready => "Ready",
             Self::NoRouteTag => "Missing routes",
+            Self::NoRoutesUpstream => "No upstream routes",
             Self::FileMissing => "Missing file",
             Self::NotDownloaded => "Not downloaded",
         }
@@ -163,22 +171,30 @@ pub(crate) fn broadcast_readiness_report_for_music_dir(
     music_dir: &Path,
 ) -> Result<BroadcastReadinessReport> {
     let tracks = library_service::library_tracks(conn).context("load local library tracks")?;
-    Ok(readiness_report_from_tracks(&tracks, music_dir))
+    readiness_report_from_tracks(conn, &tracks, music_dir)
 }
 
-fn readiness_report_from_tracks(tracks: &[TrackRow], music_dir: &Path) -> BroadcastReadinessReport {
+fn readiness_report_from_tracks(
+    conn: &Connection,
+    tracks: &[TrackRow],
+    music_dir: &Path,
+) -> Result<BroadcastReadinessReport> {
     let mut report = BroadcastReadinessReport::default();
 
     for track in tracks {
-        let item = readiness_track(track, music_dir);
+        let item = readiness_track(conn, track, music_dir)?;
         report.summary.record(item.state);
         report.tracks.push(item);
     }
 
-    report
+    Ok(report)
 }
 
-fn readiness_track(track: &TrackRow, music_dir: &Path) -> BroadcastReadinessTrack {
+fn readiness_track(
+    conn: &Connection,
+    track: &TrackRow,
+    music_dir: &Path,
+) -> Result<BroadcastReadinessTrack> {
     let title = track
         .track_title
         .clone()
@@ -189,7 +205,7 @@ fn readiness_track(track: &TrackRow, music_dir: &Path) -> BroadcastReadinessTrac
         .as_ref()
         .map(|path| path.resolve(music_dir))
     else {
-        return BroadcastReadinessTrack {
+        return Ok(BroadcastReadinessTrack {
             track_id: track.id,
             title,
             artist: track.artist_name.clone(),
@@ -200,11 +216,11 @@ fn readiness_track(track: &TrackRow, music_dir: &Path) -> BroadcastReadinessTrac
             // downloaded, and the operator fixes it with a download.
             state: BroadcastReadinessState::NotDownloaded,
             reason: "Track is in the library and has no downloaded file.".to_owned(),
-        };
+        });
     };
 
     if !path.is_file() {
-        return BroadcastReadinessTrack {
+        return Ok(BroadcastReadinessTrack {
             track_id: track.id,
             title,
             artist: track.artist_name.clone(),
@@ -212,20 +228,38 @@ fn readiness_track(track: &TrackRow, music_dir: &Path) -> BroadcastReadinessTrac
             path: Some(path.display().to_string()),
             state: BroadcastReadinessState::FileMissing,
             reason: "Recorded local file is missing.".to_owned(),
-        };
+        });
     }
 
+    let no_routes_upstream = track_has_no_upstream_payment_routes(conn, track)?;
     match read_audio_tags(&path).context("read embedded audio tags") {
-        Ok(tags) => readiness_track_from_tags(track, title, path.as_path(), &tags),
-        Err(error) => BroadcastReadinessTrack {
+        Ok(tags) if audio_tags_have_ready_value_routes(&tags) => {
+            Ok(readiness_track_from_tags(track, title, path.as_path()))
+        }
+        Ok(tags) => Ok(readiness_track_from_missing_tag(
+            track,
+            title,
+            path.as_path(),
+            no_routes_upstream,
+            &tags,
+        )),
+        Err(error) => Ok(BroadcastReadinessTrack {
             track_id: track.id,
             title,
             artist: track.artist_name.clone(),
             album: track.album_title.clone(),
             path: Some(path.display().to_string()),
-            state: BroadcastReadinessState::NoRouteTag,
-            reason: format!("Value routes tag could not be read: {error:#}"),
-        },
+            state: if no_routes_upstream {
+                BroadcastReadinessState::NoRoutesUpstream
+            } else {
+                BroadcastReadinessState::NoRouteTag
+            },
+            reason: if no_routes_upstream {
+                "MusicIndex has no payment routes for this track or feed.".to_owned()
+            } else {
+                format!("Value routes tag could not be read: {error:#}")
+            },
+        }),
     }
 }
 
@@ -233,21 +267,40 @@ fn readiness_track_from_tags(
     track: &TrackRow,
     title: String,
     path: &Path,
+) -> BroadcastReadinessTrack {
+    BroadcastReadinessTrack {
+        track_id: track.id,
+        title,
+        artist: track.artist_name.clone(),
+        album: track.album_title.clone(),
+        path: Some(path.display().to_string()),
+        state: BroadcastReadinessState::Ready,
+        reason: "Embedded value routes are present.".to_owned(),
+    }
+}
+
+fn readiness_track_from_missing_tag(
+    track: &TrackRow,
+    title: String,
+    path: &Path,
+    no_routes_upstream: bool,
     tags: &AudioTags,
 ) -> BroadcastReadinessTrack {
-    let (state, reason) = match musicindex_value_routes(tags) {
-        Some(value) if value_routes_are_ready(value) => (
-            BroadcastReadinessState::Ready,
-            "Embedded value routes are present.".to_owned(),
-        ),
-        Some(_) => (
+    let (state, reason) = if no_routes_upstream {
+        (
+            BroadcastReadinessState::NoRoutesUpstream,
+            "MusicIndex has no payment routes for this track or feed.".to_owned(),
+        )
+    } else if audio_tags_value_routes(tags).is_some() {
+        (
             BroadcastReadinessState::NoRouteTag,
             "Embedded value routes are empty or invalid.".to_owned(),
-        ),
-        None => (
+        )
+    } else {
+        (
             BroadcastReadinessState::NoRouteTag,
             "Embedded MusicIndex Value Routes tag is missing.".to_owned(),
-        ),
+        )
     };
 
     BroadcastReadinessTrack {
@@ -261,42 +314,24 @@ fn readiness_track_from_tags(
     }
 }
 
-fn musicindex_value_routes(tags: &AudioTags) -> Option<&str> {
-    let from_fields = tags.fields.iter().find_map(|field| {
-        (canonical_musicindex_key(&field.frame_id) == Some(VALUE_ROUTES_KEY))
-            .then_some(field.value.trim())
-            .filter(|value| !value.is_empty())
-    });
-    if from_fields.is_some() {
-        return from_fields;
-    }
-
-    tags.custom
-        .get(MUSICINDEX_VALUE_ROUTES_CUSTOM_KEY)
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
+pub(crate) fn track_has_no_upstream_payment_routes(
+    conn: &Connection,
+    track: &TrackRow,
+) -> Result<bool> {
+    Ok(
+        local_payment_routes_absent(conn, LocalMetadataOwner::Track(track.id))?
+            || local_payment_routes_absent(conn, LocalMetadataOwner::Feed(track.feed_id))?,
+    )
 }
 
-fn canonical_musicindex_key(key: &str) -> Option<&'static str> {
-    let normalized = normalize_key(frame_match_key(key));
-    (normalize_key(frame_match_key(VALUE_ROUTES_FRAME)) == normalized).then_some(VALUE_ROUTES_KEY)
-}
-
-fn frame_match_key(frame_label: &str) -> &str {
-    frame_label
-        .rsplit_once(':')
-        .map_or(frame_label, |(_, key)| key)
-}
-
-fn normalize_key(key: &str) -> String {
-    key.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_uppercase()
-}
-
-fn value_routes_are_ready(value: &str) -> bool {
-    serde_json::from_str::<Vec<PaymentRoute>>(value).is_ok_and(|routes| !routes.is_empty())
+fn local_payment_routes_absent(conn: &Connection, owner: LocalMetadataOwner) -> Result<bool> {
+    let fact = db::local_metadata_fact(
+        conn,
+        owner,
+        MUSICINDEX_METADATA_SOURCE,
+        MUSICINDEX_PAYMENT_ROUTES_ABSENT_FACT_KEY,
+    )?;
+    Ok(fact.is_some_and(|fact| matches!(fact.value, LocalMetadataValue::Boolean(true))))
 }
 
 #[cfg(test)]
@@ -362,7 +397,7 @@ mod tests {
         write_id3v24_edits(
             &path,
             &[Id3v24Edit {
-                frame_label: VALUE_ROUTES_FRAME.to_owned(),
+                frame_label: crate::metadata::MUSICINDEX_VALUE_ROUTES_FRAME.to_owned(),
                 value: routes.to_owned(),
             }],
         )?;
@@ -411,8 +446,44 @@ mod tests {
 
         assert_eq!(report.summary.ready, 0);
         assert_eq!(report.summary.no_route_tag, 1);
+        assert_eq!(report.summary.no_routes_upstream, 0);
         assert_eq!(report.summary.file_missing, 0);
         assert_eq!(report.tracks[0].state, BroadcastReadinessState::NoRouteTag);
+        Ok(())
+    }
+
+    #[test]
+    fn broadcast_readiness_report_counts_no_routes_upstream_separately() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let feed_id = create_feed(&conn)?;
+        let path = untagged_audio_file(&temp, "no-upstream-routes.mp3")?;
+        let track_id = create_track(&conn, temp.path(), feed_id, "No Upstream Routes", &path)?;
+        db::replace_local_metadata_fact(
+            &conn,
+            LocalMetadataOwner::Track(track_id),
+            MUSICINDEX_METADATA_SOURCE,
+            &db::LocalMetadataFactInput {
+                fact_key: MUSICINDEX_PAYMENT_ROUTES_ABSENT_FACT_KEY.to_owned(),
+                value: LocalMetadataValue::Boolean(true),
+                extraction_path: Some("$.payment_routes".to_owned()),
+                observed_at: None,
+                raw_json: None,
+            },
+        )?;
+
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
+
+        assert_eq!(report.summary.ready, 0);
+        assert_eq!(report.summary.no_route_tag, 0);
+        assert_eq!(report.summary.no_routes_upstream, 1);
+        assert_eq!(report.summary.file_missing, 0);
+        assert_eq!(report.problem_count(), 1);
+        assert_eq!(
+            report.tracks[0].state,
+            BroadcastReadinessState::NoRoutesUpstream
+        );
         Ok(())
     }
 

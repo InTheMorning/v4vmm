@@ -11519,6 +11519,80 @@ fn adr_0064_local_file_paths_resolve_only_through_library_path() {
     );
 }
 
+/// Situational ADR 0065: payment-route tag repair stays an explicit command.
+#[test]
+fn adr_0065_payment_route_repair_stays_in_command_boundary() {
+    const OWNER: &str = "src/application/commands/payment_routes.rs";
+    const COMMAND_ENTRYPOINTS: &[&str] = &[
+        "RepairPaymentRoutesForTrack",
+        "RepairMissingPaymentRouteTags",
+        "repair_payment_routes_for_track_with_client",
+        "repair_missing_payment_routes_with_client",
+    ];
+    const FEED_FORBIDDEN: &[&str] = &[
+        "RepairPaymentRoutesForTrack",
+        "RepairMissingPaymentRouteTags",
+        "repair_payment_routes",
+        "repair-routes",
+        "payment_routes_absent",
+    ];
+
+    let mut violations = Vec::new();
+    let owner_source = read_source(&manifest_path(OWNER));
+    for required in [
+        "Client::new_with_base_url",
+        "const PAYMENT_ROUTES_INCLUDE: &str = \"payment_routes\"",
+        "id3_edits_for_track_context",
+        "write_id3v24_edits",
+        "NoRoutesUpstream",
+    ] {
+        if !owner_source.contains(required) {
+            violations.push(format!(
+                "{OWNER}: ADR 0065 payment-route repair owner is missing `{required}`"
+            ));
+        }
+    }
+
+    let feed_source = read_source(&manifest_path("src/feed_service.rs"));
+    for (line_number, line) in code_lines(&feed_source) {
+        for forbidden in FEED_FORBIDDEN {
+            if line.contains(forbidden) {
+                violations.push(format!(
+                    "src/feed_service.rs:{line_number}: ADR 0065 keeps payment-route tag repair \
+                     out of feed refresh and inside {OWNER}: `{line}`"
+                ));
+            }
+        }
+    }
+
+    for path in rust_files_under("src") {
+        let relative = rel_path(&path);
+        if relative == OWNER
+            || relative == "src/application/commands/mod.rs"
+            || relative == "src/cli.rs"
+        {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for entrypoint in COMMAND_ENTRYPOINTS {
+                if line.contains(entrypoint) {
+                    violations.push(format!(
+                        "{relative}:{line_number}: ADR 0065 payment-route repair runs only \
+                         through commands owned by {OWNER}: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0065 payment-route repair boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
 /// ADR 0059: v4vmm reads live metadata but does not publish it.
 #[test]
 fn adr_0059_v4vmm_does_not_publish_live_metadata() {

@@ -2826,6 +2826,7 @@ mod tests {
                 summary: BroadcastReadinessSummary {
                     ready: 3,
                     no_route_tag: 1,
+                    no_routes_upstream: 1,
                     file_missing: 1,
                     not_downloaded: 0,
                 },
@@ -2846,10 +2847,10 @@ mod tests {
             .readiness
             .expect("readiness display");
 
-        assert_eq!(readiness.count_label, "2 tracks not ready");
+        assert_eq!(readiness.count_label, "3 tracks not ready");
         assert_eq!(
             readiness.detail,
-            "1 without payment routes, 1 with a missing file."
+            "1 without payment routes, 1 need publisher routes, 1 with a missing file."
         );
         assert_eq!(readiness.state, SourceReadinessState::NeedsAttention);
         assert!(!readiness.action.disabled());

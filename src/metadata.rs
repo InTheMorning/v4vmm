@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::api::*;
-use crate::audio_tags::{id3v24_edit_label_is_writable, Id3Field, Id3v24Edit};
+use crate::audio_tags::{id3v24_edit_label_is_writable, AudioTags, Id3Field, Id3v24Edit};
 use crate::musicbrainz::{MusicBrainzCandidate, MusicBrainzLookup};
 use crate::track_compare::{compare_track_tags, ComparisonRow, ComparisonStatus};
 
@@ -45,6 +45,12 @@ pub const ID3V24_FRAME_GROUPS: &[(&str, &str)] = &[
         "Music-disc / acquisition / commerce",
     ),
 ];
+
+pub const MUSICINDEX_METADATA_SOURCE: &str = "musicindex";
+pub const MUSICINDEX_VALUE_ROUTES_FIELD: &str = "Value Routes";
+pub const MUSICINDEX_VALUE_ROUTES_FRAME: &str = "TXXX:MusicIndex Value Routes";
+pub const MUSICINDEX_VALUE_ROUTES_CUSTOM_KEY: &str = "MusicIndex Value Routes";
+pub const MUSICINDEX_PAYMENT_ROUTES_ABSENT_FACT_KEY: &str = "payment_routes_absent";
 
 // Types
 
@@ -3130,6 +3136,49 @@ pub fn summarize_value_routes(routes: &[PaymentRoute]) -> Option<String> {
         return None;
     }
     serde_json::to_string(routes).ok()
+}
+
+pub fn audio_tags_value_routes(tags: &AudioTags) -> Option<&str> {
+    let from_fields = tags.fields.iter().find_map(|field| {
+        (canonical_musicindex_key(&field.frame_id) == Some(MUSICINDEX_VALUE_ROUTES_FIELD))
+            .then_some(field.value.trim())
+            .filter(|value| !value.is_empty())
+    });
+    if from_fields.is_some() {
+        return from_fields;
+    }
+
+    tags.custom
+        .get(MUSICINDEX_VALUE_ROUTES_CUSTOM_KEY)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+}
+
+pub fn audio_tags_have_ready_value_routes(tags: &AudioTags) -> bool {
+    audio_tags_value_routes(tags).is_some_and(value_routes_json_is_ready)
+}
+
+pub fn value_routes_json_is_ready(value: &str) -> bool {
+    serde_json::from_str::<Vec<PaymentRoute>>(value).is_ok_and(|routes| !routes.is_empty())
+}
+
+fn canonical_musicindex_key(key: &str) -> Option<&'static str> {
+    let normalized = normalize_key(frame_match_key(key));
+    (normalize_key(frame_match_key(MUSICINDEX_VALUE_ROUTES_FRAME)) == normalized)
+        .then_some(MUSICINDEX_VALUE_ROUTES_FIELD)
+}
+
+fn frame_match_key(frame_label: &str) -> &str {
+    frame_label
+        .rsplit_once(':')
+        .map_or(frame_label, |(_, key)| key)
+}
+
+fn normalize_key(key: &str) -> String {
+    key.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_uppercase()
 }
 
 pub fn display_metadata_value(field: &str, value: &str) -> String {

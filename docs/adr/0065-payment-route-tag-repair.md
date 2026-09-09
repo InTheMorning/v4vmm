@@ -39,8 +39,28 @@ control, and nothing is wired to it.
 The app repairs an embedded tag when **the file lacks it**. Whether the feed
 changed upstream is a separate question with a separate answer.
 
-`Check all feeds` keeps its meaning: it asks MusicIndex what changed. It is not
-a repair, and it does not claim to be one.
+### Check All Feeds Repairs What It Finds
+
+Amended 2026-09-08, when an operator asked why the button does not fix the
+tracks it reports.
+
+`Check all feeds` does both jobs in one press:
+
+1. ask MusicIndex which feeds changed, and apply those updates as before
+2. repair any track whose file lacks the payment-route tag
+
+The two were separate because a repair writes files and a check reads. That
+reasoning does not survive the code: `refresh_stale_feed` already writes ID3
+tags for every track of a stale feed. The button was never a read.
+
+The rule it replaces is simpler to state and matches what an operator expects.
+**A track is repaired because its file lacks the tag, never because its feed
+changed.** The check is how the operator asks; staleness decides only which
+feeds need new data.
+
+The first press is slow, because each track without the tag costs one fetch. A
+later press is cheap, because a recorded `NoRoutesUpstream` is trusted and asks
+nobody.
 
 ### Repair Is An Operator Action, Not A Start-Up Step
 
@@ -57,6 +77,12 @@ A repair attempt ends in one of three states, and the report names which:
 - `Repaired`. The tag is written and the track is ready.
 - `NoRoutesUpstream`. MusicIndex has no payment routes for the track or its
   feed. This app can not fix it, and the publisher must add them.
+
+  The app records that answer, and a repair of every track trusts it rather than
+  asking again. **An operator who repairs one track asks again**, because a
+  publisher can add the routes at any time. Without that, a track recorded once
+  could never be repaired, whatever the publisher did later. Amended 2026-09-08,
+  after review found the recorded answer short-circuited both paths.
 - `Failed`. The fetch or the write failed, and the reason is recorded.
 
 The second state is the one that matters. Without it an operator can not tell a
@@ -75,16 +101,28 @@ that the fix is not here.
 - A tag repair is available when the file lacks the tag, whatever the feed says.
 - The repair never runs without an operator action.
 - A repair result names which of the three outcomes happened.
-- `Check all feeds` performs no tag repair, and claims none.
+- A repair of one track asks upstream again. Only a repair of every track
+  trusts a recorded `NoRoutesUpstream`.
+- `Check all feeds` repairs every track whose file lacks the tag, whatever the
+  feed staleness says.
 - A state label carries no click target.
 
 ## Alternatives Considered
 
-### Write The Tag During Feed Refresh, And Drop The Staleness Gate
+### Keep The Check And The Repair As Two Separate Actions
 
-Rejected. It would fetch every feed on every check, and it hides a file write
-inside an operation that reads. An operator who checks for updates does not
-expect the app to rewrite the files.
+Rejected on 2026-09-08, after it shipped that way. It asks the operator to know
+that a second action exists, at the moment the app looks broken, and it leaves
+one button reporting a problem it declines to fix.
+
+The argument for it was that a repair writes files and a check reads. That was
+wrong: `refresh_stale_feed` already writes ID3 tags. The check was always a
+write.
+
+### Drop The Staleness Gate And Refresh Every Feed On Every Check
+
+Rejected. Feed staleness still decides which feeds need new data. The repair
+does not need that gate, and removing it would refetch every feed for no gain.
 
 ### Repair Every Missing Tag At Start-Up
 
@@ -100,7 +138,10 @@ contract, and a file that travels to another machine carries its own routes.
 ## Consequences
 
 - A new repair service reads MusicIndex for one track and writes the tag.
-- The readiness list gains a per-row action and a repair-all action.
+- `Check all feeds` gains the repair, so an operator who presses it once fixes
+  what this app can fix.
+- The readiness list keeps a per-row action, for a track an operator wants to
+  retry on its own.
 - The readiness report gains a state for a track whose feed carries no routes,
   so a second run does not retry what cannot be fixed.
 - `Missing routes` stops rendering as a control.

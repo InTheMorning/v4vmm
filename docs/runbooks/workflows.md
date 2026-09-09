@@ -122,6 +122,33 @@ The status line reports:
 - any file-level ID3 write failures
 - any feed-level failures
 
+## Broadcast Readiness Repair Workflow
+
+Use readiness repair when a downloaded library track lacks the embedded
+`TXXX:MusicIndex Value Routes` tag and the feed is not stale.
+
+```bash
+v4vmm broadcast readiness --json
+v4vmm broadcast repair-routes --json
+v4vmm broadcast repair-routes <track-id> --json
+```
+
+`repair-routes` fetches MusicIndex track detail with `payment_routes` included,
+applies the existing feed-level route fallback, and writes only a non-empty
+MusicIndex Value Routes tag. It does not run from `Check all feeds`; feed refresh
+keeps its read/update meaning.
+
+The JSON summary separates:
+
+- `repaired`: local files that received the route tag
+- `no_routes_upstream`: tracks MusicIndex cannot repair because neither the
+  track nor the feed carries payment routes
+- `failed`: tracks whose lookup or tag write failed
+- `skipped`: tracks already ready when the command reached them
+
+`NoRoutesUpstream` is not a failure. The readiness report keeps it separate so
+the publisher can fix routes upstream before the local repair is run again.
+
 ## Playback Session Workflow
 
 `PlaybackSession` is the authoritative now-playing state. Player adapters report

@@ -1,12 +1,13 @@
-# ADR 0065 Task 002: Readiness List Actions
+# ADR 0065 Task 002: Check All Feeds Repairs, And The List Acts
 
-Status: Ready - 2026-09-08. Do after task 001, which writes the tag this task
-asks for.
+Status: Ready - 2026-09-08. Revised 2026-09-08 after ADR 0065 was amended. Do
+after task 001, which writes the tag this task asks for.
 
 ## Goal
 
-Give the broadcast readiness list an action that fixes a row, and stop the
-`Missing routes` state from reading as a control.
+Make `Check all feeds` repair every track whose file lacks the payment-route
+tag, give the readiness list a per-row retry, and stop the `Missing routes`
+state from reading as a control.
 
 ## Files To Inspect
 
@@ -24,12 +25,15 @@ Give the broadcast readiness list an action that fixes a row, and stop the
 - `src/view_models/library.rs`
 - `src/ui/shells/library/**`
 - `src/app/library*.rs` or the owner that dispatches list actions
+- the `Check all feeds` owner, to call the repair after the feed updates
 - `tests/architecture_tests.rs`
 
 ## Do Not Touch
 
-- `src/application/commands/payment_routes.rs`. Task 001 owns the repair.
-- `src/feed_service.rs`
+- `src/application/commands/payment_routes.rs`. Task 001 owns the repair, and
+  this task calls it.
+- The staleness rule in `src/feed_service.rs`. It still decides which feeds need
+  new data. This task adds a repair beside it, and changes no gate.
 - `src/broadcast/**`, `src/runtime/**`
 - The `Show` card contract from ADR 0063
 
@@ -44,8 +48,14 @@ Give the broadcast readiness list an action that fixes a row, and stop the
 - **A row whose feed carries no routes offers no repair action.** Task 001
   reports `NoRoutesUpstream`, and this app can not fix that track. Say what the
   operator must do instead: the publisher adds the routes.
-- The list also carries a repair-all action. Seventeen rows is not a per-row
-  job, and that count is the reported case.
+- **`Check all feeds` repairs every track whose file lacks the tag**, after it
+  applies the feed updates. This is the ADR 0065 amendment, and it is the action
+  an operator already presses. The readiness list needs no repair-all button of
+  its own.
+- The repair runs after the feed updates, so a feed that just changed gives its
+  routes to the repair in the same press.
+- The button reports what it did: feeds checked, tracks repaired, tracks the
+  publisher must fix. A press that fixes nothing says so.
 - While a repair runs, the row reports it. Follow the `Working` precedent in
   `src/view_models/show.rs`, which answers a press at once instead of waiting
   for the result.
@@ -66,9 +76,10 @@ Give the broadcast readiness list an action that fixes a row, and stop the
      the routes
    - `FileMissing` and `NotDownloaded` give no repair action, because this
      record does not cover them
-3. Add a repair-all action to the readiness list header, with a count in its
-   label.
-4. Wire both actions to the task 001 commands.
+3. Call the task 001 repair-all from the `Check all feeds` path, after the feed
+   updates apply. Report its three counts beside the feed result.
+4. Wire the per-row action to the single-track command from task 001, which asks
+   upstream again.
 5. Mark a row as working while its repair runs, and clear it from the result.
 6. Refresh the readiness snapshot after a repair completes, so the list shrinks
    without a manual reload.
@@ -76,7 +87,7 @@ Give the broadcast readiness list an action that fixes a row, and stop the
    - a `NoRouteTag` row carries an available action
    - a `NoRoutesUpstream` row carries no action and names the publisher
    - a running row reports it, and the action is unavailable meanwhile
-   - the repair-all label names the count
+   - the check reports repaired and publisher-blocked counts separately
 8. Add a guard: no readiness row renders a state label with a click handler, and
    the row action label is built in the view model.
 
@@ -87,7 +98,9 @@ Mechanical, proved by a test:
 - A `NoRouteTag` row carries an available action with an accessibility label.
 - A `NoRoutesUpstream` row carries no repair action and names what must happen.
 - A row reports that a repair is running, and its action is unavailable then.
-- The repair-all label names the number of rows it will attempt.
+- `Check all feeds` calls the repair after the feed updates, and reports the
+  three counts.
+- The per-row action uses the single-track command, so it asks upstream again.
 - The readiness snapshot refreshes after a repair, without an operator reload.
 - The guard blocks a click handler on a state label.
 
@@ -96,8 +109,10 @@ Visual, operator only:
 - `Missing routes` reads as a state and not as a button.
 - The repair action is the obvious thing to press on a not-ready row.
 - Pressing it changes the row at once, before the repair finishes.
-- After a repair, the list holds only the rows a publisher must fix, and the row
-  says so.
+- After `Check all feeds`, the list holds only the rows a publisher must fix,
+  and the row says so.
+- `Check all feeds` says what it repaired. A press that fixes nothing is not
+  silent.
 
 ## Test Commands
 
@@ -123,8 +138,10 @@ requires.
 
 - The ADR 0062 row contract can not carry a row action without a change that
   this task does not cover. Report it before you add a second row type.
-- The readiness list header has no place for a repair-all action. Report the
-  layout, and do not put the action inside `Show`.
+- `Check all feeds` cannot reach the repair command without a change this task
+  does not cover. Report it, and do not copy the repair logic.
+- The first press is slow enough to need progress. Report the count and the
+  time, and do not add a background repair.
 
 ## Prompt for lower-context coding model
 
@@ -138,10 +155,12 @@ Read:
 - `src/view_models/library.rs`, `from_broadcast_readiness_track`
 
 Goal:
-- A repair action on a readiness row and on the list, and a state label that
-  stops looking like a control.
+- `Check all feeds` repairs every track whose file lacks the tag, the readiness
+  row gains a retry, and a state label stops looking like a control.
 
 Constraints:
+- `Check all feeds` calls the task 001 repair-all after the feed updates, and
+  reports the three counts.
 - A state label has no click target. The action is a separate control.
 - A `NoRoutesUpstream` row offers no repair, and says the publisher must act.
 - A running row reports it at once. Follow the `Working` precedent in
@@ -150,8 +169,8 @@ Constraints:
 - No `truncate()` on stacked row text.
 
 Do not touch:
-- `src/application/commands/payment_routes.rs`, `src/feed_service.rs`,
-  `src/broadcast/**`, `src/runtime/**`
+- the repair logic in `src/application/commands/payment_routes.rs`, the
+  staleness rule in `src/feed_service.rs`, `src/broadcast/**`, `src/runtime/**`
 
 Acceptance criteria:
 - A `NoRoutesUpstream` row carries no action and names what must happen.
