@@ -727,6 +727,8 @@ pub(crate) enum StreamConnectionState {
     Connecting,
     /// The encoder is running and disconnected.
     Disconnected,
+    /// This app sent a connect or a disconnect and has no answer yet.
+    Working,
     /// No encoder binary or configured target is available.
     NotInstalled,
     /// The addressed encoder instance did not answer.
@@ -754,6 +756,12 @@ impl StreamConnectionState {
                 state: self,
                 label: "Disconnected",
                 detail: "Encoder is not feeding the stream.",
+                icon_role: StreamStateIconRole::Info,
+            },
+            Self::Working => StreamConnectionDisplay {
+                state: self,
+                label: "Working",
+                detail: "Waiting for the encoder.",
                 icon_role: StreamStateIconRole::Info,
             },
             Self::NotInstalled => StreamConnectionDisplay {
@@ -1157,6 +1165,11 @@ pub(crate) struct ShowPageVm {
     pub(crate) panel_chrome: ShowPanelChromeDisplay,
     /// Queue and transport display projected by the existing queue VM.
     pub(crate) queue: QueueNowPlayingPageVm,
+    /// Last command message, shown on this screen.
+    ///
+    /// Every broadcast command wrote its error to a field that only `Settings`
+    /// rendered, so a failed action on `Show` looked like no action at all.
+    pub(crate) status_message: Option<String>,
 }
 
 impl ShowPageVm {
@@ -1253,6 +1266,7 @@ impl ShowPageVm {
             width_class: ShowWidthClass::default(),
             panel_mode: ShowPanelMode::default(),
             panel_open: true,
+            status_message: None,
             panel_chrome: ShowPanelChromeDisplay::default(),
             queue,
         }
@@ -1310,6 +1324,33 @@ impl ShowPageVm {
             self.event.as_ref(),
             self.stream.as_ref(),
         );
+        self
+    }
+
+    /// Marks the stream encoder as working, and disables its actions.
+    ///
+    /// The connect command blocks and the watch actor then reads the new state,
+    /// so without this a press has no visible effect for seconds.
+    #[must_use]
+    pub(crate) fn mark_stream_working(mut self) -> Self {
+        if let Some(stream) = self.stream.as_mut() {
+            stream.connection = StreamConnectionState::Working.display();
+            stream.actions = None;
+        }
+        self.cards = show_cards(
+            self.source.as_ref(),
+            self.publisher.as_ref(),
+            self.event.as_ref(),
+            self.stream.as_ref(),
+        );
+        self
+    }
+
+    /// Sets the message this screen shows, or clears it when the text is empty.
+    #[must_use]
+    pub(crate) fn with_status_message(mut self, message: &str) -> Self {
+        let message = message.trim();
+        self.status_message = (!message.is_empty()).then(|| message.to_owned());
         self
     }
 
@@ -1540,7 +1581,9 @@ const fn stream_card_state(state: StreamConnectionState) -> ShowCardStateKind {
         | StreamConnectionState::Disconnected
         | StreamConnectionState::NotInstalled
         | StreamConnectionState::NotReachable => ShowCardStateKind::Attention,
-        StreamConnectionState::Unknown => ShowCardStateKind::Unknown,
+        StreamConnectionState::Unknown | StreamConnectionState::Working => {
+            ShowCardStateKind::Unknown
+        }
     }
 }
 
@@ -1593,6 +1636,7 @@ impl SourceReadinessDisplay {
 
         let total = report.summary.ready
             + report.summary.no_route_tag
+            + report.summary.no_routes_upstream
             + report.summary.file_missing
             + report.summary.not_downloaded;
         if total == 0 {
@@ -1621,6 +1665,7 @@ impl SourceReadinessDisplay {
             count_label: format!("{} not ready", track_count_label(problem_count)),
             detail: readiness_detail_label(
                 report.summary.no_route_tag,
+                report.summary.no_routes_upstream,
                 report.summary.file_missing,
                 report.summary.not_downloaded,
             ),
@@ -1998,12 +2043,16 @@ fn stream_listeners_display(listeners: ListenerCount) -> StreamListenersDisplay 
 /// two with different actions, so the two never share a phrase.
 fn readiness_detail_label(
     no_route_tag: usize,
+    no_routes_upstream: usize,
     file_missing: usize,
     not_downloaded: usize,
 ) -> String {
     let mut parts = Vec::new();
     if no_route_tag > 0 {
         parts.push(format!("{no_route_tag} without payment routes"));
+    }
+    if no_routes_upstream > 0 {
+        parts.push(format!("{no_routes_upstream} need publisher routes"));
     }
     if file_missing > 0 {
         parts.push(format!("{file_missing} with a missing file"));
@@ -3240,6 +3289,24 @@ mod tests {
             !open.shows_role(PublisherServiceRole::Producer),
             "the other service switches the panel, it does not close it"
         );
+    }
+
+    #[test]
+    fn show_page_carries_a_command_message() {
+        // Every broadcast command wrote its error to `settings_status`, which
+        // only `Settings` rendered. A failed Connect on `Show` looked like a
+        // press that did nothing at all.
+        let vm = ShowPageVm::idle();
+        assert_eq!(vm.status_message, None);
+
+        let vm = vm.with_status_message("Stream command error: butt refused");
+        assert_eq!(
+            vm.status_message.as_deref(),
+            Some("Stream command error: butt refused")
+        );
+
+        let vm = vm.with_status_message("   ");
+        assert_eq!(vm.status_message, None, "blank text clears the message");
     }
 
     #[test]

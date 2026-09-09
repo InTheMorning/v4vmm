@@ -239,6 +239,7 @@ impl RenderOnce for ShowShell {
             panel_open,
             panel_chrome,
             queue,
+            status_message,
         } = self.vm;
         let transport = queue.transport.clone();
 
@@ -258,6 +259,17 @@ impl RenderOnce for ShowShell {
                 empty_state,
                 cx,
             ))
+            // A command that fails on this screen says so on this screen.
+            .when_some(status_message, |el, message| {
+                el.child(
+                    div()
+                        .px(Spacing::LG.scaled(cx))
+                        .pb(Spacing::SM.scaled(cx))
+                        .text_size(FontSize::Caption.scaled(cx))
+                        .text_color(color(cx, SemanticColor::DangerLabel))
+                        .child(SharedString::from(message)),
+                )
+            })
             .child(
                 div()
                     .id("show-dashboard-body")

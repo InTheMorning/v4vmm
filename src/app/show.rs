@@ -305,6 +305,9 @@ impl TopApp {
 
     fn reproject_show_page_from_current_queue(&mut self) {
         self.reproject_show_page(self.show_page.queue.clone());
+        // The projection rebuilds the page, so carry the message across it.
+        let message = self.settings_status.clone();
+        self.show_page = self.show_page.clone().with_status_message(&message);
     }
 
     fn select_show_card_detail(&mut self, kind: ShowCardKind, cx: &mut Context<Self>) {
@@ -500,6 +503,11 @@ impl TopApp {
                 return;
             }
         };
+        // Answer the press at once, and put the failure on this screen.
+        self.show_page = self.show_page.clone().mark_stream_working();
+        self.settings_status.clear();
+        cx.notify();
+
         present_command(
             &self.command_runner,
             command,
@@ -509,8 +517,10 @@ impl TopApp {
                 this.settings_status.clear();
                 this.invalidate_publisher_service_snapshot();
             },
-            |this, error, _cx| {
+            |this, error, cx| {
                 this.settings_status = format!("Stream command error: {error:#}");
+                this.invalidate_publisher_service_snapshot();
+                this.refresh_show_page(cx);
             },
         );
     }
