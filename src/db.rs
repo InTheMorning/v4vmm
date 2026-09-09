@@ -1727,6 +1727,84 @@ pub fn local_metadata_facts(
     Ok(rows)
 }
 
+pub fn replace_local_metadata_fact(
+    conn: &Connection,
+    owner: LocalMetadataOwner,
+    source: &str,
+    fact: &LocalMetadataFactInput,
+) -> Result<()> {
+    let source = explicit_source_token(source)?;
+    let fact_key = explicit_fact_key(&fact.fact_key)?;
+    let (owner_kind, feed_id, track_id) = owner.sql_parts();
+
+    conn.execute(
+        "DELETE FROM entity_metadata_facts
+         WHERE owner_kind = ?1
+           AND feed_id IS ?2
+           AND track_id IS ?3
+           AND source = ?4
+           AND fact_key = ?5",
+        rusqlite::params![owner_kind, feed_id, track_id, source, fact_key],
+    )
+    .context("delete local metadata fact")?;
+
+    let (value_text, value_integer, value_boolean) = match &fact.value {
+        LocalMetadataValue::Text(value) => (Some(value.as_str()), None, None),
+        LocalMetadataValue::Integer(value) => (None, Some(*value), None),
+        LocalMetadataValue::Boolean(value) => (None, None, Some(i64::from(*value))),
+    };
+    conn.execute(
+        "INSERT INTO entity_metadata_facts (
+             owner_kind, feed_id, track_id, fact_key, value_text,
+             value_integer, value_boolean, source, extraction_path,
+             observed_at, raw_json
+         )
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        rusqlite::params![
+            owner_kind,
+            feed_id,
+            track_id,
+            fact_key,
+            value_text,
+            value_integer,
+            value_boolean,
+            source,
+            fact.extraction_path.as_deref(),
+            fact.observed_at,
+            fact.raw_json.as_deref(),
+        ],
+    )
+    .context("insert local metadata fact")?;
+    Ok(())
+}
+
+pub fn local_metadata_fact(
+    conn: &Connection,
+    owner: LocalMetadataOwner,
+    source: &str,
+    fact_key: &str,
+) -> Result<Option<LocalMetadataFactRow>> {
+    let source = explicit_source_token(source)?;
+    let fact_key = explicit_fact_key(fact_key)?;
+    let (owner_kind, feed_id, track_id) = owner.sql_parts();
+    conn.query_row(
+        "SELECT fact_key, value_text, value_integer, value_boolean, source,
+                extraction_path, observed_at, raw_json
+         FROM entity_metadata_facts
+         WHERE owner_kind = ?1
+           AND feed_id IS ?2
+           AND track_id IS ?3
+           AND source = ?4
+           AND fact_key = ?5
+         ORDER BY id DESC
+         LIMIT 1",
+        rusqlite::params![owner_kind, feed_id, track_id, source, fact_key],
+        local_metadata_fact_row_from_sql,
+    )
+    .optional()
+    .context("query local metadata fact")
+}
+
 pub fn replace_artist_source_fact(
     conn: &mut Connection,
     source: &str,
