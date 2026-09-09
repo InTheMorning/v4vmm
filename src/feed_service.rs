@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Result};
@@ -8,6 +7,7 @@ use crate::api::{
     Client as MusicIndexClient, Contributor, Feed, SourceEntityId, SourceEntityLink, Track,
 };
 use crate::audio_tags::{read_audio_tags, write_id3v24_edits, AudioTags, Id3v24Edit};
+use crate::config;
 use crate::db::{self, TrackRow};
 use crate::identity_ingest;
 use crate::library_service;
@@ -270,6 +270,8 @@ pub fn apply_feed_updates(
     musicindex_endpoint: &str,
     stale: &StaleFeed,
 ) -> Result<FeedApplyOutcome> {
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
     let client = MusicIndexClient::new_with_base_url(musicindex_endpoint.to_string());
     let include =
         Some("source_links,source_ids,source_release_claims,source_contributors,payment_routes");
@@ -292,7 +294,11 @@ pub fn apply_feed_updates(
         id3_errors: Vec::new(),
     };
     for track in &tracks {
-        let Some(local_path) = track.local_path.clone() else {
+        let Some(local_path) = track
+            .local_path
+            .as_ref()
+            .map(|path| path.resolve(&cfg.music_dir))
+        else {
             continue;
         };
         let Ok((fetched_track, fetched_feed)) =
@@ -315,7 +321,7 @@ pub fn apply_feed_updates(
         if edits.is_empty() {
             continue;
         }
-        match write_id3v24_edits(Path::new(&local_path), &edits) {
+        match write_id3v24_edits(&local_path, &edits) {
             Ok(written) => {
                 if written > 0 {
                     outcome.tracks_updated += 1;
@@ -326,7 +332,7 @@ pub fn apply_feed_updates(
                 let label = track
                     .track_title
                     .clone()
-                    .unwrap_or_else(|| local_path.clone());
+                    .unwrap_or_else(|| local_path.display().to_string());
                 outcome.id3_errors.push(format!("{label}: {error:#}"));
             }
         }
@@ -468,11 +474,14 @@ fn contributor_from_local(row: db::LocalContributorRow) -> Contributor {
 }
 
 pub fn lookup_musicbrainz_library_track(track: &TrackRow) -> Result<MusicBrainzLookupResult> {
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
     let path = track
         .local_path
-        .as_deref()
+        .as_ref()
+        .map(|path| path.resolve(&cfg.music_dir))
         .ok_or_else(|| anyhow!("library track has no local file"))?;
-    let tags = read_audio_tags(Path::new(path))?;
+    let tags = read_audio_tags(&path)?;
     let context = track_row_to_track_context(track);
     let metadata = musicbrainz_lookup_metadata(&context.track, &tags);
     let musicbrainz_client = crate::http_client::document_builder()
@@ -494,11 +503,14 @@ pub fn lookup_musicbrainz_library_track(track: &TrackRow) -> Result<MusicBrainzL
 }
 
 pub fn lookup_musicbrainz_stage_for_track(track: &TrackRow) -> Result<StagedMusicBrainzLookup> {
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
     let path = track
         .local_path
-        .as_deref()
+        .as_ref()
+        .map(|path| path.resolve(&cfg.music_dir))
         .ok_or_else(|| anyhow!("no local file"))?;
-    let tags = read_audio_tags(Path::new(path))?;
+    let tags = read_audio_tags(&path)?;
     let api_track = crate::subscribe_service::track_row_to_api_track(track);
     let metadata = musicbrainz_lookup_metadata(&api_track, &tags);
     let musicbrainz_client = crate::http_client::document_builder()
@@ -525,11 +537,14 @@ pub fn stage_candidate_for_track(
     track: &TrackRow,
     candidate: &MusicBrainzCandidate,
 ) -> Result<StagedMusicBrainzLookup> {
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
     let path = track
         .local_path
-        .as_deref()
+        .as_ref()
+        .map(|path| path.resolve(&cfg.music_dir))
         .ok_or_else(|| anyhow!("no local file"))?;
-    let tags = read_audio_tags(Path::new(path))?;
+    let tags = read_audio_tags(&path)?;
     Ok(StagedMusicBrainzLookup {
         edit_count: mb_edits_for_missing_fields(&tags, candidate).len(),
         lookup: MusicBrainzLookupResult {

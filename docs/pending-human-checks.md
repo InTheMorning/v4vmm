@@ -91,7 +91,85 @@ Look for:
 - `Show` does not show a second list of its own.
 
 
-## Open 4: Remote Host Reachability
+## Open 4: Repaired Local Paths In Readiness Report
+
+Owner: ADR 0064 task 001. Needs `sqlite3`, a `v4vmm` binary on `PATH` or the
+equivalent `cargo run --release -- ...`, a writable configured database, and no
+running app while the fixture is inserted.
+
+1. Close the app.
+2. Read the configured paths.
+
+```bash
+cfg=~/.config/v4vmm/config.toml
+db_path=$(awk -F '"' '/^db_path =/ { print $2; exit }' "$cfg")
+music_dir=$(awk -F '"' '/^music_dir =/ { print $2; exit }' "$cfg")
+cp "$db_path" "$db_path.adr0064.bak"
+mkdir -p "$music_dir/adr0064-check"
+printf 'not really an mp3' > "$music_dir/adr0064-check/track.mp3"
+```
+
+3. Insert one old absolute local-file row whose trailing path now exists under
+   `music_dir`.
+
+```bash
+sqlite3 "$db_path" <<SQL
+BEGIN;
+DELETE FROM local_files
+WHERE path LIKE '%adr0064-check/track.mp3'
+   OR track_id IN (SELECT id FROM tracks WHERE item_guid = 'adr0064-check-track');
+DELETE FROM tracks WHERE item_guid = 'adr0064-check-track';
+DELETE FROM feeds WHERE feed_guid = 'adr0064-check-feed';
+INSERT INTO feeds (feed_url, feed_guid, title)
+VALUES ('adr0064-check://feed', 'adr0064-check-feed', 'ADR 0064 Check');
+INSERT INTO tracks (
+    feed_id, item_guid, track_title, artist_name, album_title,
+    duration_seconds, item_value_json, extra_json, is_in_library
+)
+SELECT id, 'adr0064-check-track', 'ADR 0064 Check Track', 'ADR 0064',
+       'ADR 0064 Check', 1, '[]', '{}', 1
+FROM feeds WHERE feed_guid = 'adr0064-check-feed';
+INSERT INTO local_files (path, track_id)
+SELECT '/old/root/adr0064-check/track.mp3', id
+FROM tracks WHERE item_guid = 'adr0064-check-track';
+COMMIT;
+SQL
+```
+
+4. Run the repair and start the app.
+
+```bash
+v4vmm library repair-paths --json
+cargo run --release
+```
+
+5. Open `Show`. Find the readiness count in the `Source` section.
+6. Run `v4vmm broadcast readiness --json` in a second terminal.
+
+Look for:
+
+- The repair output says `"repaired": 1`.
+- The readiness JSON row for `ADR 0064 Check Track` has the configured
+  `music_dir` path.
+- The row is not `FileMissing`. `NoRouteTag` is acceptable for this fixture.
+- The `Show` readiness count agrees with the CLI count after the repair.
+
+Wrong:
+
+- The row path is still `/old/root/adr0064-check/track.mp3`.
+- The row is counted as `FileMissing`.
+- The app count and `v4vmm broadcast readiness --json` disagree.
+
+Cleanup:
+
+```bash
+rm -f "$music_dir/adr0064-check/track.mp3"
+rmdir "$music_dir/adr0064-check" 2>/dev/null || true
+mv "$db_path.adr0064.bak" "$db_path"
+```
+
+
+## Open 5: Remote Host Reachability
 
 Owner: ADR 0059 task 010. Needs a configuration change only, not a second
 machine.
@@ -127,7 +205,7 @@ No router accepts that address, so the check waits for the five second connect
 timeout.
 
 
-## Open 5: Stream Encoder States
+## Open 6: Stream Encoder States
 
 Owner: ADR 0059 task 015. The first half needs no encoder.
 

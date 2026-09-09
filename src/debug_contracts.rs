@@ -1,5 +1,7 @@
 //! JSON-ready read contracts for local debugging and future UI checks.
 
+use std::path::Path;
+
 use anyhow::Result;
 use rusqlite::Connection;
 use serde::Serialize;
@@ -61,20 +63,31 @@ pub fn playlists(conn: &Connection) -> Result<Vec<PlaylistSummary>> {
     playlist_service::list(conn).map(|rows| rows.into_iter().map(Into::into).collect())
 }
 
-pub fn playlist_tracks(conn: &Connection, playlist_id: i64) -> Result<Vec<TrackSummary>> {
-    playlist_service::tracks(conn, playlist_id).map(track_summaries)
+pub fn playlist_tracks(
+    conn: &Connection,
+    playlist_id: i64,
+    music_dir: &Path,
+) -> Result<Vec<TrackSummary>> {
+    playlist_service::tracks(conn, playlist_id).map(|rows| track_summaries(rows, music_dir))
 }
 
-pub fn library_tracks(conn: &Connection) -> Result<Vec<TrackSummary>> {
-    library_service::library_tracks(conn).map(track_summaries)
+pub fn library_tracks(conn: &Connection, music_dir: &Path) -> Result<Vec<TrackSummary>> {
+    library_service::library_tracks(conn).map(|rows| track_summaries(rows, music_dir))
 }
 
-pub fn track_inspect(conn: &Connection, track_id: i64) -> Result<TrackIdentityDebug> {
-    track_identity::local_track_identity(conn, track_id).map(Into::into)
+pub fn track_inspect(
+    conn: &Connection,
+    track_id: i64,
+    music_dir: &Path,
+) -> Result<TrackIdentityDebug> {
+    track_identity::local_track_identity(conn, track_id)
+        .map(|identity| TrackIdentityDebug::from_identity(identity, music_dir))
 }
 
-fn track_summaries(rows: Vec<db::TrackRow>) -> Vec<TrackSummary> {
-    rows.into_iter().map(Into::into).collect()
+fn track_summaries(rows: Vec<db::TrackRow>, music_dir: &Path) -> Vec<TrackSummary> {
+    rows.into_iter()
+        .map(|row| TrackSummary::from_row(row, music_dir))
+        .collect()
 }
 
 impl From<db::Playlist> for PlaylistSummary {
@@ -90,8 +103,8 @@ impl From<db::Playlist> for PlaylistSummary {
     }
 }
 
-impl From<db::TrackRow> for TrackSummary {
-    fn from(value: db::TrackRow) -> Self {
+impl TrackSummary {
+    fn from_row(value: db::TrackRow, music_dir: &Path) -> Self {
         Self {
             id: value.id,
             feed_id: value.feed_id,
@@ -110,14 +123,16 @@ impl From<db::TrackRow> for TrackSummary {
             is_in_library: value.is_in_library,
             feed_title: value.feed_title,
             album_image: value.album_image_href,
-            local_path: value.local_path,
+            local_path: value
+                .local_path
+                .map(|path| path.resolve(music_dir).display().to_string()),
             transcript_url: value.transcript_url,
         }
     }
 }
 
-impl From<track_identity::TrackIdentity> for TrackIdentityDebug {
-    fn from(value: track_identity::TrackIdentity) -> Self {
+impl TrackIdentityDebug {
+    fn from_identity(value: track_identity::TrackIdentity, music_dir: &Path) -> Self {
         let value_block = value.value_block();
         Self {
             local_track_id: value.local_track_id,
@@ -129,7 +144,7 @@ impl From<track_identity::TrackIdentity> for TrackIdentityDebug {
             album: value.album,
             image: value.image,
             duration_ms: value.duration_ms,
-            local_path: value.local_path,
+            local_path: value.local_path.resolve(music_dir).display().to_string(),
             value_block,
             item_value_block: value.item_value_block,
             feed_value_block: value.feed_value_block,
@@ -186,12 +201,8 @@ mod tests {
             ],
         )?;
         let track_id = conn.last_insert_rowid();
-        library_service::mark_track_downloaded(
-            conn,
-            track_id,
-            std::path::Path::new("/tmp/track.mp3"),
-            None,
-        )?;
+        let relative_path = crate::library_path::LibraryRelativePath::for_test("tmp/track.mp3");
+        library_service::mark_track_downloaded(conn, track_id, &relative_path, None)?;
         Ok(track_id)
     }
 
@@ -201,7 +212,7 @@ mod tests {
         let feed_id = create_feed(&conn)?;
         let track_id = create_track(&conn, feed_id)?;
 
-        let value = track_inspect(&conn, track_id)?;
+        let value = track_inspect(&conn, track_id, std::path::Path::new("/"))?;
         let json = serde_json::to_value(&value)?;
 
         assert_eq!(json["local_track_id"], track_id);
@@ -221,8 +232,9 @@ mod tests {
         playlist_service::append_track(&conn, playlist_id, track_id)?;
 
         let playlist_rows = playlists(&conn)?;
-        let playlist_track_rows = playlist_tracks(&conn, playlist_id)?;
-        let library_track_rows = library_tracks(&conn)?;
+        let music_dir = std::path::Path::new("/");
+        let playlist_track_rows = playlist_tracks(&conn, playlist_id, music_dir)?;
+        let library_track_rows = library_tracks(&conn, music_dir)?;
 
         assert_eq!(playlist_rows.len(), 1);
         assert_eq!(playlist_rows[0].track_count, 1);

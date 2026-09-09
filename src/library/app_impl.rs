@@ -29,6 +29,7 @@ use crate::application::queries::library::{
 use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext};
 use crate::db::{self, TrackRow};
 use crate::feed_service::track_row_to_track_context;
+use crate::library_path::LibraryRelativePath;
 use crate::library_service;
 use crate::media::ImageCache;
 use crate::metadata::{
@@ -163,7 +164,7 @@ fn apply_library_removal_to_album_detail(detail: &mut LibraryDetail, target: Lib
 fn apply_track_subscription_to_album_detail(
     detail: &mut LibraryDetail,
     track_id: i64,
-    path: &str,
+    path: Option<LibraryRelativePath>,
     marked_downloaded: bool,
 ) {
     if !marked_downloaded {
@@ -176,7 +177,7 @@ fn apply_track_subscription_to_album_detail(
 
     if let Some(track) = album.tracks.iter_mut().find(|track| track.id == track_id) {
         track.is_in_library = true;
-        track.local_path = Some(path.to_string());
+        track.local_path = path;
     }
 }
 
@@ -446,10 +447,15 @@ impl LibraryApp {
             .cloned()
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "top-level app bootstrap still wires shared library surface dependencies explicitly"
+    )]
     pub fn new(
         conn: Arc<Mutex<Connection>>,
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
+        music_dir: PathBuf,
         application_services: Arc<ApplicationServices>,
         runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
         window: &mut Window,
@@ -459,6 +465,7 @@ impl LibraryApp {
             conn,
             cache,
             musicindex_endpoint,
+            music_dir,
             application_services,
             runtime_host,
             ContentViewMode::default(),
@@ -475,6 +482,7 @@ impl LibraryApp {
         conn: Arc<Mutex<Connection>>,
         cache: Arc<ImageCache>,
         musicindex_endpoint: String,
+        music_dir: PathBuf,
         application_services: Arc<ApplicationServices>,
         runtime_host: Option<Arc<crate::presentation::RuntimeHost>>,
         content_view_mode: ContentViewMode,
@@ -524,6 +532,7 @@ impl LibraryApp {
             command_runner,
             cache,
             musicindex_endpoint,
+            music_dir,
             vm,
             workspace_layout: Self::default_workspace_layout(),
             detail: LibraryDetail::None,
@@ -631,6 +640,11 @@ impl LibraryApp {
 
     pub fn set_musicindex_endpoint(&mut self, endpoint: String, cx: &mut Context<Self>) {
         self.musicindex_endpoint = endpoint;
+        cx.notify();
+    }
+
+    pub fn set_music_dir(&mut self, music_dir: PathBuf, cx: &mut Context<Self>) {
+        self.music_dir = music_dir;
         cx.notify();
     }
 
@@ -1842,7 +1856,7 @@ impl LibraryApp {
                 apply_track_subscription_to_album_detail(
                     &mut this.detail,
                     track_id,
-                    &path,
+                    outcome.relative_path().cloned(),
                     outcome.marked_downloaded(),
                 );
                 this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
@@ -2034,7 +2048,7 @@ impl LibraryApp {
                 apply_track_subscription_to_album_detail(
                     &mut this.detail,
                     track_id,
-                    &path,
+                    result.relative_path().cloned(),
                     result.marked_downloaded(),
                 );
                 this.vm.finish_track_subscribe(TrackSubscribeOutcome::new(
@@ -2047,7 +2061,7 @@ impl LibraryApp {
                         frame.local_subscription = result.marked_downloaded();
                         frame.track.is_in_library = result.marked_downloaded();
                         if result.marked_downloaded() {
-                            frame.track.local_path = Some(path);
+                            frame.track.local_path = result.relative_path().cloned();
                         }
                         frame.source_context = None;
                         frame.tag_compare = LazyPanel::Hidden;
@@ -2132,7 +2146,11 @@ impl LibraryApp {
         track: TrackRow,
         cx: &mut Context<Self>,
     ) {
-        let command = CompareLibraryTrack::new(track, self.musicindex_endpoint.clone());
+        let command = CompareLibraryTrack::new(
+            track,
+            self.musicindex_endpoint.clone(),
+            self.music_dir.clone(),
+        );
         present_command(
             &self.command_runner,
             command,
@@ -2874,7 +2892,8 @@ mod tests {
             item_guid: format!("track-{id}"),
             track_title: Some(format!("Track {id}")),
             is_in_library,
-            local_path: is_in_library.then(|| format!("/music/track-{id}.mp3")),
+            local_path: is_in_library
+                .then(|| LibraryRelativePath::for_test(&format!("music/track-{id}.mp3"))),
             ..TrackRow::default()
         }
     }
@@ -3121,7 +3140,12 @@ mod tests {
             vec![test_track(1, 7, false), test_track(2, 7, true)],
         ));
 
-        apply_track_subscription_to_album_detail(&mut detail, 1, "/music/track-1.mp3", true);
+        apply_track_subscription_to_album_detail(
+            &mut detail,
+            1,
+            Some(LibraryRelativePath::for_test("music/track-1.mp3")),
+            true,
+        );
 
         let LibraryDetail::Album(album) = detail else {
             panic!("detail remains an album");
@@ -3131,8 +3155,11 @@ mod tests {
             "downloaded row should move back to Library content in place"
         );
         assert_eq!(
-            album.tracks[0].local_path.as_deref(),
-            Some("/music/track-1.mp3")
+            album.tracks[0]
+                .local_path
+                .as_ref()
+                .map(LibraryRelativePath::as_stored),
+            Some("music/track-1.mp3")
         );
         assert!(
             album.tracks[1].is_in_library,

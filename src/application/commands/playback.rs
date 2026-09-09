@@ -1,6 +1,5 @@
 //! Playback command family.
 
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -13,7 +12,6 @@ use crate::application::events::ApplicationEvent;
 use crate::playback::NowPlayingUpdate;
 use crate::playback_driver::PlaybackDriver;
 use crate::playback_owner::PlaybackOwner;
-use crate::track_identity;
 
 type SharedConnection = Arc<Mutex<Connection>>;
 type SharedPlaybackOwner<D> = Arc<Mutex<PlaybackOwner<D>>>;
@@ -95,19 +93,12 @@ where
             .conn
             .lock()
             .map_err(|_| playback_error("database lock poisoned"))?;
-        let identity =
-            track_identity::local_track_identity(&conn, self.track_id).map_err(playback_error)?;
         let mut owner = self
             .playback_owner
             .lock()
             .map_err(|_| playback_error("playback owner lock poisoned"))?;
         let update = owner
-            .load_track_path(
-                &conn,
-                self.track_id,
-                Path::new(&identity.local_path),
-                self.start_ms,
-            )
+            .load_track(&conn, self.track_id, self.start_ms)
             .map_err(playback_error)?;
         Ok(CommandOutcome::new(
             PlaybackCommandResult::with_update(update.clone(), playing_message(&update)),
@@ -446,6 +437,8 @@ fn playback_error(error: impl std::fmt::Display) -> CommandError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
     use crate::application::command_bus::CommandBus;
     use crate::application::command_context::{CancellationToken, OperationId, TraceId};
     use crate::db;
@@ -468,6 +461,7 @@ mod tests {
         Arc::new(Mutex::new(PlaybackOwner::new(
             NullDriver::new(),
             playback::DEFAULT_SESSION_ID,
+            PathBuf::from("/"),
         )))
     }
 
@@ -510,13 +504,14 @@ mod tests {
             ],
         )?;
         let track_id = conn.last_insert_rowid();
-        db::mark_track_downloaded(conn, track_id, Path::new(path), None)?;
+        let relative_path = crate::library_path::LibraryRelativePath::for_test(path);
+        db::mark_track_downloaded(conn, track_id, &relative_path, None)?;
         Ok(track_id)
     }
 
     fn create_playlist_track(conn: &Connection) -> anyhow::Result<(i64, i64)> {
         let feed_id = create_feed(conn)?;
-        let track_id = create_track(conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        let track_id = create_track(conn, feed_id, "item-guid", "tmp/track.mp3")?;
         let playlist_id = db::playlist_create(conn, "Phase 2")?;
         db::playlist_append(conn, playlist_id, track_id)?;
         Ok((playlist_id, track_id))

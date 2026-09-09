@@ -150,7 +150,7 @@ Update this table when a packet lands.
 | `v4vmm` | 0063 002 card grid shell | implemented - 2026-09-08; visual check passed after the truncation fix |
 | `v4vmm` | 0063 003 detail panel | implemented - 2026-09-08; visual check found four defects, three fixed, the log placement moved to 004 |
 | `v4vmm` | 0063 004 log bottom pane | ready |
-| `v4vmm` | 0064 001 relative local paths | ready |
+| `v4vmm` | 0064 001 relative local paths | implemented - 2026-09-09; one visual gate open: readiness report counts after repair |
 | `v4vmm` | 0064 002 repair report surface | ready |
 | `splitkit` | reserved 001 store boundary | not started |
 | `splitkit` | reserved 002 reserved class | not started |

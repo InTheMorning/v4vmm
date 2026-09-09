@@ -56,6 +56,14 @@ pub fn run_app() {
         // Re-apply theme now that config has provided the user's UI scale.
         crate::ui::theme_bridge::install_theme(cfg.theme_profile, cfg.ui_scale.into(), cx);
         let conn = db::open_db(&cfg).expect("open db");
+        let repair =
+            db::repair_local_file_paths(&conn, &cfg.music_dir).expect("repair local paths");
+        if repair.repaired > 0 || repair.removed > 0 {
+            eprintln!(
+                "local path repair: repaired {}, removed {}",
+                repair.repaired, repair.removed
+            );
+        }
         let conn = Arc::new(Mutex::new(conn));
         let playback_driver = ConfiguredPlaybackDriver::from_config(&cfg.playback)
             .expect("configure playback driver");
@@ -64,8 +72,12 @@ pub fn run_app() {
             .drop_file_producer()
             .expect("configure broadcast drop-file producer");
         let playback_owner = Arc::new(Mutex::new(
-            PlaybackOwner::new(playback_driver, playback::DEFAULT_SESSION_ID)
-                .with_drop_file_producer(drop_file_producer),
+            PlaybackOwner::new(
+                playback_driver,
+                playback::DEFAULT_SESSION_ID,
+                cfg.music_dir.clone(),
+            )
+            .with_drop_file_producer(drop_file_producer),
         ));
 
         // Construct the async runtime host once; it owns the tokio Runtime

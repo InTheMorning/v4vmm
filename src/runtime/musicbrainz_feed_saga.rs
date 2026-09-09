@@ -679,7 +679,9 @@ mod tests {
             track_title: Some(title.into()),
             track_number: Some(track_number),
             artist_name: Some("Artist".into()),
-            local_path: Some(format!("/tmp/{id}.mp3")),
+            local_path: Some(crate::library_path::LibraryRelativePath::for_test(
+                &format!("tmp/{id}.mp3"),
+            )),
             ..TrackRow::default()
         }
     }

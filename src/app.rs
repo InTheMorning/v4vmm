@@ -135,6 +135,7 @@ pub struct TopApp {
     queue_text_filter: Option<String>,
     show_page: ShowPageVm,
     broadcast: config::BroadcastConfig,
+    music_dir: PathBuf,
     content_pane_width: gpui::Pixels,
     is_content_pane_resizing: bool,
     ui_scale: crate::config::UiScale,
@@ -236,6 +237,7 @@ impl TopApp {
                 conn.clone(),
                 library_cache,
                 musicindex_endpoint.clone(),
+                music_dir.clone(),
                 library_services,
                 library_runtime_host.clone(),
                 Self::initial_content_list_view_mode(workspace_layout_prefs),
@@ -308,6 +310,7 @@ impl TopApp {
             queue_text_filter: None,
             show_page: ShowPageVm::idle(),
             broadcast,
+            music_dir,
             content_pane_width: Self::initial_content_pane_width(workspace_layout_prefs),
             is_content_pane_resizing: false,
             ui_scale,
@@ -777,6 +780,7 @@ impl TopApp {
                 };
                 self.library.update(cx, |library, cx| {
                     library.set_musicindex_endpoint(normalized_endpoint.clone(), cx);
+                    library.set_music_dir(normalized_music_dir.clone(), cx);
                 });
                 self.endpoint_input.update(cx, |input, cx| {
                     input.set_value(normalized_endpoint.clone(), window, cx);
@@ -784,6 +788,10 @@ impl TopApp {
                 self.music_dir_input.update(cx, |input, cx| {
                     input.set_value(normalized_music_dir.display().to_string(), window, cx);
                 });
+                self.music_dir.clone_from(&normalized_music_dir);
+                if let Ok(mut playback_owner) = self.playback_owner.lock() {
+                    playback_owner.set_music_dir(normalized_music_dir);
+                }
                 let flac_display = normalized_flac_path
                     .as_ref()
                     .map(|p| p.display().to_string())
@@ -837,7 +845,11 @@ impl TopApp {
             .iter()
             .flat_map(|a| &a.albums)
             .flat_map(|a| &a.tracks)
-            .filter_map(|t| t.local_path.clone())
+            .filter_map(|t| {
+                t.local_path
+                    .as_ref()
+                    .map(|path| path.resolve(&self.music_dir).display().to_string())
+            })
             .collect();
         self.delete_cached_files(paths, cx);
     }
@@ -846,7 +858,7 @@ impl TopApp {
         if paths.is_empty() {
             return;
         }
-        let command = RemoveCachedFiles::new(Arc::clone(&self.conn), paths);
+        let command = RemoveCachedFiles::new(Arc::clone(&self.conn), self.music_dir.clone(), paths);
         present_command(
             &self.command_runner,
             command,
@@ -1587,7 +1599,11 @@ fn render_settings(app: &mut TopApp, cx: &mut Context<TopApp>) -> gpui::AnyEleme
                         for album in &artist.albums {
                             for track in &album.tracks {
                                 let title = LibraryTrackRowVm::new(track, None).compact_title();
-                                let path_clone = track.local_path.clone().unwrap_or_default();
+                                let path_clone = track
+                                    .local_path
+                                    .as_ref()
+                                    .map(|path| path.resolve(&app.music_dir).display().to_string())
+                                    .unwrap_or_default();
                                 cached_items.push(
                                     div()
                                         .pl(Spacing::MD.scaled(cx))

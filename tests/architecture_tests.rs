@@ -9621,7 +9621,7 @@ fn source_fact_placeholder_and_breadcrumb_regressions_are_guarded() {
         "pub(crate) fn select_frame_breadcrumb(",
         "TrackSubscriptionAction::Download(track)",
         "SubscribeTrackRequest::LibraryTrack",
-        "frame.track.local_path = Some(path);",
+        "frame.track.local_path = result.relative_path().cloned();",
         "frame.source_context = None;",
         "fn load_track_source_context(&mut self, track: TrackRow",
     ] {
@@ -11468,6 +11468,53 @@ fn adr_0058_http_clients_are_built_by_one_owner() {
     assert!(
         violations.is_empty(),
         "ADR 0058 HTTP client ownership violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0064: `local_files.path` is relative to `music_dir`.
+#[test]
+fn adr_0064_local_file_paths_resolve_only_through_library_path() {
+    const OWNER: &str = "src/library_path.rs";
+    const FORBIDDEN_PATTERNS: &[&str] = &[
+        ".strip_prefix(music_dir",
+        ".strip_prefix(&music_dir",
+        ".strip_prefix(cfg.music_dir",
+        ".strip_prefix(&cfg.music_dir",
+        ".strip_prefix(self.music_dir",
+        ".strip_prefix(&self.music_dir",
+        "music_dir.join(local_path",
+        "music_dir.join(&local_path",
+        "cfg.music_dir.join(local_path",
+        "cfg.music_dir.join(&local_path",
+        "self.music_dir.join(local_path",
+        "self.music_dir.join(&local_path",
+        ".music_dir.join(local_path",
+        ".music_dir.join(&local_path",
+    ];
+
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let relative = rel_path(&path);
+        if relative == OWNER {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for pattern in FORBIDDEN_PATTERNS {
+                if line.contains(pattern) {
+                    violations.push(format!(
+                        "{relative}:{line_number}: ADR 0064 local file paths must use {OWNER} \
+                         for stored path construction and resolution: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0064 local file path resolver violations:\n{}",
         violations.join("\n")
     );
 }

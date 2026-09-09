@@ -1,5 +1,6 @@
 //! Download command family.
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -13,6 +14,7 @@ use crate::application::events::library::LibraryEvent;
 use crate::application::events::playlist::PlaylistEvent;
 use crate::application::events::ApplicationEvent;
 use crate::application::ports::download_manager::{DownloadError, DownloadManager};
+use crate::library_path::LibraryRelativePath;
 use crate::library_service;
 use crate::library_service::AppendToPlaylistOutcome;
 use crate::metadata::TagCompareResult;
@@ -24,6 +26,7 @@ type SharedConnection = Arc<Mutex<Connection>>;
 #[derive(Clone, Debug)]
 pub struct SubscribeTrackResult {
     path: String,
+    relative_path: Option<LibraryRelativePath>,
     format_warning: Option<String>,
     applied_edits: usize,
     marked_downloaded: bool,
@@ -37,6 +40,7 @@ impl SubscribeTrackResult {
     pub fn from_outcome(outcome: SubscribeTrackOutcome, message: String) -> Self {
         Self {
             path: outcome.path.display().to_string(),
+            relative_path: outcome.relative_path,
             format_warning: outcome.format_warning,
             applied_edits: outcome.applied_edits,
             marked_downloaded: outcome.marked_downloaded,
@@ -49,6 +53,12 @@ impl SubscribeTrackResult {
     #[must_use]
     pub fn path(&self) -> &str {
         &self.path
+    }
+
+    /// Returns the stored local path written to the database.
+    #[must_use]
+    pub const fn relative_path(&self) -> Option<&LibraryRelativePath> {
+        self.relative_path.as_ref()
     }
 
     /// Returns the download format warning, if any.
@@ -440,14 +450,19 @@ impl ApplicationCommand for RemoveTrackFromLibraryByMatch {
 #[derive(Clone, Debug)]
 pub struct RemoveCachedFiles {
     conn: SharedConnection,
+    music_dir: PathBuf,
     paths: Vec<String>,
 }
 
 impl RemoveCachedFiles {
     /// Creates a cached-file removal command.
     #[must_use]
-    pub fn new(conn: SharedConnection, paths: Vec<String>) -> Self {
-        Self { conn, paths }
+    pub fn new(conn: SharedConnection, music_dir: PathBuf, paths: Vec<String>) -> Self {
+        Self {
+            conn,
+            music_dir,
+            paths,
+        }
     }
 }
 
@@ -461,7 +476,7 @@ impl ApplicationCommand for RemoveCachedFiles {
             if context.cancellation().is_cancelled() {
                 return Err(CommandError::Cancelled);
             }
-            library_service::delete_cached_file(&conn, &path)
+            library_service::delete_cached_file(&conn, &self.music_dir, Path::new(&path))
                 .map_err(|error| download_command_error(&error))?;
             removed_count += 1;
         }
@@ -518,7 +533,6 @@ fn download_error(error: DownloadError) -> CommandError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     use crate::api::Track;
     use crate::application::command_bus::CommandBus;
@@ -580,6 +594,7 @@ mod tests {
         ) -> Result<SubscribeTrackOutcome, DownloadError> {
             Ok(SubscribeTrackOutcome {
                 path: PathBuf::from("/tmp/fake.mp3"),
+                relative_path: None,
                 format_warning: Some("format warning".to_string()),
                 applied_edits: 2,
                 marked_downloaded: true,
@@ -652,13 +667,18 @@ mod tests {
             let feed_id = create_feed(&db, "https://example.test/feed.xml")?;
             let track_id =
                 create_library_track(&db, feed_id, "item-guid", "https://cdn.test/audio.mp3")?;
-            library_service::mark_track_downloaded(&db, track_id, &path, None)?;
+            let relative_path = LibraryRelativePath::from_absolute(temp.path(), &path)?;
+            library_service::mark_track_downloaded(&db, track_id, &relative_path, None)?;
             library_service::set_track_in_library(&db, track_id, false)?;
             track_id
         };
 
         let outcome = CommandBus::new().execute(
-            RemoveCachedFiles::new(Arc::clone(&conn), vec![path_string]),
+            RemoveCachedFiles::new(
+                Arc::clone(&conn),
+                temp.path().to_path_buf(),
+                vec![path_string],
+            ),
             &CommandContext::next(),
         )?;
 
@@ -682,7 +702,11 @@ mod tests {
 
         let error = CommandBus::new()
             .execute(
-                RemoveCachedFiles::new(Arc::clone(&conn), vec!["/tmp/track.mp3".to_string()]),
+                RemoveCachedFiles::new(
+                    Arc::clone(&conn),
+                    PathBuf::from("/tmp"),
+                    vec!["/tmp/track.mp3".to_string()],
+                ),
                 &context,
             )
             .expect_err("cancelled command should fail");

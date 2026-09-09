@@ -1,7 +1,7 @@
 //! Library local query family.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -203,15 +203,21 @@ impl ApplicationCommand for HydrateAlbumIdentity {
 pub(crate) struct CompareLibraryTrack {
     track: TrackRow,
     musicindex_endpoint: String,
+    music_dir: PathBuf,
 }
 
 impl CompareLibraryTrack {
     /// Creates a library track comparison query command.
     #[must_use]
-    pub(crate) fn new(track: TrackRow, musicindex_endpoint: impl Into<String>) -> Self {
+    pub(crate) fn new(
+        track: TrackRow,
+        musicindex_endpoint: impl Into<String>,
+        music_dir: PathBuf,
+    ) -> Self {
         Self {
             track,
             musicindex_endpoint: musicindex_endpoint.into(),
+            music_dir,
         }
     }
 }
@@ -223,7 +229,7 @@ impl ApplicationCommand for CompareLibraryTrack {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        compare_library_track(&self.track, &self.musicindex_endpoint)
+        compare_library_track(&self.track, &self.musicindex_endpoint, &self.music_dir)
             .map_err(|error| query_error(&error))
             .map(CommandOutcome::without_events)
     }
@@ -448,14 +454,16 @@ fn hydrate_album_identity_facts(
 fn compare_library_track(
     track: &TrackRow,
     musicindex_endpoint: &str,
+    music_dir: &Path,
 ) -> anyhow::Result<LibraryTrackCompare> {
     let path = track
         .local_path
-        .as_deref()
+        .as_ref()
+        .map(|path| path.resolve(music_dir))
         .ok_or_else(|| anyhow::anyhow!("library track has no local file"))?;
     let context = feed_service::fetch_library_track_context(track, musicindex_endpoint)
         .unwrap_or_else(|_| track_row_to_track_context(track));
-    let tag_compare = subscribe_service::compare_downloaded_track_path(Path::new(path), &context)?;
+    let tag_compare = subscribe_service::compare_downloaded_track_path(&path, &context)?;
     Ok(LibraryTrackCompare {
         tag_compare,
         track_context: context,
@@ -512,12 +520,8 @@ mod tests {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
         let track_id = create_track(&conn, feed_id)?;
-        library_service::mark_track_downloaded(
-            &conn,
-            track_id,
-            std::path::Path::new("/tmp/track.mp3"),
-            None,
-        )?;
+        let relative_path = crate::library_path::LibraryRelativePath::for_test("tmp/track.mp3");
+        library_service::mark_track_downloaded(&conn, track_id, &relative_path, None)?;
         library_service::set_track_in_library(&conn, track_id, false)?;
 
         let rows = ApplicationQueryService::new().cached_tracks(&conn)?;

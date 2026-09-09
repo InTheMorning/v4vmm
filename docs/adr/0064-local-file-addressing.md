@@ -70,6 +70,19 @@ the `local_files` row so the track reads as not downloaded, and it records the
 old path in the repair report, so the operator can move the file and download
 again.
 
+Amended 2026-09-08, before the first operator run. **The repair changes nothing
+in two cases**, because removal is safe for one moved file and destructive for a
+folder that is not there:
+
+- `music_dir` is absent, or it is not a directory. An unmounted drive and a
+  mistyped folder both look like this.
+- Rows need repair and not one of them resolves. A folder that holds none of the
+  library reads the same way as the wrong folder.
+
+In both cases the absolute rows stay, and a later start repairs them. The
+alternative removes every row and the app forgets the whole library, while the
+files sit on the disk untouched.
+
 ## Invariants
 
 - `local_files.path` is relative, with no leading separator and no `..`.
@@ -77,6 +90,8 @@ again.
 - A write of a path outside `music_dir` fails and stores nothing.
 - The repair step is idempotent and needs no operator action to run.
 - An unresolved row is reported before it is removed.
+- The repair changes nothing when `music_dir` is absent, and nothing when no
+  row resolves. It never removes every row at once.
 
 ## Alternatives Considered
 

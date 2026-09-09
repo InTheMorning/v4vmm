@@ -8,6 +8,7 @@ use rusqlite::Connection;
 
 use crate::config;
 use crate::db;
+use crate::library_path::LibraryRelativePath;
 use crate::playlist_service;
 use crate::subscribe_service::{self};
 
@@ -89,7 +90,7 @@ pub fn track_is_in_library_by_match(
 pub fn mark_track_downloaded(
     conn: &Connection,
     track_id: i64,
-    path: &Path,
+    path: &LibraryRelativePath,
     file_size_bytes: Option<i64>,
 ) -> Result<()> {
     db::mark_track_downloaded(conn, track_id, path, file_size_bytes)
@@ -100,7 +101,7 @@ pub fn mark_track_downloaded_by_match(
     feed_url: Option<&str>,
     item_guid: Option<&str>,
     enclosure_url: Option<&str>,
-    path: &Path,
+    path: &LibraryRelativePath,
     file_size_bytes: Option<i64>,
 ) -> Result<bool> {
     db::mark_track_downloaded_by_match(
@@ -113,28 +114,29 @@ pub fn mark_track_downloaded_by_match(
     )
 }
 
-pub fn delete_local_file(conn: &Connection, local_file_path: &str) -> Result<()> {
+pub fn delete_local_file(conn: &Connection, local_file_path: &LibraryRelativePath) -> Result<()> {
     db::delete_local_file(conn, local_file_path)
 }
 
-pub fn delete_cached_file(conn: &Connection, local_file_path: &str) -> Result<()> {
+pub fn delete_cached_file(
+    conn: &Connection,
+    music_dir: &Path,
+    local_file_path: &Path,
+) -> Result<()> {
+    let relative_path = LibraryRelativePath::from_absolute(music_dir, local_file_path)?;
     if let Err(error) = std::fs::remove_file(local_file_path) {
         if error.kind() != std::io::ErrorKind::NotFound {
             return Err(error.into());
         }
     }
-    cleanup_empty_parents(Path::new(local_file_path));
-    delete_local_file(conn, local_file_path)
+    cleanup_empty_parents(music_dir, local_file_path);
+    delete_local_file(conn, &relative_path)
 }
 
-fn cleanup_empty_parents(path: &Path) {
-    let music_dir = config::config_path()
-        .ok()
-        .and_then(|path| config::load_config(&path).ok())
-        .map(|config| config.music_dir);
+fn cleanup_empty_parents(music_dir: &Path, path: &Path) {
     let mut dir = path.parent();
     while let Some(current) = dir {
-        if music_dir.as_deref() == Some(current) {
+        if music_dir == current {
             break;
         }
         if std::fs::read_dir(current)
@@ -154,6 +156,8 @@ pub fn subscribe_then_append_to_playlist(
     playlist_id: i64,
     track_ids: Vec<i64>,
 ) -> Result<AppendToPlaylistOutcome> {
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
     let mut outcome = AppendToPlaylistOutcome::default();
     for track_id in track_ids {
         let track = {
@@ -168,8 +172,8 @@ pub fn subscribe_then_append_to_playlist(
         let already_local = track.is_in_library
             && track
                 .local_path
-                .as_deref()
-                .map(|p| !p.is_empty() && std::path::Path::new(p).exists())
+                .as_ref()
+                .map(|path| path.resolve(&cfg.music_dir).exists())
                 .unwrap_or(false);
 
         if already_local {
@@ -256,17 +260,19 @@ mod tests {
             "https://example.test/audio.mp3",
         )?;
 
-        mark_track_downloaded(
-            &conn,
-            track_id,
-            std::path::Path::new("/tmp/track.mp3"),
-            Some(123),
-        )?;
+        let relative_path = LibraryRelativePath::for_test("tmp/track.mp3");
+        mark_track_downloaded(&conn, track_id, &relative_path, Some(123))?;
 
         let rows = library_tracks(&conn)?;
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, track_id);
-        assert_eq!(rows[0].local_path.as_deref(), Some("/tmp/track.mp3"));
+        assert_eq!(
+            rows[0]
+                .local_path
+                .as_ref()
+                .map(LibraryRelativePath::as_stored),
+            Some("tmp/track.mp3")
+        );
 
         Ok(())
     }
@@ -281,12 +287,8 @@ mod tests {
             "item-guid",
             "https://example.test/audio.mp3",
         )?;
-        mark_track_downloaded(
-            &conn,
-            track_id,
-            std::path::Path::new("/tmp/track.mp3"),
-            None,
-        )?;
+        let relative_path = LibraryRelativePath::for_test("tmp/track.mp3");
+        mark_track_downloaded(&conn, track_id, &relative_path, None)?;
         set_track_in_library(&conn, track_id, false)?;
 
         let rows = cached_tracks(&conn)?;
@@ -334,15 +336,11 @@ mod tests {
             "item-guid",
             "https://example.test/audio.mp3",
         )?;
-        mark_track_downloaded(
-            &conn,
-            track_id,
-            std::path::Path::new("/tmp/track.mp3"),
-            None,
-        )?;
+        let relative_path = LibraryRelativePath::for_test("tmp/track.mp3");
+        mark_track_downloaded(&conn, track_id, &relative_path, None)?;
         set_track_in_library(&conn, track_id, false)?;
 
-        delete_local_file(&conn, "/tmp/track.mp3")?;
+        delete_local_file(&conn, &relative_path)?;
 
         assert!(cached_tracks(&conn)?.is_empty());
 

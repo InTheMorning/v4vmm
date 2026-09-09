@@ -5091,7 +5091,9 @@ mod tests {
     #[test]
     fn library_track_row_vm_local_path_does_not_change_row_action_text() {
         let mut r = row();
-        r.local_path = Some("/music/track.mp3".into());
+        r.local_path = Some(crate::library_path::LibraryRelativePath::for_test(
+            "music/track.mp3",
+        ));
         let vm = LibraryTrackRowVm::new(&r, None);
         assert_eq!(vm.primary_action_vm(false).label, "Download");
     }
@@ -5208,7 +5210,7 @@ mod tests {
     #[test]
     fn artist_detail_vm_includes_downloaded_row_when_any_local_path_present() {
         let mut t1 = track_for_feed(1, Some("A"));
-        t1.local_path = Some("/x".into());
+        t1.local_path = Some(crate::library_path::LibraryRelativePath::for_test("x"));
         let t2 = track_for_feed(1, Some("A"));
         let tracks = [t1, t2];
         let vm = LibraryArtistDetailVm::new("Artist", &tracks);
@@ -5530,7 +5532,7 @@ mod tests {
         let pl = playlist("Mix");
         let mut t = row();
         t.is_in_library = true;
-        t.local_path = Some("/x".into());
+        t.local_path = Some(crate::library_path::LibraryRelativePath::for_test("x"));
         let tracks = [t, row()];
         let vm = PlaylistDetailVm::new(&pl, &tracks);
         let rows = vm.track_rows();
@@ -5578,7 +5580,7 @@ mod tests {
         let mut t1 = row();
         t1.id = 42;
         t1.is_in_library = true;
-        t1.local_path = Some("/x".into());
+        t1.local_path = Some(crate::library_path::LibraryRelativePath::for_test("x"));
         let mut t2 = row();
         t2.id = 43;
         let tracks = [t1, t2];
@@ -5638,7 +5640,7 @@ mod tests {
         t.artist_name = Some("Artist".into());
         t.duration_seconds = Some(125);
         t.track_image_href = Some("track".into());
-        t.local_path = Some("/x".into());
+        t.local_path = Some(crate::library_path::LibraryRelativePath::for_test("x"));
         let tracks = [t, row()];
         let vm = PlaylistDetailVm::new(&pl, &tracks);
         let display = vm.track_rows()[0].display(pl.id);
@@ -5695,7 +5697,7 @@ mod tests {
         let pl = playlist("Mix");
         let mut t = row();
         t.id = 42;
-        t.local_path = Some("/x".into());
+        t.local_path = Some(crate::library_path::LibraryRelativePath::for_test("x"));
         let tracks = [t];
         let vm = PlaylistDetailVm::new(&pl, &tracks);
         let row = &vm.track_rows()[0];

@@ -6,7 +6,7 @@
 
 #![warn(clippy::pedantic)]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -17,7 +17,7 @@ use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::errors::command::CommandError;
 use crate::audio_tags::{read_audio_tags, AudioTags};
 use crate::db::TrackRow;
-use crate::library_service;
+use crate::{config, library_service};
 
 const VALUE_ROUTES_KEY: &str = "Value Routes";
 const VALUE_ROUTES_FRAME: &str = "TXXX:MusicIndex Value Routes";
@@ -133,8 +133,10 @@ impl ApplicationQueryService {
     pub(crate) fn broadcast_readiness_report(
         &self,
         conn: &Connection,
+        music_dir: &Path,
     ) -> Result<BroadcastReadinessReport, CommandError> {
-        broadcast_readiness_report(conn).map_err(|error| CommandError::Query(format!("{error:#}")))
+        broadcast_readiness_report_for_music_dir(conn, music_dir)
+            .map_err(|error| CommandError::Query(format!("{error:#}")))
     }
 }
 
@@ -145,15 +147,30 @@ impl ApplicationQueryService {
 /// Returns an error when local library rows cannot be read. Unreadable tag data
 /// is classified as not ready.
 pub(crate) fn broadcast_readiness_report(conn: &Connection) -> Result<BroadcastReadinessReport> {
-    let tracks = library_service::library_tracks(conn).context("load local library tracks")?;
-    Ok(readiness_report_from_tracks(&tracks))
+    let cfg_path = config::config_path()?;
+    let cfg = config::load_config(&cfg_path)?;
+    broadcast_readiness_report_for_music_dir(conn, &cfg.music_dir)
 }
 
-fn readiness_report_from_tracks(tracks: &[TrackRow]) -> BroadcastReadinessReport {
+/// Builds the broadcast readiness report with a configured music directory.
+///
+/// # Errors
+///
+/// Returns an error when local library rows cannot be read. Unreadable tag data
+/// is classified as not ready.
+pub(crate) fn broadcast_readiness_report_for_music_dir(
+    conn: &Connection,
+    music_dir: &Path,
+) -> Result<BroadcastReadinessReport> {
+    let tracks = library_service::library_tracks(conn).context("load local library tracks")?;
+    Ok(readiness_report_from_tracks(&tracks, music_dir))
+}
+
+fn readiness_report_from_tracks(tracks: &[TrackRow], music_dir: &Path) -> BroadcastReadinessReport {
     let mut report = BroadcastReadinessReport::default();
 
     for track in tracks {
-        let item = readiness_track(track);
+        let item = readiness_track(track, music_dir);
         report.summary.record(item.state);
         report.tracks.push(item);
     }
@@ -161,13 +178,17 @@ fn readiness_report_from_tracks(tracks: &[TrackRow]) -> BroadcastReadinessReport
     report
 }
 
-fn readiness_track(track: &TrackRow) -> BroadcastReadinessTrack {
+fn readiness_track(track: &TrackRow, music_dir: &Path) -> BroadcastReadinessTrack {
     let title = track
         .track_title
         .clone()
         .or_else(|| track.feed_title.clone())
         .unwrap_or_else(|| "Untitled".to_string());
-    let Some(path) = track.local_path.as_ref().map(PathBuf::from) else {
+    let Some(path) = track
+        .local_path
+        .as_ref()
+        .map(|path| path.resolve(music_dir))
+    else {
         return BroadcastReadinessTrack {
             track_id: track.id,
             title,
@@ -281,6 +302,7 @@ fn value_routes_are_ready(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
 
     use rusqlite::Connection;
 
@@ -307,6 +329,7 @@ mod tests {
 
     fn create_track(
         conn: &Connection,
+        music_dir: &Path,
         feed_id: i64,
         title: &str,
         path: &Path,
@@ -323,7 +346,9 @@ mod tests {
             ],
         )?;
         let track_id = conn.last_insert_rowid();
-        library_service::mark_track_downloaded(conn, track_id, path, None)?;
+        let relative_path =
+            crate::library_path::LibraryRelativePath::from_absolute(music_dir, path)?;
+        library_service::mark_track_downloaded(conn, track_id, &relative_path, None)?;
         Ok(track_id)
     }
 
@@ -360,9 +385,10 @@ mod tests {
             "ready.mp3",
             r#"[{"recipient_name":"Artist","route_type":"node","split":100.0}]"#,
         )?;
-        let track_id = create_track(&conn, feed_id, "Ready Track", &path)?;
+        let track_id = create_track(&conn, temp.path(), feed_id, "Ready Track", &path)?;
 
-        let report = ApplicationQueryService::new().broadcast_readiness_report(&conn)?;
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
 
         assert_eq!(report.summary.ready, 1);
         assert_eq!(report.summary.no_route_tag, 0);
@@ -378,9 +404,10 @@ mod tests {
         let temp = tempfile::tempdir()?;
         let feed_id = create_feed(&conn)?;
         let path = untagged_audio_file(&temp, "missing-tag.mp3")?;
-        create_track(&conn, feed_id, "Missing Tag", &path)?;
+        create_track(&conn, temp.path(), feed_id, "Missing Tag", &path)?;
 
-        let report = ApplicationQueryService::new().broadcast_readiness_report(&conn)?;
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
 
         assert_eq!(report.summary.ready, 0);
         assert_eq!(report.summary.no_route_tag, 1);
@@ -395,9 +422,10 @@ mod tests {
         let temp = tempfile::tempdir()?;
         let feed_id = create_feed(&conn)?;
         let path = tagged_audio_file(&temp, "empty-routes.mp3", "[]")?;
-        create_track(&conn, feed_id, "Empty Routes", &path)?;
+        create_track(&conn, temp.path(), feed_id, "Empty Routes", &path)?;
 
-        let report = ApplicationQueryService::new().broadcast_readiness_report(&conn)?;
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
 
         assert_eq!(report.summary.ready, 0);
         assert_eq!(report.summary.no_route_tag, 1);
@@ -426,7 +454,8 @@ mod tests {
             ],
         )?;
 
-        let report = ApplicationQueryService::new().broadcast_readiness_report(&conn)?;
+        let report = ApplicationQueryService::new()
+            .broadcast_readiness_report(&conn, std::path::Path::new("/tmp"))?;
 
         assert_eq!(report.summary.not_downloaded, 1);
         assert_eq!(
@@ -446,9 +475,10 @@ mod tests {
         let temp = tempfile::tempdir()?;
         let feed_id = create_feed(&conn)?;
         let path = temp.path().join("missing.mp3");
-        create_track(&conn, feed_id, "Missing File", &path)?;
+        create_track(&conn, temp.path(), feed_id, "Missing File", &path)?;
 
-        let report = ApplicationQueryService::new().broadcast_readiness_report(&conn)?;
+        let report =
+            ApplicationQueryService::new().broadcast_readiness_report(&conn, temp.path())?;
 
         assert_eq!(report.summary.ready, 0);
         assert_eq!(report.summary.no_route_tag, 0);
@@ -461,7 +491,8 @@ mod tests {
     fn broadcast_readiness_report_allows_empty_library() -> anyhow::Result<()> {
         let conn = setup_test_db()?;
 
-        let report = ApplicationQueryService::new().broadcast_readiness_report(&conn)?;
+        let report = ApplicationQueryService::new()
+            .broadcast_readiness_report(&conn, std::path::Path::new("/tmp"))?;
 
         assert_eq!(report.summary, BroadcastReadinessSummary::default());
         assert!(report.tracks.is_empty());

@@ -4,7 +4,7 @@
 //! processes that can hold a driver, poll it, and reconcile observed state back
 //! into the canonical playback session.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use rusqlite::Connection;
@@ -24,16 +24,18 @@ pub enum PollOutcome {
 pub struct PlaybackOwner<D> {
     driver: D,
     session_id: String,
+    music_dir: PathBuf,
     eof_armed: bool,
     loaded_track_id: Option<i64>,
     drop_file_producer: Option<DropFileProducer>,
 }
 
 impl<D: PlaybackDriver> PlaybackOwner<D> {
-    pub fn new(driver: D, session_id: impl Into<String>) -> Self {
+    pub fn new(driver: D, session_id: impl Into<String>, music_dir: impl Into<PathBuf>) -> Self {
         Self {
             driver,
             session_id: session_id.into(),
+            music_dir: music_dir.into(),
             eof_armed: true,
             loaded_track_id: None,
             drop_file_producer: None,
@@ -50,6 +52,10 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         &self.driver
     }
 
+    pub fn set_music_dir(&mut self, music_dir: impl Into<PathBuf>) {
+        self.music_dir = music_dir.into();
+    }
+
     #[must_use]
     pub fn drop_file_producer(&self) -> Option<&DropFileProducer> {
         self.drop_file_producer.as_ref()
@@ -64,6 +70,17 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
 
     pub fn clear_broadcast_drop_file(&mut self) -> Result<bool> {
         self.clear_drop_file()
+    }
+
+    pub fn load_track(
+        &mut self,
+        conn: &Connection,
+        track_id: i64,
+        start_ms: u64,
+    ) -> Result<playback::NowPlayingUpdate> {
+        let identity = track_identity::local_track_identity(conn, track_id)?;
+        let path = identity.local_path.resolve(&self.music_dir);
+        self.load_track_path(conn, track_id, &path, start_ms)
     }
 
     pub fn load_track_path(
@@ -93,8 +110,8 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         playlist_position: i64,
     ) -> Result<playback::NowPlayingUpdate> {
         let selection = playlist_service::select_track_at(conn, playlist_id, playlist_position)?;
-        self.driver
-            .load(Path::new(&selection.identity.local_path), 0)?;
+        let path = selection.identity.local_path.resolve(&self.music_dir);
+        self.driver.load(&path, 0)?;
         self.eof_armed = true;
         self.loaded_track_id = Some(selection.track_id);
         let update =
@@ -114,8 +131,8 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             return Ok(None);
         }
         let identity = track_identity::local_track_identity(conn, session.local_track_id)?;
-        self.driver
-            .load(Path::new(&identity.local_path), session.position_ms)?;
+        let path = identity.local_path.resolve(&self.music_dir);
+        self.driver.load(&path, session.position_ms)?;
         if session.state == "paused" {
             self.driver.pause(true)?;
         }
@@ -181,7 +198,8 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         update: &playback::NowPlayingUpdate,
     ) -> Result<()> {
         let identity = track_identity::local_track_identity(conn, update.local_track_id)?;
-        self.driver.load(Path::new(&identity.local_path), 0)?;
+        let path = identity.local_path.resolve(&self.music_dir);
+        self.driver.load(&path, 0)?;
         self.loaded_track_id = Some(update.local_track_id);
         self.eof_armed = true;
         Ok(())
@@ -204,8 +222,8 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
         }
         if self.loaded_track_id != Some(session.local_track_id) {
             let identity = track_identity::local_track_identity(conn, session.local_track_id)?;
-            self.driver
-                .load(Path::new(&identity.local_path), session.position_ms)?;
+            let path = identity.local_path.resolve(&self.music_dir);
+            self.driver.load(&path, session.position_ms)?;
             if session.state == "paused" {
                 self.driver.pause(true)?;
             }
@@ -231,7 +249,8 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             let update = playback::skip_next(conn, &self.session_id)
                 .context("advance playlist after driver EOF")?;
             let identity = track_identity::local_track_identity(conn, update.local_track_id)?;
-            self.driver.load(Path::new(&identity.local_path), 0)?;
+            let path = identity.local_path.resolve(&self.music_dir);
+            self.driver.load(&path, 0)?;
             self.loaded_track_id = Some(update.local_track_id);
             self.eof_armed = true;
             self.sync_drop_file_for_update(conn, &update)?;
@@ -265,7 +284,8 @@ impl<D: PlaybackDriver> PlaybackOwner<D> {
             return Ok(());
         }
         let identity = track_identity::local_track_identity(conn, update.local_track_id)?;
-        producer.publish(update, Path::new(&identity.local_path))?;
+        let path = identity.local_path.resolve(&self.music_dir);
+        producer.publish(update, &path)?;
         Ok(())
     }
 
@@ -314,7 +334,13 @@ mod tests {
         Ok(conn.last_insert_rowid())
     }
 
-    fn create_track(conn: &Connection, feed_id: i64, item_guid: &str, path: &str) -> Result<i64> {
+    fn create_track(
+        conn: &Connection,
+        feed_id: i64,
+        item_guid: &str,
+        music_dir: &Path,
+        path: &Path,
+    ) -> Result<i64> {
         conn.execute(
             "INSERT INTO tracks (
                  feed_id, item_guid, track_title, artist_name, album_title,
@@ -333,7 +359,9 @@ mod tests {
             ],
         )?;
         let track_id = conn.last_insert_rowid();
-        db::mark_track_downloaded(conn, track_id, std::path::Path::new(path), None)?;
+        let relative_path =
+            crate::library_path::LibraryRelativePath::from_absolute(music_dir, path)?;
+        db::mark_track_downloaded(conn, track_id, &relative_path, None)?;
         Ok(track_id)
     }
 
@@ -355,9 +383,19 @@ mod tests {
     fn owner_seek_updates_driver_and_session_immediately() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let track_id = create_track(&conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        let track_id = create_track(
+            &conn,
+            feed_id,
+            "item-guid",
+            Path::new("/"),
+            Path::new("/tmp/track.mp3"),
+        )?;
         playback::set_track(&conn, track_id, playback::DEFAULT_SESSION_ID)?;
-        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+        let mut owner = PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            PathBuf::from("/"),
+        );
         owner.load_current_session(&conn)?;
 
         let update = owner.seek(&conn, 12_000)?;
@@ -372,9 +410,19 @@ mod tests {
     fn owner_pause_persists_paused_state() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let track_id = create_track(&conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        let track_id = create_track(
+            &conn,
+            feed_id,
+            "item-guid",
+            Path::new("/"),
+            Path::new("/tmp/track.mp3"),
+        )?;
         playback::set_track(&conn, track_id, playback::DEFAULT_SESSION_ID)?;
-        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+        let mut owner = PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            PathBuf::from("/"),
+        );
         owner.load_current_session(&conn)?;
 
         owner.pause(&conn, true)?;
@@ -391,10 +439,14 @@ mod tests {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
         let audio_path = tagged_audio_file(&temp, "track.mp3")?;
-        let track_id = create_track(&conn, feed_id, "item-guid", &audio_path.to_string_lossy())?;
+        let track_id = create_track(&conn, feed_id, "item-guid", temp.path(), &audio_path)?;
         let producer = DropFileProducer::new(temp.path(), "default")?;
-        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID)
-            .with_drop_file_producer(Some(producer));
+        let mut owner = PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            temp.path().to_path_buf(),
+        )
+        .with_drop_file_producer(Some(producer));
 
         owner.load_track_path(&conn, track_id, &audio_path, 0)?;
         let drop_path = owner
@@ -427,10 +479,14 @@ mod tests {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
         let audio_path = tagged_audio_file(&temp, "track.mp3")?;
-        let track_id = create_track(&conn, feed_id, "item-guid", &audio_path.to_string_lossy())?;
+        let track_id = create_track(&conn, feed_id, "item-guid", temp.path(), &audio_path)?;
         let producer = DropFileProducer::new(temp.path(), "default")?;
-        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID)
-            .with_drop_file_producer(Some(producer));
+        let mut owner = PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            temp.path().to_path_buf(),
+        )
+        .with_drop_file_producer(Some(producer));
 
         assert_eq!(
             owner.broadcast_drop_file_shutdown_warning(),
@@ -453,12 +509,28 @@ mod tests {
     fn owner_play_playlist_at_loads_driver_and_preserves_playlist_context() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
-        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let first_track_id = create_track(
+            &conn,
+            feed_id,
+            "first-guid",
+            Path::new("/"),
+            Path::new("/tmp/first.mp3"),
+        )?;
+        let second_track_id = create_track(
+            &conn,
+            feed_id,
+            "second-guid",
+            Path::new("/"),
+            Path::new("/tmp/second.mp3"),
+        )?;
         let playlist_id = db::playlist_create(&conn, "Phase 2")?;
         db::playlist_append(&conn, playlist_id, first_track_id)?;
         db::playlist_append(&conn, playlist_id, second_track_id)?;
-        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+        let mut owner = PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            PathBuf::from("/"),
+        );
 
         let update = owner.play_playlist_at(&conn, playlist_id, 1)?;
         let row = db::playback_session(&conn, playback::DEFAULT_SESSION_ID)?.expect("session");
@@ -475,12 +547,28 @@ mod tests {
     fn owner_skip_next_loads_advanced_track() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
-        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let first_track_id = create_track(
+            &conn,
+            feed_id,
+            "first-guid",
+            Path::new("/"),
+            Path::new("/tmp/first.mp3"),
+        )?;
+        let second_track_id = create_track(
+            &conn,
+            feed_id,
+            "second-guid",
+            Path::new("/"),
+            Path::new("/tmp/second.mp3"),
+        )?;
         let playlist_id = db::playlist_create(&conn, "Phase 2")?;
         db::playlist_append(&conn, playlist_id, first_track_id)?;
         db::playlist_append(&conn, playlist_id, second_track_id)?;
-        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+        let mut owner = PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            PathBuf::from("/"),
+        );
         owner.play_playlist_at(&conn, playlist_id, 0)?;
 
         let update = owner.skip_next(&conn)?;
@@ -495,10 +583,20 @@ mod tests {
     fn owner_load_current_uses_stored_path_and_position() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let track_id = create_track(&conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        let track_id = create_track(
+            &conn,
+            feed_id,
+            "item-guid",
+            Path::new("/"),
+            Path::new("/tmp/track.mp3"),
+        )?;
         playback::set_track(&conn, track_id, playback::DEFAULT_SESSION_ID)?;
         playback::update_position(&conn, 9_000, playback::DEFAULT_SESSION_ID)?;
-        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+        let mut owner = PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            PathBuf::from("/"),
+        );
 
         owner.load_current_session(&conn)?;
         let snap = owner.driver().snapshot();
@@ -512,10 +610,20 @@ mod tests {
     fn owner_poll_loads_new_active_session_before_reconciling() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let track_id = create_track(&conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        let track_id = create_track(
+            &conn,
+            feed_id,
+            "item-guid",
+            Path::new("/"),
+            Path::new("/tmp/track.mp3"),
+        )?;
         playback::set_track(&conn, track_id, playback::DEFAULT_SESSION_ID)?;
         playback::update_position(&conn, 5_000, playback::DEFAULT_SESSION_ID)?;
-        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+        let mut owner = PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            PathBuf::from("/"),
+        );
 
         let outcome = owner.poll(&conn)?;
         let snap = owner.driver().snapshot();
@@ -530,9 +638,19 @@ mod tests {
     fn owner_poll_stops_driver_when_session_is_stopped() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let track_id = create_track(&conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        let track_id = create_track(
+            &conn,
+            feed_id,
+            "item-guid",
+            Path::new("/"),
+            Path::new("/tmp/track.mp3"),
+        )?;
         playback::set_track(&conn, track_id, playback::DEFAULT_SESSION_ID)?;
-        let mut owner = PlaybackOwner::new(NullDriver::new(), playback::DEFAULT_SESSION_ID);
+        let mut owner = PlaybackOwner::new(
+            NullDriver::new(),
+            playback::DEFAULT_SESSION_ID,
+            PathBuf::from("/"),
+        );
         owner.load_current_session(&conn)?;
         playback::stop(&conn, playback::DEFAULT_SESSION_ID)?;
 

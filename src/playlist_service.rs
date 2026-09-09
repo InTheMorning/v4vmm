@@ -165,7 +165,8 @@ mod tests {
             rusqlite::params![feed_id, item_guid, format!("Track {item_guid}"), "Artist"],
         )?;
         let track_id = conn.last_insert_rowid();
-        db::mark_track_downloaded(conn, track_id, std::path::Path::new(path), None)?;
+        let relative_path = crate::library_path::LibraryRelativePath::for_test(path);
+        db::mark_track_downloaded(conn, track_id, &relative_path, None)?;
         Ok(track_id)
     }
 
@@ -173,8 +174,8 @@ mod tests {
     fn select_track_at_returns_identity_for_position() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
-        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "tmp/first.mp3")?;
+        let second_track_id = create_track(&conn, feed_id, "second-guid", "tmp/second.mp3")?;
         let playlist_id = create(&conn, "Service")?;
         append_track(&conn, playlist_id, first_track_id)?;
         append_track(&conn, playlist_id, second_track_id)?;
@@ -193,7 +194,7 @@ mod tests {
     fn select_track_at_rejects_tracks_removed_from_library() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let track_id = create_track(&conn, feed_id, "removed-guid", "/tmp/removed.mp3")?;
+        let track_id = create_track(&conn, feed_id, "removed-guid", "tmp/removed.mp3")?;
         let playlist_id = create(&conn, "Service")?;
         append_track(&conn, playlist_id, track_id)?;
         db::set_track_in_library(&conn, track_id, false)?;
@@ -215,9 +216,9 @@ mod tests {
     fn select_playable_track_after_skips_removed_library_rows() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
-        let removed_track_id = create_track(&conn, feed_id, "removed-guid", "/tmp/removed.mp3")?;
-        let third_track_id = create_track(&conn, feed_id, "third-guid", "/tmp/third.mp3")?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "tmp/first.mp3")?;
+        let removed_track_id = create_track(&conn, feed_id, "removed-guid", "tmp/removed.mp3")?;
+        let third_track_id = create_track(&conn, feed_id, "third-guid", "tmp/third.mp3")?;
         let playlist_id = create(&conn, "Service")?;
         append_track(&conn, playlist_id, first_track_id)?;
         append_track(&conn, playlist_id, removed_track_id)?;
@@ -239,7 +240,7 @@ mod tests {
     fn select_playable_track_after_skips_rows_without_local_files() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "tmp/first.mp3")?;
         conn.execute(
             "INSERT INTO tracks (
                  feed_id, item_guid, track_title, artist_name, is_in_library
@@ -248,7 +249,7 @@ mod tests {
             rusqlite::params![feed_id, "missing-guid", "Missing Local File", "Artist"],
         )?;
         let missing_file_track_id = conn.last_insert_rowid();
-        let third_track_id = create_track(&conn, feed_id, "third-guid", "/tmp/third.mp3")?;
+        let third_track_id = create_track(&conn, feed_id, "third-guid", "tmp/third.mp3")?;
         let playlist_id = create(&conn, "Service")?;
         append_track(&conn, playlist_id, first_track_id)?;
         append_track(&conn, playlist_id, missing_file_track_id)?;
@@ -289,7 +290,7 @@ mod tests {
     fn list_and_tracks_delegate_to_playlist_storage() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn)?;
-        let track_id = create_track(&conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        let track_id = create_track(&conn, feed_id, "item-guid", "tmp/track.mp3")?;
         let playlist_id = create(&conn, "Service")?;
         append_track(&conn, playlist_id, track_id)?;
 

@@ -1,7 +1,8 @@
 # ADR 0064 Task 001: Relative Local Paths
 
-Status: Ready - 2026-09-08. Large and atomic. The column changes meaning, so a
-half-converted tree has a broken library. Do it in one change.
+Status: Implemented - 2026-09-09; mechanical acceptance complete; one visual
+gate open: the readiness report counts repaired tracks as ready or as missing
+routes, and no longer as missing files.
 
 ## Goal
 
@@ -56,6 +57,10 @@ function, and repair the rows that hold an absolute path today.
 - The repair step is idempotent. It runs on every start and does nothing when no
   absolute row is left.
 - **The repair step never deletes a file.** It changes rows only.
+- **The repair changes nothing when `music_dir` is absent, and nothing when no
+  row resolves.** Otherwise a folder that is not mounted removes every row and
+  the app forgets the library. Amended 2026-09-08, after review found the
+  unguarded case.
 
 ## Implementation Steps
 
@@ -105,7 +110,9 @@ Mechanical, proved by a test:
 - The repair converts a row whose folder moved with its layout intact.
 - The repair records an unresolved row in `local_path_repairs`, removes the
   `local_files` row, and leaves the track readable as not downloaded.
-- No absolute path is left in `local_files.path` after the repair.
+- No absolute path is left in `local_files.path` after a repair that ran.
+- A repair with an absent `music_dir` changes nothing and reports why.
+- A repair where no row resolves changes nothing and reports why.
 - Two repair runs give the same result as one.
 - The guard blocks a hand-written join or prefix strip outside the resolver.
 - `v4vmm library repair-paths --json` prints counts and the recorded paths.

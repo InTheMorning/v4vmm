@@ -9,6 +9,7 @@ use crate::audio_tags::{read_audio_tags, write_id3v24_edits, Id3v24Edit};
 use crate::config;
 use crate::db::{self, TrackRow};
 use crate::identity_ingest;
+use crate::library_path::LibraryRelativePath;
 use crate::library_service;
 use crate::metadata::{
     sanitize_feed_source_text, sanitize_track_context_source_text, sanitize_track_source_text,
@@ -37,6 +38,7 @@ pub enum SubscribeTrackRequest {
 
 pub struct SubscribeTrackOutcome {
     pub path: PathBuf,
+    pub relative_path: Option<LibraryRelativePath>,
     pub format_warning: Option<String>,
     pub applied_edits: usize,
     pub marked_downloaded: bool,
@@ -345,8 +347,12 @@ fn subscribe_library_track_internal(
 ) -> Result<SubscribeTrackOutcome> {
     let api_track = track_row_to_api_track(&track);
 
+    let existing_path = track
+        .local_path
+        .as_ref()
+        .map(|path| path.resolve(&cfg.music_dir));
     let prepared =
-        prepare_track_for_subscription_internal(cfg, &api_track, track.local_path.as_deref())?;
+        prepare_track_for_subscription_internal(cfg, &api_track, existing_path.as_deref())?;
 
     let track_context = TrackContext {
         track: api_track,
@@ -361,11 +367,13 @@ fn subscribe_library_track_internal(
     let file_size = std::fs::metadata(&final_path)
         .ok()
         .and_then(|metadata| metadata.len().try_into().ok());
+    let relative_path = LibraryRelativePath::from_absolute(&cfg.music_dir, &final_path)?;
     let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
-    library_service::mark_track_downloaded(&db, track.id, &final_path, file_size)?;
+    library_service::mark_track_downloaded(&db, track.id, &relative_path, file_size)?;
 
     Ok(SubscribeTrackOutcome {
         path: final_path,
+        relative_path: Some(relative_path),
         format_warning,
         applied_edits,
         marked_downloaded: true,
@@ -448,6 +456,7 @@ fn subscribe_track_from_search_internal(
     let file_size = std::fs::metadata(&path)
         .ok()
         .and_then(|m| m.len().try_into().ok());
+    let relative_path = LibraryRelativePath::from_absolute(&cfg.music_dir, &path)?;
 
     let marked_downloaded = {
         let db = conn.lock().map_err(|_| anyhow!("database lock poisoned"))?;
@@ -456,7 +465,7 @@ fn subscribe_track_from_search_internal(
             Some(feed_url.as_str()),
             track.track_guid.as_deref(),
             track.enclosure_url.as_deref(),
-            &path,
+            &relative_path,
             file_size,
         )?;
         if !mark_feed_subscribed {
@@ -473,6 +482,7 @@ fn subscribe_track_from_search_internal(
 
     Ok(SubscribeTrackOutcome {
         path,
+        relative_path: Some(relative_path),
         format_warning,
         applied_edits,
         marked_downloaded,
@@ -557,13 +567,12 @@ pub fn enrich_track_context_from_rss(track: &mut Track, feed: Option<&mut Feed>)
 pub(crate) fn prepare_track_for_subscription_internal(
     cfg: &config::Config,
     track: &Track,
-    local_path: Option<&str>,
+    local_path: Option<&Path>,
 ) -> Result<PreparedTrack> {
-    if let Some(path_str) = local_path {
-        let buf = PathBuf::from(path_str);
-        if buf.exists() {
+    if let Some(path) = local_path {
+        if path.exists() {
             return Ok(PreparedTrack::Existing {
-                path: crate::track_compare::ensure_taggable_local_path(cfg, &buf),
+                path: crate::track_compare::ensure_taggable_local_path(cfg, path),
             });
         }
     }
@@ -888,7 +897,7 @@ mod tests {
         let cfg = cfg(temp.path());
         let track = track_with_enclosure("https://nowhere.invalid/song.mp3");
 
-        let prepared = prepare_track_for_subscription_internal(&cfg, &track, local.to_str())
+        let prepared = prepare_track_for_subscription_internal(&cfg, &track, Some(local.as_path()))
             .expect("prepared");
         assert!(matches!(prepared, PreparedTrack::Existing { .. }));
     }

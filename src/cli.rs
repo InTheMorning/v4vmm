@@ -76,6 +76,11 @@ pub fn run(args: &[String]) -> Result<()> {
         {
             print_library_tracks()
         }
+        [section, command, flag]
+            if section == "library" && command == "repair-paths" && flag == "--json" =>
+        {
+            repair_library_paths()
+        }
         [section, command] if section == "player" && command == "ping" => ping_player(),
         [section, command, track_id, flag]
             if section == "track" && command == "inspect" && flag == "--json" =>
@@ -101,10 +106,21 @@ pub fn run(args: &[String]) -> Result<()> {
 }
 
 fn open_configured_db() -> Result<Connection> {
+    open_configured_db_with_config().map(|(_, conn)| conn)
+}
+
+fn open_configured_db_with_config() -> Result<(config::Config, Connection)> {
+    let (cfg, conn) = open_configured_db_with_config_without_repair()?;
+    db::repair_local_file_paths(&conn, &cfg.music_dir)?;
+    Ok((cfg, conn))
+}
+
+fn open_configured_db_with_config_without_repair() -> Result<(config::Config, Connection)> {
     let cfg_path = config::config_path()?;
     let cfg = config::load_config(&cfg_path)?;
     config::ensure_dirs(&cfg)?;
-    db::open_db(&cfg)
+    let conn = db::open_db(&cfg)?;
+    Ok((cfg, conn))
 }
 
 fn configured_musicindex_client(endpoint: Option<&str>) -> Result<api::Client> {
@@ -234,8 +250,9 @@ fn attach_broadcast_target(event_id: &str, args: &[String]) -> Result<()> {
 
 fn print_broadcast_readiness(args: &[String]) -> Result<()> {
     parse_json_only_options("broadcast readiness", args)?;
-    let conn = open_configured_db()?;
-    let report = ApplicationQueryService::new().broadcast_readiness_report(&conn)?;
+    let (cfg, conn) = open_configured_db_with_config()?;
+    let report =
+        ApplicationQueryService::new().broadcast_readiness_report(&conn, &cfg.music_dir)?;
     print_json(&report)
 }
 
@@ -246,20 +263,26 @@ fn print_playlists() -> Result<()> {
 }
 
 fn print_playlist_tracks(playlist_id: i64) -> Result<()> {
-    let conn = open_configured_db()?;
-    let rows = debug_contracts::playlist_tracks(&conn, playlist_id)?;
+    let (cfg, conn) = open_configured_db_with_config()?;
+    let rows = debug_contracts::playlist_tracks(&conn, playlist_id, &cfg.music_dir)?;
     print_json(&rows)
 }
 
 fn print_library_tracks() -> Result<()> {
-    let conn = open_configured_db()?;
-    let rows = debug_contracts::library_tracks(&conn)?;
+    let (cfg, conn) = open_configured_db_with_config()?;
+    let rows = debug_contracts::library_tracks(&conn, &cfg.music_dir)?;
     print_json(&rows)
 }
 
+fn repair_library_paths() -> Result<()> {
+    let (cfg, conn) = open_configured_db_with_config_without_repair()?;
+    let repair = db::repair_local_file_paths(&conn, &cfg.music_dir)?;
+    print_json(&repair)
+}
+
 fn print_track_inspect(track_id: i64) -> Result<()> {
-    let conn = open_configured_db()?;
-    let row = debug_contracts::track_inspect(&conn, track_id)?;
+    let (cfg, conn) = open_configured_db_with_config()?;
+    let row = debug_contracts::track_inspect(&conn, track_id, &cfg.music_dir)?;
     print_json(&row)
 }
 
@@ -557,6 +580,7 @@ fn help_text() -> &'static str {
   v4vmm playlists list --json
   v4vmm playlist tracks <playlist-id> --json
   v4vmm library tracks --json
+  v4vmm library repair-paths --json
   v4vmm player ping
   v4vmm track inspect <track-id> --json
   v4vmm playlist play <playlist-id> [--position <zero-based-position>]
@@ -572,4 +596,14 @@ fn help_text() -> &'static str {
 No arguments starts the desktop UI. Phase 2 commands use the configured local
 SQLite database and the default playback session. playlist play simulates
 playback state without controlling an audio player."
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn help_lists_library_repair_paths_json_command() {
+        assert!(help_text().contains("v4vmm library repair-paths --json"));
+    }
 }

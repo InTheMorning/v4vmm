@@ -3,6 +3,8 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension};
 
+use crate::library_path::LibraryRelativePath;
+
 #[derive(Clone, Debug)]
 pub struct TrackIdentity {
     pub local_track_id: i64,
@@ -14,7 +16,7 @@ pub struct TrackIdentity {
     pub album: Option<String>,
     pub image: Option<String>,
     pub duration_ms: Option<u64>,
-    pub local_path: String,
+    pub local_path: LibraryRelativePath,
     pub item_value_block: serde_json::Value,
     pub feed_value_block: serde_json::Value,
     pub raw_extra_json: serde_json::Value,
@@ -92,11 +94,8 @@ pub fn local_track_identity(conn: &Connection, track_id: i64) -> Result<TrackIde
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .with_context(|| format!("track {track_id} has no feed GUID"))?;
-    let local_path = local_path.trim().to_string();
-    anyhow::ensure!(
-        !local_path.is_empty(),
-        "track {track_id} has an empty local file path"
-    );
+    let local_path = LibraryRelativePath::from_stored(local_path)
+        .with_context(|| format!("track {track_id} has an invalid local file path"))?;
 
     let duration_ms = duration_seconds
         .filter(|value| *value >= 0)
@@ -218,12 +217,8 @@ mod tests {
             Some(r#"{"item":"value"}"#),
             r#"{"source":"rss"}"#,
         )?;
-        db::mark_track_downloaded(
-            &conn,
-            track_id,
-            std::path::Path::new("/tmp/track.mp3"),
-            None,
-        )?;
+        let relative_path = LibraryRelativePath::for_test("tmp/track.mp3");
+        db::mark_track_downloaded(&conn, track_id, &relative_path, None)?;
 
         let identity = local_track_identity(&conn, track_id)?;
 
@@ -231,7 +226,7 @@ mod tests {
         assert_eq!(identity.feed_id, feed_id);
         assert_eq!(identity.feed_guid, "feed-guid");
         assert_eq!(identity.item_guid, "item-guid");
-        assert_eq!(identity.local_path, "/tmp/track.mp3");
+        assert_eq!(identity.local_path.as_stored(), "tmp/track.mp3");
         assert_eq!(identity.duration_ms, Some(123_000));
         assert_eq!(identity.value_block()["item"], "value");
         assert_eq!(identity.raw_extra_json["source"], "rss");
@@ -257,12 +252,8 @@ mod tests {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn, None, None)?;
         let track_id = create_track(&conn, feed_id, None, "{}")?;
-        db::mark_track_downloaded(
-            &conn,
-            track_id,
-            std::path::Path::new("/tmp/track.mp3"),
-            None,
-        )?;
+        let relative_path = LibraryRelativePath::for_test("tmp/track.mp3");
+        db::mark_track_downloaded(&conn, track_id, &relative_path, None)?;
 
         let result = local_track_identity(&conn, track_id);
 
@@ -276,12 +267,8 @@ mod tests {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn, Some("feed-guid"), None)?;
         let track_id = create_track(&conn, feed_id, Some("{not-json"), "{}")?;
-        db::mark_track_downloaded(
-            &conn,
-            track_id,
-            std::path::Path::new("/tmp/track.mp3"),
-            None,
-        )?;
+        let relative_path = LibraryRelativePath::for_test("tmp/track.mp3");
+        db::mark_track_downloaded(&conn, track_id, &relative_path, None)?;
 
         let result = local_track_identity(&conn, track_id);
 
@@ -295,12 +282,8 @@ mod tests {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn, Some("feed-guid"), Some(r#"{"feed":"value"}"#))?;
         let track_id = create_track(&conn, feed_id, None, "{}")?;
-        db::mark_track_downloaded(
-            &conn,
-            track_id,
-            std::path::Path::new("/tmp/track.mp3"),
-            None,
-        )?;
+        let relative_path = LibraryRelativePath::for_test("tmp/track.mp3");
+        db::mark_track_downloaded(&conn, track_id, &relative_path, None)?;
 
         let identity = local_track_identity(&conn, track_id)?;
 

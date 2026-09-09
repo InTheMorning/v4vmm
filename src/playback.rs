@@ -288,13 +288,14 @@ mod tests {
             ],
         )?;
         let track_id = conn.last_insert_rowid();
-        db::mark_track_downloaded(conn, track_id, std::path::Path::new(path), None)?;
+        let relative_path = crate::library_path::LibraryRelativePath::for_test(path);
+        db::mark_track_downloaded(conn, track_id, &relative_path, None)?;
         Ok(track_id)
     }
 
     fn create_playlist_track(conn: &Connection, feed_guid: Option<&str>) -> Result<(i64, i64)> {
         let feed_id = create_feed(conn, feed_guid)?;
-        let track_id = create_track(conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        let track_id = create_track(conn, feed_id, "item-guid", "tmp/track.mp3")?;
         let playlist_id = db::playlist_create(conn, "Phase 2")?;
         db::playlist_append(conn, playlist_id, track_id)?;
         Ok((playlist_id, track_id))
@@ -327,8 +328,8 @@ mod tests {
     fn dry_run_playlist_can_preview_zero_based_position() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn, Some("feed-guid"))?;
-        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
-        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "tmp/first.mp3")?;
+        let second_track_id = create_track(&conn, feed_id, "second-guid", "tmp/second.mp3")?;
         let playlist_id = db::playlist_create(&conn, "Phase 2")?;
         db::playlist_append(&conn, playlist_id, first_track_id)?;
         db::playlist_append(&conn, playlist_id, second_track_id)?;
@@ -361,8 +362,8 @@ mod tests {
     fn skip_next_and_previous_move_within_playlist() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn, Some("feed-guid"))?;
-        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
-        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "tmp/first.mp3")?;
+        let second_track_id = create_track(&conn, feed_id, "second-guid", "tmp/second.mp3")?;
         let playlist_id = db::playlist_create(&conn, "Phase 2")?;
         db::playlist_append(&conn, playlist_id, first_track_id)?;
         db::playlist_append(&conn, playlist_id, second_track_id)?;
@@ -384,9 +385,9 @@ mod tests {
     fn skip_next_and_previous_ignore_unavailable_playlist_rows() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn, Some("feed-guid"))?;
-        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
-        let removed_track_id = create_track(&conn, feed_id, "removed-guid", "/tmp/removed.mp3")?;
-        let third_track_id = create_track(&conn, feed_id, "third-guid", "/tmp/third.mp3")?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "tmp/first.mp3")?;
+        let removed_track_id = create_track(&conn, feed_id, "removed-guid", "tmp/removed.mp3")?;
+        let third_track_id = create_track(&conn, feed_id, "third-guid", "tmp/third.mp3")?;
         let playlist_id = db::playlist_create(&conn, "Phase 2")?;
         db::playlist_append(&conn, playlist_id, first_track_id)?;
         db::playlist_append(&conn, playlist_id, removed_track_id)?;
@@ -466,8 +467,8 @@ mod tests {
     fn reconcile_eof_uses_playlist_advance_path() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn, Some("feed-guid"))?;
-        let first_track_id = create_track(&conn, feed_id, "first-guid", "/tmp/first.mp3")?;
-        let second_track_id = create_track(&conn, feed_id, "second-guid", "/tmp/second.mp3")?;
+        let first_track_id = create_track(&conn, feed_id, "first-guid", "tmp/first.mp3")?;
+        let second_track_id = create_track(&conn, feed_id, "second-guid", "tmp/second.mp3")?;
         let playlist_id = db::playlist_create(&conn, "Phase 2")?;
         db::playlist_append(&conn, playlist_id, first_track_id)?;
         db::playlist_append(&conn, playlist_id, second_track_id)?;
@@ -505,7 +506,7 @@ mod tests {
     fn set_track_rejects_invalid_source_before_persisting() -> Result<()> {
         let conn = setup_test_db()?;
         let feed_id = create_feed(&conn, None)?;
-        let track_id = create_track(&conn, feed_id, "item-guid", "/tmp/track.mp3")?;
+        let track_id = create_track(&conn, feed_id, "item-guid", "tmp/track.mp3")?;
 
         let result = set_track(&conn, track_id, DEFAULT_SESSION_ID);
 

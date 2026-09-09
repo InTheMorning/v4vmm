@@ -10,6 +10,7 @@
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
@@ -145,6 +146,7 @@ pub struct LibraryApp {
     command_runner: AsyncCommandRunner,
     cache: Arc<ImageCache>,
     musicindex_endpoint: String,
+    music_dir: PathBuf,
     /// Stateful screen view-model. Owns all pure UI state and loaded
     /// snapshots — tree, selection, expansion sets, sort orders,
     /// picker toggles, status, search query, playlists, MusicBrainz

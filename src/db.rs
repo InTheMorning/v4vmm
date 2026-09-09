@@ -1,11 +1,13 @@
 // src/db.rs
-use anyhow::{Context, Result};
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
+use anyhow::{Context, Result};
+use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
 
 use crate::config::Config;
+use crate::library_path::LibraryRelativePath;
 
 #[derive(Clone, Debug, Default)]
 pub struct FeedRow {
@@ -38,10 +40,40 @@ pub struct TrackRow {
     pub is_in_library: bool,
     pub feed_title: Option<String>,
     pub album_image_href: Option<String>,
-    pub local_path: Option<String>,
+    pub local_path: Option<LibraryRelativePath>,
     pub pub_date: Option<i64>,
     pub explicit: Option<bool>,
     pub transcript_url: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct LocalPathRepair {
+    pub repaired: usize,
+    pub removed: usize,
+    pub unresolved: Vec<LocalPathRepairRow>,
+    /// Why the repair changed nothing, when it declined to run.
+    pub skipped: Option<LocalPathRepairSkip>,
+}
+
+/// Reason the repair declined to touch any row.
+///
+/// The repair removes a row it can not resolve. That is safe for one moved
+/// file, and it destroys the library when the music folder itself is not there:
+/// no row resolves, so every row is removed. These two cases stop it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+pub enum LocalPathRepairSkip {
+    /// `music_dir` is absent, or it is not a directory.
+    MusicFolderMissing,
+    /// Rows need repair and not one of them resolves under `music_dir`.
+    NothingResolved,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct LocalPathRepairRow {
+    pub track_id: Option<i64>,
+    pub old_path: String,
+    pub reason: String,
+    pub recorded_at: String,
 }
 
 #[derive(Clone, Debug)]
@@ -686,7 +718,7 @@ pub fn track_is_in_library_by_match(
 pub fn mark_track_downloaded(
     conn: &Connection,
     track_id: i64,
-    path: &Path,
+    path: &LibraryRelativePath,
     file_size_bytes: Option<i64>,
 ) -> Result<()> {
     conn.execute(
@@ -702,7 +734,7 @@ pub fn mark_track_downloaded_by_match(
     feed_url: Option<&str>,
     item_guid: Option<&str>,
     enclosure_url: Option<&str>,
-    path: &Path,
+    path: &LibraryRelativePath,
     file_size_bytes: Option<i64>,
 ) -> Result<bool> {
     let Some(track_id) = find_track_id(conn, feed_url, item_guid, enclosure_url)? else {
@@ -715,10 +747,9 @@ pub fn mark_track_downloaded_by_match(
 fn upsert_local_file(
     conn: &Connection,
     track_id: i64,
-    path: &Path,
+    path: &LibraryRelativePath,
     file_size_bytes: Option<i64>,
 ) -> Result<()> {
-    let path = path.display().to_string();
     conn.execute(
         r#"
         INSERT INTO local_files (path, track_id, file_size_bytes)
@@ -727,7 +758,7 @@ fn upsert_local_file(
             track_id = excluded.track_id,
             file_size_bytes = excluded.file_size_bytes
         "#,
-        rusqlite::params![path, track_id, file_size_bytes],
+        rusqlite::params![path.as_stored(), track_id, file_size_bytes],
     )
     .context("upsert local file")?;
     Ok(())
@@ -1029,9 +1060,175 @@ pub fn reconcile_feed_subscription_by_url(conn: &Connection, feed_url: &str) -> 
     Ok(subscribed)
 }
 
-pub fn delete_local_file(conn: &Connection, local_file_path: &str) -> Result<()> {
-    conn.execute("DELETE FROM local_files WHERE path = ?1", [local_file_path])
-        .context("delete_local_file")?;
+pub fn delete_local_file(conn: &Connection, local_file_path: &LibraryRelativePath) -> Result<()> {
+    conn.execute(
+        "DELETE FROM local_files WHERE path = ?1",
+        [local_file_path.as_stored()],
+    )
+    .context("delete_local_file")?;
+    Ok(())
+}
+
+pub fn repair_local_file_paths(conn: &Connection, music_dir: &Path) -> Result<LocalPathRepair> {
+    create_local_path_repair_tables(conn)?;
+
+    let rows = absolute_local_file_rows(conn)?;
+
+    // An unmounted drive or a mistyped folder makes every row unresolvable, and
+    // the repair would then delete the whole download index. Do nothing instead.
+    if !rows.is_empty() && !music_dir.is_dir() {
+        return Ok(LocalPathRepair {
+            repaired: 0,
+            removed: 0,
+            unresolved: local_path_repair_rows(conn)?,
+            skipped: Some(LocalPathRepairSkip::MusicFolderMissing),
+        });
+    }
+
+    let mut candidates = Vec::with_capacity(rows.len());
+    for row in rows {
+        let candidate = repair_candidate_for_absolute_path(music_dir, Path::new(&row.path))?;
+        candidates.push((row, candidate));
+    }
+
+    // The folder is there but holds none of the library. That reads the same way
+    // as a wrong folder, so it is not a reason to remove every row.
+    if !candidates.is_empty() && candidates.iter().all(|(_, candidate)| candidate.is_none()) {
+        return Ok(LocalPathRepair {
+            repaired: 0,
+            removed: 0,
+            unresolved: local_path_repair_rows(conn)?,
+            skipped: Some(LocalPathRepairSkip::NothingResolved),
+        });
+    }
+
+    let mut repaired = 0;
+    let mut removed = 0;
+    for (row, candidate) in candidates {
+        match candidate {
+            Some(relative_path) => {
+                conn.execute(
+                    "UPDATE local_files SET path = ?1 WHERE id = ?2",
+                    rusqlite::params![relative_path.as_stored(), row.id],
+                )
+                .with_context(|| format!("repair local file path {}", row.path))?;
+                repaired += 1;
+            }
+            None => {
+                record_unresolved_local_path(conn, row.track_id, &row.path)?;
+                conn.execute("DELETE FROM local_files WHERE id = ?1", [row.id])
+                    .with_context(|| format!("remove unresolved local file row {}", row.path))?;
+                removed += 1;
+            }
+        }
+    }
+
+    let remaining_absolute = absolute_local_file_rows(conn)?;
+    anyhow::ensure!(
+        remaining_absolute.is_empty(),
+        "{} absolute local file path rows remain after repair",
+        remaining_absolute.len()
+    );
+
+    Ok(LocalPathRepair {
+        repaired,
+        removed,
+        unresolved: local_path_repair_rows(conn)?,
+        skipped: None,
+    })
+}
+
+pub fn local_path_repair_rows(conn: &Connection) -> Result<Vec<LocalPathRepairRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT track_id, old_path, reason, recorded_at
+             FROM local_path_repairs
+             ORDER BY id",
+        )
+        .context("prepare local_path_repair_rows")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(LocalPathRepairRow {
+                track_id: row.get(0)?,
+                old_path: row.get(1)?,
+                reason: row.get(2)?,
+                recorded_at: row.get(3)?,
+            })
+        })
+        .context("query local_path_repair_rows")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect local_path_repair_rows")?;
+    Ok(rows)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LocalFilePathRow {
+    id: i64,
+    track_id: Option<i64>,
+    path: String,
+}
+
+fn absolute_local_file_rows(conn: &Connection) -> Result<Vec<LocalFilePathRow>> {
+    let mut stmt = conn
+        .prepare("SELECT id, track_id, path FROM local_files ORDER BY id")
+        .context("prepare absolute_local_file_rows")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(LocalFilePathRow {
+                id: row.get(0)?,
+                track_id: row.get(1)?,
+                path: row.get(2)?,
+            })
+        })
+        .context("query absolute_local_file_rows")?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("collect absolute_local_file_rows")?;
+    Ok(rows
+        .into_iter()
+        .filter(|row| Path::new(&row.path).is_absolute())
+        .collect())
+}
+
+fn repair_candidate_for_absolute_path(
+    music_dir: &Path,
+    absolute_path: &Path,
+) -> Result<Option<LibraryRelativePath>> {
+    let mut components = Vec::new();
+    for component in absolute_path.components() {
+        match component {
+            Component::Normal(component) => components.push(component.to_os_string()),
+            Component::ParentDir => return Ok(None),
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+        }
+    }
+
+    for start in 0..components.len() {
+        let relative = components[start..]
+            .iter()
+            .fold(PathBuf::new(), |mut path, component| {
+                path.push(component);
+                path
+            });
+        let candidate = music_dir.join(relative);
+        if candidate.is_file() {
+            return LibraryRelativePath::from_absolute(music_dir, &candidate).map(Some);
+        }
+    }
+
+    Ok(None)
+}
+
+fn record_unresolved_local_path(
+    conn: &Connection,
+    track_id: Option<i64>,
+    old_path: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO local_path_repairs (track_id, old_path, reason)
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![track_id, old_path, "unresolved_absolute_path"],
+    )
+    .with_context(|| format!("record unresolved local file path {old_path}"))?;
     Ok(())
 }
 
@@ -1054,13 +1251,32 @@ fn track_row_from_sql(row: &rusqlite::Row) -> rusqlite::Result<TrackRow> {
         is_in_library: row.get::<_, i64>(14)? != 0,
         feed_title: row.get(15)?,
         album_image_href: row.get(16)?,
-        local_path: row.get(17)?,
+        local_path: local_path_from_sql(row.get(17)?, 17)?,
         pub_date: parse_local_track_pub_date(row.get::<_, Option<String>>(18)?.as_deref()),
         explicit: parse_itunes_explicit(row.get::<_, Option<String>>(19)?.as_deref()),
         transcript_url: transcript_url_from_extra_json(
             row.get::<_, Option<String>>(20)?.as_deref(),
         ),
     })
+}
+
+fn local_path_from_sql(
+    value: Option<String>,
+    column: usize,
+) -> rusqlite::Result<Option<LibraryRelativePath>> {
+    value
+        .map(LibraryRelativePath::from_stored)
+        .transpose()
+        .map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                column,
+                Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    error.to_string(),
+                )),
+            )
+        })
 }
 
 fn parse_local_track_pub_date(value: Option<&str>) -> Option<i64> {
@@ -2577,6 +2793,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "broadcast_events",
         apply: migration_broadcast_events,
     },
+    Migration {
+        version: 10,
+        name: "local_path_repairs",
+        apply: migration_local_path_repairs,
+    },
 ];
 
 pub(crate) fn migrate_schema(conn: &Connection) -> Result<()> {
@@ -2659,6 +2880,10 @@ fn migration_metadata_source_facts(conn: &Connection) -> Result<()> {
 
 fn migration_broadcast_events(conn: &Connection) -> Result<()> {
     create_broadcast_event_tables(conn)
+}
+
+fn migration_local_path_repairs(conn: &Connection) -> Result<()> {
+    create_local_path_repair_tables(conn)
 }
 
 fn cleanup_placeholder_source_text_columns(
@@ -2876,6 +3101,7 @@ pub(crate) fn init_schema(conn: &Connection) -> Result<()> {
     create_track_artist_source_binding_tables(conn)?;
     create_metadata_source_fact_tables(conn)?;
     create_broadcast_event_tables(conn)?;
+    create_local_path_repair_tables(conn)?;
 
     Ok(())
 }
@@ -3181,6 +3407,25 @@ fn create_broadcast_event_tables(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn create_local_path_repair_tables(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS local_path_repairs (
+            id INTEGER PRIMARY KEY,
+            track_id INTEGER NULL REFERENCES tracks(id) ON DELETE SET NULL,
+            old_path TEXT NOT NULL UNIQUE CHECK (old_path != ''),
+            reason TEXT NOT NULL CHECK (reason != ''),
+            recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_local_path_repairs_track_id
+            ON local_path_repairs(track_id);
+        "#,
+    )
+    .context("create local path repair tables")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3321,6 +3566,206 @@ mod tests {
             rusqlite::params![feed_id, guid, "Test Track"],
         )?;
         Ok(conn.last_insert_rowid())
+    }
+
+    fn insert_absolute_local_file(
+        conn: &Connection,
+        track_id: i64,
+        absolute_path: &str,
+    ) -> Result<()> {
+        conn.execute(
+            "INSERT INTO local_files (path, track_id) VALUES (?1, ?2)",
+            rusqlite::params![absolute_path, track_id],
+        )?;
+        Ok(())
+    }
+
+    fn local_file_path_for_track(conn: &Connection, track_id: i64) -> Result<Option<String>> {
+        conn.query_row(
+            "SELECT path FROM local_files WHERE track_id = ?1",
+            [track_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .context("query local file path for track")
+    }
+
+    fn absolute_local_file_path_count(conn: &Connection) -> Result<usize> {
+        absolute_local_file_rows(conn).map(|rows| rows.len())
+    }
+
+    /// The repair removes a row it can not resolve. With the music folder gone,
+    /// no row resolves, so every row would be removed and the app would forget
+    /// the whole library. The files are still on disk, and the download index is
+    /// not. It must do nothing instead.
+    #[test]
+    fn repair_local_file_paths_does_nothing_when_the_music_folder_is_missing() -> Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let music_dir = temp.path().join("music");
+        let absent_dir = temp.path().join("unmounted-drive");
+
+        std::fs::create_dir_all(music_dir.join("artist"))?;
+        std::fs::write(music_dir.join("artist").join("song.mp3"), b"audio")?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+        insert_absolute_local_file(&conn, track_id, "/old/root/artist/song.mp3")?;
+
+        let repair = repair_local_file_paths(&conn, &absent_dir)?;
+
+        assert_eq!(
+            repair.skipped,
+            Some(LocalPathRepairSkip::MusicFolderMissing)
+        );
+        assert_eq!(repair.repaired, 0);
+        assert_eq!(repair.removed, 0);
+        assert_eq!(
+            absolute_local_file_path_count(&conn)?,
+            1,
+            "the row survives so a later start can repair it"
+        );
+
+        // With the folder back, the same row repairs.
+        let repair = repair_local_file_paths(&conn, &music_dir)?;
+        assert_eq!(repair.skipped, None);
+        assert_eq!(repair.repaired, 1);
+        Ok(())
+    }
+
+    /// A folder that holds none of the library reads the same way as a wrong
+    /// folder. Removing every row on that evidence is not safe.
+    #[test]
+    fn repair_local_file_paths_does_nothing_when_no_row_resolves() -> Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let music_dir = temp.path().join("music");
+        std::fs::create_dir_all(&music_dir)?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+        insert_absolute_local_file(&conn, track_id, "/old/root/artist/song.mp3")?;
+
+        let repair = repair_local_file_paths(&conn, &music_dir)?;
+
+        assert_eq!(repair.skipped, Some(LocalPathRepairSkip::NothingResolved));
+        assert_eq!(repair.removed, 0);
+        assert_eq!(absolute_local_file_path_count(&conn)?, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn repair_local_file_paths_converts_moved_layout() -> Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let music_dir = temp.path().join("music");
+        let repaired_file = music_dir
+            .join("artists")
+            .join("artist")
+            .join("feed")
+            .join("track.mp3");
+        std::fs::create_dir_all(repaired_file.parent().context("file parent")?)?;
+        std::fs::write(&repaired_file, b"audio")?;
+        let feed_id = create_test_feed(&conn)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+        conn.execute(
+            "UPDATE tracks SET is_in_library = 1 WHERE id = ?1",
+            [track_id],
+        )?;
+        insert_absolute_local_file(&conn, track_id, "/old/music/artists/artist/feed/track.mp3")?;
+
+        let repair = repair_local_file_paths(&conn, &music_dir)?;
+
+        assert_eq!(repair.repaired, 1);
+        assert_eq!(repair.removed, 0);
+        assert!(repair.unresolved.is_empty());
+        assert_eq!(
+            local_file_path_for_track(&conn, track_id)?.as_deref(),
+            Some("artists/artist/feed/track.mp3")
+        );
+        assert_eq!(absolute_local_file_path_count(&conn)?, 0);
+        let track = track_row_by_id(&conn, track_id)?.context("track row")?;
+        assert_eq!(
+            track
+                .local_path
+                .as_ref()
+                .map(LibraryRelativePath::as_stored),
+            Some("artists/artist/feed/track.mp3")
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn repair_local_file_paths_records_and_removes_unresolved_row() -> Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let music_dir = temp.path().join("music");
+        std::fs::create_dir_all(&music_dir)?;
+        // One file that the repair finds. Without it, no row resolves, and the
+        // repair reads that as a wrong music folder and removes nothing.
+        std::fs::write(music_dir.join("present.mp3"), b"audio")?;
+        let feed_id = create_test_feed(&conn)?;
+        let present_track_id = create_test_track(&conn, feed_id)?;
+        let track_id = create_test_track(&conn, feed_id)?;
+        conn.execute(
+            "UPDATE tracks SET is_in_library = 1 WHERE id IN (?1, ?2)",
+            [present_track_id, track_id],
+        )?;
+        insert_absolute_local_file(&conn, present_track_id, "/old/music/present.mp3")?;
+        insert_absolute_local_file(&conn, track_id, "/old/music/missing.mp3")?;
+
+        let repair = repair_local_file_paths(&conn, &music_dir)?;
+
+        assert_eq!(repair.repaired, 1);
+        assert_eq!(repair.removed, 1);
+        assert_eq!(repair.unresolved.len(), 1);
+        assert_eq!(repair.unresolved[0].track_id, Some(track_id));
+        assert_eq!(repair.unresolved[0].old_path, "/old/music/missing.mp3");
+        assert_eq!(repair.unresolved[0].reason, "unresolved_absolute_path");
+        let repair_json = serde_json::to_value(&repair)?;
+        assert_eq!(repair_json["repaired"], 1);
+        assert_eq!(repair_json["removed"], 1);
+        assert_eq!(
+            repair_json["unresolved"][0]["old_path"],
+            "/old/music/missing.mp3"
+        );
+        assert!(local_file_path_for_track(&conn, track_id)?.is_none());
+        assert_eq!(absolute_local_file_path_count(&conn)?, 0);
+        let track = track_row_by_id(&conn, track_id)?.context("track row")?;
+        assert!(track.local_path.is_none());
+
+        Ok(())
+    }
+
+    #[test]
+    fn repair_local_file_paths_is_idempotent() -> Result<()> {
+        let conn = setup_test_db()?;
+        let temp = tempfile::tempdir()?;
+        let music_dir = temp.path().join("music");
+        let repaired_file = music_dir.join("artists").join("track.mp3");
+        std::fs::create_dir_all(repaired_file.parent().context("file parent")?)?;
+        std::fs::write(&repaired_file, b"audio")?;
+        let feed_id = create_test_feed(&conn)?;
+        let repaired_track_id = create_test_track(&conn, feed_id)?;
+        let unresolved_track_id = create_test_track(&conn, feed_id)?;
+        insert_absolute_local_file(&conn, repaired_track_id, "/old/music/artists/track.mp3")?;
+        insert_absolute_local_file(&conn, unresolved_track_id, "/old/music/missing.mp3")?;
+
+        let first = repair_local_file_paths(&conn, &music_dir)?;
+        let second = repair_local_file_paths(&conn, &music_dir)?;
+
+        assert_eq!(first.repaired, 1);
+        assert_eq!(first.removed, 1);
+        assert_eq!(second.repaired, 0);
+        assert_eq!(second.removed, 0);
+        assert_eq!(second.unresolved, first.unresolved);
+        assert_eq!(
+            local_file_path_for_track(&conn, repaired_track_id)?.as_deref(),
+            Some("artists/track.mp3")
+        );
+        assert!(local_file_path_for_track(&conn, unresolved_track_id)?.is_none());
+        assert_eq!(absolute_local_file_path_count(&conn)?, 0);
+
+        Ok(())
     }
 
     #[test]
@@ -3673,7 +4118,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             "fresh schema should record all registry migrations"
         );
 
@@ -3721,7 +4166,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             "migration registry should be idempotent"
         );
 
@@ -4007,7 +4452,7 @@ mod tests {
         );
         assert_eq!(
             applied_migration_versions(&conn)?,
-            vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
             "cleanup migration should be recorded exactly once"
         );
 

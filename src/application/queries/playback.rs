@@ -123,7 +123,8 @@ mod tests {
             ],
         )?;
         let track_id = conn.last_insert_rowid();
-        db::mark_track_downloaded(conn, track_id, std::path::Path::new("/tmp/track.mp3"), None)?;
+        let relative_path = crate::library_path::LibraryRelativePath::for_test("tmp/track.mp3");
+        db::mark_track_downloaded(conn, track_id, &relative_path, None)?;
         Ok(track_id)
     }
 
