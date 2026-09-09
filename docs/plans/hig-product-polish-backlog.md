@@ -58,6 +58,8 @@ Rules:
 
 #### A7 - The Feed Check Result Has No Room To Read
 
+Packet: `docs/tasks/show-action-feedback-task-001-command-state-and-result.md`.
+
 Reported by an operator on 2026-09-09, after ADR 0065 gave `Check all feeds`
 more to say.
 
@@ -89,6 +91,8 @@ action, in a place with room for it.**
 
 #### A8 - Service Actions Can Briefly Repaint The Previous State
 
+Packet: `docs/tasks/show-action-feedback-task-001-command-state-and-result.md`.
+
 Reported by an operator on 2026-09-09, while closing the ADR 0063 follow-up
 visual check.
 
@@ -110,6 +114,8 @@ Bounded fix:
   the immediate transition display
 
 #### A9 - Stream Command Buttons Briefly Disappear
+
+Packet: `docs/tasks/show-action-feedback-task-001-command-state-and-result.md`.
 
 Reported by an operator on 2026-09-09, while closing the ADR 0059 task 015
 visual check.

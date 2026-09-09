@@ -133,10 +133,11 @@ Copy any pattern worth keeping into the live surface first.
 **Visual proof.** A user-visible layout, hierarchy, or presentation fix is not
 fixed until a person inspects it in the running app.
 
-**Never run the app.** No `cargo run`, no `xvfb-run`, no other headless display
-attempt. GPUI cannot initialize an X11 client in an agent session. That failure
-is known, it is not a defect, and it carries no information. Do not attempt it,
-do not report it as an unresolved concern, and do not describe it as blocking.
+**Never run the app.** No `cargo run`, no `xvfb-run`,
+and no other headless display attempt. GPUI cannot initialize an X11 client in
+an agent session. That failure is known, it is not a defect, and it carries no
+information. Do not attempt it, do not report it as an unresolved concern, and
+do not describe it as blocking.
 It blocks nothing that any agent could do.
 
 **Write operator instructions instead.** End the report with an
@@ -161,20 +162,9 @@ separately. `The section shows six states` is untestable. `The view model
 exposes six states` is the same requirement where a test can reach it. A
 criterion that is neither passes by omission.
 
-**Column text does not call `truncate()`.** On text stacked in a flex column,
-`truncate()` renders `...` and drops the text. Adding `w_full()` does not repair
-it, and neither does moving `min_w_0` to the parent. Both were tried on
-2026-09-08 and neither worked.
-
-Use `overflow_hidden()` for column text. It clips and stays readable.
-
-`truncate()` is correct where the element has a definite width:
-
-- a row item with `flex_1()`, as in `src/ui/shells/queue_now_playing.rs`
-- an element with an explicit `max_w()` or `w()`, such as a badge
-
-This defect has shipped more than once. A guard covers the `Show` dashboard.
-Every other surface is a manual check.
+**Column text does not call `truncate()`.** ADR 0063 decides this, and
+`docs/troubleshooting/column-text-truncation.md` explains why. Read them before
+you style stacked text.
 
 ## Build, Test, Lint
 
@@ -232,5 +222,15 @@ the answer to what binds a change today.
 `docs/adr/archive/` holds superseded and fully guarded decisions. Read it for
 research, never to find a live rule.
 
-A binding rule lives in an ADR. This file restates rules and names their
-owners. It does not create them.
+This file owns how an agent works. An ADR owns how the code is shaped. The two
+do not overlap, and neither one holds the other's rules.
+
+- **Agent behaviour lives here.** What to run, what never to run, what a report
+  must contain, how to leave a gate open. These need no ADR, and this file is
+  their owner.
+- **Code shape lives in an ADR.** Layering, ownership, element hierarchy, a
+  contract between two modules, how a surface is built. This file may point at
+  such a rule and name the ADR that decides it. It never states one as its own.
+
+Corrected 2026-09-09, after two code-shape rules were written here as though
+this file decided them.

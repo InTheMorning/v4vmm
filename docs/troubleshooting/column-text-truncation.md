@@ -2,6 +2,10 @@
 
 ## Purpose
 
+**ADR 0063 owns this rule.** This document explains the defect, records what
+was tried, and names what is still unknown. It states no rule of its own, and
+a reader who needs the binding form reads the ADR.
+
 Stop text from rendering as `...` with no words. Record what is known, what was
 tried, and what stays unknown, so the person who reads this does not do the same
 three attempts again.

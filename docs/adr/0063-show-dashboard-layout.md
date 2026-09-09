@@ -96,11 +96,28 @@ window size. The panel scrolls its own content.
 If a future section makes the grid taller than the window, the answer is a more
 compact card, not a scroll region.
 
+### Column Text Does Not Truncate
+
+Added 2026-09-09, because a guard cited this record for a rule this record did
+not state.
+
+`truncate()` on text stacked in a flex column renders `...` and drops the text.
+It shipped on 2026-09-08 and made every card summary line and every panel value
+unreadable. A width did not repair it.
+
+Column text uses `overflow_hidden()`. `truncate()` stays where the element has a
+definite width: a row item with `flex_1()`, or an element with an explicit
+`max_w()` or `w()`.
+
+`docs/troubleshooting/column-text-truncation.md` records what was tried and what
+is still unknown. That document explains. This record decides.
+
 ## Invariants
 
 - A card shows a summary. Detail lives in the panel.
 - Every card in the grid has the same height, whatever its state.
 - The card grid does not scroll.
+- Text stacked in a column does not call `truncate()`.
 - The view model owns the column count. The shell reads it.
 - The panel shows the cuelist or one card detail, never both.
 - Log output renders in the bottom pane of `Show`, never in the panel.

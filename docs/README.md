@@ -86,6 +86,12 @@ Current plans:
 
 Current reviews:
 
+- [Staged Show packets review](reviews/staged-show-packets-review-2026-09-09.md):
+  review of the 2026-09-09 staged revisions and follow-up on the packet
+  corrections
+- [Show log and action feedback task review](reviews/show-log-and-action-feedback-task-review.md):
+  required packet corrections for log-pane ownership, resizing, and command
+  feedback races
 - [Documentation and architecture audit](reviews/documentation-and-architecture-audit.md):
   2026-08-28 findings on ADR status drift, recurring defects, parked code, and
   HTTP timeout ownership
