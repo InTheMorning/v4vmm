@@ -9,11 +9,15 @@ use super::{
 };
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::{
-    ApplyFeedUpdates, CheckFeedStaleness, CheckSubscribedFeeds, SubscribeFeed,
+    ApplyFeedUpdates, CheckFeedStaleness, CheckFeedsAndRepairRoutes,
+    CheckFeedsAndRepairRoutesResult, SubscribeFeed,
 };
 use crate::application::commands::library_removal::RemoveFromLibrary;
 use crate::application::commands::metadata::{
     ApplyTrackId3Edits, LookupMusicBrainzTrack, StageMusicBrainzTrack,
+};
+use crate::application::commands::payment_routes::{
+    PaymentRouteRepairStatus, PaymentRouteRepairTrackResult, RepairPaymentRoutesForTrack,
 };
 use crate::application::commands::playlist::{
     CreatePlaylist, DeletePlaylist, RemovePlaylistTrackAt, RenamePlaylist, ReorderPlaylistTrack,
@@ -59,11 +63,13 @@ use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor, Spacing};
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::library::{
-    description_line_count, AlbumNode, FeedUpdateActionDisplay, FeedUpdateActionKind,
-    FeedUpdateDisplay, FeedUpdatePhase, InspectorPanelKind, LibraryTrackActionVm,
-    LibraryTrackInspectorState, LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbTrackStatus,
-    PlaylistAppendIntent, PlaylistAppendOutcome, PlaylistDetailActionsDisplay,
-    PlaylistSidebarRowVm, PlaylistSidebarVm, SavedSearchesSectionDisplay, TrackSubscribeOutcome,
+    description_line_count, AlbumNode, BroadcastRouteRepairCompletion,
+    BroadcastRouteRepairCompletionStatus, ContentListRowActionKind, FeedCheckRouteRepairOutcome,
+    FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase,
+    InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState, LibraryTrackRowVm,
+    LibraryTree, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
+    PlaylistDetailActionsDisplay, PlaylistSidebarRowVm, PlaylistSidebarVm,
+    SavedSearchesSectionDisplay, TrackSubscribeOutcome,
 };
 use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_option_displays;
@@ -139,6 +145,42 @@ fn command_error_detail(error: CommandError) -> String {
         | CommandError::Other(message) => message,
         CommandError::Cancelled => "command cancelled".to_string(),
     }
+}
+
+fn feed_check_route_repair_outcome(
+    outcome: &CheckFeedsAndRepairRoutesResult,
+) -> FeedCheckRouteRepairOutcome {
+    let summary = &outcome.route_repairs().summary;
+    let feed_update_failures = outcome.feed_updates().map_or(0, |updates| {
+        updates.id3_errors().len() + updates.feed_errors().len()
+    });
+    FeedCheckRouteRepairOutcome::new(
+        outcome.feeds_checked(),
+        outcome.stale_feed_count(),
+        feed_update_failures,
+        summary.repaired,
+        summary.no_routes_upstream,
+        summary.failed,
+    )
+}
+
+fn broadcast_route_repair_completion(
+    result: &PaymentRouteRepairTrackResult,
+) -> BroadcastRouteRepairCompletion {
+    let status = match &result.status {
+        PaymentRouteRepairStatus::Repaired => BroadcastRouteRepairCompletionStatus::Repaired,
+        PaymentRouteRepairStatus::NoRoutesUpstream => {
+            BroadcastRouteRepairCompletionStatus::NoRoutesUpstream
+        }
+        PaymentRouteRepairStatus::Failed => BroadcastRouteRepairCompletionStatus::Failed {
+            reason: result
+                .reason
+                .clone()
+                .unwrap_or_else(|| "unknown error".into()),
+        },
+        PaymentRouteRepairStatus::Skipped => BroadcastRouteRepairCompletionStatus::Skipped,
+    };
+    BroadcastRouteRepairCompletion::new(result.track_id, result.title.clone(), status)
 }
 
 fn apply_library_removal_to_album_detail(detail: &mut LibraryDetail, target: LibraryRemovalTarget) {
@@ -345,6 +387,18 @@ impl LibraryApp {
         }
     }
 
+    pub(crate) fn run_content_list_row_action(
+        &mut self,
+        action: ContentListRowActionKind,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            ContentListRowActionKind::RepairBroadcastRoutes { track_id } => {
+                self.repair_broadcast_routes_for_track(track_id, cx);
+            }
+        }
+    }
+
     pub(crate) fn show_broadcast_readiness_report(
         &mut self,
         report: &BroadcastReadinessReport,
@@ -352,6 +406,28 @@ impl LibraryApp {
     ) {
         self.vm.replace_broadcast_readiness_report(report);
         cx.notify();
+    }
+
+    fn refresh_current_broadcast_readiness_report(&mut self) {
+        if !self.vm.shows_broadcast_readiness_list() {
+            return;
+        }
+        let report = {
+            let conn = match self.conn.lock() {
+                Ok(conn) => conn,
+                Err(_) => {
+                    self.vm.set_error_status("database lock poisoned");
+                    return;
+                }
+            };
+            self.application_services
+                .query_service()
+                .broadcast_readiness_report(&conn, &self.music_dir)
+        };
+        match report {
+            Ok(report) => self.vm.replace_broadcast_readiness_report(&report),
+            Err(error) => self.vm.set_error_status(error),
+        }
     }
 
     pub(crate) fn recent_music_index_feed_detail(
@@ -1468,17 +1544,13 @@ impl LibraryApp {
                 }
             }
         };
-        if feeds.is_empty() {
-            self.vm.set_no_subscribed_feeds();
-            cx.notify();
-            return;
-        }
         self.vm.begin_all_feed_check(feeds.len());
         cx.notify();
 
-        let command = CheckSubscribedFeeds::new(
+        let command = CheckFeedsAndRepairRoutes::new(
             Arc::clone(&self.conn),
             self.musicindex_endpoint.clone(),
+            self.music_dir.clone(),
             feeds,
         );
         present_command(
@@ -1487,10 +1559,15 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             |this, outcome, _cx| {
-                this.vm.finish_all_feed_check(outcome.into_stale());
+                this.vm
+                    .finish_all_feed_check_with_route_repair(feed_check_route_repair_outcome(
+                        &outcome,
+                    ));
+                this.refresh_current_broadcast_readiness_report();
             },
             |this, error, _cx| {
                 this.vm.set_feed_check_error(error);
+                this.refresh_current_broadcast_readiness_report();
             },
         );
     }
@@ -1517,6 +1594,35 @@ impl LibraryApp {
             },
             |this, error, _cx| {
                 this.vm.finish_apply_feed_updates_error(error);
+            },
+        );
+    }
+
+    fn repair_broadcast_routes_for_track(&mut self, track_id: i64, cx: &mut Context<Self>) {
+        if !self.vm.begin_broadcast_route_repair(track_id) {
+            return;
+        }
+        cx.notify();
+
+        let command = RepairPaymentRoutesForTrack::new(
+            Arc::clone(&self.conn),
+            self.musicindex_endpoint.clone(),
+            self.music_dir.clone(),
+            track_id,
+        );
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            |this, outcome, _cx| {
+                let completion = broadcast_route_repair_completion(&outcome);
+                this.vm.finish_broadcast_route_repair(&completion);
+                this.refresh_current_broadcast_readiness_report();
+            },
+            move |this, error, _cx| {
+                this.vm.fail_broadcast_route_repair(track_id, error);
+                this.refresh_current_broadcast_readiness_report();
             },
         );
     }

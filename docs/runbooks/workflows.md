@@ -102,13 +102,17 @@ The library can refresh already-subscribed feeds without re-importing everything
 
 ### Check Feeds
 
-`Check all feeds` compares each subscribed feed's stored `musicindex_updated_at` value with the current MusicIndex feed detail.
+`Check all feeds` compares each subscribed feed's stored
+`musicindex_updated_at` value with the current MusicIndex feed detail.
 
-Feeds with newer remote timestamps are staged as stale.
+Feeds with newer remote timestamps are applied in the same press. After those
+updates finish, the same command repairs downloaded tracks that still lack the
+embedded payment-route tag.
 
 ### Apply Updates
 
-`Apply updates` walks downloaded library tracks for those stale feeds and:
+`Apply updates` appears when a single-feed check stages stale feed updates. It
+walks downloaded library tracks for those stale feeds and:
 
 1. fetches fresh track and feed detail from MusicIndex
 2. regenerates ID3 edits from the current metadata view
@@ -125,7 +129,7 @@ The status line reports:
 ## Broadcast Readiness Repair Workflow
 
 Use readiness repair when a downloaded library track lacks the embedded
-`TXXX:MusicIndex Value Routes` tag and the feed is not stale.
+`TXXX:MusicIndex Value Routes` tag.
 
 ```bash
 v4vmm broadcast readiness --json
@@ -135,8 +139,9 @@ v4vmm broadcast repair-routes <track-id> --json
 
 `repair-routes` fetches MusicIndex track detail with `payment_routes` included,
 applies the existing feed-level route fallback, and writes only a non-empty
-MusicIndex Value Routes tag. It does not run from `Check all feeds`; feed refresh
-keeps its read/update meaning.
+MusicIndex Value Routes tag. In the app, `Check all feeds` runs the repair-all
+path after any stale feed updates apply. The single-row `Fix routes` action and
+the one-track CLI command ask upstream again for that track.
 
 The JSON summary separates:
 

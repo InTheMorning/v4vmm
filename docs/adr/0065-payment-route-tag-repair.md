@@ -149,6 +149,11 @@ contract, and a file that travels to another machine carries its own routes.
 
 ## Follow-Up Work
 
+- The `Check all feeds` result has no room to read. The amendment gave the
+  button five counts to report, and the message renders beside the button in
+  the sidebar header, where it is cut. Recorded as item A7 in
+  `docs/plans/hig-product-polish-backlog.md`.
+
 - Decide whether the app warns at download time when a feed carries no payment
   routes, so the problem is visible before a show.
 

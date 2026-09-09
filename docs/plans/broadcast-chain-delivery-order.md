@@ -153,7 +153,7 @@ Update this table when a packet lands.
 | `v4vmm` | 0064 001 relative local paths | implemented - 2026-09-09; one visual gate open: readiness report counts after repair |
 | `v4vmm` | 0064 002 repair report surface | ready |
 | `v4vmm` | 0065 001 tag repair service | implemented - 2026-09-09; no visual criteria |
-| `v4vmm` | 0065 002 check-all-feeds repair and list actions | ready |
+| `v4vmm` | 0065 002 check-all-feeds repair and list actions | implemented - 2026-09-09; visual gate open: route repair row action and check-all result copy |
 | `splitkit` | reserved 001 store boundary | not started |
 | `splitkit` | reserved 002 reserved class | not started |
 | `splitkit` | reserved 003 restore and TTL | not started |

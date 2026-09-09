@@ -10,166 +10,90 @@ check passes, do all three in the same change:
 
 1. Record it in the `Status:` line of the owning packet in `docs/tasks/`.
 2. Record it in the row in `docs/plans/broadcast-chain-delivery-order.md`.
-3. Remove the section from this file, and number the sections that stay, so
-   the order is still `1` to `n`.
+3. Remove the section from this file, and number the sections that stay, so the
+   order is still `1` to `n`.
 
 When no check is open, this file keeps the function and the method sections
 only. A closed check leaves no entry here.
 
+## Already Met, Do Not Repeat
+
+An operator ran these on 2026-09-08 and 2026-09-09. They are recorded so nobody
+walks them again.
+
+| What | Owner | How it was met |
+|---|---|---|
+| Cards fill the width, all visible, no scrolling | ADR 0063 task 002 | operator screenshots |
+| Every card holds one height in every state | ADR 0063 task 002 | operator screenshots |
+| A card state reads without color, from its label | ADR 0063 task 002 | operator screenshots |
+| The panel opens, closes, and shows a selected card | ADR 0063 task 003 | operator screenshots |
+| The transport stays reachable with the panel closed | ADR 0063 task 003 | operator screenshots |
+| The failed state names its reason, and `Reset` is obvious | ADR 0059 task 009 | operator run, `start-limit-hit` |
+| The readiness count agrees with `broadcast readiness --json` | ADR 0059 task 012 | operator run |
+| The path repair converts a moved library | ADR 0064 task 001 | operator run, 54 rows |
+| `Check all feeds` repairs route tags and reports counts | ADR 0065 task 002 | operator run |
+
+Two defects came out of those runs and are fixed: text rendered as `...`, and
+the collapsed panel overlaid the last card. The checks below re-test only what
+those fixes changed.
+
+One defect is recorded, not fixed: the `Check all feeds` result has no room to
+read. See item A7 in `docs/plans/hig-product-polish-backlog.md`.
+
 ## Order
 
-Do the checks in the order below, and not in another order.
+Do the checks in the order below.
 
-The two layout checks come first, because every other check happens inside that
-layout. A readiness count that is hard to read tells you nothing while the grid
-that holds it is still unproved.
-
-The last two checks change the configuration file. They are together at the end,
-so you edit that file once and start the app once more.
+Check 1 needs a running app and nothing else. Checks 2 and 3 change the
+configuration file, so they are together at the end and cost one edit.
 
 ## Before You Start
 
-The configuration file is at `~/.config/v4vmm/config.toml`. Some checks change
-it. Make a copy first, and put it back when you finish.
+The configuration file is at `~/.config/v4vmm/config.toml`. Checks 2 and 3
+change it. Make a copy first, and put it back when you finish.
 
 ```bash
 cp ~/.config/v4vmm/config.toml ~/.config/v4vmm/config.toml.bak
 ```
 
-## Open 1: Show Card Grid
+## Open 1: Show Interaction After The Fixes
 
-Owner: ADR 0063 task 002. Needs a screen only.
+Owner: ADR 0063 tasks 002 and 003, and the fixes of 2026-09-08. Needs a screen
+only.
 
-1. Start the app with `cargo run --release`.
-2. Open `Show`.
-3. Resize the window from the operator's normal width to a narrow width.
-
-Look for:
-
-- Every card is visible at once, with no scrolling, at the window size the
-  operator uses.
-- Cards fill the width. The middle of the window carries content.
-- Making the window narrow reduces the column count, and the cards stay
-  readable.
-- Every card is the same height, in every state.
-- A card state is readable without color, from its label.
-
-
-## Open 2: Show Detail Panel
-
-Owner: ADR 0063 task 003. Needs a screen only.
+Everything here is new behaviour or a repaired defect. Nothing in it was met by
+the earlier screenshots.
 
 1. Start the app with `cargo run --release`.
-2. Open `Show`.
-3. Select each card, close the panel, reopen it, and return detail to the
-   cuelist.
-4. Open publisher logs from the `Live Metadata` detail.
+2. Open `Show`. Read the two summary lines on each card.
+3. Make the window narrow, then wide again.
+4. Close the panel with the control at its edge, and look at the last card.
+5. Select a card. Select the same card again.
+6. Select `Live Metadata`, then press `Logs`. Press `Logs` again.
+7. Press `Start` on a stopped service, and watch the row.
 
 Look for:
 
-- The panel opens and closes, and the card grid remains usable in both states.
-- Selecting a card shows its detail, and the cuelist returns when detail closes.
-- Publisher logs read correctly at panel width.
-- Transport controls remain reachable while the panel is closed.
-- Service state changes do not move layout while detail is open.
-
-
-## Open 3: Library Readiness Report
-
-Owner: ADR 0059 task 012. Needs a screen only.
-
-1. Start the app with `cargo run --release`.
-2. Open `Show`. Find the readiness count in the `Source` section.
-3. Run `v4vmm broadcast readiness --json` in a second terminal. The two counts
-   must agree.
-4. Select the control next to the count.
-
-Look for:
-
-- The count is easy to read where it is.
-- The control opens `Music` with the not-ready rows filtered.
-- `Show` does not show a second list of its own.
-
-
-## Open 4: Repaired Local Paths In Readiness Report
-
-Owner: ADR 0064 task 001. Needs `sqlite3`, a `v4vmm` binary on `PATH` or the
-equivalent `cargo run --release -- ...`, a writable configured database, and no
-running app while the fixture is inserted.
-
-1. Close the app.
-2. Read the configured paths.
-
-```bash
-cfg=~/.config/v4vmm/config.toml
-db_path=$(awk -F '"' '/^db_path =/ { print $2; exit }' "$cfg")
-music_dir=$(awk -F '"' '/^music_dir =/ { print $2; exit }' "$cfg")
-cp "$db_path" "$db_path.adr0064.bak"
-mkdir -p "$music_dir/adr0064-check"
-printf 'not really an mp3' > "$music_dir/adr0064-check/track.mp3"
-```
-
-3. Insert one old absolute local-file row whose trailing path now exists under
-   `music_dir`.
-
-```bash
-sqlite3 "$db_path" <<SQL
-BEGIN;
-DELETE FROM local_files
-WHERE path LIKE '%adr0064-check/track.mp3'
-   OR track_id IN (SELECT id FROM tracks WHERE item_guid = 'adr0064-check-track');
-DELETE FROM tracks WHERE item_guid = 'adr0064-check-track';
-DELETE FROM feeds WHERE feed_guid = 'adr0064-check-feed';
-INSERT INTO feeds (feed_url, feed_guid, title)
-VALUES ('adr0064-check://feed', 'adr0064-check-feed', 'ADR 0064 Check');
-INSERT INTO tracks (
-    feed_id, item_guid, track_title, artist_name, album_title,
-    duration_seconds, item_value_json, extra_json, is_in_library
-)
-SELECT id, 'adr0064-check-track', 'ADR 0064 Check Track', 'ADR 0064',
-       'ADR 0064 Check', 1, '[]', '{}', 1
-FROM feeds WHERE feed_guid = 'adr0064-check-feed';
-INSERT INTO local_files (path, track_id)
-SELECT '/old/root/adr0064-check/track.mp3', id
-FROM tracks WHERE item_guid = 'adr0064-check-track';
-COMMIT;
-SQL
-```
-
-4. Run the repair and start the app.
-
-```bash
-v4vmm library repair-paths --json
-cargo run --release
-```
-
-5. Open `Show`. Find the readiness count in the `Source` section.
-6. Run `v4vmm broadcast readiness --json` in a second terminal.
-
-Look for:
-
-- The repair output says `"repaired": 1`.
-- The readiness JSON row for `ADR 0064 Check Track` has the configured
-  `music_dir` path.
-- The row is not `FileMissing`. `NoRouteTag` is acceptable for this fixture.
-- The `Show` readiness count agrees with the CLI count after the repair.
+- Every card line holds words. No line reads `...` with no text.
+- A narrow window reduces the column count, and a wide window restores it.
+- With the panel closed, the last card is whole. The panel rail does not sit on
+  top of it.
+- A second select on the open card closes the panel.
+- `Logs` shows the journal, and a second `Logs` press hides it. `Logs` on the
+  other service switches to it, and does not close.
+- The row answers `Start` at once with a `Working` state, before the service
+  manager replies.
+- A command that fails prints its reason under the show title. It does not fail
+  in silence.
 
 Wrong:
 
-- The row path is still `/old/root/adr0064-check/track.mp3`.
-- The row is counted as `FileMissing`.
-- The app count and `v4vmm broadcast readiness --json` disagree.
+- Any line reads `...` alone.
+- The panel rail covers part of a card.
+- `Logs` closes the panel instead of showing the journal.
+- A press does nothing visible for seconds.
 
-Cleanup:
-
-```bash
-rm -f "$music_dir/adr0064-check/track.mp3"
-rmdir "$music_dir/adr0064-check" 2>/dev/null || true
-mv "$db_path.adr0064.bak" "$db_path"
-```
-
-
-## Open 5: Remote Host Reachability
+## Open 2: Remote Host Reachability
 
 Owner: ADR 0059 task 010. Needs a configuration change only, not a second
 machine.
@@ -197,6 +121,7 @@ Look for:
 - The `Source` section names the host.
 - The state is `Not reachable`. It is not `Failed`, and it is not a raw SSH
   error string.
+- The service actions are unavailable, because the host owns the units.
 
 Set `selected_host` to `"Local"` again. The section recovers.
 
@@ -204,8 +129,7 @@ To examine the timeout path, use `destination = "192.0.2.1"` as an alternative.
 No router accepts that address, so the check waits for the five second connect
 timeout.
 
-
-## Open 6: Stream Encoder States
+## Open 3: Stream Encoder States
 
 Owner: ADR 0059 task 015. The first half needs no encoder.
 
@@ -217,21 +141,26 @@ Look for:
 - The `Stream` section reports that the encoder is not installed.
 - The section offers no actions and shows no error string.
 
-The second half needs `butt` on this machine.
+The second half needs `butt` on this machine. Leave `default_server_name` out,
+so the app connects with a bare `-s`, which is what an operator runs by hand.
 
 ```toml
 [broadcast.encoder]
 binary_path = "butt"
-default_server_name = "default"
 ```
 
-Start `butt`. Connect and disconnect from the app.
+Start `butt`, and leave it disconnected. Press `Connect`, then `Disconnect`.
 
 Look for:
 
+- `Connect` is available while the encoder is disconnected.
+- Pressing either control changes the section at once, before `butt` answers.
 - The connection state and the recording state read as two different facts.
-- The listener count changes with the encoder state.
+- A failed connect prints its reason under the show title.
 
+**`Connect` did not work on 2026-09-08, and the reason was never visible.** The
+message under the show title is new. Read it and record what it says, because
+that text is the open question.
 
 ## Method: Reach A Publisher Service State
 

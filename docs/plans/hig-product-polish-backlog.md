@@ -56,6 +56,37 @@ Rules:
 - Preserve the existing toolbar/sidebar/split-view/breadcrumb/search
   structure unless a new ADR explicitly changes it.
 
+#### A7 - The Feed Check Result Has No Room To Read
+
+Reported by an operator on 2026-09-09, after ADR 0065 gave `Check all feeds`
+more to say.
+
+The result message renders in the left sidebar header, beside the button, in a
+`flex_row` that the button already shares. See `src/library/app_impl.rs`, the
+`feed_status` child of the feed-update row.
+
+The message now names five counts: feeds checked, feeds stale, tracks repaired,
+tracks the publisher must fix, and failures. A narrow column cuts it, so the
+operator reads the start of a sentence and guesses the rest.
+
+Owner: ADR 0065, the surface the amendment changed.
+
+Bounded fix, in the order to try:
+
+- give the message its own row under the button, at the sidebar width
+- or move it to the content region, where the readiness list it describes lives
+- or shorten the message and put the counts in the readiness list header
+
+Do not truncate it. `docs/troubleshooting/column-text-truncation.md` records
+what stacked text does with `truncate()`, and a cut count reads as a wrong
+count.
+
+Related: `Show` had the same defect in a worse form. Every broadcast command
+wrote its result to `settings_status`, which only `Settings` rendered, so a
+failed action reported nothing. That is fixed. This is the same lesson at a
+smaller scale: **a surface that starts an action reports the result of that
+action, in a place with room for it.**
+
 ### Track B - HIG Product-Completeness Gaps
 
 These are product polish gaps, not restructuring mandates. Implement one item

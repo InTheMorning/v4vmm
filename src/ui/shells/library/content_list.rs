@@ -26,7 +26,8 @@ use crate::ui::primitives::{Button as UiButton, Image as ImagePrimitive, Label, 
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size, Spacing};
 use crate::view_models::library::{
     ContentListEntityKind, ContentListLoadMoreDisplay, ContentListLoadingStateDisplay,
-    ContentListPageStateDisplay, ContentListPageVm, ContentListRowDisplay,
+    ContentListPageStateDisplay, ContentListPageVm, ContentListRowActionDisplay,
+    ContentListRowDisplay,
 };
 use crate::view_models::pagination::{should_auto_load_more, AUTO_PAGINATE_THRESHOLD_PX};
 use crate::view_models::workspace::ContentViewMode;
@@ -229,14 +230,20 @@ fn render_content_list_row(
         );
     }
 
+    if let Some(action) = row.action.as_ref() {
+        list_row = list_row.child(render_content_list_row_action(action, cx));
+    }
+
     list_row
         .child(TagBadge::new(TagBadgeDisplay {
             kind: entity_kind,
             label: Some(SharedString::from(row.entity_badge.label)),
         }))
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.open_content_list_row(&row_id, cx);
-        }))
+        .when(row.accepts_row_click(), |el| {
+            el.on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                this.open_content_list_row(&row_id, cx);
+            }))
+        })
         .into_any_element()
 }
 
@@ -250,7 +257,7 @@ fn render_content_list_tile(
     let artwork_size = Size::ContentTileArtwork.scaled(cx);
     let hover_bg = color(cx, SemanticColor::SecondarySystemBackground);
 
-    div()
+    let mut tile = div()
         .id(SharedString::from(row.element_id()))
         .flex()
         .flex_col()
@@ -258,11 +265,6 @@ fn render_content_list_tile(
         .w(Size::ContentTileWidth.scaled(cx))
         .p(Spacing::SM.scaled(cx))
         .rounded(Radius::MD.scaled(cx))
-        .cursor_pointer()
-        .hover(move |el| el.bg(hover_bg))
-        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-            this.open_content_list_row(&row_id, cx);
-        }))
         .child(render_content_list_tile_artwork(
             thumbnail,
             artwork_size,
@@ -286,8 +288,22 @@ fn render_content_list_tile(
                 ),
             )
         })
-        .child(render_content_list_tile_badges(row, entity_kind, cx))
-        .into_any_element()
+        .child(render_content_list_tile_badges(row, entity_kind, cx));
+
+    if let Some(action) = row.action.as_ref() {
+        tile = tile.child(render_content_list_row_action(action, cx));
+    }
+
+    if row.accepts_row_click() {
+        tile = tile
+            .cursor_pointer()
+            .hover(move |el| el.bg(hover_bg))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                this.open_content_list_row(&row_id, cx);
+            }));
+    }
+
+    tile.into_any_element()
 }
 
 fn render_content_list_tile_artwork(
@@ -373,23 +389,39 @@ fn render_pending_content_tile(index: usize, cx: &App) -> AnyElement {
 }
 
 fn render_content_list_row_text(row: &ContentListRowDisplay) -> AnyElement {
-    let mut text = div().flex_1().min_w_0().child(
+    let mut text = div().flex_1().min_w_0().overflow_hidden().child(
         Label::new(row.title().to_string())
             .size(FontSize::Micro)
-            .weight(FontWeight::MEDIUM)
-            .truncated(),
+            .weight(FontWeight::MEDIUM),
     );
 
     if !row.secondary_text().is_empty() {
         text = text.child(
             Label::new(row.secondary_text().to_string())
                 .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel)
-                .truncated(),
+                .color(SemanticColor::TertiaryLabel),
         );
     }
 
     text.into_any_element()
+}
+
+fn render_content_list_row_action(
+    action: &ContentListRowActionDisplay,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    let kind = action.kind;
+    UiButton::styled(
+        SharedString::from(action.id.clone()),
+        ControlStyle::Secondary,
+    )
+    .label(action.label.clone())
+    .a11y_label(action.a11y_label.clone())
+    .disabled(action.disabled())
+    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+        this.run_content_list_row_action(kind, cx);
+    }))
+    .into_any_element()
 }
 
 fn render_content_list_state(display: ContentListPageStateDisplay, cx: &App) -> AnyElement {

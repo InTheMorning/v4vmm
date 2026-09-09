@@ -23,7 +23,9 @@ use std::fmt::Write as _;
 #[cfg(test)]
 use crate::application::library_removal::LibraryRemovalImpact;
 use crate::application::library_removal::{LibraryRemovalPlan, LibraryRemovalTarget};
-use crate::application::queries::broadcast::{BroadcastReadinessReport, BroadcastReadinessTrack};
+use crate::application::queries::broadcast::{
+    BroadcastReadinessReport, BroadcastReadinessState, BroadcastReadinessTrack,
+};
 use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
@@ -57,6 +59,10 @@ use crate::views::{
 const DEFAULT_SPLIT_PANE_WIDTH: f32 = 360.0;
 const UPDATE_AVAILABLE_LABEL: &str = "Update available";
 const NEW_RELEASE_LABEL: &str = "New";
+const BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL: &str = "Fix routes";
+const BROADCAST_ROUTE_REPAIR_WORKING_LABEL: &str = "Fixing...";
+const BROADCAST_ROUTE_REPAIRING_STATE_LABEL: &str = "Repairing routes";
+const BROADCAST_ROUTE_PUBLISHER_DETAIL: &str = "Publisher must add payment routes.";
 
 /// Rendered-line threshold before descriptions start collapsed.
 pub(crate) const DESCRIPTION_AUTO_COLLAPSE_LINES: usize = 5;
@@ -561,6 +567,88 @@ pub(crate) struct FeedUpdateDisplay {
     pub(crate) action: FeedUpdateActionDisplay,
 }
 
+/// Pure counts from a `Check all feeds` plus route-repair run.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FeedCheckRouteRepairOutcome {
+    /// Subscribed feeds checked for `MusicIndex` staleness.
+    pub(crate) feeds_checked: usize,
+    /// Feeds whose updates were applied before route repair.
+    pub(crate) feeds_changed: usize,
+    /// Feed or tag-write errors from applying feed updates.
+    pub(crate) feed_update_failures: usize,
+    /// Tracks whose route tag was written.
+    pub(crate) route_tags_repaired: usize,
+    /// Tracks that need the publisher to add routes upstream.
+    pub(crate) route_tags_no_routes_upstream: usize,
+    /// Tracks whose repair failed.
+    pub(crate) route_tag_failures: usize,
+}
+
+impl FeedCheckRouteRepairOutcome {
+    /// Creates route-repair counts for the feed-update status row.
+    #[must_use]
+    pub(crate) const fn new(
+        feeds_checked: usize,
+        feeds_changed: usize,
+        feed_update_failures: usize,
+        route_tags_repaired: usize,
+        route_tags_no_routes_upstream: usize,
+        route_tag_failures: usize,
+    ) -> Self {
+        Self {
+            feeds_checked,
+            feeds_changed,
+            feed_update_failures,
+            route_tags_repaired,
+            route_tags_no_routes_upstream,
+            route_tag_failures,
+        }
+    }
+}
+
+/// Completion state for one readiness-row route repair.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct BroadcastRouteRepairCompletion {
+    /// Local track database id.
+    pub(crate) track_id: i64,
+    /// Best available track title.
+    pub(crate) title: Option<String>,
+    /// Completion status.
+    pub(crate) status: BroadcastRouteRepairCompletionStatus,
+}
+
+impl BroadcastRouteRepairCompletion {
+    /// Creates a completion state for one row repair.
+    #[must_use]
+    pub(crate) fn new(
+        track_id: i64,
+        title: Option<String>,
+        status: BroadcastRouteRepairCompletionStatus,
+    ) -> Self {
+        Self {
+            track_id,
+            title,
+            status,
+        }
+    }
+}
+
+/// Typed completion status for one readiness-row route repair.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum BroadcastRouteRepairCompletionStatus {
+    /// The tag was written.
+    Repaired,
+    /// `MusicIndex` still has no routes for the track or feed.
+    NoRoutesUpstream,
+    /// The file was already ready when the command checked it.
+    Skipped,
+    /// The command failed before it could repair the row.
+    Failed {
+        /// Failure reason from the command.
+        reason: String,
+    },
+}
+
 /// Pure command intent for appending one or more library tracks to a playlist.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PlaylistAppendIntent {
@@ -775,6 +863,95 @@ impl ContentListLibraryBadgeDisplay {
     }
 }
 
+/// Typed activation for a mixed Music content row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListRowActivation {
+    /// The whole row activates its default drill-down.
+    OpenContentRow,
+    /// The row has no whole-row click target.
+    None,
+}
+
+impl ContentListRowActivation {
+    const fn accepts_click(self) -> bool {
+        matches!(self, Self::OpenContentRow)
+    }
+}
+
+/// Typed action available from one mixed Music content row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListRowActionKind {
+    /// Retry the payment-route tag repair for one local track.
+    RepairBroadcastRoutes {
+        /// Local track database id.
+        track_id: i64,
+    },
+}
+
+/// Typed availability for a mixed Music content row action.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ContentListRowActionAvailability {
+    /// The action can be run.
+    Available,
+    /// The row already has this action in flight.
+    Working,
+}
+
+impl ContentListRowActionAvailability {
+    /// Returns whether a renderer should disable the control.
+    #[must_use]
+    pub(crate) const fn disabled(self) -> bool {
+        matches!(self, Self::Working)
+    }
+}
+
+/// Display-ready action for one mixed Music content row.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ContentListRowActionDisplay {
+    /// Typed action identity and target.
+    pub(crate) kind: ContentListRowActionKind,
+    /// Stable renderer id.
+    pub(crate) id: String,
+    /// Visible action label.
+    pub(crate) label: String,
+    /// Accessibility label for the action.
+    pub(crate) a11y_label: String,
+    /// Typed action availability.
+    pub(crate) availability: ContentListRowActionAvailability,
+}
+
+impl ContentListRowActionDisplay {
+    fn repair_broadcast_routes(track_id: i64, title: &str, working: bool) -> Self {
+        let availability = if working {
+            ContentListRowActionAvailability::Working
+        } else {
+            ContentListRowActionAvailability::Available
+        };
+        Self {
+            kind: ContentListRowActionKind::RepairBroadcastRoutes { track_id },
+            id: format!("broadcast-readiness-fix-routes-{track_id}"),
+            label: if working {
+                BROADCAST_ROUTE_REPAIR_WORKING_LABEL
+            } else {
+                BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL
+            }
+            .to_owned(),
+            a11y_label: if working {
+                format!("Repairing payment routes for {title}")
+            } else {
+                format!("Fix payment routes for {title}")
+            },
+            availability,
+        }
+    }
+
+    /// Returns whether a renderer should disable the control.
+    #[must_use]
+    pub(crate) const fn disabled(&self) -> bool {
+        self.availability.disabled()
+    }
+}
+
 /// Expansion state for rows that reveal child rows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ContentListRowExpansionState {
@@ -935,6 +1112,10 @@ pub(crate) struct ContentListRowDisplay {
     pub(crate) expansion: ContentListRowExpansionDisplay,
     /// Optional curator-facing state label for the row.
     pub(crate) state_label: Option<&'static str>,
+    /// Whole-row activation behavior.
+    pub(crate) activation: ContentListRowActivation,
+    /// Optional explicit row action.
+    pub(crate) action: Option<ContentListRowActionDisplay>,
 }
 
 impl ContentListRowDisplay {
@@ -1026,22 +1207,28 @@ impl ContentListRowDisplay {
 
     /// Projects a broadcast-readiness problem into a local Music content row.
     #[must_use]
-    pub(crate) fn from_broadcast_readiness_track(track: &BroadcastReadinessTrack) -> Self {
+    pub(crate) fn from_broadcast_readiness_track(
+        track: &BroadcastReadinessTrack,
+        repairing: bool,
+    ) -> Self {
         let artist = track
             .artist
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or("Unknown Artist");
+        let reason = broadcast_readiness_row_reason(track, repairing);
         let mut display = TrackResultDisplay::new(
             track.track_id.to_string(),
             track.title.clone(),
             SearchResultOrigin::Library,
         )
-        .with_secondary_text(format!("{artist} - {}", track.reason));
-        display.a11y_label = format!("Track: {}. {}", track.title, track.reason);
+        .with_secondary_text(format!("{artist} - {reason}"));
+        display.a11y_label = format!("Track: {}. {reason}", track.title);
 
         let mut row = Self::from_track_result(display);
-        row.state_label = Some(track.state.label());
+        row.state_label = Some(broadcast_readiness_row_state_label(track.state, repairing));
+        row.activation = ContentListRowActivation::None;
+        row.action = broadcast_readiness_row_action(track, repairing);
         row
     }
 
@@ -1081,6 +1268,12 @@ impl ContentListRowDisplay {
         format!("music-content-row-{}", self.id)
     }
 
+    /// Returns whether the row should receive a whole-row click handler.
+    #[must_use]
+    pub(crate) const fn accepts_row_click(&self) -> bool {
+        self.activation.accepts_click()
+    }
+
     fn from_kind(kind: ContentListRowKind, expanded: bool) -> Self {
         let source = kind.source();
         let entity_kind = kind.entity_kind();
@@ -1092,6 +1285,8 @@ impl ContentListRowDisplay {
             source,
             expansion: ContentListRowExpansionDisplay::for_kind(entity_kind, expanded),
             state_label: row_state_label_for_source(source),
+            activation: ContentListRowActivation::OpenContentRow,
+            action: None,
         }
     }
 
@@ -1101,6 +1296,68 @@ impl ContentListRowDisplay {
             || contains_normalized(self.title(), filter)
             || contains_normalized(self.secondary_text(), filter)
     }
+
+    fn has_available_broadcast_route_repair(&self, track_id: i64) -> bool {
+        self.action.as_ref().is_some_and(|action| {
+            action.kind == (ContentListRowActionKind::RepairBroadcastRoutes { track_id })
+                && !action.disabled()
+        })
+    }
+
+    fn set_broadcast_route_repairing(&mut self, track_id: i64, repairing: bool) {
+        if self.id != track_id.to_string() {
+            return;
+        }
+        let Some(action) = self.action.as_ref() else {
+            return;
+        };
+        if action.kind != (ContentListRowActionKind::RepairBroadcastRoutes { track_id }) {
+            return;
+        }
+        let title = self.title().to_owned();
+        self.action = Some(ContentListRowActionDisplay::repair_broadcast_routes(
+            track_id, &title, repairing,
+        ));
+        self.state_label = Some(if repairing {
+            BROADCAST_ROUTE_REPAIRING_STATE_LABEL
+        } else {
+            BroadcastReadinessState::NoRouteTag.label()
+        });
+    }
+}
+
+fn broadcast_readiness_row_reason(track: &BroadcastReadinessTrack, repairing: bool) -> &str {
+    if repairing {
+        "Repairing payment-route tag."
+    } else if track.state == BroadcastReadinessState::NoRoutesUpstream {
+        BROADCAST_ROUTE_PUBLISHER_DETAIL
+    } else {
+        &track.reason
+    }
+}
+
+const fn broadcast_readiness_row_state_label(
+    state: BroadcastReadinessState,
+    repairing: bool,
+) -> &'static str {
+    if repairing {
+        BROADCAST_ROUTE_REPAIRING_STATE_LABEL
+    } else {
+        state.label()
+    }
+}
+
+fn broadcast_readiness_row_action(
+    track: &BroadcastReadinessTrack,
+    repairing: bool,
+) -> Option<ContentListRowActionDisplay> {
+    (track.state == BroadcastReadinessState::NoRouteTag).then(|| {
+        ContentListRowActionDisplay::repair_broadcast_routes(
+            track.track_id,
+            &track.title,
+            repairing,
+        )
+    })
 }
 
 /// Empty-state display for a filtered content-list frame.
@@ -1612,6 +1869,22 @@ impl ContentListPageVm {
         }
     }
 
+    fn has_available_broadcast_route_repair(&self, track_id: i64) -> bool {
+        self.cached_rows
+            .iter()
+            .chain(self.library_rows.iter())
+            .any(|row| row.has_available_broadcast_route_repair(track_id))
+    }
+
+    fn set_broadcast_route_repairing(&mut self, track_id: i64, repairing: bool) {
+        for row in &mut self.cached_rows {
+            row.set_broadcast_route_repairing(track_id, repairing);
+        }
+        for row in &mut self.library_rows {
+            row.set_broadcast_route_repairing(track_id, repairing);
+        }
+    }
+
     /// Returns an Index feed selection for a release row, when present.
     #[must_use]
     pub(crate) fn index_feed_selection(
@@ -1884,6 +2157,7 @@ pub(crate) struct LibraryViewModel {
     // Operation state.
     busy_track: Option<i64>,
     busy_feed: Option<i64>,
+    in_flight_broadcast_route_repairs: BTreeSet<i64>,
     library_removal: LibraryRemovalConfirmationState,
     status: String,
     library_loading: bool,
@@ -1919,6 +2193,7 @@ impl LibraryViewModel {
             hovered_thumb_url: None,
             busy_track: None,
             busy_feed: None,
+            in_flight_broadcast_route_repairs: BTreeSet::new(),
             library_removal: LibraryRemovalConfirmationState::new(),
             status: String::new(),
             library_loading: false,
@@ -1945,7 +2220,13 @@ impl LibraryViewModel {
         let rows = report
             .problem_tracks()
             .into_iter()
-            .map(ContentListRowDisplay::from_broadcast_readiness_track)
+            .map(|track| {
+                ContentListRowDisplay::from_broadcast_readiness_track(
+                    track,
+                    self.in_flight_broadcast_route_repairs
+                        .contains(&track.track_id),
+                )
+            })
             .collect();
         self.content_list_page
             .replace_broadcast_readiness_rows(rows);
@@ -2139,6 +2420,11 @@ impl LibraryViewModel {
     #[must_use]
     pub(crate) const fn content_list_page(&self) -> &ContentListPageVm {
         &self.content_list_page
+    }
+
+    #[must_use]
+    pub(crate) fn shows_broadcast_readiness_list(&self) -> bool {
+        self.content_list_page.source == ContentListPageSource::BroadcastReadiness
     }
 
     pub(crate) fn begin_recent_music_content_load(&mut self, append: bool) {
@@ -2861,13 +3147,9 @@ impl LibraryViewModel {
     }
 
     pub(crate) fn set_feed_check_error(&mut self, message: impl std::fmt::Display) {
+        self.snapshot.feed_update_state.phase = FeedUpdatePhase::Idle;
         self.snapshot.feed_update_state.status_message =
             Some(format!("Feed check error: {message:#}"));
-    }
-
-    pub(crate) fn set_no_subscribed_feeds(&mut self) {
-        self.snapshot.feed_update_state.status_message =
-            Some("No subscribed feeds to check".into());
     }
 
     pub(crate) fn begin_all_feed_check(&mut self, feed_count: usize) {
@@ -2877,15 +3159,14 @@ impl LibraryViewModel {
             Some(format!("Checking {feed_count} feeds..."));
     }
 
-    pub(crate) fn finish_all_feed_check(&mut self, stale: Vec<feed_service::StaleFeed>) {
+    pub(crate) fn finish_all_feed_check_with_route_repair(
+        &mut self,
+        outcome: FeedCheckRouteRepairOutcome,
+    ) {
         self.snapshot.feed_update_state.phase = FeedUpdatePhase::Idle;
-        self.snapshot.feed_update_state.stale = stale;
+        self.snapshot.feed_update_state.stale.clear();
         self.snapshot.feed_update_state.status_message =
-            Some(if self.snapshot.feed_update_state.stale.is_empty() {
-                "All feeds up to date".into()
-            } else {
-                feed_change_count_label(self.snapshot.feed_update_state.stale.len())
-            });
+            Some(feed_check_route_repair_message(outcome));
     }
 
     pub(crate) fn begin_apply_feed_updates(&mut self) -> Option<Vec<feed_service::StaleFeed>> {
@@ -2909,6 +3190,48 @@ impl LibraryViewModel {
 
     pub(crate) fn finish_apply_feed_updates_error(&mut self, error: impl std::fmt::Display) {
         self.finish_apply_feed_updates(format!("Feed update error: {error:#}"));
+    }
+
+    #[must_use]
+    pub(crate) fn begin_broadcast_route_repair(&mut self, track_id: i64) -> bool {
+        if !self
+            .content_list_page
+            .has_available_broadcast_route_repair(track_id)
+            || !self.in_flight_broadcast_route_repairs.insert(track_id)
+        {
+            return false;
+        }
+
+        self.content_list_page
+            .set_broadcast_route_repairing(track_id, true);
+        self.status = broadcast_route_repair_started_message(track_id);
+        true
+    }
+
+    pub(crate) fn finish_broadcast_route_repair(
+        &mut self,
+        completion: &BroadcastRouteRepairCompletion,
+    ) {
+        self.in_flight_broadcast_route_repairs
+            .remove(&completion.track_id);
+        self.content_list_page
+            .set_broadcast_route_repairing(completion.track_id, false);
+        self.status = broadcast_route_repair_completion_message(completion);
+    }
+
+    pub(crate) fn fail_broadcast_route_repair(
+        &mut self,
+        track_id: i64,
+        error: impl std::fmt::Display,
+    ) {
+        let completion = BroadcastRouteRepairCompletion::new(
+            track_id,
+            None,
+            BroadcastRouteRepairCompletionStatus::Failed {
+                reason: format!("{error:#}"),
+            },
+        );
+        self.finish_broadcast_route_repair(&completion);
     }
 
     #[cfg(test)]
@@ -3030,6 +3353,87 @@ impl LibraryViewModel {
 
 fn feed_change_count_label(count: usize) -> String {
     format!("{count} feed{} changed", plural(count))
+}
+
+fn feed_check_route_repair_message(outcome: FeedCheckRouteRepairOutcome) -> String {
+    let mut message = format!(
+        "Checked {} feed{}",
+        outcome.feeds_checked,
+        plural(outcome.feeds_checked)
+    );
+    if outcome.feeds_changed == 0 {
+        message.push_str("; all feeds up to date");
+    } else {
+        write!(
+            &mut message,
+            "; {} feed{} changed",
+            outcome.feeds_changed,
+            plural(outcome.feeds_changed)
+        )
+        .expect("writing to a String cannot fail");
+    }
+    if outcome.feed_update_failures > 0 {
+        write!(
+            &mut message,
+            "; {} feed update issue{}",
+            outcome.feed_update_failures,
+            plural(outcome.feed_update_failures)
+        )
+        .expect("writing to a String cannot fail");
+    }
+
+    if outcome.route_tags_repaired == 0
+        && outcome.route_tags_no_routes_upstream == 0
+        && outcome.route_tag_failures == 0
+    {
+        message.push_str("; no route repairs needed");
+        return message;
+    }
+
+    write!(
+        &mut message,
+        "; repaired {} route tag{}; {} track{} {} publisher routes; {} failed",
+        outcome.route_tags_repaired,
+        plural(outcome.route_tags_repaired),
+        outcome.route_tags_no_routes_upstream,
+        plural(outcome.route_tags_no_routes_upstream),
+        if outcome.route_tags_no_routes_upstream == 1 {
+            "needs"
+        } else {
+            "need"
+        },
+        outcome.route_tag_failures
+    )
+    .expect("writing to a String cannot fail");
+    message
+}
+
+fn broadcast_route_repair_started_message(track_id: i64) -> String {
+    format!("Repairing payment routes for track {track_id}...")
+}
+
+fn broadcast_route_repair_completion_message(
+    completion: &BroadcastRouteRepairCompletion,
+) -> String {
+    let title = completion
+        .title
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map_or_else(|| format!("track {}", completion.track_id), str::to_owned);
+    match &completion.status {
+        BroadcastRouteRepairCompletionStatus::Repaired => {
+            format!("Repaired payment routes for {title}")
+        }
+        BroadcastRouteRepairCompletionStatus::NoRoutesUpstream => {
+            format!("Publisher must add payment routes for {title}")
+        }
+        BroadcastRouteRepairCompletionStatus::Skipped => {
+            format!("Payment routes already ready for {title}")
+        }
+        BroadcastRouteRepairCompletionStatus::Failed { reason } => {
+            format!("Route repair failed for {title}: {reason}")
+        }
+    }
 }
 
 fn filter_tree(tree: &LibraryTree, query: &str) -> LibraryTree {
@@ -6125,8 +6529,124 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].title(), "Missing Routes");
         assert_eq!(rows[0].state_label, Some("Missing routes"));
+        assert!(rows[0].action.is_some());
+        assert!(!rows[0].accepts_row_click());
         assert_eq!(rows[1].title(), "Missing File");
         assert_eq!(rows[1].state_label, Some("Missing file"));
+        assert!(rows[1].action.is_none());
+        assert!(!rows[1].accepts_row_click());
+    }
+
+    #[test]
+    fn broadcast_readiness_no_route_tag_row_carries_available_action() {
+        let row = ContentListRowDisplay::from_broadcast_readiness_track(
+            &broadcast_readiness_track(
+                7,
+                "Missing Routes",
+                crate::application::queries::broadcast::BroadcastReadinessState::NoRouteTag,
+                "Embedded MusicIndex Value Routes tag is missing.",
+            ),
+            false,
+        );
+
+        let action = row
+            .action
+            .as_ref()
+            .expect("NoRouteTag row carries a repair action");
+        assert_eq!(
+            action.kind,
+            ContentListRowActionKind::RepairBroadcastRoutes { track_id: 7 }
+        );
+        assert_eq!(action.id, "broadcast-readiness-fix-routes-7");
+        assert_eq!(action.label, "Fix routes");
+        assert_eq!(action.a11y_label, "Fix payment routes for Missing Routes");
+        assert!(!action.disabled());
+        assert!(!row.accepts_row_click());
+    }
+
+    #[test]
+    fn broadcast_readiness_no_routes_upstream_row_names_publisher_without_action() {
+        let row = ContentListRowDisplay::from_broadcast_readiness_track(
+            &broadcast_readiness_track(
+                8,
+                "Publisher Work",
+                crate::application::queries::broadcast::BroadcastReadinessState::NoRoutesUpstream,
+                "MusicIndex has no payment routes.",
+            ),
+            false,
+        );
+
+        assert_eq!(row.state_label, Some("No upstream routes"));
+        assert_eq!(row.action, None);
+        assert!(
+            row.secondary_text()
+                .contains("Publisher must add payment routes."),
+            "NoRoutesUpstream rows must name the publisher action"
+        );
+        assert!(!row.accepts_row_click());
+    }
+
+    #[test]
+    fn broadcast_readiness_row_reports_repair_running() {
+        let mut vm = LibraryViewModel::new();
+        let report = BroadcastReadinessReport {
+            summary: crate::application::queries::broadcast::BroadcastReadinessSummary {
+                ready: 0,
+                no_route_tag: 1,
+                no_routes_upstream: 0,
+                file_missing: 0,
+                not_downloaded: 0,
+            },
+            tracks: vec![broadcast_readiness_track(
+                7,
+                "Missing Routes",
+                crate::application::queries::broadcast::BroadcastReadinessState::NoRouteTag,
+                "Embedded MusicIndex Value Routes tag is missing.",
+            )],
+        };
+        vm.replace_broadcast_readiness_report(&report);
+
+        assert!(vm.begin_broadcast_route_repair(7));
+
+        let rows = vm.content_list_page.visible_rows();
+        assert_eq!(rows[0].state_label, Some("Repairing routes"));
+        let action = rows[0]
+            .action
+            .as_ref()
+            .expect("repair action remains visible");
+        assert_eq!(action.label, "Fixing...");
+        assert!(action.disabled());
+        assert_eq!(vm.status(), "Repairing payment routes for track 7...");
+        assert!(
+            !vm.begin_broadcast_route_repair(7),
+            "running repair cannot be started again"
+        );
+    }
+
+    #[test]
+    fn feed_check_route_repair_status_reports_counts_separately() {
+        let mut vm = LibraryViewModel::new();
+
+        vm.finish_all_feed_check_with_route_repair(FeedCheckRouteRepairOutcome::new(
+            3, 1, 0, 2, 1, 0,
+        ));
+
+        assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Idle);
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some(
+                "Checked 3 feeds; 1 feed changed; repaired 2 route tags; 1 track needs publisher routes; 0 failed"
+            )
+        );
+
+        vm.finish_all_feed_check_with_route_repair(FeedCheckRouteRepairOutcome::new(
+            3, 0, 0, 0, 0, 0,
+        ));
+
+        assert_eq!(
+            vm.feed_update_state().status_message.as_deref(),
+            Some("Checked 3 feeds; all feeds up to date; no route repairs needed")
+        );
     }
 
     #[test]
@@ -6572,12 +7092,19 @@ mod tests {
         assert_eq!(display.action.label, "Checking...");
         assert!(display.action.disabled);
 
-        vm.finish_all_feed_check(vec![feed_service::StaleFeed {
-            feed_id: 1,
-            feed_guid: "feed-1".into(),
-            title: Some("Feed".into()),
-            new_updated_at: 10,
-        }]);
+        vm.finish_all_feed_check_with_route_repair(FeedCheckRouteRepairOutcome::new(
+            3, 0, 0, 0, 0, 0,
+        ));
+        vm.begin_feed_view_check(1);
+        vm.finish_feed_view_check(
+            1,
+            Ok(Some(feed_service::StaleFeed {
+                feed_id: 1,
+                feed_guid: "feed-1".into(),
+                title: Some("Feed".into()),
+                new_updated_at: 10,
+            })),
+        );
         let display = vm.feed_update_display();
         assert_eq!(display.state_label, Some("Update available"));
         assert_eq!(display.status_message.as_deref(), Some("1 feed changed"));
@@ -7163,18 +7690,25 @@ mod tests {
             Some("Checking 2 feeds...")
         );
 
-        vm.finish_all_feed_check(vec![feed_service::StaleFeed {
-            feed_id: 1,
-            feed_guid: "one".into(),
-            title: None,
-            new_updated_at: 9,
-        }]);
+        vm.finish_all_feed_check_with_route_repair(FeedCheckRouteRepairOutcome::new(
+            2, 1, 0, 0, 0, 0,
+        ));
         assert_eq!(vm.feed_update_state().phase, FeedUpdatePhase::Idle);
         assert_eq!(
             vm.feed_update_state().status_message.as_deref(),
-            Some("1 feed changed")
+            Some("Checked 2 feeds; 1 feed changed; no route repairs needed")
         );
 
+        vm.begin_feed_view_check(1);
+        vm.finish_feed_view_check(
+            1,
+            Ok(Some(feed_service::StaleFeed {
+                feed_id: 1,
+                feed_guid: "one".into(),
+                title: None,
+                new_updated_at: 9,
+            })),
+        );
         let stale = vm
             .begin_apply_feed_updates()
             .expect("stale feeds should apply");
@@ -7202,12 +7736,16 @@ mod tests {
             Some("Feed check error: timeout")
         );
 
-        vm.finish_all_feed_check(vec![feed_service::StaleFeed {
-            feed_id: 2,
-            feed_guid: "two".into(),
-            title: None,
-            new_updated_at: 10,
-        }]);
+        vm.begin_feed_view_check(2);
+        vm.finish_feed_view_check(
+            2,
+            Ok(Some(feed_service::StaleFeed {
+                feed_id: 2,
+                feed_guid: "two".into(),
+                title: None,
+                new_updated_at: 10,
+            })),
+        );
         vm.begin_apply_feed_updates()
             .expect("stale feeds should apply");
         vm.finish_apply_feed_updates_error("offline");

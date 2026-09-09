@@ -11569,7 +11569,9 @@ fn adr_0065_payment_route_repair_stays_in_command_boundary() {
         let relative = rel_path(&path);
         if relative == OWNER
             || relative == "src/application/commands/mod.rs"
+            || relative == "src/application/commands/feed.rs"
             || relative == "src/cli.rs"
+            || relative == "src/library/app_impl.rs"
         {
             continue;
         }
@@ -11589,6 +11591,147 @@ fn adr_0065_payment_route_repair_stays_in_command_boundary() {
     assert!(
         violations.is_empty(),
         "ADR 0065 payment-route repair boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0065: readiness row state labels are not actions.
+#[test]
+fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
+    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
+    let content_shell_source = read_source(&manifest_path("src/ui/shells/library/content_list.rs"));
+    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
+    let feed_command_source = read_source(&manifest_path("src/application/commands/feed.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) action: Option<ContentListRowActionDisplay>",
+        "pub(crate) activation: ContentListRowActivation",
+        "ContentListRowActionKind::RepairBroadcastRoutes",
+        "BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL",
+        "BROADCAST_ROUTE_PUBLISHER_DETAIL",
+    ] {
+        if !library_vm_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: ADR 0065 readiness row action contract missing `{required}`"
+            ));
+        }
+    }
+
+    for forbidden in [
+        "\"Fix routes\"",
+        "\"Fixing...\"",
+        "\"Publisher must add payment routes.\"",
+    ] {
+        if content_shell_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/library/content_list.rs: ADR 0065 row action and publisher labels belong to the view model; found `{forbidden}`"
+            ));
+        }
+    }
+
+    let render_row = source_between(
+        &content_shell_source,
+        "fn render_content_list_row(",
+        "fn render_content_list_tile(",
+    );
+    if !render_row.contains("row.accepts_row_click()") {
+        violations.push(
+            "src/ui/shells/library/content_list.rs: ADR 0065 readiness rows must not inherit unconditional whole-row click handlers"
+                .to_string(),
+        );
+    }
+    if !render_row.contains("render_content_list_row_action(action, cx)") {
+        violations.push(
+            "src/ui/shells/library/content_list.rs: ADR 0065 readiness row actions must render through the explicit row action contract"
+                .to_string(),
+        );
+    }
+    let state_label_block = source_between(
+        render_row,
+        "if let Some(state_label) = row.state_label",
+        "if let Some(action) = row.action.as_ref()",
+    );
+    for forbidden in [".on_click", "UiButton::styled", ".cursor_pointer()"] {
+        if state_label_block.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/shells/library/content_list.rs: ADR 0065 state labels must not carry click handlers or button styling; found `{forbidden}`"
+            ));
+        }
+    }
+
+    let render_action = source_between(
+        &content_shell_source,
+        "fn render_content_list_row_action(",
+        "fn render_content_list_load_more(",
+    );
+    for required in [
+        "action.label.clone()",
+        "action.a11y_label.clone()",
+        "action.disabled()",
+        "this.run_content_list_row_action(kind, cx)",
+    ] {
+        if !render_action.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/library/content_list.rs: ADR 0065 row action renderer must consume VM action data; missing `{required}`"
+            ));
+        }
+    }
+
+    let check_all = source_between(
+        &library_app_source,
+        "fn check_all_feeds(",
+        "fn apply_all_feed_updates(",
+    );
+    for required in [
+        "CheckFeedsAndRepairRoutes::new",
+        "finish_all_feed_check_with_route_repair",
+        "refresh_current_broadcast_readiness_report()",
+    ] {
+        if !check_all.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: ADR 0065 Check all feeds must check, apply, repair, and refresh; missing `{required}`"
+            ));
+        }
+    }
+
+    let row_repair = source_between(
+        &library_app_source,
+        "fn repair_broadcast_routes_for_track(",
+        "pub(crate) fn select_track(",
+    );
+    for required in [
+        "RepairPaymentRoutesForTrack::new",
+        "begin_broadcast_route_repair(track_id)",
+        "finish_broadcast_route_repair",
+        "refresh_current_broadcast_readiness_report()",
+    ] {
+        if !row_repair.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: ADR 0065 row repair must use the single-track command and refresh the readiness list; missing `{required}`"
+            ));
+        }
+    }
+
+    let combined_command = source_between(
+        &feed_command_source,
+        "impl ApplicationCommand for CheckFeedsAndRepairRoutes",
+        "/// Command result for subscribing/downloading a feed.",
+    );
+    let check_index = combined_command.find("CheckSubscribedFeeds::new");
+    let apply_index = combined_command.find("ApplyFeedUpdates::new");
+    let repair_index = combined_command.find("RepairMissingPaymentRouteTags::new");
+    match (check_index, apply_index, repair_index) {
+        (Some(check), Some(apply), Some(repair)) if check < apply && apply < repair => {}
+        _ => violations.push(
+            "src/application/commands/feed.rs: ADR 0065 Check all feeds must repair only after stale feed updates apply"
+                .to_string(),
+        ),
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0065 readiness row action violations:\n{}",
         violations.join("\n")
     );
 }

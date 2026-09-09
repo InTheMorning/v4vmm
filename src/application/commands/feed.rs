@@ -1,11 +1,15 @@
 //! Feed command family.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
+use crate::application::commands::payment_routes::{
+    PaymentRouteRepairBatchResult, RepairMissingPaymentRouteTags,
+};
 use crate::application::errors::command::CommandError;
 use crate::application::events::download::DownloadEvent;
 use crate::application::events::feed::FeedEvent;
@@ -277,6 +281,132 @@ impl ApplicationCommand for ApplyFeedUpdates {
         Ok(CommandOutcome::new(
             ApplyFeedUpdatesResult::new(total_tracks, total_edits, id3_errors, feed_errors),
             feed_update_events(),
+        ))
+    }
+}
+
+/// Result for checking feeds, applying updates, and repairing route tags.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CheckFeedsAndRepairRoutesResult {
+    feeds_checked: usize,
+    stale_feed_count: usize,
+    feed_updates: Option<ApplyFeedUpdatesResult>,
+    route_repairs: PaymentRouteRepairBatchResult,
+}
+
+impl CheckFeedsAndRepairRoutesResult {
+    fn new(
+        feeds_checked: usize,
+        stale_feed_count: usize,
+        feed_updates: Option<ApplyFeedUpdatesResult>,
+        route_repairs: PaymentRouteRepairBatchResult,
+    ) -> Self {
+        Self {
+            feeds_checked,
+            stale_feed_count,
+            feed_updates,
+            route_repairs,
+        }
+    }
+
+    /// Returns the number of subscribed feeds checked.
+    #[must_use]
+    pub(crate) const fn feeds_checked(&self) -> usize {
+        self.feeds_checked
+    }
+
+    /// Returns the number of feeds with applied updates.
+    #[must_use]
+    pub(crate) const fn stale_feed_count(&self) -> usize {
+        self.stale_feed_count
+    }
+
+    /// Returns feed-update results when stale feeds were applied.
+    #[must_use]
+    pub(crate) const fn feed_updates(&self) -> Option<&ApplyFeedUpdatesResult> {
+        self.feed_updates.as_ref()
+    }
+
+    /// Returns the route-repair batch result.
+    #[must_use]
+    pub(crate) const fn route_repairs(&self) -> &PaymentRouteRepairBatchResult {
+        &self.route_repairs
+    }
+}
+
+/// Checks all feeds, applies stale updates, then repairs route tags.
+#[derive(Clone, Debug)]
+pub(crate) struct CheckFeedsAndRepairRoutes {
+    conn: SharedConnection,
+    musicindex_endpoint: String,
+    music_dir: PathBuf,
+    feeds: Vec<db::FeedStaleCheckRow>,
+}
+
+impl CheckFeedsAndRepairRoutes {
+    /// Creates the combined `Check all feeds` command for ADR 0065.
+    #[must_use]
+    pub(crate) fn new(
+        conn: SharedConnection,
+        musicindex_endpoint: impl Into<String>,
+        music_dir: PathBuf,
+        feeds: Vec<db::FeedStaleCheckRow>,
+    ) -> Self {
+        Self {
+            conn,
+            musicindex_endpoint: musicindex_endpoint.into(),
+            music_dir,
+            feeds,
+        }
+    }
+}
+
+impl ApplicationCommand for CheckFeedsAndRepairRoutes {
+    type Output = CheckFeedsAndRepairRoutesResult;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        let feeds_checked = self.feeds.len();
+        let check = CheckSubscribedFeeds::new(
+            Arc::clone(&self.conn),
+            self.musicindex_endpoint.clone(),
+            self.feeds,
+        )
+        .execute(context)?;
+        let (check_result, mut events) = check.into_parts();
+        let stale = check_result.into_stale();
+        let stale_feed_count = stale.len();
+
+        let feed_updates = if stale.is_empty() {
+            None
+        } else {
+            let apply = ApplyFeedUpdates::new(
+                Arc::clone(&self.conn),
+                self.musicindex_endpoint.clone(),
+                stale,
+            )
+            .execute(context)?;
+            let (result, apply_events) = apply.into_parts();
+            events.extend(apply_events);
+            Some(result)
+        };
+
+        let repair = RepairMissingPaymentRouteTags::new(
+            Arc::clone(&self.conn),
+            self.musicindex_endpoint,
+            self.music_dir,
+        )
+        .execute(context)?;
+        let (route_repairs, repair_events) = repair.into_parts();
+        events.extend(repair_events);
+
+        Ok(CommandOutcome::new(
+            CheckFeedsAndRepairRoutesResult::new(
+                feeds_checked,
+                stale_feed_count,
+                feed_updates,
+                route_repairs,
+            ),
+            events,
         ))
     }
 }
@@ -609,6 +739,33 @@ mod tests {
         assert!(outcome.events().is_empty());
 
         Ok(())
+    }
+
+    #[test]
+    fn check_feeds_and_repair_routes_result_exposes_counts() {
+        let feed_updates = ApplyFeedUpdatesResult::new(1, 2, vec!["tag failed".into()], Vec::new());
+        let route_repairs = PaymentRouteRepairBatchResult {
+            summary: crate::application::commands::payment_routes::PaymentRouteRepairSummary {
+                repaired: 2,
+                no_routes_upstream: 1,
+                failed: 0,
+                skipped: 3,
+            },
+            tracks: Vec::new(),
+        };
+
+        let result = CheckFeedsAndRepairRoutesResult::new(4, 1, Some(feed_updates), route_repairs);
+
+        assert_eq!(result.feeds_checked(), 4);
+        assert_eq!(result.stale_feed_count(), 1);
+        assert_eq!(
+            result
+                .feed_updates()
+                .map(|updates| updates.id3_errors().len()),
+            Some(1)
+        );
+        assert_eq!(result.route_repairs().summary.repaired, 2);
+        assert_eq!(result.route_repairs().summary.no_routes_upstream, 1);
     }
 
     #[test]
