@@ -11793,7 +11793,7 @@ fn adr_0059_stream_encoder_control_boundary_is_broadcast_owned() {
         "const CONNECT_OPTION: &str = \"-s\"",
         "const DISCONNECT_OPTION: &str = \"-d\"",
         "pub fn status(&self, target: &EncoderTarget)",
-        "pub fn connect(&self, target: &EncoderTarget, server_name: &str)",
+        "pub fn connect(&self, target: &EncoderTarget, server_name: Option<&str>)",
         "pub fn disconnect(&self, target: &EncoderTarget)",
     ] {
         if !encoder_source.contains(required) && !broadcast_mod_source.contains(required) {
@@ -13460,7 +13460,7 @@ fn adr_0063_show_detail_panel_owns_detail_and_transport_stays_on_show() {
         "pub(crate) struct ShowPanelChromeDisplay",
         "pub(crate) panel_chrome: ShowPanelChromeDisplay",
         "pub(crate) fn with_panel_state(",
-        "pub(crate) fn select_card(mut self, kind: ShowCardKind) -> Self",
+        "pub(crate) fn show_card_detail(mut self, kind: ShowCardKind) -> Self",
         "self.set_panel_mode(ShowPanelMode::Detail(kind));",
         "self.panel_open = true;",
         "pub(crate) fn show_cuelist_panel(mut self) -> Self",
@@ -13482,7 +13482,7 @@ fn adr_0063_show_detail_panel_owns_detail_and_transport_stays_on_show() {
         ".on_open_show_panel(",
         ".on_close_show_panel(",
         ".on_show_cuelist(",
-        ".select_card(ShowCardKind::LiveMetadata);",
+        ".show_card_detail(ShowCardKind::LiveMetadata);",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
@@ -13540,8 +13540,6 @@ fn adr_0063_show_detail_panel_owns_detail_and_transport_stays_on_show() {
         "fn render_stream_detail(",
         "fn render_publisher_logs(",
         ".overflow_y_scroll()",
-        ".absolute()",
-        ".right_0()",
         "PublisherLogPanelState::Open",
     ] {
         if !panel_source.contains(required) {
@@ -13559,6 +13557,25 @@ fn adr_0063_show_detail_panel_owns_detail_and_transport_stays_on_show() {
         if panel_source.contains(forbidden) {
             violations.push(format!(
                 "src/ui/composites/show_detail_panel.rs: Situational ADR 0063 task 003 transport must stay outside the panel composite; found `{forbidden}`"
+            ));
+        }
+    }
+
+    // The closed rail was absolute and overlaid the last card. A panel in either
+    // state is a layout child, so the grid shrinks beside it.
+    // `select_card` toggles. An action that must land on a card, such as the
+    // log action, closed the panel when it used the toggling call.
+    if app_source.contains(".select_card(ShowCardKind::LiveMetadata)") {
+        violations.push(
+            "src/app/show.rs: Situational ADR 0063 forbids `.select_card` for the log action. Fix: call `show_card_detail`, or opening the log closes the panel."
+                .to_owned(),
+        );
+    }
+
+    for forbidden in [".absolute()", ".right_0()", ".left_0()"] {
+        if panel_source.contains(forbidden) {
+            violations.push(format!(
+                "src/ui/composites/show_detail_panel.rs: Situational ADR 0063 task 003 forbids `{forbidden}`. Fix: the panel is a layout child in both states, or it clips the card beneath it."
             ));
         }
     }

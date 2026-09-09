@@ -377,9 +377,12 @@ pub struct BroadcastEncoderConfig {
     /// Optional network control port for an already-running encoder.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
-    /// Default encoder server passed to the connect command.
-    #[serde(default = "default_encoder_server_name")]
-    pub default_server_name: String,
+    /// Encoder server passed to the connect command.
+    ///
+    /// Absent means bare `-s`, which connects to the server the encoder already
+    /// has selected. Set it only to name a server explicitly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_server_name: Option<String>,
 }
 
 impl BroadcastEncoderConfig {
@@ -407,7 +410,11 @@ impl BroadcastEncoderConfig {
     /// empty.
     pub fn validate(&self) -> Result<()> {
         let _ = self.target()?;
-        if self.default_server_name.trim().is_empty() {
+        if self
+            .default_server_name
+            .as_ref()
+            .is_some_and(|name| name.trim().is_empty())
+        {
             return Err(anyhow!(
                 "config: broadcast.encoder default_server_name is empty"
             ));
@@ -430,10 +437,6 @@ fn default_drop_file_target() -> String {
 
 fn default_encoder_binary_path() -> PathBuf {
     PathBuf::from(EncoderTarget::default_binary())
-}
-
-fn default_encoder_server_name() -> String {
-    "default".to_owned()
 }
 
 fn deserialize_playback_driver<'de, D>(
@@ -795,7 +798,9 @@ theme_profile = "dark"
 # Stream encoder control. Missing group reports the encoder as not installed.
 # [broadcast.encoder]
 # binary_path = "butt"
-# default_server_name = "default"
+# Optional. Leave it out to connect with bare `-s`, which uses the server the
+# encoder already has selected. Set it only to name a server explicitly.
+# default_server_name = "my-server"
 # address = "127.0.0.1"
 # port = 1256
 
@@ -983,7 +988,7 @@ default_server_name = "main"
         assert_eq!(encoder.binary_path, PathBuf::from("/usr/bin/butt"));
         assert_eq!(encoder.address.as_deref(), Some("127.0.0.1"));
         assert_eq!(encoder.port, Some(1256));
-        assert_eq!(encoder.default_server_name, "main");
+        assert_eq!(encoder.default_server_name.as_deref(), Some("main"));
         assert_eq!(target.binary_path(), "/usr/bin/butt");
         assert!(target.is_addressed());
     }

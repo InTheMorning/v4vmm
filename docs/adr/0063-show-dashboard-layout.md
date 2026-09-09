@@ -62,8 +62,23 @@ returns the panel to `Cuelist`. The panel never shows both at once.
 The panel closes. When it is closed, the card grid takes the whole width.
 Selecting a card while the panel is closed opens the panel in `Detail`.
 
-The log output of a service is `Detail` content for the `Live Metadata` card. It
-is not a strip inside the section any more.
+### Log Output Is A Bottom Pane
+
+Amended 2026-09-08, after an operator read the log in the panel.
+
+Log output is not panel content. It renders in a pane across the bottom of the
+main region, under the card grid. The pane resizes, and it closes.
+
+The panel is narrow, because it holds one card of detail beside the grid. A log
+line is long. A narrow column turns every line into a wrapped paragraph, and an
+operator who reads a failure reads it one word at a time.
+
+The bottom pane belongs to `Show`, not to the panel. It opens from the `Logs`
+action of any service, and it names the unit it shows. It stays open while the
+operator moves between cards.
+
+The `Detail` mode of the panel keeps the service rows and the service actions.
+It gives up the log text only.
 
 ### Transport Stays Outside The Panel
 
@@ -88,11 +103,18 @@ compact card, not a scroll region.
 - The card grid does not scroll.
 - The view model owns the column count. The shell reads it.
 - The panel shows the cuelist or one card detail, never both.
+- Log output renders in the bottom pane of `Show`, never in the panel.
+- The bottom pane resizes and closes, and it names the unit it shows.
 - The transport controls stay reachable when the panel is closed.
 - The panel closes, and the grid continues to work when it is closed.
 - The section set and the section order stay as ADR 0059 states them.
 
 ## Alternatives Considered
+
+### Log Output In The Side Panel
+
+Rejected on 2026-09-08, after it shipped. The panel is narrow and a log line is
+long, so every line wrapped and the operator read a failure one word at a time.
 
 ### Keep The Vertical Stack And Add A Scroll Region
 

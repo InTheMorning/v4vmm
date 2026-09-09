@@ -45,7 +45,7 @@ impl BroadcastReadinessReport {
     /// Returns the number of tracks that need curator attention.
     #[must_use]
     pub(crate) const fn problem_count(&self) -> usize {
-        self.summary.no_route_tag + self.summary.file_missing
+        self.summary.no_route_tag + self.summary.file_missing + self.summary.not_downloaded
     }
 }
 
@@ -58,6 +58,8 @@ pub(crate) struct BroadcastReadinessSummary {
     pub(crate) no_route_tag: usize,
     /// Tracks whose recorded local path cannot be read.
     pub(crate) file_missing: usize,
+    /// Tracks in the library with no downloaded file.
+    pub(crate) not_downloaded: usize,
 }
 
 impl BroadcastReadinessSummary {
@@ -66,6 +68,7 @@ impl BroadcastReadinessSummary {
             BroadcastReadinessState::Ready => self.ready += 1,
             BroadcastReadinessState::NoRouteTag => self.no_route_tag += 1,
             BroadcastReadinessState::FileMissing => self.file_missing += 1,
+            BroadcastReadinessState::NotDownloaded => self.not_downloaded += 1,
         }
     }
 }
@@ -78,6 +81,8 @@ pub(crate) enum BroadcastReadinessState {
     Ready,
     /// Local file has no usable embedded payment-route tag.
     NoRouteTag,
+    /// The library row has no downloaded file at all.
+    NotDownloaded,
     /// Local path is missing or does not point to a readable file.
     FileMissing,
 }
@@ -90,6 +95,7 @@ impl BroadcastReadinessState {
             Self::Ready => "Ready",
             Self::NoRouteTag => "Missing routes",
             Self::FileMissing => "Missing file",
+            Self::NotDownloaded => "Not downloaded",
         }
     }
 }
@@ -168,8 +174,11 @@ fn readiness_track(track: &TrackRow) -> BroadcastReadinessTrack {
             artist: track.artist_name.clone(),
             album: track.album_title.clone(),
             path: None,
-            state: BroadcastReadinessState::FileMissing,
-            reason: "No local file path is recorded.".to_owned(),
+            // `library_tracks` uses a LEFT JOIN, so a library row with no
+            // download reaches here. The file is not missing. It was never
+            // downloaded, and the operator fixes it with a download.
+            state: BroadcastReadinessState::NotDownloaded,
+            reason: "Track is in the library and has no downloaded file.".to_owned(),
         };
     };
 
@@ -394,6 +403,40 @@ mod tests {
         assert_eq!(report.summary.no_route_tag, 1);
         assert_eq!(report.summary.file_missing, 0);
         assert_eq!(report.tracks[0].state, BroadcastReadinessState::NoRouteTag);
+        Ok(())
+    }
+
+    /// A library row with no download is not a missing file. An operator saw
+    /// "54 missing files" on 2026-09-08 while every file was present, because
+    /// `library_tracks` LEFT JOINs `local_files` and both cases shared one state.
+    #[test]
+    fn broadcast_readiness_report_separates_not_downloaded_from_missing_file() -> anyhow::Result<()>
+    {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn)?;
+        conn.execute(
+            "INSERT INTO tracks (feed_id, item_guid, track_title, artist_name, album_title, is_in_library)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1)",
+            rusqlite::params![
+                feed_id,
+                "item-guid-never-downloaded",
+                "Never Downloaded",
+                "Track Artist",
+                "Track Album"
+            ],
+        )?;
+
+        let report = ApplicationQueryService::new().broadcast_readiness_report(&conn)?;
+
+        assert_eq!(report.summary.not_downloaded, 1);
+        assert_eq!(
+            report.summary.file_missing, 0,
+            "a library row with no download is not a missing file"
+        );
+        assert_eq!(
+            report.tracks[0].state,
+            BroadcastReadinessState::NotDownloaded
+        );
         Ok(())
     }
 

@@ -192,11 +192,17 @@ pub(crate) enum PublisherServiceStateDisplay {
     NotReachable,
     /// The service manager reported a state this surface does not know.
     Unknown,
+    /// This app sent a command and has no answer yet.
+    ///
+    /// Display only. No `ServiceState` maps to it. It holds the row between the
+    /// moment an operator presses an action and the moment the next snapshot
+    /// arrives, so the surface answers the press at once.
+    Working,
 }
 
 impl PublisherServiceStateDisplay {
     #[cfg(test)]
-    const ALL_KINDS: [PublisherServiceStateKind; 8] = [
+    const ALL_KINDS: [PublisherServiceStateKind; 9] = [
         PublisherServiceStateKind::Active,
         PublisherServiceStateKind::Inactive,
         PublisherServiceStateKind::Starting,
@@ -205,6 +211,7 @@ impl PublisherServiceStateDisplay {
         PublisherServiceStateKind::NotInstalled,
         PublisherServiceStateKind::NotReachable,
         PublisherServiceStateKind::Unknown,
+        PublisherServiceStateKind::Working,
     ];
 
     fn from_service_state(state: &ServiceState) -> Self {
@@ -233,6 +240,7 @@ impl PublisherServiceStateDisplay {
             Self::NotInstalled => PublisherServiceStateKind::NotInstalled,
             Self::NotReachable => PublisherServiceStateKind::NotReachable,
             Self::Unknown => PublisherServiceStateKind::Unknown,
+            Self::Working => PublisherServiceStateKind::Working,
         }
     }
 
@@ -247,6 +255,7 @@ impl PublisherServiceStateDisplay {
             Self::NotInstalled => "Not installed",
             Self::NotReachable => "Not reachable",
             Self::Unknown => "Unknown",
+            Self::Working => "Working",
         }
     }
 
@@ -264,6 +273,7 @@ impl PublisherServiceStateDisplay {
             Self::Inactive => "Unit is stopped.".to_owned(),
             Self::Starting => "Unit is starting.".to_owned(),
             Self::Stopping => "Unit is stopping.".to_owned(),
+            Self::Working => "Waiting for the service manager.".to_owned(),
         }
     }
 }
@@ -287,6 +297,8 @@ pub(crate) enum PublisherServiceStateKind {
     NotReachable,
     /// The service manager reported a state this surface does not know.
     Unknown,
+    /// This app sent a command and has no answer yet.
+    Working,
 }
 
 /// Typed availability for publisher service actions.
@@ -388,6 +400,12 @@ pub(crate) enum PublisherLogPanelState {
 }
 
 impl PublisherLogPanelState {
+    /// Returns whether the panel already shows this service's journal.
+    #[must_use]
+    pub(crate) fn shows_role(&self, role: PublisherServiceRole) -> bool {
+        matches!(self, Self::Open { role: open, .. } if *open == role)
+    }
+
     /// Create a closed log-panel state.
     #[must_use]
     pub(crate) const fn closed() -> Self {
@@ -1257,7 +1275,50 @@ impl ShowPageVm {
 
     /// Opens the panel in detail mode for a selected dashboard card.
     #[must_use]
-    pub(crate) fn select_card(mut self, kind: ShowCardKind) -> Self {
+    /// Selects a card, or closes the panel when that card is already open.
+    ///
+    /// A second select on the open card closes the panel, so the card behaves
+    /// like the panel close control.
+    pub(crate) fn select_card(self, kind: ShowCardKind) -> Self {
+        if self.panel_open && self.panel_mode == ShowPanelMode::Detail(kind) {
+            let mut closed = self;
+            closed.panel_open = false;
+            return closed;
+        }
+        self.show_card_detail(kind)
+    }
+
+    /// Marks one service as working, and disables its actions.
+    ///
+    /// An operator presses an action and the answer takes seconds: the command
+    /// blocks, and then the watch actor reads the new state. This holds the row
+    /// in the meantime, so the press has an immediate effect. The next snapshot
+    /// replaces it.
+    #[must_use]
+    pub(crate) fn mark_service_working(mut self, role: PublisherServiceRole) -> Self {
+        if let Some(publisher) = self.publisher.as_mut() {
+            for service in &mut publisher.services {
+                if service.role == role {
+                    service.state = PublisherServiceStateDisplay::Working;
+                    service.actions = service_actions(role, service.label, &service.state);
+                }
+            }
+        }
+        self.cards = show_cards(
+            self.source.as_ref(),
+            self.publisher.as_ref(),
+            self.event.as_ref(),
+            self.stream.as_ref(),
+        );
+        self
+    }
+
+    /// Opens one card's detail. Never toggles.
+    ///
+    /// An action that must land on a card, such as opening the log, calls this.
+    /// `select_card` toggles, so it would close the panel the action needs.
+    #[must_use]
+    pub(crate) fn show_card_detail(mut self, kind: ShowCardKind) -> Self {
         self.set_panel_mode(ShowPanelMode::Detail(kind));
         self.panel_open = true;
         self
@@ -1530,8 +1591,10 @@ impl SourceReadinessDisplay {
             return Self::checking();
         };
 
-        let total =
-            report.summary.ready + report.summary.no_route_tag + report.summary.file_missing;
+        let total = report.summary.ready
+            + report.summary.no_route_tag
+            + report.summary.file_missing
+            + report.summary.not_downloaded;
         if total == 0 {
             return Self {
                 id: Self::ID,
@@ -1556,9 +1619,10 @@ impl SourceReadinessDisplay {
         Self {
             id: Self::ID,
             count_label: format!("{} not ready", track_count_label(problem_count)),
-            detail: format!(
-                "{} missing routes, {} missing files.",
-                report.summary.no_route_tag, report.summary.file_missing
+            detail: readiness_detail_label(
+                report.summary.no_route_tag,
+                report.summary.file_missing,
+                report.summary.not_downloaded,
             ),
             state: SourceReadinessState::NeedsAttention,
             action: Self::action(SourceReadinessActionAvailability::Available),
@@ -1926,6 +1990,31 @@ fn stream_listeners_display(listeners: ListenerCount) -> StreamListenersDisplay 
             detail: "Encoder did not report a useful count.",
         },
     }
+}
+
+/// Names each reason a track is not ready, and drops a reason with no tracks.
+///
+/// A library row with no download is not a missing file. The operator fixes the
+/// two with different actions, so the two never share a phrase.
+fn readiness_detail_label(
+    no_route_tag: usize,
+    file_missing: usize,
+    not_downloaded: usize,
+) -> String {
+    let mut parts = Vec::new();
+    if no_route_tag > 0 {
+        parts.push(format!("{no_route_tag} without payment routes"));
+    }
+    if file_missing > 0 {
+        parts.push(format!("{file_missing} with a missing file"));
+    }
+    if not_downloaded > 0 {
+        parts.push(format!("{not_downloaded} not downloaded"));
+    }
+    if parts.is_empty() {
+        return "Every scanned track carries payment routes.".to_owned();
+    }
+    format!("{}.", parts.join(", "))
 }
 
 fn track_count_label(count: usize) -> String {
@@ -2689,6 +2778,7 @@ mod tests {
                     ready: 3,
                     no_route_tag: 1,
                     file_missing: 1,
+                    not_downloaded: 0,
                 },
                 tracks: vec![readiness_track(7, BroadcastReadinessState::NoRouteTag)],
             }),
@@ -2708,7 +2798,10 @@ mod tests {
             .expect("readiness display");
 
         assert_eq!(readiness.count_label, "2 tracks not ready");
-        assert_eq!(readiness.detail, "1 missing routes, 1 missing files.");
+        assert_eq!(
+            readiness.detail,
+            "1 without payment routes, 1 with a missing file."
+        );
         assert_eq!(readiness.state, SourceReadinessState::NeedsAttention);
         assert!(!readiness.action.disabled());
     }
@@ -2746,8 +2839,8 @@ mod tests {
     }
 
     #[test]
-    fn publisher_service_state_exposes_eight_variants_without_transport_error_payload() {
-        assert_eq!(PublisherServiceStateDisplay::ALL_KINDS.len(), 8);
+    fn publisher_service_state_exposes_nine_variants_without_transport_error_payload() {
+        assert_eq!(PublisherServiceStateDisplay::ALL_KINDS.len(), 9);
         assert_eq!(
             PublisherServiceStateDisplay::from_service_state(&ServiceState::NotReachable),
             PublisherServiceStateDisplay::NotReachable
@@ -3128,6 +3221,66 @@ mod tests {
         assert_eq!(stream.connection.state, StreamConnectionState::NotInstalled);
         assert_eq!(stream.recording.state, StreamRecordingState::Unknown);
         assert!(stream.actions.is_none());
+    }
+
+    #[test]
+    fn log_panel_reports_the_role_it_shows() {
+        // The `Logs` action cycles, so it asks the panel what it already shows.
+        let closed = PublisherLogPanelState::closed();
+        assert!(!closed.shows_role(PublisherServiceRole::Publisher));
+
+        let open = PublisherLogPanelState::Open {
+            role: PublisherServiceRole::Publisher,
+            unit_name: "musicindex-live-publisher@mixxx.service".to_owned(),
+            line_count: 50,
+            text: "one line\n".to_owned(),
+        };
+        assert!(open.shows_role(PublisherServiceRole::Publisher));
+        assert!(
+            !open.shows_role(PublisherServiceRole::Producer),
+            "the other service switches the panel, it does not close it"
+        );
+    }
+
+    #[test]
+    fn opening_logs_does_not_close_the_panel() {
+        // `select_card` toggles, so the log action must not use it. Clicking
+        // `Logs` on the open card closed the panel instead of showing the log.
+        let vm = ShowPageVm::idle().select_card(ShowCardKind::LiveMetadata);
+        assert!(vm.panel_open);
+
+        let vm = vm.show_card_detail(ShowCardKind::LiveMetadata);
+
+        assert!(
+            vm.panel_open,
+            "an explicit detail open never closes the panel"
+        );
+        assert_eq!(
+            vm.panel_mode,
+            ShowPanelMode::Detail(ShowCardKind::LiveMetadata)
+        );
+    }
+
+    #[test]
+    fn selecting_the_open_card_again_closes_the_panel() {
+        let vm = ShowPageVm::idle().select_card(ShowCardKind::Source);
+        assert!(vm.panel_open);
+        assert_eq!(vm.panel_mode, ShowPanelMode::Detail(ShowCardKind::Source));
+
+        let vm = vm.select_card(ShowCardKind::Source);
+        assert!(!vm.panel_open, "a second select closes the panel");
+
+        let vm = vm.select_card(ShowCardKind::Source);
+        assert!(vm.panel_open, "a third select opens it again");
+    }
+
+    #[test]
+    fn selecting_a_different_card_keeps_the_panel_open() {
+        let vm = ShowPageVm::idle()
+            .select_card(ShowCardKind::Source)
+            .select_card(ShowCardKind::Stream);
+        assert!(vm.panel_open);
+        assert_eq!(vm.panel_mode, ShowPanelMode::Detail(ShowCardKind::Stream));
     }
 
     fn publisher_snapshot<const N: usize>(

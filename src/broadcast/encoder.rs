@@ -102,10 +102,16 @@ impl EncoderTarget {
         args
     }
 
-    fn connect_args(&self, server_name: &str) -> Result<Vec<String>> {
-        let server_name = normalize_required("encoder server name", server_name)?;
+    /// Build the connect arguments.
+    ///
+    /// A server name is optional. Bare `-s` connects to the server the encoder
+    /// already has selected, which is what an operator runs by hand. Send a name
+    /// only when the operator configured one.
+    fn connect_args(&self, server_name: Option<&str>) -> Result<Vec<String>> {
         let mut args = self.args_with_control_options(CONNECT_OPTION);
-        args.push(server_name);
+        if let Some(server_name) = server_name {
+            args.push(normalize_required("encoder server name", server_name)?);
+        }
         Ok(args)
     }
 }
@@ -267,7 +273,7 @@ impl<R: CommandRunner> EncoderControl<R> {
     /// # Errors
     ///
     /// Returns an error when `butt` rejects the command or cannot be run.
-    pub fn connect(&self, target: &EncoderTarget, server_name: &str) -> Result<()> {
+    pub fn connect(&self, target: &EncoderTarget, server_name: Option<&str>) -> Result<()> {
         let args = target.connect_args(server_name)?;
         self.run_checked(target, &args)
     }
@@ -327,7 +333,7 @@ pub fn status(target: &EncoderTarget) -> Result<EncoderStatus> {
 /// # Errors
 ///
 /// Returns an error when `butt` rejects the command or cannot be run.
-pub fn connect(target: &EncoderTarget, server_name: &str) -> Result<()> {
+pub fn connect(target: &EncoderTarget, server_name: Option<&str>) -> Result<()> {
     EncoderControl::default().connect(target, server_name)
 }
 
@@ -371,16 +377,30 @@ fn status_from_output(target: &EncoderTarget, output: &CommandOutput) -> Encoder
 }
 
 fn parse_status(output: &str) -> Option<EncoderStatus> {
+    // A disconnected encoder prints a shorter report. It drops `connected`,
+    // `connecting`, `recording`, and the signal keys, and it prints
+    // `listeners: -1`. Absent keys mean "not connected", not "unreadable".
+    // Require one known key, so text that is not a status report still fails.
     let mut fields = StatusFields::default();
+    let mut known_keys = 0_usize;
     for line in output.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
         let (key, value) = line.split_once(':')?;
-        fields.accept(key.trim(), value.trim())?;
+        if fields.accept(key.trim(), value.trim())? {
+            known_keys += 1;
+        }
+    }
+
+    if known_keys == 0 {
+        return None;
     }
 
     Some(EncoderStatus {
-        state: fields.connection_state()?,
-        recording: fields.recording_state()?,
-        signal: fields.signal_state()?,
+        state: fields.connection_state(),
+        recording: fields.recording_state(),
+        signal: fields.signal_state(),
         listeners: fields.listener_count(),
         song: fields.song,
         stream_seconds: fields.stream_seconds,
@@ -402,7 +422,8 @@ struct StatusFields {
 }
 
 impl StatusFields {
-    fn accept(&mut self, key: &str, value: &str) -> Option<()> {
+    /// Reads one key. Returns whether the key is one this surface knows.
+    fn accept(&mut self, key: &str, value: &str) -> Option<bool> {
         match key {
             "connected" => self.connected = Some(parse_flag(value)?),
             "connecting" => self.connecting = Some(parse_flag(value)?),
@@ -412,40 +433,45 @@ impl StatusFields {
             "stream seconds" => self.stream_seconds = Some(parse_u64(value)?),
             "record seconds" => self.record_seconds = Some(parse_u64(value)?),
             "record path" => self.record_path = nonempty(value),
-            "listeners" => self.listeners = Some(parse_u64(value)?),
+            // A disconnected encoder prints `listeners: -1`, which means the
+            // count is unknown. It is not a parse failure.
+            "listeners" => self.listeners = parse_u64(value),
             "song" => self.song = nonempty(value),
-            _ => {}
+            _ => return Some(false),
         }
-        Some(())
+        Some(true)
     }
 
-    fn connection_state(&self) -> Option<EncoderState> {
-        match (self.connected?, self.connecting?) {
-            (true, _) => Some(EncoderState::Connected),
-            (false, true) => Some(EncoderState::Connecting),
-            (false, false) => Some(EncoderState::Disconnected),
+    fn connection_state(&self) -> EncoderState {
+        match (self.connected, self.connecting) {
+            (Some(true), _) => EncoderState::Connected,
+            (_, Some(true)) => EncoderState::Connecting,
+            // Absent keys mean the encoder runs and is not connected.
+            _ => EncoderState::Disconnected,
         }
     }
 
-    fn recording_state(&self) -> Option<RecordingState> {
-        if self.recording? {
-            Some(RecordingState::Recording {
+    fn recording_state(&self) -> RecordingState {
+        // An absent `recording` key means the encoder is not recording.
+        if self.recording.unwrap_or(false) {
+            RecordingState::Recording {
                 seconds: self.record_seconds,
                 path: self.record_path.clone(),
-            })
+            }
         } else {
-            Some(RecordingState::Stopped {
+            RecordingState::Stopped {
                 seconds: self.record_seconds,
                 path: self.record_path.clone(),
-            })
+            }
         }
     }
 
-    fn signal_state(&self) -> Option<AudioSignalState> {
-        match (self.signal_present?, self.signal_absent?) {
-            (true, false) => Some(AudioSignalState::Present),
-            (false, true) => Some(AudioSignalState::Absent),
-            (false, false) | (true, true) => Some(AudioSignalState::Unknown),
+    fn signal_state(&self) -> AudioSignalState {
+        match (self.signal_present, self.signal_absent) {
+            (Some(true), Some(false)) => AudioSignalState::Present,
+            (Some(false), Some(true)) => AudioSignalState::Absent,
+            // A disconnected encoder reports no signal keys.
+            _ => AudioSignalState::Unknown,
         }
     }
 
@@ -703,13 +729,43 @@ listeners: 0
     }
 
     #[test]
-    fn malformed_or_incomplete_status_is_unknown() -> Result<()> {
-        for output in ["not key value text", "connected: 1\nrecording: 0\n"] {
+    fn text_that_is_not_a_status_report_is_unknown() -> Result<()> {
+        for output in ["not key value text", "\n\n"] {
             let runner = StubRunner::with_output(CommandOutput::success(output));
             let control = EncoderControl::new(&runner);
 
             assert_eq!(control.status(&local_target())?, EncoderStatus::unknown());
         }
+        Ok(())
+    }
+
+    /// Verified `butt -S` output from an operator on 2026-09-08, taken while the
+    /// encoder ran and was not connected. It drops `connected`, `connecting`,
+    /// `recording`, and both signal keys, and it reports `listeners: -1`.
+    ///
+    /// The parser rejected all of it, so the state fell to `Unknown` and the
+    /// `Connect` action was never available.
+    #[test]
+    fn status_parses_the_verified_disconnected_report() -> Result<()> {
+        let output = "record seconds: 0\n\
+                      record kBytes: 0\n\
+                      volume left: -5.2\n\
+                      volume right: -6.1\n\
+                      song: Crash Test Dummies - Mmm Mmm Mmm Mmm\n\
+                      record path: \n\
+                      listeners: -1\n";
+        let runner = StubRunner::with_output(CommandOutput::success(output));
+        let control = EncoderControl::new(&runner);
+        let status = control.status(&local_target())?;
+
+        assert_eq!(status.state, EncoderState::Disconnected);
+        assert_eq!(status.listeners, ListenerCount::Unknown);
+        assert_eq!(status.signal, AudioSignalState::Unknown);
+        assert!(matches!(status.recording, RecordingState::Stopped { .. }));
+        assert_eq!(
+            status.song.as_deref(),
+            Some("Crash Test Dummies - Mmm Mmm Mmm Mmm")
+        );
         Ok(())
     }
 
@@ -812,7 +868,7 @@ listeners: 0
             let control = EncoderControl::new(&runner);
 
             match operation {
-                EncoderOperation::Connect => control.connect(&addressed_target(), "main")?,
+                EncoderOperation::Connect => control.connect(&addressed_target(), Some("main"))?,
                 EncoderOperation::Disconnect => control.disconnect(&addressed_target())?,
                 EncoderOperation::StartRecording => control.start_recording(&addressed_target())?,
                 EncoderOperation::StopRecording => control.stop_recording(&addressed_target())?,
@@ -834,7 +890,7 @@ listeners: 0
         let runner = StubRunner::with_output(CommandOutput::success(""));
         let control = EncoderControl::new(&runner);
 
-        control.connect(&local_target(), "main")?;
+        control.connect(&local_target(), Some("main"))?;
 
         assert_eq!(
             runner.calls(),
@@ -843,6 +899,22 @@ listeners: 0
                 args: vec!["-s".to_owned(), "main".to_owned()],
             }]
         );
+        Ok(())
+    }
+
+    /// An operator runs bare `butt -s` by hand, and it connects. The app sent
+    /// `-s default` because the config default filled a server name nobody
+    /// chose, and the connect did nothing. An absent name means bare `-s`.
+    #[test]
+    fn connect_without_a_server_name_sends_bare_start_option() -> Result<()> {
+        let runner = StubRunner::with_output(CommandOutput::success(""));
+        let control = EncoderControl::new(&runner);
+
+        control.connect(&local_target(), None)?;
+
+        let calls = runner.calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].args, vec!["-s".to_owned()]);
         Ok(())
     }
 

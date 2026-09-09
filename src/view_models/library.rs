@@ -6092,6 +6092,7 @@ mod tests {
                 ready: 1,
                 no_route_tag: 1,
                 file_missing: 1,
+                not_downloaded: 0,
             },
             tracks: vec![
                 broadcast_readiness_track(

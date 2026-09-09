@@ -349,6 +349,12 @@ impl TopApp {
                 return;
             }
         };
+        // Answer the press at once. The command blocks, and the watch actor
+        // reads the new state after it returns, so without this the row holds
+        // its old state for seconds.
+        self.show_page = self.show_page.clone().mark_service_working(role);
+        cx.notify();
+
         present_command(
             &self.command_runner,
             command,
@@ -358,13 +364,23 @@ impl TopApp {
                 this.settings_status.clear();
                 this.invalidate_publisher_service_snapshot();
             },
-            |this, error, _cx| {
+            |this, error, cx| {
                 this.settings_status = format!("Publisher command error: {error:#}");
+                // Put the real state back, or the row stays `Working` forever.
+                this.invalidate_publisher_service_snapshot();
+                this.refresh_show_page(cx);
             },
         );
     }
 
     fn open_publisher_logs(&mut self, role: PublisherServiceRole, cx: &mut Context<Self>) {
+        // `Logs` cycles. A second press on the service already shown hides the
+        // journal. A press on the other service switches to it.
+        if self.publisher_log_panel.shows_role(role) {
+            self.close_publisher_logs(cx);
+            return;
+        }
+
         let selected_host = match selected_broadcast_host(&self.broadcast) {
             Ok(host) => host,
             Err(error) => {
@@ -398,7 +414,7 @@ impl TopApp {
                 this.show_page = this
                     .show_page
                     .clone()
-                    .select_card(ShowCardKind::LiveMetadata);
+                    .show_card_detail(ShowCardKind::LiveMetadata);
                 cx.notify();
             },
             |this, error, _cx| {
@@ -804,7 +820,7 @@ enum StreamEncoderOperation {
 
 struct StreamEncoderCommand {
     target: EncoderTarget,
-    server_name: String,
+    server_name: Option<String>,
     operation: StreamEncoderOperation,
 }
 
@@ -819,7 +835,10 @@ impl StreamEncoderCommand {
             .ok_or_else(|| CommandError::Other("broadcast.encoder is not configured".to_owned()))?;
         Ok(Self {
             target: encoder.target().map_err(stream_command_error)?,
-            server_name: encoder.default_server_name.trim().to_owned(),
+            server_name: encoder
+                .default_server_name
+                .as_deref()
+                .map(|name| name.trim().to_owned()),
             operation,
         })
     }
@@ -833,7 +852,9 @@ impl ApplicationCommand for StreamEncoderCommand {
             return Err(CommandError::Cancelled);
         }
         match self.operation {
-            StreamEncoderOperation::Connect => encoder::connect(&self.target, &self.server_name),
+            StreamEncoderOperation::Connect => {
+                encoder::connect(&self.target, self.server_name.as_deref())
+            }
             StreamEncoderOperation::Disconnect => encoder::disconnect(&self.target),
         }
         .map_err(|error| {
@@ -932,7 +953,12 @@ fn broadcast_encoder_watch_target(
         return Ok(BroadcastEncoderWatchTarget::not_configured());
     };
     Ok(BroadcastEncoderWatchTarget::configured(
-        encoder.default_server_name.trim().to_owned(),
+        encoder
+            .default_server_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map_or_else(|| "Encoder default".to_owned(), ToOwned::to_owned),
         encoder.target()?,
     ))
 }

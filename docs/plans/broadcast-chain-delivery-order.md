@@ -147,8 +147,11 @@ Update this table when a packet lands.
 | `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual proof blocked by GPUI X11 initialization in the agent session |
 | `v4vmm` | 013 final guards | ready |
 | `v4vmm` | 0063 001 card contract | implemented - 2026-09-08; no visual criteria |
-| `v4vmm` | 0063 002 card grid shell | mechanical implemented - 2026-09-08; operator visual check open |
-| `v4vmm` | 0063 003 detail panel | mechanical implemented - 2026-09-08; operator visual check open |
+| `v4vmm` | 0063 002 card grid shell | implemented - 2026-09-08; visual check passed after the truncation fix |
+| `v4vmm` | 0063 003 detail panel | implemented - 2026-09-08; visual check found four defects, three fixed, the log placement moved to 004 |
+| `v4vmm` | 0063 004 log bottom pane | ready |
+| `v4vmm` | 0064 001 relative local paths | ready |
+| `v4vmm` | 0064 002 repair report surface | ready |
 | `splitkit` | reserved 001 store boundary | not started |
 | `splitkit` | reserved 002 reserved class | not started |
 | `splitkit` | reserved 003 restore and TTL | not started |
@@ -208,11 +211,23 @@ they do not block it. Packet 013 checks the layout that ADR 0063 leaves.
 | 1 | `docs/tasks/adr-0063-task-001-card-contract-and-width-class.md` | nothing |
 | 2 | `docs/tasks/adr-0063-task-002-card-grid-shell.md` | 001 |
 | 3 | `docs/tasks/adr-0063-task-003-collapsible-detail-panel.md` | 002 |
+| 4 | `docs/tasks/adr-0063-task-004-log-bottom-pane.md` | 003 |
+
+ADR 0064 repairs the local-file addressing. It blocks nothing above, and the
+readiness report of `v4vmm` 012 reads correctly only after task 001 lands.
+
+| Order | Packet | Depends on |
+|---|---|---|
+| 1 | `docs/tasks/adr-0064-task-001-relative-local-paths.md` | nothing |
+| 2 | `docs/tasks/adr-0064-task-002-repair-report-surface.md` | 001 |
 
 After that:
 
-1. Write ADR 0063, cache and dump policy. `Dump` needs it.
-2. Write ADR 0064, audition, and ADR 0065, play history.
+1. Write the cache and dump policy decision. `Dump` needs it.
+2. Write the audition decision, and the play-history decision.
+
+These carry no number until somebody writes them. A number reserved in prose
+collided once already, when ADR 0063 became the `Show` dashboard layout.
 
 `v4vmm` packets 001 through 004 shipped and are unaffected. They are backend
 work that ADR 0060 does not touch.

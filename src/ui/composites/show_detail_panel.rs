@@ -265,13 +265,11 @@ fn render_closed_panel(
     slots: &ShowDetailPanelSlots,
     cx: &App,
 ) -> impl IntoElement {
+    // A layout child, never absolute. An overlaid rail clips the card beneath it.
     div()
         .id("show-detail-panel")
         .h_full()
         .w(Size::MinHitTarget.scaled(cx))
-        .absolute()
-        .top_0()
-        .right_0()
         .flex()
         .flex_col()
         .flex_shrink_0()
