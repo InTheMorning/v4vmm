@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted - 2026-09-06.
+Implemented - 2026-09-09. Verified by
+`docs/reviews/adr-0059-implementation-review.md` after the packet series and
+operator visual gates closed.
 
 Amended 2026-09-06: the `Event` section must show the ready-to-paste
 `podcast:liveValue` tag with a copy action. Listener apps discover a live event

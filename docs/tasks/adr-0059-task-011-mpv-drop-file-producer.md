@@ -1,6 +1,7 @@
 # ADR 0059 Task 011: mpv Drop-File Producer
 
-Status: Ready - 2026-09-08. Backend only. ADR 0060 does not touch it.
+Status: Implemented - 2026-09-08. Backend only. Mechanical acceptance met. ADR
+0060 does not touch it and this packet has no visual criteria.
 
 ## Goal
 

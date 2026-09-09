@@ -22,6 +22,9 @@ Core:
   services, projections, screens, and UI composites in their lanes
 - [Broadcast chain](architecture/broadcast-chain.md): the four components of
   the live payment chain, the contract at each boundary, and who owns what
+- [Broadcast operations](runbooks/broadcast-operations.md): how to create an
+  event, publish the RSS live tag, back up the token file, operate services,
+  read logs, and recover when a relay event dies
 - [Column text truncation](troubleshooting/column-text-truncation.md): why text
   renders as `...`, the mitigation, and the root cause that is still open
 - [Pending human checks](pending-human-checks.md): the acceptance criteria that
@@ -90,6 +93,9 @@ Current reviews:
   verification for the outbound HTTP client policy
 - [Documentation STE100 clarity review](reviews/documentation-ste100-clarity-review.md):
   applied clarity fixes and remaining corpus scan notes
+- [ADR 0059 implementation review](reviews/adr-0059-implementation-review.md):
+  closure evidence, guard coverage, residual risk, and merge recommendation for
+  the broadcast control surface
 
 Historical architecture decisions still live in [`docs/adr/`](adr/).
 Older roadmap notes live in [`docs/archive/roadmap-notes/`](archive/roadmap-notes/).

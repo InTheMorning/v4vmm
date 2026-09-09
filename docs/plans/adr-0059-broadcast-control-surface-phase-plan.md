@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted - 2026-09-06.
+Implemented - 2026-09-09. Verified by
+`docs/reviews/adr-0059-implementation-review.md`. ADR 0060 changed the surface
+from a `Broadcast` frame to Show sections; ADR 0059 remains implemented through
+that amended surface.
 
 ## Goal
 
@@ -194,12 +197,13 @@ Each phase is additive except phase 1. Phase 1 deletes an untested path, and
 The panel reads state and runs commands that the operator can also type. If the
 panel fails, the publisher and the relay continue without it.
 
-## Open Questions
+## Closure Answers
 
-- Which runbook holds the token backup procedure?
-- Does the operator need Icecast state in the same panel?
-- Does the `Stream` section need a recording file browser, or is a state
-  report enough?
+- `docs/runbooks/broadcast-operations.md` holds the token backup procedure.
+- Icecast state is deferred. ADR 0059 keeps Icecast control out of scope, and
+  the Stream section reports `butt` state only.
+- A recording file browser is deferred. The Stream section carries encoder and
+  recording state, which is enough for ADR 0059 closure.
 
 ## References
 

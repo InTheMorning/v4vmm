@@ -63,7 +63,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0014](0014-playback-session-authoritative-state.md) | `PlaybackSession` is the authoritative now-playing state | Accepted |
 | [0020](0020-simulated-playlist-playback.md) | Simulated playlist transport for relay smoke tests | Accepted |
 | [0021](0021-mpv-playback-driver.md) | mpv driver behind the `PlaybackDriver` trait | Implemented |
-| [0059](0059-broadcast-control-surface.md) | This app controls an external publisher and sends no payloads | Accepted |
+| [0059](0059-broadcast-control-surface.md) | This app controls an external publisher and sends no payloads | Implemented |
 
 ## UI Architecture
 

@@ -10181,6 +10181,10 @@ fn code_lines(source: &str) -> impl Iterator<Item = (usize, String)> + '_ {
     })
 }
 
+fn production_source(source: &str) -> &str {
+    source.split("#[cfg(test)]").next().unwrap_or(source)
+}
+
 fn strip_line_comment(line: &str) -> &str {
     match line.find("//") {
         Some(index) => &line[..index],
@@ -12213,6 +12217,399 @@ fn adr_0059_broadcast_readiness_file_scan_stays_out_of_renderers() {
     assert!(
         violations.is_empty(),
         "Situational ADR 0059 Packet 012 readiness renderer violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0059: relay create responses must not print broadcaster
+/// tokens.
+///
+/// Secret handling may deserve the durable set. ADR 0061 says adding to that set
+/// is its own decision, and ADR 0059 has no such record, so this stays
+/// situational until one exists.
+#[test]
+fn adr_0059_live_item_create_response_debug_redacts_broadcaster_token() {
+    let source = read_source(&manifest_path("src/api.rs"));
+    let response_start = source
+        .find("pub struct LiveItemCreateResponse")
+        .expect("LiveItemCreateResponse exists");
+    let derive_region = source[..response_start]
+        .lines()
+        .rev()
+        .take(5)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let debug_impl = source_between(
+        &source,
+        "impl fmt::Debug for LiveItemCreateResponse",
+        "#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct LiveMetadataSnapshot",
+    );
+    let mut violations = Vec::new();
+
+    if derive_region.contains("Debug") {
+        violations.push(
+            "src/api.rs: ADR 0059 forbids derived Debug for LiveItemCreateResponse because it carries broadcaster_token"
+                .to_owned(),
+        );
+    }
+
+    for required in [
+        ".debug_struct(\"LiveItemCreateResponse\")",
+        ".field(\"event_id\", &self.event_id)",
+        ".field(\"broadcaster_token\", &\"<redacted>\")",
+        ".field(\"metadata_url\", &self.metadata_url)",
+    ] {
+        if !debug_impl.contains(required) {
+            violations.push(format!(
+                "src/api.rs: ADR 0059 redacted Debug implementation missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 LiveItemCreateResponse Debug violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0059: broadcaster token text stays at the API, registry, and
+/// file boundary.
+#[test]
+fn adr_0059_broadcast_token_text_has_single_storage_boundary() {
+    let mut violations = Vec::new();
+
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        let source = production_source(&source);
+
+        for (line_number, line) in code_lines(source) {
+            if (line.contains("write_token_file(") || line.contains("read_token_file("))
+                && !matches!(
+                    file.as_str(),
+                    "src/broadcast/registry.rs" | "src/broadcast/tokens.rs"
+                )
+            {
+                violations.push(format!(
+                    "{file}:{line_number}: ADR 0059 token file reads and writes belong only to the broadcast registry/token boundary: `{line}`"
+                ));
+            }
+
+            if line.contains("broadcaster_token")
+                && !matches!(file.as_str(), "src/api.rs" | "src/broadcast/registry.rs")
+            {
+                violations.push(format!(
+                    "{file}:{line_number}: ADR 0059 broadcaster token text escaped the API/registry boundary: `{line}`"
+                ));
+            }
+
+            let mentions_token_text = line.contains("broadcaster_token")
+                || line.contains("read_token_file(")
+                || line.contains("write_token_file(");
+            let prints_or_formats = [
+                "println!",
+                "eprintln!",
+                "format!",
+                "dbg!",
+                ".context(",
+                ".with_context(",
+            ]
+            .iter()
+            .any(|pattern| line.contains(pattern));
+            if mentions_token_text && prints_or_formats {
+                violations.push(format!(
+                    "{file}:{line_number}: ADR 0059 forbids token text in output or log-adjacent formatting: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 broadcast token text boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0059: publisher configuration is changed only through
+/// publisher commands.
+#[test]
+fn adr_0059_publisher_configuration_changes_use_publisher_tools() {
+    let control_source = read_source(&manifest_path("src/broadcast/publisher_targets.rs"));
+    let mut violations = Vec::new();
+
+    for required in [
+        "const PUBLISHER_BINARY: &str = \"musicindex-live-publisher\";",
+        "\"target\".to_owned()",
+        "\"add\".to_owned()",
+        "\"remove\".to_owned()",
+        "\"--config\".to_owned()",
+        "\"--replace\".to_owned()",
+        "ServiceControl::new(self.runner.clone())",
+        ".restart(transport, &unit)",
+    ] {
+        if !control_source.contains(required) {
+            violations.push(format!(
+                "src/broadcast/publisher_targets.rs: ADR 0059 publisher target mutation must use publisher CLI tools and restart the unit; missing `{required}`"
+            ));
+        }
+    }
+
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        if file == "src/broadcast/publisher_targets.rs" {
+            continue;
+        }
+
+        let source = read_source(&path);
+        let source = production_source(&source);
+        for (line_number, line) in code_lines(source) {
+            if line.contains("musicindex-live-publisher") && line.contains("config.toml") {
+                violations.push(format!(
+                    "{file}:{line_number}: ADR 0059 publisher config path access belongs to broadcast::publisher_targets and the publisher CLI: `{line}`"
+                ));
+            }
+
+            let writes_file = line.contains("fs::write")
+                || line.contains("File::create")
+                || line.contains("OpenOptions")
+                || line.contains("write_all(");
+            if writes_file && line.contains("musicindex-live-publisher") {
+                violations.push(format!(
+                    "{file}:{line_number}: ADR 0059 forbids direct writes to publisher-owned files: `{line}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 publisher configuration boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0059: now-playing source-kind names stay at adapter and
+/// config boundaries.
+#[test]
+fn adr_0059_source_kind_literals_stay_at_adapter_boundaries() {
+    let allowed_files = BTreeSet::from([
+        "src/broadcast/producer.rs",
+        "src/config.rs",
+        "src/playback_driver/mod.rs",
+        "src/playback_driver/mpv.rs",
+    ]);
+    let source_kinds = BTreeSet::from(["mpv", "mixxx", "external", "liquidsoap"]);
+    let mut violations = Vec::new();
+
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        let source = production_source(&source);
+        for literal in string_literals(source) {
+            if source_kinds.contains(literal.as_str()) && !allowed_files.contains(file.as_str()) {
+                violations.push(format!(
+                    "{file}: ADR 0059 source kind literal `{literal}` belongs in a source adapter or config boundary, not shared display/control logic"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 source-kind literal boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0059 and ADR 0060: Show broadcast sections stay separate
+/// from the queue transport.
+#[test]
+fn adr_0059_show_broadcast_sections_stay_separate_from_queue_now_playing() {
+    let show_source = read_source(&manifest_path("src/view_models/show.rs"));
+    let queue_files = [
+        "src/app/queue_now_playing.rs",
+        "src/ui/shells/queue_now_playing.rs",
+        "src/view_models/queue_now_playing.rs",
+    ];
+    let mut violations = Vec::new();
+
+    for required in [
+        "pub(crate) source: Option<SourceSectionDisplay>",
+        "pub(crate) publisher: Option<PublisherSectionDisplay>",
+        "pub(crate) event: Option<EventSectionDisplay>",
+        "pub(crate) stream: Option<StreamSectionDisplay>",
+        "pub(crate) queue: QueueNowPlayingPageVm",
+        "ShowCardKind::Source",
+        "ShowCardKind::LiveMetadata",
+        "ShowCardKind::Event",
+        "ShowCardKind::Stream",
+    ] {
+        if !show_source.contains(required) {
+            violations.push(format!(
+                "src/view_models/show.rs: ADR 0059 Show surface must keep broadcast sections and queue transport as separate fields; missing `{required}`"
+            ));
+        }
+    }
+
+    for file in queue_files {
+        let source = read_source(&manifest_path(file));
+        for forbidden in [
+            "SourceSectionDisplay",
+            "PublisherSectionDisplay",
+            "EventSectionDisplay",
+            "StreamSectionDisplay",
+            "BroadcastObservation",
+            "BroadcastReadiness",
+            "PublisherSection",
+            "EventSection",
+            "StreamSection",
+            "ShowCardKind",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{file}: ADR 0059 forbids broadcast section state inside QueueNowPlaying; found `{forbidden}`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0059 Show and QueueNowPlaying separation violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0059: Show broadcast shell uses semantic colors for theme parity.
+#[test]
+fn adr_0059_show_shell_uses_semantic_colors_for_dark_mode_parity() {
+    let mut violations = Vec::new();
+
+    for file in [
+        "src/ui/shells/show.rs",
+        "src/ui/composites/show_card.rs",
+        "src/ui/composites/show_detail_panel.rs",
+    ] {
+        let source = read_source(&manifest_path(file));
+        for required in ["SemanticColor", "color(cx,"] {
+            if !source.contains(required) {
+                violations.push(format!(
+                    "{file}: Situational ADR 0059 Show shell theme parity requires semantic color tokens; missing `{required}`"
+                ));
+            }
+        }
+
+        for (line_number, line) in code_lines(&source) {
+            for forbidden in [
+                "rgb(",
+                "rgba(",
+                "hsla(",
+                "Appearance::Dark",
+                "ThemeProfile::Dark",
+                "dark_mode",
+            ] {
+                if line.contains(forbidden) {
+                    violations.push(format!(
+                        "{file}:{line_number}: Situational ADR 0059 forbids display-local dark-mode branching or raw colors in the Show broadcast shell: `{line}`"
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0059 dark-mode parity violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// Situational ADR 0059: Show shell controls consume view-model accessibility labels.
+#[test]
+fn adr_0059_show_shell_consumes_vm_owned_accessibility_labels() {
+    let vm_source = read_source(&manifest_path("src/view_models/show.rs"));
+    let shell_source = read_source(&manifest_path("src/ui/shells/show.rs"));
+    let card_source = read_source(&manifest_path("src/ui/composites/show_card.rs"));
+    let panel_source = read_source(&manifest_path("src/ui/composites/show_detail_panel.rs"));
+    let mut violations = Vec::new();
+
+    for (struct_name, start, end, field) in [
+        (
+            "ShowNowPlayingDisplay",
+            "pub(crate) struct ShowNowPlayingDisplay",
+            "/// Display-ready Source section",
+            "pub(crate) a11y_label: String",
+        ),
+        (
+            "SourceReadinessActionDisplay",
+            "pub(crate) struct SourceReadinessActionDisplay",
+            "impl SourceReadinessActionDisplay",
+            "pub(crate) a11y_label: String",
+        ),
+        (
+            "PublisherActionDisplay",
+            "pub(crate) struct PublisherActionDisplay",
+            "impl PublisherActionDisplay",
+            "pub(crate) a11y_label: String",
+        ),
+        (
+            "EventActionDisplay",
+            "pub(crate) struct EventActionDisplay",
+            "impl EventActionDisplay",
+            "pub(crate) a11y_label: String",
+        ),
+        (
+            "StreamActionDisplay",
+            "pub(crate) struct StreamActionDisplay",
+            "impl StreamActionDisplay",
+            "pub(crate) a11y_label: String",
+        ),
+        (
+            "ShowCardDisplay",
+            "pub(crate) struct ShowCardDisplay",
+            "/// Side-panel mode",
+            "pub(crate) a11y_label: String",
+        ),
+        (
+            "ShowPanelActionDisplay",
+            "pub(crate) struct ShowPanelActionDisplay",
+            "impl ShowPanelActionDisplay",
+            "pub(crate) a11y_label: &'static str",
+        ),
+    ] {
+        let struct_source = source_between(&vm_source, start, end);
+        if !struct_source.contains(field) {
+            violations.push(format!(
+                "src/view_models/show.rs: Situational ADR 0059 {struct_name} must own `{field}` before it renders"
+            ));
+        }
+    }
+
+    for required in [
+        "let label = SharedString::from(now_playing.a11y_label);",
+        "let tooltip_label = SharedString::from(self.display.a11y_label.clone());",
+        ".a11y_label(display.a11y_label)",
+        ".tooltip(display.a11y_label)",
+        ".a11y_label(display.a11y_label.clone())",
+        ".tooltip(display.a11y_label)",
+        ".a11y_label(a11y_label.clone())",
+        ".tooltip(a11y_label)",
+    ] {
+        if !shell_source.contains(required)
+            && !card_source.contains(required)
+            && !panel_source.contains(required)
+        {
+            violations.push(format!(
+                "Show UI: Situational ADR 0059 controls must consume VM-owned accessibility labels; missing `{required}`"
+            ));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Situational ADR 0059 accessibility-label ownership violations:\n{}",
         violations.join("\n")
     );
 }

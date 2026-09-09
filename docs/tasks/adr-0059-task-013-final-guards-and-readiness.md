@@ -1,6 +1,8 @@
 # ADR 0059 Task 013: Final Guards And Readiness Gate
 
-Status: Ready - 2026-09-08. Gate task. Do last.
+Status: Implemented - 2026-09-09. Verified by
+`docs/reviews/adr-0059-implementation-review.md`. All inherited operator visual
+gates are closed.
 
 ## Goal
 
@@ -75,31 +77,19 @@ and reconcile the document statuses.
 
 ## Inherited Visual Gates
 
-These gates opened in earlier packets and stay open. This packet inherits every
-one of them. **Do not report this packet complete while any line below is open,
-and never mark one met because the mechanical suite is green.**
+These gates opened in earlier packets and were closed by the operator before
+this packet was marked implemented. The owning task status lines and
+`docs/plans/broadcast-chain-delivery-order.md` carry the result.
 
-Each needs real hardware that an agent session does not have. An operator clears
-them, one line at a time, and records the result in the owning packet first.
-
-| Packet | Open gate | What it needs |
+| Packet | Gate | State |
 |---|---|---|
-| 010 remote hosts | The `Source` host and reachability row reads correctly | A configured SSH host that is unreachable |
-| 015 stream encoder | The connected, disconnected, and not-installed states read correctly | An installed `butt` binary |
-| 012 readiness report | The readiness count is legible in place, and the action reaches the filtered list | A working display only |
-| 0063 003 detail panel | The panel, the card grid, and the transport all work together | A working display only |
-| 002, 003, 004 | Met on 2026-09-08 | Nothing. Recorded here so the set is complete |
+| 010 remote hosts | The `Source` host and reachability row reads correctly | Met on 2026-09-09 with a `Broken` SSH host |
+| 015 stream encoder | The connected, disconnected, and not-installed states read correctly | Met on 2026-09-09 with `butt` |
+| 012 readiness report | The readiness count is legible in place, and the action reaches the filtered list | Met on 2026-09-09 |
+| 0063 003 detail panel | The panel, the card grid, and the transport all work together | Met on 2026-09-09 after the card and panel fixes |
+| 002, 003, 004 | Event registry and relay observation states read correctly | Met on 2026-09-08 |
 
-The open checks and the method to reach each state live in
-`docs/pending-human-checks.md`. That file holds what is open today, not a
-history. When a gate closes, update the owning packet `Status:` line, update the
-row in `docs/plans/broadcast-chain-delivery-order.md`, and remove the section
-from that file, all in the same change.
-
-If an operator cannot clear a gate before this packet ships, that is an
-acceptable outcome. Report the gate as open in the readiness summary, name the
-hardware it waits on, and say so in the `Status:` line of this packet. A chain
-declared ready on an unperformed visual check is not.
+`docs/pending-human-checks.md` has no open ADR 0059 gate after this closure.
 
 ## Acceptance Criteria
 

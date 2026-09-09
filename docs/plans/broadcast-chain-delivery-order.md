@@ -145,7 +145,7 @@ Update this table when a packet lands.
 | `v4vmm` | 011 mpv producer | implemented - 2026-09-08 |
 | `v4vmm` | 012 readiness report | implemented - 2026-09-08; visual acceptance met with readiness CLI count |
 | `v4vmm` | 015 stream encoder | implemented - 2026-09-08; visual acceptance met with no encoder and `butt`; command buttons briefly disappearing moved to polish backlog |
-| `v4vmm` | 013 final guards | ready |
+| `v4vmm` | 013 final guards | implemented - 2026-09-09; ADR 0059 review and final guard coverage complete |
 | `v4vmm` | 0063 001 card contract | implemented - 2026-09-08; no visual criteria |
 | `v4vmm` | 0063 002 card grid shell | implemented - 2026-09-08; visual acceptance met after the 2026-09-09 fix retest |
 | `v4vmm` | 0063 003 detail panel | implemented - 2026-09-08; visual acceptance met after the 2026-09-09 fix retest; log placement moved to 004 |

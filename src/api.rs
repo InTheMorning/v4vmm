@@ -1,3 +1,5 @@
+use std::fmt;
+
 use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::Client as ReqwestClient;
 use reqwest::StatusCode;
@@ -318,7 +320,7 @@ pub struct Source {
     pub primary_enclosure_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct LiveItemCreateResponse {
     pub event_id: String,
     pub broadcaster_token: String,
@@ -328,6 +330,20 @@ pub struct LiveItemCreateResponse {
     pub events_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub socket_io_url: Option<String>,
+}
+
+impl fmt::Debug for LiveItemCreateResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LiveItemCreateResponse")
+            .field("event_id", &self.event_id)
+            .field("broadcaster_token", &"<redacted>")
+            .field("metadata_url", &self.metadata_url)
+            .field("remote_value_url", &self.remote_value_url)
+            .field("events_url", &self.events_url)
+            .field("socket_io_url", &self.socket_io_url)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
