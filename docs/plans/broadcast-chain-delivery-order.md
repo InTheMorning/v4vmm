@@ -17,7 +17,7 @@ lands.
 
 | Repository | Governing ADR | Packets |
 |---|---|---|
-| `v4vmm` | ADR 0059, broadcast control surface | 16 |
+| `v4vmm` | ADR 0059, broadcast control surface | 17 |
 | `musicindex-live-publisher` | ADR 0003 show log, plus control surface support | 4 |
 | `splitkit` | ADR 0001, reserved live items | 5 |
 
@@ -79,12 +79,20 @@ it to the publisher, and start the services from one screen.
 15. `v4vmm` 012, library broadcast readiness report.
 16. `v4vmm` 015, stream encoder section.
 
-### Stage 6: Close ADR 0059
+### Stage 6: ADR 0059 Closure And Amendments
 
 17. `v4vmm` 013, final guards and readiness gate.
 18. `v4vmm` [016, event row in Live Metadata](../tasks/adr-0059-task-016-event-row-in-live-metadata.md).
     Added by the 2026-09-09 amendment, after packet 014 and ADR 0063's dashboard
     packets. Adds Create, Replace, and retryable liveness checks to the event row.
+19. `v4vmm` [Show action feedback 001](../tasks/show-action-feedback-task-001-command-state-and-result.md).
+    Its service command ownership and fresh-observation policy are prerequisites
+    for the new item badges. Complete it in its own session.
+20. `v4vmm` [017, compact event controls and badges](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md).
+    Approved 2026-09-09 under ADRs 0059 and 0063. Adds saved event selection,
+    configured-target attachment correction, per-item badges, and Event
+    diagnostics. Implementation and the new operator visual gate are open;
+    task 016 remains accepted for its shipped scope.
 
 ### Independent track: bank the shows
 
@@ -155,6 +163,7 @@ Update this table when a packet lands.
 | `v4vmm` | 0063 004 log bottom pane | implemented - 2026-09-09; mechanical and operator visual acceptance met, including selectable text and right-click Copy |
 | `v4vmm` | show action feedback 001 (A7, A8, A9) | ready |
 | `v4vmm` | 016 event row in Live Metadata | implemented - 2026-09-09; mechanical acceptance Green; [all operator event recovery checks passed](../runbooks/broadcast-event-recovery-check.md), including Copy, service readiness, resizing, and registry/token preservation; visual acceptance met |
+| `v4vmm` | [017 compact event controls and badges](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md) | accepted - 2026-09-09; awaiting show action feedback 001; implementation not started; mechanical acceptance outstanding; [operator visual gate open](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check) |
 | `v4vmm` | 0064 001 relative local paths | implemented - 2026-09-09; visual acceptance met after path repair converted moved library |
 | `v4vmm` | 0064 002 repair report surface | ready |
 | `v4vmm` | 0065 001 tag repair service | implemented - 2026-09-09; no visual criteria |

@@ -56,7 +56,9 @@ Current governance:
   one owner for blocking HTTP client construction and timeout constants
 - [ADR 0059: Broadcast control surface](adr/0059-broadcast-control-surface.md):
   external publisher control, selectable now-playing sources, event registry,
-  and token storage
+  saved event selection, configured-target readiness, and token storage
+- [ADR 0063: Show dashboard layout](adr/0063-show-dashboard-layout.md):
+  card grid, compact labeled item badges, and shared bottom-pane diagnostics
 
 Current plans:
 
@@ -85,6 +87,12 @@ Current plans:
 - [ADR 0059 broadcast control surface phase plan](plans/adr-0059-broadcast-control-surface-phase-plan.md):
   phased delivery for the `Broadcast` frame, the event registry, service
   control, and the `mpv` drop-file producer
+
+Current implementation packets:
+
+- [ADR 0059 task 017: Compact event controls and badges](tasks/adr-0059-task-017-compact-event-controls-and-badges.md):
+  accepted amendments to ADRs 0059/0063; implementation awaits action feedback
+  task 001 and operator visual acceptance remains open
 
 Current reviews:
 

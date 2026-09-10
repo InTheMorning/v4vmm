@@ -63,7 +63,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0014](0014-playback-session-authoritative-state.md) | `PlaybackSession` is the authoritative now-playing state | Accepted |
 | [0020](0020-simulated-playlist-playback.md) | Simulated playlist transport for relay smoke tests | Accepted |
 | [0021](0021-mpv-playback-driver.md) | mpv driver behind the `PlaybackDriver` trait | Implemented |
-| [0059](0059-broadcast-control-surface.md) | This app controls an external publisher and sends no payloads | Implemented |
+| [0059](0059-broadcast-control-surface.md) | External publisher control, saved event selection, configured-target readiness | Accepted |
 
 ## UI Architecture
 
@@ -85,7 +85,7 @@ Status values are the ADR 0057 vocabulary: `Proposed`, `Accepted`,
 | [0055](0055-search-view-model-module-decomposition.md) | Search view-model module decomposition | Accepted |
 | [0060](0060-workflow-surface-structure.md) | Music, Show, Settings. Show is a screen mount | Accepted |
 | [0062](0062-music-content-surface.md) | Music opens on recent mixed entity rows | Accepted |
-| [0063](0063-show-dashboard-layout.md) | Show card grid, collapsible detail panel, and bottom log pane | Accepted |
+| [0063](0063-show-dashboard-layout.md) | Show cards, compact item badges, detail panel, and shared diagnostics pane | Accepted |
 | [0064](0064-local-file-addressing.md) | Downloaded files live under music_dir and store a relative path | Accepted |
 | [0065](0065-payment-route-tag-repair.md) | A tag repair is gated on the file, not on feed staleness | Accepted |
 

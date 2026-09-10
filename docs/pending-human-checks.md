@@ -16,6 +16,33 @@ check passes, do all three in the same change:
 When no check is open, this file keeps the function and the method sections
 only. A closed check leaves no entry here.
 
+## 1. Compact Event Controls And Item Badges — ADR 0059 Task 017
+
+Status: Open - 2026-09-09. Awaiting implementation and fixture extensions;
+scheduled after Show action feedback task 001. Design approval is not visual
+acceptance. Task 016's earlier recovery gate remains closed for its shipped scope.
+
+Owner: [task 017](tasks/adr-0059-task-017-compact-event-controls-and-badges.md).
+The [operator walkthrough](tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
+contains numbered terminal commands, expected/wrong outcomes, and marked-fixture
+cleanup. Run it after the implementation and fixture work specified in that
+packet exist; its new fixture commands are not available in the current script.
+
+- Situational ADR 0059 manual check: saved older-event selection remains
+  operable; only the configured target satisfies attachment; Attach/Detach
+  preserve unrelated targets and old event/token files; passive rechecks keep
+  confirmation while pending and expose failure when it answers.
+- Situational ADR 0063 manual check: three compact labeled item badges remain
+  readable together, the card reflects them, and Event diagnostics uses the
+  shared bottom pane with correct source titles, resizing, and selectable Copy.
+
+Prerequisites: Linux desktop session, Python 3.11+, two terminals, free port
+17863, and the task 017 build and extended fixture. Publisher, service states,
+and journal output are simulated; no broadcast hardware or real unit changes
+are needed. Cleanup closes that app, stops the fixture relay, and removes only
+its marked directory. Preserve any earlier literal-placeholder directory that
+may still contain a token referenced by a real registry.
+
 ## Method: Reach A Publisher Service State
 
 This section is not a check. It is the method that each publisher check needs.

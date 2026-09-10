@@ -2,7 +2,22 @@
 
 ## Status
 
-Implemented - 2026-09-09.
+Accepted - 2026-09-09.
+
+Implementation partial: tasks 001-016 complete; task 017 compact event controls,
+badges, and diagnostics implementation and operator verification outstanding.
+
+Amended 2026-09-09: the operator approved stored-event selection, compact
+per-item status, and on-demand diagnostics after finding the accepted event row
+too tall. This amendment also corrects attachment matching against an unused
+target, extends Check to known event states, and keeps passive checks from
+invalidating confirmed readiness merely by starting.
+[Task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md) owns
+implementation and the new open visual gate; ADR 0063 owns the arrangement.
+
+Clarified 2026-09-09 after packet review: configured-target attachment and
+passive-check readiness are explicit invariants. Task 017 owns the database
+execution sequence and source locations; this record owns their contract.
 
 Tasks 001-015 are verified by the
 [implementation review](../reviews/adr-0059-implementation-review.md).
@@ -12,7 +27,8 @@ mechanical checks and operator acceptance of all event recovery checks in
 
 Reconciled 2026-09-09: the operator confirmed all broadcast event recovery tests
 pass, closing the final gate opened by the amendment that moves Event into
-Live Metadata. The status returns to `Implemented` under ADR 0057.
+Live Metadata. That verification returned the status to `Implemented`; the later
+task 017 amendment above reopens it under ADR 0057.
 
 Amended 2026-09-09: event setup includes explicit Create, Replace, and retryable
 Check actions. A dead entry stays selected, and a failed check after successful
@@ -75,7 +91,7 @@ podcast work. Mixxx is the player for a DJ set.
 Liquidsoap or Mixxx AutoDJ can hold the stream when the operator sleeps. The
 publisher can run on a different machine than this app.
 
-Three facts about the relay control this design:
+These facts about the relay control this design:
 
 - The relay keeps state in memory only. A restart of the relay process discards
   live items, tokens, and snapshots.
@@ -152,6 +168,255 @@ operator decision because it changes publisher configuration.
 [Task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md) records the
 implementation and completed operator verification.
 
+### Stored Event Selection Is Explicit And Persistent
+
+Amended 2026-09-09. The existing Resume decision already authorizes choosing
+and checking a stored event. This section adds persistence, command-boundary
+validation, and manual Check for Live and Dead as well as Unknown. It does not
+change who registers events or who publishes metadata.
+
+Clicking the selected event opens a bounded, scrollable list of locally stored
+events, newest first. Each entry has its existing label, a creation date, a
+distinguishing identifier, and its last known liveness state. Unnamed events
+use the date and identifier as their display name. Short identifiers must be
+disambiguated if they collide; selection always uses the full identity.
+
+The list marks the selected entry. A successful publisher configuration read
+may separately mark the entry configured on the selected host, instance, and
+`drop_file_target`. That mark means configured, not proof that metadata is
+currently flowing. Unknown or failed reads cannot supply an affirmative
+configuration mark.
+
+Selecting an entry updates the mounted view and requests a liveness check for
+that entry, together with a fresh publisher configuration read. This includes
+previously Live or Dead entries: the current Unknown-only manual-check
+restriction needs an explicit extension. Opening the list alone makes no
+network request for every entry.
+
+The selected event survives refresh, navigation, and restart through a
+database-scoped selection preference, owned by `src/db.rs` and added through a
+migration. The preference records the full event ID and a selection revision.
+An uninitialized preference may choose the newest row once and persist that
+choice. If its saved entry has been
+removed, retain that missing reference, show Event unavailable, and let the
+operator choose another. No cascading deletion may silently select a different
+identity. Loading or failing to read the registry is distinct from an empty
+registry and cannot enable Create.
+
+`EventRegistryCommand::execute` and `RefreshShowPage::execute` must resolve the
+same persisted selection. Command eligibility uses that selected row's current
+stored state and rejects a changed selection revision or missing selected row.
+Check may operate on any existing selected Live, Dead, or Unknown row; Replace
+still requires Dead. Create requires a successfully read empty registry, not
+merely a missing or failed selection lookup. An unrelated newer row cannot
+reject a valid command against the older saved selection.
+
+Selection-dependent results belong to the persisted event identity, selection
+revision, host, instance, target name, and request as applicable. A result may
+update its own registry facts but cannot overwrite a different mounted selection.
+If saving selection fails after registration succeeded, the created row and
+token remain available in the refreshed list. Report the separate save failure;
+it does not authorize another registration.
+
+Successful Create or Replace adds and selects its new entry immediately, then
+checks it as task 016 does today. Replace retains the old entry and token file.
+Create/Replace keep their existing eligibility; creating additional
+events while a live one is selected and adding a rename editor are outside
+task 017.
+
+### Attachment Names The Configured Target
+
+Amended 2026-09-09 as an implementation correction under ADR 0057.
+`EventTargetAttachmentDisplay::from_input` currently matches any target carrying
+the event ID, while Attach writes `broadcast.drop_file_target`. A stale unused
+target therefore reports Attached even when the configured target carries
+another event. The readiness read, Attach, Detach, and picker association mark
+must all use the same selected host, publisher instance, and normalized
+configured target name. Match both target name and event ID. An empty target
+name cannot pass.
+
+Choosing an event changes the app's selection and performs reads. It does not
+change publisher configuration, restart services, or start a show. The explicit
+publisher action remains a separate press with its own progress and result.
+
+If the configured publisher target names a different event, show that difference
+briefly beside the selected event's status. Use wording such as
+`Publisher configured for …b82d`, not `Publishing to …b82d`: configuration does
+not establish successful delivery. The card describes readiness for the
+selected event and cannot claim it is ready because another event is configured.
+
+Attach already invokes `target add --replace`, as specified by
+[task 014](../tasks/adr-0059-task-014-attach-event-to-publisher-target.md) and
+enforced by `adr_0059_packet_014_attach_event_replaces_target_and_restarts_publisher`
+in the publisher-target service tests (situational, ADR 0059). An existing
+association at that name is replaced; the operator does not need to detach it
+first. The action makes that replacement clear before the press, including
+which event is currently configured. The prior event and token file
+remain in the local registry even after the publisher uses another event.
+
+This configuration replacement and the following service restart are separate
+operations. A successful write followed by a failed restart is a partial result
+that must remain visible. Detach stays available in the overflow menu for an
+event associated with the configured target, including a dead one, but it is
+not a prerequisite for using another event. Arbitrary publisher-target
+management is outside task 017.
+
+### Event Actions Keep Independent Results
+
+The action area keeps a stable place for the next useful action, Logs, and the
+overflow menu. The view model supplies presence, availability, progress, and
+accessibility labels. A command in progress keeps its control mounted and
+unavailable; a watch refresh cannot erase the command's feedback.
+
+The picker and competing event commands are unavailable while registration,
+checking, or a publisher change is in progress. Logs and copying stay usable.
+Results still carry their original identity and request ownership so that a
+host change or delayed refresh cannot apply them to a different selection.
+
+| Condition, in priority order | Primary action or visible result |
+|---|---|
+| An event registry or publisher-change command is running | Keep the initiating action in its progress state |
+| Registry is loading or its read failed | Loading or Events unavailable; retry the failed read, no Create |
+| Registry loaded and genuinely empty | Create |
+| Saved selection is missing and registry contains other events | Event unavailable; choose an entry in the picker |
+| Liveness is unknown, or its latest check failed | Check / Retry check |
+| Selected event is confirmed Dead | Replace, with Check again in the menu |
+| Publisher configuration could not be read | Retry that configuration read; no Attach |
+| Event is confirmed Live, intended target belongs to another event, existing command prerequisites pass | Attach; make the replacement effect clear |
+| Event is confirmed Live, target is free, existing command prerequisites pass | Attach |
+| Event is Live and attached to the configured target | No setup prompt; retain the concise status |
+
+The overflow menu holds Copy feed tag, Check again, and Detach when applicable.
+Check again reads liveness for the selected ID and never registers another
+event. Copy feed tag also remains available beside the full tag in diagnostics.
+Logs remains available during failures and commands, including failed creation
+when there is no event yet. Registry deletion controls are outside this change.
+
+Keep registration and checking outcomes independent. For example, a successful
+creation followed by a failed check gives a short `Created · Check failed`
+message, retains the new selection, and offers Retry check. Full causes belong
+in Logs. Publisher changes also report failure locally; if configuration was
+changed but the service restart failed, show that partial result and read the
+configuration back instead of claiming that nothing changed.
+
+The existing readiness table still governs the chain: no event, a dead or
+unverified event, an unconfirmed configuration, or an inactive/failed service
+cannot produce a ready section. A failed recheck preserves stored liveness but
+marks it as unverified in the current display; it must not present an old Live
+result as a fresh confirmation. Producer and Publisher retain their own states
+and recovery actions below the compact event item.
+
+### Item Readiness Determines Section Readiness
+
+Amended 2026-09-09. The view model owns these state kinds and labels; ADR 0063
+owns their badge presentation. Ready refers to these prerequisites, not proof
+of audio connectivity, feed publication, or listener delivery.
+
+The three items are exactly Event, Producer, and Publisher, identified by role,
+not by vector length. Once Live Metadata is mounted, missing Event input projects
+an Unknown/Loading placeholder; a missing service observation projects that
+role's Unknown/Status unavailable placeholder. Duplicate observations for a role
+are invalid input for that role and also project Status unavailable. A missing
+Publisher cannot be satisfied by two Producer observations.
+
+Each item exposes a renderer-independent state kind and label. Using the existing
+`ShowCardStateKind` vocabulary, the card state is `Ok` if and only if Event,
+Producer, and Publisher each project `Ok`. ADR 0063 maps those kinds to shared badge tokens.
+Only the card uses the label Ready. Event's successful label is Attached;
+both successful service labels are Active.
+
+Event's badge requires both confirmed Live liveness and a confirmed association
+on the configured target. The target is the nonempty, normalized
+`broadcast.drop_file_target` on the selected host and publisher instance.
+`EventTargetAttachmentDisplay::from_input` must match both that target name and
+the selected event ID. An unused target carrying this ID cannot satisfy it.
+Detach and the picker association mark use this same target identity; they must
+not remove or mark whichever target an event-ID-only search happens to find.
+
+Event badge mapping, evaluated top to bottom. The command rows describe display
+overlays, not invented variants of `EventState` or `EventTargetAttachmentState`.
+Passive progress preserves existing facts only until a newer result for those
+facts arrives; it cannot mask a failure or change reported by a concurrent read.
+
+| Input or overlay | State kind | Badge label |
+|---|---|---|
+| Create / Replace in progress | Unknown | Creating / Replacing, respectively |
+| Attach / Detach in progress, including readback pending | Unknown | Attaching / Detaching, respectively |
+| Registry / Event input still loading | Unknown | Loading |
+| Registry read failed | Unknown | Events unavailable |
+| Saved selection references a missing registry entry | Attention | Event unavailable |
+| Loaded registry with no event (`EventState::None`) | Attention | No event |
+| Passive recheck pending after a completed result for the same read and context | Preserve current fact-derived kind | Preserve current fact-derived label; separate activity text Checking |
+| Initial check pending with no completed result for that read | Unknown | Checking |
+| Latest liveness check failed, including failed status storage | Unknown | Check failed |
+| `EventState::Dead` | Failed | Dead |
+| `EventState::Unknown` | Unknown | Unknown |
+| Live, configured target name is empty | Attention | Target not set |
+| Live, target read Unknown | Unknown | Target unknown |
+| Live, target read CommandsUnavailable | Unknown | Commands unavailable |
+| Live, target read NotReachable | Unknown | Not reachable |
+| Live, target read Failed | Unknown | Target read failed |
+| Live, successful read finds no configured target or that target names another event | Attention | Not attached |
+| Live, successful read finds the configured target naming the selected event | Ok | Attached |
+
+Every service state below applies independently to both Producer and Publisher:
+
+| `PublisherServiceStateDisplay` or missing input | State kind | Badge label |
+|---|---|---|
+| Active | Ok | Active |
+| Inactive | Attention | Inactive |
+| Starting | Attention | Starting |
+| Stopping | Attention | Stopping |
+| Failed, with any reason | Failed | Failed |
+| NotInstalled | Attention | Not installed |
+| NotReachable | Attention | Not reachable |
+| Unknown | Unknown | Unknown |
+| Working | Unknown | Working |
+| Missing or duplicate observation for the role | Unknown | Status unavailable |
+
+Failure details remain in diagnostics with a short explanation if needed. A
+failed Create leaves No event plus creation-failure feedback; a failed Replace
+that created nothing leaves the former event's state plus replacement-failure
+feedback. Neither outcome invents a new relay state.
+
+For a non-Ok card, preserve the existing ordering: Event's non-Ok kind wins;
+otherwise any Failed service makes the card Failed; otherwise a non-Ok service
+makes it Attention. The label is Not ready. The first summary line names the
+earliest non-Ok role in Event, Producer, Publisher order, even when a later
+service determines the card's failure kind. The second summary line states
+section readiness. Individual badges expose failures further down the chain.
+
+### Passive Checks Preserve Confirmation Until They Answer
+
+A passive liveness or target-list recheck cannot change the event or publisher
+configuration. While it is pending, retain the last settled badge and its
+confirmation for the same event, host, instance, and configured target. Show
+Checking as separate item activity, including in accessibility text. A healthy
+Attached/Active/Active chain remains Ok/Ready during the request. Do not replace
+its Event badge with a non-Ok Checking badge just to report activity.
+
+If no confirmation exists yet, the check cannot create an Ok state. On success,
+replace the old facts with the result. On 404, project Dead once stored. On
+transport, target-read, or status-storage failure, project the appropriate
+Unknown badge and Not ready card; retained database liveness is only historical
+evidence. Thus failure changes readiness when it answers, not when the operator
+asks. Selecting another event or changing host/instance/target invalidates prior
+confirmation instead of carrying an unrelated Attached badge across the change.
+When liveness and target-list reads overlap, apply each completed result at
+once. The other pending read cannot hold the item at its former Ok kind after
+one of them has failed. Conversely, one success cannot clear the other's
+failure. Diagnostics retains both results separately.
+
+Fact-changing operations invalidate the affected confirmation immediately:
+Create/Replace and Attach/Detach affect Event; service Start/Stop/Reset/Restart
+affect that service. Attach/Detach also restart Publisher, so Publisher projects
+Working until a fresh observation resolves that transition. An unrelated service
+retains its own state. Failed mutations trigger readback and expose partial
+results; an old observation cannot release the transition. This uses the
+command ownership and fresh-observation contract of the action-feedback packet
+[specified in task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#dependencies),
+rather than implementing a second transition policy.
+
 ### Tokens Are Files
 
 Nobody can replace a broadcaster token. The app writes each token to its own
@@ -220,8 +485,8 @@ A section is an optional field on `ShowPageVm` and a group of callbacks on
 `ShowSlots`. An absent section renders nothing. It does not render as
 unavailable.
 
-`Event` shows the live item and the exact RSS tag that lets listener apps find
-it:
+`Event` identifies the live item and makes the exact RSS tag available through
+its diagnostics and Copy feed tag action, as arranged by ADR 0063:
 
 ```xml
 <podcast:liveValue uri="EVENT_ID" protocol="socket.io"/>
@@ -253,6 +518,13 @@ broadcast sections stay separate in code and in the interface.
 - Broadcaster tokens are files with mode `0600`. No token is in the database.
 - The app reports a dead event to the operator. The app does not replace it
   automatically.
+- Only the configured target on the selected host and publisher instance can
+  satisfy attachment. Its normalized name must be nonempty and its event ID
+  must match the selected event; an unused target cannot satisfy attachment.
+- A passive check retains the prior readiness confirmation for the same event
+  and publisher context while pending. Its result changes readiness when it
+  arrives, not when the check starts; each failed read invalidates its own
+  confirmation even when another read remains pending or succeeds.
 - The app sends no metadata to the relay. The publisher is the only sender.
 - Source kind names appear in source adapters only.
 - Encoder commands run only in the broadcast service layer, never in a screen.
@@ -261,6 +533,18 @@ broadcast sections stay separate in code and in the interface.
 - A runtime actor runs all work that blocks, as ADR 0040 requires.
 
 ## Alternatives Considered
+
+### Always Select The Newest Stored Event
+
+Rejected by the 2026-09-09 amendment. Resume already permits an older entry;
+refreshing or validating against the newest row defeats that choice. Persist
+the chosen identity and validate commands against it.
+
+### Clear Readiness When A Passive Check Starts
+
+Rejected by the 2026-09-09 amendment. A request has not changed the confirmed
+facts. Keep its activity separate, then apply its success or failure. A failed
+result still invalidates readiness immediately.
 
 ### Keep The Built-In Publish Path
 
@@ -304,6 +588,13 @@ Positive:
 - One source model holds `mpv`, Mixxx, and liquidsoap.
 - The three panel sections give the later interface work three separate owners.
 
+The 2026-09-09 amendment makes each prerequisite inspectable independently and
+prevents an unused target from satisfying readiness. Selection now needs a
+migration and revision ownership; a missing reference must remain visible.
+Passive checks retain last-confirmed readiness until they answer, which is a
+continuity choice rather than proof of continuous delivery. Publisher changes
+and the following restart remain separate outcomes.
+
 Negative and risks:
 
 - This app becomes the keeper of secrets that nobody can replace. If the
@@ -316,7 +607,28 @@ Negative and risks:
   state. The panel must show that state, or `Start` appears to do nothing.
 - The `mpv` producer adds a second writer of drop files in this project.
 
+## Amendment Verification
+
+Task 017 is unimplemented. Existing task 016 tests and guards verify the prior
+shipped scope, not the new attachment definition, saved selection, or badge
+contract. The [task 017 mechanical criteria and assertion inventory](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#acceptance-criteria)
+name the cases and the exact existing tests to update in the implementation
+commit. Each new behavior test is situational, ADR 0059. When a guard replaces
+these implementation instructions, replace that prose with the named coverage
+in the same change, retaining the incident and decision rationale.
+
+The [task 017 operator visual check](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
+is the open situational ADR 0059 manual check for readiness feedback and usable
+recovery. It also serves the separately identified ADR 0063 presentation checks.
+Tests can prove state kinds and command effects but cannot establish that a
+person can read the badges, find the controls, and follow the interaction.
+The gate is listed in [pending human checks](../pending-human-checks.md) and
+the delivery order; task 016's passed check does not close it.
+
 ## Follow-Up Work
+
+- Implement [task 017](../tasks/adr-0059-task-017-compact-event-controls-and-badges.md)
+  after its action-feedback prerequisite and obtain operator acceptance.
 
 - `splitkit`: add long-lived live items. Weekly shows and permanent stations
   need an event that survives a relay restart.
