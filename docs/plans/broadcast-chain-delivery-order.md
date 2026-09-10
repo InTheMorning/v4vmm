@@ -17,7 +17,7 @@ lands.
 
 | Repository | Governing ADR | Packets |
 |---|---|---|
-| `v4vmm` | ADR 0059, broadcast control surface | 15 |
+| `v4vmm` | ADR 0059, broadcast control surface | 16 |
 | `musicindex-live-publisher` | ADR 0003 show log, plus control surface support | 4 |
 | `splitkit` | ADR 0001, reserved live items | 5 |
 
@@ -82,6 +82,9 @@ it to the publisher, and start the services from one screen.
 ### Stage 6: Close ADR 0059
 
 17. `v4vmm` 013, final guards and readiness gate.
+18. `v4vmm` [016, event row in Live Metadata](../tasks/adr-0059-task-016-event-row-in-live-metadata.md).
+    Added by the 2026-09-09 amendment, after packet 014 and ADR 0063's dashboard
+    packets. Adds Create, Replace, and retryable liveness checks to the event row.
 
 ### Independent track: bank the shows
 
@@ -151,7 +154,7 @@ Update this table when a packet lands.
 | `v4vmm` | 0063 003 detail panel | implemented - 2026-09-08; visual acceptance met after the 2026-09-09 fix retest; log placement moved to 004 |
 | `v4vmm` | 0063 004 log bottom pane | implemented - 2026-09-09; mechanical and operator visual acceptance met, including selectable text and right-click Copy |
 | `v4vmm` | show action feedback 001 (A7, A8, A9) | ready |
-| `v4vmm` | 016 event row in Live Metadata | ready; adds the in-app create the surface never had |
+| `v4vmm` | 016 event row in Live Metadata | ready - 2026-09-09; [amendment review passed](../reviews/adr-0059-task-016-amendment-review.md); Create, Replace, and Check / Retry check specified; implementation and acceptance outstanding |
 | `v4vmm` | 0064 001 relative local paths | implemented - 2026-09-09; visual acceptance met after path repair converted moved library |
 | `v4vmm` | 0064 002 repair report surface | ready |
 | `v4vmm` | 0065 001 tag repair service | implemented - 2026-09-09; no visual criteria |

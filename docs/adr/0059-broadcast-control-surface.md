@@ -10,6 +10,11 @@ The 2026-09-09 amendment that makes `Event` a row of `Live Metadata` opened that
 task. ADR 0057 keeps the status at `Accepted` until every gate closes, and
 forbids a fifth status for a partial state.
 
+Amended 2026-09-09: event setup includes explicit Create, Replace, and retryable
+Check actions. A dead entry stays selected, and a failed check after successful
+registration must not strand the operator or discard the new identity. Task 016
+specifies the action states and recovery tests.
+
 Amended 2026-09-06: the `Event` section must show the ready-to-paste
 `podcast:liveValue` tag with a copy action. Listener apps discover a live event
 only through that tag in the RSS feed of the show. Without the tag, the whole
@@ -122,6 +127,26 @@ list of events that the operator created.
 
 A dead event must not cause an automatic replacement. A new event has a new
 identifier, and listeners must then tune again. The operator makes that choice.
+
+Amended 2026-09-09: the event row offers `Create` with no selected event and
+`Replace` with a selected dead event. Replace registers a new event and leaves
+the dead entry for Forget. Neither action attaches; attachment is a separate
+operator action that changes publisher configuration.
+
+Successful registration shows the new identifier and token path immediately,
+then requests a liveness check for that identifier. Registration success remains
+visible if the check fails. An unknown event offers `Check`, or `Retry check`
+after failure, for that same identifier. A successful read establishes `Live`;
+`404` establishes `Dead`; a failed read preserves the stored status. A retry
+never registers another event or changes publisher configuration. Create,
+Replace, and Attach remain unavailable while liveness is unknown, and a failed
+check makes retry available again.
+
+The existing registry service owns creation and stored liveness updates.
+Application commands call it; the view model owns action availability and
+separate registration/check feedback; the mounted row presents the result.
+[Task 016](../tasks/adr-0059-task-016-event-row-in-live-metadata.md) owns this
+flow and its mechanical and operator verification.
 
 ### Tokens Are Files
 
