@@ -1,211 +1,230 @@
 # ADR 0063 Task 004: Log Output Bottom Pane
 
-Status: Ready - 2026-09-08. Do after task 003. It moves the log output that task
-003 put in the side panel.
+Status: Implemented - 2026-09-09. Mechanical and operator visual acceptance met,
+including the bottom pane, keyboard selection, and right-click Copy menu.
 
-## Goal
+## Result
 
-Move service log output out of the detail panel and into a pane across the
-bottom of the main region. The pane resizes and closes.
+Service logs have a resizable bottom pane in the Show main region. The detail
+panel keeps its service rows and actions. The transport is outside the split.
 
-## Files To Inspect
+`ShowPageVm.log_pane` owns the unit label, text, actual returned line count,
+loading/empty/error labels, height, typed close action, and current request ID.
+Queue and service reprojections carry this state forward. Each read gets a new
+ID; success and failure apply only to that pending request. Card selection and
+log operations have independent state.
 
-- `docs/adr/0063-show-dashboard-layout.md`, the `Log Output Is A Bottom Pane`
-  section
-- `docs/tasks/adr-0063-task-003-collapsible-detail-panel.md`
-- `src/ui/composites/show_detail_panel.rs`, for the log render it gives up
-- `src/ui/shells/show.rs`, for the main region and the transport
-- `src/view_models/show.rs`, for the panel mode and the publisher log state
-- `src/app/show.rs`, for the log actions and the log read
-- `src/ui/shells/workspace.rs`, for the existing resizable split precedent
-- `tests/architecture_tests.rs`
+`SplitPaneAxis::Vertical` extends the existing shared `SplitPane`. Width callers
+keep their builder shape, layout, and resize cursor. The pane reserves the card
+rows using the existing size and spacing tokens; dragging updates the VM height.
+Only the log viewport scrolls, in both directions, with unwrapped lines.
 
-## Files Likely To Change
+The 2026-09-09 copy/paste addition uses the shared `SelectableText` composite.
+Dragging selects across lines; Ctrl+C copies that selection and Ctrl+A selects
+all log text. Text stays read-only, and copied whitespace is preserved.
+Right-click opens Copy at the pointer without changing the selection. Copy is
+disabled when there is no selection. Escape or an outside click dismisses the
+menu and returns focus to the text; replacing the text dismisses the old menu.
 
-- `src/ui/composites/show_log_pane.rs` (new)
-- `src/ui/composites/show_detail_panel.rs`
-- `src/ui/composites/mod.rs`
-- `src/ui/shells/show.rs`
-- `src/view_models/show.rs`
-- `src/app/show.rs`
-- `tests/architecture_tests.rs`
+## Owners And Files
 
-## Do Not Touch
+- `src/view_models/show.rs`: pane state, action cycling, request filtering,
+  display text, height bounds, and unit tests.
+- `src/app/show.rs`, `src/app.rs`: read completion and resize adapters;
+  the separate publisher log state is removed.
+- `src/ui/composites/show_log_pane.rs`: main-region split, pane chrome, and
+  journal viewport. Exported by `src/ui/composites/mod.rs`.
+- `src/ui/composites/split_pane.rs`: both split axes and the shared handle.
+- `src/ui/composites/selectable_text.rs`: focus, selection highlighting, menu
+  wiring, and the one exact clipboard path shared by keyboard and mouse.
+- `src/view_models/text_selection.rs`: renderer-free selection ranges, exact
+  selected text, and Copy labels and typed availability.
+- `src/ui/primitives/context_menu.rs`: pointer anchoring, focus and dismissal,
+  with the same menu rows used by existing action menus. Surface, size, and
+  spacing use the shared tokens.
+- `src/ui/composites/show_detail_panel.rs`: service actions remain; log text,
+  log close slot, and obsolete rendering helpers are removed.
+- `src/ui/shells/show.rs`: mounts the pane above the existing transport.
+- `tests/architecture_tests.rs`: current placement and request guards replace
+  the guard that required a log result to open Live Metadata detail.
 
-- `src/broadcast/**`, `src/runtime/**`
-- The card contract and the width class
-- The cuelist mode of the panel, and the queue display contract
-- The transport. Task 003 placed it, and this task keeps it reachable.
+## Mechanical Acceptance
 
-## Constraints
+The following tests are situational guards owned by ADR 0063:
 
-- **The log pane belongs to `Show`, not to the panel.** It renders in the main
-  region, under the card grid, beside the transport.
-- **`SplitPane` is width-only today.** `src/ui/composites/split_pane.rs` holds
-  `leading_width` and `leading_min_width` and no axis. This task adds a
-  top-and-bottom mode to that composite. It does not write a second splitter.
-  Reviewed 2026-09-09, when the first version of this packet said to reuse the
-  handle and met its own escalation trigger at once.
-- The axis is a typed choice on `SplitPane`, not a boolean. The vertical mode
-  carries a leading height and a minimum height, in the same shape the width
-  mode uses.
-- **Every current `SplitPane` caller keeps its behaviour.** Add a regression
-  test for the width mode before the height mode exists, so a change to the
-  shared composite cannot move the inspector or the workspace split.
-- The pane closes. A closed pane leaves the card grid and the transport working.
-- The pane names the unit it shows. An operator reads two services from one
-  pane, one at a time, so the name is not optional.
-- **The pane stays open while the operator selects another card.** Selecting a
-  card never closes it.
-- **The `Logs` action cycles.** A second press on the service already shown
-  closes the pane. A press on the other service switches the pane to it, and
-  does not close it. The action keeps its accessibility label.
-- The detail panel keeps the service rows and the service actions. It gives up
-  the log text only.
-- The card grid still does not scroll. The pane scrolls its own content.
-- **A log line does not wrap and is not cut.** It renders on one line, and the
-  pane scrolls sideways to reach the rest.
-  `docs/troubleshooting/column-text-truncation.md` records why `truncate()` is
-  wrong for stacked text, and `overflow_hidden()` alone hides the end of a
-  failure message, which is the part that names the cause. Reviewed 2026-09-09,
-  when the first version of this packet asked for clipping and for no wrapping
-  at the same time.
+| Check | Evidence |
+|---|---|
+| Both service actions name their unit; cards and panel closure preserve log text; log closure preserves panel and queue state | `show_logs_name_each_unit_and_survive_card_selection_and_panel_close` |
+| Same-service presses close; another service switches; late results do not replace the current service | `show_logs_cycle_same_unit_and_switch_other_unit` |
+| Close/reopen of the same unit and reprojection preserve request identity; late errors and duplicate completions are discarded | `show_logs_discard_old_and_duplicate_results_after_close_and_reprojection` |
+| A lost host does not disable the action that closes its open logs | `show_logs_can_close_after_the_service_becomes_unreachable` |
+| Empty logs and actual line counts are display-ready | `show_logs_empty_read_is_display_ready` and the unit-name test |
+| Height bounds reserve the grid and survive closure | `show_log_height_reserves_cards_and_survives_close` |
+| Existing width defaults, overrides, pane geometry, and cursor are preserved | `split_pane_width_defaults_and_overrides_are_preserved`, added and passed before vertical mode; `split_pane_width_render_geometry_is_unchanged` |
+| Top/bottom geometry uses the shared split | `split_pane_height_render_geometry_uses_the_vertical_axis` |
+| Exact multiline and Unicode selection, and Copy available only for a valid nonempty selection | `selection_copies_exact_multiline_text_in_either_drag_direction`, `selection_clamps_offsets_and_copies_partial_unicode_text`, `copy_action_requires_a_valid_selection_in_the_current_text` |
+| Keyboard and mouse use one clipboard path; right-click preserves selection; changed text closes the menu; action state comes from the VM and menu chrome stays shared | `adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions` |
+| No log text in detail, no panel changes in log callbacks, no truncation/wrapping, and one shared resize handle | `adr_0063_logs_use_an_independent_bottom_pane_and_current_request`, `adr_0063_column_text_does_not_truncate` |
 
-## Implementation Steps
+Verification commands:
 
-1. Add `ShowLogPaneDisplay` to `src/view_models/show.rs`:
-   - the unit name label
-   - the log text and the line count
-   - an open flag and a height, both display-ready
-   - a close action with an accessibility label
-2. Add the pane state to `ShowPageVm`, beside the panel state. The pane state is
-   independent of `ShowPanelMode`, because the pane survives a card change.
-3. Add `src/ui/composites/show_log_pane.rs`. It renders the display contract and
-   builds no string.
-4. Render the pane in `render_show`, under the card grid and above or beside the
-   transport. Keep the transport reachable when the pane is open and when it is
-   closed.
-5. Reuse the workspace resize handle. The pane height is a view-model value that
-   the drag updates.
-6. Delete the log render from `src/ui/composites/show_detail_panel.rs`, and any
-   helper that only it reached.
-7. Wire the `Logs` action of both services to open the pane for that unit, and
-   carry a request identifier with each read.
-8. **Apply a log result only when it answers the current request.** A read that
-   returns after the operator closed the pane, or after they asked for the other
-   unit, is discarded. `src/app/show.rs` applies every result today, so a late
-   read reopens the pane and can replace the unit the operator asked for.
-9. **The log result changes no panel state.** Delete the
-   `show_card_detail(ShowCardKind::LiveMetadata)` call from the log path, and
-   delete the guard that requires it. The pane is not the panel any more, and
-   that guard now pins the old surface.
-10. Add view-model tests:
-   - the `Logs` action of a service opens the pane and names that unit
-   - selecting another card leaves the pane open and its text unchanged
-   - the close action closes the pane
-   - closing the pane leaves the panel mode unchanged
-11. Add a guard: `src/ui/composites/show_detail_panel.rs` renders no log text,
-   and the log pane composite holds no `truncate()` on a stacked line.
+```bash
+cargo fmt -- --check
+cargo check --quiet
+cargo test show --lib --quiet
+cargo test --lib --quiet
+cargo test --test architecture_tests --quiet
+cargo clippy --quiet -- -D warnings
+```
 
-## Acceptance Criteria
+Copy/paste verification on 2026-09-09: Green. `cargo check`, formatting, strict
+Clippy, and `cargo build` passed, along with both focused selection tests and
+all 211 architecture guards. The selection tests cover exact multiline copying,
+reverse dragging, Unicode boundaries, and offset bounds. The guard
+`adr_0063_log_text_is_selectable_and_copied_without_rewriting` covers the mounted
+selection owner and plain-text clipboard path. Operator command syntax and
+changed-document links were checked without launching the app. The visual gate
+also covers selection highlighting, Ctrl+C/Ctrl+A, and read-only behavior.
 
-Mechanical, proved by a test:
+Right-click Copy verification on 2026-09-09: Green. `cargo test --quiet`
+passed all 1,226 unit tests and 212 architecture guards; the 10 existing ignored
+doctests remain ignored. `cargo check`, `cargo fmt -- --check`, strict Clippy,
+and `cargo build` passed. Operator shell syntax and document links passed.
+The operator confirmed the new menu works as intended on 2026-09-09.
 
-- The pane state lives on `ShowPageVm` and is independent of `ShowPanelMode`.
-- A `Logs` action opens the pane and names the unit it shows.
-- A second `Logs` press on the same service closes the pane, and a press on
-  the other service switches the pane without closing it.
-- Selecting another card leaves the pane open with the same text.
-- The close action closes the pane and changes no panel state.
-- The detail panel holds no log text render.
-- The log pane holds no `truncate()` on a stacked line, and no wrap.
-- A log result that does not answer the current request is discarded.
-- The log path sets no panel mode, and the guard that required it is gone.
-- The width mode of `SplitPane` behaves as before the height mode was added.
-- One resize implementation exists, shared with the workspace.
+## Deviations And Acceptance
 
-Visual, operator only:
+No change to broadcast/runtime code, the card contract or width class, the queue
+contract, or transport controls. The removed `PublisherLogPanelState` is replaced
+by the page-owned pane display. No architectural deviation.
 
-- A log line reads on one line, and the pane scrolls sideways to the end of it.
-- Closing the pane while a log read is running leaves it closed.
-- The pane resizes by dragging, and the card grid keeps working at every height.
-- The pane closes, and the transport stays reachable in both states.
-- Selecting another card while the pane is open does not disturb the pane.
+The operator confirmed all bottom-pane, keyboard selection, and right-click
+Copy menu visual checks on 2026-09-09. Acceptance is complete in this packet and
+the delivery order; its entry is removed from
+[Pending Human Checks](../pending-human-checks.md).
 
-## Test Commands
+## Operator visual check
 
-- `cargo fmt -- --check`
-- `cargo check --quiet`
-- `cargo test show --lib --quiet`
-- `cargo test --test architecture_tests --quiet`
-- `cargo clippy --quiet -- -D warnings`
+Operator confirmation: the menu works as intended, 2026-09-09. These steps and
+the accepted bottom-pane check below remain available for regression checks.
 
-Do not run the app. Write the operator visual check instead, as AGENTS.md
-requires.
+1. In a Linux desktop session, use the commands in step 1 of
+   [Accepted bottom-pane check and fixture](#accepted-bottom-pane-check-and-fixture)
+   to build and launch the isolated fixture. It requires a user systemd session,
+   Cargo, `sh`, `awk`, and a desktop text editor. No broadcast hardware or
+   installed publisher is required.
+2. Open **Show → Live Metadata → Logs** and wait for the journal text. Drag-select
+   part of a line, right-click the text, and click **Copy**. Paste using the
+   editor's mouse menu. The selection must stay highlighted when the menu opens;
+   the paste must match it exactly. Repeat with several lines and a reverse drag,
+   including spaces, accents, emoji, and literal `<tag> &` text.
+3. Scroll horizontally and vertically, then right-click near the window's bottom
+   and right edges. Copy must remain reachable inside the window. Click in the
+   text without dragging and right-click: Copy must be disabled, and must not
+   replace the clipboard with the whole log.
+4. With a selection, open the menu and dismiss it first with Escape, then with an
+   outside click. The selection must remain, and Ctrl+C must still copy it.
+   Leave the menu open through an ordinary service refresh: it must remain usable.
+5. Close and reopen producer logs to start the eight-second read. Select loading
+   text and open its menu before the result arrives. The result must clear the
+   old selection and dismiss the menu. A stale menu, lost selection on ordinary
+   repaint, clipped menu, changed log text, or incorrect clipboard is a failure.
+6. Quit the fixture app, close the scratch editor without saving, and run the
+   cleanup commands in step 6 below. Record this menu result in the packet and
+   delivery-order row, then remove its pending-human-check entry when it passes.
 
-## Expected Final Report Format
+## Accepted bottom-pane check and fixture
 
-1. Files changed
-2. Tests run
-3. Behavior changed
-4. Deviations from task
-5. Unresolved concerns
-6. Operator visual check
+Operator confirmation: all of these visual checks passed on 2026-09-09.
+The fixture remains available for the added menu check above.
 
-## Escalation Triggers
+1. Use a Linux desktop terminal with a running user systemd session, Rust/Cargo,
+   `sh`, and `awk`. Quit any existing v4vmm window. This check supplies synthetic
+   journal output and delayed reads; it needs no installed publisher unit,
+   encoder, audio hardware, failed service, or SSH host. Create an isolated
+   config, database, and journal reader:
 
-- A top-and-bottom mode cannot fit `SplitPane` without changing the shape its
-  current callers use. Report the shape before you write a second splitter.
-- The transport and the pane cannot both stay reachable at the smallest window
-  height. Report the height and what you would give up.
-- The pane and the card grid together need a scroll region on the grid. That
-  contradicts an ADR 0063 invariant. Report it, do not add the scroll.
+   ```bash
+   cd /home/citizen/build/v4vmm
+   cargo build
+   log_check_dir=$(mktemp -d /tmp/v4vmm-0063-004.XXXXXX)
+   mkdir -p "$log_check_dir/bin" "$log_check_dir/config/v4vmm"
+   cat > "$log_check_dir/config/v4vmm/config.toml" <<EOF
+   music_dir = "$log_check_dir/music"
+   db_path = "$log_check_dir/library.sqlite"
+   musicindex_endpoint = "https://api.musicindex.org"
+   EOF
+   cat > "$log_check_dir/bin/journalctl" <<'SH'
+   #!/bin/sh
+   unit=
+   while [ "$#" -gt 0 ]; do
+       case "$1" in -u) shift; unit=$1 ;; esac
+       shift
+   done
+   case "$unit" in mixxx-now-playing.service) sleep 8 ;; *) sleep 1 ;; esac
+   awk -v unit="$unit" 'BEGIN {
+       for (i = 1; i <= 50; i++) {
+           printf "  %s line %02d café 🦀 <tag> & ", unit, i
+           for (j = 0; j < 40; j++) printf "wide-log-segment "
+           printf "END-OF-LINE-%02d\n", i
+       }
+   }'
+   SH
+   chmod +x "$log_check_dir/bin/journalctl"
+   PATH="$log_check_dir/bin:$PATH" \
+     XDG_CONFIG_HOME="$log_check_dir/config" \
+     XDG_DATA_HOME="$log_check_dir/data" \
+     target/debug/v4vmm
+   ```
 
-## Prompt for lower-context coding model
+2. Open **Show**, wait for the local service rows, then open **Live Metadata**.
+   Press **Logs** for `mixxx-now-playing.service`. Its named bottom pane should
+   appear immediately with loading text. Select **Stream** during the eight-second
+   read. The pane should stay open, and completion must leave Stream selected.
+   Log output appearing in the side panel, or detail selection changing on
+   completion, is wrong.
 
-You are implementing one bounded task from a larger plan.
+3. In the returned journal, scroll vertically to line 50 and horizontally to
+   `END-OF-LINE-50`, using a horizontal trackpad gesture or Shift+mouse wheel.
+   Each record must occupy one line. Wrapping, an ellipsis, an inaccessible end
+   marker, or an incorrect unit label/count is wrong.
 
-Implement only this task. Do not redesign the architecture.
+   Drag-select part of one line and then several lines; press Ctrl+C and paste
+   into a desktop text editor. Repeat with a reverse drag and Ctrl+A followed by
+   Ctrl+C. The paste must retain the selected spaces, blank lines, accents,
+   emoji, and literal `<tag> &` text. Selection should remain highlighted through
+   an ordinary service refresh. Typing, Backspace, Delete, and Ctrl+V must not
+   change the log text. A service switch/result should clear the old selection.
+   Wrong characters, lost whitespace, absent highlighting, edits to the log, or
+   broken horizontal scrolling count as failures. Close the scratch editor
+   without saving after this check.
 
-Read:
-- `docs/adr/0063-show-dashboard-layout.md`, `Log Output Is A Bottom Pane`
-- `docs/troubleshooting/column-text-truncation.md`
-- `src/ui/composites/show_detail_panel.rs`, `src/ui/shells/show.rs`
-- `src/ui/shells/workspace.rs` for the resize precedent
+4. Drag the horizontal handle above the log pane to both height limits. Resize
+   the window through its default 1120×760 size, a 900×760 two-column size, and
+   a tall 680×1100 one-column size at Medium UI scale. Repeat at your usual UI
+   scale and smallest working desktop window. All cards, the pane close control,
+   and the transport must remain reachable; the grid must not scroll. Record
+   the dimensions and scale if anything clips. Close the log pane and the side
+   panel separately; the card grid and transport must remain visible. The empty
+   fixture has no playable queue, so disabled playback actions are expected.
 
-Goal:
-- Move the service log out of the side panel and into a resizable, closable pane
-  across the bottom of the main region.
+5. Return to **Live Metadata**. Open the producer logs and press its **Logs**
+   again before eight seconds pass. Wait ten seconds: the pane must remain
+   closed. Repeat using the pane's close control. Then open producer logs and
+   immediately press publisher **Logs**. The pane must switch to
+   `musicindex-live-publisher@mixxx.service`, return its text after one second,
+   and retain that unit/text when the old producer read finishes. A same-service
+   press after completion must also close it. Reopen producer logs after closing
+   a pending producer read; the earlier result must not finish the newer read.
 
-Constraints:
-- The pane belongs to `Show`. It survives a card change. It closes from its own
-  control, or from a second `Logs` press on the service it already shows.
-- Add a top-and-bottom mode to `SplitPane`, which is width-only today. Do not
-  write a second splitter, and keep every current caller working.
-- The pane names the unit it shows.
-- A log line does not wrap and is not cut. It scrolls sideways.
-- A log result applies only when it answers the current request.
-- The log path sets no panel mode. Delete the guard that required it.
-- The card grid still does not scroll. The transport stays reachable.
+6. Cleanup: quit the fixture app and, in the same terminal, run:
 
-Do not touch:
-- `src/broadcast/**`, `src/runtime/**`, the card contract, the queue contract
+   ```bash
+   rm -rf -- "$log_check_dir"
+   unset log_check_dir
+   ```
 
-Acceptance criteria:
-- The pane state is independent of the panel mode, and tests prove it.
-- A `Logs` action opens the pane for that unit.
-- The detail panel renders no log text.
-
-Test commands:
-- `cargo fmt -- --check`
-- `cargo test show --lib --quiet`
-- `cargo test --test architecture_tests --quiet`
-- `cargo clippy --quiet -- -D warnings`
-
-At the end, report:
-1. files changed
-2. tests run
-3. behavior changed
-4. deviations from task
-5. unresolved concerns
-6. operator visual check
+   The environment overrides applied only to that app process. No real config,
+   library, or service unit was changed. Record the visual result in this packet
+   and the delivery-order row; remove its pending-human-check entry only after
+   all visual steps pass.

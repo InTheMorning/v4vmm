@@ -1,19 +1,25 @@
-//! Context-menu primitive for row-level commands.
+//! Context-menu primitive for row commands and ADR 0063 text selection.
 //!
 //! GPUI does not currently expose a native arbitrary-element context-menu API,
 //! so this primitive uses the shared [`Popover`] infrastructure while owning
 //! the menu row chrome and action contract. Screens should pass display-ready
 //! menu items instead of hand-rolling floating row action panels.
+//! Pointer menus reuse those rows and the shared surface at the click position.
 
 #![warn(clippy::pedantic)]
 
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, App, Entity, IntoElement, RenderOnce, SharedString, Window};
+use gpui::{
+    anchored, deferred, div, prelude::*, App, ElementId, Entity, FocusHandle, IntoElement,
+    MouseButton, Pixels, Point, RenderOnce, SharedString, Window,
+};
 
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
-use crate::ui::primitives::{Button, Popover, PopoverAlignment, PopoverPlacement};
+use crate::ui::primitives::{
+    Button, Popover, PopoverAlignment, PopoverPlacement, Surface, SurfaceElevation,
+};
 use crate::ui::tokens::{Size, Spacing};
 
 type SelectHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -58,6 +64,90 @@ pub struct ContextMenu {
     trigger_label: SharedString,
     trigger_a11y_label: SharedString,
     items: Vec<ContextMenuItem>,
+}
+
+/// Controlled menu at a pointer position. The owner removes it on dismissal.
+#[derive(IntoElement)]
+#[must_use]
+pub struct PointerContextMenu {
+    id: ElementId,
+    position: Point<Pixels>,
+    return_focus: FocusHandle,
+    items: Vec<ContextMenuItem>,
+    on_dismiss: SelectHandler,
+}
+
+impl PointerContextMenu {
+    pub fn new(
+        id: impl Into<ElementId>,
+        position: Point<Pixels>,
+        return_focus: FocusHandle,
+        on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            position,
+            return_focus,
+            items: Vec::new(),
+            on_dismiss: Rc::new(on_dismiss),
+        }
+    }
+
+    pub fn item(mut self, item: ContextMenuItem) -> Self {
+        self.items.push(item);
+        self
+    }
+}
+
+impl RenderOnce for PointerContextMenu {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let focus = window.use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle());
+        let focus = focus.read(cx).clone();
+        if !focus.contains_focused(window, cx) {
+            focus.focus(window);
+        }
+        let dismiss: SelectHandler = Rc::new(move |window, cx| {
+            self.return_focus.focus(window);
+            (self.on_dismiss)(window, cx);
+        });
+        let outside_dismiss = dismiss.clone();
+        let escape_dismiss = dismiss.clone();
+        let menu = div()
+            .id(self.id)
+            .track_focus(&focus)
+            .occlude()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_mouse_down_out(move |_, window, cx| {
+                outside_dismiss(window, cx);
+                cx.stop_propagation();
+            })
+            .on_key_down(move |event, window, cx| {
+                if event.keystroke.key == "escape" {
+                    escape_dismiss(window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            .child(
+                Surface::new(SurfaceElevation::Floating)
+                    .padding(Spacing::SM)
+                    .child(build_menu_content(&dismiss, self.items, cx)),
+            );
+
+        deferred(
+            anchored().child(
+                div()
+                    .w(window.bounds().size.width)
+                    .h(window.bounds().size.height)
+                    .occlude()
+                    .child(
+                        anchored()
+                            .position(self.position)
+                            .snap_to_window_with_margin(Spacing::SM.scaled(cx))
+                            .child(menu),
+                    ),
+            ),
+        )
+    }
 }
 
 impl ContextMenuItem {
@@ -142,12 +232,21 @@ impl RenderOnce for ContextMenu {
                     .label(self.trigger_label)
                     .a11y_label(self.trigger_a11y_label),
             )
-            .content(move |_window, cx| build_menu_content(&state, items.clone(), cx))
+            .content(move |_window, cx| {
+                let state = state.clone();
+                let dismiss: SelectHandler = Rc::new(move |_, cx| {
+                    state.update(cx, |state, cx| {
+                        state.open = false;
+                        cx.notify();
+                    });
+                });
+                build_menu_content(&dismiss, items.clone(), cx)
+            })
     }
 }
 
 fn build_menu_content(
-    state: &Entity<ContextMenuState>,
+    on_dismiss: &SelectHandler,
     items: Vec<ContextMenuItem>,
     cx: &App,
 ) -> impl IntoElement {
@@ -161,7 +260,7 @@ fn build_menu_content(
     for item in items {
         let display = item.display;
         let on_select = item.on_select;
-        let state = state.clone();
+        let on_dismiss = on_dismiss.clone();
         let mut button = if display.destructive {
             Button::styled(display.id, ControlStyle::DestructiveRowAction)
         } else {
@@ -175,10 +274,7 @@ fn build_menu_content(
 
         if !display.disabled {
             button = button.on_click(move |_, window, cx| {
-                state.update(cx, |state, cx| {
-                    state.open = false;
-                    cx.notify();
-                });
+                on_dismiss(window, cx);
                 if let Some(handler) = &on_select {
                     handler(window, cx);
                 }

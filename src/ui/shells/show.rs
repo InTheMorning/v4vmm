@@ -10,12 +10,13 @@
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, App, ClickEvent, FontWeight, IntoElement, ParentElement, RenderOnce,
-    SharedString, Styled, Window,
+    div, prelude::*, App, ClickEvent, FontWeight, IntoElement, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, ParentElement, RenderOnce, SharedString, Styled, Window,
 };
 
 use crate::ui::composites::{
-    ShowCard, ShowDetailPanel, ShowDetailPanelDisplay, ShowDetailPanelSlots,
+    ShowCard, ShowDetailPanel, ShowDetailPanelDisplay, ShowDetailPanelSlots, ShowLogPane,
+    ShowLogPaneSlots,
 };
 use crate::ui::shells::queue_now_playing::{render_queue_transport, QueueNowPlayingSlots};
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
@@ -30,6 +31,7 @@ pub(crate) struct ShowSlots {
     queue: QueueNowPlayingSlots,
     card: ShowCardSlots,
     panel: ShowDetailPanelSlots,
+    log: ShowLogPaneSlots,
 }
 
 impl Default for ShowSlots {
@@ -38,6 +40,7 @@ impl Default for ShowSlots {
             queue: QueueNowPlayingSlots::new(),
             card: ShowCardSlots::default(),
             panel: ShowDetailPanelSlots::new(),
+            log: ShowLogPaneSlots::default(),
         }
     }
 }
@@ -168,7 +171,40 @@ impl ShowSlots {
         mut self,
         handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
-        self.panel = self.panel.on_close_publisher_logs(handler);
+        self.log.close = Some(Rc::new(handler));
+        self
+    }
+
+    /// Supplies shared log split geometry and resize callbacks.
+    pub(crate) fn on_log_layout(
+        mut self,
+        handler: impl Fn(f32, f32, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.log.layout = Some(Rc::new(handler));
+        self
+    }
+
+    pub(crate) fn on_log_resize_start(
+        mut self,
+        handler: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.log.resize_start = Some(Rc::new(handler));
+        self
+    }
+
+    pub(crate) fn on_log_resize_move(
+        mut self,
+        handler: impl Fn(&MouseMoveEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.log.resize_move = Some(Rc::new(handler));
+        self
+    }
+
+    pub(crate) fn on_log_resize_end(
+        mut self,
+        handler: impl Fn(&MouseUpEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.log.resize_end = Some(Rc::new(handler));
         self
     }
 
@@ -238,10 +274,13 @@ impl RenderOnce for ShowShell {
             panel_mode,
             panel_open,
             panel_chrome,
+            log_pane,
             queue,
             status_message,
         } = self.vm;
         let transport = queue.transport.clone();
+        let grid_rows = u16::try_from(cards.len().div_ceil(usize::from(width_class.columns())))
+            .expect("Show card count fits in u16");
 
         div()
             .id("show-screen")
@@ -288,14 +327,22 @@ impl RenderOnce for ShowShell {
                             .min_h_0()
                             .min_w_0()
                             .overflow_hidden()
-                            .child(render_show_card_grid(
-                                cards,
-                                width_class,
-                                panel_mode,
-                                panel_open,
-                                &self.slots.card,
-                                cx,
-                            ))
+                            .child(
+                                ShowLogPane::new(
+                                    log_pane,
+                                    render_show_card_grid(
+                                        cards,
+                                        width_class,
+                                        panel_mode,
+                                        panel_open,
+                                        &self.slots.card,
+                                        cx,
+                                    )
+                                    .into_any_element(),
+                                    grid_rows,
+                                )
+                                .slots(self.slots.log),
+                            )
                             .child(render_queue_transport(transport, self.slots.queue)),
                     )
                     .child(ShowDetailPanel::new(

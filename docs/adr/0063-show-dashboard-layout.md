@@ -66,19 +66,35 @@ Selecting a card while the panel is closed opens the panel in `Detail`.
 
 Amended 2026-09-08, after an operator read the log in the panel.
 
-Log output is not panel content. It renders in a pane across the bottom of the
-main region, under the card grid. The pane resizes, and it closes.
+The log placement and shared resize implementation are enforced by
+`adr_0063_logs_use_an_independent_bottom_pane_and_current_request` in
+`tests/architecture_tests.rs` (situational, ADR 0063).
+
+Amended 2026-09-09: the selectable, read-only plain-text contract is enforced by
+`adr_0063_log_text_is_selectable_and_copied_without_rewriting` and the selection
+tests in `src/view_models/text_selection.rs` (situational, ADR 0063). The operator check below
+covers dragging, Ctrl+C/Ctrl+A, highlighting, and selection across repainting.
+
+The same plain-text selection also supports right-click Copy. The shared
+context-menu primitive owns pointer anchoring, dismissal, and menu chrome;
+the text-selection view model owns Copy availability and its labels.
+`adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions` enforces
+shared copying, selection preservation, and dismissal on changed source text
+(situational, ADR 0063).
 
 The panel is narrow, because it holds one card of detail beside the grid. A log
 line is long. A narrow column turns every line into a wrapped paragraph, and an
 operator who reads a failure reads it one word at a time.
 
-The bottom pane belongs to `Show`, not to the panel. It opens from the `Logs`
-action of any service, and it names the unit it shows. It stays open while the
-operator moves between cards.
+The `show_logs_*` view-model tests enforce pane ownership, unit naming, action
+cycling, card independence, and rejection of obsolete log reads. Width and
+height geometry tests in `split_pane.rs` protect the shared splitter.
 
-The `Detail` mode of the panel keeps the service rows and the service actions.
-It gives up the log text only.
+Readability, horizontal scroll reach, drag behavior, and transport visibility
+remain operator checks in
+[task 004](../tasks/adr-0063-task-004-log-bottom-pane.md#operator-visual-check).
+The operator confirmed these checks and the added right-click Copy menu on
+2026-09-09. Task 004 has no remaining visual acceptance gate.
 
 ### Transport Stays Outside The Panel
 
@@ -120,8 +136,6 @@ is still unknown. That document explains. This record decides.
 - Text stacked in a column does not call `truncate()`.
 - The view model owns the column count. The shell reads it.
 - The panel shows the cuelist or one card detail, never both.
-- Log output renders in the bottom pane of `Show`, never in the panel.
-- The bottom pane resizes and closes, and it names the unit it shows.
 - The transport controls stay reachable when the panel is closed.
 - The panel closes, and the grid continues to work when it is closed.
 - The section set and the section order stay as ADR 0059 states them.
@@ -159,7 +173,7 @@ stays a reasonable answer if the section count grows past what one screen holds.
 
 - `ShowPageVm` gains a width class, a column count, a panel mode, and a selected
   card. The four section fields stay.
-- The publisher log panel state moves from the section to the panel.
+- The log pane state lives on `ShowPageVm`, independently of the side panel.
 - `render_show` renders a grid and a panel, not a column of sections.
 - The queue keeps its display contract. Only its container changes.
 - The transport moves out of the queue container, so it survives a closed

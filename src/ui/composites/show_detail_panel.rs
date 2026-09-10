@@ -21,10 +21,10 @@ use crate::ui::shells::queue_now_playing::render_queue_cuelist;
 use crate::ui::tokens::{color, FontSize, Radius, SemanticColor, Size, Spacing};
 use crate::view_models::queue_now_playing::QueueNowPlayingPageVm;
 use crate::view_models::show::{
-    EventActionDisplay, EventSectionDisplay, PublisherActionDisplay, PublisherLogPanelState,
-    PublisherSectionDisplay, PublisherServiceDisplay, PublisherServiceRole, ShowCardKind,
-    ShowPanelActionDisplay, ShowPanelChromeDisplay, ShowPanelMode, SourceReadinessActionDisplay,
-    SourceSectionDisplay, StreamActionDisplay, StreamSectionDisplay,
+    EventActionDisplay, EventSectionDisplay, PublisherActionDisplay, PublisherSectionDisplay,
+    PublisherServiceDisplay, PublisherServiceRole, ShowCardKind, ShowPanelActionDisplay,
+    ShowPanelChromeDisplay, ShowPanelMode, SourceReadinessActionDisplay, SourceSectionDisplay,
+    StreamActionDisplay, StreamSectionDisplay,
 };
 
 type PanelClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
@@ -65,7 +65,6 @@ pub(crate) struct ShowDetailPanelSlots {
     publisher_stop: Option<PublisherClickHandler>,
     publisher_reset: Option<PublisherClickHandler>,
     publisher_open_logs: Option<PublisherClickHandler>,
-    publisher_close_logs: Option<PanelClickHandler>,
     event_attach: Option<PanelClickHandler>,
     event_detach: Option<PanelClickHandler>,
     stream_connect: Option<PanelClickHandler>,
@@ -147,15 +146,6 @@ impl ShowDetailPanelSlots {
         handler: impl Fn(PublisherServiceRole, &ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.publisher_open_logs = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the publisher log close callback.
-    pub(crate) fn on_close_publisher_logs(
-        mut self,
-        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.publisher_close_logs = Some(Rc::new(handler));
         self
     }
 
@@ -448,12 +438,7 @@ fn render_publisher_detail(
         detail = detail.child(render_publisher_service(service, slots, cx));
     }
 
-    detail.child(render_publisher_logs(
-        section.log_panel,
-        section.close_logs,
-        slots,
-        cx,
-    ))
+    detail
 }
 
 fn render_publisher_service(
@@ -499,66 +484,6 @@ fn render_publisher_service(
             ],
             cx,
         ))
-}
-
-fn render_publisher_logs(
-    log_panel: PublisherLogPanelState,
-    close_logs: PublisherActionDisplay,
-    slots: &ShowDetailPanelSlots,
-    cx: &App,
-) -> AnyElement {
-    let PublisherLogPanelState::Open {
-        unit_name,
-        line_count,
-        text,
-        ..
-    } = log_panel
-    else {
-        return div().into_any_element();
-    };
-
-    div()
-        .id("show-publisher-logs")
-        .flex()
-        .flex_col()
-        .gap(Spacing::SM.scaled(cx))
-        .pt(Spacing::SM.scaled(cx))
-        .border_t_1()
-        .border_color(color(cx, SemanticColor::Separator))
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .gap(Spacing::SM.scaled(cx))
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .overflow_hidden()
-                                .text_size(FontSize::Body.scaled(cx))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(color(cx, SemanticColor::Label))
-                                .child(SharedString::from(unit_name)),
-                        )
-                        .child(
-                            div()
-                                .text_size(FontSize::Micro.scaled(cx))
-                                .text_color(color(cx, SemanticColor::TertiaryLabel))
-                                .child(SharedString::from(format!("{line_count} log lines"))),
-                        ),
-                )
-                .child(publisher_close_button(
-                    close_logs,
-                    slots.publisher_close_logs.clone(),
-                )),
-        )
-        .child(render_log_output(&text, line_count, cx))
-        .into_any_element()
 }
 
 fn render_event_detail(
@@ -775,36 +700,6 @@ fn render_controls(controls: Vec<AnyElement>, cx: &App) -> impl IntoElement {
         .children(controls)
 }
 
-fn render_log_output(text: &str, line_count: usize, cx: &App) -> impl IntoElement {
-    let mut output = div()
-        .id("show-publisher-log-output")
-        .flex()
-        .flex_col()
-        .min_w_0()
-        .gap(Spacing::XXS.scaled(cx))
-        .rounded(Radius::SM.scaled(cx))
-        .bg(color(cx, SemanticColor::TertiarySystemBackground))
-        .p(Spacing::SM.scaled(cx))
-        .text_size(FontSize::Micro.scaled(cx))
-        .text_color(color(cx, SemanticColor::SecondaryLabel));
-
-    let mut has_lines = false;
-    for line in text.lines().take(line_count) {
-        has_lines = true;
-        output = output.child(
-            div()
-                .overflow_hidden()
-                .child(SharedString::from(line.to_owned())),
-        );
-    }
-
-    if has_lines {
-        output
-    } else {
-        output.child(SharedString::from("No log lines returned."))
-    }
-}
-
 fn panel_icon_button(
     display: ShowPanelActionDisplay,
     icon: IconName,
@@ -884,20 +779,6 @@ fn stream_action_button(
     let disabled = display.disabled() || handler.is_none();
     detail_action_button(
         display.id,
-        display.label,
-        display.a11y_label,
-        disabled,
-        handler,
-    )
-}
-
-fn publisher_close_button(
-    display: PublisherActionDisplay,
-    handler: Option<PanelClickHandler>,
-) -> Button {
-    let disabled = display.disabled() || handler.is_none();
-    detail_action_button(
-        SharedString::from(display.id),
         display.label,
         display.a11y_label,
         disabled,

@@ -355,9 +355,9 @@ pub(crate) struct PublisherLogsDisplay {
     pub(crate) unit_name: String,
     /// Number of journal lines requested.
     pub(crate) line_count: usize,
-    /// Whether this unit's log panel is open.
+    /// Whether this unit's bottom log pane is open.
     pub(crate) open: bool,
-    /// Action that opens the log panel.
+    /// Action that cycles the bottom log pane.
     pub(crate) action: PublisherActionDisplay,
 }
 
@@ -380,68 +380,132 @@ pub(crate) struct PublisherServiceDisplay {
     pub(crate) logs: PublisherLogsDisplay,
 }
 
-/// Log panel state carried by the Show view model.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) enum PublisherLogPanelState {
-    /// The log panel is closed.
-    #[default]
-    Closed,
-    /// The log panel is open for one service unit.
-    Open {
-        /// Service role whose journal text is shown.
-        role: PublisherServiceRole,
-        /// Complete service unit name.
-        unit_name: String,
-        /// Number of journal lines requested.
-        line_count: usize,
-        /// Journal text rendered by the shell as plain text.
-        text: String,
-    },
+/// Identifies one log read, including successive reads of the same service.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ShowLogRequestId(u64);
+
+/// Display-ready bottom pane and request state owned by Show (ADR 0063).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ShowLogPaneDisplay {
+    pub(crate) open: bool,
+    pub(crate) unit_name: String,
+    pub(crate) text: String,
+    pub(crate) line_count: usize,
+    pub(crate) line_count_label: String,
+    /// Preferred pane height in unscaled layout units.
+    pub(crate) height: f32,
+    /// Last allocated split height, excluding the transport.
+    pub(crate) region_height: f32,
+    available_height: f32,
+    pub(crate) close: PublisherActionDisplay,
+    role: Option<PublisherServiceRole>,
+    request: Option<ShowLogRequestId>,
+    next_request: u64,
 }
 
-impl PublisherLogPanelState {
-    /// Returns whether the panel already shows this service's journal.
-    #[must_use]
-    pub(crate) fn shows_role(&self, role: PublisherServiceRole) -> bool {
-        matches!(self, Self::Open { role: open, .. } if *open == role)
-    }
+pub(crate) const SHOW_LOG_DEFAULT_HEIGHT: f32 = 200.0;
+pub(crate) const SHOW_LOG_MIN_HEIGHT: f32 = 96.0;
+pub(crate) const SHOW_LOG_MAX_HEIGHT: f32 = 600.0;
 
-    /// Create a closed log-panel state.
+impl ShowLogPaneDisplay {
+    /// Creates a closed pane with no outstanding read.
     #[must_use]
-    pub(crate) const fn closed() -> Self {
-        Self::Closed
-    }
-
-    /// Create an open log-panel state.
-    #[must_use]
-    pub(crate) fn open(
-        role: PublisherServiceRole,
-        unit_name: impl Into<String>,
-        line_count: usize,
-        text: impl Into<String>,
-    ) -> Self {
-        Self::Open {
-            role,
-            unit_name: unit_name.into(),
-            line_count,
-            text: text.into(),
+    pub(crate) fn closed() -> Self {
+        Self {
+            open: false,
+            unit_name: String::new(),
+            text: String::new(),
+            line_count: 0,
+            line_count_label: String::new(),
+            height: SHOW_LOG_DEFAULT_HEIGHT,
+            region_height: 0.0,
+            available_height: SHOW_LOG_MAX_HEIGHT,
+            close: PublisherActionDisplay {
+                id: "show-log-pane-close".to_owned(),
+                label: "Close",
+                a11y_label: "Close service logs".to_owned(),
+                availability: PublisherActionAvailability::Unavailable,
+            },
+            role: None,
+            request: None,
+            next_request: 0,
         }
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "ADR 0063 task 003 moves publisher logs into the detail panel."
-        )
-    )]
     #[must_use]
-    pub(crate) const fn is_open(&self) -> bool {
-        matches!(self, Self::Open { .. })
+    pub(crate) fn shows_role(&self, role: PublisherServiceRole) -> bool {
+        self.open && self.role == Some(role)
     }
 
-    fn is_open_for(&self, role: PublisherServiceRole) -> bool {
-        matches!(self, Self::Open { role: open_role, .. } if *open_role == role)
+    fn begin_read(&mut self, role: PublisherServiceRole, unit_name: String) -> ShowLogRequestId {
+        self.next_request += 1;
+        let request = ShowLogRequestId(self.next_request);
+        self.request = Some(request);
+        self.role = Some(role);
+        self.open = true;
+        self.unit_name = unit_name;
+        "Reading service logs…".clone_into(&mut self.text);
+        self.line_count = 0;
+        "Reading logs".clone_into(&mut self.line_count_label);
+        self.close.availability = PublisherActionAvailability::Available;
+        request
+    }
+
+    fn close(&mut self) {
+        self.open = false;
+        self.request = None;
+        self.role = None;
+        self.close.availability = PublisherActionAvailability::Unavailable;
+    }
+
+    /// Applies only the current read, including its failure, without reopening a pane.
+    pub(crate) fn apply_result(
+        &mut self,
+        request: ShowLogRequestId,
+        result: Result<String, String>,
+    ) -> bool {
+        if !self.open || self.request != Some(request) {
+            return false;
+        }
+        self.request = None;
+        match result {
+            Ok(text) => {
+                self.line_count = text.lines().count();
+                self.line_count_label = format!("{} log lines", self.line_count);
+                self.text = if text.is_empty() {
+                    "No log lines returned.".to_owned()
+                } else {
+                    text
+                };
+            }
+            Err(message) => {
+                self.line_count = 0;
+                "Log read failed".clone_into(&mut self.line_count_label);
+                self.text = message;
+            }
+        }
+        true
+    }
+
+    /// Stores a bounded preferred height; the layout also reserves the card grid's height.
+    pub(crate) fn resize(&mut self, height: f32) {
+        if height.is_finite() {
+            let maximum = self.available_height.min(SHOW_LOG_MAX_HEIGHT);
+            self.height = height.clamp(SHOW_LOG_MIN_HEIGHT.min(maximum), maximum);
+        }
+    }
+
+    /// Reserves the measured grid and shared handle before bounding log height.
+    pub(crate) fn update_geometry(&mut self, region_height: f32, available_height: f32) -> bool {
+        if !region_height.is_finite() || !available_height.is_finite() {
+            return false;
+        }
+        let changed = (self.region_height - region_height).abs() > f32::EPSILON
+            || (self.available_height - available_height).abs() > f32::EPSILON;
+        self.region_height = region_height;
+        self.available_height = available_height.max(0.0);
+        self.resize(self.height);
+        changed
     }
 }
 
@@ -454,10 +518,6 @@ pub(crate) struct PublisherSectionDisplay {
     pub(crate) summary: String,
     /// Observed service rows, in fixed section order.
     pub(crate) services: Vec<PublisherServiceDisplay>,
-    /// Current log-panel state.
-    pub(crate) log_panel: PublisherLogPanelState,
-    /// Close action for the log panel.
-    pub(crate) close_logs: PublisherActionDisplay,
 }
 
 /// Display-ready Event section for the `Show` screen mount.
@@ -1163,6 +1223,8 @@ pub(crate) struct ShowPageVm {
     pub(crate) panel_open: bool,
     /// Side-panel chrome action display state.
     pub(crate) panel_chrome: ShowPanelChromeDisplay,
+    /// Bottom log pane, independent of the side-panel mode.
+    pub(crate) log_pane: ShowLogPaneDisplay,
     /// Queue and transport display projected by the existing queue VM.
     pub(crate) queue: QueueNowPlayingPageVm,
     /// Last command message, shown on this screen.
@@ -1182,7 +1244,7 @@ impl ShowPageVm {
     /// Projects the Show page from the existing queue display contract.
     #[must_use]
     pub(crate) fn from_queue(queue: QueueNowPlayingPageVm) -> Self {
-        Self::from_queue_and_publisher(queue, None, PublisherLogPanelState::closed())
+        Self::from_queue_and_publisher(queue, None, ShowLogPaneDisplay::closed())
     }
 
     /// Projects the Show page from queue display and publisher service state.
@@ -1190,9 +1252,9 @@ impl ShowPageVm {
     pub(crate) fn from_queue_and_publisher(
         queue: QueueNowPlayingPageVm,
         publisher_snapshot: Option<&broadcast_service_watch::BroadcastServiceWatchSnapshot>,
-        log_panel: PublisherLogPanelState,
+        log_pane: ShowLogPaneDisplay,
     ) -> Self {
-        Self::from_queue_publisher_and_readiness(queue, publisher_snapshot, log_panel, None)
+        Self::from_queue_publisher_and_readiness(queue, publisher_snapshot, log_pane, None)
     }
 
     /// Projects the Show page from queue, publisher state, and readiness state.
@@ -1200,13 +1262,13 @@ impl ShowPageVm {
     pub(crate) fn from_queue_publisher_and_readiness(
         queue: QueueNowPlayingPageVm,
         publisher_snapshot: Option<&broadcast_service_watch::BroadcastServiceWatchSnapshot>,
-        log_panel: PublisherLogPanelState,
+        log_pane: ShowLogPaneDisplay,
         readiness_snapshot: Option<&BroadcastReadinessSnapshot>,
     ) -> Self {
         Self::from_queue_publisher_readiness_and_event(
             queue,
             publisher_snapshot,
-            log_panel,
+            log_pane,
             readiness_snapshot,
             None,
         )
@@ -1217,7 +1279,7 @@ impl ShowPageVm {
     pub(crate) fn from_queue_publisher_readiness_and_event(
         queue: QueueNowPlayingPageVm,
         publisher_snapshot: Option<&broadcast_service_watch::BroadcastServiceWatchSnapshot>,
-        log_panel: PublisherLogPanelState,
+        log_pane: ShowLogPaneDisplay,
         readiness_snapshot: Option<&BroadcastReadinessSnapshot>,
         event_input: Option<&EventSectionInput>,
     ) -> Self {
@@ -1231,7 +1293,7 @@ impl ShowPageVm {
         let source = publisher_snapshot
             .and_then(|snapshot| SourceSectionDisplay::from_snapshot(snapshot, readiness_snapshot));
         let publisher = match publisher_snapshot {
-            Some(snapshot) => PublisherSectionDisplay::from_snapshot(snapshot, log_panel),
+            Some(snapshot) => PublisherSectionDisplay::from_snapshot(snapshot, &log_pane),
             None => None,
         };
         let publisher_reachable = publisher_snapshot.is_some_and(|snapshot| {
@@ -1268,7 +1330,51 @@ impl ShowPageVm {
             panel_open: true,
             status_message: None,
             panel_chrome: ShowPanelChromeDisplay::default(),
+            log_pane,
             queue,
+        }
+    }
+
+    /// Cycles the Logs action and returns an identifier only when a read is needed.
+    pub(crate) fn toggle_publisher_logs(
+        &mut self,
+        role: PublisherServiceRole,
+    ) -> Option<ShowLogRequestId> {
+        if self.log_pane.shows_role(role) {
+            self.close_publisher_logs();
+            return None;
+        }
+        let service = self
+            .publisher
+            .as_ref()?
+            .services
+            .iter()
+            .find(|service| service.role == role)?;
+        if service.logs.action.disabled() {
+            return None;
+        }
+        let request = self.log_pane.begin_read(role, service.unit_name.clone());
+        self.refresh_log_actions();
+        Some(request)
+    }
+
+    /// Closes logs and invalidates the pending read without changing the detail panel.
+    pub(crate) fn close_publisher_logs(&mut self) {
+        self.log_pane.close();
+        self.refresh_log_actions();
+    }
+
+    fn refresh_log_actions(&mut self) {
+        if let Some(publisher) = &mut self.publisher {
+            for service in &mut publisher.services {
+                service.logs = service_logs(
+                    service.role,
+                    service.label,
+                    &service.unit_name,
+                    &service.state,
+                    &self.log_pane,
+                );
+            }
         }
     }
 
@@ -1906,7 +2012,7 @@ const fn event_action_availability(available: bool) -> EventActionAvailability {
 impl PublisherSectionDisplay {
     fn from_snapshot(
         snapshot: &broadcast_service_watch::BroadcastServiceWatchSnapshot,
-        log_panel: PublisherLogPanelState,
+        log_pane: &ShowLogPaneDisplay,
     ) -> Option<Self> {
         if snapshot.units.is_empty() {
             return None;
@@ -1914,7 +2020,7 @@ impl PublisherSectionDisplay {
         let services: Vec<_> = snapshot
             .units
             .iter()
-            .map(|unit| PublisherServiceDisplay::from_snapshot(unit, &log_panel))
+            .map(|unit| PublisherServiceDisplay::from_snapshot(unit, log_pane))
             .collect();
         let summary = service_summary(&services);
 
@@ -1922,13 +2028,6 @@ impl PublisherSectionDisplay {
             title: "Live Metadata",
             summary,
             services,
-            log_panel,
-            close_logs: PublisherActionDisplay {
-                id: "publisher-close-logs".to_owned(),
-                label: "Close",
-                a11y_label: "Close publisher logs".to_owned(),
-                availability: PublisherActionAvailability::Available,
-            },
         })
     }
 }
@@ -1936,7 +2035,7 @@ impl PublisherSectionDisplay {
 impl PublisherServiceDisplay {
     fn from_snapshot(
         snapshot: &broadcast_service_watch::BroadcastServiceUnitSnapshot,
-        log_panel: &PublisherLogPanelState,
+        log_pane: &ShowLogPaneDisplay,
     ) -> Self {
         let state = PublisherServiceStateDisplay::from_service_state(&snapshot.state);
         let label = service_label(snapshot.role);
@@ -1948,7 +2047,7 @@ impl PublisherServiceDisplay {
             label,
             unit_name: unit_name.clone(),
             actions: service_actions(snapshot.role, label, &state),
-            logs: service_logs(snapshot.role, label, &unit_name, &state, log_panel),
+            logs: service_logs(snapshot.role, label, &unit_name, &state, log_pane),
             state,
         }
     }
@@ -2159,21 +2258,21 @@ fn service_logs(
     label: &'static str,
     unit_name: &str,
     state: &PublisherServiceStateDisplay,
-    log_panel: &PublisherLogPanelState,
+    log_pane: &ShowLogPaneDisplay,
 ) -> PublisherLogsDisplay {
     let id_seed = service_id_seed(role);
     PublisherLogsDisplay {
         unit_name: unit_name.to_owned(),
         line_count: PUBLISHER_LOG_LINE_COUNT,
-        open: log_panel.is_open_for(role),
+        open: log_pane.shows_role(role),
         action: PublisherActionDisplay {
             id: format!("publisher-{id_seed}-logs"),
             label: "Logs",
             a11y_label: format!("Open {label} service logs"),
-            availability: availability(!matches!(
-                state,
-                PublisherServiceStateDisplay::NotReachable
-            )),
+            availability: availability(
+                log_pane.shows_role(role)
+                    || !matches!(state, PublisherServiceStateDisplay::NotReachable),
+            ),
         },
     }
 }
@@ -2376,7 +2475,7 @@ mod tests {
                 state,
             )]);
             let publisher =
-                PublisherSectionDisplay::from_snapshot(&snapshot, PublisherLogPanelState::closed())
+                PublisherSectionDisplay::from_snapshot(&snapshot, &ShowLogPaneDisplay::closed())
                     .expect("publisher section");
             cards.push(ShowCardDisplay::from_live_metadata(&publisher));
         }
@@ -2451,7 +2550,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
 
         assert!(vm.source.is_none());
@@ -2494,7 +2593,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
             None,
             Some(&input),
         );
@@ -2609,7 +2708,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
         let card = vm
             .cards
@@ -2638,7 +2737,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
         let card = vm
             .cards
@@ -2667,7 +2766,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
         let publisher = vm.publisher.expect("publisher section");
 
@@ -2718,7 +2817,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
         let service = &vm.publisher.expect("publisher section").services[0];
 
@@ -2767,7 +2866,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
         let service = &vm.publisher.expect("publisher section").services[0];
 
@@ -2791,7 +2890,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
 
         assert_eq!(
@@ -2838,7 +2937,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_publisher_and_readiness(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
             Some(&readiness),
         );
         let readiness = vm
@@ -2854,38 +2953,6 @@ mod tests {
         );
         assert_eq!(readiness.state, SourceReadinessState::NeedsAttention);
         assert!(!readiness.action.disabled());
-    }
-
-    #[test]
-    fn publisher_log_panel_open_state_carries_journal_text() {
-        let snapshot = publisher_snapshot([(
-            PublisherServiceRole::Publisher,
-            "musicindex-live-publisher@mixxx.service",
-            ServiceState::Active,
-        )]);
-        let vm = ShowPageVm::from_queue_and_publisher(
-            QueueNowPlayingPageVm::builder().build(),
-            Some(&snapshot),
-            PublisherLogPanelState::open(
-                PublisherServiceRole::Publisher,
-                "musicindex-live-publisher@mixxx.service",
-                50,
-                "line one\nline two\n",
-            ),
-        );
-        let publisher = vm.publisher.expect("publisher section");
-
-        assert!(publisher.log_panel.is_open());
-        assert!(publisher.services[0].logs.open);
-        assert_eq!(
-            publisher.log_panel,
-            PublisherLogPanelState::Open {
-                role: PublisherServiceRole::Publisher,
-                unit_name: "musicindex-live-publisher@mixxx.service".to_owned(),
-                line_count: 50,
-                text: "line one\nline two\n".to_owned(),
-            }
-        );
     }
 
     #[test]
@@ -2928,7 +2995,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
             None,
             Some(&input),
         );
@@ -2975,7 +3042,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
             None,
             Some(&input),
         );
@@ -3021,7 +3088,7 @@ mod tests {
         let dead_vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&reachable),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
             None,
             Some(&input),
         );
@@ -3035,7 +3102,7 @@ mod tests {
         let unreachable_vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&unreachable),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
             None,
             Some(&live_input),
         );
@@ -3076,7 +3143,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
             None,
             Some(&input),
         );
@@ -3119,7 +3186,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_publisher_readiness_and_event(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
             None,
             Some(&input),
         );
@@ -3153,7 +3220,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
         let stream = vm.stream.expect("stream section");
         let actions = stream.actions.expect("stream actions");
@@ -3202,7 +3269,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
         let stream = vm.stream.expect("stream section");
 
@@ -3235,7 +3302,7 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
         let stream = vm.stream.expect("stream section");
         let actions = stream.actions.expect("stream actions");
@@ -3264,32 +3331,13 @@ mod tests {
         let vm = ShowPageVm::from_queue_and_publisher(
             QueueNowPlayingPageVm::builder().build(),
             Some(&snapshot),
-            PublisherLogPanelState::closed(),
+            ShowLogPaneDisplay::closed(),
         );
         let stream = vm.stream.expect("stream section");
 
         assert_eq!(stream.connection.state, StreamConnectionState::NotInstalled);
         assert_eq!(stream.recording.state, StreamRecordingState::Unknown);
         assert!(stream.actions.is_none());
-    }
-
-    #[test]
-    fn log_panel_reports_the_role_it_shows() {
-        // The `Logs` action cycles, so it asks the panel what it already shows.
-        let closed = PublisherLogPanelState::closed();
-        assert!(!closed.shows_role(PublisherServiceRole::Publisher));
-
-        let open = PublisherLogPanelState::Open {
-            role: PublisherServiceRole::Publisher,
-            unit_name: "musicindex-live-publisher@mixxx.service".to_owned(),
-            line_count: 50,
-            text: "one line\n".to_owned(),
-        };
-        assert!(open.shows_role(PublisherServiceRole::Publisher));
-        assert!(
-            !open.shows_role(PublisherServiceRole::Producer),
-            "the other service switches the panel, it does not close it"
-        );
     }
 
     #[test]
@@ -3308,25 +3356,6 @@ mod tests {
 
         let vm = vm.with_status_message("   ");
         assert_eq!(vm.status_message, None, "blank text clears the message");
-    }
-
-    #[test]
-    fn opening_logs_does_not_close_the_panel() {
-        // `select_card` toggles, so the log action must not use it. Clicking
-        // `Logs` on the open card closed the panel instead of showing the log.
-        let vm = ShowPageVm::idle().select_card(ShowCardKind::LiveMetadata);
-        assert!(vm.panel_open);
-
-        let vm = vm.show_card_detail(ShowCardKind::LiveMetadata);
-
-        assert!(
-            vm.panel_open,
-            "an explicit detail open never closes the panel"
-        );
-        assert_eq!(
-            vm.panel_mode,
-            ShowPanelMode::Detail(ShowCardKind::LiveMetadata)
-        );
     }
 
     #[test]
@@ -3349,6 +3378,195 @@ mod tests {
             .select_card(ShowCardKind::Stream);
         assert!(vm.panel_open);
         assert_eq!(vm.panel_mode, ShowPanelMode::Detail(ShowCardKind::Stream));
+    }
+
+    fn show_with_log_services() -> ShowPageVm {
+        let snapshot = publisher_snapshot([
+            (
+                PublisherServiceRole::Producer,
+                "mixxx-now-playing.service",
+                ServiceState::Active,
+            ),
+            (
+                PublisherServiceRole::Publisher,
+                "musicindex-live-publisher@mixxx.service",
+                ServiceState::Active,
+            ),
+        ]);
+        ShowPageVm::from_queue_and_publisher(
+            QueueNowPlayingPageVm::builder().build(),
+            Some(&snapshot),
+            ShowLogPaneDisplay::closed(),
+        )
+    }
+
+    /// Situational ADR 0063: log intent is independent of card/panel selection.
+    #[test]
+    fn show_logs_name_each_unit_and_survive_card_selection_and_panel_close() {
+        for role in [
+            PublisherServiceRole::Producer,
+            PublisherServiceRole::Publisher,
+        ] {
+            let mut vm = show_with_log_services();
+            let request = vm.toggle_publisher_logs(role).expect("read requested");
+            let service = vm
+                .publisher
+                .as_ref()
+                .unwrap()
+                .services
+                .iter()
+                .find(|service| service.role == role)
+                .unwrap();
+            assert_eq!(vm.log_pane.unit_name, service.unit_name);
+            assert!(service.logs.open);
+            assert!(!service.logs.action.a11y_label.is_empty());
+            assert!(!vm.log_pane.close.disabled());
+            assert!(!vm.log_pane.close.a11y_label.is_empty());
+            assert!(vm
+                .log_pane
+                .apply_result(request, Ok("first line\nsecond line\n".to_owned())));
+            assert_eq!(vm.log_pane.line_count, 2);
+            assert_eq!(vm.log_pane.line_count_label, "2 log lines");
+            let pane = vm.log_pane.clone();
+            vm = vm.select_card(ShowCardKind::Stream).close_panel();
+            assert_eq!(vm.log_pane, pane);
+            let mode = vm.panel_mode;
+            let queue = vm.queue.clone();
+            vm.close_publisher_logs();
+            assert!(!vm.log_pane.open);
+            assert!(vm.log_pane.close.disabled());
+            assert_eq!(vm.panel_mode, mode);
+            assert!(!vm.panel_open);
+            assert_eq!(vm.queue, queue);
+        }
+    }
+
+    /// Situational ADR 0063: repeated Logs presses cycle even during a pending read.
+    #[test]
+    fn show_logs_cycle_same_unit_and_switch_other_unit() {
+        let mut vm = show_with_log_services();
+        let first = vm
+            .toggle_publisher_logs(PublisherServiceRole::Producer)
+            .unwrap();
+        assert!(vm
+            .toggle_publisher_logs(PublisherServiceRole::Producer)
+            .is_none());
+        assert!(!vm.log_pane.open);
+        assert!(!vm.log_pane.apply_result(first, Ok("late".to_owned())));
+        let second = vm
+            .toggle_publisher_logs(PublisherServiceRole::Producer)
+            .unwrap();
+        let third = vm
+            .toggle_publisher_logs(PublisherServiceRole::Publisher)
+            .unwrap();
+        assert_ne!(first, second);
+        assert_ne!(second, third);
+        assert!(vm.log_pane.shows_role(PublisherServiceRole::Publisher));
+        assert!(!vm
+            .log_pane
+            .apply_result(second, Err("late failure".to_owned())));
+        assert!(vm.log_pane.apply_result(third, Ok("current".to_owned())));
+        assert!(!vm
+            .log_pane
+            .apply_result(second, Ok("late success".to_owned())));
+        assert_eq!(vm.log_pane.text, "current");
+        assert!(vm
+            .toggle_publisher_logs(PublisherServiceRole::Publisher)
+            .is_none());
+        assert!(!vm.log_pane.open);
+    }
+
+    /// Situational ADR 0063: a close/reopen of the same unit invalidates its earlier read.
+    #[test]
+    fn show_logs_discard_old_and_duplicate_results_after_close_and_reprojection() {
+        let mut vm = show_with_log_services();
+        let old = vm
+            .toggle_publisher_logs(PublisherServiceRole::Producer)
+            .unwrap();
+        vm.close_publisher_logs();
+        assert!(!vm
+            .log_pane
+            .apply_result(old, Err("closed failure".to_owned())));
+        let current = vm
+            .toggle_publisher_logs(PublisherServiceRole::Producer)
+            .unwrap();
+        vm = ShowPageVm::from_queue_and_publisher(vm.queue.clone(), None, vm.log_pane.clone())
+            .with_panel_state(ShowPanelMode::Detail(ShowCardKind::Event), false);
+        let pane = vm.log_pane.clone();
+        assert!(!vm
+            .log_pane
+            .apply_result(old, Ok("old unit result".to_owned())));
+        assert_eq!(vm.log_pane, pane);
+        assert!(vm
+            .log_pane
+            .apply_result(current, Err("current failure".to_owned())));
+        assert_eq!(vm.log_pane.text, "current failure");
+        assert_eq!(vm.log_pane.line_count_label, "Log read failed");
+        assert!(!vm
+            .log_pane
+            .apply_result(current, Ok("duplicate".to_owned())));
+        assert_eq!(vm.panel_mode, ShowPanelMode::Detail(ShowCardKind::Event));
+        assert!(!vm.panel_open);
+    }
+
+    /// Situational ADR 0063: losing a host does not disable the action that closes its logs.
+    #[test]
+    fn show_logs_can_close_after_the_service_becomes_unreachable() {
+        let mut vm = show_with_log_services();
+        vm.toggle_publisher_logs(PublisherServiceRole::Publisher)
+            .unwrap();
+        let snapshot = publisher_snapshot([(
+            PublisherServiceRole::Publisher,
+            "musicindex-live-publisher@mixxx.service",
+            ServiceState::NotReachable,
+        )]);
+        vm = ShowPageVm::from_queue_and_publisher(vm.queue, Some(&snapshot), vm.log_pane);
+        assert!(!vm.publisher.as_ref().unwrap().services[0]
+            .logs
+            .action
+            .disabled());
+        assert!(vm
+            .toggle_publisher_logs(PublisherServiceRole::Publisher)
+            .is_none());
+        assert!(!vm.log_pane.open);
+        assert!(vm.publisher.as_ref().unwrap().services[0]
+            .logs
+            .action
+            .disabled());
+    }
+
+    /// Situational ADR 0063: a successful empty journal has display-ready feedback.
+    #[test]
+    fn show_logs_empty_read_is_display_ready() {
+        let mut vm = show_with_log_services();
+        let request = vm
+            .toggle_publisher_logs(PublisherServiceRole::Producer)
+            .unwrap();
+        assert!(vm.log_pane.apply_result(request, Ok(String::new())));
+        assert_eq!(vm.log_pane.text, "No log lines returned.");
+        assert_eq!(vm.log_pane.line_count, 0);
+        assert_eq!(vm.log_pane.line_count_label, "0 log lines");
+    }
+
+    /// Situational ADR 0063: dragging never consumes the space reserved for the grid.
+    #[test]
+    fn show_log_height_reserves_cards_and_survives_close() {
+        let mut vm = show_with_log_services();
+        vm.toggle_publisher_logs(PublisherServiceRole::Producer)
+            .unwrap();
+        assert!(vm.log_pane.update_geometry(500.0, 140.0));
+        vm.log_pane.resize(800.0);
+        assert!((vm.log_pane.height - 140.0).abs() < f32::EPSILON);
+        vm.log_pane.resize(-100.0);
+        assert!((vm.log_pane.height - SHOW_LOG_MIN_HEIGHT).abs() < f32::EPSILON);
+        vm.log_pane.resize(f32::NAN);
+        assert!(vm.log_pane.height.is_finite());
+        let height = vm.log_pane.height;
+        vm.close_publisher_logs();
+        vm.toggle_publisher_logs(PublisherServiceRole::Producer)
+            .unwrap();
+        assert!((vm.log_pane.height - height).abs() < f32::EPSILON);
+        assert!(!vm.log_pane.update_geometry(500.0, 140.0));
     }
 
     fn publisher_snapshot<const N: usize>(

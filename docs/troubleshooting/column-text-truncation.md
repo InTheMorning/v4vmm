@@ -66,7 +66,10 @@ readable. There is no ellipsis, which is a known cost of this mitigation.
 `adr_0063_column_text_does_not_truncate`.
 
 It covers `src/ui/composites/show_card.rs` and
-`src/ui/composites/show_detail_panel.rs`. It permits `truncate()` on an element
+`src/ui/composites/show_detail_panel.rs`, and
+`src/ui/composites/show_log_pane.rs`. Log lines use a scrolling viewport with
+`SelectableText` with `whitespace_nowrap()` and no truncation. Its dedicated
+ADR 0063 guard also protects exact clipboard copying. The column guard permits `truncate()` on an element
 whose chain holds `flex_1()`, `max_w(`, or `.w(`.
 
 The guard is narrow on purpose. A scan on 2026-09-08 found 32 `truncate()` sites

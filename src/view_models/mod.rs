@@ -81,6 +81,7 @@ pub mod search;
 pub mod search_results;
 pub(crate) mod show;
 pub(crate) mod text_filter;
+pub(crate) mod text_selection;
 pub mod track;
 pub mod track_detail;
 pub mod track_metadata_grid;

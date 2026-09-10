@@ -1,7 +1,7 @@
 # ADR 0063 Task 003: Collapsible Detail Panel
 
 Status: Implemented - 2026-09-08. Mechanical and operator visual acceptance
-met after the 2026-09-09 fix retest.
+met after the 2026-09-09 fix retest. Log output placement is owned by task 004.
 
 ## Goal
 
@@ -16,8 +16,7 @@ keeps working when it is closed.
 - `docs/tasks/adr-0063-task-002-card-grid-shell.md`, and the module comments it
   leaves behind for the detail content
 - `src/ui/shells/show.rs`
-- `src/view_models/show.rs`, for the four section displays and
-  `PublisherLogPanelState`
+- `src/view_models/show.rs`, for the four section displays
 - `src/app/show.rs`, for the publisher command wiring and the log actions
 - `tests/architecture_tests.rs`
 
@@ -43,9 +42,6 @@ keeps working when it is closed.
 - **The transport stays outside the panel.** Move it out of the queue container
   and onto `Show`, below the card grid. An operator who closes the panel keeps
   play, pause, and skip. This is an ADR 0063 invariant.
-- The publisher log is panel content for the `Live Metadata` detail. Delete the
-  inline log strip. `PublisherLogPanelState` moves to the panel, or is replaced
-  by the panel mode. Do not keep both.
 - Selecting a card while the panel is closed opens the panel in detail for that
   card.
 - Closing a detail returns the panel to the cuelist. It does not close the
@@ -64,7 +60,7 @@ keeps working when it is closed.
 3. Render the detail mode for each card kind, from the section display that task
    002 stopped rendering:
    - `Source`: the host rows and the readiness rows, with the readiness action
-   - `Live Metadata`: the service rows, the actions, and the log output
+   - `Live Metadata`: the service rows and the actions
    - `Event`: the event rows, the feed tag, and the attach actions
    - `Stream`: the connection rows and the encoder actions
 4. Add a header to the detail mode with the card title and a control that
@@ -100,7 +96,6 @@ Visual, operator only:
 - The panel opens, closes, and keeps the card grid usable in both states.
 - Selecting a card shows its detail, and the cuelist returns when the detail
   closes.
-- The publisher log reads correctly in the panel, at the panel width.
 - The transport is reachable while the panel is closed.
 - No layout moves when a service changes state while a detail is open.
 
@@ -149,8 +144,6 @@ Goal:
 Constraints:
 - One mode enum. Never the cuelist and a detail at once.
 - The transport stays reachable when the panel is closed.
-- The publisher log becomes panel content. Delete the inline strip and its
-  state.
 - The panel scrolls. The card grid does not.
 
 Do not touch:

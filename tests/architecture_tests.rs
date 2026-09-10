@@ -13773,6 +13773,7 @@ fn adr_0063_column_text_does_not_truncate() {
     for relative in [
         "src/ui/composites/show_card.rs",
         "src/ui/composites/show_detail_panel.rs",
+        "src/ui/composites/show_log_pane.rs",
     ] {
         let source = read_source(&manifest_path(relative));
         let lines: Vec<&str> = source.lines().collect();
@@ -14143,7 +14144,6 @@ fn adr_0063_show_detail_panel_owns_detail_and_transport_stays_on_show() {
         ".on_open_show_panel(",
         ".on_close_show_panel(",
         ".on_show_cuelist(",
-        ".show_card_detail(ShowCardKind::LiveMetadata);",
     ] {
         if !app_source.contains(required) {
             violations.push(format!(
@@ -14199,9 +14199,7 @@ fn adr_0063_show_detail_panel_owns_detail_and_transport_stays_on_show() {
         "fn render_publisher_detail(",
         "fn render_event_detail(",
         "fn render_stream_detail(",
-        "fn render_publisher_logs(",
         ".overflow_y_scroll()",
-        "PublisherLogPanelState::Open",
     ] {
         if !panel_source.contains(required) {
             violations.push(format!(
@@ -14224,15 +14222,6 @@ fn adr_0063_show_detail_panel_owns_detail_and_transport_stays_on_show() {
 
     // The closed rail was absolute and overlaid the last card. A panel in either
     // state is a layout child, so the grid shrinks beside it.
-    // `select_card` toggles. An action that must land on a card, such as the
-    // log action, closed the panel when it used the toggling call.
-    if app_source.contains(".select_card(ShowCardKind::LiveMetadata)") {
-        violations.push(
-            "src/app/show.rs: Situational ADR 0063 forbids `.select_card` for the log action. Fix: call `show_card_detail`, or opening the log closes the panel."
-                .to_owned(),
-        );
-    }
-
     for forbidden in [".absolute()", ".right_0()", ".left_0()"] {
         if panel_source.contains(forbidden) {
             violations.push(format!(
@@ -15150,4 +15139,172 @@ fn display_surface_files() -> Vec<String> {
     files.sort();
     files.dedup();
     files
+}
+
+/// Situational ADR 0063: logs leave the side panel and use the shared vertical split.
+#[test]
+fn adr_0063_logs_use_an_independent_bottom_pane_and_current_request() {
+    let panel = read_source(&manifest_path("src/ui/composites/show_detail_panel.rs"));
+    let pane = read_source(&manifest_path("src/ui/composites/show_log_pane.rs"));
+    let shell = read_source(&manifest_path("src/ui/shells/show.rs"));
+    let app = read_source(&manifest_path("src/app/show.rs"));
+    let vm = read_source(&manifest_path("src/view_models/show.rs"));
+    let log_path = source_between(
+        &app,
+        "    fn open_publisher_logs(",
+        "    fn run_event_target_command(",
+    );
+    for forbidden in [
+        "render_publisher_logs",
+        "render_log_output",
+        "log_pane",
+        "log_panel",
+        "PublisherLogPanelState",
+    ] {
+        assert!(!panel.contains(forbidden), "Situational ADR 0063: detail panel contains {forbidden}. Move log text to ShowLogPane; keep service actions in the panel.");
+    }
+    for forbidden in [
+        ".truncate()",
+        ".whitespace_normal()",
+        ".text_ellipsis()",
+        "format!(",
+        "cursor_row_resize",
+        "on_mouse_move",
+    ] {
+        assert!(!pane.contains(forbidden), "Situational ADR 0063: log pane contains {forbidden}. Use VM labels, unwrapped scrolling lines, and the shared SplitPane handle.");
+    }
+    for required in [
+        "SplitPane::new(\"show-log-split\")",
+        ".axis(SplitPaneAxis::Vertical)",
+        ".leading_height(",
+        ".leading_min_height(",
+        ".overflow_scroll()",
+        ".items_start()",
+        "SelectableText::new(\"show-log-text\", display.text)",
+        "display.unit_name",
+        "display.line_count_label",
+        "display.close.a11y_label",
+    ] {
+        assert!(pane.contains(required), "Situational ADR 0063: log pane is missing {required}. Restore the shared split and complete unwrapped journal viewport.");
+    }
+    for forbidden in [
+        "show_card_detail",
+        "select_card",
+        "panel_mode",
+        "panel_open",
+    ] {
+        assert!(!log_path.contains(forbidden), "Situational ADR 0063: log path changes {forbidden}. Log actions and results must leave the side panel alone.");
+    }
+    for required in [
+        "toggle_publisher_logs(role)",
+        "apply_result(logs.request_id",
+        "apply_result(request_id",
+        "self.show_page.close_publisher_logs()",
+    ] {
+        assert!(log_path.contains(required), "Situational ADR 0063: log path is missing {required}. Gate both success and failure on the current request.");
+    }
+    assert!(
+        app.contains("self.show_page.log_pane.clone()"),
+        "Situational ADR 0063: preserve log state and request identity when reprojecting Show."
+    );
+    assert!(
+        vm.contains("pub(crate) log_pane: ShowLogPaneDisplay"),
+        "Situational ADR 0063: ShowPageVm must own log pane state."
+    );
+    let publisher = source_between(
+        &vm,
+        "pub(crate) struct PublisherSectionDisplay",
+        "/// Display-ready Event section",
+    );
+    assert!(
+        !publisher.contains("log_pane"),
+        "Situational ADR 0063: publisher detail must not own the log pane."
+    );
+    assert!(
+        shell.contains("ShowLogPane::new("),
+        "Situational ADR 0063: mount ShowLogPane in the main region."
+    );
+    assert!(
+        shell.contains("render_queue_transport(transport, self.slots.queue)"),
+        "Situational ADR 0063: keep transport outside the log split."
+    );
+}
+
+/// Situational ADR 0063: the log selection owner is plain text, read-only, and does not wrap.
+#[test]
+fn adr_0063_log_text_is_selectable_and_copied_without_rewriting() {
+    let text = read_source(&manifest_path("src/ui/composites/selectable_text.rs"));
+    for required in [
+        "StyledText::new(self.value.clone())",
+        ".whitespace_nowrap()",
+        ".track_focus(&self.focus)",
+        ".on_mouse_down(",
+        ".on_mouse_move(",
+        ".on_key_down(",
+        "self.selection.selected_text(&self.value)",
+        "ClipboardItem::new_string(text.to_owned())",
+        "if self.value != value",
+    ] {
+        assert!(text.contains(required), "Situational ADR 0063: selectable log text needs {required}. Preserve exact plain text and focus/selection behavior.");
+    }
+    for forbidden in [
+        "TextView::html",
+        "TextView::markdown",
+        ".trim()",
+        ".truncate()",
+        "replace_text_in_range",
+        "Input::new",
+    ] {
+        assert!(!text.contains(forbidden), "Situational ADR 0063: selectable logs contain {forbidden}. Logs must remain read-only plain text with exact clipboard contents.");
+    }
+}
+
+/// Situational ADR 0063: mouse copying shares the exact selection path and menu owner.
+#[test]
+fn adr_0063_log_copy_menu_preserves_selection_and_uses_typed_actions() {
+    let text = read_source(&manifest_path("src/ui/composites/selectable_text.rs"));
+    let menu = read_source(&manifest_path("src/ui/primitives/context_menu.rs"));
+    let vm = read_source(&manifest_path("src/view_models/text_selection.rs"));
+    for required in [
+        "PointerContextMenu::new(",
+        "self.selection.copy_action(&self.value)",
+        "disabled: copy.availability.disabled()",
+        "a11y_label: copy.a11y_label.into()",
+        "self.copy_selection(cx)",
+        "this.copy_selection(cx)",
+    ] {
+        assert!(text.contains(required), "Situational ADR 0063: log menu needs {required}. Use the shared menu and exact clipboard path.");
+    }
+    let right_click = source_between(&text, "MouseButton::Right,", "MouseButton::Left,");
+    assert!(
+        !right_click.contains("this.selection"),
+        "Situational ADR 0063: opening the menu must preserve the current selection."
+    );
+    let update = source_between(&text, "fn update_value", "fn copy_selection");
+    assert!(
+        update.contains("self.menu_position = None"),
+        "Situational ADR 0063: replacing log text must dismiss its old menu."
+    );
+    assert_eq!(
+        text.matches("cx.write_to_clipboard(").count(),
+        1,
+        "Situational ADR 0063: keyboard and mouse Copy must use one clipboard path."
+    );
+    for required in [
+        "build_menu_content(&dismiss, self.items, cx)",
+        "Surface::new(SurfaceElevation::Floating)",
+        ".snap_to_window_with_margin(Spacing::SM.scaled(cx))",
+        ".on_mouse_down_out(",
+        "event.keystroke.key == \"escape\"",
+        "self.return_focus.focus(window)",
+    ] {
+        assert!(menu.contains(required), "Situational ADR 0063: pointer menu needs {required}. Keep chrome, anchoring, dismissal, and focus in the shared owner.");
+    }
+    assert!(
+        vm.contains("enum TextCopyAvailability"),
+        "Situational ADR 0063: Copy requires typed availability before rendering."
+    );
+    for forbidden in ["use gpui", "SharedString", "FocusHandle"] {
+        assert!(!vm.contains(forbidden), "Situational ADR 0063: text selection view model must remain renderer-free; found {forbidden}.");
+    }
 }

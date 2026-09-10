@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use gpui::Context;
+use gpui::{Context, Entity};
 use rusqlite::Connection;
 
 use crate::application::{
@@ -32,8 +32,7 @@ use crate::view_models::live_status::LiveStatusDisplay;
 use crate::view_models::queue_now_playing::QueueNowPlayingPageVm;
 use crate::view_models::show::{
     EventSectionInput, EventSelectionInput, EventState, EventTargetInput, EventTargetListInput,
-    PublisherLogPanelState, PublisherServiceRole, ShowCardKind, ShowPageVm,
-    PUBLISHER_LOG_LINE_COUNT,
+    PublisherServiceRole, ShowCardKind, ShowLogRequestId, ShowPageVm, PUBLISHER_LOG_LINE_COUNT,
 };
 use crate::view_models::workspace::FrameNavigationEntry;
 use crate::{config, db};
@@ -52,8 +51,6 @@ pub(super) fn build_show_screen(
     let service_entity = entity.clone();
     let stop_entity = entity.clone();
     let reset_entity = entity.clone();
-    let logs_entity = entity.clone();
-    let close_logs_entity = entity.clone();
     let select_card_entity = entity.clone();
     let open_panel_entity = entity.clone();
     let close_panel_entity = entity.clone();
@@ -63,9 +60,10 @@ pub(super) fn build_show_screen(
     let readiness_entity = entity.clone();
     let attach_event_entity = entity.clone();
     let detach_event_entity = entity.clone();
+    let slots = with_log_slots(ShowSlots::new(), &entity);
     render_show(
         app.show_page.clone().with_window_width(window_width),
-        ShowSlots::new()
+        slots
             .on_skip_previous(queue_transport_action(
                 entity.clone(),
                 TopApp::skip_playback_previous,
@@ -115,16 +113,6 @@ pub(super) fn build_show_screen(
                     this.run_publisher_service_command(role, PublisherServiceOperation::Reset, cx);
                 });
             })
-            .on_open_publisher_logs(move |role, _, _, cx| {
-                logs_entity.update(cx, |this, cx| {
-                    this.open_publisher_logs(role, cx);
-                });
-            })
-            .on_close_publisher_logs(move |_, _, cx| {
-                close_logs_entity.update(cx, |this, cx| {
-                    this.close_publisher_logs(cx);
-                });
-            })
             .on_attach_event_target(move |_, _, cx| {
                 attach_event_entity.update(cx, |this, cx| {
                     this.run_event_target_command(EventTargetOperation::Attach, cx);
@@ -146,6 +134,59 @@ pub(super) fn build_show_screen(
                 });
             }),
     )
+}
+
+/// Binds independent log reads and shared split resizing to the Show owner (ADR 0063).
+fn with_log_slots(slots: ShowSlots, entity: &Entity<TopApp>) -> ShowSlots {
+    let logs_entity = entity.clone();
+    let close_logs_entity = entity.clone();
+    let log_layout_entity = entity.clone();
+    let log_resize_start_entity = entity.clone();
+    let log_resize_move_entity = entity.clone();
+    let log_resize_end_entity = entity.clone();
+    slots
+        .on_open_publisher_logs(move |role, _, _, cx| {
+            logs_entity.update(cx, |this, cx| {
+                this.open_publisher_logs(role, cx);
+            });
+        })
+        .on_close_publisher_logs(move |_, _, cx| {
+            close_logs_entity.update(cx, |this, cx| {
+                this.close_publisher_logs(cx);
+            });
+        })
+        .on_log_layout(move |height, available, _, cx| {
+            log_layout_entity.update(cx, |this, cx| {
+                if this.show_page.log_pane.update_geometry(height, available) {
+                    cx.notify();
+                }
+            });
+        })
+        .on_log_resize_start(move |event, _, cx| {
+            let scale = crate::ui::tokens::ScaleFactor::current(cx).multiplier();
+            log_resize_start_entity.update(cx, |this, _| {
+                this.show_log_resize = Some((
+                    f32::from(event.position.y) / scale,
+                    this.show_page.log_pane.height,
+                ));
+            });
+        })
+        .on_log_resize_move(move |event, _, cx| {
+            let scale = crate::ui::tokens::ScaleFactor::current(cx).multiplier();
+            log_resize_move_entity.update(cx, |this, cx| {
+                if !event.dragging() {
+                    this.show_log_resize = None;
+                } else if let Some((start_y, start_height)) = this.show_log_resize {
+                    this.show_page
+                        .log_pane
+                        .resize(start_height + start_y - f32::from(event.position.y) / scale);
+                    cx.notify();
+                }
+            });
+        })
+        .on_log_resize_end(move |_, _, cx| {
+            log_resize_end_entity.update(cx, |this, _| this.show_log_resize = None);
+        })
 }
 
 pub(super) fn build_live_status_strip(
@@ -296,7 +337,7 @@ impl TopApp {
         self.show_page = ShowPageVm::from_queue_publisher_readiness_and_event(
             queue,
             self.publisher_service_snapshot.as_ref(),
-            self.publisher_log_panel.clone(),
+            self.show_page.log_pane.clone(),
             self.broadcast_readiness_snapshot.as_ref(),
             self.event_section_input.as_ref(),
         )
@@ -377,25 +418,29 @@ impl TopApp {
     }
 
     fn open_publisher_logs(&mut self, role: PublisherServiceRole, cx: &mut Context<Self>) {
-        // `Logs` cycles. A second press on the service already shown hides the
-        // journal. A press on the other service switches to it.
-        if self.publisher_log_panel.shows_role(role) {
-            self.close_publisher_logs(cx);
+        self.show_log_resize = None;
+        let Some(request_id) = self.show_page.toggle_publisher_logs(role) else {
+            cx.notify();
             return;
-        }
+        };
+        cx.notify();
 
         let selected_host = match selected_broadcast_host(&self.broadcast) {
             Ok(host) => host,
             Err(error) => {
-                self.settings_status = format!("Publisher log error: {error:#}");
+                self.show_page
+                    .log_pane
+                    .apply_result(request_id, Err(format!("Publisher log error: {error:#}")));
                 cx.notify();
                 return;
             }
         };
-        let command = match ReadPublisherLogs::new(&selected_host, role) {
+        let command = match ReadPublisherLogs::new(&selected_host, role, request_id) {
             Ok(command) => command,
             Err(error) => {
-                self.settings_status = format!("Publisher log error: {error}");
+                self.show_page
+                    .log_pane
+                    .apply_result(request_id, Err(format!("Publisher log error: {error}")));
                 cx.notify();
                 return;
             }
@@ -406,29 +451,29 @@ impl TopApp {
             CommandContext::next(),
             cx,
             |this, logs, cx| {
-                this.settings_status.clear();
-                this.publisher_log_panel = PublisherLogPanelState::open(
-                    logs.role,
-                    logs.unit_name,
-                    logs.line_count,
-                    logs.text,
-                );
-                this.reproject_show_page_from_current_queue();
-                this.show_page = this
+                if this
                     .show_page
-                    .clone()
-                    .show_card_detail(ShowCardKind::LiveMetadata);
-                cx.notify();
+                    .log_pane
+                    .apply_result(logs.request_id, Ok(logs.text))
+                {
+                    cx.notify();
+                }
             },
-            |this, error, _cx| {
-                this.settings_status = format!("Publisher log error: {error:#}");
+            move |this, error, cx| {
+                if this
+                    .show_page
+                    .log_pane
+                    .apply_result(request_id, Err(format!("Publisher log error: {error:#}")))
+                {
+                    cx.notify();
+                }
             },
         );
     }
 
     fn close_publisher_logs(&mut self, cx: &mut Context<Self>) {
-        self.publisher_log_panel = PublisherLogPanelState::closed();
-        self.reproject_show_page_from_current_queue();
+        self.show_page.close_publisher_logs();
+        self.show_log_resize = None;
         cx.notify();
     }
 
@@ -682,6 +727,7 @@ impl ApplicationCommand for PublisherServiceCommand {
 }
 
 struct ReadPublisherLogs {
+    request_id: ShowLogRequestId,
     role: PublisherServiceRole,
     transport: crate::broadcast::transport::Transport,
     unit: UnitRef,
@@ -689,8 +735,13 @@ struct ReadPublisherLogs {
 }
 
 impl ReadPublisherLogs {
-    fn new(host: &BroadcastHostConfig, role: PublisherServiceRole) -> Result<Self, CommandError> {
+    fn new(
+        host: &BroadcastHostConfig,
+        role: PublisherServiceRole,
+        request_id: ShowLogRequestId,
+    ) -> Result<Self, CommandError> {
         Ok(Self {
+            request_id,
             role,
             transport: host.transport.clone(),
             unit: broadcast_service_unit(host, role).map_err(publisher_command_error)?,
@@ -711,18 +762,14 @@ impl ApplicationCommand for ReadPublisherLogs {
                 publisher_command_error(format!("read {} logs: {error:#}", role_label(self.role)))
             })?;
         Ok(CommandOutcome::without_events(PublisherLogsResult {
-            role: self.role,
-            unit_name: self.unit.unit().to_owned(),
-            line_count: self.line_count,
+            request_id: self.request_id,
             text,
         }))
     }
 }
 
 struct PublisherLogsResult {
-    role: PublisherServiceRole,
-    unit_name: String,
-    line_count: usize,
+    request_id: ShowLogRequestId,
     text: String,
 }
 
