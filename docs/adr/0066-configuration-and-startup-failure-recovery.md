@@ -4,10 +4,10 @@
 
 Accepted - 2026-09-10.
 
-Implementation partial: task 001 complete - 2026-09-10; tasks 002–013 remain in
-the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md). Task 002 is next.
-Task 001 changes no layout and opens no visual gate. Startup recovery and
-optional-tool isolation are not implemented yet.
+Implementation partial: tasks 001 and 002 complete - 2026-09-10, including
+task 002's operator acceptance and fixture cleanup. Tasks
+003–013 have not started in the [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md).
+Optional-tool isolation and in-app correction tools remain unimplemented.
 
 Revised 2026-09-10 after operator review: normal startup requires valid core
 configuration, usable storage for music files, and a working SQLite database.
@@ -446,7 +446,14 @@ Task 001's backend verification is recorded in its
 [architecture_tests.rs](../../tests/architecture_tests.rs) guards first-run and
 save ownership under invariants 3–4; the packet links the filesystem and snapshot
 tests in [config.rs](../../src/config.rs). Task 001 opens no visual gate.
-Later packets open their own runnable human checks when implemented.
+
+Task 002's [implementation evidence](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#implementation-and-proof)
+links the storage, SQLite, worker, generation and report tests.
+`adr_0066_core_recovery_ownership` and `adr_0066_recorded_report_context` in
+[architecture_tests.rs](../../tests/architecture_tests.rs) guard the recovery
+boundary and report ownership. Its [operator check](../runbooks/startup-recovery-check.md#task-002-core-checks-and-reports)
+passed on 2026-09-10; the packet records the operator evidence. Later packets
+open their own runnable checks when implemented.
 
 ## Non-Goals
 

@@ -3,8 +3,10 @@
 ## Status
 
 Implementation in progress - 2026-09-10.
-ADR 0066 remains Accepted. Task 001 is complete; tasks 002–013 remain.
-Task 002 is next. Task 001 opens no new operator gate.
+ADR 0066 remains Accepted. Tasks 001 and 002 are complete. Task 002's
+[operator check](../runbooks/startup-recovery-check.md#task-002-core-checks-and-reports)
+passed and fixture cleanup is confirmed. Task 003 is next in a fresh session.
+Tasks 003–013 have not started.
 
 This plan executes [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md).
 The [delivery order](broadcast-chain-delivery-order.md#current-delivery-order)
@@ -61,7 +63,7 @@ an unwalked visual gate into a claim that the next dependency is complete.
 | Packet | Usable result | Prerequisite | State |
 |---|---|---|---|
 | [001: Config Snapshot And Safe Persistence](../tasks/adr-0066-task-001-config-snapshot-and-safe-persistence.md) | Read configuration once, distinguish core errors from optional errors, and prevent ordinary saves from destroying a document that needs repair. | Accepted ADR | Complete - 2026-09-10; mechanical gate Green; no visual gate |
-| [002: Core Checks And Startup Reports](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md) | Show a useful recovery screen for broken core configuration, unusable music storage, or unusable SQLite, with safe checks and a single startup lifecycle. | 001 | Not started |
+| [002: Core Checks And Startup Reports](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md) | Show a useful recovery screen for broken core configuration, unusable music storage, or unusable SQLite, with safe checks and a single startup lifecycle. | 001 | Complete - 2026-09-10; mechanical gate Green; operator acceptance and fixture cleanup confirmed |
 | [003: Runtime Failure And Shell Availability](../tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md) | Keep navigation, reports and repair access working when the normal background runtime or optional thumbnail worker cannot start. | 002 | Not started |
 | [004: Optional Tool Isolation](../tasks/adr-0066-task-004-optional-tool-isolation.md) | Open the app with valid core resources even when optional configuration or tool preparation fails, and limit only the operations that actually depend on each failure. | 003 | Not started |
 | [005: Session Drain And Resumption](../tasks/adr-0066-task-005-session-drain-and-resumption.md) | Stop the app's own work, release every configured database handle, and resume one fresh session before any live core correction or database maintenance can use this transition. | 004 | Not started |
@@ -145,28 +147,22 @@ Build the binary when a new operator fixture is ready. Do not broaden Clippy to
 
 ### Fixture Contract
 
-Task 002 creates `docs/runbooks/startup-recovery-fixture.py` and
-`docs/runbooks/startup-recovery-check.md`; later packets extend them.
-They do not exist at packet-authoring time. The implementation must provide:
-
-- `setup`: create a fresh isolated config/data/music tree in the operator's
-  desktop session, using a generated identity manifest. Print its exact path
-  and the next commands. Never put a placeholder path into a valid config.
-- `locate` and `verify <directory>`: identify the manifest, actual config,
-  database/music paths and binary. Refuse unrelated directories with a clear
-  correction. Do not assume an agent's /tmp is the desktop's /tmp.
-- `mode <directory> <case>`: state the case's purpose and whether it changes
-  a fixture file, a stub response or an injected result. Tell the operator
-  whether to press Check again, Retry, or launch a new fixture session.
-- `run <directory>`: an operator-only launcher for the built local binary
-  with isolated XDG/HOME paths; print its exit code. Do not inherit real config,
-  real music roots, credentials or external publisher endpoints.
-- `inspect <directory>`: show safe checksums, row counts, migration versions,
-  residual probes, owned staging and preservation/backup paths. Never token
-  contents. Config byte comparisons are measured before/after, not assumed.
-- `cleanup <directory>`: validate the manifest again, stop only fixture-owned
-  processes, and delete only its generated tree. Refuse an active app session
-  until the operator closes it.
+Task 002 supplies the [fixture](../runbooks/startup-recovery-fixture.py) and
+[operator runbook](../runbooks/startup-recovery-check.md#task-002-core-checks-and-reports).
+The fixture owns setup, manifest verification/location, six core-failure modes,
+isolated operator launch, preservation inspection and owned-process cleanup.
+Its backend commands passed. Operators have verified the TOML report and
+preservation, both music-path cases and the repeated-check feedback correction.
+Locked-database feedback and responsiveness also passed. Core rechecks passed
+after lock release, but window-manager closing
+crashed. The queued-close correction passed its normal-window recheck with
+exit 0, followed by normal-session preservation. Narrow long paths and blocked
+recovery closing also passed. The final operator confirmation accepts TOML
+screen/control/disclosure and Quit behavior, and same-window resumption after
+lock release. All visual checks passed; fixture cleanup is confirmed. Passed cases
+need no repeat.
+Later packets extend these owners for their additional cases rather than
+duplicating setup or schema construction.
 
 Use Rust fixture support for current-schema construction and migration failure
 seams; Python orchestrates files/stubs rather than duplicating db.rs schema.
@@ -219,5 +215,5 @@ this plan specifies a future test. Preserve all inherited gates.
 
 Only all thirteen completed packets plus their actual operator acceptance permit
 ADR 0066 to become Implemented, deferred item 6 to close, and the config-format
-dependency to release. Task 001 is complete; the series remains partial.
-
+dependency to release. Tasks 001 and 002 are complete;
+the series remains partial.

@@ -32,7 +32,7 @@ require walking them before the independent chain work.
 | Order | Work | Completion point |
 |---|---|---|
 | 1 | Governance reconciliation | Sweep ADR statuses and review gate prose; retire replaced requirements before indexing survivors; correct AGENTS.md; retain ADR 0039 as Proposed and unscheduled |
-| 2 | [Configuration and startup failure recovery — ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) | Accepted - 2026-09-10; [task 001 complete](adr-0066-startup-recovery-phase-plan.md); execute 002–013 and their acceptance checks before config format changes |
+| 2 | [Configuration and startup failure recovery — ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) | Accepted - 2026-09-10; task 001 complete; [task 002 complete](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md); task 003 next, tasks 003–013 not started in the [phase plan](adr-0066-startup-recovery-phase-plan.md); finish implementation and acceptance before config format changes |
 | 3 | Relay durability through adoption | splitkit reserved 001 → 002 → 003; deploy, reserve an event, configure the publisher to use it, then implement the v4vmm reservation packet |
 | 3, follow-through | splitkit reserved 004 → 005 | List/delete, final guards, and delivery reconciliation; explicitly scheduled after adoption, with interim command-line reservation allowing these before the v4vmm packet if needed |
 | 4 | Narrow Show layout and A10 | ADR 0063 amendment and packet: compact cards, full-width log docking, card-title readability, and hiding transport only when every typed action is unavailable; one combined visual gate |
@@ -81,7 +81,7 @@ Update this table when a packet lands.
 | Repository | Packet | State |
 |---|---|---|
 | `v4vmm` | [governance reconciliation](../reviews/2026-09-10-governance-reconciliation.md) | complete - 2026-09-10; documentation only; surviving gates indexed below |
-| `v4vmm` | [0066 configuration/startup failure recovery](adr-0066-startup-recovery-phase-plan.md) | ADR Accepted - 2026-09-10; task 001 complete, including mechanism handoff; mechanical gate Green; [002 next](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md); task 001 opens no visual gate; 002–013 remain |
+| `v4vmm` | [0066 configuration/startup failure recovery](adr-0066-startup-recovery-phase-plan.md) | ADR Accepted - 2026-09-10; task 001 complete; [task 002 complete](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#operator-evidence--2026-09-10), mechanical gate Green; operator acceptance and fixture cleanup confirmed; 003 next, 003–013 not started |
 | `v4vmm` | [0030 006 scroll containers](../tasks/adr-0030-task-006-scroll-containers.md) | implementation recorded; current Music/Settings visual check open |
 | `v4vmm` | [0037 001 feed identity](../tasks/adr-0037-task-001-feed-identity-action-parity.md) | implementation recorded; local/Index identity visual check open |
 | `v4vmm` | [0037 002 track detail parity](../tasks/adr-0037-task-002-track-header-action-parity.md) | implementation recorded; local/Index track visual check open |

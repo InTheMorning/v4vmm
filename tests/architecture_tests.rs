@@ -387,6 +387,7 @@ const SCREEN_CONTRIBUTOR_PANEL_FORBIDDEN_PATTERNS: &[&str] = &[
 const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/breadcrumb.rs",
+    "src/app/startup.rs",
     "src/app/bootstrap.rs",
     "src/app/events.rs",
     "src/app/keyboard.rs",
@@ -1736,6 +1737,155 @@ fn workspace_split_pane_uses_fluid_resize_pattern() {
         "P2b workspace fluid split-pane resize pattern violations:\n{}",
         violations.join("\n")
     );
+}
+
+#[test]
+fn adr_0066_core_recovery_ownership() {
+    // Situational: ADR 0066 invariants 1, 5 and 8. Behavioral startup,
+    // worker and presentation tests prove failures and generation admission.
+    let backend = read_source(&manifest_path("src/startup.rs"));
+    let backend = production_source(&backend);
+    for forbidden in ["use gpui", "TopApp", "RuntimeHost", "save_workspace_layout"] {
+        assert!(!backend.contains(forbidden));
+    }
+    let database = read_source(&manifest_path("src/db/startup.rs"));
+    let checks = source_between(&database, "fn check_with_wait(", "pub fn prepare_database(");
+    for forbidden in [
+        "init_schema(",
+        "migrate_schema(",
+        "repair_local_file_paths(",
+        "create_dir",
+        "open_db(",
+    ] {
+        assert!(
+            !checks.contains(forbidden),
+            "check-only path calls {forbidden}"
+        );
+    }
+    let worker = read_source(&manifest_path("src/presentation/maintenance_executor.rs"));
+    for required in [
+        "thread::Builder",
+        "mpsc::sync_channel(1)",
+        "AdmissionError::Busy",
+        "handle.join()",
+    ] {
+        assert!(worker.contains(required));
+    }
+    for forbidden in ["RuntimeHost", "Handle::current", "Connection"] {
+        assert!(!production_source(&worker).contains(forbidden));
+    }
+    let screen = read_source(&manifest_path("src/app/startup.rs"));
+    for required in [
+        "worker.submit(",
+        "CoreResult::Checked(outcome) => Err(outcome)",
+        "CoreResult::Prepared(core)",
+        "mount_current(",
+        "startup_report(&self.vm",
+    ] {
+        assert!(
+            compact_source(&screen).contains(&compact_source(required)),
+            "missing startup routing: {required}"
+        );
+    }
+    for forbidden in [
+        "Connection::open",
+        "save_workspace_layout",
+        "cx.spawn(",
+        "fs::",
+    ] {
+        assert!(!screen.contains(forbidden));
+    }
+    let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let entry = source_between(
+        &bootstrap,
+        "pub fn run_app(",
+        "pub(super) struct NormalStartup",
+    );
+    assert_eq!(entry.matches(".open_window(").count(), 1);
+    for forbidden in [
+        "TopApp::new",
+        "load_config(",
+        "db::open_db(",
+        "ensure_dirs(",
+        "repair_local_file_paths(",
+    ] {
+        assert!(!entry.contains(forbidden));
+    }
+    assert!(entry.contains("worker.finish()"));
+    let main = read_source(&manifest_path("src/main.rs"));
+    assert!(main.contains("ExitCode::FAILURE"));
+    assert!(backend.contains("#[cfg(debug_assertions)]\npub mod fixture;"));
+}
+
+#[test]
+fn adr_0066_window_manager_close_queues_quit() {
+    // Situational: ADR 0066 startup lifecycle. A window-manager close must not
+    // re-enter the platform while its close callback holds the X11 client.
+    let bootstrap = read_source(&manifest_path("src/app/bootstrap.rs"));
+    let callback = source_between(
+        &bootstrap,
+        "window.on_window_should_close(",
+        "let view = cx.new(",
+    );
+    assert!(callback.contains("quit_after_window_close(cx)"));
+    assert!(callback.contains("true"));
+    for forbidden in ["cx.quit(", "cx.defer(", "remove_window("] {
+        assert!(!callback.contains(forbidden));
+    }
+    let presenter = read_source(&manifest_path("src/presentation/startup_presenter.rs"));
+    let queued = compact_source(source_between(
+        &presenter,
+        "pub(crate) fn quit_after_window_close(",
+        "pub(crate) fn present_startup<",
+    ));
+    assert!(queued.contains(&compact_source("cx.spawn(async move |cx|")));
+    assert!(queued.contains(&compact_source("cx.update(|cx| cx.quit())")));
+    assert_eq!(queued.matches("cx.quit(").count(), 1);
+    assert!(queued.contains(".detach()"));
+    for forbidden in ["cx.defer(", "thread::spawn", "sleep(", "timer("] {
+        assert!(!queued.contains(forbidden));
+    }
+    assert!(bootstrap.contains("worker.finish()"));
+    assert!(bootstrap.contains("opened.load(Ordering::Acquire)"));
+}
+
+#[test]
+fn adr_0066_recorded_report_context() {
+    // Situational: ADR 0066 invariant 7. Formatting/redaction tests prove the
+    // data contract; this guard keeps display and copy on that same owner.
+    let vm = read_source(&manifest_path("src/view_models/startup.rs"));
+    let formatter = source_between(&vm, "pub fn format_report(", "fn subject(");
+    for required in ["observed_at", "chrono::Utc", "Location:", "Next:"] {
+        assert!(formatter.contains(required));
+    }
+    assert!(!formatter.contains("SystemTime::now"));
+    let screen = read_source(&manifest_path("src/app/startup.rs"));
+    assert!(screen.contains("ClipboardItem::new_string(self.vm.report())"));
+    assert!(screen.contains("this.vm.report()"));
+    let composite = read_source(&manifest_path("src/ui/composites/startup_report.rs"));
+    // ADR 0066 operator feedback: a fast identical failure needs a persistent
+    // receipt outside disclosure and the scroll body, using recorded VM state.
+    let heading = source_between(&composite, "let mut heading", ".child(heading)");
+    assert!(heading.contains("vm.feedback()"));
+    assert!(heading.contains("startup-check-feedback"));
+    assert!(heading.contains("flex_shrink_0()"));
+    assert!(!heading.contains("if vm.details"));
+    let feedback = source_between(&vm, "pub fn feedback(", "pub fn action(");
+    assert!(feedback.contains("completed_at"));
+    assert!(!feedback.contains("SystemTime::now"));
+    for required in [
+        "vm.report()",
+        "vm.action(",
+        "a11y_label",
+        "whitespace_normal()",
+        "overflow_y_scrollbar()",
+        "flex_wrap()",
+    ] {
+        assert!(composite.contains(required));
+    }
+    for forbidden in ["truncate()", "SystemTime::now", "std::fs", "rusqlite"] {
+        assert!(!composite.contains(forbidden));
+    }
 }
 
 #[test]
@@ -5573,9 +5723,12 @@ fn metadata_source_fact_table_access_is_owned_by_db() {
         let file = rel_path(&path);
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
-            if line.contains("entity_metadata_facts") && file != "src/db.rs" {
+            if line.contains("entity_metadata_facts")
+                && file != "src/db.rs"
+                && !file.starts_with("src/db/")
+            {
                 violations.push(format!(
-                    "{file}:{line_number}: ADR 0054 raw metadata fact table access belongs in src/db.rs: `{line}`"
+                    "{file}:{line_number}: ADR 0054 raw metadata fact table access belongs in the db module: `{line}`"
                 ));
             }
         }

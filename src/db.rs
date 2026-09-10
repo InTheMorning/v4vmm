@@ -2867,6 +2867,8 @@ pub fn open_db(cfg: &Config) -> Result<Connection> {
     Ok(conn)
 }
 
+pub mod startup;
+
 struct Migration {
     version: i64,
     name: &'static str,

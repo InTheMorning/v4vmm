@@ -48,9 +48,10 @@ prioritized, and routed to the right governance artifact.
 6. Configuration failure behavior.
    - Status: [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md)
      Accepted - 2026-09-10. Implementation partial: task 001 protects configuration
-     reads and ordinary saves. The 2026-09-07 startup incident
-     remains: structurally invalid `config.toml` panics in
-     `src/app/bootstrap.rs::run_app`; recovery needs hand-editing TOML.
+     reads and ordinary saves. Task 002 routes invalid core configuration,
+     unusable music storage and SQLite failures to recovery; its operator
+     checks and fixture cleanup are complete. In-app editors and optional-tool isolation remain
+     later packets; configuration correction still needs an external editor.
    - Note: a malformed layout *value* already falls back with a warning. This
      item is the level above that, where the file does not parse at all.
      Settings manages only a few keys, so operators hand-edit this file.
@@ -63,7 +64,8 @@ prioritized, and routed to the right governance artifact.
      share configuration and database maintenance tools; disabled controls
      alone are not the recovery workflow. ADR 0066 owns the detailed policy.
    - Route: execute the [thirteen ADR 0066 packets](adr-0066-startup-recovery-phase-plan.md),
-     one per session. Task 001 is complete; task 002 is next.
+     one per session. Tasks 001 and 002 are complete; task 003 is next;
+     tasks 003–013 have not started.
      **Implement and verify this before any config
      format change**, since a format change puts more operators in this state.
 7. Workspace configuration section naming.

@@ -2,9 +2,9 @@
 
 ## Status And Scope
 
-Task 001 reviewed - 2026-09-10; mechanical gate Green.
-Implementation remains partial. Tasks 002–013 retain the requirements below.
-Task 001 opens no operator visual gate.
+Tasks 001/002 mechanically reviewed - 2026-09-10; gate Green.
+Tasks 001 and 002 are complete, including task 002's operator acceptance and fixture cleanup.
+Implementation remains partial; tasks 003–013 have not started.
 
 Read the [ADR](../adr/0066-configuration-and-startup-failure-recovery.md),
 [phase plan](../plans/adr-0066-startup-recovery-phase-plan.md), active packet and
@@ -92,7 +92,8 @@ recovery layout merely because another maintenance command is added. Add a
 regression check only when an affected owner changed or a concern remains.
 Never close a visual gate from mechanical results.
 
-No ADR 0066 operator result is claimed. Task 001 requires no visual check.
+Task 002 has full operator acceptance recorded below. Task 001 requires no
+visual check.
 
 ## Task 001 Review — 2026-09-10
 
@@ -122,6 +123,85 @@ documentation examples are ignored. No app launch or visual acceptance.
   docs index and AGENTS.md agree: 001 complete; 002 next; series Accepted.
   Pending human checks are unchanged. No deviation from the bounded scope.
 
+## Task 002 Review — 2026-09-10
+
+Scope: [core checks and startup reports](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#implementation-and-proof).
+Green: formatting, cargo check, strict production Clippy, build, 1,299 unit
+tests and 224 architecture guards. Ten existing documentation examples are
+ignored. The full suite required local sockets outside the sandbox; no source
+or assertion changed to accommodate that restriction.
+
+- C1/C2: actual music probes, permission cases, SQLite locks and rollback
+  tests cover usable storage. Existing files and migration records survive
+  check-only and failed checks. Missing storage is not recreated for existing
+  configuration. Missing/older databases need preparation; Check again does
+  not initialize or migrate them. Artists-subtree failures remain notices.
+- C3/C5: the independent worker admits one operation. Closed receivers do not
+  abandon its work. Bootstrap joins it after the desktop loop exits. Generation
+  and normal-factory tests reject stale, closed and repeated completions.
+  No normal TopApp, runtime or ordinary autosave exists in core recovery.
+- C4/C6: recorded UTC, complete paths, full-copy text and credential omission
+  are tested in the view model. Shared report geometry uses named tokens and
+  typed actions; the screen only dispatches and mounts. Window failure uses
+  stderr and exit rather than another recovery window.
+- The SQLite implementation lives in db/startup.rs, under the existing db
+  owner. Its column contract is checked against the normal migration registry;
+  it adds no second schema writer. The existing metadata-table ownership guard
+  now recognizes this child module and still rejects other owners.
+- Existing workspace persistence, presentation/runtime separation, macOS menu
+  and Show recovery guards remain Green. The screen inventory includes the new
+  recovery screen. The packet's implemented procedures were replaced with
+  actual guard references; the ADR's decision and invariants are unchanged.
+- Fixture setup, locate/verify, all six modes, inspection and cleanup passed.
+  Rust owns fixture schema construction; Python owns isolated files, stubs and
+  the lock process. The seed/inspect dispatcher is debug-only. No GUI was run.
+- Optional constructors, the second endpoint read and path-repair error policy
+  retain their 003/004 handoff. Editors, session drain and database tools remain
+  later packets. This is not full implementation of ADR 0066.
+
+Result: mechanical gate Green; [operator acceptance](../runbooks/startup-recovery-check.md#task-002-core-checks-and-reports)
+recorded - 2026-09-10. All visual checks passed and fixture cleanup is confirmed.
+Packet, plan, ADR/index, delivery/deferred indexes, docs index and AGENTS.md
+agree. The pending index no longer lists this accepted gate. Task 003 is next
+in a fresh session; inherited checks and task 017's acceptance are unchanged.
+
+Operator evidence received - 2026-09-10: the invalid-TOML report and preservation
+inspection pass their text/data checks. The report names its path and parse
+location with recorded UTC; original config/music and migration records remain
+intact, with no probes. See the packet's
+[operator evidence](../tasks/adr-0066-task-002-core-checks-and-startup-reports.md#operator-evidence--2026-09-10)
+for fixture identity and acceptance details. The operator confirmed the missing-folder error, its
+persistence after Check again, and unavailable Open app on a fresh verified
+fixture. The operator then confirmed preservation and no residual probes after
+Quit and inspection. Both missing-folder and file-path cases are now complete,
+including preservation. The Check again feedback correction is operator-accepted:
+the VM retains a numbered UTC completion outside disclosure
+and scrolling. Tests cover identical failures in the same second, stale results,
+copy text and worker failure. The [focused recheck](../runbooks/startup-recovery-check.md#3a-confirm-repeated-checks)
+passed for advancing check numbers, visible completion with details hidden and
+copied feedback. The locked-database case also passed: visible Checking during
+the wait, a named lock failure, responsive window and unavailable Open app.
+After lock release, the operator's report confirms both core checks passed.
+The operator then reported a window-manager close panic in GPUI 0.2.2's
+X11Client::with_common (exit 101). X11Client::handle_event holds its mutable
+client borrow while calling should_close; bootstrap's inline App::quit tried
+to borrow it again. App::defer also flushes inside that callback's App update.
+The presenter now queues Quit on the foreground executor, after native event
+dispatch. `adr_0066_window_manager_close_queues_quit` guards the call boundary
+and retained worker/exit wiring. No GPUI dependency change or panic suppression
+was introduced. The operator confirmed the normal-window recheck: Music opens
+and closing through the window manager exits with code 0 and no panic.
+Normal-session preservation also passed, including config/music/migrations and
+no residual probes. The operator also passed normal/narrow long-path readability,
+complete copied text, blocked recovery window-manager closing with exit 1 and
+no panic, and final preservation. The supplied report is timestamped 21:58:04
+UTC. The final operator confirmation accepts the TOML screen/control/disclosure
+and nonzero Quit exit, and same-window resumption after releasing the database
+lock. All operator checks are accepted. The operator confirmed fixture cleanup
+on 2026-09-10; task 002 is complete. Task 006 retains
+direct path correction and records the separate
+new-setup design question; no successor implementation has started.
+
 ## Final Series Review
 
 ADR 0066 remains Accepted until all thirteen packets and their operator gates
@@ -145,4 +225,3 @@ are complete. Confirm the following before changing it to Implemented:
 Report pass/fail, required fixes, optional improvements, whether this packet is
 ready to merge, and whether its successor needs a bounded amendment. Distinguish
 a mechanical pass from pending operator acceptance.
-

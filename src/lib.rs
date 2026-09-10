@@ -30,6 +30,7 @@ pub mod remote_media;
 pub mod rss;
 pub mod runtime;
 pub mod sources;
+pub mod startup;
 pub mod subscribe_service;
 pub mod tag_field;
 pub mod theme_profile;

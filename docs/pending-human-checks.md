@@ -79,7 +79,7 @@ plan are Accepted, with implementation recorded and visual acceptance open.
   Record feed and track results separately in the
   [checklist](reviews/adr-0054-review-checklist.md), in both themes.
 
-All five groups use the runbook's private database/audio copy and cleanup.
+The five inherited groups above use the runbook's private database/audio copy and cleanup.
 The numbers group checks; they do not change the approved delivery priority.
 
 ## Method: Reach A Publisher Service State

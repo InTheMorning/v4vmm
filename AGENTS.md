@@ -22,9 +22,10 @@ toolbar search, playlist reordering, and metadata hydration. Their current
 requirements are indexed in [pending human checks](docs/pending-human-checks.md).
 Task 017's acceptance remains closed.
 
-Next work is [ADR 0066 task 002](docs/tasks/adr-0066-task-002-core-checks-and-startup-reports.md).
-Task 001's configuration snapshot and safe persistence are complete, with no
-new visual gate. Tasks 002–013 remain in the
+ADR 0066 tasks 001 and 002 are complete, including task 002's operator
+acceptance and fixture cleanup.
+Next work is [task 003: Runtime failure and shell availability](docs/tasks/adr-0066-task-003-runtime-failure-and-shell-availability.md)
+in a fresh session. Tasks 003–013 have not started in the
 [phase plan](docs/plans/adr-0066-startup-recovery-phase-plan.md).
 Relay durability through reserved-event adoption follows.
 The delivery order also schedules narrow Show layout,

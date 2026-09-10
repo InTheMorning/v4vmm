@@ -48,6 +48,8 @@ use crate::view_models::workspace::{
     WorkspaceLayout, WorkspaceLayoutConfig,
 };
 
+mod startup;
+
 mod bootstrap;
 mod breadcrumb;
 mod events;

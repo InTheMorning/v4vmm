@@ -383,6 +383,7 @@ pub type ConfigField<T> = std::result::Result<T, ConfigFieldIssue>;
 /// still require just its endpoint. The normal app must require both core paths.
 /// The private source bytes/document are intentionally excluded from Debug.
 pub struct ConfigSnapshot {
+    created_defaults: bool,
     path: PathBuf,
     original_bytes: Vec<u8>,
     document: toml::Table,
@@ -631,6 +632,7 @@ impl ConfigSnapshot {
             )
         });
         Ok(Self {
+            created_defaults: false,
             music_dir: required_path(&document, "music_dir"),
             db_path: required_path(&document, "db_path"),
             musicindex_endpoint,
@@ -684,6 +686,11 @@ impl ConfigSnapshot {
     #[must_use]
     pub fn original_bytes(&self) -> &[u8] {
         &self.original_bytes
+    }
+
+    /// True only for the caller that published this first-run configuration.
+    pub fn created_defaults(&self) -> bool {
+        self.created_defaults
     }
 
     /// All field issues, including errors hidden by legacy layout fallback.
@@ -798,6 +805,7 @@ fn load_snapshot_with_defaults(
     cfg_path: &Path,
     defaults: impl FnOnce() -> Result<String>,
 ) -> Result<ConfigSnapshot> {
+    let mut created_defaults = false;
     match fs::symlink_metadata(cfg_path) {
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -816,6 +824,7 @@ fn load_snapshot_with_defaults(
                 )
             })?;
             let created = publish_default_config(cfg_path, default.as_bytes())?;
+            created_defaults = created;
             if created {
                 eprintln!(
                     "App created default configuration at {}. Edit it if needed, then re-run.",
@@ -829,7 +838,9 @@ fn load_snapshot_with_defaults(
             })
         }
     }
-    ConfigSnapshot::read_existing(cfg_path)
+    let mut snapshot = ConfigSnapshot::read_existing(cfg_path)?;
+    snapshot.created_defaults = created_defaults;
+    Ok(snapshot)
 }
 
 // The counter avoids collisions between callers; create_new protects entries
@@ -1228,7 +1239,7 @@ pub fn ensure_dirs(cfg: &Config) -> Result<()> {
     fs::create_dir_all(&cfg.music_dir)
         .with_context(|| format!("create music_dir {}", cfg.music_dir.display()))?;
     let artists_dir = cfg.music_dir.join("artists");
-    fs::create_dir_all(&artists_dir)
+    prepare_artists_directory(&cfg.music_dir)
         .with_context(|| format!("create artists dir {}", artists_dir.display()))?;
 
     let parent = cfg
@@ -1239,6 +1250,15 @@ pub fn ensure_dirs(cfg: &Config) -> Result<()> {
         .with_context(|| format!("create db parent dir {}", parent.display()))?;
 
     Ok(())
+}
+
+/// Prepare only the download subtree after the music root has been verified.
+pub fn prepare_artists_directory(music_dir: &Path) -> io::Result<()> {
+    let artists = music_dir.join("artists");
+    match fs::create_dir(&artists) {
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists && artists.is_dir() => Ok(()),
+        result => result,
+    }
 }
 
 #[cfg(test)]

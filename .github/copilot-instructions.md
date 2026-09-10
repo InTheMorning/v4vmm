@@ -9,7 +9,11 @@ When you need to look something up, consult this map first to find the right fil
 | What you need | File |
 |---------------|------|
 | SQLite schema, row types, all queries | `src/db.rs` |
+| Startup SQLite read/write/schema verification and preparation | `src/db/startup.rs` |
 | Config struct, TOML paths | `src/config.rs` |
+| Core startup admission and music storage probes | `src/startup.rs`, `src/startup/storage.rs` |
+| Recovery state/actions/reports; shared geometry; screen wiring | `src/view_models/startup.rs`, `src/ui/composites/startup_report.rs`, `src/app/startup.rs` |
+| Independent maintenance worker and GPUI completion | `src/presentation/maintenance_executor.rs`, `src/presentation/startup_presenter.rs` |
 | MusicIndex HTTP client | `src/api.rs` |
 | RSS fetch + Podcasting 2.0 parse | `src/rss/` |
 | ID3v2.4 read/write, `AudioTags`, `Id3v24Edit`, `apply_id3v24_edits` | `src/audio_tags.rs` |

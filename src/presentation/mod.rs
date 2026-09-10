@@ -3,6 +3,9 @@
 //! Presentation code may depend on UI runtimes such as GPUI. The application
 //! layer must not depend on this module.
 
+pub mod maintenance_executor;
+pub(crate) mod startup_presenter;
+
 pub mod async_command_presenter;
 pub mod event_bridge;
 pub mod gpui_event_bridge;

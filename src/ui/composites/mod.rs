@@ -17,6 +17,8 @@
 
 #![warn(clippy::pedantic)]
 
+pub(crate) mod startup_report;
+
 pub mod action_button;
 pub mod action_row;
 pub mod breadcrumb_trail;

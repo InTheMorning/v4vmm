@@ -7,6 +7,19 @@ Implementation not started. Operator check specified below; not runnable or acce
 
 Repair configuration inside recovery or Settings, preserve the original file, and return to a freshly verified app session.
 
+## Operator Notes — 2026-09-10
+
+During task 002 acceptance, the operator confirmed that the recovery screen
+must eventually let them edit broken paths directly. Steps 4–5 below own this
+already accepted behavior; task 002 supplies checks and reports only.
+
+The operator also requested an option to create a new setup. Define that
+workflow separately before implementing it: selecting existing locations and
+creating a new empty library have different preservation and resumption
+requirements. This note does not authorize bypassing core checks, overwriting
+the broken configuration, or replacing the existing database. The current
+packet's path-correction scope remains unchanged.
+
 ## Read First And Dependency
 
 Read [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md),
@@ -199,4 +212,3 @@ At the end, report:
 3. behavior changed
 4. deviations from task
 5. unresolved concerns
-
