@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted - 2026-09-08.
+Accepted - 2026-09-08. Amended 2026-09-09: the log moved to a bottom pane, the
+grid holds three cards after ADR 0059 made `Event` a row of `Live Metadata`, and
+column text does not truncate.
 
 Amends ADR 0060, which made `Show` a screen mount but did not say how the
 sections inside it are arranged. ADR 0059 keeps the section set and the section
@@ -138,7 +140,8 @@ is still unknown. That document explains. This record decides.
 - The panel shows the cuelist or one card detail, never both.
 - The transport controls stay reachable when the panel is closed.
 - The panel closes, and the grid continues to work when it is closed.
-- The section set and the section order stay as ADR 0059 states them.
+- The section set and the section order stay as ADR 0059 states them. It names
+  three sections from 2026-09-09, not four.
 
 ## Alternatives Considered
 
@@ -172,13 +175,30 @@ stays a reasonable answer if the section count grows past what one screen holds.
 ## Consequences
 
 - `ShowPageVm` gains a width class, a column count, a panel mode, and a selected
-  card. The four section fields stay.
+  card. Three section fields stay, and the event display moves inside
+  `Live Metadata`.
 - The log pane state lives on `ShowPageVm`, independently of the side panel.
 - `render_show` renders a grid and a panel, not a column of sections.
 - The queue keeps its display contract. Only its container changes.
 - The transport moves out of the queue container, so it survives a closed
   panel.
 - A visual check for this layout is open until a person runs it.
+
+### The Grid Holds Three Cards
+
+Amended 2026-09-09, when ADR 0059 made `Event` a row of `Live Metadata`.
+
+The grid draws one card for each section, so it holds three. The column count
+still comes from the width class, and a width that fits three cards on one row
+leaves no gap where the fourth used to be.
+
+`Live Metadata` now carries three rows in its **detail**. Its card summary keeps
+the two lines every card holds, because a card that grows reflows the grid,
+which this record rejected.
+
+The two lines answer the chain in order. The first names the earliest row that
+is not ready, and the second names the state of the section as a whole. A
+section with no event says so on the first line, whatever the services report.
 
 ## Follow-Up Work
 

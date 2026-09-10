@@ -2,9 +2,13 @@
 
 ## Status
 
-Implemented - 2026-09-09. Verified by
-`docs/reviews/adr-0059-implementation-review.md` after the packet series and
-operator visual gates closed.
+Accepted - 2026-09-09. Implementation partial: tasks 001-015 complete and
+verified by `docs/reviews/adr-0059-implementation-review.md`, task 016
+outstanding.
+
+The 2026-09-09 amendment that makes `Event` a row of `Live Metadata` opened that
+task. ADR 0057 keeps the status at `Accepted` until every gate closes, and
+forbids a fifth status for a partial state.
 
 Amended 2026-09-06: the `Event` section must show the ready-to-paste
 `podcast:liveValue` tag with a copy action. Listener apps discover a live event
@@ -164,13 +168,34 @@ than one stream must not need a data model change.
 ### The Broadcast Sections Live In Show
 
 Amended 2026-09-08 by ADR 0060, which removed the `Broadcast` frame. The four
-broadcast sections mount inside the `Show` screen, in this order: `Source`,
-`Live Metadata`, `Event`, and `Stream`.
+broadcast sections mount inside the `Show` screen. Amended 2026-09-09 to three,
+in this order: `Source`, `Live Metadata`, and `Stream`. `Event` became the first
+row of `Live Metadata`.
 
 Amended 2026-09-08. The section that holds the two services is named
 `Live Metadata`, not `Publisher`. It holds the metadata producer and the
 metadata publisher, so the section name states what the two services do. The
 services keep the names `Producer` and `Publisher` inside it.
+
+Amended 2026-09-09. **`Event` is not a section. It is the first row of
+`Live Metadata`.** There are three sections: `Source`, `Live Metadata`, and
+`Stream`.
+
+An event is not a peer of the two services. It is the identity they publish to,
+and without one the publisher has nothing to send. The rows of `Live Metadata`
+now read in the order the chain depends on them:
+
+1. `Event`, the identity the publisher writes to
+2. `Producer`, which writes the drop file
+3. `Publisher`, which sends what the producer wrote
+
+Each row is a precursor of the one under it. A reader who starts at the top and
+stops at the first row that is not ready has found the thing to fix.
+
+The state of `Live Metadata` accounts for the event. **No event means the
+section is not ready, whatever the two services report.** Two running services
+with no event publish nothing, and a card that reads `Active` in that state is
+telling the operator a comfortable lie.
 
 A section is an optional field on `ShowPageVm` and a group of callbacks on
 `ShowSlots`. An absent section renders nothing. It does not render as
