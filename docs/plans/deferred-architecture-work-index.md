@@ -46,23 +46,24 @@ prioritized, and routed to the right governance artifact.
    - Route: future ADR after the ADR 0059 control surface ships. See
      `docs/research/broadcast-recording-and-feed-publishing.md`.
 6. Configuration failure behavior.
-   - Status: incident recorded 2026-09-07. A structurally invalid
-     `config.toml` panics at `src/app/bootstrap.rs:47` and the app does not
-     start. Recovery needs hand-editing TOML.
+   - Status: [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md)
+     Proposed - 2026-09-10. No implementation yet. The 2026-09-07 incident
+     remains: structurally invalid `config.toml` panics in
+     `src/app/bootstrap.rs::run_app`; recovery needs hand-editing TOML.
    - Note: a malformed layout *value* already falls back with a warning. This
      item is the level above that, where the file does not parse at all.
      Settings manages only a few keys, so operators hand-edit this file.
    - Direction agreed 2026-09-10: preserve the broken file and report its path,
      the parse error, and the recovery action. A defaults-start path requires
      an explicit no-overwrite policy before any save can run.
-   - The ADR must inventory startup failures separately in
-     `src/app/bootstrap.rs::run_app`: config-path resolution, config load,
-     endpoint load, directory creation, database open, local-path repair,
-     playback-driver construction, and the remaining fallible startup stages.
-     For each, decide whether to refuse and report or continue with a named
-     capability unavailable. A database failure is not a TOML parse failure.
-   - Route: future ADR. **Settle this before any config format change**, since
-     a format change is exactly what puts more operators in this state.
+   - Operator review clarified the minimum: valid core configuration, usable
+     music-file storage, and verified SQLite. Optional-tool failures stay
+     visible with in-app correction and retry. Settings and startup recovery
+     share configuration and database maintenance tools; disabled controls
+     alone are not the recovery workflow. ADR 0066 owns the detailed policy.
+   - Route: review ADR 0066's per-stage policy, then write and execute its
+     implementation packets. **Implement and verify this before any config
+     format change**, since a format change puts more operators in this state.
 7. Workspace configuration section naming.
    - Status: decided 2026-09-07, not scheduled. `[workspace.layout]` holds pane
      width under ADR 0051. `[workspace_layout]` holds frames and focus under

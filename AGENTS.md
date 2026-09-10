@@ -22,7 +22,9 @@ toolbar search, playlist reordering, and metadata hydration. Their current
 requirements are indexed in [pending human checks](docs/pending-human-checks.md).
 Task 017's acceptance remains closed.
 
-Next work is configuration failure behavior, then relay durability through
+Next work is review and acceptance of
+[ADR 0066](docs/adr/0066-configuration-and-startup-failure-recovery.md), then its
+core-startup and in-app repair packets, followed by relay durability through
 reserved-event adoption. The delivery order also schedules narrow Show layout,
 long-line inspection, per-log following, UTC timestamps, and steady-state work.
 When a real show is scheduled, publisher show-log task 001 takes priority.
