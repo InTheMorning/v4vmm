@@ -2,7 +2,10 @@
 
 ## Status
 
-Proposed - 2026-09-10.
+Accepted - 2026-09-10.
+
+Implementation not started. Packet authoring is next; no visual acceptance
+is claimed.
 
 Revised 2026-09-10 after operator review: normal startup requires valid core
 configuration, usable storage for music files, and a working SQLite database.
@@ -10,8 +13,7 @@ Optional tools and external services do not become startup requirements because
 the current constructor expects them. Their failures must be visible in the
 app, with tools to correct the problem and retry the intended action. Settings
 and core recovery share configuration and database maintenance tools. The
-detailed proposal remains under review; no implementation or visual acceptance
-is claimed. It owns deferred item 6;
+operator accepted this decision on 2026-09-10. It owns deferred item 6;
 item 7 and other configuration format changes remain behind its implementation
 and verification in the [delivery order](../plans/broadcast-chain-delivery-order.md).
 
@@ -317,7 +319,7 @@ known file/resource, a short cause, the consequence, and a recovery instruction.
 The view model owns this wording and typed actions. Technical details follow
 the explanation and are available for copying.
 
-On acceptance, this ADR extends the recorded-UTC precedent already enforced for
+This ADR extends the recorded-UTC precedent already enforced for
 [ADR 0063 Event reports](0063-show-dashboard-layout.md#event-diagnostics-reuses-the-bottom-pane)
 to startup and maintenance reports. The later
 [cross-repository timestamp contract](../plans/broadcast-chain-delivery-order.md#consistent-utc-log-timestamps)
@@ -370,7 +372,7 @@ separate results. A fresh check does not imply rollback of earlier startup work.
 
 ### Ownership And Presentation
 
-Proposed owners, to be made concrete by the implementation packet:
+Assigned owners; implementation packets pin the concrete file inventory:
 
 | Owner | Responsibility |
 |---|---|
@@ -489,8 +491,8 @@ unindented copyable commands, expected results, and cleanup. It must cover:
    candidates and failures, and normal work resumes only after validation.
 
 When implementation is ready, record this gate in its packet, the delivery
-table, and [pending human checks](../pending-human-checks.md). This proposed
-decision adds no runnable visual gate today.
+table, and [pending human checks](../pending-human-checks.md). No implementation
+is ready for visual inspection yet; this decision adds no runnable gate today.
 
 ## Alternatives Considered
 
@@ -543,7 +545,7 @@ operation will succeed, and unsupported corruption may still need external help.
 
 ## Follow-Up Work
 
-After acceptance, write bounded implementation packets for this decision and
+Write bounded implementation packets for this decision and
 its core-recovery and repair workflows. Cover core checks/configuration repair,
 optional capability/remediation wiring, database maintenance, and converter
 setup/retry in separately bounded packets; do not present all of them as one
@@ -557,7 +559,7 @@ Deferred item 7 stays blocked until this behavior is implemented and verified.
 ### Mechanism Retirement Owner
 
 The first ADR 0066 implementation packet, **task 001**, owns redistribution of
-this draft's implementation detail. Its author must include the following
+this ADR's implementation detail. Its author must include the following
 documentation acceptance criterion before that packet is ready to execute:
 
 - Move stage-by-stage procedures and concrete verification instructions into

@@ -32,7 +32,7 @@ require walking them before the independent chain work.
 | Order | Work | Completion point |
 |---|---|---|
 | 1 | Governance reconciliation | Sweep ADR statuses and review gate prose; retire replaced requirements before indexing survivors; correct AGENTS.md; retain ADR 0039 as Proposed and unscheduled |
-| 2 | [Configuration and startup failure recovery — ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) | Proposed; core configuration/music storage/SQLite checks, in-app configuration and database repair tools, and optional-tool setup/retry in bounded packets; implement and verify before config format changes |
+| 2 | [Configuration and startup failure recovery — ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md) | Accepted - 2026-09-10; author bounded packets for core checks, in-app configuration/database repair, and optional-tool setup/retry, then implement and verify before config format changes |
 | 3 | Relay durability through adoption | splitkit reserved 001 → 002 → 003; deploy, reserve an event, configure the publisher to use it, then implement the v4vmm reservation packet |
 | 3, follow-through | splitkit reserved 004 → 005 | List/delete, final guards, and delivery reconciliation; explicitly scheduled after adoption, with interim command-line reservation allowing these before the v4vmm packet if needed |
 | 4 | Narrow Show layout and A10 | ADR 0063 amendment and packet: compact cards, full-width log docking, card-title readability, and hiding transport only when every typed action is unavailable; one combined visual gate |
@@ -81,7 +81,7 @@ Update this table when a packet lands.
 | Repository | Packet | State |
 |---|---|---|
 | `v4vmm` | [governance reconciliation](../reviews/2026-09-10-governance-reconciliation.md) | complete - 2026-09-10; documentation only; surviving gates indexed below |
-| `v4vmm` | [0066 configuration/startup failure recovery](../adr/0066-configuration-and-startup-failure-recovery.md) | ADR Proposed - 2026-09-10; revised after operator review of minimum requirements and in-app repair; bounded packets follow acceptance; no new runnable human check yet |
+| `v4vmm` | [0066 configuration/startup failure recovery](../adr/0066-configuration-and-startup-failure-recovery.md) | ADR Accepted - 2026-09-10; implementation not started; packet authoring next, with task 001 owning mechanism retirement/handoff; no new runnable human check yet |
 | `v4vmm` | [0030 006 scroll containers](../tasks/adr-0030-task-006-scroll-containers.md) | implementation recorded; current Music/Settings visual check open |
 | `v4vmm` | [0037 001 feed identity](../tasks/adr-0037-task-001-feed-identity-action-parity.md) | implementation recorded; local/Index identity visual check open |
 | `v4vmm` | [0037 002 track detail parity](../tasks/adr-0037-task-002-track-header-action-parity.md) | implementation recorded; local/Index track visual check open |
@@ -245,8 +245,8 @@ It is not implemented or an additional gate on task 017.
 Recorded UTC is already required for
 [ADR 0063 Event reports](../adr/0063-show-dashboard-layout.md#event-diagnostics-reuses-the-bottom-pane).
 [ADR 0066](../adr/0066-configuration-and-startup-failure-recovery.md#recovery-reports-explain-the-failure-and-the-next-action)
-is Proposed and extends that rule to startup and maintenance reports on
-acceptance. The common contract must preserve these scoped decisions; it
+was accepted on 2026-09-10 and extends that rule to startup and maintenance
+reports. The common contract must preserve these scoped decisions; it
 defines their shared precision and broader emitter/adapter behavior rather
 than reopening canonical time or implying that all current logs already comply.
 

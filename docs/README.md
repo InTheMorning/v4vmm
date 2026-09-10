@@ -64,7 +64,7 @@ Current governance:
 - [ADR 0063: Show dashboard layout](adr/0063-show-dashboard-layout.md):
   card grid, compact labeled item badges, and shared bottom-pane diagnostics
 - [ADR 0066: Configuration and startup failure recovery](adr/0066-configuration-and-startup-failure-recovery.md):
-  proposed core startup requirements, configuration/database recovery tools,
+  accepted core startup requirements, configuration/database recovery tools,
   and optional-tool setup/retry; implementation precedes config format changes
 
 Current plans:
